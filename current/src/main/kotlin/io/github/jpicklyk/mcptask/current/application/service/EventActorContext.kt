@@ -8,12 +8,12 @@ import kotlin.coroutines.coroutineContext
 
 /**
  * Coroutine-context element carrying the actor responsible for the repository writes made inside
- * the current scope, so the SSE event-publishing decorator can attribute the domain events those
- * writes emit.
+ * the current scope, so the event recorder can attribute the `events` rows those writes record
+ * (their `principal_id` / `principal_kind`).
  *
- * Repository writes carry no actor of their own (only `Note.actorClaim` does), so write sites
- * install this around the per-unit write with [withEventActor]. The decorator reads it at ENQUEUE
- * time (the post-commit flush has no coroutine context). A null [claim] means "no actor".
+ * Repository writes carry no actor of their own (only notes and transitions do), so write sites
+ * install this around the per-unit write with [withEventActor]. The recorder reads it when it
+ * appends, inside the unit. A null [claim] means "no actor".
  */
 class EventActor(
     val claim: ActorClaim?,

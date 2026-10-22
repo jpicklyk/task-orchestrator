@@ -10,13 +10,16 @@ import java.util.UUID
  * [ADOPTED] permanently — the transition is one-way and enforced by the service layer
  * ([io.github.jpicklyk.mcptask.current.application.service.PlanDocumentService]), not a DB
  * constraint: a further stash to an adopted slug is rejected rather than silently overwriting it.
+ *
+ * Since 4.0 the status is DERIVED, not stored: a document is [ADOPTED] iff an `adopted_by` link
+ * ([LinkRelation.ADOPTED_BY]) runs from it to an item, and [PENDING] otherwise.
  */
 enum class PlanDocumentStatus {
     PENDING,
     ADOPTED,
     ;
 
-    /** Lowercase wire/DB form — matches the `plan_documents.status` CHECK constraint values. */
+    /** Lowercase wire form (`pending` / `adopted`), as reported by the 3.x plan-document facade. */
     fun toDbValue(): String = name.lowercase()
 
     companion object {
@@ -34,6 +37,10 @@ enum class PlanDocumentStatus {
  * A stashed planning document scoped to a project root (a depth-0 WorkItem), identified within
  * that root by a caller-chosen [slug].
  *
+ * The 3.x view of a [Document]: a `rule/<key>` slug is the document of kind [DocumentKind.RULE] and
+ * slug `<key>`, every other slug the document of kind [DocumentKind.PLAN] with the same slug.
+ * [status] and [adoptedByItemId] are derived from the document's `adopted_by` link.
+ *
  * @property id Stable identifier for this document row.
  * @property rootItemId The depth-0 WorkItem this document is scoped to.
  * @property slug Caller-chosen identifier, unique within [rootItemId].
@@ -42,9 +49,10 @@ enum class PlanDocumentStatus {
  *   (REST PUT and MCP stash) verify they landed identical bytes.
  * @property status [PlanDocumentStatus.PENDING] until adopted into a work item, then
  *   [PlanDocumentStatus.ADOPTED] permanently.
- * @property adoptedByItemId The WorkItem that adopted this document, once [status] is
- *   [PlanDocumentStatus.ADOPTED]; null while pending, and null again if that WorkItem is later
- *   deleted (FK `ON DELETE SET NULL` — the document's own [status] does not revert).
+ * @property adoptedByItemId The WorkItem that adopted this document (the `adopted_by` link's
+ *   target), once [status] is [PlanDocumentStatus.ADOPTED]; null while pending. Since 4.0 the link
+ *   is provenance and outlives its target, so this id may name a since-deleted WorkItem (3.x set it
+ *   null through an FK).
  * @property createdAt When this document was first stashed.
  * @property modifiedAt When this document was last written (stash or adoption).
  */
@@ -62,7 +70,7 @@ data class PlanDocument(
 
 /**
  * Metadata-only projection of a [PlanDocument] — every field except [PlanDocument.body]. Used by
- * list endpoints (REST `GET /roots/{rootId}/plans`, MCP `manage_plan_documents` `list`) so scanning
+ * list reads so scanning
  * a root's documents never pays for reading every document's full TEXT body.
  */
 data class PlanDocumentSummary(

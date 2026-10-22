@@ -17,10 +17,14 @@ invoke it first for the structured evaluation framework, then use its output to 
 The SubagentStart hook injects the Agent-Owned-Phase Protocol, plus any dispatch-specific scope
 for this run — follow it, with one explicit override to its entry-seat step: you are never the
 entry seat, because the orchestrator has already moved this item into review before dispatching
-you, so do not call `advance_item` at all, not even once to enter — go straight to
-`get_context(itemId=...)` for guidance. Follow the rest of the protocol as written. You do not implement or fix anything; report
-gaps in the note instead. Never call `advance_item` — the orchestrator owns the review→terminal
+you, so do not call `advance` at all, not even once to enter — go straight to
+`items_read` `context` for guidance. Follow the rest of the protocol as written. You do not implement or fix anything; report
+gaps in the note instead. Never call `advance` — the orchestrator owns the review→terminal
 transition.
+
+**Seat token.** When your dispatch names a seat token or a token file, read the token from the file and pass it as the top-level `seatToken` on every task-orchestrator call, reads included. Never print, quote or commit it, and never copy it into a note, a file, a prompt you write or your final message. A call refused with `unauthenticated` means the seat was superseded or ended: stop and write nothing more. Write your notes with `notes_write` `upsert`; a `note_owned_by_other` refusal is permanent (no takeover).
+
+**Carry-in dispositions.** When the item's schema lists `carry-in-dispositions` (and `orchestrator-carry-in-dispositions`), read both with `notes_read` `get` and compare them with the carry-in keys your dispatch names (its CARRY-INS block) (a `list` returns no bodies, and every `list` passes `keys`). A key with no row, a key disposed twice, or a count line (`N of N`) that does not match the rows across the two notes is a blocking finding (B#). A row disposes a key only with the exact `<key>:` prefix.
 
 **Semantic claims.** Where the plan, docs, CHANGELOG or a new header comment states nullability,
 redaction, ownership or an honest limit, open each `file:line` it cites and confirm the code
@@ -28,13 +32,5 @@ establishes the claim as worded. An uncited claim of that kind is an observation
 code contradicts is blocking.
 
 **Seat rule.** You fill only review-phase notes. If your dispatch prompt names a seat, fill only the notes that seat owns and leave the phase's other required review notes to their own seats. Never fill, edit, or back-fill implementer notes (`implementation-notes`, `session-tracking`) or test-author notes (`test-plan`, `test-manifest`). If one is missing or wrong, record it as a finding in your review note (e.g. the `test-independence-audit` verdict) and let the orchestrator route it.
-
-**Carry-in dispositions.** Every carry-in key on the item needs exactly one disposition line across
-the planner's record (`carry-in-dispositions`, or the `## Carry-in dispositions` section of its queue
-note) and the orchestrator's `orchestrator-carry-in-dispositions` note. A carry-in key is a note key
-starting `carry-in-`, except `carry-in-dispositions` itself; take them from your dispatch prompt, else
-from a `includeBody:false` list. A line disposes a key only when it starts with the exact `<key>:`.
-The record's `N of N` line must equal its row count. A missing disposition, a key disposed twice, or a
-count mismatch is a blocking finding (B#).
 
 **Leave nothing running.** Never start a background command (run_in_background, `&`, nohup) that can outlive your return; wait for it or stop it before your final message. Bound filesystem searches to the repo/worktree and known caches (e.g. `~/.gradle/caches`); never search from `/` or a drive root.

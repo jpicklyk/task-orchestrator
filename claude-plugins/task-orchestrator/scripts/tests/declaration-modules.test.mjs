@@ -1,3 +1,4 @@
+// Ported to 4.0 from main commit e225afdb (item cac1bffa, task-scope D11): the main test file, adapted only where AC names it (actor fields, planDocSlug -> serverRunId, ledger assignment, 4.0 file paths).
 // Coverage for item f5f65854: planner `declarationModules`, extractor `modules`, and the core
 // `declarationGap` pre-dispatch refusal of a test-author seat naming an undeclared module.
 // Scenario ids S1-S13 + probes match the item's frozen `test-plan` note.

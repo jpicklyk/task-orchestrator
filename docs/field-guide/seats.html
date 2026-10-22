@@ -330,7 +330,7 @@ traits:
     </div>
   </div>
   <div class="grid3">
-    <div class="rule"><h3>Self-reported unless verified</h3><p class="small">The actor is whatever string the caller sent. Pair the check with actor authentication and <code>require_verified: true</code> to compare proven identities.</p></div>
+    <div class="rule"><h3>Credential identity, not a claim</h3><p class="small">The actor is the principal of the credential that wrote the note, never a string the caller sent. Separate seats need separate credentials: stdio and unauthenticated sessions all share the one <code>local</code> principal. <code>require_verified: true</code> additionally demands a cryptographically verified JWT credential.</p></div>
     <div class="rule"><h3>Last writer wins</h3><p class="small">Re-upserting a note replaces its actor. No history is kept, so the plugin's orchestrator never rewrites a note a seat owns.</p></div>
     <div class="rule"><h3>The waiver is self-service</h3><p class="small">Whoever writes the note can add the waiver line. Treat <code>reject</code> as a discipline aid for cooperating agents. It is not a security control.</p></div>
   </div>
@@ -341,13 +341,13 @@ traits:
   <p class="sub">How the Claude Code plugin's four agent definitions (planner, implementer, test author, reviewer) and the main session take these seats.</p>
   <ol class="steps">
     <li class="q"><span class="who">planner · queue</span><span class="do">Writes <code>diagnosis</code> and <code>test-plan</code>. The expected results for the tests are fixed before any code exists.</span></li>
-    <li class="w"><span class="who">implementer · enters work</span><span class="do">Calls <code>advance_item(start)</code>. The queue gate checks the planner's notes. Then it writes the fix and its note.</span></li>
+    <li class="w"><span class="who">implementer · enters work</span><span class="do">Calls <code>advance</code> (<code>transition</code>, <code>start</code>). The queue gate checks the planner's notes. Then it writes the fix and its note.</span></li>
     <li class="w"><span class="who">test-author · work</span><span class="do">Writes tests from the test plan without reading the implementer's note. Fills <code>test-manifest</code>.</span></li>
     <li class="w"><span class="who">orchestrator · work</span><span class="do">Fills <code>session-tracking</code> and advances the item. The work gate checks all three seats' notes.</span></li>
     <li class="r"><span class="who">reviewer · review</span><span class="do">Fills <code>review-checklist</code> and <code>test-independence-audit</code>.</span></li>
     <li class="t"><span class="who">orchestrator</span><span class="do">Advances the item to terminal. The review gate checks the reviewer's notes.</span></li>
   </ol>
-  <p class="small sub">Only the entry seat calls <code>advance_item</code>. Every other seat fills its own notes and returns, and the orchestrator owns each later transition. For several items at once, the <code>run-wave</code> skill builds these stages from each item's seats.</p>
+  <p class="small sub">Only the entry seat calls <code>advance</code>. Every other seat fills its own notes and returns, and the orchestrator owns each later transition. For several items at once, the <code>run-wave</code> skill builds these stages from each item's seats.</p>
 </section>
 
 <section>
@@ -411,7 +411,7 @@ traits:
     });
     $('i-name').textContent=cur;
     $('i-phase').textContent=s.phase;
-    $('i-enters').textContent=s.enters?'Yes. This seat calls advance_item(start).':'No';
+    $('i-enters').textContent=s.enters?'Yes. This seat calls advance (transition, start).':'No';
     codes($('i-after'),s.after,'No ordering hint');
     codes($('i-ex'),s.ex,'Nothing excluded');
     codes($('i-notes'),s.notes,'None');

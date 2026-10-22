@@ -60,7 +60,7 @@ proposal item's own status says "terminal".
 | `c71ff3cb` (#356) | subagents leaving background commands running after they return | out of scope: delivered where the phase-owner seats already read it — the SubagentStart hook's Subagent Discipline item 4 (phase-owner seats), the `implementer`/`reviewer` agent definitions (plain dispatches), and the `implement-wave`/`review-wave` workflow prompts |
 | `aacfc16b` (#336) | multi-row empirical probe for runtime-dependent at-rest/security guarantees | out of scope: adopted in `.claude/skills/migration-review/SKILL.md` Step 3, which the `needs-migration-review` trait's `migration-assessment` note routes the planning seat to at fill time |
 | `ef33c175` (#319) | negative and exhaustive claims must name their sweep | **Contract-change sweep** — moved to rule `contract-change-sweep` §3 (a planner's negative claim does not discharge the sweep); the general rule lives in `spec-quality/SKILL.md` → Blast Radius, and the `defect-class-siblings` field (`bb191508`) is its planning-seat special case |
-| `4048a4ee` (#320) | note length: schema-sourced targets and `note_limits` warn/reject semantics | **Notes** — the table's numbers are a convenience copy the resolved schema overrides, and `warn` accepts an over-limit note with a `warning` (no re-upsert) while `reject` fails it with `NOTE_BODY_TOO_LONG` |
+| `4048a4ee` (#320) | note length: schema-sourced targets and `note_limits` warn/reject semantics | **Notes** — the table's numbers are a convenience copy the resolved schema overrides, and `warn` accepts an over-limit note with a `warning` (no re-upsert) while `reject` fails it with `note_too_long` |
 | `8ecc28f1` | plan state matrix (lifecycle states x surfaces) | **Items** - the State matrix column; the matrix itself is adopted in `spec-quality/SKILL.md` (Test Strategy) and the work-exit check in `/implement` Step 4c |
 | `1f635007` (#416) | per-file locks, not BLOCKS edges, for files shared in one worktree | **File ownership** - the Declared cross-stream overlaps line; materialization rule in `post-plan-workflow` step 2, advisory `shared-file edge` warning in `run-planner plan` |
 
@@ -110,6 +110,8 @@ value for any field except `main-files`/`test-files`, and `defect-class-siblings
 only with the sweep that found none). Field semantics: `/implement` SKILL.md
 Step 3, "Planning seat" subsection — prose describes, this states.
 
+Seat token (planning seat): `<token file path from the dispatch, or "none (hand-dispatch outside a run)">`. A dispatch-issued token goes in the top-level `seatToken` of EVERY call this seat makes, reads included; it is never printed, committed, copied into a prompt or written to a note. A call answered `unauthenticated` means the seat was superseded or ended: halt and write nothing more. A hand-dispatch outside a run carries none.
+
 ```
 <short-uuid>:
 diagnosis-corrections: <file:line corrections to diagnosis/task-scope, or none>
@@ -124,7 +126,7 @@ red-proof-shape: <the item's red-proof budget (test-author rule section 5): bug-
 
 ## Commit discipline
 
-Fetch rule `commit-discipline` (`query_rules(operation="get", rootId=<rootId>, key="commit-discipline")`)
+Fetch rule `commit-discipline` with `docs_read` `get` (`rootId` the project root, `kind` `rule`, `slug` `commit-discipline`)
 for the full rule. Inline here only what the rule cannot supply — the wave-specific form:
 
 - `<wt>` = the feature worktree path (Header, above).
@@ -207,7 +209,7 @@ each with where the excluded work goes instead>`.
 
 One author per item, `src/test/**` only, dispatched after that item's implementer returns. Fetch
 rules `test-author`, `forbidden-test-patterns`, `test-assertion-vacuity`, `test-harness.full-wiring`,
-and `declarations-extractor` (`query_rules(operation="get", rootId=<rootId>, key=<key>)`) for the
+and `declarations-extractor` (each with `docs_read` `get`, `kind` `rule`, `slug` the rule name) for the
 full protocol — blindness, oracle-derivation, scope, forbidden patterns, harness wiring, and the
 declarations-extractor seat's accuracy contract and orchestrator scan all live there now. Inline
 here only what those rules cannot supply — the wave-specific parameters:
@@ -223,14 +225,16 @@ harness: <fully-qualified src/test helper fn + file:line | NONE + the exact plug
 runtime call order: <MCP: the pinned sentence below | REST: the route's check order from the frozen error table>
 ```
 
-`readsExclude` keys (the queue-phase keys the author's `query_notes` calls are restricted to):
+`readsExclude` keys (the queue-phase keys the author's `notes_read` calls are restricted to):
 `["task-scope","diagnosis","test-plan"]`.
+
+Seat token (test author): `<token file path from the dispatch, or "none (hand-dispatch outside a run)">`. A dispatch-issued token goes in the top-level `seatToken` of EVERY call this seat makes, reads included; it is never printed, committed, copied into a prompt or written to a note. A call answered `unauthenticated` means the seat was superseded or ended: halt and write nothing more. A hand-dispatch outside a run carries none.
 
 Return line (rule 13): `<short-uuid>: commit <sha> | files: <list> | scenarios: <covered>/<total> | compile: EXIT=<n> [(foreign-only) | (own-file-errors: <files>)] | missing-declaration: <none or name>`
 
 ## Contract-change sweep
 
-Fetch rule `contract-change-sweep` (`query_rules(operation="get", rootId=<rootId>, key="contract-change-sweep")`)
+Fetch rule `contract-change-sweep` with `docs_read` `get` (`rootId` the project root, `kind` `rule`, `slug` `contract-change-sweep`)
 for the full rule — timing, what counts as tightening, the sweep steps, and the construction-only
 repair discipline all live there now. Inline here only the wave-specific fact:
 
@@ -261,21 +265,23 @@ Generated from the run plan (`stages[].notes` + `orchestratorNotes`).
 | Reviewer | `review-checklist`, `test-independence-audit` | `<1500 / …>` |
 | Orchestrator | `delegation-metadata` | `<…>` |
 
-Take every limit and target from the item's RESOLVED schema (`query_items(operation="schema",
-itemId=...)` — each entry's `maxLength` and guidance), not from this table and not
+Take every limit and target from the item's RESOLVED schema (`items_read` `schema`,
+`itemId` — each entry's `maxLength` and guidance), not from this table and not
 from memory. Where this table names a number, it is a convenience copy — the schema wins on conflict.
 
 `note_limits.mode` is `warn` unless the effective config (per-root or global) sets `reject`. Under `warn` an over-limit note is
 ACCEPTED and returns a `warning` field — a warning is not a failure and is not a reason to
-re-upsert. Under `reject` the note fails with `code: NOTE_BODY_TOO_LONG` and must be shortened
-(`manage_notes` upsert; `manage-schemas` `references/config-format.md` → "Note Body Length Limits").
+re-upsert. Under `reject` the note element fails `note_too_long` and must be shortened
+(`notes_write` `upsert`; `manage-schemas` `references/config-format.md` → "Note Body Length Limits").
 
-Only the run plan's entry seat calls `advance_item(start)`; the
+Only the run plan's entry seat calls `advance` `transition` with `trigger: "start"`; the
 orchestrator owns every later transition.
+
+Seat token (every seat that writes notes): `<token file path from the dispatch, or "none (hand-dispatch outside a run)">`. A dispatch-issued token goes in the top-level `seatToken` of EVERY call this seat makes, reads included; it is never printed, committed, copied into a prompt or written to a note. A call answered `unauthenticated` means the seat was superseded or ended: halt and write nothing more. A hand-dispatch outside a run carries none.
 
 ## Review scoping
 
-Fetch rule `review-scoping` (`query_rules(operation="get", rootId=<rootId>, key="review-scoping")`)
+Fetch rule `review-scoping` with `docs_read` `get` (`rootId` the project root, `kind` `rule`, `slug` `review-scoping`)
 for the full rule — the owned-files-not-SHA-range diff and the two-range ownership check both live
 there now. The map below is the wave-specific record that rule's step 3 requires.
 
@@ -291,6 +297,8 @@ violation.
 
 Build state reviewers rely on: `<:current:test N tests / 0 failed and :current:ktlintCheck green
 at <sha> — the orchestrator's one wave run>`. Reviewers run no gradle — see the Compile self-check slot's "Who runs gradle" table.
+
+Seat token (reviewer): `<token file path from the dispatch, or "none (hand-dispatch outside a run)">`. A dispatch-issued token goes in the top-level `seatToken` of EVERY call this seat makes, reads included; it is never printed, committed, copied into a prompt or written to a note. A call answered `unauthenticated` means the seat was superseded or ended: halt and write nothing more. A hand-dispatch outside a run carries none.
 Pre-merge red-proof results (orchestrator-run in a scratch worktree, item tests only: the bug-fix
 revert and any coupled-authorship checks; every revert applied with
 `.claude/skills/implement/references/patch-anchored.py`, spec written with the Write tool, `DRY=1` first):

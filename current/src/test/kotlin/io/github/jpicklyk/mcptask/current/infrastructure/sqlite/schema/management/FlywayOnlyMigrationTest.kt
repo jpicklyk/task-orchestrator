@@ -1,0 +1,456 @@
+package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management
+
+import ch.qos.logback.classic.Level
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.at
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.captureLogs
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.exec
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.insertItem
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.insertNote
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.migrated
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.newUrl
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.objectNames
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.query
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.scalarInt
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.tableExists
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.userTableCount
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.withConn
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.UpgradeHarness
+import org.jetbrains.exposed.v1.jdbc.Database
+import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Path
+import java.sql.Connection
+import java.util.UUID
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+
+/**
+ * Independent Flyway-only schema-path tests for item ba942a00 (P2a).
+ *
+ * Oracles: plan v4-phase1-core 3.10 (baseline-at-17 only on an exact V17 shape; histories validate
+ * unchanged; missing-locally tolerated; missing FTS5 is a hard failure; Direct DBs refused with
+ * remedy), AR-37 rec 1 (a history ahead of the binary fails closed), AR-86 rec 1 (Flyway's own
+ * connection carries the configured busy_timeout and foreign_keys OFF), and the migration SQL under
+ * db/migration/sqlite (authoritative DDL; the expected trigger/FTS inventory is derived from it).
+ */
+class FlywayOnlyMigrationTest {
+    @TempDir
+    lateinit var dir: Path
+
+    private val registered = mutableListOf<Database>()
+
+    @AfterEach
+    fun teardown() {
+        registered.forEach { TransactionManager.closeAndUnregister(it) }
+        registered.clear()
+    }
+
+    private fun manager(
+        url: String,
+        repair: Boolean = false,
+        mode: SchemaMode = SchemaMode.MIGRATE
+    ) = FlywayDatabaseSchemaManager(url, repair = repair, schemaMode = mode)
+
+    private fun errorsOf(block: () -> Unit): List<String> = captureLogs(block).at(Level.ERROR)
+
+    private fun historyRows(url: String): List<Triple<String?, String, Boolean>> =
+        query(url, "SELECT version, type, success FROM flyway_schema_history ORDER BY installed_rank") {
+            Triple(it.getString(1), it.getString(2), it.getInt(3) == 1)
+        }
+
+    private fun directDb(): String {
+        val url = newUrl(dir)
+        registered += Database.connect(url = url, driver = "org.sqlite.JDBC")
+        TransactionManager.manager.defaultIsolationLevel = Connection.TRANSACTION_SERIALIZABLE
+        assertTrue(DirectDatabaseSchemaManager(registered.last()).updateSchema(), "fixture: test bridge must build the schema")
+        insertItem(url, UUID.randomUUID(), title = "direct-row")
+        return url
+    }
+
+    private fun pragmaInt(
+        c: Connection,
+        pragma: String
+    ): Int =
+        c.createStatement().use { st ->
+            st.executeQuery("PRAGMA $pragma").use {
+                it.next()
+                it.getInt(1)
+            }
+        }
+
+    // ---- S3: history dropped from an exact V17 database -> baseline at 17, data untouched ----
+
+    @Test
+    fun `S3 exact V17 database without history is baselined at 17 and data is unchanged`() {
+        val url = migrated(dir)
+        val a = UUID.randomUUID()
+        val b = UUID.randomUUID()
+        insertItem(url, a, title = "alpha")
+        insertItem(url, b, parent = a, depth = 1, rootId = a, title = "beta")
+        insertNote(url, a, "k", "zebra body")
+        val before = query(url, "SELECT title FROM work_items ORDER BY title") { it.getString(1) }
+        // Rebuild the exact V17 shape: drop what later migrations added, then the history.
+        // Every table later migrations added (including the data_steps ledger) must go for an exact V17 shape.
+        // V36 (decision_requests), V35 (run_seats, notes.seat, notes.owner_seat), V34 (notes.owner_id), V28 (notes.version) and V27
+        // (item_traits) are reversed first, before the V26 work_items recreation below (which also drops work_items.claim_assignment_id, V35).
+        exec(url, "DROP TABLE decision_requests")
+        exec(url, "DROP TABLE run_seats")
+        exec(url, "ALTER TABLE notes DROP COLUMN owner_seat")
+        exec(url, "ALTER TABLE notes DROP COLUMN seat")
+        exec(url, "ALTER TABLE notes DROP COLUMN owner_id")
+        exec(url, "ALTER TABLE notes DROP COLUMN version")
+        exec(url, "DROP TABLE item_traits")
+        exec(url, "DROP TABLE data_steps")
+        exec(url, "DROP TABLE config_heads")
+        exec(url, "DROP TABLE config_known_fingerprints")
+        exec(url, "DROP TABLE config_versions")
+        exec(url, "DROP TABLE usage_fold")
+        exec(url, "DROP TABLE usage_daily")
+        exec(url, "DROP TABLE run_items")
+        exec(url, "DROP TABLE runs")
+        exec(url, "DROP TABLE call_log")
+        exec(url, "DROP TABLE events")
+        exec(url, "DROP TABLE idempotency_records")
+        // V22 recreated and re-checked `dependencies`: restore its exact V17 DDL (table and indexes) from a V17 reference copy.
+        val reference = UpgradeHarness.copyAt(17, dir.resolve("reference-v17.db").toFile())
+        val v17Dependencies =
+            query(reference, "SELECT sql FROM sqlite_master WHERE tbl_name = 'dependencies' AND sql IS NOT NULL ORDER BY type DESC") {
+                it.getString(1)
+            }
+        exec(url, "DROP TABLE dependencies", *v17Dependencies.toTypedArray())
+        // V24 re-homed `plan_documents` into documents/document_versions/links (+ two FTS tables): drop those and restore
+        // the exact V17 `plan_documents` DDL (table and indexes) from the same reference copy.
+        exec(
+            url,
+            "DROP TABLE documents_fts_trigram",
+            "DROP TABLE documents_fts_text",
+            "DROP TABLE links",
+            "DROP TABLE document_versions",
+            "DROP TABLE documents"
+        )
+        val v17PlanDocuments =
+            query(reference, "SELECT sql FROM sqlite_master WHERE tbl_name = 'plan_documents' AND sql IS NOT NULL ORDER BY type DESC") {
+                it.getString(1)
+            }
+        exec(url, *v17PlanDocuments.toTypedArray())
+        // V25 replaced project_config with the versioned config tables: restore its exact V17 DDL from the same reference.
+        val v17ProjectConfig =
+            query(reference, "SELECT sql FROM sqlite_master WHERE tbl_name = 'project_config' AND sql IS NOT NULL ORDER BY type DESC") {
+                it.getString(1)
+            }
+        exec(url, *v17ProjectConfig.toTypedArray())
+        // V29 dropped role_transitions (after copying its rows into events): restore its exact V17 DDL from the same reference.
+        val v17RoleTransitions =
+            query(reference, "SELECT sql FROM sqlite_master WHERE tbl_name = 'role_transitions' AND sql IS NOT NULL ORDER BY type DESC") {
+                it.getString(1)
+            }
+        exec(url, *v17RoleTransitions.toTypedArray())
+        // V26 recreated `work_items` (nullable role, pin columns) and the two item FTS tables (description, no prefix):
+        // restore the exact V17 DDL from the same reference copy, carrying the rows across.
+        val v17WorkItems =
+            query(
+                reference,
+                "SELECT sql FROM sqlite_master WHERE tbl_name = 'work_items' AND sql IS NOT NULL " +
+                    "ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'index' THEN 1 ELSE 2 END"
+            ) { it.getString(1) }
+        val v17ItemFts =
+            query(
+                reference,
+                "SELECT sql FROM sqlite_master WHERE name IN ('work_items_fts_trigram', 'work_items_fts_text') ORDER BY name"
+            ) { it.getString(1) }
+        val v17Columns =
+            "id, parent_id, title, description, summary, role, status_label, previous_role, priority, complexity, " +
+                "requires_verification, depth, metadata, tags, type, properties, created_at, modified_at, role_changed_at, " +
+                "version, claimed_by, claimed_at, claim_expires_at, original_claimed_at, root_id"
+        exec(url, "CREATE TABLE work_items_v26_copy AS SELECT rowid AS rid, $v17Columns FROM work_items")
+        exec(url, "DROP TABLE work_items_fts_trigram", "DROP TABLE work_items_fts_text", "DROP TABLE work_items")
+        exec(url, *v17WorkItems.toTypedArray())
+        exec(url, *v17ItemFts.toTypedArray())
+        exec(url, "INSERT INTO work_items (rowid, $v17Columns) SELECT rid, $v17Columns FROM work_items_v26_copy")
+        exec(url, "DROP TABLE work_items_v26_copy")
+        exec(url, "DROP TABLE flyway_schema_history")
+        assertFalse(tableExists(url, "flyway_schema_history"), "fixture: history must be gone")
+
+        assertTrue(manager(url).updateSchema(), "an exact V17 shape must be baselined, not refused")
+
+        val rows = historyRows(url)
+        // Baselined at 17, then every later migration is applied on top.
+        assertEquals(
+            listOf("17" to "BASELINE") + (18..MigrationChain.max()).map { it.toString() to "SQL" },
+            rows.map {
+                it.first to it.second
+            },
+            "history must be baseline@17 then V18..V${MigrationChain.max()}, got $rows"
+        )
+        assertTrue(rows.all { it.third })
+        assertEquals(before, query(url, "SELECT title FROM work_items ORDER BY title") { it.getString(1) })
+        assertEquals(1, scalarInt(url, "SELECT count(*) FROM notes"))
+    }
+
+    // ---- S9: one trigger missing -> not exact -> refused, not baselined ----
+
+    @Test
+    fun `S9 history-less database missing one trigger is refused and not baselined`() {
+        val url = migrated(dir)
+        insertItem(url, UUID.randomUUID(), title = "keep")
+        exec(url, "DROP TABLE flyway_schema_history", "DROP TRIGGER work_items_cycle_check_update")
+
+        val errors = errorsOf { assertFalse(manager(url).updateSchema(), "a non-exact shape must be refused") }
+
+        assertFalse(tableExists(url, "flyway_schema_history"), "refusal must not create a history table")
+        assertEquals(1, scalarInt(url, "SELECT count(*) FROM work_items"), "rows must be untouched")
+        assertTrue(errors.isNotEmpty(), "refusal must log an ERROR")
+        assertTrue(
+            errors.any { it.contains("work_items_cycle_check_update") },
+            "ERROR must name the differing object: $errors"
+        )
+    }
+
+    // ---- S8: a database built by the test bridge is refused with the remedy ----
+
+    @Test
+    fun `S8 database created by the Direct bridge is refused, untouched, with the remedy named`() {
+        val url = directDb()
+        val errors = errorsOf { assertFalse(manager(url).updateSchema()) }
+
+        assertTrue(errors.any { it.contains("DATABASE_PATH") }, "ERROR must name the remedy (DATABASE_PATH): $errors")
+        assertFalse(tableExists(url, "flyway_schema_history"), "no history table may appear")
+        assertTrue(tableExists(url, "work_items"))
+        assertEquals(1, scalarInt(url, "SELECT count(*) FROM work_items"))
+    }
+
+    @Test
+    fun `S8 refusal is repeatable and repair mode refuses the same database`() {
+        val url = directDb()
+        errorsOf { assertFalse(manager(url).updateSchema()) }
+        errorsOf { assertFalse(manager(url).updateSchema()) }
+        errorsOf { assertFalse(manager(url, repair = true).updateSchema()) }
+        assertFalse(tableExists(url, "flyway_schema_history"))
+        assertEquals(1, scalarInt(url, "SELECT count(*) FROM work_items"))
+    }
+
+    @Test
+    fun `S8 database with a stub work_items table lacking columns is refused`() {
+        val url = newUrl(dir)
+        exec(url, "CREATE TABLE work_items (id BLOB PRIMARY KEY, title TEXT NOT NULL)")
+        val errors = errorsOf { assertFalse(manager(url).updateSchema()) }
+        assertTrue(errors.any { it.contains("DATABASE_PATH") }, "ERROR must name the remedy: $errors")
+        assertFalse(tableExists(url, "flyway_schema_history"))
+    }
+
+    // ---- S10: history ahead of this binary fails closed (AR-37 rec 1) ----
+
+    private fun insertHistory(
+        url: String,
+        version: String,
+        success: Int
+    ) = exec(
+        url,
+        "INSERT INTO flyway_schema_history (installed_rank, version, description, type, script, " +
+            "checksum, installed_by, installed_on, execution_time, success) " +
+            "VALUES ((SELECT max(installed_rank) + 1 FROM flyway_schema_history), '$version', 'x', 'SQL', " +
+            "'V${version.replace('.', '_')}__x.sql', 0, 'test', '2026-01-01 00:00:00', 1, $success)"
+    )
+
+    @Test
+    fun `S10 successful future version 99 in history fails closed`() {
+        val url = migrated(dir)
+        insertHistory(url, "99", 1)
+        val errors = errorsOf { assertFalse(manager(url).updateSchema(), "a database ahead of this binary must be refused") }
+        assertTrue(errors.isNotEmpty(), "failure must log an ERROR")
+        assertTrue(errors.any { it.contains("99") }, "ERROR must identify the offending version 99: $errors")
+    }
+
+    @Test
+    fun `S10 probe failed version 99 row also fails`() {
+        val url = migrated(dir)
+        insertHistory(url, "99", 0)
+        val errors = errorsOf { assertFalse(manager(url).updateSchema()) }
+        assertTrue(errors.any { it.contains("99") }, "the ERROR must identify the failed version 99: $errors")
+    }
+
+    @Test
+    fun `S10 repair leaves a newer successful row alone and the next start still fails closed`() {
+        val url = migrated(dir)
+        insertHistory(url, "99", 1)
+        val before = historyRows(url)
+        assertTrue(manager(url, repair = true).updateSchema(), "repair itself succeeds")
+        assertEquals(before, historyRows(url), "repair must not delete or add any history row for a newer version")
+        val errors = errorsOf { assertFalse(manager(url).updateSchema(), "the database is still ahead of this binary") }
+        assertTrue(errors.any { it.contains("99") }, "the ERROR must still name version 99: $errors")
+    }
+
+    // ---- S15: applied version with no local file below the latest is tolerated ----
+
+    @Test
+    fun `S15 history row 5_5 with no local migration still starts`() {
+        val url = migrated(dir)
+        insertHistory(url, "5.5", 1)
+        assertTrue(manager(url).updateSchema(), "missing-locally must be tolerated below the latest version")
+    }
+
+    // ---- S11 (manager level): VALIDATE never migrates or baselines ----
+
+    @Test
+    fun `S11 validate on an empty database fails and creates no tables`() {
+        val url = newUrl(dir)
+        val errors = errorsOf { assertFalse(manager(url, mode = SchemaMode.VALIDATE).updateSchema()) }
+        assertTrue(errors.any { it.contains("database has no applied migrations") }, "the ERROR must give the reason: $errors")
+        assertEquals(0, userTableCount(url), "validate must create nothing")
+    }
+
+    @Test
+    fun `S11 validate passes on a current database`() {
+        val url = migrated(dir)
+        assertTrue(manager(url, mode = SchemaMode.VALIDATE).updateSchema())
+    }
+
+    @Test
+    fun `S11 validate fails on a database with a pending migration and does not apply it`() {
+        val url = newUrl(dir)
+        manager(url).flywayConfiguration(target = "16").load().migrate()
+        val before = scalarInt(url, "SELECT count(*) FROM flyway_schema_history")
+        val errors = errorsOf { assertFalse(manager(url, mode = SchemaMode.VALIDATE).updateSchema(), "pending V17 must fail validate") }
+        assertTrue(
+            errors.any { it.contains("Detected resolved migration not applied to database: 17") },
+            "the ERROR must name the pending version: $errors"
+        )
+        assertEquals(before, scalarInt(url, "SELECT count(*) FROM flyway_schema_history"), "validate must not migrate")
+    }
+
+    @Test
+    fun `S11 validate refuses a history-less current database and does not baseline it`() {
+        val url = migrated(dir)
+        exec(url, "DROP TABLE flyway_schema_history")
+        val errors = errorsOf { assertFalse(manager(url, mode = SchemaMode.VALIDATE).updateSchema()) }
+        assertTrue(errors.any { it.contains("SCHEMA_MODE=validate never baselines") }, "the ERROR must give the reason: $errors")
+        assertFalse(tableExists(url, "flyway_schema_history"), "validate must never baseline")
+    }
+
+    // ---- S12: missing FTS5 objects are a hard failure naming the object ----
+
+    @Test
+    fun `S12 dropped FTS sync trigger fails startup, names it, and is not recreated`() {
+        val url = migrated(dir)
+        exec(url, "DROP TRIGGER notes_fts_text_ai")
+        val errors = errorsOf { assertFalse(manager(url).updateSchema()) }
+        assertTrue(errors.any { it.contains("notes_fts_text_ai") }, "ERROR must name the missing trigger: $errors")
+        assertFalse("notes_fts_text_ai" in objectNames(url, "trigger"), "nothing may be re-created")
+    }
+
+    @Test
+    fun `S12 dropped FTS virtual table fails startup and names it`() {
+        val url = migrated(dir)
+        exec(url, "DROP TABLE notes_fts_text")
+        val errors = errorsOf { assertFalse(manager(url).updateSchema()) }
+        assertTrue(errors.any { it.contains("notes_fts_text") }, "ERROR must name the missing FTS table: $errors")
+        assertFalse("notes_fts_text" in objectNames(url, "table"), "nothing may be re-created")
+    }
+
+    // ---- S5: Flyway's own connection (AR-86 rec 1) ----
+
+    @Test
+    fun `S5 Flyway data source connection has foreign_keys off and the configured busy_timeout`() {
+        val url = newUrl(dir)
+        val cfg = FlywayDatabaseSchemaManager(url, repair = false, busyTimeoutMs = 7777L).flywayConfiguration()
+        cfg.dataSource.connection.use { c ->
+            assertEquals(
+                7777,
+                pragmaInt(c, "busy_timeout"),
+                "busy_timeout must equal DATABASE_BUSY_TIMEOUT_MS, not the driver default 3000"
+            )
+            assertEquals(0, pragmaInt(c, "foreign_keys"), "foreign_keys must be OFF on the migration connection")
+        }
+    }
+
+    /**
+     * foreign_keys=0 is also SQLite's default, so the test above cannot tell an explicit OFF from no setting. A JDBC URL
+     * that asks for foreign_keys=true (a DATABASE_PATH carrying it, AR-36) shows `enforceForeignKeys(false)` winning.
+     */
+    @Test
+    fun `S5 foreign_keys=true in the JDBC URL still yields foreign_keys off on the Flyway connection`() {
+        val url = newUrl(dir) + "?foreign_keys=true"
+        withConn(url) { c -> assertEquals(1, pragmaInt(c, "foreign_keys"), "fixture: the URL parameter turns foreign keys on") }
+        manager(url).flywayConfiguration().dataSource.connection.use { c ->
+            assertEquals(0, pragmaInt(c, "foreign_keys"), "enforceForeignKeys(false) must win over the URL parameter")
+        }
+    }
+
+    @Test
+    fun `S5 default busy timeout is 5000 ms on the Flyway connection`() {
+        val cfg = FlywayDatabaseSchemaManager(newUrl(dir), repair = false).flywayConfiguration()
+        cfg.dataSource.connection.use { c ->
+            assertEquals(5000, pragmaInt(c, "busy_timeout"))
+        }
+    }
+
+    @Test
+    fun `S5 V7 table recreation does not cascade-delete child rows of a populated V6 database`() {
+        // V7 drops and recreates work_items; with foreign_keys ON that DROP would delete notes.
+        val url = populatedV6()
+
+        assertTrue(manager(url).updateSchema())
+
+        assertEquals(1, scalarInt(url, "SELECT count(*) FROM work_items"))
+        assertEquals(1, scalarInt(url, "SELECT count(*) FROM notes"), "child note must survive the V7 recreation")
+    }
+
+    @Test
+    fun `S5 V7 recreation keeps child rows even when the JDBC URL asks for foreign_keys=true`() {
+        val url = populatedV6()
+
+        assertTrue(manager("$url?foreign_keys=true").updateSchema())
+
+        assertEquals(1, scalarInt(url, "SELECT count(*) FROM work_items"))
+        assertEquals(1, scalarInt(url, "SELECT count(*) FROM notes"), "enforceForeignKeys(false) must beat the URL parameter")
+    }
+
+    /** A file at V6 holding one work item and one note that references it. */
+    private fun populatedV6(): String {
+        val url = newUrl(dir)
+        manager(url).flywayConfiguration(target = "6").load().migrate()
+        val id = UUID.randomUUID()
+        withConn(url) { c ->
+            c
+                .prepareStatement(
+                    "INSERT INTO work_items (id, title, created_at, modified_at, role_changed_at) " +
+                        "VALUES (?, 't', '2026-01-01 00:00:00', '2026-01-01 00:00:00', '2026-01-01 00:00:00')"
+                ).use { ps ->
+                    ps.setBytes(1, SchemaTestSupport.uuidBytes(id))
+                    ps.executeUpdate()
+                }
+            c
+                .prepareStatement(
+                    "INSERT INTO notes (id, work_item_id, key, role, body, created_at, modified_at) " +
+                        "VALUES (?, ?, 'k', 'queue', 'b', '2026-01-01 00:00:00', '2026-01-01 00:00:00')"
+                ).use { ps ->
+                    ps.setBytes(1, SchemaTestSupport.uuidBytes(UUID.randomUUID()))
+                    ps.setBytes(2, SchemaTestSupport.uuidBytes(id))
+                    ps.executeUpdate()
+                }
+        }
+        return url
+    }
+
+    // ---- Flyway configuration contract (declaration KDoc) ----
+
+    @Test
+    fun `configuration keeps clean disabled, no baselineOnMigrate and the single sqlite location`() {
+        val cfg = FlywayDatabaseSchemaManager("jdbc:sqlite:unused", repair = false).flywayConfiguration()
+        assertTrue(cfg.isCleanDisabled)
+        assertFalse(cfg.isBaselineOnMigrate)
+        assertEquals("classpath:db/migration/sqlite", FlywayDatabaseSchemaManager.MIGRATION_LOCATION)
+        assertEquals(listOf("classpath:db/migration/sqlite"), cfg.locations.map { it.descriptor })
+        assertEquals("flyway_schema_history", FlywayDatabaseSchemaManager.HISTORY_TABLE)
+    }
+
+    @Test
+    fun `fresh migrate then repeat migrate and repair all succeed`() {
+        val url = migrated(dir)
+        assertTrue(manager(url).updateSchema())
+        assertTrue(manager(url, repair = true).updateSchema())
+    }
+}

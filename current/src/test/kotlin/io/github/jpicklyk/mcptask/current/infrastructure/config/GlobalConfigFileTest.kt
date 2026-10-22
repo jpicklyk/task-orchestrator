@@ -2,7 +2,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.infrastructure.security.configFingerprint
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -16,10 +16,9 @@ import kotlin.test.assertTrue
 
 /**
  * Independently authored against the frozen `test-plan` note on item `df7d579a` (scenarios
- * S1-S4, S9-S10). [GlobalConfigFile] is C1's single lazy, cached read of the global
+ * S1-S3, S9). [GlobalConfigFile] is C1's single lazy, cached read of the global
  * `.taskorchestrator/config.yaml`; these tests check its own `layer()` contract (S1, S9) and
- * that every service built on top of it (`YamlWorkItemSchemaService`, [YamlStatusLabelService],
- * [YamlActorAuthenticationConfigService]) behaves identically whether constructed from a
+ * that every service built on top of it (`YamlWorkItemSchemaService`, [YamlStatusLabelService]) behaves identically whether constructed from a
  * [GlobalConfigFile] or from the legacy `configPath` constructor (S2-S4, S10) — the parity the
  * "single global parse" restructuring must preserve exactly, per #331's fail-closed semantics.
  */
@@ -122,9 +121,6 @@ class GlobalConfigFileTest {
 
         val statusEx = assertFailsWith<IllegalArgumentException> { YamlStatusLabelService(gcf).resolveLabel("start") }
         assertTrue(statusEx.message?.contains(configPath.toString()) == true)
-
-        val actorEx = assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(gcf).getConfig() }
-        assertTrue(actorEx.message?.contains(configPath.toString()) == true)
     }
 
     // ──────────────────────────────────────────────
@@ -164,30 +160,19 @@ class GlobalConfigFileTest {
         val viaPath = YamlWorkItemSchemaService(configPath)
 
         assertEquals(viaPath.getAllSchemas(), viaGcf.getAllSchemas())
-        assertEquals(viaPath.getSchemaForType("feature-task"), viaGcf.getSchemaForType("feature-task"))
-        assertEquals(viaPath.getSchemaForTags(listOf("feature-task")), viaGcf.getSchemaForTags(listOf("feature-task")))
-        assertEquals(viaPath.getTraitNotes("needs-security-review"), viaGcf.getTraitNotes("needs-security-review"))
-        assertEquals(viaPath.getAvailableTraits(), viaGcf.getAvailableTraits())
-        assertEquals(viaPath.getDefaultTraits("feature-task"), viaGcf.getDefaultTraits("feature-task"))
         assertEquals(viaPath.getAllTraits(), viaGcf.getAllTraits())
         assertEquals(viaPath.getLoadWarnings(), viaGcf.getLoadWarnings())
-        assertEquals(viaPath.getResourceRegistry(), viaGcf.getResourceRegistry())
         assertEquals(viaPath.getTraitResources("needs-security-review"), viaGcf.getTraitResources("needs-security-review"))
         assertEquals(viaPath.getTraitDispatch("needs-security-review"), viaGcf.getTraitDispatch("needs-security-review"))
-        assertEquals("reject", viaGcf.getNoteLimitsMode())
-        assertEquals(viaPath.getNoteLimitsMode(), viaGcf.getNoteLimitsMode())
+        assertEquals("reject", LayerBackedGlobalLookup(GlobalConfigFile(configPath).layer()).noteLimitsMode())
         assertEquals(viaPath.getConfigFingerprint(), viaGcf.getConfigFingerprint())
     }
 
     @Test
-    fun `S2 getNoteLimitsMode is warn via GlobalConfigFile when note_limits is absent, matching the legacy constructor`() {
+    fun `S2 note_limits mode is warn via GlobalConfigFile when note_limits is absent`() {
         val configPath = writeConfig("work_item_schemas:\n  default:\n    notes: []\n")
 
-        val viaGcf = YamlWorkItemSchemaService(GlobalConfigFile(configPath))
-        val viaPath = YamlWorkItemSchemaService(configPath)
-
-        assertEquals("warn", viaGcf.getNoteLimitsMode())
-        assertEquals(viaPath.getNoteLimitsMode(), viaGcf.getNoteLimitsMode())
+        assertEquals("warn", LayerBackedGlobalLookup(GlobalConfigFile(configPath).layer()).noteLimitsMode())
     }
 
     // ──────────────────────────────────────────────
@@ -274,201 +259,5 @@ class GlobalConfigFileTest {
         assertStatusLabelParity(configPath, "status_labels: ~")
 
         assertEquals("in-progress", YamlStatusLabelService(GlobalConfigFile(configPath)).resolveLabel("start"))
-    }
-
-    // ──────────────────────────────────────────────
-    // S4 — YamlActorAuthenticationConfigService parity: GlobalConfigFile ctor vs legacy path ctor
-    // ──────────────────────────────────────────────
-
-    @Test
-    fun `S4 actor-auth parity — valid jwks verifier`() {
-        val configPath =
-            writeConfig(
-                """
-                actor_authentication:
-                  enabled: true
-                  verifier:
-                    type: jwks
-                    audience: "test-audience"
-                    issuer: "https://issuer.example.com"
-                    jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
-                    algorithms:
-                      - RS256
-                """.trimIndent(),
-            )
-        val viaGcf = YamlActorAuthenticationConfigService(GlobalConfigFile(configPath))
-        val viaPath = YamlActorAuthenticationConfigService(configPath)
-
-        assertEquals(viaPath.getConfig(), viaGcf.getConfig())
-        assertEquals(viaPath.getWarnings(), viaGcf.getWarnings())
-    }
-
-    @Test
-    fun `S4 actor-auth parity — noop verifier`() {
-        val configPath =
-            writeConfig(
-                """
-                actor_authentication:
-                  enabled: true
-                  verifier:
-                    type: noop
-                """.trimIndent(),
-            )
-        val viaGcf = YamlActorAuthenticationConfigService(GlobalConfigFile(configPath))
-        val viaPath = YamlActorAuthenticationConfigService(configPath)
-
-        assertEquals(viaPath.getConfig(), viaGcf.getConfig())
-        assertEquals(viaPath.getWarnings(), viaGcf.getWarnings())
-    }
-
-    @Test
-    fun `S4 actor-auth parity — absent actor_authentication section`() {
-        val configPath = writeConfig("work_item_schemas:\n  default:\n    notes: []\n")
-        val viaGcf = YamlActorAuthenticationConfigService(GlobalConfigFile(configPath))
-        val viaPath = YamlActorAuthenticationConfigService(configPath)
-
-        assertEquals(viaPath.getConfig(), viaGcf.getConfig())
-        assertEquals(viaPath.getWarnings(), viaGcf.getWarnings())
-    }
-
-    @Test
-    fun `S4 actor-auth parity — explicit null actor_authentication section`() {
-        val configPath = writeConfig("actor_authentication: ~\n")
-        val viaGcf = YamlActorAuthenticationConfigService(GlobalConfigFile(configPath))
-        val viaPath = YamlActorAuthenticationConfigService(configPath)
-
-        assertEquals(viaPath.getConfig(), viaGcf.getConfig())
-        assertEquals(viaPath.getWarnings(), viaGcf.getWarnings())
-    }
-
-    @Test
-    fun `S4 actor-auth parity — DEGRADED_MODE_POLICY env override`() {
-        val configPath =
-            writeConfig(
-                """
-                actor_authentication:
-                  enabled: true
-                  degraded_mode_policy: reject
-                  verifier:
-                    type: noop
-                """.trimIndent(),
-            )
-        val envResolver: (String) -> String? = { name -> if (name == "DEGRADED_MODE_POLICY") "accept-self-reported" else null }
-        val viaGcf = YamlActorAuthenticationConfigService(GlobalConfigFile(configPath), envResolver)
-        val viaPath = YamlActorAuthenticationConfigService(configPath, envResolver)
-
-        assertEquals(viaPath.getConfig(), viaGcf.getConfig())
-        assertEquals(DegradedModePolicy.ACCEPT_SELF_REPORTED, viaGcf.getConfig().degradedModePolicy)
-    }
-
-    // ──────────────────────────────────────────────
-    // S10 — actor-auth fail-closed parity: GlobalConfigFile ctor vs legacy path ctor
-    // ──────────────────────────────────────────────
-
-    @Test
-    fun `S10 actor-auth fail-closed parity — invalid degraded_mode_policy`() {
-        val configPath =
-            writeConfig(
-                """
-                actor_authentication:
-                  enabled: true
-                  degraded_mode_policy: banana
-                  verifier:
-                    type: noop
-                """.trimIndent(),
-            )
-        val exGcf =
-            assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(GlobalConfigFile(configPath)).getConfig() }
-        val exPath = assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(configPath).getConfig() }
-
-        assertEquals(exPath.message, exGcf.message)
-        assertTrue(exGcf.message?.contains("banana") == true)
-    }
-
-    @Test
-    fun `S10 actor-auth fail-closed parity — actor_authentication as a scalar value`() {
-        val configPath = writeConfig("actor_authentication: reject\n")
-
-        val exGcf =
-            assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(GlobalConfigFile(configPath)).getConfig() }
-        val exPath = assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(configPath).getConfig() }
-
-        assertEquals(exPath.message, exGcf.message)
-    }
-
-    @Test
-    fun `S10 actor-auth fail-closed parity — jwks verifier with no key source`() {
-        val configPath =
-            writeConfig(
-                """
-                actor_authentication:
-                  verifier:
-                    type: jwks
-                    audience: "test-audience"
-                    issuer: "https://accounts.example.com"
-                """.trimIndent(),
-            )
-        val exGcf =
-            assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(GlobalConfigFile(configPath)).getConfig() }
-        val exPath = assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(configPath).getConfig() }
-
-        assertEquals(exPath.message, exGcf.message)
-        assertTrue(exGcf.message?.contains("oidc_discovery") == true && exGcf.message?.contains("jwks_uri") == true)
-    }
-
-    @Test
-    fun `S10 actor-auth fail-closed parity — unknown verifier type`() {
-        val configPath =
-            writeConfig(
-                """
-                actor_authentication:
-                  verifier:
-                    type: magic-unicorn
-                """.trimIndent(),
-            )
-        val exGcf =
-            assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(GlobalConfigFile(configPath)).getConfig() }
-        val exPath = assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(configPath).getConfig() }
-
-        assertEquals(exPath.message, exGcf.message)
-        assertTrue(exGcf.message?.contains("magic-unicorn") == true)
-    }
-
-    @Test
-    fun `S10 actor-auth fail-closed parity — legacy top-level auditing key`() {
-        val configPath = writeConfig("auditing:\n  enabled: true\n")
-
-        val exGcf =
-            assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(GlobalConfigFile(configPath)).getConfig() }
-        val exPath = assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(configPath).getConfig() }
-
-        assertEquals(exPath.message, exGcf.message)
-        assertTrue(exGcf.message?.contains("Unknown top-level config key 'auditing:'") == true)
-    }
-
-    @Test
-    fun `S10 actor-auth fail-closed parity — bad DEGRADED_MODE_POLICY env value`() {
-        val configPath =
-            writeConfig(
-                """
-                actor_authentication:
-                  enabled: true
-                  verifier:
-                    type: noop
-                """.trimIndent(),
-            )
-        val badEnv: (String) -> String? = { name -> if (name == "DEGRADED_MODE_POLICY") "banana" else null }
-
-        val exGcf =
-            assertFailsWith<IllegalArgumentException> {
-                YamlActorAuthenticationConfigService(
-                    GlobalConfigFile(configPath),
-                    badEnv
-                ).getConfig()
-            }
-        val exPath = assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(configPath, badEnv).getConfig() }
-
-        assertEquals(exPath.message, exGcf.message)
-        assertTrue(exGcf.message?.contains("banana") == true)
     }
 }

@@ -5,7 +5,8 @@ import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfigLoader
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.slf4j.LoggerFactory
@@ -24,7 +25,7 @@ import kotlin.test.assertTrue
  * contract for `require`; CLAUDE.md's env-var table for documented defaults). Nothing here was
  * read off the call sites' implementations to decide correctness.
  *
- * Covers test-plan scenarios S1 (happy: the USE_FLYWAY=1 diagnosis repro), S4 (failure:
+ * Covers test-plan scenarios S1 (USE_FLYWAY no longer parsed; rewritten for the Flyway-only switch), S4 (failure:
  * API_ENABLED fail-fast), S7 (edge: all 8 vars default correctly, silently, when unset), S9
  * (RESOURCE_LEASES_ENFORCED's widened 0/no contract), S10 (RESOURCE_LEASES_ENFORCED stays
  * per-call, never hoisted into AppConfig), and S11 (the single-parser invariant, to the extent
@@ -35,6 +36,10 @@ import kotlin.test.assertTrue
  * [AppConfig], so there is nothing left to sweep for it.
  */
 class EnvBooleanSweepTest {
+    /** `RESOURCE_LEASES_ENFORCED` as the startup snapshot ([AppConfig.fromEnv]) parses it; null = unset. */
+    private fun leasesFrom(value: String?): Boolean =
+        AppConfig.fromEnv { if (it == "RESOURCE_LEASES_ENFORCED") value else null }.resourceLeasesEnforced
+
     /** Builds a resolver over a fixed map; unset keys (or keys explicitly mapped to null) return null. */
     private fun env(vararg pairs: Pair<String, String?>): (String) -> String? {
         val map = mapOf(*pairs)
@@ -65,14 +70,16 @@ class EnvBooleanSweepTest {
     // ------------------------------------------------------------------
 
     @Test
-    fun `S1 USE_FLYWAY=1 parses to true, fixing the historical toBoolean bug`() {
-        // Oracle: diagnosis repro + CLAUDE.md ("USE_FLYWAY -- default: true"). Before this item,
-        // Kotlin's .toBoolean() only recognized the literal "true", so USE_FLYWAY=1 silently
-        // resolved to false. This item's scope is the boolean value itself; which
-        // DatabaseSchemaManager gets constructed from it is SchemaManagerFactory's concern, not an
-        // owned file of this item and out of this test's scope.
+    fun `S1 USE_FLYWAY is no longer a parsed boolean setting on AppConfig`() {
+        // Oracle: plan v4-phase1-core section 6 / 3.10 -- "USE_FLYWAY is ignored" (Flyway is the only
+        // schema path). The historical toBoolean repro is obsolete; the variable must have no
+        // effect on AppConfig and no field to carry it.
         val c = AppConfig.fromEnv(env("USE_FLYWAY" to "1"))
-        assertTrue(c.useFlyway)
+        assertTrue(
+            AppConfig::class.java.declaredFields.none { it.name.equals("useFlyway", ignoreCase = true) },
+            "AppConfig must not carry a useFlyway field",
+        )
+        assertFalse(c.flywayRepair, "an unrelated boolean stays at its default when USE_FLYWAY is set")
     }
 
     // ------------------------------------------------------------------
@@ -92,17 +99,15 @@ class EnvBooleanSweepTest {
     // ------------------------------------------------------------------
 
     @Test
-    fun `S7 unset yields the documented default for all 8 boolean env vars, with no WARN`() {
+    fun `S7 unset yields the documented default for all 7 boolean env vars, with no WARN`() {
         val warnings =
             captureWarnLogs {
                 val c = AppConfig.fromEnv { null }
-                // The 6 AppConfig-resident vars.
-                assertTrue(c.useFlyway, "USE_FLYWAY default is true")
+                // The 5 AppConfig-resident vars.
                 assertFalse(c.databaseShowSql, "DATABASE_SHOW_SQL default is false")
                 assertFalse(c.flywayRepair, "FLYWAY_REPAIR default is false")
                 assertFalse(c.apiAllowQueryTokenForSse, "API_ALLOW_QUERY_TOKEN_FOR_SSE default is false")
                 assertTrue(c.apiRedactNoteAttribution, "API_REDACT_NOTE_ATTRIBUTION default is true")
-                assertTrue(c.apiWarnOnClaimedAdvance, "API_WARN_ON_CLAIMED_ADVANCE default is true")
 
                 // API_ENABLED default is false: an unset loader must resolve to Disabled.
                 val disabled = ApiAuthConfigLoader(envResolver = { null }).load()
@@ -118,7 +123,7 @@ class EnvBooleanSweepTest {
                 assertTrue(ex.message!!.contains("API_ALLOW_UNAUTHENTICATED"), "message: ${ex.message}")
             }
 
-        assertEquals(0, warnings.size, "an unset variable must never warn, across all 8 vars")
+        assertEquals(0, warnings.size, "an unset variable must never warn, across all 7 vars")
     }
 
     // ------------------------------------------------------------------
@@ -129,34 +134,29 @@ class EnvBooleanSweepTest {
     fun `S9 RESOURCE_LEASES_ENFORCED=0 and =no both now disable the kill switch`() {
         // Oracle: test-plan S9 -- the unification widens the pre-existing "only literal false
         // disables" contract to also cover 0/no (CLAUDE.md is amended by this item accordingly).
-        assertFalse(AdvanceService.resourceLeasesEnforcedFromEnv { "0" })
-        assertFalse(AdvanceService.resourceLeasesEnforcedFromEnv { "no" })
-        assertFalse(AdvanceService.resourceLeasesEnforcedFromEnv { "No" })
+        assertFalse(leasesFrom("0"))
+        assertFalse(leasesFrom("no"))
+        assertFalse(leasesFrom("No"))
         // The literal "false" spelling that pre-dates this item must still disable it.
-        assertFalse(AdvanceService.resourceLeasesEnforcedFromEnv { "false" })
+        assertFalse(leasesFrom("false"))
     }
 
     // ------------------------------------------------------------------
-    // S10 -- RESOURCE_LEASES_ENFORCED stays per-call, never hoisted into AppConfig
+    // S10 -- RESOURCE_LEASES_ENFORCED is read ONCE into the AppConfig snapshot (AR-88, restart required)
     // ------------------------------------------------------------------
 
     @Test
-    fun `S10 RESOURCE_LEASES_ENFORCED is read per-call and never hoisted into the AppConfig snapshot`() {
-        // Structural: AppConfig's declared fields (its public signature) must not carry a
-        // resourceLeasesEnforced property -- checked from the declaration itself, not from
-        // AppConfig.fromEnv's body.
+    fun `S10 RESOURCE_LEASES_ENFORCED is read once into the AppConfig snapshot and defaults to enforced`() {
         val fieldNames = AppConfig::class.java.declaredFields.map { it.name }
         assertTrue(
-            fieldNames.none { it.contains("resourceLeasesEnforced", ignoreCase = true) },
-            "AppConfig must not hoist RESOURCE_LEASES_ENFORCED into its startup snapshot; found fields: $fieldNames",
+            fieldNames.any { it == "resourceLeasesEnforced" },
+            "AppConfig must carry RESOURCE_LEASES_ENFORCED in its startup snapshot; found fields: $fieldNames",
         )
-
-        // Behavioral: two independent calls against two different env snapshots return two
-        // different results -- proving the value is resolved fresh at each call, per CLAUDE.md
-        // ("read per advance_item/advance-route call ... not once at startup"), never memoized the
-        // way a single AppConfig.fromEnv() startup snapshot would be.
-        assertTrue(AdvanceService.resourceLeasesEnforcedFromEnv { "true" })
-        assertFalse(AdvanceService.resourceLeasesEnforcedFromEnv { "false" })
+        // A snapshot is immutable: the value parsed at startup is the value for the life of the process.
+        val snapshot = AppConfig.fromEnv { if (it == "RESOURCE_LEASES_ENFORCED") "false" else null }
+        assertFalse(snapshot.resourceLeasesEnforced)
+        assertTrue(leasesFrom(null))
+        assertTrue(leasesFrom("true"))
     }
 
     // ------------------------------------------------------------------

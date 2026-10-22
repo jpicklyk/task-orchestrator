@@ -1,27 +1,21 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
-import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier
-import io.ktor.client.request.delete
-import io.ktor.client.request.header
+import io.github.jpicklyk.mcptask.current.interfaces.shared.auth.auditClaim
+import io.github.jpicklyk.mcptask.current.test.get
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.post
-import io.ktor.client.request.put
 import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
@@ -32,13 +26,11 @@ import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import io.ktor.server.sse.SSE
 import io.ktor.server.testing.testApplication
-import io.mockk.coEvery
 import io.mockk.mockk
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 
 /**
  * TEST-AUTHOR INDEPENDENT SUITE for item `59989657` (test-plan S15, S16).
@@ -58,6 +50,9 @@ import org.junit.jupiter.api.Test
  * routes, never actor-resolution).
  */
 class WriteRouteAuthInvariantTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private fun jwksAuthConfig(): ApiAuthConfig.Jwks =
         ApiAuthConfig.Jwks(
             url = "https://idp.example/.well-known/jwks.json",
@@ -67,12 +62,11 @@ class WriteRouteAuthInvariantTest {
             cacheTtlSeconds = 300,
         )
 
-    /** Installs ONLY the write routes under test (S16 exercises writes exclusively -- no read
-     * routes are needed) in jwks mode, with [verifier] wired directly into [ApiBearerAuth]. */
+    /** Installs ONLY [ApiBearerAuth] in jwks mode (S16 asserts the auth plugin 401s before routing; the REST item
+     * write routes are gone since Q13/Q18), with [verifier] wired directly into [ApiBearerAuth]. */
     private fun Application.wireJwksWriteApp(
         repo: DefaultRepositoryProvider,
         verifier: JwksApiVerifier,
-        degradedModePolicy: DegradedModePolicy,
     ) {
         install(ContentNegotiation) { json(McpJson) }
         install(SSE)
@@ -82,18 +76,6 @@ class WriteRouteAuthInvariantTest {
                     authConfig = jwksAuthConfig()
                     jwksVerifier = verifier
                 }
-                itemWriteRoutes(
-                    repo,
-                    degradedModePolicy,
-                    IdempotencyCache(),
-                    ToolExecutionContext(
-                        repo,
-                        NoOpNoteSchemaService,
-                        perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
-                    ).advanceServiceFactory(),
-                )
-                noteWriteRoutes(repo, degradedModePolicy, IdempotencyCache())
-                dependencyWriteRoutes(repo, degradedModePolicy)
             }
         }
     }
@@ -101,12 +83,13 @@ class WriteRouteAuthInvariantTest {
     private fun jwksPrincipal(
         tokenId: String,
         capabilities: Set<ApiCapability>,
-    ): ApiPrincipal =
-        ApiPrincipal(
-            tokenId = tokenId,
-            scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+    ): Principal =
+        Principal(
+            id = tokenId,
+            scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
             capabilities = capabilities,
-            authMode = ApiAuthMode.JWKS,
+            kind = PrincipalKind.SERVICE,
+            proofStatus = ProofStatus.VERIFIED,
         )
 
     /** Same shape a JSON response body's `"id":"<uuid>"` uses across this route family
@@ -117,34 +100,30 @@ class WriteRouteAuthInvariantTest {
     }
 
     // -------------------------------------------------------------------------------------------
-    // S15 -- resolveTrustedActorIdOrNull, all 3 ApiAuthMode x 3 DegradedModePolicy combinations.
-    // No Ktor involved: exercises ApiAuditBridge directly (declaration gap #1's lower-friction
-    // option (a) -- constructing the 3 ApiAuthMode principals directly rather than routing a full
-    // request through ApiBearerAuth, since ApiTestHelper's fixtures only build BEARER principals).
+    // S15 -- the audited REST actor (Principal.auditClaim) is api:<id>, kind external, with no
+    // parent or proof, for every ProofStatus and every PrincipalKind. No Ktor involved. (The
+    // resolveTrustedActorIdOrNull helper this used to drive was dead code and was deleted in R10.)
     // -------------------------------------------------------------------------------------------
 
     @Test
-    fun `S15 - resolveTrustedActorIdOrNull resolves api colon tokenId for every ApiAuthMode x DegradedModePolicy pair`() {
-        val modes = listOf(ApiAuthMode.BEARER, ApiAuthMode.JWKS, ApiAuthMode.UNAUTHENTICATED)
-        val policies =
-            listOf(DegradedModePolicy.ACCEPT_CACHED, DegradedModePolicy.ACCEPT_SELF_REPORTED, DegradedModePolicy.REJECT)
-
-        for (mode in modes) {
-            for (policy in policies) {
-                val tokenId = "s15-${mode.name.lowercase()}-${policy.name.lowercase()}"
+    fun `S15 - the audit claim is api colon id for every credential ProofStatus x PrincipalKind pair, the bare id for NONE`() {
+        for (mode in ProofStatus.entries) {
+            for (kind in PrincipalKind.entries) {
+                val tokenId = "s15-${mode.name.lowercase()}-${kind.name.lowercase()}"
                 val principal =
-                    ApiPrincipal(
-                        tokenId = tokenId,
-                        scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+                    Principal(
+                        id = tokenId,
+                        kind = kind,
+                        proofStatus = mode,
+                        scope = AccessScope.unrestricted(),
                         capabilities = setOf(ApiCapability.READ),
-                        authMode = mode,
                     )
-                val result = ApiAuditBridge.resolveTrustedActorIdOrNull(principal, policy)
-                assertEquals(
-                    "api:$tokenId",
-                    result,
-                    "S15: mode=$mode policy=$policy must resolve to api:$tokenId (fleet-deployment.md:155; D-b)",
-                )
+                val claim = principal.auditClaim()
+                val expectedId = if (mode == ProofStatus.NONE) tokenId else "api:$tokenId"
+                assertEquals(expectedId, claim.id, "S15: mode=$mode kind=$kind must audit as $expectedId")
+                assertEquals(ActorKind.EXTERNAL, claim.kind, "S15: every transport principal audits as external")
+                assertEquals(null, claim.parent, "S15: no parent")
+                assertEquals(null, claim.proof, "S15: the credential is never echoed into the audit")
             }
         }
     }
@@ -155,125 +134,22 @@ class WriteRouteAuthInvariantTest {
     // -------------------------------------------------------------------------------------------
 
     @Test
-    fun `S16 - JWKS principal with write caps under REJECT policy never 401s across item, note, and dependency writes`(): Unit =
+    fun `S16 - no Authorization header still 401s on the same write routes`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
-            val writePrincipal =
-                jwksPrincipal(
-                    tokenId = "s16-writer",
-                    capabilities =
-                        setOf(
-                            ApiCapability.READ,
-                            ApiCapability.WRITE_ITEMS,
-                            ApiCapability.WRITE_NOTES,
-                            ApiCapability.ADVANCE,
-                            ApiCapability.MANAGE_DEPENDENCIES,
-                            ApiCapability.WRITE_CONFIG,
-                        ),
-                )
+            val repo = db.repositoryProvider()
             val verifier = mockk<JwksApiVerifier>()
-            coEvery { verifier.verify("s16-write-jwt") } returns writePrincipal
-            application { wireJwksWriteApp(repo, verifier, DegradedModePolicy.REJECT) }
-
-            val itemAResponse =
-                client.post("/api/v1/items") {
-                    header(HttpHeaders.Authorization, "Bearer s16-write-jwt")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"title":"S16 Item A"}""")
-                }
-            assertEquals(
-                HttpStatusCode.Created,
-                itemAResponse.status,
-                "S16: POST /items with a JWKS+write principal under REJECT must never 401 (D-b: dead 401 blocks removed)",
-            )
-            val itemAId = extractId(itemAResponse.bodyAsText())
-            assertNotNull(itemAId, "S16: POST /items response must carry an id")
-
-            val itemBResponse =
-                client.post("/api/v1/items") {
-                    header(HttpHeaders.Authorization, "Bearer s16-write-jwt")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"title":"S16 Item B"}""")
-                }
-            assertEquals(HttpStatusCode.Created, itemBResponse.status)
-            val itemBId = extractId(itemBResponse.bodyAsText())
-            assertNotNull(itemBId)
-
-            val itemCResponse =
-                client.post("/api/v1/items") {
-                    header(HttpHeaders.Authorization, "Bearer s16-write-jwt")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"title":"S16 Item C - to delete"}""")
-                }
-            assertEquals(HttpStatusCode.Created, itemCResponse.status)
-            val itemCId = extractId(itemCResponse.bodyAsText())
-            assertNotNull(itemCId)
-
-            val noteResponse =
-                client.put("/api/v1/items/$itemAId/notes/s16-note") {
-                    header(HttpHeaders.Authorization, "Bearer s16-write-jwt")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"role":"work","body":"S16 note body"}""")
-                }
-            assertTrue(
-                noteResponse.status == HttpStatusCode.OK || noteResponse.status == HttpStatusCode.Created,
-                "S16: PUT note must be 2xx, never 401. Got: ${noteResponse.status}",
-            )
-
-            val depResponse =
-                client.post("/api/v1/dependencies") {
-                    header(HttpHeaders.Authorization, "Bearer s16-write-jwt")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"fromItemId":"$itemAId","toItemId":"$itemBId","type":"blocks"}""")
-                }
-            assertEquals(HttpStatusCode.Created, depResponse.status, "S16: POST /dependencies must be 201, never 401")
-
-            val deleteResponse =
-                client.delete("/api/v1/items/$itemCId") {
-                    header(HttpHeaders.Authorization, "Bearer s16-write-jwt")
-                }
-            assertEquals(HttpStatusCode.NoContent, deleteResponse.status, "S16: DELETE /items/{id} must be 204, never 401")
-        }
-
-    @Test
-    fun `S16 - no Authorization header still 401s on the same write routes`() =
-        testApplication {
-            val repo = buildH2RepositoryProvider()
-            val verifier = mockk<JwksApiVerifier>()
-            application { wireJwksWriteApp(repo, verifier, DegradedModePolicy.REJECT) }
+            application { wireJwksWriteApp(repo, verifier) }
 
             val response =
                 client.post("/api/v1/items") {
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"Should Not Create"}""")
+                    setBody("""{"type":"test-item","title":"Should Not Create"}""")
                 }
             assertEquals(
                 HttpStatusCode.Unauthorized,
                 response.status,
                 "S16: the invariant is about a PRESENT, verified JWKS+write principal -- an absent " +
                     "credential must still 401 like any other unauthenticated request",
-            )
-        }
-
-    @Test
-    fun `S16 - JWKS principal with READ-only capability gets 403 on a write route, not 401`() =
-        testApplication {
-            val repo = buildH2RepositoryProvider()
-            val readPrincipal = jwksPrincipal(tokenId = "s16-reader", capabilities = setOf(ApiCapability.READ))
-            val verifier = mockk<JwksApiVerifier>()
-            coEvery { verifier.verify("s16-read-jwt") } returns readPrincipal
-            application { wireJwksWriteApp(repo, verifier, DegradedModePolicy.REJECT) }
-
-            val response =
-                client.post("/api/v1/items") {
-                    header(HttpHeaders.Authorization, "Bearer s16-read-jwt")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"title":"Should Not Create"}""")
-                }
-            assertEquals(
-                HttpStatusCode.Forbidden,
-                response.status,
-                "S16: a READ-only JWKS principal must 403 on a write route (capability gate), not 401 (auth gate)",
             )
         }
 }

@@ -56,7 +56,7 @@ jobs:
       uses: mikepenz/action-junit-report@v4
       if: always()
       with:
-        report_paths: '**/build/test-results/test/TEST-*.xml'
+        report_paths: '**/build/test-results/*/TEST-*.xml'
         check_name: 'Test Results'
 
     - name: Upload test results
@@ -65,8 +65,8 @@ jobs:
       with:
         name: test-results
         path: |
-          **/build/test-results/test/TEST-*.xml
-          **/build/reports/tests/test/**
+          **/build/test-results/*/TEST-*.xml
+          **/build/reports/tests/*/**
 
   # Node and Python suites need no JVM, so they run alongside the Gradle job instead of after it.
   plugin-tests:
@@ -80,6 +80,9 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '22'
+
+    - name: Check generated call shapes are fresh
+      run: node claude-plugins/task-orchestrator/scripts/gen-call-shapes.mjs --check
 
     - name: Run plugin hook tests
       run: |
@@ -151,6 +154,12 @@ jobs:
 
     - name: Smoke-test the built image
       run: scripts/ci/smoke-test-image.sh task-orchestrator:ci
+
+    - name: Upgrade smoke (3.16 golden volume)
+      run: scripts/ci/smoke-test-image.sh --seed current/src/test/resources/upgrade/golden-v17-3.16.sqlite task-orchestrator:ci
+
+    - name: Upgrade smoke negative path (empty seed must fail)
+      run: scripts/ci/smoke-test-image-negative.sh task-orchestrator:ci
 
     - name: Run Trivy vulnerability scanner (CRITICAL, must be fixable)
       uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0

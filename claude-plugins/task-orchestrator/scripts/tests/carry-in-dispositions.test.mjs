@@ -1,12 +1,11 @@
-// Carry-in disposition coverage (item f32d5442): seatPrompt parts, run-planner snapshot
-// validation, plan args and meta, explainPlan, and agent/skill text.
+// Carry-in plumbing coverage (4.0 twin, item a3d6a64a): seatPrompt parts, run-planner snapshot
+// validation, plan args and meta, explainPlan, schema fixture and orchestrator docs.
 //
-// BLIND test author: written from the frozen test-plan and task-scope notes (D1-D8) and a
-// DECLARATIONS file, never from the implementation sources. Oracles are cited inline as Dn
-// (task-scope decision n). Node 22, node:test + node:assert/strict, no deps.
+// BLIND test author: written from the frozen test-plan, task-scope (A1-A6) and the main f32d5442
+// decisions D1-D6, plus a DECLARATIONS file; never from the implementation sources. Oracles are
+// cited inline as Dn / An. Node 22, node:test + node:assert/strict, no deps.
 //
-// Scenario ids S1-S12 match the item's test-plan; S13 and S14 are author-added (schema
-// fixture and doc text), S12c is a split of S12.
+// S1-S13 match the item's test-plan. Agent-text tests (main S12/S12c) are not ported (A6).
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -26,8 +25,6 @@ import {
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const PLUGIN = path.resolve(HERE, '..', '..')
 const SCRIPT_PATH = path.join(PLUGIN, 'workflows', 'implement-wave.js')
-const PLANNER_MD = path.join(PLUGIN, 'agents', 'planner.md')
-const REVIEWER_MD = path.join(PLUGIN, 'agents', 'reviewer.md')
 const SKILL_MD = path.join(PLUGIN, 'skills', 'run-wave', 'SKILL.md')
 const SNAPSHOT_MD = path.join(PLUGIN, 'skills', 'run-wave', 'references', 'snapshot.md')
 const FIXTURES = path.join(HERE, 'fixtures', 'run-planner')
@@ -47,6 +44,8 @@ function readText(p) {
 // seatPrompt helpers
 // ---------------------------------------------------------------------------
 
+const ITEM_UUID = '11111111-1111-4111-8111-111111111111'
+
 const PROJECT = {
   searchScope: 'claude-plugins/task-orchestrator',
   scratchDir: '/tmp/scratch',
@@ -61,6 +60,7 @@ function makeItem(short, stageList, overrides = {}) {
     configFingerprint: `fp-${short}`,
     traits: ['delegated', 'session-tracked'],
     stages: stageList,
+    id: ITEM_UUID,
     ...overrides,
   })
 }
@@ -139,7 +139,10 @@ test('S1: planner-v1 stage with carry-in-dispositions and 3 carry-ins renders ex
     keyLists.some((l) => KEYS3.every((k) => l.includes(k))),
     `no keys list holding all three keys: ${JSON.stringify(keyLists)}`
   )
-  assert.match(part, /includeBody\s*[:=]\s*true/)
+  assert.ok(part.includes('notes_read'), 'notes_read not named')
+  assert.match(part, /select:\s*"get"/)
+  assert.ok(part.includes(ITEM_UUID), 'full item UUID not named')
+  assert.ok(!prompt.includes('includeBody'), 'includeBody is not a 4.0 notes_read parameter (A1)')
 })
 
 // ---- S2 ---------------------------------------------------------------------
@@ -160,7 +163,10 @@ test('S3: implementer-v1 stage with lateCarryIns [carry-in-b] and carryIns [a, b
   const prompt = promptFor(implementerStage(), { carryIns: ['carry-in-a', 'carry-in-b'], lateCarryIns: ['carry-in-b'] })
   const part = partOf(prompt, 'LATE CARRY-INS')
   assert.ok(part.includes('carry-in-b'), 'late key not named in the part')
-  assert.match(part, /includeBody\s*[:=]\s*true/)
+  assert.ok(part.includes('notes_read'), 'notes_read not named')
+  assert.match(part, /select:\s*"get"/)
+  assert.ok(part.includes(ITEM_UUID), 'full item UUID not named')
+  assert.ok(!prompt.includes('includeBody'))
   assert.ok(part.includes('orchestrator-carry-in-dispositions'), 'disposition note not named')
   assert.ok(!prompt.includes('carry-in-a'), 'a non-late carry-in must not appear in the implementer prompt')
   assert.ok(!/(?<!LATE )CARRY-INS/.test(prompt), 'the planner CARRY-INS part must not appear in an implementer prompt')
@@ -319,6 +325,7 @@ test('S5: resumed item (no planner-v1 stage), keys a/ab/c, record disposing ab a
   assert.deepEqual(item.carryIns, ['carry-in-a', 'carry-in-ab', 'carry-in-c'])
   assert.deepEqual(item.lateCarryIns, ['carry-in-a'])
   assert.deepEqual(doc.meta.lateCarryIns, [{ id: cand.id, short: cand.short, key: 'carry-in-a' }])
+  assert.match(cand.short, /^[0-9a-f]{8}$/, 'short is 8 lowercase hex (A4)')
 
   const text = explainPlan(doc)
   const line = text.split('\n').find((l) => l.includes('Late carry-ins:'))
@@ -426,7 +433,7 @@ test('Probe: isCarryInDisposed matches only a line that starts with exactly "<ke
 
 // ---- S13: args schema fixture ------------------------------------------------
 
-test('S13: the args-v1 schema fixture declares carryIns and lateCarryIns as arrays of strings [D4]', () => {
+test('S12: the args-v1 schema fixture declares carryIns and lateCarryIns as arrays of strings [D4]', () => {
   const schema = loadFixture('args-v1.schema.json')
   const props = schema.properties.items.items.properties
   for (const field of ['carryIns', 'lateCarryIns']) {
@@ -434,7 +441,7 @@ test('S13: the args-v1 schema fixture declares carryIns and lateCarryIns as arra
   }
 })
 
-test('S13: plan docs carrying carryIns and lateCarryIns satisfy validatePlanDoc against the schema fixture [D4]', () => {
+test('S12: plan docs carrying carryIns and lateCarryIns satisfy validatePlanDoc against the schema fixture [D4]', () => {
   const schema = loadFixture('args-v1.schema.json')
   const { snap: queue } = snapOne({ carry: { keys: ['carry-in-a'], dispositions: null } })
   const { snap: work } = snapOne({ role: 'work', carry: { keys: ['carry-in-a'], dispositions: null } })
@@ -445,7 +452,7 @@ test('S13: plan docs carrying carryIns and lateCarryIns satisfy validatePlanDoc 
   }
 })
 
-test('S13 (probe): validatePlanDoc rejects a non-string entry in carryIns [D4]', () => {
+test('S12 (probe): validatePlanDoc rejects a non-string entry in carryIns [D4]', () => {
   const schema = loadFixture('args-v1.schema.json')
   const { snap } = snapOne({ carry: { keys: ['carry-in-a'], dispositions: null } })
   const doc = plan(snap)
@@ -456,48 +463,15 @@ test('S13 (probe): validatePlanDoc rejects a non-string entry in carryIns [D4]',
   assert.equal(validatePlanDoc(doc2, schema).ok, false)
 })
 
-// ---------------------------------------------------------------------------
-// S12: agent and skill text. Loose by design: the author is blind to these files, so the
-// assertions follow the D1/D2/D7/D8 vocabulary only.
-// ---------------------------------------------------------------------------
+// ---- S13: orchestrator-facing docs ------------------------------------------
 
-function paragraphs(text) {
-  return text.split(/\n\s*\n/)
-}
-
-test('S12: planner.md names carry-in- keys, the record, the D2 line form and the "N of N" count line [D1, D2, D8]', () => {
-  const text = readText(PLANNER_MD)
-  for (const needle of ['carry-in-', 'carry-in-dispositions', 'in scope', 'deferred to', 'rejected because', 'N of N']) {
-    assert.ok(text.includes(needle), `planner.md must mention ${JSON.stringify(needle)}`)
-  }
-})
-
-test('S12c: planner.md says the carry-in-dispositions record itself is not a carry-in key to dispose [D1]', () => {
-  const text = readText(PLANNER_MD)
-  const hit = paragraphs(text).some(
-    (p) => p.includes('carry-in-dispositions') && /exclud|except|not a|not an|not one|itself|other than|besides|never|omit|skip/i.test(p)
-  )
-  assert.ok(hit, 'no paragraph pairs carry-in-dispositions with an exclusion statement')
-})
-
-test('S12: reviewer.md makes an undisposed carry-in a blocking finding, names orchestrator-carry-in-dispositions and the count check [D7]', () => {
-  const text = readText(REVIEWER_MD)
-  for (const needle of ['carry-in-', 'orchestrator-carry-in-dispositions', 'N of N']) {
-    assert.ok(text.includes(needle), `reviewer.md must mention ${JSON.stringify(needle)}`)
-  }
-  const hit = paragraphs(text).some((p) => p.includes('carry-in') && /blocking/i.test(p))
-  assert.ok(hit, 'no paragraph pairs carry-in with blocking')
-})
-
-// ---- S14: orchestrator-facing docs ------------------------------------------
-
-test('S14: run-wave SKILL.md tells the orchestrator to record late carry-ins in orchestrator-carry-in-dispositions [D6]', () => {
+test('S13: run-wave SKILL.md tells the orchestrator to record late carry-ins in orchestrator-carry-in-dispositions [D6]', () => {
   const text = readText(SKILL_MD)
   assert.ok(text.includes('orchestrator-carry-in-dispositions'))
   assert.ok(text.includes('lateCarryIns'))
 })
 
-test('S14: the snapshot reference documents carryIns, keys and dispositions [D3]', () => {
+test('S13: the snapshot reference documents carryIns, keys and dispositions [D3]', () => {
   const text = readText(SNAPSHOT_MD)
   for (const needle of ['carryIns', 'keys', 'dispositions']) {
     assert.ok(text.includes(needle), `snapshot.md must mention ${needle}`)

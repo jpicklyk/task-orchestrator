@@ -1,8 +1,19 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth
 
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.CredentialResolver
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
+import io.github.jpicklyk.mcptask.current.test.resolveOrNull
 import io.mockk.coEvery
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -18,7 +29,7 @@ import java.time.Instant
  * integration testing (via `ktor-server-test-host`), and that dependency is not in the project,
  * these tests exercise the key algorithmic components directly:
  *
- * 1. SHA-256 token lookup via [BearerTokenStore.lookupInEntries]
+ * 1. SHA-256 token lookup via [io.github.jpicklyk.mcptask.current.infrastructure.identity.CredentialResolver]
  * 2. Expiry enforcement in the token store
  * 3. [JwksApiVerifier.verify] called correctly
  * 4. [HashBytes] equality using constant-time compare
@@ -34,12 +45,13 @@ class AuthenticationPluginTest {
 
     private fun sha256Hex(input: String): String = sha256(input).joinToString("") { "%02x".format(it) }
 
-    private fun makePrincipal(id: String): ApiPrincipal =
-        ApiPrincipal(
-            tokenId = id,
-            scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+    private fun makePrincipal(id: String): Principal =
+        Principal(
+            id = id,
+            scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
             capabilities = setOf(ApiCapability.READ),
-            authMode = ApiAuthMode.BEARER,
+            kind = PrincipalKind.SERVICE,
+            proofStatus = ProofStatus.ISSUED,
         )
 
     private fun makeEntries(vararg tokens: Pair<String, String>): Map<HashBytes, BearerTokenStore.TokenEntry> =
@@ -48,23 +60,23 @@ class AuthenticationPluginTest {
         }
 
     // -------------------------------------------------------------------------
-    // BearerTokenStore.lookupInEntries — directly exercises the auth logic
+    // CredentialResolver -- directly exercises the auth logic
     // -------------------------------------------------------------------------
 
     @Test
     fun `valid bearer token resolves to principal`() {
         val entries = makeEntries("secret-token" to "my-service")
         val store = BearerTokenStore("/unused")
-        val result = store.lookupInEntries("secret-token", entries)
+        val result = runBlocking { CredentialResolver(entries, null).resolveOrNull("secret-token")?.principal }
         assertNotNull(result)
-        assertEquals("my-service", result!!.tokenId)
+        assertEquals("my-service", result!!.id)
     }
 
     @Test
     fun `missing bearer token returns null`() {
         val entries = makeEntries("correct-secret" to "my-service")
         val store = BearerTokenStore("/unused")
-        val result = store.lookupInEntries("wrong-secret", entries)
+        val result = runBlocking { CredentialResolver(entries, null).resolveOrNull("wrong-secret")?.principal }
         assertNull(result)
     }
 
@@ -81,8 +93,8 @@ class AuthenticationPluginTest {
                     ),
             )
         val fixedClock: () -> Instant = { Instant.now() } // real clock, token is in the past
-        val store = BearerTokenStore("/unused", clock = fixedClock)
-        val result = store.lookupInEntries(rawToken, entries)
+        val store = BearerTokenStore("/unused")
+        val result = runBlocking { CredentialResolver(entries, null).resolveOrNull(rawToken)?.principal }
         assertNull(result, "Expired token should return null")
     }
 
@@ -99,9 +111,9 @@ class AuthenticationPluginTest {
                     ),
             )
         val store = BearerTokenStore("/unused")
-        val result = store.lookupInEntries(rawToken, entries)
+        val result = runBlocking { CredentialResolver(entries, null).resolveOrNull(rawToken)?.principal }
         assertNotNull(result)
-        assertEquals("future-user", result!!.tokenId)
+        assertEquals("future-user", result!!.id)
     }
 
     @Test
@@ -113,8 +125,11 @@ class AuthenticationPluginTest {
         val entries = makeEntries(tokenA to "alpha-user")
         val store = BearerTokenStore("/unused")
 
-        assertNotNull(store.lookupInEntries(tokenA, entries), "tokenA should resolve")
-        assertNull(store.lookupInEntries(tokenB, entries), "tokenB should NOT resolve for tokenA's entry")
+        assertNotNull(runBlocking { CredentialResolver(entries, null).resolveOrNull(tokenA)?.principal }, "tokenA should resolve")
+        assertNull(
+            runBlocking { CredentialResolver(entries, null).resolveOrNull(tokenB)?.principal },
+            "tokenB should NOT resolve for tokenA's entry"
+        )
     }
 
     @Test
@@ -127,10 +142,10 @@ class AuthenticationPluginTest {
             )
         val store = BearerTokenStore("/unused")
 
-        assertEquals("reader", store.lookupInEntries("token-read", entries)?.tokenId)
-        assertEquals("writer", store.lookupInEntries("token-write", entries)?.tokenId)
-        assertEquals("admin", store.lookupInEntries("token-admin", entries)?.tokenId)
-        assertNull(store.lookupInEntries("token-unknown", entries))
+        assertEquals("reader", runBlocking { CredentialResolver(entries, null).resolveOrNull("token-read")?.principal }?.id)
+        assertEquals("writer", runBlocking { CredentialResolver(entries, null).resolveOrNull("token-write")?.principal }?.id)
+        assertEquals("admin", runBlocking { CredentialResolver(entries, null).resolveOrNull("token-admin")?.principal }?.id)
+        assertNull(runBlocking { CredentialResolver(entries, null).resolveOrNull("token-unknown")?.principal })
     }
 
     // -------------------------------------------------------------------------
@@ -138,19 +153,19 @@ class AuthenticationPluginTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `JWKS verifier called with token string`() =
+    fun `JWKS verifier called with token string`(): Unit =
         runTest {
             val verifier = mockk<JwksApiVerifier>()
-            val principal = makePrincipal("jwks-caller").copy(authMode = ApiAuthMode.JWKS)
+            val principal = makePrincipal("jwks-caller").copy(kind = PrincipalKind.SERVICE, proofStatus = ProofStatus.VERIFIED)
             coEvery { verifier.verify(any()) } returns principal
 
             val result = verifier.verify("valid.jwt.token")
             assertNotNull(result)
-            assertEquals(ApiAuthMode.JWKS, result!!.authMode)
+            assertEquals(ProofStatus.VERIFIED, result!!.proofStatus)
         }
 
     @Test
-    fun `JWKS verifier returns null for bad JWT`() =
+    fun `JWKS verifier returns null for bad JWT`(): Unit =
         runTest {
             val verifier = mockk<JwksApiVerifier>()
             coEvery { verifier.verify(any()) } returns null

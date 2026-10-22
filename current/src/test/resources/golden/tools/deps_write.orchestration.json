@@ -1,0 +1,105 @@
+{
+  "name": "deps_write",
+  "inputSchema": {
+    "properties": {
+      "ops": {
+        "type": "array",
+        "description": "Write operations, one flat object per op, run in order. A field marked [ops: ...] applies only to the ops named.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "description": "The operation this element runs.",
+              "enum": [
+                "create",
+                "delete",
+                "linear",
+                "fan_out",
+                "fan_in"
+              ]
+            },
+            "from": {
+              "type": "string",
+              "description": "Source item of the edge (the blocker for blocks): a UUID or a hex prefix of 8 to 32 characters. [ops: create, delete, fan_out]"
+            },
+            "to": {
+              "type": "string",
+              "description": "Target item of the edge (the blocked item for blocks): a UUID or a hex prefix of 8 to 32 characters. [ops: create, delete, fan_in]"
+            },
+            "type": {
+              "type": "string",
+              "description": "Edge type: blocks or relates_to. Create applies blocks when absent; delete matches either type when absent.",
+              "enum": [
+                "blocks",
+                "relates_to"
+              ]
+            },
+            "unblockAt": {
+              "type": "string",
+              "description": "Role the blocker must reach to unblock the target: queue, work, review or terminal (default terminal). Not allowed with relates_to. [ops: create, linear, fan_out, fan_in]",
+              "enum": [
+                "queue",
+                "work",
+                "review",
+                "terminal"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "description": "Full dependency UUID (not a prefix). [ops: delete]"
+            },
+            "item": {
+              "type": "string",
+              "description": "Delete every edge touching this item (either end). Item id: a UUID or a hex prefix of 8 to 32 characters. [ops: delete]"
+            },
+            "ids": {
+              "type": "array",
+              "description": "Items in chain order, at least 2: each one blocks the next. [ops: linear]",
+              "items": {
+                "type": "string"
+              }
+            },
+            "toIds": {
+              "type": "array",
+              "description": "Target items, at least 1: from blocks each of them. [ops: fan_out]",
+              "items": {
+                "type": "string"
+              }
+            },
+            "fromIds": {
+              "type": "array",
+              "description": "Source items, at least 1: each of them blocks to. [ops: fan_in]",
+              "items": {
+                "type": "string"
+              }
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "Optional client key (1-128 chars). Resending the same op with the same key returns the stored result."
+            }
+          },
+          "required": [
+            "op"
+          ]
+        }
+      },
+      "atomic": {
+        "type": "boolean",
+        "description": "true: the first failing op rolls back the whole batch. Default false: each op commits on its own."
+      },
+      "describe": {
+        "type": "boolean",
+        "description": "true: return the operations, their parameters and errors instead of running the tool."
+      }
+    },
+    "type": "object"
+  },
+  "description": "Create and delete dependency edges between items: create, delete, and the patterns linear, fan_out and fan_in (one element, all edges or none). Each op needs the manage-dependencies capability and sees only items in scope. Result: an edge {id, from, to, type, unblockAt?}, {created: [edge]} or {deleted: n}. Call with describe:true for each operation's parameters and errors.",
+  "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

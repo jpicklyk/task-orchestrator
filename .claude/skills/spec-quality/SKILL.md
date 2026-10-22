@@ -72,7 +72,7 @@ authority to the agent that implements it faithfully.
 If the spec claims something was verified, name exactly what was checked. "Verified
 against source" that checked one path while prescribing another is how a partially
 verified claim ships a defect (two sessions of evidence: task-scope facts contradicting
-target files, 2026-07-27; a design prescribing `advance_item` trigger sequences that
+target files, 2026-07-27; a design prescribing `advance` trigger sequences that
 gate-block, 2026-07-31).
 
 This discipline applies to the **plan artifact** as much as to spec notes. Specification notes
@@ -127,7 +127,7 @@ Read `references/project-concerns.md` for cross-cutting constraints specific to 
 codebase that frequently expand blast radius in non-obvious ways.
 
 If the blast radius touches a surface with an automated budget, ceiling, or quota test
-(e.g. `ToolTokenBudgetTest`), measure current headroom while writing the spec and record
+(e.g. `ToolSurfaceGuardsTest`), measure current headroom while writing the spec and record
 both the measured values and the predicted post-change values. Do not defer the
 measurement to implementation — by then the scope decision is already made.
 

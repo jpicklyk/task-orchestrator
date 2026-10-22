@@ -1,0 +1,336 @@
+package io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer
+
+import io.github.jpicklyk.mcptask.current.infrastructure.config.EnvBoolean
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.MAX_TOKEN_LIFETIME_SECONDS_CEILING
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.isLiteralLoopbackHost
+import org.slf4j.LoggerFactory
+import java.net.MalformedURLException
+import java.net.URL
+
+/** Confirm flag permitting plaintext http for [ApiAuthConfigLoader]'s `API_JWKS_URL`, restricted to a loopback host. */
+private const val ALLOW_INSECURE_JWKS_URL_ENV = "API_JWKS_ALLOW_INSECURE_URL"
+
+/** Default for `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS` when unset: 24 hours. */
+private const val DEFAULT_MAX_TOKEN_LIFETIME_SECONDS = 86400L
+
+/** Max-stale bound for a cached JWKS after a failed refresh. */
+private const val MAX_STALE_SECONDS_ENV = "API_JWKS_MAX_STALE_SECONDS"
+
+/** Floor of the `API_JWKS_MAX_STALE_SECONDS` default (`max(this, API_JWKS_CACHE_TTL_SECONDS)`): 1 hour. */
+private const val DEFAULT_MAX_STALE_SECONDS = 3600L
+
+/**
+ * Environment-variable-driven loader for [ApiAuthConfig].
+ *
+ * Reads the following environment variables (see §9 of [plans/api-layer.md]):
+ *
+ * | Variable | Required when | Default | Description |
+ * |----------|--------------|---------|-------------|
+ * | `API_ENABLED` | optional | `false` | Master API switch. Unset or `false` → [ApiAuthConfig.Disabled]. `true` opts in (then `API_AUTH_MODE` is required). |
+ * | `API_AUTH_MODE` | `API_ENABLED=true` | — | `bearer` or `jwks`. Also accepts `none` when `API_ALLOW_UNAUTHENTICATED=true` (see below) → [ApiAuthConfig.Unauthenticated]. Unset / invalid / `none` without the confirm flag → startup failure. |
+ * | `API_ALLOW_UNAUTHENTICATED` | optional | `false` | Confirm flag required alongside `API_AUTH_MODE=none` to opt into [ApiAuthConfig.Unauthenticated]. Parsed like `API_ENABLED`. Ignored when `API_AUTH_MODE` is not `none`. |
+ * | `API_TOKENS_PATH` | bearer mode | `/run/secrets/api-tokens.yaml` | Path to the bearer token secret file. |
+ * | `API_JWKS_URL` | jwks mode | — | JWKS endpoint URL. Required; startup fails if absent. Must be `https` — plaintext `http` is rejected unless [ALLOW_INSECURE_JWKS_URL_ENV] parses true (via [EnvBoolean.require]) AND the host is a literal loopback address (`localhost`, `127.x.x.x`, `::1`). |
+ * | `API_JWKS_ALLOW_INSECURE_URL` | optional | `false` | Confirm flag permitting plaintext `http` for `API_JWKS_URL`, restricted to a loopback host (see above). Parsed like `API_ENABLED`. |
+ * | `API_JWKS_ISSUER` | jwks mode | — | Expected `iss` claim. Required. |
+ * | `API_JWKS_AUDIENCE` | jwks mode | — | Expected `aud` claim. Required. |
+ * | `API_JWKS_ALGORITHMS` | jwks mode | — | Comma-separated algorithm allowlist (e.g. `RS256,EdDSA`). Required. |
+ * | `API_JWKS_CACHE_TTL_SECONDS` | jwks mode | `300` | JWKS cache TTL in seconds. |
+ * | `API_JWKS_MAX_STALE_SECONDS` | optional | `max(3600, TTL)` | Oldest a cached JWKS may be and still be served after a failed refresh. Positive and >= the TTL, else startup failure. |
+ *
+ * **Fail-fast guarantee:** any misconfiguration throws [IllegalArgumentException] or
+ * [IllegalStateException] with a descriptive message.  The caller (main entrypoint) must
+ * treat this as a fatal startup failure and exit non-zero.
+ *
+ * @param envResolver Resolver for environment variables; defaults to "nothing set". The composition root passes the
+ *   resolver behind `AppConfig`, so this class never reads the process environment itself.
+ */
+class ApiAuthConfigLoader(
+    private val envResolver: (String) -> String? = { null },
+) {
+    private val logger = LoggerFactory.getLogger(ApiAuthConfigLoader::class.java)
+
+    /**
+     * Loads and validates the API authentication configuration.
+     *
+     * @throws IllegalArgumentException if any required variable is missing, invalid, or
+     *   inconsistent (e.g., API_AUTH_MODE=none, bearer mode with missing token file, etc.).
+     */
+    fun load(): ApiAuthConfig {
+        val apiEnabled = resolveApiEnabled()
+
+        if (!apiEnabled) {
+            logger.info("API is disabled (API_ENABLED unset or false)")
+            return ApiAuthConfig.Disabled
+        }
+
+        val allowUnauthenticated = resolveApiAllowUnauthenticated()
+        val authMode = resolveAuthMode(allowUnauthenticated)
+        return when (authMode) {
+            "bearer" -> loadBearer()
+            "jwks" -> loadJwks()
+            "none" -> {
+                logger.warn(
+                    "API_AUTH_MODE=none with API_ALLOW_UNAUTHENTICATED=true: the REST API will run " +
+                        "UNAUTHENTICATED. This must only be used on a loopback-bound local server.",
+                )
+                ApiAuthConfig.Unauthenticated
+            }
+            else -> throw IllegalArgumentException(
+                "API_AUTH_MODE='$authMode' is not supported. Valid values: bearer, jwks.",
+            )
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Internal helpers
+    // -------------------------------------------------------------------------
+
+    private fun resolveApiEnabled(): Boolean {
+        // Default-OFF: when API_ENABLED is unset, the REST API is disabled. This keeps the stock
+        // container (stdio, no API_* vars) booting cleanly — an enabled API hard-requires
+        // API_AUTH_MODE and would otherwise crash a default deployment at startup. The API is an
+        // opt-in layer the operator turns on with API_ENABLED=true + API_AUTH_MODE.
+        return EnvBoolean.require("API_ENABLED", envResolver("API_ENABLED"), default = false)
+    }
+
+    private fun resolveApiAllowUnauthenticated(): Boolean {
+        // Confirm flag for API_AUTH_MODE=none — parsed exactly like resolveApiEnabled. Two
+        // independent keys must both be set to reach Unauthenticated: this key alone (with any
+        // other API_AUTH_MODE) is a no-op, and API_AUTH_MODE=none alone (without this key) still
+        // fails fast in resolveAuthMode below.
+        return EnvBoolean.require("API_ALLOW_UNAUTHENTICATED", envResolver("API_ALLOW_UNAUTHENTICATED"), default = false)
+    }
+
+    private fun resolveAuthMode(allowUnauthenticated: Boolean): String {
+        val raw = envResolver("API_AUTH_MODE")
+        if (raw.isNullOrBlank()) {
+            throw IllegalArgumentException(
+                "API_AUTH_MODE is required when API_ENABLED=true. " +
+                    "Valid values: bearer, jwks (or none, with API_ALLOW_UNAUTHENTICATED=true).",
+            )
+        }
+        val normalised = raw.lowercase().trim()
+        if (normalised == "none") {
+            if (!allowUnauthenticated) {
+                throw IllegalArgumentException(
+                    "API_AUTH_MODE=none requires API_ALLOW_UNAUTHENTICATED=true to confirm this opt-in " +
+                        "(the REST API would otherwise run unauthenticated). Valid values: bearer, jwks, " +
+                        "or none with API_ALLOW_UNAUTHENTICATED=true.",
+                )
+            }
+            return normalised
+        }
+        if (normalised !in listOf("bearer", "jwks")) {
+            throw IllegalArgumentException(
+                "API_AUTH_MODE='$raw' is not valid. Valid values: bearer, jwks, none " +
+                    "(requires API_ALLOW_UNAUTHENTICATED=true).",
+            )
+        }
+        return normalised
+    }
+
+    private fun loadBearer(): ApiAuthConfig.Bearer {
+        val tokensPath =
+            envResolver("API_TOKENS_PATH")?.trim()?.takeIf { it.isNotBlank() }
+                ?: "/run/secrets/api-tokens.yaml"
+
+        logger.info("Loading bearer tokens from '{}'", tokensPath)
+
+        val store = BearerTokenStore(filePath = tokensPath)
+        // loadWithEntries() performs full fail-fast validation and throws on any misconfig
+        return ApiAuthConfig.Bearer(tokens = store.loadWithEntries())
+    }
+
+    private fun loadJwks(): ApiAuthConfig.Jwks {
+        val url =
+            envResolver("API_JWKS_URL")?.trim()?.takeIf { it.isNotBlank() }
+                ?: throw IllegalArgumentException(
+                    "API_JWKS_URL is required when API_AUTH_MODE=jwks.",
+                )
+
+        // Fail-fast URL validation — reject malformed URLs at startup rather than at first JWKS fetch
+        val parsedUrl =
+            try {
+                URL(url)
+            } catch (e: MalformedURLException) {
+                throw IllegalArgumentException(
+                    "API_JWKS_URL '$url' is not a valid URL: ${e.message}. " +
+                        "Provide a fully-qualified URL, e.g. 'https://auth.example.com/.well-known/jwks.json'.",
+                )
+            }
+        val allowInsecureUrl = validateJwksUrlScheme(parsedUrl, url)
+
+        val issuer =
+            envResolver("API_JWKS_ISSUER")?.trim()?.takeIf { it.isNotBlank() }
+                ?: throw IllegalArgumentException(
+                    "API_JWKS_ISSUER is required when API_AUTH_MODE=jwks.",
+                )
+
+        val audience =
+            envResolver("API_JWKS_AUDIENCE")?.trim()?.takeIf { it.isNotBlank() }
+                ?: throw IllegalArgumentException(
+                    "API_JWKS_AUDIENCE is required when API_AUTH_MODE=jwks.",
+                )
+
+        val algorithmsRaw =
+            envResolver("API_JWKS_ALGORITHMS")?.trim()?.takeIf { it.isNotBlank() }
+                ?: throw IllegalArgumentException(
+                    "API_JWKS_ALGORITHMS is required when API_AUTH_MODE=jwks. " +
+                        "Provide a comma-separated list of algorithms, e.g. 'RS256,EdDSA'.",
+                )
+        val algorithms =
+            algorithmsRaw
+                .split(",")
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+        if (algorithms.isEmpty()) {
+            throw IllegalArgumentException(
+                "API_JWKS_ALGORITHMS is empty after parsing '$algorithmsRaw'. " +
+                    "At least one algorithm is required.",
+            )
+        }
+
+        val cacheTtlSeconds =
+            envResolver("API_JWKS_CACHE_TTL_SECONDS")
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?.toLongOrNull()
+                ?: 300L
+
+        if (cacheTtlSeconds <= 0) {
+            throw IllegalArgumentException(
+                "API_JWKS_CACHE_TTL_SECONDS must be a positive integer, got '$cacheTtlSeconds'.",
+            )
+        }
+
+        // Unlike API_JWKS_CACHE_TTL_SECONDS above, a non-numeric or non-positive value here fails
+        // startup rather than silently falling back to the default -- this knob directly controls
+        // how long a stolen token stays usable, so a typo must not be allowed to silently widen it.
+        val maxTokenLifetimeSecondsRaw = envResolver("API_JWKS_MAX_TOKEN_LIFETIME_SECONDS")?.trim()
+        val maxTokenLifetimeSeconds =
+            if (maxTokenLifetimeSecondsRaw.isNullOrBlank()) {
+                DEFAULT_MAX_TOKEN_LIFETIME_SECONDS
+            } else {
+                val parsed =
+                    maxTokenLifetimeSecondsRaw.toLongOrNull()
+                        ?: throw IllegalArgumentException(
+                            "API_JWKS_MAX_TOKEN_LIFETIME_SECONDS must be a positive integer, " +
+                                "got '$maxTokenLifetimeSecondsRaw'.",
+                        )
+                if (parsed <= 0) {
+                    throw IllegalArgumentException(
+                        "API_JWKS_MAX_TOKEN_LIFETIME_SECONDS must be a positive integer, got '$parsed'.",
+                    )
+                }
+                if (parsed > MAX_TOKEN_LIFETIME_SECONDS_CEILING) {
+                    throw IllegalArgumentException(
+                        "API_JWKS_MAX_TOKEN_LIFETIME_SECONDS must not exceed " +
+                            "$MAX_TOKEN_LIFETIME_SECONDS_CEILING (~100 years), got '$parsed'.",
+                    )
+                }
+                parsed
+            }
+
+        val maxStaleSeconds = resolveMaxStaleSeconds(cacheTtlSeconds)
+
+        logger.info(
+            "JWKS auth configured: url={}, issuer={}, audience={}, algorithms={}, cacheTtlSeconds={}, " +
+                "maxTokenLifetimeSeconds={}, maxStaleSeconds={}",
+            url,
+            issuer,
+            audience,
+            algorithms,
+            cacheTtlSeconds,
+            maxTokenLifetimeSeconds,
+            maxStaleSeconds,
+        )
+
+        return ApiAuthConfig.Jwks(
+            url = url,
+            issuer = issuer,
+            audience = audience,
+            algorithms = algorithms,
+            cacheTtlSeconds = cacheTtlSeconds,
+            maxTokenLifetimeSeconds = maxTokenLifetimeSeconds,
+            maxStaleSeconds = maxStaleSeconds,
+            allowInsecureUrl = allowInsecureUrl,
+        )
+    }
+
+    /**
+     * `API_JWKS_MAX_STALE_SECONDS`: how old a cached key set may be (from its real fetch time) and
+     * still be served after a failed refresh. Unset defaults to `max(3600, cacheTtlSeconds)`. Like
+     * `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS`, a bad value fails startup rather than falling back: it
+     * must be a positive integer no smaller than `API_JWKS_CACHE_TTL_SECONDS`.
+     */
+    private fun resolveMaxStaleSeconds(cacheTtlSeconds: Long): Long {
+        val raw = envResolver(MAX_STALE_SECONDS_ENV)?.trim()
+        if (raw.isNullOrBlank()) {
+            return maxOf(DEFAULT_MAX_STALE_SECONDS, cacheTtlSeconds)
+        }
+        val parsed =
+            raw.toLongOrNull()
+                ?: throw IllegalArgumentException("$MAX_STALE_SECONDS_ENV must be a positive integer, got '$raw'.")
+        if (parsed <= 0) {
+            throw IllegalArgumentException("$MAX_STALE_SECONDS_ENV must be a positive integer, got '$parsed'.")
+        }
+        if (parsed < cacheTtlSeconds) {
+            throw IllegalArgumentException(
+                "$MAX_STALE_SECONDS_ENV must be at least API_JWKS_CACHE_TTL_SECONDS ($cacheTtlSeconds), got '$parsed'.",
+            )
+        }
+        return parsed
+    }
+
+    /**
+     * Enforces the `API_JWKS_URL` scheme contract: `https` is always accepted; plaintext `http`
+     * is accepted only when [ALLOW_INSECURE_JWKS_URL_ENV] parses true AND [url]'s host is a
+     * literal loopback address. Any other scheme (`file`, `ftp`, `jar`, ...) is always rejected.
+     *
+     * The insecure-opt-in flag is resolved unconditionally (even for an `https` URL) so that a
+     * malformed flag value fails startup fast rather than being silently ignored because it
+     * happened not to be needed.
+     *
+     * @return The parsed insecure-opt-in flag, which also admits loopback in the key fetch's egress guard.
+     */
+    private fun validateJwksUrlScheme(
+        url: URL,
+        raw: String,
+    ): Boolean {
+        val allowInsecure =
+            EnvBoolean.require(
+                ALLOW_INSECURE_JWKS_URL_ENV,
+                envResolver(ALLOW_INSECURE_JWKS_URL_ENV),
+                default = false,
+            )
+
+        val scheme = url.protocol?.lowercase()
+        if (scheme == "https") {
+            return allowInsecure
+        }
+
+        if (scheme == "http" && allowInsecure) {
+            if (isLiteralLoopbackHost(url.host)) {
+                logger.warn(
+                    "API_JWKS_URL '{}' uses plaintext http, permitted because {}=true and host '{}' is a " +
+                        "loopback address. This must only be used for local development.",
+                    raw,
+                    ALLOW_INSECURE_JWKS_URL_ENV,
+                    url.host,
+                )
+                return allowInsecure
+            }
+            throw IllegalArgumentException(
+                "API_JWKS_URL '$raw' uses scheme 'http' with $ALLOW_INSECURE_JWKS_URL_ENV=true, but host " +
+                    "'${url.host}' is not a loopback address. Plaintext http is permitted only for a loopback " +
+                    "host (localhost, 127.x.x.x, ::1).",
+            )
+        }
+
+        throw IllegalArgumentException(
+            "API_JWKS_URL '$raw' uses scheme '$scheme'. JWKS key material must be fetched over https; " +
+                "plaintext http is permitted only for a loopback host with $ALLOW_INSECURE_JWKS_URL_ENV=true.",
+        )
+    }
+}

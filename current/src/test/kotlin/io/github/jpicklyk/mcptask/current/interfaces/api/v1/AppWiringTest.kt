@@ -1,13 +1,14 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1
 
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.serviceRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.wellKnownRoutes
 import io.ktor.client.request.get
@@ -54,13 +55,14 @@ class AppWiringTest {
         tokenId: String = "test-token"
     ): ApiAuthConfig.Bearer {
         val principal =
-            ApiPrincipal(
-                tokenId = tokenId,
-                scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+            Principal(
+                id = tokenId,
+                scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
                 capabilities = setOf(ApiCapability.READ),
-                authMode = ApiAuthMode.BEARER,
+                kind = PrincipalKind.SERVICE,
+                proofStatus = ProofStatus.ISSUED,
             )
-        return ApiAuthConfig.Bearer(tokens = mapOf(HashBytes(sha256(token)) to principal))
+        return ApiAuthConfig.Bearer(tokens = mapOf(HashBytes(sha256(token)) to BearerTokenStore.TokenEntry(principal, expiresAt = null)))
     }
 
     // -------------------------------------------------------------------------
@@ -68,7 +70,7 @@ class AppWiringTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `health endpoint returns 200 without any auth header`() =
+    fun `health endpoint returns 200 without any auth header`(): Unit =
         testApplication {
             val apiConfig = makeBearerConfig("my-secret-token")
             application {
@@ -80,9 +82,7 @@ class AppWiringTest {
                         install(ApiBearerAuth) {
                             authConfig = apiConfig
                             tokenEntries =
-                                apiConfig.tokens.mapValues { (_, p) ->
-                                    BearerTokenStore.TokenEntry(p, expiresAt = null)
-                                }
+                                apiConfig.tokens
                         }
                         serviceRoutes(repositoryProvider = null, serverName = "wiring-test", serverVersion = "2.0.0")
                     }
@@ -97,7 +97,7 @@ class AppWiringTest {
         }
 
     @Test
-    fun `health endpoint returns 200 even with auth header present`() =
+    fun `health endpoint returns 200 even with auth header present`(): Unit =
         testApplication {
             val token = "my-secret-token"
             val apiConfig = makeBearerConfig(token)
@@ -109,9 +109,7 @@ class AppWiringTest {
                         install(ApiBearerAuth) {
                             authConfig = apiConfig
                             tokenEntries =
-                                apiConfig.tokens.mapValues { (_, p) ->
-                                    BearerTokenStore.TokenEntry(p, expiresAt = null)
-                                }
+                                apiConfig.tokens
                         }
                         serviceRoutes(repositoryProvider = null, serverName = "wiring-test", serverVersion = "2.0.0")
                     }
@@ -130,7 +128,7 @@ class AppWiringTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `well-known endpoint returns 200 without auth`() =
+    fun `well-known endpoint returns 200 without auth`(): Unit =
         testApplication {
             val apiConfig = makeBearerConfig("my-secret-token")
             application {
@@ -141,9 +139,7 @@ class AppWiringTest {
                         install(ApiBearerAuth) {
                             authConfig = apiConfig
                             tokenEntries =
-                                apiConfig.tokens.mapValues { (_, p) ->
-                                    BearerTokenStore.TokenEntry(p, expiresAt = null)
-                                }
+                                apiConfig.tokens
                         }
                         serviceRoutes(repositoryProvider = null, serverName = "wiring-test", serverVersion = "2.0.0")
                     }
@@ -163,7 +159,7 @@ class AppWiringTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `info endpoint returns 401 without auth header`() =
+    fun `info endpoint returns 401 without auth header`(): Unit =
         testApplication {
             val apiConfig = makeBearerConfig("my-secret-token")
             application {
@@ -174,9 +170,7 @@ class AppWiringTest {
                         install(ApiBearerAuth) {
                             authConfig = apiConfig
                             tokenEntries =
-                                apiConfig.tokens.mapValues { (_, p) ->
-                                    BearerTokenStore.TokenEntry(p, expiresAt = null)
-                                }
+                                apiConfig.tokens
                         }
                         serviceRoutes(repositoryProvider = null, serverName = "wiring-test", serverVersion = "2.0.0")
                     }
@@ -188,7 +182,7 @@ class AppWiringTest {
         }
 
     @Test
-    fun `info endpoint returns 200 with valid bearer token`() =
+    fun `info endpoint returns 200 with valid bearer token`(): Unit =
         testApplication {
             val plainToken = "valid-bearer-token-abc123"
             val apiConfig = makeBearerConfig(plainToken)
@@ -200,15 +194,12 @@ class AppWiringTest {
                         install(ApiBearerAuth) {
                             authConfig = apiConfig
                             tokenEntries =
-                                apiConfig.tokens.mapValues { (_, p) ->
-                                    BearerTokenStore.TokenEntry(p, expiresAt = null)
-                                }
+                                apiConfig.tokens
                         }
                         serviceRoutes(
                             repositoryProvider = null,
                             serverName = "wiring-test",
                             serverVersion = "2.0.0",
-                            actorAuthEnabled = false,
                         )
                     }
                 }
@@ -226,7 +217,7 @@ class AppWiringTest {
         }
 
     @Test
-    fun `info endpoint returns 401 with invalid bearer token`() =
+    fun `info endpoint returns 401 with invalid bearer token`(): Unit =
         testApplication {
             val apiConfig = makeBearerConfig("correct-token")
             application {
@@ -237,9 +228,7 @@ class AppWiringTest {
                         install(ApiBearerAuth) {
                             authConfig = apiConfig
                             tokenEntries =
-                                apiConfig.tokens.mapValues { (_, p) ->
-                                    BearerTokenStore.TokenEntry(p, expiresAt = null)
-                                }
+                                apiConfig.tokens
                         }
                         serviceRoutes(repositoryProvider = null, serverName = "wiring-test", serverVersion = "2.0.0")
                     }
@@ -254,19 +243,20 @@ class AppWiringTest {
         }
 
     @Test
-    fun `info response includes caller capabilities`() =
+    fun `info response includes caller capabilities`(): Unit =
         testApplication {
             val plainToken = "admin-token"
             val principal =
-                ApiPrincipal(
-                    tokenId = "admin-principal",
-                    scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+                Principal(
+                    id = "admin-principal",
+                    scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
                     capabilities = setOf(ApiCapability.READ, ApiCapability.WRITE_ITEMS),
-                    authMode = ApiAuthMode.BEARER,
+                    kind = PrincipalKind.SERVICE,
+                    proofStatus = ProofStatus.ISSUED,
                 )
             val apiConfig =
                 ApiAuthConfig.Bearer(
-                    tokens = mapOf(HashBytes(sha256(plainToken)) to principal)
+                    tokens = mapOf(HashBytes(sha256(plainToken)) to BearerTokenStore.TokenEntry(principal, expiresAt = null))
                 )
             application {
                 install(ContentNegotiation) { json(McpJson) }
@@ -276,9 +266,7 @@ class AppWiringTest {
                         install(ApiBearerAuth) {
                             authConfig = apiConfig
                             tokenEntries =
-                                apiConfig.tokens.mapValues { (_, p) ->
-                                    BearerTokenStore.TokenEntry(p, expiresAt = null)
-                                }
+                                apiConfig.tokens
                         }
                         serviceRoutes(repositoryProvider = null, serverName = "wiring-test", serverVersion = "2.0.0")
                     }
@@ -300,7 +288,7 @@ class AppWiringTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `REST routes not mounted when API is disabled`() =
+    fun `REST routes not mounted when API is disabled`(): Unit =
         testApplication {
             application {
                 install(ContentNegotiation) { json(McpJson) }
@@ -319,7 +307,7 @@ class AppWiringTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `info response payload has expected structure`() =
+    fun `info response payload has expected structure`(): Unit =
         testApplication {
             val plainToken = "structure-test-token"
             val apiConfig = makeBearerConfig(plainToken, tokenId = "structure-principal")
@@ -331,9 +319,7 @@ class AppWiringTest {
                         install(ApiBearerAuth) {
                             authConfig = apiConfig
                             tokenEntries =
-                                apiConfig.tokens.mapValues { (_, p) ->
-                                    BearerTokenStore.TokenEntry(p, expiresAt = null)
-                                }
+                                apiConfig.tokens
                         }
                         serviceRoutes(
                             repositoryProvider = null,
@@ -355,7 +341,6 @@ class AppWiringTest {
             assertTrue(body.contains("\"apiVersion\""), "Missing apiVersion: $body")
             assertTrue(body.contains("\"capabilities\""), "Missing capabilities: $body")
             assertTrue(body.contains("\"claimModeAvailable\""), "Missing claimModeAvailable: $body")
-            assertTrue(body.contains("\"actorAuthenticationEnabled\""), "Missing actorAuthenticationEnabled: $body")
             assertTrue(body.contains("wiring-test-server"), "Missing server name value: $body")
             assertTrue(body.contains("2.0.0"), "Missing version value: $body")
         }
@@ -365,7 +350,7 @@ class AppWiringTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `well-known response has all required fields`() =
+    fun `well-known response has all required fields`(): Unit =
         testApplication {
             val apiConfig = makeBearerConfig("any-token")
             application {
@@ -376,9 +361,7 @@ class AppWiringTest {
                         install(ApiBearerAuth) {
                             authConfig = apiConfig
                             tokenEntries =
-                                apiConfig.tokens.mapValues { (_, p) ->
-                                    BearerTokenStore.TokenEntry(p, expiresAt = null)
-                                }
+                                apiConfig.tokens
                         }
                         serviceRoutes(repositoryProvider = null, serverName = "wiring-test", serverVersion = "2.0.0")
                     }

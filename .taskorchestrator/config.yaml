@@ -2,23 +2,19 @@ project:
   rootId: "ce064d2c-7c03-4eac-ae7d-89a14c2ba273"
   name: "TaskOrchestrator"
 
-# Hook-local (read by the plugin's orchestration-context, dispatch-model-guard and dispatch-hint
-# hooks, ignored by the server): workflow (default) | schema | off. Explicit here as the dogfood
-# example; omitting the block is equivalent to `workflow`.
-orchestration:
-  mode: workflow
-
-retrospective:
-  mode: dispatch
-  dispatchThreshold: 3
-  github_feedback:
-    enabled: true
-    repo: jpicklyk/task-orchestrator
-
-# Hook-local (read by the plugin's enforce-actor-attribution hook, ignored by the server):
-# deny actor-less advance_item / manage_notes writes even without actor_authentication.
-actor_attribution:
-  required: true
+# Plugin and hook settings live under extensions.<tool>; the server stores them and never reads them (4.0).
+# Hook-local (read by the plugin's orchestration-context, dispatch-model-guard and dispatch-hint hooks):
+# orchestration.mode is workflow (default) | schema | off. retrospective is read by the retrospective hooks.
+extensions:
+  claude-code:
+    orchestration:
+      mode: workflow
+    retrospective:
+      mode: dispatch
+      dispatchThreshold: 3
+      github_feedback:
+        enabled: true
+        repo: jpicklyk/task-orchestrator
 
 work_item_schemas:
 
@@ -122,10 +118,9 @@ work_item_schemas:
         description: "Brief record of what was changed and test results."
         guidance: "This feeds /session-retrospective — one-paragraph summary: what file(s) changed, what the fix was, test pass/fail count. No structured sections needed — keep it under 100 words."
 
-  # Mirrors the global floor's improvement-proposal schema (deploy/global-config). Needed
-  # per-root because whole-algorithm-first resolution never falls back to the global file for
-  # a missing type key — without this block, project-anchored proposals resolve to `default`
-  # and lose their gates (observation 9970bd68). Keep in sync with the floor copy.
+  # Mirrors the global floor's improvement-proposal schema (deploy/global-config). A server
+  # exact type now beats a per-root `default`, so the floor copy would resolve here without this
+  # block; it is kept to pin the project's own copy of the gates. Keep in sync with the floor copy.
   improvement-proposal:
     lifecycle: auto
     notes:
@@ -176,7 +171,7 @@ traits:
         required: true
         description: "SQLite migration strategy — table recreation patterns, data migration, rollback plan."
         skill: "migration-review"
-        guidance: "Document: (1) what schema changes are needed (new columns, table recreation, index changes), (2) SQLite constraints (no ALTER COLUMN — requires table recreation if modifying existing columns), (3) data migration strategy for existing rows, (4) Flyway migration file name and version number, (5) DirectDatabaseSchemaManager table ordering impact, (6) for any migration that copies, backfills or drops data: a Docker upgrade rehearsal on throwaway volumes named q<item>smoke-* (never a live volume) with expected before/after row counts, one injected malformed row, and the count log line the rehearsal must show. The implementer owns the rehearsal. Reference .claude/skills/spec-quality/references/project-concerns.md for SQLite-specific gotchas."
+        guidance: "Document: (1) what schema changes are needed (new columns, table recreation, index changes), (2) SQLite constraints (no ALTER COLUMN — requires table recreation if modifying existing columns), (3) data migration strategy for existing rows, (4) Flyway migration file name and version number, (5) FTS trigger/rebuild impact if a table with FTS triggers is recreated (see the migration-review table-recreation template), (6) for any migration that copies, backfills or drops data: a Docker upgrade rehearsal on throwaway volumes named q<item>smoke-* (never a live volume) with expected before/after row counts, one injected malformed row, and the count log line the rehearsal must show. The implementer owns the rehearsal. Reference .claude/skills/spec-quality/references/project-concerns.md for SQLite-specific gotchas."
 
   needs-api-compat-review:
     notes:
@@ -242,9 +237,10 @@ traits:
         seats:
           reviewer: { model: opus }
 
-  # Model-selection traits: seat-only dispatch overrides. Per-item traits resolve BEFORE
-  # default_traits, so these win over `delegated`'s seat defaults while inheriting its phase
-  # agent/effort. Both are opt-in, applied per item at tier classification (/implement Step 1).
+  # Model-selection traits: seat-only dispatch overrides. A seat-only override that selects a model
+  # wins over `delegated`'s seat defaults whatever the trait order (current/docs/config-reference.md,
+  # "Seat dispatch precedence"), while inheriting its phase agent/effort. Both are opt-in, applied per
+  # item at tier classification (/implement Step 1).
   complex-implementation:
     dispatch:
       work:
@@ -297,7 +293,7 @@ traits:
         description: "Reviewer attestation that test authorship was independent of implementation."
         skill: "review-quality"
         maxLength: 2000
-        guidance: "Attest to: separation held (test files first appear in the author's commit SHA range; actor id differs from the implementer's, or a temporal-only separation is explicitly declared), the coverage mapping spot-checked by opening at least two mapped tests and reading their bodies rather than trusting the manifest alone, at least one oracle traced back to its cited source, the declared probes actually run, and the forbidden-pattern declaration verified as true: fetch rules `forbidden-test-patterns` and `test-assertion-vacuity` via query_rules(get, rootId, key), read the test bodies behind the manifest's declaration, and confirm every instance of a listed pattern is declared with a justification. An undeclared instance, or a declaration claiming none when instances exist, is BLOCKING regardless of suite pass/fail — the same weight as not-independent. Verdict — one of: **independent** | **independent-degraded** (temporal-only separation) | **not-independent** (blocking, regardless of suite pass/fail). Target ~900-1400 characters; the 2000 maxLength is a backstop, not a goal."
+        guidance: "Attest to: separation held (test files first appear in the author's commit SHA range; actor id differs from the implementer's, or a temporal-only separation is explicitly declared), the coverage mapping spot-checked by opening at least two mapped tests and reading their bodies rather than trusting the manifest alone, at least one oracle traced back to its cited source, the declared probes actually run, and the forbidden-pattern declaration verified as true: fetch rules `forbidden-test-patterns` and `test-assertion-vacuity` with `docs_read` `get` (`kind` `rule`, `slug` the rule name, `rootId`), read the test bodies behind the manifest's declaration, and confirm every instance of a listed pattern is declared with a justification. An undeclared instance, or a declaration claiming none when instances exist, is BLOCKING regardless of suite pass/fail — the same weight as not-independent. Verdict — one of: **independent** | **independent-degraded** (temporal-only separation) | **not-independent** (blocking, regardless of suite pass/fail). Target ~900-1400 characters; the 2000 maxLength is a backstop, not a goal."
 
   session-tracked:
     notes:
@@ -332,19 +328,20 @@ traits:
         guidance: "Open the file:line behind every claim that states nullability, redaction, ownership, defaults, limits, budgets, ordering or an honest limit and confirm it; wording copied from an existing doc is unverified until its source is opened. Check the Docs and CHANGELOG lines against git diff --name-only <base>...HEAD. Scan changed files for bytes below 0x20 other than TAB and LF, non-UTF-8 bytes and CR line endings. Verdict Pass or Fail, with numbered blocking findings (B1...) and non-blocking (N1...). An uncited semantic claim is an observation; a wrong one is blocking."
 
 # Resource leasing — reference example only, NOT activated on this project's items.
-# Uncomment and adapt to declare a shared-resource registry and reference it from a trait.
-# See claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md
+# `resources:` is server-only: the registry is one per server and lives in the server (global) config;
+# a per-root document carrying it is rejected (ConfigValidator SERVER_ONLY_KEYS). A trait in THIS file
+# may reference a registry key declared in the server config. See
+# claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md
 # → "Resources (Trait Dimension)" for the full field reference and merge semantics.
 #
-# WARNING: this file already has a live top-level `traits:` block above. Do NOT uncomment the
-# `traits:` line below as-is — a duplicate top-level key resolves last-wins and silently drops
-# every existing trait. Merge the example trait INTO the existing `traits:` block instead.
-#
+# Server config (not this file):
 # resources:
 #   staging-db:
 #     description: "Single shared staging database — only one migration/test run at a time"
 #     defaultTtlSeconds: 3600
 #
+# Trait to merge INTO the existing `traits:` block above (a duplicate top-level key resolves last-wins and
+# silently drops every existing trait):
 # traits:
 #   needs-staging-slot:
 #     resources:

@@ -1,18 +1,27 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.application.port.EventStore
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
+import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
+import io.github.jpicklyk.mcptask.current.application.service.ParentChange
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.buildH2RepositoryProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
+import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
+import io.github.jpicklyk.mcptask.current.test.createOp
+import io.github.jpicklyk.mcptask.current.test.itemsWrite
+import io.github.jpicklyk.mcptask.current.test.okId
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.testClaimService
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -25,28 +34,21 @@ import io.ktor.server.sse.SSE
 import io.ktor.server.testing.testApplication
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
+import kotlin.test.assertNotNull
 import kotlin.time.Duration.Companion.seconds
 import io.ktor.client.plugins.sse.SSE as ClientSSE
 
@@ -59,6 +61,9 @@ import io.ktor.client.plugins.sse.SSE as ClientSSE
  * that the decorator captures writes made outside the REST layer.
  */
 class EventRoutesTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     companion object {
         private const val READ_TOKEN = "sse-test-read-token-abc123"
         private const val NO_CAP_TOKEN = "sse-test-nocap-token-xyz789"
@@ -74,16 +79,17 @@ class EventRoutesTest {
         private fun makeTokenEntries(
             token: String,
             capabilities: Set<ApiCapability> = setOf(ApiCapability.READ),
-            scope: ApiScope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+            scope: AccessScope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
             expiresAt: Instant? = null,
             tokenId: String = "test-sse-principal",
         ): Map<HashBytes, BearerTokenStore.TokenEntry> {
             val principal =
-                ApiPrincipal(
-                    tokenId = tokenId,
+                Principal(
+                    id = tokenId,
                     scope = scope,
                     capabilities = capabilities,
-                    authMode = ApiAuthMode.BEARER,
+                    kind = PrincipalKind.SERVICE,
+                    proofStatus = ProofStatus.ISSUED,
                 )
             return mapOf(HashBytes(sha256(token)) to BearerTokenStore.TokenEntry(principal, expiresAt))
         }
@@ -94,27 +100,27 @@ class EventRoutesTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `missing auth header returns 401`() =
+    fun `missing auth header returns 401`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application {
                 install(ContentNegotiation) { json(McpJson) }
                 install(SSE)
-                routing { eventRoutes(bus, emptyMap()) }
+                routing { eventRoutes(bus, emptyMap(), redactAttribution = true) }
             }
             val response = client.get("/events")
             assertEquals(HttpStatusCode.Unauthorized, response.status)
         }
 
     @Test
-    fun `invalid bearer token returns 401`() =
+    fun `invalid bearer token returns 401`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val entries = makeTokenEntries(READ_TOKEN)
             application {
                 install(ContentNegotiation) { json(McpJson) }
                 install(SSE)
-                routing { eventRoutes(bus, entries) }
+                routing { eventRoutes(bus, entries, redactAttribution = true) }
             }
             val response =
                 client.get("/events") {
@@ -124,14 +130,14 @@ class EventRoutesTest {
         }
 
     @Test
-    fun `token without read capability returns 403`() =
+    fun `token without read capability returns 403`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val entries = makeTokenEntries(NO_CAP_TOKEN, capabilities = setOf(ApiCapability.WRITE_ITEMS))
             application {
                 install(ContentNegotiation) { json(McpJson) }
                 install(SSE)
-                routing { eventRoutes(bus, entries) }
+                routing { eventRoutes(bus, entries, redactAttribution = true) }
             }
             val response =
                 client.get("/events") {
@@ -141,15 +147,15 @@ class EventRoutesTest {
         }
 
     @Test
-    fun `already-expired token returns 401 at connection time`() =
+    fun `already-expired token returns 401 at connection time`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val expiredAt = Instant.now().minusSeconds(60) // already expired
             val entries = makeTokenEntries(READ_TOKEN, expiresAt = expiredAt)
             application {
                 install(ContentNegotiation) { json(McpJson) }
                 install(SSE)
-                routing { eventRoutes(bus, entries) }
+                routing { eventRoutes(bus, entries, redactAttribution = true) }
             }
             val response =
                 client.get("/events") {
@@ -163,16 +169,16 @@ class EventRoutesTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `query-token mode disabled by default - returns 401 when only token param provided`() =
+    fun `query-token mode disabled by default - returns 401 when only token param provided`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val entries = makeTokenEntries(READ_TOKEN)
             application {
                 install(ContentNegotiation) { json(McpJson) }
                 install(SSE)
                 routing {
                     // allowQueryToken = false (default)
-                    eventRoutes(bus, entries, allowQueryToken = false)
+                    eventRoutes(bus, entries, allowQueryToken = false, redactAttribution = true)
                 }
             }
             // No Authorization header, only ?token= query param
@@ -183,22 +189,21 @@ class EventRoutesTest {
     @Test
     fun `query-token mode enabled accepts token via query param`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val entries = makeTokenEntries(READ_TOKEN)
             application {
                 install(ContentNegotiation) { json(McpJson) }
                 install(SSE)
                 routing {
                     // allowQueryToken = true (opt-in)
-                    eventRoutes(bus, entries, allowQueryToken = true)
+                    eventRoutes(bus, entries, allowQueryToken = true, redactAttribution = true)
                 }
             }
             val sseClient = createClient { install(ClientSSE) }
 
             // Publish an event BEFORE connecting so it's in the ring buffer
             val itemId = UUID.randomUUID()
-            val evt = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemId, modifiedAt = Instant.now())
-            bus.publish(evt, emptySet())
+            val evt = bus.emit(ApiEventType.ITEM_CREATED, itemId = itemId)
 
             // Connect via query token (no Authorization header) and replay the buffered event.
             // Opening the SSE session over the query-token path proves auth accepted it; collecting
@@ -207,7 +212,7 @@ class EventRoutesTest {
             withTimeout(10.seconds) {
                 sseClient.sse(
                     urlString = "/events?token=$READ_TOKEN",
-                    request = { header("Last-Event-ID", "0") },
+                    request = { header("Last-Event-ID", FROM_START) },
                 ) {
                     incoming.take(1).toList().forEach { collected.add(it.event ?: "") }
                 }
@@ -240,10 +245,10 @@ class EventRoutesTest {
     @Test
     fun `MCP-path write via repository decorator produces event on bus subscriber`(): Unit =
         runBlocking {
-            // Build a real H2-backed repository provider and wrap it with the decorator
-            val baseRepo = buildH2RepositoryProvider()
-            val bus = ApiEventBus()
-            val decorated = EventPublishingRepositoryProvider(baseRepo, bus)
+            // Build a real SQLite-backed repository provider and wrap it with the decorator
+            val baseRepo = db.repositoryProvider()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
+            val context = eventWiredContext(db.databaseManager, baseRepo, bus)
 
             // Subscribe to bus BEFORE making the repo write (simulates a connected dashboard).
             // create + update produce exactly two events, so take(2) completes deterministically
@@ -251,24 +256,22 @@ class EventRoutesTest {
             val flow = bus.subscribe("mcp-proof-sub", emptySet(), lastEventId = null)
             val collectorDeferred = async { withTimeout(10.seconds) { flow.take(2).toList() } }
 
-            delay(100)
-
-            // Write DIRECTLY via the decorated repository — this is the MCP-tool path.
-            // REST routes are NOT used here. This proves the decorator captures repo-level writes.
+            // Write through the item command service (the MCP-tool write path; REST routes are NOT used
+            // here). This proves the service's own event rows reach the bus.
             val itemId = UUID.randomUUID()
-            val item =
-                WorkItem(
-                    id = itemId,
-                    parentId = null,
-                    title = "MCP-path test item",
-                    depth = 0,
-                )
-            val createResult = decorated.workItemRepository().create(item)
-            assertTrue(createResult is Result.Success, "Item creation should succeed: $createResult")
+            val createResult =
+                context.itemCommandService
+                    .create(ItemCreateCommand(type = TEST_ITEM_TYPE, id = itemId, parentId = null, title = "MCP-path test item"))
+                    .orFail()
+            assertNotNull(createResult, "Item creation should succeed: $createResult")
 
-            val updated = item.copy(title = "MCP-path test item updated")
-            val updateResult = decorated.workItemRepository().update(updated)
-            assertTrue(updateResult is Result.Success, "Item update should succeed: $updateResult")
+            val updateResult =
+                context.itemCommandService
+                    .patch(
+                        patchOf(createResult, title = "MCP-path test item updated"),
+                        caller = null
+                    ).orFail()
+            assertNotNull(updateResult, "Item update should succeed: $updateResult")
 
             val collectedEvents = collectorDeferred.await()
             bus.unsubscribe("mcp-proof-sub")
@@ -293,23 +296,38 @@ class EventRoutesTest {
     @Test
     fun `role change via decorated update emits item_advanced with newRole not item_updated`(): Unit =
         runBlocking {
-            val baseRepo = buildH2RepositoryProvider()
-            val bus = ApiEventBus()
-            val decorated = EventPublishingRepositoryProvider(baseRepo, bus)
+            val baseRepo = db.repositoryProvider()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
+            val (decorated, unitOfWork) = eventWiredUnit(db.databaseManager, baseRepo, bus)
 
             // Subscriber connected before the writes — create + advance produce exactly two events.
             val flow = bus.subscribe("advance-sub", emptySet(), lastEventId = null)
             val collectorDeferred = async { withTimeout(10.seconds) { flow.take(2).toList() } }
-            delay(100)
 
             val itemId = UUID.randomUUID()
             val item = WorkItem(id = itemId, parentId = null, title = "Advance test", depth = 0, role = Role.QUEUE)
-            assertTrue(decorated.workItemRepository().create(item) is Result.Success)
+            assertTrue(
+                ToolExecutionContext(decorated, unitOfWork = unitOfWork)
+                    .itemCommandService
+                    .create(ItemCreateCommand(type = TEST_ITEM_TYPE, id = itemId, parentId = null, title = "Advance test"))
+                    .orFail() != null
+            )
 
             // Change the ROLE (a phase advance) — must surface as item.advanced (carries newRole),
-            // distinct from item.updated, capturing the MCP advance path (AdvanceItemTool → update).
-            val advanced = item.copy(role = Role.WORK)
-            assertTrue(decorated.workItemRepository().update(advanced) is Result.Success)
+            // distinct from item.updated. P11: AdvanceService writes the role change, its transition row
+            // and the item.transitioned event in one unit; that event is what projects as item.advanced,
+            // and the role-changing update records nothing.
+            val service =
+                AdvanceService(
+                    workItemRepository = decorated.workItemRepository(),
+                    dependencyRepository = decorated.dependencyRepository(),
+                    noteRepository = decorated.noteRepository(),
+                    schemaResolver = { null },
+                    unitOfWork = unitOfWork,
+                    claimService = testClaimService(decorated.workItemRepository(), null, unitOfWork)
+                )
+            val outcome = service.advance(item, "start", null, null, null)
+            assertTrue(outcome is AdvanceOutcome.Success, "advance failed: $outcome")
 
             val events = collectorDeferred.await()
             bus.unsubscribe("advance-sub")
@@ -329,7 +347,7 @@ class EventRoutesTest {
         }
 
     /**
-     * PRODUCTION-WIRING PROOF TEST: an actual MCP tool (`ManageItemsTool.create`) executed
+     * PRODUCTION-WIRING PROOF TEST: an actual MCP tool (`items_write` create) executed
      * through a [ToolExecutionContext] built on the DECORATED provider — exactly the way
      * `CurrentMcpServer.run()` wires the tool context when the API is enabled — produces an
      * event on a bus subscriber.
@@ -339,44 +357,23 @@ class EventRoutesTest {
      * (the bug fixed in this revision), this test would fail because no event would be published.
      */
     @Test
-    fun `production MCP tool path - ManageItemsTool create through decorated tool context emits event`(): Unit =
+    fun `production MCP tool path - items_write create through decorated tool context emits event`(): Unit =
         runBlocking {
             // Mirror CurrentMcpServer.run() wiring when API is enabled:
             // raw provider -> EventPublishingRepositoryProvider -> ToolExecutionContext.
-            val baseRepo = buildH2RepositoryProvider()
-            val bus = ApiEventBus()
-            val decorated = EventPublishingRepositoryProvider(baseRepo, bus)
-            val toolContext = ToolExecutionContext(decorated)
-            val tool = ManageItemsTool()
+            val baseRepo = db.repositoryProvider()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
+            val toolContext = eventWiredContext(db.databaseManager, baseRepo, bus)
 
             // Subscribe BEFORE executing the tool (simulates a connected dashboard). The create
             // produces exactly one event, so a bounded take(1) completes deterministically.
             val flow = bus.subscribe("prod-wiring-sub", emptySet(), lastEventId = null)
             val collectorDeferred = async { withTimeout(10.seconds) { flow.take(1).toList() } }
 
-            delay(100)
-
             // Execute the REAL MCP tool against the decorated tool context. No repository call,
             // no REST route — this goes through the exact production tool path.
-            val result =
-                tool.execute(
-                    JsonObject(
-                        mapOf(
-                            "operation" to JsonPrimitive("create"),
-                            "items" to
-                                JsonArray(
-                                    listOf(
-                                        buildJsonObject { put("title", JsonPrimitive("Production wiring item")) },
-                                    ),
-                                ),
-                        ),
-                    ),
-                    toolContext,
-                ) as JsonObject
-
-            assertTrue(result["success"]!!.jsonPrimitive.boolean, "Tool create should succeed: $result")
-            val createdItemId =
-                ((result["data"] as JsonObject)["items"]!!.jsonArray[0] as JsonObject)["id"]!!.jsonPrimitive.content
+            val result = toolContext.itemsWrite(createOp("Production wiring item"))
+            val createdItemId = result.okId(0).toString()
 
             val collectedEvents = collectorDeferred.await()
             bus.unsubscribe("prod-wiring-sub")
@@ -386,7 +383,7 @@ class EventRoutesTest {
             assertEquals(
                 ApiEventType.ITEM_CREATED,
                 collectedEvents[0].event,
-                "Expected item.created event from ManageItemsTool create",
+                "Expected item.created event from items_write create",
             )
             assertEquals(
                 createdItemId,
@@ -403,19 +400,18 @@ class EventRoutesTest {
     @Test
     fun `SSE route streams a replayed event to an authenticated SSE client`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val entries = makeTokenEntries(READ_TOKEN)
 
             // Publish an event to the ring buffer BEFORE subscribing so replay can deliver it
             val itemId = UUID.randomUUID()
-            val prePublished = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemId, modifiedAt = Instant.now())
-            bus.publish(prePublished, emptySet())
+            val prePublished = bus.emit(ApiEventType.ITEM_CREATED, itemId = itemId)
 
             application {
                 install(ContentNegotiation) { json(McpJson) }
                 install(SSE)
                 routing {
-                    eventRoutes(bus, entries, allowQueryToken = false, authCheckIntervalSeconds = 60)
+                    eventRoutes(bus, entries, allowQueryToken = false, authCheckIntervalSeconds = 60, redactAttribution = true)
                 }
             }
             val sseClient = createClient { install(ClientSSE) }
@@ -428,7 +424,7 @@ class EventRoutesTest {
                     urlString = "/events",
                     request = {
                         header("Authorization", "Bearer $READ_TOKEN")
-                        header("Last-Event-ID", "0")
+                        header("Last-Event-ID", FROM_START)
                     },
                 ) {
                     incoming.take(1).toList().forEach { collected.add(it.event.orEmpty() to it.data) }
@@ -452,7 +448,7 @@ class EventRoutesTest {
         runBlocking {
             // Test the bus-level filtering directly (HTTP route test for scope filtering would
             // require a running server; bus test is sufficient per spec).
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val root1 = UUID.randomUUID()
             val root2 = UUID.randomUUID()
 
@@ -467,11 +463,7 @@ class EventRoutesTest {
                     withTimeoutOrNull(800) { flow.take(1).toList() }
                 }
 
-            delay(50)
-            bus.publish(
-                bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID()),
-                affectedRoots = setOf(root2),
-            )
+            bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), rootId = root2)
 
             val result = firstEvent.await()
             assertNull(result, "root1 subscriber should not receive root2 events (expected no event)")
@@ -485,23 +477,22 @@ class EventRoutesTest {
     @Test
     fun `Last-Event-ID replay delivers buffered events on reconnect`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val entries = makeTokenEntries(READ_TOKEN)
 
             // Pre-populate the ring buffer with 3 events before any subscriber connects
             val root = UUID.randomUUID()
             val published = mutableListOf<ApiEvent>()
             repeat(3) {
-                val e = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
+                val e = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), rootId = root)
                 published.add(e)
-                bus.publish(e, setOf(root))
             }
 
             application {
                 install(ContentNegotiation) { json(McpJson) }
                 install(SSE)
                 routing {
-                    eventRoutes(bus, entries, allowQueryToken = false, authCheckIntervalSeconds = 60)
+                    eventRoutes(bus, entries, allowQueryToken = false, authCheckIntervalSeconds = 60, redactAttribution = true)
                 }
             }
             val sseClient = createClient { install(ClientSSE) }
@@ -542,7 +533,7 @@ class EventRoutesTest {
     @Test
     fun `expired token during connection emits auth_expired and closes within check interval`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             // Token expires shortly after connect; the periodic check (1s cadence) then fires.
             val expiresAt = Instant.now().plusMillis(1200)
             val entries = makeTokenEntries(READ_TOKEN, expiresAt = expiresAt)
@@ -552,7 +543,7 @@ class EventRoutesTest {
                 install(SSE)
                 routing {
                     // Check every 1 second; the server emits auth.expired then closes the stream.
-                    eventRoutes(bus, entries, allowQueryToken = false, authCheckIntervalSeconds = 1)
+                    eventRoutes(bus, entries, allowQueryToken = false, authCheckIntervalSeconds = 1, redactAttribution = true)
                 }
             }
             val sseClient = createClient { install(ClientSSE) }
@@ -581,18 +572,18 @@ class EventRoutesTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `api event bus IDs are independent - starting from bus own counter`() {
-        // Verify that two different ApiEventBus instances have independent ID sequences.
-        // This proves the namespace separation from /mcp's EventStore.
-        val bus1 = ApiEventBus()
-        val bus2 = ApiEventBus()
+    fun `api event bus IDs are the events table seq - independent of the mcp EventStore`() {
+        // P8 expected-value change: ids are no longer a per-bus counter starting at 1. They are the
+        // events table's seq, which starts above the floor (1e12) and is shared by every bus (every
+        // process) projecting the same database -- still a namespace unrelated to /mcp's EventStore.
+        val bus1 = ApiEventBus(source = db.repositoryProvider().eventStore())
+        val bus2 = ApiEventBus(source = db.repositoryProvider().eventStore())
 
         val e1 = bus1.buildEvent(ApiEventType.ITEM_CREATED)
         val e2 = bus2.buildEvent(ApiEventType.ITEM_CREATED)
 
-        // Both start at 1 — they are independent (not shared state)
-        assertEquals(1L, e1.id, "First bus should start at id=1")
-        assertEquals(1L, e2.id, "Second bus should also start at id=1 (independent namespace)")
+        assertEquals(EventStore.SEQ_FLOOR, e1.id, "a bus over an empty log issues ids at the seq floor")
+        assertEquals(e1.id, e2.id, "two buses over the same log share one id space (the table's seq)")
         assertNotNull(e1.event)
         assertNotNull(e2.event)
     }
@@ -604,9 +595,10 @@ class EventRoutesTest {
     @Test
     fun `EventPublishingRepositoryProvider is transparent - read operations unchanged`(): Unit =
         runBlocking {
-            val baseRepo = buildH2RepositoryProvider()
-            val bus = ApiEventBus()
-            val decorated = EventPublishingRepositoryProvider(baseRepo, bus)
+            val baseRepo = db.repositoryProvider()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
+            // No store is decorated any more: reads go to the provider the services share.
+            val decorated = eventWiredContext(db.databaseManager, baseRepo, bus).repositoryProvider
 
             // Create via base repo (no events)
             val item =
@@ -619,10 +611,10 @@ class EventRoutesTest {
 
             // Read via decorated repo — should return same result
             val result = decorated.workItemRepository().getById(item.id)
-            assertTrue(result is Result.Success, "Read should succeed via decorated provider")
-            val retrieved = (result as Result.Success).data
-            assertEquals(item.id, retrieved.id)
-            assertEquals("Transparency test", retrieved.title)
+            assertNotNull(result, "Read should succeed via decorated provider")
+            val retrieved = result
+            assertEquals(item.id, retrieved!!.id)
+            assertEquals("Transparency test", retrieved!!.title)
 
             // Verify no spurious events were emitted on the read
             assertEquals(0, bus.subscriberCount(), "No subscribers should be active")
@@ -635,19 +627,15 @@ class EventRoutesTest {
     @Test
     fun `reparent emits scope_left on old root and scope_entered on new root`(): Unit =
         runBlocking {
-            val baseRepo = buildH2RepositoryProvider()
-            val bus = ApiEventBus()
-            val decorated = EventPublishingRepositoryProvider(baseRepo, bus)
+            val baseRepo = db.repositoryProvider()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
+            val context = eventWiredContext(db.databaseManager, baseRepo, bus)
+            val items = context.itemCommandService
 
             // Create two roots and a child under root1
-            val root1 = WorkItem(id = UUID.randomUUID(), title = "Root1", depth = 0)
-            val root2 = WorkItem(id = UUID.randomUUID(), title = "Root2", depth = 0)
-            val child =
-                WorkItem(id = UUID.randomUUID(), title = "Child", depth = 1, parentId = root1.id)
-
-            decorated.workItemRepository().create(root1)
-            decorated.workItemRepository().create(root2)
-            decorated.workItemRepository().create(child)
+            val root1 = items.create(ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = null, title = "Root1")).orFail()
+            val root2 = items.create(ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = null, title = "Root2")).orFail()
+            val child = items.create(ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = root1.id, title = "Child")).orFail()
 
             // Subscribe to each root. The reparent delivers exactly one event to each root topic
             // (scope.left to root1, scope.entered to root2), so a bounded take(1) per subscriber
@@ -659,12 +647,8 @@ class EventRoutesTest {
             val root1Deferred = async { withTimeout(10.seconds) { root1Flow.take(1).toList() } }
             val root2Deferred = async { withTimeout(10.seconds) { root2Flow.take(1).toList() } }
 
-            // Give the collectors a moment to start consuming before triggering the write.
-            delay(100)
-
             // Reparent child from root1 → root2.
-            val reparented = child.copy(parentId = root2.id)
-            decorated.workItemRepository().update(reparented)
+            items.patch(patchOf(child, parent = ParentChange.MoveUnder(root2.id)), caller = null).orFail()
 
             // Await the single event each subscriber should receive (bounded by withTimeout above).
             val root1Events = root1Deferred.await()

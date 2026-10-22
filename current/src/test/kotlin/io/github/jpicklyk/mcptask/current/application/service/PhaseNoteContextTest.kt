@@ -164,6 +164,7 @@ class PhaseNoteContextTest {
 
         assertNotNull(result)
         assertNull(result.guidanceKey, "guidanceKey mirrors guidancePointer null-semantics")
+        assertNotNull(result)
         assertNull(result.guidancePointer)
     }
 

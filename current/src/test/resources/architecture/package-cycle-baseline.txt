@@ -1,0 +1,3 @@
+# AR-58 package-cycle baseline: edges that close application/<sub> package cycles. Empty since phase 4 P5
+# removed the last of them; the application/<sub> graph is acyclic and any new cycle-closing edge fails
+# PackageCycleTest. Do not add lines here - move the type down to a package every consumer already sits above.

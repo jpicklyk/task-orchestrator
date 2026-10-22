@@ -21,7 +21,7 @@ Everything below applies whether the test author is a separate dispatch or, in a
 the same agent operating at a different, declared point in time. The separation is the point —
 follow it exactly even when it feels redundant with work you can already see.
 
-When `query_rules(get, rootId, key:"test-author")` succeeds, the served text is authoritative for
+When `docs_read` `get` (`rootId`, `kind` `rule`, `slug` `test-author`) succeeds, the served text is authoritative for
 §3–§10; this skill is the fallback and the Claude-specific addendum.
 
 ---
@@ -40,7 +40,7 @@ The trait `needs-test-author` puts two seats on an item, occupied at different p
 **Same-agent exception (Direct tier, temporal-only):** for a single-item Direct-tier dispatch
 there is no second agent to send the work to. The same agent may occupy both seats, but only
 under a *temporal-only* degraded mode — see §11. The gate still applies: `test-plan` must exist
-and be frozen before implementation begins, and the manifest must declare the single-actor mode
+and be frozen before implementation begins, and the manifest must declare the single-seat mode
 explicitly rather than silently reusing the plan author's context. This is a narrower guarantee
 than true two-agent separation, and `test-independence-audit` records it as such
 (`independent-degraded`), never as `independent`.
@@ -162,7 +162,7 @@ Restraint fails at the tool boundary, so the boundary moves.
 
 **The evidence.** Bug wave 3 (2026-09), item `a3ebd108`, consumed THREE test authors:
 
-1. The first called `query_notes(operation="list")` with no `keys=` filter, received
+1. The first listed the item's notes with no `keys=` filter, received
    `implementation-notes` in the response, and read the implementation files it named — an ingress
    no reading-method rule had contemplated.
 2. The second, working under the previous wave's "use Grep with `-A2`, never Read" remedy, widened
@@ -205,15 +205,16 @@ implementer's changes on this branch.
 `src/test` stays fully readable. Existing tests, fixtures and harnesses are how you match the
 codebase's conventions — reading them is expected, not merely tolerated.
 
-### 4.3 `keys=` is mandatory on every `query_notes` call
+### 4.3 `keys` is mandatory on every `notes_read` `list`, and `get` names only queue-phase keys
 
-Every `query_notes` call carries an explicit `keys=` filter restricted to the item's queue-phase
-keys — typically `["task-scope", "diagnosis", "test-plan"]`. An unfiltered `operation="list"`
-returns `implementation-notes` and `session-tracking` in the same response and **is itself a
-breach**, whether or not their bodies were read. `includeBody=true` with a `keys=` filter is fine;
-`includeBody=true` without one is the exact call that burned wave 3's first author.
+Every `notes_read` `list` call carries an explicit `keys` filter restricted to the item's queue-phase
+keys — typically `["task-scope", "diagnosis", "test-plan"]`. The 4.0 `list` returns no bodies (id,
+key, role, version, `bodyLength`), but an unfiltered one still names `implementation-notes` and
+`session-tracking` and **is itself a breach**, whether or not a body was read. A body comes only from
+`notes_read` `get`, which takes one `itemId` and one `key`: name a queue-phase key, never an
+excluded one. A `get` of `implementation-notes` is the exact read that burned wave 3's first author.
 
-The same holds for `query_notes(operation="search")`: scope it to the item, and never search for
+The same holds for `items_read` `search`: scope it to the item (`itemId`), and never search for
 terms that would rank implementation prose highly.
 
 ### 4.4 A missing declaration means stop and ask
@@ -444,8 +445,8 @@ the test, or the spec is wrong; the test author's job stops at an accurate, spec
 Fill every field — an omitted field reads as "not done," not as "not applicable" (use an explicit
 `N/A: <reason>` for genuinely inapplicable fields, matching the probe-catalog convention in §6).
 
-- **Actor id** — the identity that authored the tests, for the independence audit to check
-  against the implementer's actor id (or the declared temporal-only mode, §11).
+- **Authoring identity** — the (principal, seat) that wrote the tests (the note's attribution), for
+  the independence audit to compare against the implementer's (or the declared temporal-only mode, §11).
 - **Test file paths** — every file created or modified by the test author.
 - **Commit SHA range** — the range test authorship spans, so a reviewer can confirm test files
   first appear in this range and not earlier, in the implementer's own commits.
@@ -484,19 +485,21 @@ there is no second agent available to dispatch. Under this mode:
 - `test-plan` still gates work entry — the oracle freeze happens before implementation, exactly
   as in the two-agent case. This is the part of the guarantee that survives.
 - Red-first (§5) still applies in full for bug-fix reproductions.
-- `test-manifest` declares the single-actor mode explicitly (`actor: <id> (temporal-only,
-  same agent as implementer)`) rather than presenting as if a second agent were involved.
+- `test-manifest` declares the single-seat mode explicitly: its first line is exactly
+  `independence: temporal-only` (the waiver line, `manage-schemas` `references/config-format.md` →
+  "The `independence: temporal-only` waiver"), followed by `identity: <principal, seat> (temporal-only,
+  same agent as implementer)`, rather than presenting as if a second agent were involved.
 - **§4 in temporal-only mode.** §4 is written for a second agent, so state which parts survive
-  rather than leaving the section self-contradictory for a single actor:
-  - **Relaxed: §4.2's tool ban only.** One actor implements and then writes tests; it has already
+  rather than leaving the section self-contradictory for a single seat:
+  - **Relaxed: §4.2's tool ban only.** One seat implements and then writes tests; it has already
     read `src/main` and cannot un-read it. The ban is replaced by the red-first ORDERING of §5 —
     the test is written from the frozen `test-plan` and observed red against pre-fix code BEFORE
     the fix is written, which is the only separation available here. An "I avoided looking"
     claim is not a substitute and must not be recorded as one.
   - **Still in force: §4.1 and §4.3.** Oracles and declarations come from the frozen `test-plan`
-    and the planning-seat notes, not from the implementation just written; every `query_notes`
-    call still carries `keys=` restricted to the queue-phase keys. `implementation-notes` and
-    `session-tracking` stay out of the author pass even though the same actor wrote them.
+    and the planning-seat notes, not from the implementation just written; every `notes_read`
+    `list` still carries `keys` restricted to the queue-phase keys. `implementation-notes` and
+    `session-tracking` stay out of the author pass even though the same seat wrote them.
   - **Still in force: §4.4 and §4.6.** A declaration the frozen plan does not carry is still a
     stop-and-ask (here: amend the plan explicitly, and say so), and any deviation is still
     self-disclosed in the manifest.

@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.domain.model
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 class RoleTransitionTest {
     private val testItemId = UUID.randomUUID()
@@ -97,54 +96,6 @@ class RoleTransitionTest {
                 trigger = "cancel"
             )
         assertEquals("cancel", transition.trigger)
-    }
-
-    // --- VALID_TRIGGERS ---
-
-    @Test
-    fun `VALID_TRIGGERS contains all expected triggers`() {
-        val expected = setOf("start", "complete", "block", "hold", "resume", "cancel", "reopen", "cascade")
-        assertEquals(expected, RoleTransition.VALID_TRIGGERS)
-    }
-
-    @Test
-    fun `VALID_TRIGGERS has exactly 8 entries`() {
-        assertEquals(8, RoleTransition.VALID_TRIGGERS.size)
-    }
-
-    @Test
-    fun `VALID_TRIGGERS contains start`() {
-        assertTrue("start" in RoleTransition.VALID_TRIGGERS)
-    }
-
-    @Test
-    fun `VALID_TRIGGERS contains complete`() {
-        assertTrue("complete" in RoleTransition.VALID_TRIGGERS)
-    }
-
-    @Test
-    fun `VALID_TRIGGERS contains block`() {
-        assertTrue("block" in RoleTransition.VALID_TRIGGERS)
-    }
-
-    @Test
-    fun `VALID_TRIGGERS contains hold`() {
-        assertTrue("hold" in RoleTransition.VALID_TRIGGERS)
-    }
-
-    @Test
-    fun `VALID_TRIGGERS contains resume`() {
-        assertTrue("resume" in RoleTransition.VALID_TRIGGERS)
-    }
-
-    @Test
-    fun `VALID_TRIGGERS contains cancel`() {
-        assertTrue("cancel" in RoleTransition.VALID_TRIGGERS)
-    }
-
-    @Test
-    fun `VALID_TRIGGERS contains cascade`() {
-        assertTrue("cascade" in RoleTransition.VALID_TRIGGERS)
     }
 
     // --- Actor attribution ---

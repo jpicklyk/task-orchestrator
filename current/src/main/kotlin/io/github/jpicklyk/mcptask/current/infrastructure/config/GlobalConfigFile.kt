@@ -4,7 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.GlobalConfigSource
-import io.github.jpicklyk.mcptask.current.application.config.SchemaResolutionMode
+import io.github.jpicklyk.mcptask.current.application.port.ConfigFileSource
 import io.github.jpicklyk.mcptask.current.infrastructure.security.configFingerprint
 import org.slf4j.LoggerFactory
 import org.yaml.snakeyaml.LoaderOptions
@@ -20,8 +20,7 @@ import java.nio.file.Path
  *
  * Moved verbatim from `YamlWorkItemSchemaService.loadSchemas()` (this item's C1 restructuring):
  * same [IllegalArgumentException] messages, same fingerprint computed over the same bytes, same
- * WARN/INFO logging. [YamlWorkItemSchemaService], [YamlStatusLabelService], and
- * [YamlActorAuthenticationConfigService] all read the same document from one instance of this
+ * WARN/INFO logging. [YamlWorkItemSchemaService] and [YamlStatusLabelService] both read the same document from one instance of this
  * class instead of each independently re-reading and re-parsing the file — see their
  * `GlobalConfigFile`-taking constructors.
  *
@@ -35,8 +34,20 @@ import java.nio.file.Path
  */
 class GlobalConfigFile(
     val configPath: Path
-) : GlobalConfigSource {
+) : GlobalConfigSource,
+    ConfigFileSource {
     private val logger = LoggerFactory.getLogger(GlobalConfigFile::class.java)
+
+    override val description: String = configPath.toString()
+
+    /** The exact bytes read by [loadLayer] (null when the file is absent); the one read behind [text] and the layer. */
+    @Volatile
+    private var textRead: String? = null
+
+    override fun text(): String? {
+        layer() // force the one lazy load so a read fault surfaces exactly as it does for layer()
+        return textRead
+    }
 
     /** Lazily loaded layer. `null` means no file was present at load time. */
     private val loadResult: ConfigLayer? by lazy { loadLayer() }
@@ -64,7 +75,9 @@ class GlobalConfigFile(
         // JVM String decoding of UTF-8 bytes keeps a leading U+FEFF as a real character, so
         // configFingerprint's BOM-stripping normalization applies here exactly as it does for the
         // raw byte path elsewhere — YAML parsing below still uses the raw bytes.
-        val fingerprint = configFingerprint(String(bytes, Charsets.UTF_8))
+        val fileText = String(bytes, Charsets.UTF_8)
+        textRead = fileText
+        val fingerprint = configFingerprint(fileText)
 
         val root =
             try {
@@ -77,7 +90,7 @@ class GlobalConfigFile(
                 )
             }
 
-        val parsedDocument =
+        val document =
             if (root == null) {
                 ConfigDocument.EMPTY
             } else {
@@ -96,18 +109,6 @@ class GlobalConfigFile(
                     // must still fail startup naming the file, like every other global-config error.
                     throw IllegalArgumentException("Failed to parse note schemas in '$configPath': ${e.message}", e)
                 }
-            }
-
-        // schema_resolution: isolated means nothing in the global config: there is no per-root
-        // layer above it to isolate from, so treat it as layered (AR-39, C4) and warn once.
-        val document =
-            if (parsedDocument.schemaResolution == SchemaResolutionMode.ISOLATED) {
-                val isolatedAtGlobalWarning =
-                    "schema_resolution: isolated has no effect in the global config " +
-                        "(nothing to isolate from); treating as layered"
-                parsedDocument.copy(warnings = parsedDocument.warnings + isolatedAtGlobalWarning)
-            } else {
-                parsedDocument
             }
 
         document.warnings.forEach { w -> logger.warn(w) }

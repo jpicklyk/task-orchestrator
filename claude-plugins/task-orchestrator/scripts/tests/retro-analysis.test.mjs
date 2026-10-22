@@ -14,6 +14,7 @@ import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 
 import { scriptText, coreSlice, loadMeta, loadScript, fakeParallel } from './workflow-harness.mjs'
+import { RETIRED_3X_TOOLS } from '../lib/contract-checks.mjs'
 import {
   loadCoreNamed,
   autoAgent,
@@ -244,6 +245,35 @@ test('RA14b (D1/O9): plan-to-execution is an accepted finding dimension, in DIME
   assert.equal(r.ok, true, r.reason)
   const plan = r.plan
   assert.match(CORE.clusterPrompt(plan, { orphans: [], uncovered: [], clusters: [] }), /plan-to-execution/)
+})
+
+// ── S14 (4.0 port, cac1bffa AC11/AC2) ─────────────────────────────────────────
+
+// Oracle: task-scope AC11 - the workflow reads findings with docs_read get {kind: plan, slug:
+// retro/<runId>} and reads items with items_read; no retired 3.x tool name survives in a prompt.
+// Fixture condition that would fail it without the port: the 3.x prompts named manage_plan_documents
+// / query_items, so a deep-mode plan rendered them.
+test('S14: deep-mode prompts name docs_read get with kind plan and slug retro/<runId>, and items_read get; no retired 3.x tool name appears', () => {
+  const trends = [entry('t1', 'Trend one')]
+  const observations = [entry('o1', 'Obs one')]
+  const findings = [findingFx('f1'), findingFx('f2')]
+  const plan = buildPlan({ mode: 'deep', findings, trends, observations, rootId: 'root-1', planDocSlug: 'retro/ra-test-0001', shardSize: 5 })
+  const prompts = [
+    CORE.matchPrompt(plan, CORE.makeShards(plan)[0]),
+    CORE.adjudicatePrompt(plan, findings[0], [{ trendId: 't1', strength: 'weak', evidence: 'e' }]),
+    CORE.clusterPrompt(plan, { orphans: findings, uncovered: observations, clusters: [] }),
+  ]
+  const all = prompts.join('\n----\n')
+  for (const p of prompts.slice(0, 2)) { // match and adjudicate carry the findings source; the cluster prompt gets findings inline
+    assert.match(p, /docs_read[^\n]*kind[^\n]*plan[^\n]*retro\/ra-test-0001/, 'every deep-mode prompt names docs_read get with kind plan and slug retro/<runId>')
+  }
+  assert.match(all, /items_read/, 'a prompt must name items_read for item reads')
+  for (const p of prompts) {
+    for (const name of RETIRED_3X_TOOLS) {
+      const re = new RegExp('(^|[^A-Za-z0-9_])' + name + '([^A-Za-z0-9_]|$)')
+      assert.equal(re.test(p), false, `prompt names retired tool ${name}`)
+    }
+  }
 })
 
 // ── RA6: audit mode, empty findings ──────────────────────────────────────────
@@ -794,6 +824,6 @@ test('T-skill-followups: session-retrospective names plan-to-execution, --deep i
   assert.match(text, /`<dimension>` is one of [^\n]*plan-to-execution/)
   assert.match(text, /\*\*Audit sweep\.\*\*[^\n]*only after they confirm/)
   assert.match(text, /stats\.unmatchedShards[^\n]*targetIds/)
-  assert.match(text, /tags="session-retrospective", sortBy="createdAt", sortOrder="desc", limit=10/)
+  assert.match(text, /"tags": \["session-retrospective"\], "sort": "createdAt", "order": "desc", "limit": 10/)
   assert.equal((text.match(/task-orchestrator:retro-analysis/g) || []).length, 1)
 })

@@ -6,7 +6,7 @@ import org.slf4j.LoggerFactory
  * Single shared boolean parser for every environment-variable boolean read in the codebase.
  *
  * Before this object existed, boolean env vars were parsed with four different, mutually
- * incompatible conventions scattered across [AppConfig], [ApiAuthConfigLoader],
+ * incompatible conventions scattered across [AppConfig], [io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfigLoader],
  * `AdvanceService`, and `FlywayDatabaseSchemaManager`:
  *  - Kotlin's `.toBoolean()` (only the exact literal `"true"`, case-insensitively, is true —
  *    `"1"` silently parses to `false`, with no diagnostic)

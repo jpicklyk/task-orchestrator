@@ -1,0 +1,99 @@
+package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
+
+import io.github.jpicklyk.mcptask.current.application.port.CallLogAppendResult
+import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
+import io.github.jpicklyk.mcptask.current.application.port.CallLogStore
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.CallLogTable
+import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.less
+import org.jetbrains.exposed.v1.jdbc.deleteWhere
+import org.jetbrains.exposed.v1.jdbc.insertIgnore
+import org.jetbrains.exposed.v1.jdbc.select
+import org.jetbrains.exposed.v1.jdbc.selectAll
+import java.time.Instant
+
+/**
+ * SQLite implementation of [CallLogStore] over [CallLogTable].
+ *
+ * [append] inserts each row with `INSERT OR IGNORE`, so a duplicate `req_id` (40-bit keys can collide) drops only
+ * that row and never fails or poisons the batch. It joins the ambient unit like [SqliteEventStore].
+ */
+class SqliteCallLogStore(
+    private val databaseManager: DatabaseManager
+) : CallLogStore {
+    override suspend fun append(records: List<CallLogRecord>): Int = appendCounted(records).inserted
+
+    override suspend fun appendCounted(records: List<CallLogRecord>): CallLogAppendResult {
+        if (records.isEmpty()) return CallLogAppendResult(0)
+        return databaseManager.writeTx("CallLogStore.append") {
+            var inserted = 0
+            var rejected = 0
+            val tokens = LinkedHashMap<java.util.UUID, Long>()
+            for (record in records) {
+                val stmt =
+                    CallLogTable.insertIgnore {
+                        it[reqId] = record.reqId
+                        it[at] = record.at
+                        it[principalId] = record.principalId
+                        it[principalKind] = record.principalKind
+                        it[proofStatus] = record.proofStatus
+                        it[host] = record.host
+                        it[sessionId] = record.sessionId
+                        it[runId] = record.runId
+                        it[seat] = record.seat
+                        it[surface] = record.surface
+                        it[tool] = record.tool
+                        it[operation] = record.operation
+                        it[targetIds] = record.targetIds
+                        it[targetVersions] = record.targetVersions
+                        it[requestShape] = record.requestShape
+                        it[outcome] = record.outcome
+                        it[errorCode] = record.errorCode
+                        it[attempts] = record.attempts
+                        it[latencyMs] = record.latencyMs
+                        it[requestBytes] = record.requestBytes
+                        it[responseBytes] = record.responseBytes
+                        it[responseTokensEst] = record.responseTokensEst
+                        it[tokenMethod] = record.tokenMethod
+                        it[replayed] = record.replayed
+                        it[batchSize] = record.batchSize
+                        it[failedCount] = record.failedCount
+                        it[resultCount] = record.resultCount
+                        it[eligibleCount] = record.eligibleCount
+                        it[hitSignals] = record.hitSignals
+                        it[lifecycleFreeRejections] = record.lifecycleFreeRejections
+                        it[rootId] = record.rootId
+                    }
+                val count = stmt.insertedCount
+                inserted += count
+                val runId = record.runId
+                val est = record.responseTokensEst
+                if (count == 1 && runId != null && est != null && est > 0) tokens[runId] = (tokens[runId] ?: 0L) + est
+                // INSERT OR IGNORE also skips CHECK / NOT NULL violations: only a req_id conflict is a duplicate.
+                if (count == 0 && CallLogTable.selectAll().where { CallLogTable.reqId eq record.reqId }.empty()) rejected++
+            }
+            CallLogAppendResult(inserted, rejected, tokens)
+        }
+    }
+
+    /** Selects the oldest [batch] rows before [cutoff] through `idx_call_log_at`, then deletes them by primary key. */
+    override suspend fun prune(
+        cutoff: Instant,
+        batch: Int
+    ): Int {
+        if (batch <= 0) return 0
+        return databaseManager.writeTx("CallLogStore.prune") {
+            val ids =
+                CallLogTable
+                    .select(CallLogTable.reqId)
+                    .where { CallLogTable.at less cutoff }
+                    .orderBy(CallLogTable.at to SortOrder.ASC)
+                    .limit(batch)
+                    .map { it[CallLogTable.reqId] }
+            ids.chunked(SQL_IN_CHUNK_SIZE).sumOf { chunk -> CallLogTable.deleteWhere { CallLogTable.reqId inList chunk } }
+        }
+    }
+}

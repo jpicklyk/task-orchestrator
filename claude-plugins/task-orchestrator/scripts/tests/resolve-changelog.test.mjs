@@ -1,3 +1,4 @@
+// Ported to 4.0 from main commit 850eaf6e (item cac1bffa, task-scope D11): the main test file, adapted only where AC names it (actor fields, planDocSlug -> serverRunId, ledger assignment, 4.0 file paths).
 // Coverage for resolve-changelog (lib + CLI), item 461e5991. Scenario ids S1-S14 and the probe
 // list match the item's `test-plan` note (6dc24f2a). Oracles: the item's `task-scope` note
 // (Contract, Parsing, Merge R1-R4, Render clauses). Every expected value below is hand-derived

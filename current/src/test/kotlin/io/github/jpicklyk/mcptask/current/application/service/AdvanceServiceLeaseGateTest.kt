@@ -1,21 +1,26 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
+import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
+import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
+import io.github.jpicklyk.mcptask.current.test.advanceSeeded
+import io.github.jpicklyk.mcptask.current.test.testClaimService
+import io.github.jpicklyk.mcptask.current.test.toRoleTransition
 import io.mockk.Called
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -26,7 +31,6 @@ import io.mockk.verify
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -41,27 +45,27 @@ import kotlin.test.assertTrue
  * per-test so the enforcement matrix can be driven row by row.
  */
 class AdvanceServiceLeaseGateTest {
+    /** `RESOURCE_LEASES_ENFORCED` as the startup snapshot ([AppConfig.fromEnv]) parses it; null = unset. */
+    private fun leasesFrom(value: String?): Boolean =
+        AppConfig.fromEnv { if (it == "RESOURCE_LEASES_ENFORCED") value else null }.resourceLeasesEnforced
+
     private lateinit var workItemRepo: WorkItemRepository
-    private lateinit var depRepo: DependencyRepository
-    private lateinit var roleTransitionRepo: RoleTransitionRepository
-    private lateinit var noteRepo: NoteRepository
-    private lateinit var leaseRepo: ResourceLeaseRepository
+    private lateinit var depRepo: DependencyStore
+    private lateinit var noteRepo: NoteStore
+    private lateinit var advanceStores: AdvanceMockStores
+    private lateinit var leaseRepo: LeaseStore
 
     @BeforeEach
     fun setUp() {
         workItemRepo = mockk()
         depRepo = mockk()
-        roleTransitionRepo = mockk()
         noteRepo = mockk()
         leaseRepo = mockk()
+        advanceStores = AdvanceMockStores(workItemRepo, depRepo, leaseRepo)
 
-        coEvery { workItemRepo.dbNow() } returns Instant.now()
-        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-        coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-            firstArg<suspend () -> Unit>().invoke()
-        }
-        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
-        coEvery { noteRepo.findByItemId(any()) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.clear(any()) } returns true
+        coEvery { workItemRepo.update(any()) } answers { firstArg() }
+        coEvery { noteRepo.findByItemId(any()) } returns emptyList()
         every { depRepo.findByToItemId(any()) } returns emptyList()
         every { depRepo.findByFromItemId(any()) } returns emptyList()
 
@@ -95,31 +99,40 @@ class AdvanceServiceLeaseGateTest {
         requirements: List<ResourceRequirement> = emptyList(),
         registry: Map<String, ResourceDefinition> = emptyMap(),
         schema: WorkItemSchema? = null,
-        leaseRepository: ResourceLeaseRepository? = leaseRepo,
+        leaseRepository: LeaseStore? = leaseRepo,
         resourceLeasesEnforced: Boolean = true,
         requirementsByItem: Map<UUID, List<ResourceRequirement>>? = null
     ): AdvanceService =
         AdvanceService(
             workItemRepository = workItemRepo,
-            roleTransitionRepository = roleTransitionRepo,
             dependencyRepository = depRepo,
             noteRepository = noteRepo,
-            statusLabelService = NoOpStatusLabelService,
             schemaResolver = { schema },
             resourceLeaseRepository = leaseRepository,
             resourceRequirementsResolver = { item ->
                 requirementsByItem?.get(item.id) ?: requirements
             },
             resourceRegistryResolver = { registry },
-            resourceLeasesEnforced = resourceLeasesEnforced
+            resourceLeasesEnforced = resourceLeasesEnforced,
+            unitOfWork = unit(),
+            claimService = testClaimService(workItemRepo, leaseRepository, unit())
         )
 
-    /** Captures the [RoleTransition] audit row written by the primary transition. */
-    private fun captureTransition(): io.mockk.CapturingSlot<RoleTransition> {
-        val slot = slot<RoleTransition>()
-        coEvery { roleTransitionRepo.create(capture(slot)) } returns Result.Success(mockk())
-        return slot
-    }
+    /** The event log the unit of work writes to: an applied transition is recorded as one `item.transitioned` row. */
+    private val events = InMemoryEventStore()
+
+    private fun unit(): UnitOfWork =
+        UnscopedUnitOfWork(
+            mockk<RepositoryProvider>(relaxed = true).also { every { it.eventStore() } returns events }
+        )
+
+    /** The credentials the primary transition recorded on its `item.transitioned` event. */
+    private fun recordedCredentials(): List<String> =
+        events
+            .all()
+            .single { it.type == DomainEvent.ITEM_TRANSITIONED }
+            .toRoleTransition()
+            .consumedCredentials
 
     private fun exclusive(
         key: String,
@@ -138,14 +151,13 @@ class AdvanceServiceLeaseGateTest {
             val item = makeItem(role = Role.QUEUE)
 
             val outcome =
-                serviceWith().advance(
+                serviceWith().advanceSeeded(
+                    advanceStores,
                     item,
                     "start",
                     null,
                     null,
                     null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    enforceOwnership = true
                 )
 
             assertIs<AdvanceOutcome.Success>(outcome)
@@ -158,22 +170,20 @@ class AdvanceServiceLeaseGateTest {
     fun `no declared resources leaves caller credentialRefs untouched`(): Unit =
         runBlocking {
             val item = makeItem(role = Role.QUEUE)
-            val transition = captureTransition()
 
-            serviceWith().advance(
+            serviceWith().advanceSeeded(
+                advanceStores,
                 item,
                 "start",
                 null,
                 null,
                 null,
-                DegradedModePolicy.ACCEPT_CACHED,
-                enforceOwnership = true,
                 credentialRefs = listOf("some-unregistered-label")
             )
 
             // Rung-1 behavior preserved: with no declarations and an empty registry there is no
             // set-membership check, so an arbitrary (well-formatted) label still passes through.
-            assertEquals(listOf("some-unregistered-label"), transition.captured.consumedCredentials)
+            assertEquals(listOf("some-unregistered-label"), recordedCredentials())
         }
 
     // ──────────────────────────────────────────────
@@ -189,14 +199,13 @@ class AdvanceServiceLeaseGateTest {
                 LeaseAcquireResult.Success(emptyList())
 
             val outcome =
-                serviceWith(requirements = listOf(exclusive("staging-db", ttlSeconds = 600))).advance(
+                serviceWith(requirements = listOf(exclusive("staging-db", ttlSeconds = 600))).advanceSeeded(
+                    advanceStores,
                     item,
                     "start",
                     null,
                     null,
                     null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    enforceOwnership = true
                 )
 
             assertIs<AdvanceOutcome.Success>(outcome)
@@ -211,14 +220,13 @@ class AdvanceServiceLeaseGateTest {
             val item = makeItem(role = Role.BLOCKED, previousRole = Role.WORK)
 
             val outcome =
-                serviceWith(requirements = listOf(exclusive("staging-db"))).advance(
+                serviceWith(requirements = listOf(exclusive("staging-db"))).advanceSeeded(
+                    advanceStores,
                     item,
                     "resume",
                     null,
                     null,
                     null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    enforceOwnership = true
                 )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
@@ -236,7 +244,7 @@ class AdvanceServiceLeaseGateTest {
             val outcome =
                 serviceWith(
                     requirements = listOf(exclusive("staging-db"), exclusive("prod-cred"))
-                ).advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                ).advanceSeeded(advanceStores, item, "start", null, null, null)
 
             val failure = assertIs<AdvanceOutcome.Failure>(outcome)
             val blocked = assertIs<AdvanceFailure.ResourceLeaseUnavailable>(failure.failure)
@@ -244,80 +252,73 @@ class AdvanceServiceLeaseGateTest {
             assertEquals(45_000L, blocked.retryAfterMs)
             assertEquals(Role.WORK, blocked.targetRole)
             // Nothing was persisted — the transition never reached applyTransition.
-            coVerify(exactly = 0) { roleTransitionRepo.create(any()) }
         }
 
     @Test
-    fun `lease store DBError is surfaced as a transient rejection with the default backoff`(): Unit =
+    fun `lease store fault fails the whole advance and rolls it back`(): Unit =
         runBlocking {
             val item = makeItem(role = Role.QUEUE)
-            coEvery { leaseRepo.acquireAll(any(), any(), any()) } returns
-                LeaseAcquireResult.DBError(IllegalStateException("SQLITE_BUSY_SNAPSHOT"))
+            coEvery { leaseRepo.acquireAll(any(), any(), any()) } throws IllegalStateException("SQLITE_BUSY_SNAPSHOT")
 
             val outcome =
-                serviceWith(requirements = listOf(exclusive("staging-db"))).advance(
+                serviceWith(requirements = listOf(exclusive("staging-db"))).advanceSeeded(
+                    advanceStores,
                     item,
                     "start",
                     null,
                     null,
                     null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    true
                 )
 
+            // P11: acquisition runs inside the advance's single unit; a store fault there fails the advance
+            // (apply_failed) instead of being reported as a transient lease rejection.
             val failure = assertIs<AdvanceOutcome.Failure>(outcome)
-            val blocked = assertIs<AdvanceFailure.ResourceLeaseUnavailable>(failure.failure)
-            assertEquals(listOf("staging-db"), blocked.contendedResources)
-            assertEquals(AdvanceService.LEASE_DB_ERROR_RETRY_AFTER_MS, blocked.retryAfterMs)
-            assertTrue(blocked.message.contains("transient"), "message should name the transient cause")
+            val applyFailed = assertIs<AdvanceFailure.ApplyFailed>(failure.failure)
+            assertTrue(applyFailed.message.contains("SQLITE_BUSY_SNAPSHOT"), "message should carry the store fault")
         }
 
     @Test
     fun `advisory requirement is never leased but IS derived into consumedCredentials`(): Unit =
         runBlocking {
             val item = makeItem(role = Role.QUEUE)
-            val transition = captureTransition()
 
             val outcome =
-                serviceWith(requirements = listOf(advisory("shared-runner"))).advance(
+                serviceWith(requirements = listOf(advisory("shared-runner"))).advanceSeeded(
+                    advanceStores,
                     item,
                     "start",
                     null,
                     null,
                     null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    true
                 )
 
             assertIs<AdvanceOutcome.Success>(outcome)
             coVerify(exactly = 0) { leaseRepo.acquireAll(any(), any(), any()) }
-            assertEquals(listOf("shared-runner"), transition.captured.consumedCredentials)
+            assertEquals(listOf("shared-runner"), recordedCredentials())
         }
 
     @Test
     fun `derived keys precede caller extras and duplicates collapse`(): Unit =
         runBlocking {
             val item = makeItem(role = Role.QUEUE)
-            val transition = captureTransition()
 
             serviceWith(
                 requirements = listOf(exclusive("staging-db"), advisory("shared-runner")),
                 registry = mapOf("extra-cred" to ResourceDefinition("extra-cred"))
-            ).advance(
+            ).advanceSeeded(
+                advanceStores,
                 item,
                 "start",
                 null,
                 null,
                 null,
-                DegradedModePolicy.ACCEPT_CACHED,
-                true,
                 // "staging-db" duplicates a derived key; "extra-cred" is a registry-known extra.
                 credentialRefs = listOf("staging-db", "extra-cred")
             )
 
             assertEquals(
                 listOf("staging-db", "shared-runner", "extra-cred"),
-                transition.captured.consumedCredentials
+                recordedCredentials()
             )
         }
 
@@ -334,14 +335,13 @@ class AdvanceServiceLeaseGateTest {
                 serviceWith(
                     requirements = listOf(exclusive("staging-db")),
                     registry = mapOf("prod-cred" to ResourceDefinition("prod-cred"))
-                ).advance(
+                ).advanceSeeded(
+                    advanceStores,
                     item,
                     "start",
                     null,
                     null,
                     null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    true,
                     credentialRefs = listOf("staging-db", "who-knows")
                 )
 
@@ -360,14 +360,13 @@ class AdvanceServiceLeaseGateTest {
                 serviceWith(
                     requirements = listOf(exclusive("staging-db")),
                     registry = mapOf("prod-cred" to ResourceDefinition("prod-cred"))
-                ).advance(
+                ).advanceSeeded(
+                    advanceStores,
                     item,
                     "start",
                     null,
                     null,
                     null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    true,
                     credentialRefs = listOf("prod-cred")
                 )
 
@@ -398,7 +397,7 @@ class AdvanceServiceLeaseGateTest {
                         "has-override" to ResourceDefinition("has-override", defaultTtlSeconds = 999),
                         "registry-default" to ResourceDefinition("registry-default", defaultTtlSeconds = 1800)
                     )
-            ).advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+            ).advanceSeeded(advanceStores, item, "start", null, null, null)
 
             assertEquals(
                 listOf(
@@ -420,7 +419,7 @@ class AdvanceServiceLeaseGateTest {
 
             serviceWith(
                 requirements = listOf(exclusive("too-small", ttlSeconds = 0), exclusive("too-big", ttlSeconds = 999_999))
-            ).advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+            ).advanceSeeded(advanceStores, item, "start", null, null, null)
 
             assertEquals(
                 listOf(
@@ -441,14 +440,13 @@ class AdvanceServiceLeaseGateTest {
             val item = makeItem(role = Role.QUEUE)
 
             val outcome =
-                serviceWith(requirements = listOf(exclusive("staging-db"))).advance(
+                serviceWith(requirements = listOf(exclusive("staging-db"))).advanceSeeded(
+                    advanceStores,
                     item,
                     "start",
                     null,
                     null,
                     null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    enforceOwnership = true,
                     credentialRefs = emptyList(),
                     enforceResourceLeases = false
                 )
@@ -466,14 +464,13 @@ class AdvanceServiceLeaseGateTest {
                 serviceWith(
                     requirements = listOf(exclusive("staging-db")),
                     resourceLeasesEnforced = false
-                ).advance(
+                ).advanceSeeded(
+                    advanceStores,
                     item,
                     "start",
                     null,
                     null,
                     null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    enforceOwnership = true,
                     credentialRefs = emptyList(),
                     enforceResourceLeases = true
                 )
@@ -483,12 +480,12 @@ class AdvanceServiceLeaseGateTest {
         }
 
     @Test
-    fun `kill switch parses only the literal false as disabled`() {
-        assertTrue(AdvanceService.resourceLeasesEnforcedFromEnv { null })
-        assertTrue(AdvanceService.resourceLeasesEnforcedFromEnv { "true" })
-        assertTrue(!AdvanceService.resourceLeasesEnforcedFromEnv { "0" })
-        assertTrue(!AdvanceService.resourceLeasesEnforcedFromEnv { "false" })
-        assertTrue(!AdvanceService.resourceLeasesEnforcedFromEnv { "FALSE" })
+    fun `kill switch is parsed once into AppConfig with the shared boolean vocabulary`() {
+        assertTrue(leasesFrom(null))
+        assertTrue(leasesFrom("true"))
+        assertTrue(!leasesFrom("0"))
+        assertTrue(!leasesFrom("false"))
+        assertTrue(!leasesFrom("FALSE"))
     }
 
     // ──────────────────────────────────────────────
@@ -501,14 +498,13 @@ class AdvanceServiceLeaseGateTest {
             val item = makeItem(role = Role.WORK)
 
             val outcome =
-                serviceWith(requirements = listOf(exclusive("staging-db"))).advance(
+                serviceWith(requirements = listOf(exclusive("staging-db"))).advanceSeeded(
+                    advanceStores,
                     item,
                     "complete",
                     null,
                     null,
                     null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    true
                 )
 
             assertIs<AdvanceOutcome.Success>(outcome)
@@ -520,7 +516,7 @@ class AdvanceServiceLeaseGateTest {
         runBlocking {
             val item = makeItem(role = Role.WORK)
 
-            serviceWith().advance(item, "cancel", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+            serviceWith().advanceSeeded(advanceStores, item, "cancel", null, null, null)
 
             coVerify(exactly = 1) { leaseRepo.releaseAllForItem(item.id) }
         }
@@ -530,7 +526,7 @@ class AdvanceServiceLeaseGateTest {
         runBlocking {
             val item = makeItem(role = Role.WORK)
 
-            serviceWith().advance(item, "block", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+            serviceWith().advanceSeeded(advanceStores, item, "block", null, null, null)
 
             coVerify(exactly = 1) { leaseRepo.releaseAllForItem(item.id) }
         }
@@ -540,7 +536,7 @@ class AdvanceServiceLeaseGateTest {
         runBlocking {
             val item = makeItem(role = Role.WORK)
 
-            serviceWith().advance(item, "hold", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+            serviceWith().advanceSeeded(advanceStores, item, "hold", null, null, null)
 
             coVerify(exactly = 1) { leaseRepo.releaseAllForItem(item.id) }
         }
@@ -550,7 +546,7 @@ class AdvanceServiceLeaseGateTest {
         runBlocking {
             val item = makeItem(role = Role.QUEUE)
 
-            serviceWith().advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+            serviceWith().advanceSeeded(advanceStores, item, "start", null, null, null)
 
             coVerify(exactly = 0) { leaseRepo.releaseAllForItem(any()) }
         }
@@ -561,32 +557,31 @@ class AdvanceServiceLeaseGateTest {
             // Releasing is always safe: leases taken while enforcement was on must still be freed.
             val item = makeItem(role = Role.WORK)
 
-            serviceWith(resourceLeasesEnforced = false).advance(
+            serviceWith(resourceLeasesEnforced = false).advanceSeeded(
+                advanceStores,
                 item,
                 "complete",
                 null,
                 null,
                 null,
-                DegradedModePolicy.ACCEPT_CACHED,
-                true
             )
 
             coVerify(exactly = 1) { leaseRepo.releaseAllForItem(item.id) }
         }
 
     @Test
-    fun `a release DBError is logged and does NOT fail the transition`(): Unit =
+    fun `a release DBError fails the transition (P11, the release runs in the advance unit)`(): Unit =
         runBlocking {
             val item = makeItem(role = Role.WORK)
-            coEvery { leaseRepo.releaseAllForItem(any()) } returns
-                LeaseReleaseResult.DBError(IllegalStateException("db down"))
+            coEvery { leaseRepo.releaseAllForItem(any()) } throws IllegalStateException("db down")
 
             val outcome =
-                serviceWith().advance(item, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advanceSeeded(advanceStores, item, "complete", null, null, null)
 
-            // The role change already committed; the TTL is the backstop for the orphaned lease.
-            val success = assertIs<AdvanceOutcome.Success>(outcome)
-            assertEquals(Role.TERMINAL, success.result.newRole)
+            // P11: the release runs inside the advance's unit, so its fault fails (and rolls back) the advance.
+            val failure = assertIs<AdvanceOutcome.Failure>(outcome)
+            val applyFailed = assertIs<AdvanceFailure.ApplyFailed>(failure.failure)
+            assertTrue(applyFailed.message.contains("db down"), "message should carry the store fault: ${applyFailed.message}")
         }
 
     // ──────────────────────────────────────────────
@@ -600,7 +595,7 @@ class AdvanceServiceLeaseGateTest {
             val parent = makeItem(id = parentId, role = Role.QUEUE, title = "Parent")
             val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+            coEvery { workItemRepo.getById(parentId) } returns parent
             // The child declares nothing; the parent needs an exclusive resource that is taken.
             coEvery { leaseRepo.acquireAll(parentId, any(), any()) } returns
                 LeaseAcquireResult.Contended(listOf("staging-db"), retryAfterMs = 5_000)
@@ -608,7 +603,7 @@ class AdvanceServiceLeaseGateTest {
             val outcome =
                 serviceWith(
                     requirementsByItem = mapOf(parentId to listOf(exclusive("staging-db")))
-                ).advance(child, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                ).advanceSeeded(advanceStores, child, "start", null, null, null)
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.WORK, success.result.newRole, "the child's own advance must still succeed")
@@ -627,12 +622,12 @@ class AdvanceServiceLeaseGateTest {
             val parent = makeItem(id = parentId, role = Role.QUEUE, title = "Parent")
             val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+            coEvery { workItemRepo.getById(parentId) } returns parent
 
             val outcome =
                 serviceWith(
                     requirementsByItem = mapOf(parentId to listOf(exclusive("staging-db")))
-                ).advance(child, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                ).advanceSeeded(advanceStores, child, "start", null, null, null)
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             val cascade = success.result.cascadeEvents.single()
@@ -649,13 +644,13 @@ class AdvanceServiceLeaseGateTest {
             val parent = makeItem(id = parentId, role = Role.QUEUE, title = "Parent")
             val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+            coEvery { workItemRepo.getById(parentId) } returns parent
 
             val outcome =
                 serviceWith(
                     requirementsByItem = mapOf(parentId to listOf(exclusive("staging-db"))),
                     resourceLeasesEnforced = false
-                ).advance(child, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                ).advanceSeeded(advanceStores, child, "start", null, null, null)
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertTrue(
@@ -676,7 +671,7 @@ class AdvanceServiceLeaseGateTest {
                 serviceWith(
                     requirements = listOf(exclusive("staging-db")),
                     leaseRepository = null
-                ).advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                ).advanceSeeded(advanceStores, item, "start", null, null, null)
 
             assertIs<AdvanceOutcome.Success>(outcome)
         }

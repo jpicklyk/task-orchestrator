@@ -20,6 +20,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/director-context.mjs\"",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "FileChanged": [
@@ -46,21 +56,11 @@
         ]
       },
       {
-        "matcher": "^mcp__.*task-orchestrator.*__manage_notes$",
+        "matcher": "^mcp__.*task-orchestrator.*__notes_write$",
         "hooks": [
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/skill-enforcement.mjs\"",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "^mcp__.*task-orchestrator.*__(advance_item|manage_notes)$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/enforce-actor-attribution.mjs\"",
             "timeout": 5
           }
         ]
@@ -72,6 +72,17 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch-model-guard.mjs\"",
             "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Skill|Read|Edit|Write|Bash|Agent|Grep|Glob|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/director-guard.mjs\"",
+            "timeout": 5,
+            "onFailure": "block"
           }
         ]
       }
@@ -93,7 +104,7 @@
         ]
       },
       {
-        "matcher": "^mcp__.*task-orchestrator.*__(advance_item|complete_tree)$",
+        "matcher": "^mcp__.*task-orchestrator.*__runs_write$",
         "hooks": [
           {
             "type": "command",
@@ -103,7 +114,17 @@
         ]
       },
       {
-        "matcher": "^mcp__.*task-orchestrator.*__advance_item$",
+        "matcher": "^mcp__.*task-orchestrator.*__runs_read$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/director-watch.mjs\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__.*task-orchestrator.*__(advance|items_read)$",
         "hooks": [
           {
             "type": "command",
@@ -113,7 +134,7 @@
         ]
       },
       {
-        "matcher": "^mcp__.*task-orchestrator.*__advance_item$",
+        "matcher": "^mcp__.*task-orchestrator.*__advance$",
         "hooks": [
           {
             "type": "command",

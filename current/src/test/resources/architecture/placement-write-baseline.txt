@@ -1,0 +1,4 @@
+# Production files outside SqliteHierarchyStore.kt that write parent_id / root_id / depth, one `<path> <count>` per line.
+# Two-way ratchet (PlacementWriteConfinementTest): a new write fails the test, and so does a stale line. The item store's
+# insert/update still stamp placement today; a later item moves those writes into the hierarchy store and empties this file.
+infrastructure/sqlite/repository/SqliteItemStore.kt 6

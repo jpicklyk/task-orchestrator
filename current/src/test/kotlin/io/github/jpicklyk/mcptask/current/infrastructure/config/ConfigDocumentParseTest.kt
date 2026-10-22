@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
-import io.github.jpicklyk.mcptask.current.application.config.SchemaResolutionMode
 import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.constructor.SafeConstructor
@@ -16,8 +15,8 @@ import kotlin.test.assertTrue
  * Independently authored against the frozen `test-plan` note on item `df7d579a` (scenarios
  * S5, S7, S8, S12, S14). Exercises [YamlSchemaParser.parseRoot] directly (mirroring
  * [YamlSchemaParserRoleWarningTest]'s SafeConstructor-based parsing style) for the new
- * [ConfigDocument] fields C1 introduces (`noteLimitsMode`, `statusLabels`, `schemaResolution`,
- * `actorAuthenticationSection`, `presentSections`), plus [YamlConfigDocumentParser] (the new
+ * [ConfigDocument] fields C1 introduces (`noteLimitsMode`, `statusLabels`,
+ * `presentSections`), plus [YamlConfigDocumentParser] (the new
  * exception-to-`Outcome` wrapper) and the [ConfigDocument.PER_ROOT_HONORED_SECTIONS] constant.
  */
 class ConfigDocumentParseTest {
@@ -92,44 +91,34 @@ class ConfigDocumentParseTest {
     }
 
     // ──────────────────────────────────────────────
-    // S7 — schemaResolution
+    // S7 — the removed schema_resolution key: parses, one warning, no effect
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S7 schema_resolution legacy, layered and isolated parse to their enum values`() {
-        assertEquals(SchemaResolutionMode.LEGACY, parse("schema_resolution: legacy\n").schemaResolution)
-        assertEquals(SchemaResolutionMode.LAYERED, parse("schema_resolution: layered\n").schemaResolution)
-        assertEquals(SchemaResolutionMode.ISOLATED, parse("schema_resolution: isolated\n").schemaResolution)
-    }
-
-    @Test
-    fun `S7 schema_resolution absent yields null`() {
-        assertNull(parse(noSchemaSection).schemaResolution)
-    }
-
-    @Test
-    fun `S7 schema_resolution invalid values yield null and add exactly one warning`() {
+    fun `S7 schema_resolution of any value parses with exactly one removal warning and no other effect`() {
         val baseline = parse(noSchemaSection)
 
-        val wrongCase = parse("schema_resolution: LAYERED\n$noSchemaSection")
-        assertNull(wrongCase.schemaResolution, "SchemaResolutionMode.fromConfigString is exact-lowercase only")
-        assertEquals(baseline.warnings.size + 1, wrongCase.warnings.size, "warnings: ${wrongCase.warnings}")
+        for (value in listOf("legacy", "layered", "isolated", "LAYERED", "bogus", "5", "\n  nested: true")) {
+            val doc = parse("schema_resolution: $value\n$noSchemaSection")
+            assertEquals(baseline.warnings.size + 1, doc.warnings.size, "value '$value' warnings: ${doc.warnings}")
+            val added = doc.warnings - baseline.warnings.toSet()
+            assertEquals(1, added.size, "value '$value' warnings: ${doc.warnings}")
+            assertTrue(added.single().contains("schema_resolution") && added.single().contains("removed"), "warning: ${added.single()}")
+            assertEquals(
+                baseline.copy(presentSections = emptySet(), warnings = emptyList(), warningViolations = emptyList()),
+                doc.copy(presentSections = emptySet(), warnings = emptyList(), warningViolations = emptyList()),
+                "schema_resolution must have no effect on the parsed document"
+            )
+        }
+    }
 
-        val bogus = parse("schema_resolution: bogus\n$noSchemaSection")
-        assertNull(bogus.schemaResolution)
-        assertEquals(baseline.warnings.size + 1, bogus.warnings.size, "warnings: ${bogus.warnings}")
-
-        val numeric = parse("schema_resolution: 5\n$noSchemaSection")
-        assertNull(numeric.schemaResolution)
-        assertEquals(baseline.warnings.size + 1, numeric.warnings.size, "warnings: ${numeric.warnings}")
-
-        val mapValue = parse("schema_resolution:\n  nested: true\n$noSchemaSection")
-        assertNull(mapValue.schemaResolution)
-        assertEquals(baseline.warnings.size + 1, mapValue.warnings.size, "warnings: ${mapValue.warnings}")
+    @Test
+    fun `S7 schema_resolution absent adds no removal warning`() {
+        assertTrue(parse(noSchemaSection).warnings.none { it.contains("schema_resolution") })
     }
 
     // ──────────────────────────────────────────────
-    // S8 — presentSections / actorAuthenticationSection
+    // S8 — presentSections
     // ──────────────────────────────────────────────
 
     @Test
@@ -152,32 +141,6 @@ class ConfigDocumentParseTest {
     @Test
     fun `S8 presentSections is empty for a blank document`() {
         assertTrue(parse("").presentSections.isEmpty())
-    }
-
-    @Test
-    fun `S8 actorAuthenticationSection carries the raw map value`() {
-        val doc =
-            parse(
-                """
-                actor_authentication:
-                  enabled: true
-                  verifier:
-                    type: noop
-                """.trimIndent(),
-            )
-        val section = doc.actorAuthenticationSection
-        assertTrue(section is Map<*, *>)
-        assertEquals(true, (section as Map<*, *>)["enabled"])
-    }
-
-    @Test
-    fun `S8 actorAuthenticationSection carries a raw scalar value unchanged`() {
-        assertEquals("reject", parse("actor_authentication: reject\n").actorAuthenticationSection)
-    }
-
-    @Test
-    fun `S8 actorAuthenticationSection is null when the section is absent`() {
-        assertNull(parse(noSchemaSection).actorAuthenticationSection)
     }
 
     // ──────────────────────────────────────────────
@@ -228,27 +191,5 @@ class ConfigDocumentParseTest {
         val outcome = YamlConfigDocumentParser.parse("project:\n  name: x\n", warnOnMissingSchemas = false)
         val parsed = outcome as ConfigDocumentParser.Outcome.Parsed
         assertTrue(parsed.document.warnings.none { it.contains("note_schemas") }, "warnings: ${parsed.document.warnings}")
-    }
-
-    // ──────────────────────────────────────────────
-    // S14 — PER_ROOT_HONORED_SECTIONS
-    // ──────────────────────────────────────────────
-
-    @Test
-    fun `S14 PER_ROOT_HONORED_SECTIONS is exactly the nine documented sections`() {
-        assertEquals(
-            setOf(
-                "work_item_schemas",
-                "note_schemas",
-                "traits",
-                "project",
-                "note_limits",
-                "status_labels",
-                "resources",
-                "schema_resolution",
-                "independence",
-            ),
-            ConfigDocument.PER_ROOT_HONORED_SECTIONS,
-        )
     }
 }

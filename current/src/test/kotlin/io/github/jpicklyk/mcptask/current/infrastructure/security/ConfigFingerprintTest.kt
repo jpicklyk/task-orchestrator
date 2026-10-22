@@ -1,13 +1,19 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.security
 
+import io.github.jpicklyk.mcptask.current.application.support.sha256Hex
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigAppendOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.ProjectConfigTable
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ConfigVersionsTable
+import io.github.jpicklyk.mcptask.current.test.configYaml
+import io.github.jpicklyk.mcptask.current.test.get
+import io.github.jpicklyk.mcptask.current.test.rootItemId
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
+import io.github.jpicklyk.mcptask.current.test.upsertGuarded
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -19,9 +25,11 @@ import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -34,6 +42,10 @@ import kotlin.test.assertTrue
  * compare-and-set-in-transaction guard logic is untouched by this change.
  */
 class ConfigFingerprintTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
     private data class Vector(
         val name: String,
         val input: String,
@@ -71,13 +83,11 @@ class ConfigFingerprintTest {
     }
 
     @Test
-    fun `SQLiteProjectConfigRepository computeFingerprint matches every shared fixture vector`() =
+    fun `SqliteConfigStore computeFingerprint matches every shared fixture vector`(): Unit =
         runBlocking {
-            val dbName = "test_${System.nanoTime()}"
-            val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-            val databaseManager = DatabaseManager(database)
-            DirectDatabaseSchemaManager().updateSchema()
-            val repository = SQLiteProjectConfigRepository(databaseManager)
+            val database = sqliteDb.database
+            val databaseManager = sqliteDb.databaseManager
+            val repository = SqliteConfigStore(databaseManager)
 
             for (vector in loadVectors()) {
                 assertEquals(
@@ -92,18 +102,16 @@ class ConfigFingerprintTest {
 
     private lateinit var database: Database
     private lateinit var databaseManager: DatabaseManager
-    private lateinit var projectConfigRepository: SQLiteProjectConfigRepository
+    private lateinit var projectConfigRepository: SqliteConfigStore
     private lateinit var workItemRepository: SQLiteWorkItemRepository
     private lateinit var rootItemId: UUID
 
     @BeforeEach
     fun setUp() =
         runBlocking {
-            val dbName = "test_${System.nanoTime()}"
-            database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-            databaseManager = DatabaseManager(database)
-            DirectDatabaseSchemaManager().updateSchema()
-            projectConfigRepository = SQLiteProjectConfigRepository(databaseManager)
+            database = sqliteDb.database
+            databaseManager = sqliteDb.databaseManager
+            projectConfigRepository = SqliteConfigStore(databaseManager)
             workItemRepository = SQLiteWorkItemRepository(databaseManager)
 
             val root = WorkItem(title = "Project Root")
@@ -112,23 +120,23 @@ class ConfigFingerprintTest {
         }
 
     @Test
-    fun `S12 upserting CRLF plus BOM body classifies the LF variant as current and stores the original bytes unchanged`() =
+    fun `S12 upserting CRLF plus BOM body classifies the LF variant as current and stores the original bytes unchanged`(): Unit =
         runBlocking {
             val crlfBomBody = "a: 1\r\nb: 2\r\n"
             val lfVariant = "a: 1\nb: 2\n"
 
             val upserted = projectConfigRepository.upsert(rootItemId, crlfBomBody)
-            assertIs<Result.Success<*>>(upserted)
+            assertNotNull(upserted)
 
             val stored = projectConfigRepository.get(rootItemId)
-            assertIs<Result.Success<*>>(stored)
-            val config = (stored as Result.Success).data
+            assertNotNull(stored)
+            val config = stored
             assertEquals(crlfBomBody, config?.configYaml, "stored body must be byte-for-byte unchanged")
 
             val lfFingerprint = projectConfigRepository.computeFingerprint(lfVariant)
             val relation = projectConfigRepository.classifyFingerprint(rootItemId, lfFingerprint)
-            assertIs<Result.Success<*>>(relation)
-            assertEquals(FingerprintRelation.CURRENT, (relation as Result.Success).data)
+            assertNotNull(relation)
+            assertEquals(FingerprintRelation.CURRENT, relation)
         }
 
     @Test
@@ -147,10 +155,10 @@ class ConfigFingerprintTest {
             // by a pre-change server -- the config body itself stays exactly what a pre-change
             // server would have stored (raw CRLF bytes, never normalized).
             val seeded = projectConfigRepository.upsert(rootItemId, crlfBody)
-            assertIs<Result.Success<*>>(seeded)
+            assertNotNull(seeded)
             suspendTransaction(db = database) {
-                ProjectConfigTable.update({ ProjectConfigTable.rootItemId eq rootItemId }) {
-                    it[ProjectConfigTable.fingerprint] = rawFingerprint
+                ConfigVersionsTable.update({ ConfigVersionsTable.id eq seeded.id }) {
+                    it[ConfigVersionsTable.fingerprint] = rawFingerprint
                 }
             }
 
@@ -159,39 +167,28 @@ class ConfigFingerprintTest {
             // the relation is UNKNOWN, not SUPERSEDED -- the push is accepted per the run plan's
             // rollout semantics (one unknown relation + re-push per affected root).
             val rePush =
-                projectConfigRepository.upsertGuarded(rootItemId, crlfBody, expectedFingerprint = null, rejectSuperseded = true)
-            assertIs<Result.Success<*>>(rePush)
+                projectConfigRepository.upsertGuarded(rootItemId, crlfBody, rejectSuperseded = true)
+            assertNotNull(rePush)
             val applied =
-                assertIs<io.github.jpicklyk.mcptask.current.domain.model.GuardedUpsertOutcome.Applied>(
-                    (rePush as Result.Success).data
+                assertIs<ConfigAppendOutcome.Applied>(
+                    rePush
                 )
-            assertEquals(normalizedFingerprint, applied.config.fingerprint, "fingerprint must become the normalized value")
+            assertEquals(normalizedFingerprint, applied.version.fingerprint, "fingerprint must become the normalized value")
 
             val afterRePush = projectConfigRepository.get(rootItemId)
-            assertIs<Result.Success<*>>(afterRePush)
-            val storedFingerprintHistory = (afterRePush as Result.Success).data
+            assertNotNull(afterRePush)
+            val storedFingerprintHistory = afterRePush
             assertEquals(crlfBody, storedFingerprintHistory?.configYaml, "stored body must remain byte-for-byte unchanged")
 
             val relationAfterRePush = projectConfigRepository.classifyFingerprint(rootItemId, rawFingerprint)
-            assertIs<Result.Success<*>>(relationAfterRePush)
+            assertNotNull(relationAfterRePush)
             assertEquals(
                 FingerprintRelation.SUPERSEDED,
-                (relationAfterRePush as Result.Success).data,
+                relationAfterRePush,
                 "the pre-change raw fingerprint must now be in history"
             )
 
-            // A guarded push using the stale RAW fingerprint as the If-Match precondition must fail --
-            // the CAS `where fingerprint eq observedFingerprint` in #338's attemptGuardedUpsert is
-            // unchanged; only the computed fingerprint value differs now.
-            val staleIfMatch =
-                projectConfigRepository.upsertGuarded(
-                    rootItemId,
-                    crlfBody,
-                    expectedFingerprint = rawFingerprint,
-                    rejectSuperseded = false
-                )
-            assertIs<Result.Success<*>>(staleIfMatch)
-            val outcome = (staleIfMatch as Result.Success).data
-            assertIs<io.github.jpicklyk.mcptask.current.domain.model.GuardedUpsertOutcome.PreconditionFailed>(outcome)
+            // Q32: the stale-fingerprint If-Match half went with the legacy fingerprint compare-and-set;
+            // the version compare-and-set (expectedVersion) is covered by SqliteConfigStoreTest S5.
         }
 }

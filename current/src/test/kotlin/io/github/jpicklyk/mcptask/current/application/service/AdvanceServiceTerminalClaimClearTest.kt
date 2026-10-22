@@ -1,17 +1,18 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
+import io.github.jpicklyk.mcptask.current.test.advanceSeeded
+import io.github.jpicklyk.mcptask.current.test.testClaimService
+import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -29,12 +30,13 @@ import kotlin.test.assertTrue
 
 /**
  * Bug `3785f37a`: claims are never cleared when a transition reaches TERMINAL, and `reopen`
- * resurrects a stale claim. Fix: [RoleTransitionHandler.applyTransition]'s existing item-copy
- * block now clears all four claim fields (`claimedBy`, `claimedAt`, `claimExpiresAt`,
+ * resurrects a stale claim. Fix: the transition-apply step (now the private
+ * `AdvanceService.applyDecision`, clearing claim columns via `ClaimService.clearClaim`)
+ * clears all four claim fields (`claimedBy`, `claimedAt`, `claimExpiresAt`,
  * `originalClaimedAt`) whenever `targetRole == TERMINAL` or `previousRole == TERMINAL`.
  *
  * Exercised entirely through [AdvanceService.advance] — the single pipeline shared by the MCP
- * `advance_item` tool (enforceOwnership = true), `complete_tree`, and cascades. All scenarios are
+ * `advance` tool (`transition` op) (enforceOwnership = true), `complete_tree`, and cascades. All scenarios are
  * EXISTING-SURFACE per the frozen test-plan: no new production signature is introduced by the fix,
  * so a narrowest-revert of the copy-block change alone must turn every clearing assertion below red.
  *
@@ -53,32 +55,35 @@ import kotlin.test.assertTrue
  */
 class AdvanceServiceTerminalClaimClearTest {
     private lateinit var workItemRepo: WorkItemRepository
-    private lateinit var depRepo: DependencyRepository
-    private lateinit var roleTransitionRepo: RoleTransitionRepository
-    private lateinit var noteRepo: NoteRepository
+    private lateinit var depRepo: DependencyStore
+    private lateinit var noteRepo: NoteStore
+    private lateinit var advanceStores: AdvanceMockStores
 
     /** Every [WorkItem] passed to `workItemRepo.update(...)` during a test, in call order. */
     private val updatedItems = mutableListOf<WorkItem>()
+
+    /** Every id passed to `workItemRepo.clear(...)`: update() no longer writes the claim columns, so the claim release is explicit. */
+    private val clearedIds = mutableListOf<UUID>()
 
     @BeforeEach
     fun setUp() {
         workItemRepo = mockk()
         depRepo = mockk()
-        roleTransitionRepo = mockk()
         noteRepo = mockk()
+        advanceStores = AdvanceMockStores(workItemRepo, depRepo)
         updatedItems.clear()
+        clearedIds.clear()
 
-        coEvery { workItemRepo.dbNow() } returns Instant.now()
         coEvery { workItemRepo.update(any()) } answers {
             val item = firstArg<WorkItem>()
             updatedItems.add(item)
-            Result.Success(item)
+            item
         }
-        coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-            firstArg<suspend () -> Unit>().invoke()
+        coEvery { workItemRepo.clear(any()) } answers {
+            clearedIds.add(firstArg())
+            true
         }
-        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
-        coEvery { noteRepo.findByItemId(any()) } returns Result.Success(emptyList())
+        coEvery { noteRepo.findByItemId(any()) } returns emptyList()
         every { depRepo.findByToItemId(any()) } returns emptyList()
         every { depRepo.findByFromItemId(any()) } returns emptyList()
     }
@@ -114,11 +119,11 @@ class AdvanceServiceTerminalClaimClearTest {
     private fun serviceWith(): AdvanceService =
         AdvanceService(
             workItemRepository = workItemRepo,
-            roleTransitionRepository = roleTransitionRepo,
             dependencyRepository = depRepo,
             noteRepository = noteRepo,
-            statusLabelService = NoOpStatusLabelService,
             schemaResolver = { null },
+            unitOfWork = unscopedUnitOfWork(),
+            claimService = testClaimService(workItemRepo, null, unscopedUnitOfWork())
         )
 
     private fun assertAllClaimFieldsNull(item: WorkItem) {
@@ -152,10 +157,18 @@ class AdvanceServiceTerminalClaimClearTest {
             val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
 
             val outcome =
-                serviceWith().advance(item, "complete", null, actor, verification, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advanceSeeded(
+                    advanceStores,
+                    item,
+                    "complete",
+                    null,
+                    actor,
+                    verification,
+                )
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.TERMINAL, success.result.newRole)
             assertAllClaimFieldsNull(success.result.appliedItem)
+            assertEquals(listOf(item.id), clearedIds, "the claim columns are released explicitly, in the same unit as the update")
         }
 
     // ──────────────────────────────────────────────
@@ -176,20 +189,26 @@ class AdvanceServiceTerminalClaimClearTest {
             val service = serviceWith()
             val completed =
                 assertIs<AdvanceOutcome.Success>(
-                    service.advance(item, "complete", null, actor, verification, DegradedModePolicy.ACCEPT_CACHED, true),
+                    service.advanceSeeded(
+                        advanceStores,
+                        item,
+                        "complete",
+                        null,
+                        actor,
+                        verification,
+                    ),
                 )
             assertAllClaimFieldsNull(completed.result.appliedItem)
 
             val reopened =
                 assertIs<AdvanceOutcome.Success>(
-                    service.advance(
+                    service.advanceSeeded(
+                        advanceStores,
                         completed.result.appliedItem,
                         "reopen",
                         null,
                         null,
                         null,
-                        DegradedModePolicy.ACCEPT_CACHED,
-                        true,
                     ),
                 )
             assertEquals(Role.QUEUE, reopened.result.newRole)
@@ -212,12 +231,11 @@ class AdvanceServiceTerminalClaimClearTest {
                 )
             assertNotNull(item.claimedBy, "fixture must model a pre-fix row: terminal but still claimed")
 
-            // enforceOwnership = false here: reopening a legacy stale-claimed row is an
-            // orchestrator/system reconciliation action, not the original claim holder acting —
-            // ownership enforcement is orthogonal to the previousRole == TERMINAL clearing clause
-            // under test (mirrors the REST route's enforceOwnership = false).
+            // Ownership is always enforced, so the reopen is made as the claim's holder: ownership is
+            // orthogonal to the previousRole == TERMINAL clearing clause under test.
+            val holder = ActorClaim(id = "agent-stale", kind = ActorKind.EXTERNAL)
             val outcome =
-                serviceWith().advance(item, "reopen", null, null, null, DegradedModePolicy.ACCEPT_CACHED, false)
+                serviceWith().advanceSeeded(advanceStores, item, "reopen", null, holder, null)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.QUEUE, success.result.newRole)
             assertAllClaimFieldsNull(success.result.appliedItem)
@@ -245,7 +263,7 @@ class AdvanceServiceTerminalClaimClearTest {
             assertTrue(item.claimExpiresAt!!.isBefore(Instant.now()), "fixture must model an already-expired claim")
 
             val outcome =
-                serviceWith().advance(item, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advanceSeeded(advanceStores, item, "complete", null, null, null)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertAllClaimFieldsNull(success.result.appliedItem)
         }
@@ -267,7 +285,14 @@ class AdvanceServiceTerminalClaimClearTest {
             val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
 
             val outcome =
-                serviceWith().advance(item, "cancel", null, actor, verification, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advanceSeeded(
+                    advanceStores,
+                    item,
+                    "cancel",
+                    null,
+                    actor,
+                    verification,
+                )
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.TERMINAL, success.result.newRole)
             assertEquals("cancelled", success.result.statusLabel)
@@ -294,12 +319,23 @@ class AdvanceServiceTerminalClaimClearTest {
                 )
             val child = makeItem(id = childId, role = Role.WORK, title = "Child", parentId = parentId)
 
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(child)
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
-            coEvery { workItemRepo.countChildrenByRole(parentId) } returns Result.Success(mapOf(Role.TERMINAL to 1))
+            coEvery { workItemRepo.getById(childId) } returns child
+            coEvery { workItemRepo.getById(parentId) } returns parent
+            coEvery { workItemRepo.countChildrenByRole(parentId) } returns mapOf(Role.TERMINAL to 1)
 
+            // R19: a cascade is fenced for the caller, so the parent's holder completes the child (a caller-less advance
+            // would be ownershipBlocked on the held parent).
+            val actor = ActorClaim(id = "agent-parent", kind = ActorKind.SUBAGENT)
+            val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
             val outcome =
-                serviceWith().advance(child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advanceSeeded(
+                    advanceStores,
+                    child,
+                    "complete",
+                    null,
+                    actor,
+                    verification
+                )
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(1, success.result.cascadeEvents.size)
             val cascade = success.result.cascadeEvents.first()
@@ -312,6 +348,8 @@ class AdvanceServiceTerminalClaimClearTest {
             // is the only way to observe it without touching src/main.
             val persistedParent = updatedItems.first { it.id == parentId }
             assertAllClaimFieldsNull(persistedParent)
+            // Entering TERMINAL clears unconditionally (a claim can land after the snapshot), so the unclaimed child is cleared too.
+            assertEquals(listOf(childId, parentId), clearedIds, "every item entering terminal has its claim columns released")
         }
 
     // ──────────────────────────────────────────────
@@ -331,7 +369,7 @@ class AdvanceServiceTerminalClaimClearTest {
             val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
 
             val outcome =
-                serviceWith().advance(item, "start", null, actor, verification, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advanceSeeded(advanceStores, item, "start", null, actor, verification)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.WORK, success.result.newRole)
             val applied = success.result.appliedItem
@@ -360,7 +398,7 @@ class AdvanceServiceTerminalClaimClearTest {
 
             val blocked =
                 assertIs<AdvanceOutcome.Success>(
-                    service.advance(item, "block", null, actor, verification, DegradedModePolicy.ACCEPT_CACHED, true),
+                    service.advanceSeeded(advanceStores, item, "block", null, actor, verification),
                 )
             assertEquals(Role.BLOCKED, blocked.result.newRole)
             assertEquals(item.claimedBy, blocked.result.appliedItem.claimedBy)
@@ -368,14 +406,13 @@ class AdvanceServiceTerminalClaimClearTest {
 
             val resumed =
                 assertIs<AdvanceOutcome.Success>(
-                    service.advance(
+                    service.advanceSeeded(
+                        advanceStores,
                         blocked.result.appliedItem,
                         "resume",
                         null,
                         actor,
                         verification,
-                        DegradedModePolicy.ACCEPT_CACHED,
-                        true,
                     ),
                 )
             assertEquals(Role.WORK, resumed.result.newRole)
@@ -404,14 +441,13 @@ class AdvanceServiceTerminalClaimClearTest {
             val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
 
             val outcome =
-                serviceWith().advance(
+                serviceWith().advanceSeeded(
+                    advanceStores,
                     item,
                     "complete",
                     null,
                     foreignActor,
                     verification,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    enforceOwnership = true,
                 )
             val failure = assertIs<AdvanceOutcome.Failure>(outcome)
             assertIs<AdvanceFailure.OwnershipRejected>(failure.failure)
@@ -433,7 +469,7 @@ class AdvanceServiceTerminalClaimClearTest {
             assertNull(item.claimedBy)
 
             val outcome =
-                serviceWith().advance(item, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advanceSeeded(advanceStores, item, "complete", null, null, null)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.TERMINAL, success.result.newRole)
             assertAllClaimFieldsNull(success.result.appliedItem)
@@ -461,7 +497,14 @@ class AdvanceServiceTerminalClaimClearTest {
             val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
 
             val outcome =
-                serviceWith().advance(item, "complete", null, actor, verification, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advanceSeeded(
+                    advanceStores,
+                    item,
+                    "complete",
+                    null,
+                    actor,
+                    verification,
+                )
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertAllClaimFieldsNull(success.result.appliedItem)
         }

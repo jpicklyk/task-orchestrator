@@ -8,6 +8,13 @@ Every later A1 stage (A1a model/parse/layering, A1b MCP serving, A1c REST) must 
 byte-identical, per `task-scope` §6.1 rule 1 / DEC-1 — this is the byte-identity gate for item
 `79cd4f0c-10aa-484e-b378-d4d5c0f10430` (acceptance criterion AC1).
 
+
+> **Q22 re-record.** `get_context` and `GET /items/{id}/gate` were replaced by the `items_read` select `context`. The four
+> `get_context_*.json` captures are now `context_*.json` (the select answered through the test probe, wrapped as
+> `{success, data}`) and the two `rest_gate_*.json` captures are `rest_context_*.json` (`POST /api/v1/ops/items_read`,
+> the 4.0 envelope). They were re-recorded on the new shape; the invariant they guard is unchanged: a seat-less schema emits
+> no `seat` and no `missingBySeat` anywhere.
+
 ## Fixtures (checked in, deliberately pinned seat-less snapshots)
 
 - `fixtures/repo-config.yaml` - seat-less snapshot of this repo's tracked `.taskorchestrator/config.yaml`

@@ -1,0 +1,76 @@
+{
+  "name": "runs_read",
+  "inputSchema": {
+    "properties": {
+      "select": {
+        "type": "string",
+        "description": "Which read to run. A field marked [select: ...] applies only to the selects named.",
+        "enum": [
+          "get",
+          "list",
+          "frontier",
+          "decisions",
+          "decision"
+        ]
+      },
+      "runId": {
+        "type": "string",
+        "description": "Run id: a UUID or a hex prefix of 8 to 32 characters. [select: get, frontier, decisions]"
+      },
+      "rootId": {
+        "type": "string",
+        "description": "Only those on this root. Item id: a UUID or a hex prefix of 8 to 32 characters. [select: list, decisions]"
+      },
+      "status": {
+        "type": "string",
+        "description": "Only runs in this status: open, paused or closed. [select: list]",
+        "enum": [
+          "open",
+          "paused",
+          "closed"
+        ]
+      },
+      "endedSince": {
+        "type": "string",
+        "description": "Only runs closed at or after this instant (ISO 8601 UTC, for example 2026-10-13T00:00:00Z). [select: list]",
+        "format": "date-time"
+      },
+      "unmarked": {
+        "type": "string",
+        "description": "Only closed runs that do not carry this mark key (lowercase letters, digits, - and _, starting with a letter). Implies closed runs. [select: list]"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Page size, 1 to 200 (default 50). [select: list, decisions]"
+      },
+      "cursor": {
+        "type": "string",
+        "description": "The page.next value of the previous page. [select: list, decisions]"
+      },
+      "itemId": {
+        "type": "string",
+        "description": "Only those on this item (a UUID or a hex prefix). [select: decisions]"
+      },
+      "overdue": {
+        "type": "boolean",
+        "description": "true: only decisions past their expiry. [select: decisions]"
+      },
+      "decisionId": {
+        "type": "string",
+        "description": "Decision id: a UUID or a hex prefix of 8 to 32 characters. [select: decision]"
+      },
+      "describe": {
+        "type": "boolean",
+        "description": "true: return the operations, their parameters and errors instead of running the tool."
+      }
+    },
+    "type": "object"
+  },
+  "description": "Read runs, the bounded budgeted passes over a set of items. select: get (one run), list (runs, newest first), seats (a run's seat assignments), frontier (ready, in-flight and waiting members), decisions or decision. A run or decision is outside the call scope when its root is. Call with describe:true for each operation's parameters and errors.",
+  "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

@@ -1,0 +1,201 @@
+package io.github.jpicklyk.mcptask.current.application.port
+
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval
+import java.time.Instant
+import java.util.UUID
+
+/**
+ * Outcome of [LeaseStore.acquireAll].
+ *
+ * Acquisition is all-or-nothing across every requested key: if any key is held by a different
+ * item, NOTHING is written for this call — not even for the keys that were free — and every
+ * contended key (not just the first one found) is reported back in [Contended.contendedKeys] so
+ * the caller can surface a complete picture in a single round trip. A database failure is thrown.
+ */
+sealed class LeaseAcquireResult {
+    /** Every requested key was acquired (or refreshed, for keys already held by [holderItemId]). */
+    data class Success(
+        val leases: List<ResourceLease>
+    ) : LeaseAcquireResult()
+
+    /**
+     * At least one requested key is actively held by a different item. [contendedKeys] lists ALL
+     * such keys (not just the first). [retryAfterMs] is the soonest time (in milliseconds, computed
+     * against the bound unit instant, at least 1) until any of the contended leases expires — a hint for backoff, not a
+     * guarantee the key will be free at that instant.
+     */
+    data class Contended(
+        val contendedKeys: List<String>,
+        val retryAfterMs: Long
+    ) : LeaseAcquireResult()
+}
+
+/** Outcome of [LeaseStore.releaseAllForItem] / [LeaseStore.forceReleaseByKey]. A database failure is thrown. */
+sealed class LeaseReleaseResult {
+    /** The delete succeeded; [releasedCount] rows were removed (0 if none matched — not an error). */
+    data class Success(
+        val releasedCount: Int
+    ) : LeaseReleaseResult()
+}
+
+/**
+ * Persists server-enforced TTL leases on shared external resources (see
+ * [io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement] /
+ * [io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition] and
+ * [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ResourceLeasesTable]).
+ *
+ * This is the storage + concurrency primitive only — no gate enforcement and no MCP tool surface.
+ * `acquireAll` / `releaseAllForItem` are wired into the work-phase-entry gate by
+ * [io.github.jpicklyk.mcptask.current.application.service.AdvanceService] (acquire, release) and
+ * into item deletion by
+ * [io.github.jpicklyk.mcptask.current.application.service.ItemCommandService].
+ *
+ * ## "Active" is a lazy, read-time notion
+ *
+ * There is no background expiry sweep. A lease row with `expires_at <= now` (the bound unit instant) is treated as
+ * ABSENT by every read path here (`findActive*`) and as FREE (stealable) by [acquireAll]'s
+ * per-key holder-count check. Expired rows are simply overwritten in place on the next acquire for
+ * that key (or left as harmless stale rows until then) — callers never observe an expired lease
+ * through this interface.
+ *
+ * ## Isolation from claims
+ *
+ * Acquiring or releasing leases must NEVER touch other items' lease rows, or the `work_items`
+ * claim columns (`claimed_by` / `claimed_at` / `claim_expires_at` / `original_claimed_at`). A
+ * lease and a claim on the same item are independent lifecycles.
+ */
+interface LeaseStore {
+    /**
+     * Atomically acquires (or, for a key already held by [holderItemId], refreshes) a lease on
+     * every key in [requirements]. All-or-nothing: if any key is actively held by a DIFFERENT
+     * item, no writes occur for this call and [LeaseAcquireResult.Contended] lists every contended
+     * key. A same-holder re-acquire extends `expiresAt`/refreshes `acquiredAt` while preserving the
+     * original `originalAcquiredAt`; a fresh acquire (or one following the prior holder's lease
+     * expiring) sets all three timestamps together.
+     *
+     * @param holderItemId The WorkItem acquiring the leases.
+     * @param actorId Optional opaque actor identifier recorded on each acquired/refreshed row
+     *   (audit-only — see [ResourceLease.acquiredByActorId]).
+     * @param requirements Pre-resolved `(resourceKey, ttlSeconds)` pairs — TTL resolution
+     *   (registry default vs. per-requirement override) is the caller's responsibility; this method
+     *   performs no config lookups. Each `ttlSeconds` must be positive.
+     *
+     * Concurrency: the call runs inside the caller's write unit (IMMEDIATE, single writer), so the
+     * contention pre-pass and the writes cannot interleave with another writer; SQLITE_BUSY is retried
+     * by the unit itself. A database failure is thrown.
+     */
+    @ClaimWrite
+    suspend fun acquireAll(
+        holderItemId: UUID,
+        actorId: String?,
+        requirements: List<Pair<String, Int>>
+    ): LeaseAcquireResult
+
+    /** Releases every active or expired lease row held by [holderItemId]. Never touches other items' rows. */
+    @ClaimWrite
+    suspend fun releaseAllForItem(holderItemId: UUID): LeaseReleaseResult
+
+    /**
+     * Releases every lease row held by any item in [holderItemIds] — the bulk form of
+     * [releaseAllForItem], used by a recursive delete so releasing a subtree's leases is not one
+     * round trip per descendant. Returns [LeaseReleaseResult.Success] with the total number of
+     * lease rows removed; an empty set is a no-op returning `Success(0)`.
+     *
+     * The default implementation loops [releaseAllForItem] (sums the counts); implementations with a
+     * set-based statement should override it.
+     */
+    @ClaimWrite
+    suspend fun releaseAllForItems(holderItemIds: Set<UUID>): LeaseReleaseResult {
+        var total = 0
+        for (holderItemId in holderItemIds) {
+            when (val result = releaseAllForItem(holderItemId)) {
+                is LeaseReleaseResult.Success -> total += result.releasedCount
+            }
+        }
+        return LeaseReleaseResult.Success(total)
+    }
+
+    /**
+     * Force-releases every row (any holder) for [resourceKey] — an administrative override for
+     * unsticking a resource without waiting out its TTL. Not used by normal acquire/release flow.
+     *
+     * Authorization is the CALLER's responsibility — this layer performs no permission checks; the
+     * REST surface gates this behind the ADMIN capability.
+     *
+     * @param actorId Optional opaque actor identifier of the acting principal, recorded as
+     *   `released_by_actor_id` on every closed [ResourceLeaseInterval] history row (audit-only).
+     */
+    @ClaimWrite
+    suspend fun forceReleaseByKey(
+        resourceKey: String,
+        actorId: String? = null
+    ): LeaseReleaseResult
+
+    /**
+     * Returns the lease rows that have lapsed at the bound instant (`expires_at <= now`), optionally restricted to
+     * [keys] and/or to [holderItemIds] (a null filter does not restrict; an empty non-null one matches nothing).
+     * The rows are not touched.
+     */
+    suspend fun findLapsed(
+        keys: List<String>? = null,
+        holderItemIds: Set<UUID>? = null
+    ): List<ResourceLease>
+
+    /**
+     * Removes the lapsed lease rows with the given [leaseIds] (rows no longer lapsed or already gone are skipped)
+     * and closes their open history interval with `release_reason = 'expired'` at the row's own `expires_at`.
+     * Returns the number of rows removed.
+     */
+    suspend fun deleteLapsed(leaseIds: Set<UUID>): Int
+
+    /** Returns the active (non-expired) leases among [keys], across all holders. */
+    suspend fun findActiveByKeys(keys: List<String>): List<ResourceLease>
+
+    /** Returns every active (non-expired) lease held by [holderItemId]. */
+    suspend fun findActiveForItem(holderItemId: UUID): List<ResourceLease>
+
+    /** Returns every active (non-expired) lease in the table, across all keys and holders. */
+    suspend fun findAllActive(): List<ResourceLease>
+
+    /**
+     * Returns one page of the [ResourceLeaseInterval] rows (open or closed) that were held at instant [at] --
+     * i.e. `acquiredAt <= at < coalesce(releasedAt, expiresAt)` -- optionally restricted to [resourceKey].
+     * Ordered newest-first `(acquiredAt DESC, id ASC)`; the id tiebreak makes the order total, so [page] walks every
+     * row exactly once on an unchanged table (a lease starting or ending mid-walk shifts later offsets and can repeat
+     * or skip rows). [LeaseIntervalPage.total] is the count of ALL matching rows, counted in the same read as the
+     * page. Answers "who held resource R at time T" for post-incident diagnosis; see the `resource_lease_history` table.
+     */
+    suspend fun findHoldersAt(
+        resourceKey: String?,
+        at: Instant,
+        page: PageRequest = PageRequest()
+    ): LeaseIntervalPage
+
+    /**
+     * Returns one page of the most recent [ResourceLeaseInterval] rows (open or closed), newest-first
+     * `(acquiredAt DESC, id ASC)`, optionally restricted to [resourceKey]. [LeaseIntervalPage.total] is the count of
+     * ALL matching rows, counted in the same read as the page. Backs the no-`at` "recent activity" view.
+     */
+    suspend fun findRecentIntervals(
+        resourceKey: String?,
+        page: PageRequest = PageRequest()
+    ): LeaseIntervalPage
+
+    /**
+     * Retention: deletes at most [batch] CLOSED history intervals (`released_at IS NOT NULL`) with
+     * `released_at < cutoff`, oldest first, and returns how many it deleted. Open intervals and live lease rows are
+     * never touched. A write: it runs inside the caller's unit. The default throws; a store that serves retention
+     * overrides it.
+     */
+    suspend fun pruneClosed(
+        cutoff: Instant,
+        batch: Int
+    ): Int = throw UnsupportedOperationException("This LeaseStore does not support retention pruning")
+}
+
+/** One page of lease history: [items] plus the [total] of all rows matching the read (mirrors [EventPage]). */
+data class LeaseIntervalPage(
+    val items: List<ResourceLeaseInterval>,
+    val total: Int
+)

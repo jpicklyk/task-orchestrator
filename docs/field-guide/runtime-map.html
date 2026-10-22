@@ -291,7 +291,7 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
   <div class="grid3">
     <div class="rule"><h3>Writes are guarded</h3><p class="small">Editing an item requires <code>If-Match</code> with its current ETag, so a stale client gets a 412 and cannot overwrite. Edits are JSON merge-patch. An <code>Idempotency-Key</code> makes a retried write replay its first result.</p></div>
     <div class="rule"><h3>Errors say what to do</h3><p class="small">Every error is <code>{ error, message, details }</code>. A failed gate is 422 <code>gate_blocked</code> with the missing notes. A contended lease is 409 <code>resource_unavailable</code> with a <code>Retry-After</code> header.</p></div>
-    <div class="rule"><h3>Where REST differs from MCP</h3><p class="small">The actor is always the token's identity, and one supplied in the body is dropped. A REST advance is not bound by claim ownership, though it is logged, and is still bound by leases. Lease administration and the event stream exist only here.</p></div>
+    <div class="rule"><h3>Where REST differs from MCP</h3><p class="small">The caller is always the credential's principal, on REST and on <code>/mcp</code> alike, and an <code>actor</code> in the body is refused as <code>unknown_parameter</code>. A REST advance is bound by claim ownership and by leases, as on MCP. Lease administration and the event stream exist only here.</p></div>
   </div>
 </section>
 
@@ -303,7 +303,7 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
     <li><span class="ev">EnterPlanMode</span><span class="do">Reads existing items and schema gates first, so the plan covers what the gates will ask for.</span></li>
     <li><span class="ev">ExitPlanMode</span><span class="do">Turns the approved plan into items, dependency edges and queue notes before any code is written.</span></li>
     <li><span class="ev">SubagentStart</span><span class="do">Hands an implementer or reviewer its protocol: enter your phase, fill its notes, return.</span></li>
-    <li><span class="ev">advance_item</span><span class="do">Can require an actor on every write. Records which phase a sub-agent entered. Can trigger a retrospective.</span></li>
+    <li><span class="ev">advance</span><span class="do">Records which phase a sub-agent entered. Can trigger a retrospective.</span></li>
     <li><span class="ev">SubagentStop</span><span class="do">Sends a sub-agent back if the phase it entered still has required notes missing.</span></li>
   </ol>
   <div class="tscroll"><table>
@@ -339,7 +339,7 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
         <line x1="180" y1="58" x2="80" y2="126" class="l" marker-end="url(#ah)"/>
         <line x1="220" y1="58" x2="220" y2="126" class="l" marker-end="url(#ah)"/>
         <line x1="260" y1="58" x2="360" y2="126" class="l" marker-end="url(#ah)"/>
-        <text x="232" y="112" class="m mu">advance_item</text>
+        <text x="232" y="112" class="m mu">advance</text>
         <rect x="20" y="130" width="120" height="44" rx="4" class="bx"/><text x="80" y="150" text-anchor="middle" class="s b">item 1</text><text x="80" y="166" text-anchor="middle" class="s mu">sub-agent</text>
         <rect x="160" y="130" width="120" height="44" rx="4" class="bx"/><text x="220" y="150" text-anchor="middle" class="s b">item 2</text><text x="220" y="166" text-anchor="middle" class="s mu">sub-agent</text>
         <rect x="300" y="130" width="120" height="44" rx="4" class="bx"/><text x="360" y="150" text-anchor="middle" class="s b">item 3</text><text x="360" y="166" text-anchor="middle" class="s mu">sub-agent</text>
@@ -354,8 +354,8 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
         <rect x="260" y="12" width="150" height="40" rx="4" class="r-review"/><text x="335" y="37" text-anchor="middle" class="b">Agent 2</text>
         <line x1="105" y1="52" x2="105" y2="96" class="l" marker-end="url(#ah)"/>
         <line x1="335" y1="52" x2="335" y2="96" class="l" marker-end="url(#ah)"/>
-        <text x="115" y="78" class="m mu">claim_item</text>
-        <text x="345" y="78" class="m mu">claim_item</text>
+        <text x="115" y="78" class="m mu">claim</text>
+        <text x="345" y="78" class="m mu">claim</text>
         <rect x="30" y="100" width="150" height="36" rx="4" class="r-work"/><text x="105" y="123" text-anchor="middle" class="s b">Feature X · TTL 900 s</text>
         <rect x="260" y="100" width="150" height="36" rx="4" class="r-review"/><text x="335" y="123" text-anchor="middle" class="s b">Feature Y · TTL 900 s</text>
         <rect x="30" y="150" width="70" height="28" rx="3" class="bx"/><text x="65" y="169" text-anchor="middle" class="s">child</text>
@@ -383,60 +383,62 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
 <section>
   <h2>Claims in practice</h2>
   <div class="grid3">
-    <div class="rule"><h3>Four answers to a claim</h3><p class="small"><code>success</code>, <code>already_claimed</code> (pick another item), <code>queue_empty</code> (nothing matches, stop or wait) and <code>none_eligible</code> (matches exist but none can be claimed now, retry later). One claim per call, and a <code>requestId</code> is required.</p></div>
-    <div class="rule"><h3>Claims clean up after themselves</h3><p class="small">Any transition into terminal clears the claim, and a reopened item starts unclaimed. A crashed agent's claim simply expires. There is no background sweeper.</p></div>
-    <div class="rule"><h3>Who holds it stays private</h3><p class="small">Lists and searches show only whether an item is claimed. The holder's identity appears in one place: <code>get_context</code> for that item.</p></div>
+    <div class="rule"><h3>Four answers to a claim</h3><p class="small"><code>claimed: true</code>; a <code>claim_held</code> error (pick another item); a select with no match (<code>claimed: false</code>, no <code>reason</code>: stop or wait); and a select with a <code>reason</code> (<code>claim_held</code> or <code>dependency_unmet</code>: matches exist but none can be claimed now, retry after <code>retryAfterMs</code>). An actor holds one claim at a time, and each element may carry an <code>idempotencyKey</code>.</p></div>
+    <div class="rule"><h3>Claims clean up after themselves</h3><p class="small">Any transition into terminal clears the claim, and a reopened item starts unclaimed. A crashed agent's claim simply expires. Nothing has to clear it: a background sweep only records the expiry event.</p></div>
+    <div class="rule"><h3>Who holds it stays private</h3><p class="small">Lists and searches show only whether an item is claimed. The holder's identity appears in one place: the <code>claimDetail</code> of <code>items_read</code> <code>context</code> for that item.</p></div>
   </div>
 </section>
 
 <section>
-  <h2>How much the server trusts an actor</h2>
+  <h2>How the server knows the caller</h2>
   <figure>
     <div class="panel scroll">
-      <svg class="d" viewBox="0 0 900 236" role="img" aria-label="Four levels of identity assurance, each a step higher. No actor: nothing recorded. Self-reported: an actor on each write, which a plugin hook can require. Verified: a signed proof per call checked against a key set. Fail-closed: with the reject policy, unverified actors cannot claim.">
+      <svg class="d" viewBox="0 0 900 236" role="img" aria-label="Four levels of identity assurance, each a step higher. Local: no credential, every caller is one local principal. Token: a token-file credential names its holder. Verified: a signed JWT checked against a key set. Fail-closed: a bad token is refused and an unavailable key set is an outage, never a guessed identity.">
         <rect x="10" y="150" width="214" height="76" class="bx2"/>
-        <text x="24" y="178" class="hd">No actor</text>
-        <text x="24" y="198" class="s mu">nothing is recorded</text>
-        <text x="24" y="214" class="s mu">the default</text>
+        <text x="24" y="178" class="hd">Local</text>
+        <text x="24" y="198" class="s mu">no credential is checked</text>
+        <text x="24" y="214" class="s mu">every caller is "local"</text>
         <rect x="232" y="110" width="214" height="116" class="bx"/>
-        <text x="246" y="138" class="hd">Self-reported</text>
-        <text x="246" y="158" class="s">an actor on each write</text>
-        <text x="246" y="174" class="s mu">a plugin hook can require it</text>
+        <text x="246" y="138" class="hd">Token</text>
+        <text x="246" y="158" class="s">a token-file credential</text>
+        <text x="246" y="174" class="s mu">the holder is api:&lt;id&gt;</text>
         <rect x="454" y="70" width="214" height="156" class="r-work"/>
         <text x="468" y="98" class="hd">Verified</text>
-        <text x="468" y="118" class="s">a signed proof with each call,</text>
-        <text x="468" y="134" class="s">checked against a key set</text>
+        <text x="468" y="118" class="s">a signed JWT, checked</text>
+        <text x="468" y="134" class="s">against a key set</text>
+        <text x="468" y="150" class="s mu">the holder is api:&lt;sub&gt;</text>
         <rect x="676" y="30" width="214" height="196" class="r-terminal"/>
         <text x="690" y="58" class="hd">Fail-closed</text>
-        <text x="690" y="78" class="s">policy: reject</text>
-        <text x="690" y="94" class="s">unverified actors cannot claim</text>
-        <text x="690" y="110" class="s">or advance claimed items</text>
+        <text x="690" y="78" class="s">bad token: 401</text>
+        <text x="690" y="94" class="s">key set unavailable: 503</text>
+        <text x="690" y="110" class="s">never a guessed identity</text>
       </svg>
     </div>
-    <figcaption>Each step is a config change, and none is required. The recorded actor is the same shape at every level: <code>{ id, kind, parent }</code>. What changes is whether anyone checked it.</figcaption>
+    <figcaption>The caller is the principal its transport established, never a field in the request. The same credential works on REST and on <code>/mcp</code>. The recorded actor is the principal's audited id (<code>api:&lt;id&gt;</code> or <code>local</code>) with kind <code>external</code>, and a verification of <code>api-jwks</code>, <code>api-bearer</code> or <code>local</code>.</figcaption>
   </figure>
   <div class="grid2">
-    <pre>actor_authentication:
-  enabled: true                  # the hook requires an actor
-  degraded_mode_policy: reject   # what to do when unverified
-  verifier:
-    type: jwks
-    oidc_discovery: "https://idp.example/.well-known/openid-configuration"
-    audience: "task-orchestrator"
-    algorithms: ["EdDSA", "RS256"]</pre>
+    <pre>API_ENABLED=true
+API_AUTH_MODE=jwks
+API_JWKS_URL=https://idp.example/.well-known/jwks.json
+API_JWKS_ISSUER=https://idp.example
+API_JWKS_AUDIENCE=task-orchestrator
+API_JWKS_ALGORITHMS=EdDSA,RS256</pre>
     <div class="tscroll"><table>
-      <thead><tr><th>Policy when a proof cannot be verified</th><th>Identity the server uses</th></tr></thead>
+      <thead><tr><th>Setup</th><th>The caller of <code>/mcp</code> is</th></tr></thead>
       <tbody>
-        <tr><td><code>accept-cached</code>, the default</td><td>The verified id when only the key fetch failed and cached keys still validate it. Otherwise the self-reported id, with a warning logged.</td></tr>
-        <tr><td><code>accept-self-reported</code></td><td>Always the id the caller sent. For local development.</td></tr>
-        <tr><td><code>reject</code></td><td>None. Claims return <code>rejected_by_policy</code>.</td></tr>
+        <tr><td>stdio</td><td><code>local</code></td></tr>
+        <tr><td>HTTP, REST API off, <code>MCP_ALLOW_UNAUTHENTICATED=true</code></td><td><code>local</code></td></tr>
+        <tr><td>HTTP, REST API off, no opt-in</td><td>The server refuses to start.</td></tr>
+        <tr><td><code>API_AUTH_MODE=none</code></td><td><code>local</code></td></tr>
+        <tr><td><code>API_AUTH_MODE=bearer</code></td><td><code>api:</code> and the token's id</td></tr>
+        <tr><td><code>API_AUTH_MODE=jwks</code></td><td><code>api:</code> and the JWT's <code>sub</code></td></tr>
       </tbody>
     </table></div>
   </div>
   <div class="grid3">
-    <div class="rule"><h3>Two separate settings</h3><p class="small"><code>enabled</code> makes the plugin's hook refuse a write with no actor. <code>verifier</code> makes the server validate the proof. A call can pass the first and fail the second.</p></div>
-    <div class="rule"><h3>Where keys come from</h3><p class="small">An OIDC discovery URL, a JWKS URL, a local key file for air-gapped hosts, or per-agent decentralized identifiers from an allowlist. Proofs must expire, within 24 hours by default.</p></div>
-    <div class="rule"><h3>Set once, server-wide</h3><p class="small">Identity settings live only in the global config. A project cannot loosen them. The <code>DEGRADED_MODE_POLICY</code> environment variable overrides the file, and an unknown value stops the server from starting.</p></div>
+    <div class="rule"><h3>Local is one principal</h3><p class="small">Every stdio or local-mode session is the same <code>local</code> caller, so they share claims and note ownership and never contend. Telling agents apart takes a credential or a run seat token for each.</p></div>
+    <div class="rule"><h3>Sessions stick to a caller</h3><p class="small">An MCP session is bound to the principal that opened it, and another principal on that session gets a 401. A director credential reaches only the director endpoint. A wrong token is the JSON error envelope, not a JSON-RPC error.</p></div>
+    <div class="rule"><h3>Old identity settings do nothing</h3><p class="small">No request carries an actor or a proof any more, so nothing authenticates or attributes a call by identity. The <code>actor_authentication</code> block is removed: a leftover block now stops the server from starting, and the info page (<code>/api/v1/info</code>) no longer reports it.</p></div>
   </div>
 </section>
 
@@ -444,8 +446,8 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
   <h2>Three independent switches</h2>
   <div class="modes3">
     <div class="rule"><h3>Orchestration</h3><p class="small">Always on. Transitions, gates, dependencies and cascades work with no further setup.</p></div>
-    <div class="rule"><h3>Claims</h3><p class="small">Opt-in. Agents take time-limited ownership of an item with <code>claim_item</code>, and the server then requires the holder's identity on its transitions.</p></div>
-    <div class="rule"><h3>Actor authentication</h3><p class="small">Opt-in and separate from claims. Verifies the actor on each write against a JWKS key set, so attribution is proven and no longer self-reported.</p></div>
+    <div class="rule"><h3>Claims</h3><p class="small">Opt-in. Agents take time-limited ownership of an item with the <code>claim</code> op of <code>advance</code>. The server then fences the item to its holder: a transition, note write, item update or dependency write by anyone else is <code>not_claim_holder</code>.</p></div>
+    <div class="rule"><h3>Credentials</h3><p class="small">Opt-in and separate from claims. With a bearer or JWKS mode, REST and <code>/mcp</code> both require a credential, so attribution is proven and no longer shared.</p></div>
   </div>
 </section>
 

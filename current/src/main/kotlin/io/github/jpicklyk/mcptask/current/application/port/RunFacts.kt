@@ -1,0 +1,131 @@
+package io.github.jpicklyk.mcptask.current.application.port
+
+import io.github.jpicklyk.mcptask.current.domain.model.Run
+import io.github.jpicklyk.mcptask.current.domain.model.RunStatus
+import io.github.jpicklyk.mcptask.current.domain.model.RunTerminalReason
+import java.time.Instant
+import java.util.UUID
+
+/** The header of one run as the rollup shows it: lifecycle state, open and close instants, and its project root. */
+data class RunHeader(
+    val status: RunStatus,
+    val terminalReason: RunTerminalReason?,
+    val openedAt: Instant,
+    val closedAt: Instant?,
+    val rootId: UUID
+)
+
+/** The open decision requests of one run: [open] in all, and the same count by decision class and by severity. */
+data class DecisionCounts(
+    val open: Int,
+    val byClass: Map<String, Int>,
+    val bySeverity: Map<String, Int>
+)
+
+/** One seat that has gone silent: its [seat] name, the [itemId] it holds, and how long it has been silent. */
+data class StalledSeat(
+    val seat: String,
+    val itemId: UUID,
+    val silentMs: Long
+)
+
+/**
+ * The seats of one run: [active] seats, up to the requested number of [stalled] entries, and [count], the true number of
+ * stalled seats (which may exceed the entries returned).
+ */
+data class StalledSeats(
+    val active: Int,
+    val stalled: List<StalledSeat>,
+    val count: Int
+)
+
+/** The attempts of one run: [total] attempts over every seat, and [max], the most any one seat made. */
+data class AttemptCounts(
+    val total: Int,
+    val max: Int
+)
+
+/** The budget of one run: [used] against [limit] (null when unlimited), and the [basis] the figure is enforced on. */
+data class BudgetFacts(
+    val used: Long,
+    val limit: Long?,
+    val basis: String,
+    /** How many `run-budget` decisions the run raised (any status); the attempt-cap decisions are not counted. */
+    val breaches: Int = 0,
+    /** How many of those were answered `extend`. */
+    val extends: Int = 0
+)
+
+/**
+ * Every run-only fact of one run read together by [RunFacts.snapshot]: the same values the individual [RunFacts] methods
+ * answer, each null when not tracked. [header] is null only when the facts could not name the run.
+ */
+data class RunFactsSnapshot(
+    val header: RunHeader?,
+    val blockedReasons: Map<String, Int>?,
+    val resumable: Int?,
+    val decisions: DecisionCounts?,
+    val seats: StalledSeats?,
+    val attempts: AttemptCounts?,
+    val budget: BudgetFacts?
+)
+
+/**
+ * The run-only facts the rollup reads (plan section 3.4a): the seam between the report side (W6, which owns the
+ * assembler and the query side) and the run side (W5, which owns run membership and every run-only fact).
+ *
+ * Every method answers null when the fact is not tracked, and the rollup then omits the section it feeds.
+ * [io.github.jpicklyk.mcptask.current.application.report.NotTrackedRunFacts] answers null everywhere; R28's
+ * [io.github.jpicklyk.mcptask.current.application.run.StoreRunFacts] implements this port over the W5 tables. An
+ * implementation joins the caller's read unit.
+ */
+interface RunFacts {
+    /** The header of run [runId], or null when not tracked or there is no such run. */
+    suspend fun run(runId: UUID): RunHeader?
+
+    /** The member item ids of run [runId], or null when not tracked. */
+    suspend fun members(runId: UUID): Set<UUID>?
+
+    /** The blocked items among [itemIds] counted by blocked reason, or null when not tracked. */
+    suspend fun blockedReasons(itemIds: Set<UUID>): Map<String, Int>?
+
+    /**
+     * How many of [itemIds] are blocked `awaiting_decision` on a decision that no longer waits for an answer (answered,
+     * withdrawn or gone), so they can resume; null when not tracked (the default).
+     */
+    suspend fun resumable(itemIds: Set<UUID>): Int? = null
+
+    /** The open decision requests of run [runId], or null when not tracked. */
+    suspend fun openDecisions(runId: UUID): DecisionCounts?
+
+    /** The seats of run [runId] with at most [limit] stalled entries, or null when not tracked. */
+    suspend fun stalledSeats(
+        runId: UUID,
+        limit: Int
+    ): StalledSeats?
+
+    /** The attempts of run [runId], or null when not tracked. */
+    suspend fun attempts(runId: UUID): AttemptCounts?
+
+    /** The budget of run [runId], or null when not tracked. */
+    suspend fun budget(runId: UUID): BudgetFacts?
+
+    /**
+     * Every fact above for [run] over its CURRENT [members], with at most [stalledLimit] stalled entries. The default
+     * calls the individual methods; an implementation over a store overrides it to read each table once.
+     */
+    suspend fun snapshot(
+        run: Run,
+        members: Set<UUID>,
+        stalledLimit: Int
+    ): RunFactsSnapshot =
+        RunFactsSnapshot(
+            header = run(run.id),
+            blockedReasons = blockedReasons(members),
+            resumable = resumable(members),
+            decisions = openDecisions(run.id),
+            seats = stalledSeats(run.id, stalledLimit),
+            attempts = attempts(run.id),
+            budget = budget(run.id)
+        )
+}

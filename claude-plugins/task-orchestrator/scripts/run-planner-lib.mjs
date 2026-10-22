@@ -9,6 +9,8 @@
 //
 // Contract: run-wave/snapshot-v1 in, implement-wave/args-v1 + run-wave/plan-doc-v1 out.
 
+import { isOrchestratorServerKey } from '../hooks/registration.mjs';
+
 export const SNAPSHOT_CONTRACT = 'run-wave/snapshot-v1';
 export const PLAN_DOC_CONTRACT = 'run-wave/plan-doc-v1';
 export const ARGS_CONTRACT = 'implement-wave/args-v1';
@@ -110,30 +112,6 @@ export function validateSnapshot(snap) {
       }
     }
   }
-  if (snap.carryIns !== undefined) {
-    const ci = snap.carryIns;
-    if (ci === null || typeof ci !== 'object' || Array.isArray(ci)) {
-      errors.push('carryIns must be an object');
-    } else {
-      const candidateIds = new Set(candidates.map((c) => c && c.id));
-      for (const [id, entry] of Object.entries(ci)) {
-        if (!candidateIds.has(id)) {
-          errors.push(`carryIns ${id}: not a candidate`);
-          continue;
-        }
-        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-          errors.push(`carryIns ${id}: entry must be an object`);
-          continue;
-        }
-        if (!Array.isArray(entry.keys) || entry.keys.some((k) => typeof k !== 'string')) {
-          errors.push(`carryIns ${id}: keys must be an array of strings`);
-        }
-        if (entry.dispositions !== undefined && entry.dispositions !== null && typeof entry.dispositions !== 'string') {
-          errors.push(`carryIns ${id}: dispositions must be a string or null`);
-        }
-      }
-    }
-  }
   if (snap.scopes !== undefined) {
     const sc = snap.scopes;
     if (sc === null || typeof sc !== 'object' || Array.isArray(sc)) {
@@ -154,6 +132,30 @@ export function validateSnapshot(snap) {
         }
         if (entry.dependsOn !== undefined && (!Array.isArray(entry.dependsOn) || entry.dependsOn.some((k) => typeof k !== 'string'))) {
           errors.push(`scopes ${id}: dependsOn must be an array of strings`);
+        }
+      }
+    }
+  }
+  if (snap.carryIns !== undefined) {
+    const ci = snap.carryIns;
+    if (ci === null || typeof ci !== 'object' || Array.isArray(ci)) {
+      errors.push('carryIns must be an object');
+    } else {
+      const candidateIds = new Set(candidates.map((c) => c && c.id));
+      for (const [id, entry] of Object.entries(ci)) {
+        if (!candidateIds.has(id)) {
+          errors.push(`carryIns ${id}: not a candidate`);
+          continue;
+        }
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+          errors.push(`carryIns ${id}: entry must be an object`);
+          continue;
+        }
+        if (!Array.isArray(entry.keys) || entry.keys.some((k) => typeof k !== 'string')) {
+          errors.push(`carryIns ${id}: keys must be an array of strings`);
+        }
+        if (entry.dispositions !== undefined && entry.dispositions !== null && typeof entry.dispositions !== 'string') {
+          errors.push(`carryIns ${id}: dispositions must be a string or null`);
         }
       }
     }
@@ -208,11 +210,15 @@ export function compareVersions(a, b) {
 }
 
 /**
- * probeFrom({pluginRoot, pluginJsonText, subagentStartText, phaseGuardText, configYamlText, settings})
- * -> {pluginRoot, pluginVersion|null, phase0Hooks, hookMarkers:{subagentSkip, workflowParentFilter},
- *     actorAttributionRequired, workflowSizeGuideline|null, allow:{workflow, mcp, bashGit, bashNode}}
+ * probeFrom({pluginRoot, pluginJsonText, subagentStartText, phaseGuardText, settings, serverCompat})
+ * -> {pluginRoot, pluginVersion|null, phase0Hooks, hookMarkers:{subagentSkip, seatTokenFilter},
+ *     workflowSizeGuideline|null, allow:{workflow, mcp, bashGit, bashNode}, serverCompat:null|string}
+ * phase0Hooks needs plugin >= 3.8.0, the subagent-start workflow-subagent skip and the 4.0
+ * phase-guard-record seat filter (it skips any call that carries a top-level seatToken). serverCompat
+ * is passed through: null when compatible or no API URL resolved, else the server-compat warning line
+ * (the CLI computes it with hooks/lib/server-compat.mjs checkServer; this function stays pure).
  */
-export function probeFrom({ pluginRoot, pluginJsonText, subagentStartText, phaseGuardText, configYamlText, settings } = {}) {
+export function probeFrom({ pluginRoot, pluginJsonText, subagentStartText, phaseGuardText, settings, serverCompat } = {}) {
   let pluginVersion = null;
   if (typeof pluginJsonText === 'string' && pluginJsonText.trim() !== '') {
     try {
@@ -224,12 +230,9 @@ export function probeFrom({ pluginRoot, pluginJsonText, subagentStartText, phase
   }
 
   const subagentSkip = typeof subagentStartText === 'string' && subagentStartText.includes('workflow-subagent');
-  const workflowParentFilter = typeof phaseGuardText === 'string' && phaseGuardText.includes('workflow:');
+  const seatTokenFilter = typeof phaseGuardText === 'string' && phaseGuardText.includes('seatToken');
   const versionCmp = pluginVersion != null ? compareVersions(pluginVersion, '3.8.0') : null;
-  const phase0Hooks = !!(versionCmp !== null && versionCmp >= 0 && subagentSkip && workflowParentFilter);
-
-  const actorAttributionRequired = typeof configYamlText === 'string'
-    && /actor_attribution\s*:\s*\n(?:[ \t]+.*\n)*?[ \t]+required\s*:\s*true/.test(configYamlText);
+  const phase0Hooks = !!(versionCmp !== null && versionCmp >= 0 && subagentSkip && seatTokenFilter);
 
   const settingsList = Array.isArray(settings) ? settings : [];
   let workflowSizeGuideline = null;
@@ -249,7 +252,8 @@ export function probeFrom({ pluginRoot, pluginJsonText, subagentStartText, phase
     if (Array.isArray(list)) {
       for (const entry of list) {
         if (entry === 'Workflow' || entry === 'Workflow(task-orchestrator:implement-wave)') allow.workflow = true;
-        if (entry === 'mcp__mcp-task-orchestrator__*') allow.mcp = true;
+        const mcpWildcard = /^mcp__(.+)__\*$/.exec(entry);
+        if (mcpWildcard && isOrchestratorServerKey(mcpWildcard[1])) allow.mcp = true;
         if (entry === 'Bash(git:*)') allow.bashGit = true;
         if (entry === 'Bash(node:*)') allow.bashNode = true;
       }
@@ -260,10 +264,10 @@ export function probeFrom({ pluginRoot, pluginJsonText, subagentStartText, phase
     pluginRoot: pluginRoot ?? null,
     pluginVersion,
     phase0Hooks,
-    hookMarkers: { subagentSkip, workflowParentFilter },
-    actorAttributionRequired,
+    hookMarkers: { subagentSkip, seatTokenFilter },
     workflowSizeGuideline,
-    allow
+    allow,
+    serverCompat: typeof serverCompat === 'string' && serverCompat !== '' ? serverCompat : null
   };
 }
 
@@ -402,14 +406,17 @@ function deriveRulesSkills(ownedKeys, allNotes, servedKeys) {
 /**
  * deriveStages(candidate, schemaEntry, ctx) -> {stages, orchestratorNotes, unownedRequired,
  *   schemaFree, hasReviewPhase, warnings, degradations, exclude:null|string}
- * ctx = {rulesServed:[{key,rulesVersion}], noteActors:[{key,actorId}], profile}
+ * ctx = {rulesServed:[{key,rulesVersion}], noteOwners:[{key, seat}], profile}
+ * noteOwners are this item's notes whose owner seat notes_read list reported (owner.seat, shown only
+ * when the caller may see attribution); a resumed work seat whose every owned note is owned by that
+ * seat is skipped. A note with no owner row never skips a seat.
  */
 export function deriveStages(candidate, schemaEntry, ctx = {}) {
   const rulesServed = ctx.rulesServed || [];
-  const noteActors = ctx.noteActors || [];
+  const noteOwners = ctx.noteOwners || [];
   const profile = ctx.profile || {};
   const servedKeys = new Set(rulesServed.map((r) => r.key));
-  const actorsByKey = new Map(noteActors.map((n) => [n.key, n.actorId]));
+  const ownerSeatByKey = new Map(noteOwners.map((n) => [n.key, n.seat]));
   const warnings = [];
   const degradations = [];
 
@@ -491,13 +498,10 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
 
       const seatNotes = notes.filter((n) => n.role === s.phase && n.seat === s.name).map((n) => n.key);
 
-      // O1: match the FULL '<seat>:<this-item-short>:' prefix, not just '<seat>:' - a note
-      // actor stamped '<seat>:<OTHER item's short>:<run>' must never skip this item's seat.
+      // Resume skip: every note this seat owns already exists and is owned by this seat (the server
+      // enforces the lane, so another seat could not have written it).
       if (isResumed && seatNotes.length
-        && seatNotes.every((k) => {
-          const actorId = actorsByKey.get(k);
-          return actorId && actorId.startsWith(`${s.name}:${candidate.short}:`);
-        })) {
+        && seatNotes.every((k) => ownerSeatByKey.get(k) === s.name)) {
         continue;
       }
 
@@ -1096,7 +1100,6 @@ export function assembleArgs(snap, planned, opts) {
     runId,
     startedAt: now,
     rootId: snap.rootId,
-    planDocSlug: `run/${runId}`,
     baseSha,
     worktreeMode: mode,
     entryMode,
@@ -1135,13 +1138,15 @@ function buildWorktreesToCreate(snap, args, mode) {
 
 /**
  * buildPlanDoc(snap, opts) -> {ok:true, doc} | {ok:false, refused:boolean, errors, doc?}
- * opts = {now, maxItems=5, mode='auto', entry='auto', method?, scratchpad}
+ * opts = {now, maxItems=5, mode='auto', entry='auto', method?, scratchpad, altitudeSafe?}
+ * opts.altitudeSafe === true sets args.altitudeSafe true (implement-wave then returns the scrubbed
+ * altitude-safe result); otherwise args carries no altitudeSafe key.
  * Runs the whole pipeline: validateSnapshot -> chooseMode/chooseEntry -> deriveStages ->
  * frontier -> resourceDeferrals -> orderItems -> applyCap -> lockSourceDeferrals ->
  * assembleArgs -> size check.
  */
 export function buildPlanDoc(snap, opts = {}) {
-  const { now, maxItems = 5, mode: modeReq = 'auto', entry: entryReq = 'auto', method: methodReq, scratchpad, worktree, branch } = opts;
+  const { now, maxItems = 5, mode: modeReq = 'auto', entry: entryReq = 'auto', method: methodReq, scratchpad, worktree, branch, altitudeSafe } = opts;
 
   const snapCheck = validateSnapshot(snap);
   if (!snapCheck.ok) {
@@ -1157,7 +1162,7 @@ export function buildPlanDoc(snap, opts = {}) {
     const schemaEntry = (snap.schemas || {})[c.id];
     derivedById[c.id] = deriveStages(c, schemaEntry, {
       rulesServed: snap.rulesServed || [],
-      noteActors: (snap.noteActors || {})[c.id] || [],
+      noteOwners: (snap.noteOwners || {})[c.id] || [],
       profile
     });
   }
@@ -1167,6 +1172,10 @@ export function buildPlanDoc(snap, opts = {}) {
   const sharedFileWarnings = sharedFileEdgeWarnings(snap, mode);
 
   const guardErrors = [];
+  // D8: a server the plugin cannot drive (not 4.x, or without seats) stops the run in both methods.
+  if (typeof probe.serverCompat === 'string' && probe.serverCompat !== '') {
+    guardErrors.push(`server incompatible: ${probe.serverCompat}`);
+  }
   if (entryReq === 'seat' && !probe.phase0Hooks) {
     guardErrors.push('seat entry requires phase0Hooks');
   }
@@ -1293,6 +1302,7 @@ export function buildPlanDoc(snap, opts = {}) {
     worktree,
     branch
   });
+  if (altitudeSafe === true) args.altitudeSafe = true;
 
   const warnings = [];
   for (const id of finalIds) {
@@ -1330,7 +1340,12 @@ export function buildPlanDoc(snap, opts = {}) {
       degradations,
       inRunEdges,
       advisoryResources: resourceResult.advisory,
-      lateCarryIns: args.items.flatMap((it) => (it.lateCarryIns || []).map((key) => ({ id: it.id, short: it.short, key })))
+      lateCarryIns: args.items.flatMap((it) => (it.lateCarryIns || []).map((key) => ({ id: it.id, short: it.short, key }))),
+      // runs_write open inputs: the snapshot's target scope and the profile's opt-in run budget.
+      scopeId: snap.ancestorId || null,
+      runBudget: profile && profile.runBudget && typeof profile.runBudget === 'object' && !Array.isArray(profile.runBudget)
+        ? profile.runBudget
+        : null
     }
   };
 
@@ -1374,11 +1389,11 @@ export function explainPlan(doc) {
   lines.push(`Refusals/excluded: ${(meta.excluded || []).map((e) => `${e.id}: ${e.reason}`).join('; ') || 'none'}`);
   lines.push(`Estimated agents: ${meta.estAgents ?? '?'} vs size guideline ${meta.sizeGuideline ?? 'unset'}`);
   lines.push(`Degradations: ${(meta.degradations || []).join('; ') || 'none'}`);
-  if ((meta.warnings || []).length) {
-    lines.push(`Warnings: ${meta.warnings.join('; ')}`);
-  }
   if ((meta.lateCarryIns || []).length) {
     lines.push(`Late carry-ins: ${meta.lateCarryIns.map((l) => `${l.short}:${l.key}`).join(', ')}`);
+  }
+  if ((meta.warnings || []).length) {
+    lines.push(`Warnings: ${meta.warnings.join('; ')}`);
   }
   return lines.join('\n');
 }
@@ -1435,6 +1450,29 @@ function validateAgainstSchema(value, schema, path) {
 }
 
 /**
+ * bindRun(doc, serverRunId) -> a NEW plan document whose args.serverRunId is the server run UUID
+ * (runs_write open's runId). Throws 'invalid args: ...' for a non-UUID id (an 8-hex prefix included:
+ * the full UUID is required), a document without args, or args without project.scratchDir (seat
+ * tokens are written under it). Rebinding to the same id is a no-op copy; rebinding to another id is
+ * allowed (a Resume re-plan opens a new run). The input is not mutated.
+ */
+export function bindRun(doc, serverRunId) {
+  if (!doc || typeof doc !== 'object' || !doc.args || typeof doc.args !== 'object') {
+    throw new Error('invalid args: not a plan document');
+  }
+  if (typeof serverRunId !== 'string' || !UUID_RE.test(serverRunId)) {
+    throw new Error(`invalid args: --server-run must be a full run UUID, got ${JSON.stringify(serverRunId)}`);
+  }
+  const project = doc.args.project;
+  if (!project || typeof project.scratchDir !== 'string' || project.scratchDir === '') {
+    throw new Error('invalid args: the plan has no project.scratchDir (re-plan with --scratchpad)');
+  }
+  const out = JSON.parse(JSON.stringify(doc));
+  out.args.serverRunId = serverRunId.toLowerCase();
+  return out;
+}
+
+/**
  * validatePlanDoc(doc, argsSchema, snapshot?) -> {ok:boolean, errors:string[]}
  * Structural check against argsSchema plus the four run-level guard strings; with a snapshot
  * also flags staleness ("stale <short>: configFingerprint|traits|not a candidate").
@@ -1458,6 +1496,12 @@ export function validatePlanDoc(doc, argsSchema, snapshot) {
       for (const item of doc.args.items || []) {
         if ((item.waitsFor || []).length) errors.push('per-item mode forbids waitsFor');
       }
+    }
+    if (doc.args.altitudeSafe !== undefined && typeof doc.args.altitudeSafe !== 'boolean') {
+      errors.push('bad altitudeSafe: must be a boolean');
+    }
+    if (doc.args.serverRunId !== undefined && !(doc.args.project && typeof doc.args.project.scratchDir === 'string' && doc.args.project.scratchDir)) {
+      errors.push('serverRunId requires project.scratchDir');
     }
     const feats = new Set((doc.args.capabilities && doc.args.capabilities.features) || []);
     for (const f of ['seats', 'dispatchBySeat', 'rules']) {

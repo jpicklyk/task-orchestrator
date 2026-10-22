@@ -1,0 +1,1 @@
+table|notes_fts_trigram|notes_fts_trigram|CREATE VIRTUAL TABLE notes_fts_trigram USING fts5( body, content='notes', content_rowid='rowid', tokenize='trigram', prefix='2 3' )

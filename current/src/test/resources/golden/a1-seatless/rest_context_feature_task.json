@@ -1,0 +1,68 @@
+{
+    "status": 200,
+    "body": {
+        "ok": true,
+        "data": {
+            "item": {
+                "id": "a1000000",
+                "parentId": "a1000000",
+                "type": "feature-task",
+                "title": "A1 T0 golden feature-task",
+                "role": "queue",
+                "priority": "medium",
+                "depth": 1,
+                "version": 1
+            },
+            "schema": [
+                {
+                    "key": "task-scope",
+                    "role": "queue",
+                    "required": true,
+                    "exists": false,
+                    "filled": false
+                },
+                {
+                    "key": "implementation-notes",
+                    "role": "work",
+                    "required": true,
+                    "exists": false,
+                    "filled": false
+                },
+                {
+                    "key": "delegation-metadata",
+                    "role": "work",
+                    "required": false,
+                    "exists": false,
+                    "filled": false
+                },
+                {
+                    "key": "session-tracking",
+                    "role": "work",
+                    "required": true,
+                    "exists": false,
+                    "filled": false
+                }
+            ],
+            "gateStatus": {
+                "canAdvance": false,
+                "phase": "queue",
+                "missing": [
+                    "task-scope"
+                ],
+                "blockedBy": "note"
+            },
+            "transitions": {
+                "block": "blocked",
+                "cancel": "terminal",
+                "complete": "terminal",
+                "hold": "blocked",
+                "start": "work"
+            },
+            "guidanceKey": "task-scope",
+            "skillPointer": "spec-quality"
+        },
+        "meta": {
+            "reqId": "<A1-T0-NORMALIZED-REQID>"
+        }
+    }
+}

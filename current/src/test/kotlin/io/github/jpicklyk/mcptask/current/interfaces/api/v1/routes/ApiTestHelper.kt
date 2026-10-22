@@ -1,16 +1,14 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
@@ -19,7 +17,6 @@ import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import io.ktor.server.sse.SSE
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
-import org.jetbrains.exposed.v1.jdbc.Database
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -46,37 +43,6 @@ fun sha256(input: String): ByteArray {
 }
 
 /**
- * Builds a [DefaultRepositoryProvider] backed by an H2 in-memory DB.
- * The schema is set up via [DirectDatabaseSchemaManager].
- */
-fun buildH2RepositoryProvider(): DefaultRepositoryProvider {
-    val dbName = "api_test_${System.nanoTime()}"
-    val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-    val databaseManager = DatabaseManager(database)
-    DirectDatabaseSchemaManager().updateSchema()
-    return DefaultRepositoryProvider(databaseManager)
-}
-
-/**
- * Builds a [DefaultRepositoryProvider] backed by an H2 in-memory DB with a specific scope root.
- * Identical to [buildH2RepositoryProvider] — the scope restriction is on the token, not the repo.
- */
-fun buildH2RepositoryProviderScoped(): DefaultRepositoryProvider = buildH2RepositoryProvider()
-
-/**
- * Like [buildH2RepositoryProvider] but also returns the raw [Database] handle, for tests that
- * need to bypass the repository layer (e.g. writing a corrupt/invalid-domain row directly via
- * Exposed to simulate validation-drop scenarios — see [WorkItemsTable] usage in repository tests).
- */
-fun buildH2RepositoryProviderWithDatabase(): Pair<DefaultRepositoryProvider, Database> {
-    val dbName = "api_test_${System.nanoTime()}"
-    val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-    val databaseManager = DatabaseManager(database)
-    DirectDatabaseSchemaManager().updateSchema()
-    return DefaultRepositoryProvider(databaseManager) to database
-}
-
-/**
  * Returns a [ApiAuthConfig.Bearer] with two principals:
  * - [TEST_TOKEN] → `read` capability, unrestricted scope (optionally scoped by [scopeRootIds] and/or [tagsInclude])
  * - [ADMIN_TOKEN] → `admin` + `read` capabilities, unrestricted scope
@@ -86,24 +52,26 @@ fun makeTestAuthConfig(
     tagsInclude: Set<String> = emptySet(),
 ): ApiAuthConfig.Bearer {
     val readPrincipal =
-        ApiPrincipal(
-            tokenId = TEST_TOKEN_ID,
-            scope = ApiScope(rootIds = scopeRootIds, tagsInclude = tagsInclude),
+        Principal(
+            id = TEST_TOKEN_ID,
+            scope = AccessScope.principal(rootIds = scopeRootIds, tagsInclude = tagsInclude),
             capabilities = setOf(ApiCapability.READ),
-            authMode = ApiAuthMode.BEARER,
+            kind = PrincipalKind.SERVICE,
+            proofStatus = ProofStatus.ISSUED,
         )
     val adminPrincipal =
-        ApiPrincipal(
-            tokenId = ADMIN_TOKEN_ID,
-            scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+        Principal(
+            id = ADMIN_TOKEN_ID,
+            scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
             capabilities = setOf(ApiCapability.READ, ApiCapability.ADMIN),
-            authMode = ApiAuthMode.BEARER,
+            kind = PrincipalKind.SERVICE,
+            proofStatus = ProofStatus.ISSUED,
         )
     return ApiAuthConfig.Bearer(
         tokens =
             mapOf(
-                HashBytes(sha256(TEST_TOKEN)) to readPrincipal,
-                HashBytes(sha256(ADMIN_TOKEN)) to adminPrincipal,
+                HashBytes(sha256(TEST_TOKEN)) to BearerTokenStore.TokenEntry(readPrincipal, expiresAt = null),
+                HashBytes(sha256(ADMIN_TOKEN)) to BearerTokenStore.TokenEntry(adminPrincipal, expiresAt = null),
             ),
     )
 }
@@ -121,9 +89,9 @@ fun makeTestAuthConfig(
 fun makeWriteAuthConfig(scopeRootIds: Set<UUID>? = null): ApiAuthConfig.Bearer {
     val base = makeTestAuthConfig(scopeRootIds)
     val writePrincipal =
-        ApiPrincipal(
-            tokenId = WRITE_TOKEN_ID,
-            scope = ApiScope(rootIds = scopeRootIds, tagsInclude = emptySet()),
+        Principal(
+            id = WRITE_TOKEN_ID,
+            scope = AccessScope.principal(rootIds = scopeRootIds, tagsInclude = emptySet()),
             capabilities =
                 setOf(
                     ApiCapability.READ,
@@ -133,10 +101,11 @@ fun makeWriteAuthConfig(scopeRootIds: Set<UUID>? = null): ApiAuthConfig.Bearer {
                     ApiCapability.MANAGE_DEPENDENCIES,
                     ApiCapability.WRITE_CONFIG,
                 ),
-            authMode = ApiAuthMode.BEARER,
+            kind = PrincipalKind.SERVICE,
+            proofStatus = ProofStatus.ISSUED,
         )
     return ApiAuthConfig.Bearer(
-        tokens = base.tokens + (HashBytes(sha256(WRITE_TOKEN)) to writePrincipal),
+        tokens = base.tokens + (HashBytes(sha256(WRITE_TOKEN)) to BearerTokenStore.TokenEntry(writePrincipal, expiresAt = null)),
     )
 }
 
@@ -161,9 +130,7 @@ fun Application.configureTestApp(
             install(ApiBearerAuth) {
                 this.authConfig = authConfig
                 tokenEntries =
-                    (authConfig as? ApiAuthConfig.Bearer)?.tokens?.mapValues { (_, p) ->
-                        BearerTokenStore.TokenEntry(p, expiresAt = null)
-                    } ?: emptyMap()
+                    (authConfig as? ApiAuthConfig.Bearer)?.tokens ?: emptyMap()
             }
             routeBlock()
         }

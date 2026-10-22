@@ -1,21 +1,33 @@
 #!/usr/bin/env node
-// Session Start Hook — injects current v3 workflow guidance plus setup/scope status derived from
-// the shared config locator (none / config without rootId / personal root / project root).
+// Session Start Hook — injects 4.0 workflow guidance plus setup/scope status derived from the
+// shared config locator (none / config without rootId / personal root / project root).
+//
+// Output is split in two. GUIDANCE (base guidance, Setup Status, Personal/Project Scope) is withheld
+// when `suppressionReason` is non-null (headless iteration, subagent, director session). DIAGNOSTICS
+// (setup hint, registration check, config shape, config-sync notice, plugin drift, server
+// compatibility line, watchPaths) are always computed. With nothing left, additionalContext is omitted.
 
-import { readFileSync, statSync, mkdirSync, writeFileSync } from 'fs';
+import { readFileSync, statSync } from 'fs';
 import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { homedir, tmpdir } from 'os';
+import { homedir } from 'os';
 import { createHash } from 'crypto';
 import { isOrchestratorServerKey, SERVER_SEGMENT_TOKEN } from './registration.mjs';
 import { locateConfig, userConfigPath } from './config-locator.mjs';
-import { apiBaseUrl } from './api-client.mjs';
+import { readSection } from './yaml-lite.mjs';
+import { readHookInput } from './lib/stdin.mjs';
+import { suppressionReason } from './execution-mode.mjs';
+import { apiBaseUrl } from './lib/api-client.mjs';
+import { emit } from './lib/emit.mjs';
+import { sharedMarkerPath, createMarkerOnce } from './lib/markers.mjs';
+import { checkServer } from './lib/server-compat.mjs';
 
 const BASE_GUIDANCE = `## Task Orchestrator — Session Context
 
-- Use \`advance_item\` for role transitions — not raw status edits.
-- Hierarchy: items have parentId and depth; trees nest to any depth.
-- To resume: call \`get_context()\` with no args to see active and stalled items.`;
+- Move items between phases with \`advance\` op \`transition\`, never raw status edits. Ids accept a full UUID or a hex prefix of 8 or more characters.
+- Resume or inspect with \`items_read\` select \`context\` (no arguments lists active and stalled items; pass \`itemId\` for one item's gate status). Find the next work with \`items_read\` select \`next\`.
+- Hierarchy: items have parentId and depth; trees nest to any depth. \`items_write\` op \`create\` requires \`type\`.
+- These are orchestration-profile tools (the \`profiles\` entry in the tool catalog); a server running another profile may not expose them.`;
 
 const EMPTY_LOCATION = { scope: 'none', path: null, rootId: null, name: null };
 
@@ -67,8 +79,7 @@ Personal root: ${label}
 Config: ${loc.path}
 
 - Anchor new root-level items under the personal root by setting \`parentId: "${loc.rootId}"\`.
-- Do NOT pass \`ancestorId\` on reads (\`query_items\`, \`get_next_item\`, \`get_context\`, \`get_blocked_items\`) — the personal root is a global store, so reads stay unscoped and may return other projects' items.
-- Process-global items stay OUTSIDE the personal root at depth 0: the Session Retrospectives and Improvement Proposals containers, and standalone agent-observation items.`;
+- Do NOT pass \`ancestorId\` on \`items_read\` selects (\`list\`, \`search\`, \`context\`, \`next\`, \`blocked\`) — the personal root is a global store, so reads stay unscoped and may return other projects' items.`;
   }
 
   return `${BASE_GUIDANCE}
@@ -78,9 +89,8 @@ Config: ${loc.path}
 Active project: ${label}
 Config: ${loc.path}
 
-- Pass \`ancestorId: "${loc.rootId}"\` on \`query_items\` (list mode), \`get_next_item\`, \`get_context\`, and \`get_blocked_items\` to scope results to this project.
-- Anchor new root-level items under this project by setting \`parentId: "${loc.rootId}"\`.
-- Process-global items stay OUTSIDE the project root at depth 0: the Session Retrospectives and Improvement Proposals containers, and standalone agent-observation items — do not anchor any of them under \`${loc.rootId}\`.`;
+- Pass \`ancestorId: "${loc.rootId}"\` on \`items_read\` selects \`list\`, \`search\`, \`context\`, \`next\` and \`blocked\` to scope results to this project.
+- Anchor new root-level items under this project by setting \`parentId: "${loc.rootId}"\`.`;
 }
 
 // Single-line, user-visible init hint. Emitted at most once per cwd per local day: the marker file
@@ -96,14 +106,8 @@ function buildSetupHint(loc, state, registrations) {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, '0');
   const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  const dir = join(tmpdir(), 'task-orchestrator');
-  const marker = join(dir, `setup-hint-${hash}-${date}`);
-  try {
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(marker, '', { flag: 'wx' });
-  } catch {
-    return null; // EEXIST = already shown today; anything else = stay silent
-  }
+  // createMarkerOnce is false on EEXIST (already shown today) and on any other error (stay silent).
+  if (!createMarkerOnce(sharedMarkerPath(`setup-hint-${hash}-${date}`, ''))) return null;
   return state === 'none'
     ? 'Task Orchestrator is not set up for this directory — run /task-orchestrator:init to configure it.'
     : `Task Orchestrator config at ${loc.path} has no project.rootId — run /task-orchestrator:init${loc.scope === 'user' ? ' --user' : ''} to finish setup.`;
@@ -144,8 +148,7 @@ function buildWatchPaths(loc) {
 // registered under a key that the plugin's hook matchers (hooks-config.json)
 // cannot recognize. Matchers require the server segment of the tool name
 // (mcp__<server>__<tool>) to contain SERVER_SEGMENT_TOKEN; a registration key
-// that omits it means actor-attribution enforcement, the retro trigger, the
-// phase guard, and skill enforcement silently never fire for that server.
+// that omits it means the plugin hooks silently never fire for that server.
 //
 // Strictly diagnostic: every read/parse failure is swallowed and the section
 // is simply omitted. No network calls. Runs in every mode.
@@ -261,7 +264,7 @@ function buildRegistrationCheckSection(registrations) {
 
   const lines = offending.map(
     (r) =>
-      `- \`${r.key}\` (found in ${r.source}): rename the MCP server key to include \`${SERVER_SEGMENT_TOKEN}\`, e.g. \`mcp-task-orchestrator\` — plugin hooks (actor attribution, retro trigger, phase guard, skill enforcement) match only such keys.`
+      `- \`${r.key}\` (found in ${r.source}): rename the MCP server key to include \`${SERVER_SEGMENT_TOKEN}\`, e.g. \`mcp-task-orchestrator\` — plugin hooks match only such keys.`
   );
 
   return `## Hook Registration Check
@@ -341,18 +344,36 @@ function buildFreshnessWarning() {
 The checked-out plugin version (\`${devVersion}\`) differs from the currently loaded plugin cache (\`${runningVersion}\`). Refresh the plugin cache — see \`claude-plugins/CLAUDE.md\` → "Plugin Discovery and Cache Refresh".`;
 }
 
+// Config-shape diagnostic: 3.x top-level `orchestration:` / `retrospective:` sections are ignored by
+// 4.0 (the plugin keys live under `extensions.claude-code`). One line naming what was found.
+function buildConfigShapeNotice(loc) {
+  if (typeof loc.text !== 'string' || !loc.text) return null;
+  const found = ['orchestration', 'retrospective'].filter((name) => readSection(loc.text, name) !== null);
+  if (found.length === 0) return null;
+  const names = found.map((n) => `\`${n}:\``).join(' and ');
+  return `## Config Shape
+
+The top-level ${names} ${found.length > 1 ? 'sections are' : 'section is'} ignored in ${loc.path}: move ${found.length > 1 ? 'them' : 'it'} under \`extensions.claude-code\`.`;
+}
+
+const hookInput = readHookInput();
+const suppressed = suppressionReason(hookInput, process.env) !== null;
 const location = getLocation();
 const state = setupState(location);
 
-let additionalContext;
-try {
-  additionalContext = buildContext(location, state);
-} catch {
-  // Fail-open: any unexpected error falls back to static guidance so a broken
-  // hook never blocks session start.
-  additionalContext = BASE_GUIDANCE;
+// Guidance: withheld when suppressed.
+let guidance = null;
+if (!suppressed) {
+  try {
+    guidance = buildContext(location, state);
+  } catch {
+    // Fail-open: any unexpected error falls back to static guidance so a broken
+    // hook never blocks session start.
+    guidance = BASE_GUIDANCE;
+  }
 }
 
+// Diagnostics: always computed, each fail-open.
 let registrations = [];
 try {
   registrations = collectOrchestratorRegistrations();
@@ -360,41 +381,39 @@ try {
   // Fail-open: registrations are purely diagnostic.
 }
 
-try {
-  const registrationSection = buildRegistrationCheckSection(registrations);
-  if (registrationSection) {
-    additionalContext = `${additionalContext}\n\n${registrationSection}`;
+const diagnostics = [];
+for (const build of [
+  () => buildRegistrationCheckSection(registrations),
+  () => buildConfigShapeNotice(location),
+  () => buildConfigSyncNotice(state, registrations),
+  () => buildFreshnessWarning(),
+]) {
+  try {
+    const section = build();
+    if (section) diagnostics.push(section);
+  } catch {
+    // Fail-open: diagnostics never affect session start.
   }
-} catch {
-  // Fail-open: the self-check is purely diagnostic — never let it affect session start.
 }
 
-try {
-  const notice = buildConfigSyncNotice(state, registrations);
-  if (notice) additionalContext = `${additionalContext}\n\n${notice}`;
-} catch {
-  // Fail-open.
-}
-
-try {
-  const freshnessWarning = buildFreshnessWarning();
-  if (freshnessWarning) {
-    additionalContext = `${additionalContext}\n\n${freshnessWarning}`;
-  }
-} catch {
-  // Fail-open: the freshness check is purely diagnostic — never let it affect session start.
-}
-
-const output = {
-  hookSpecificOutput: {
-    hookEventName: "SessionStart",
-    additionalContext
-  }
-};
+const parts = [guidance, ...diagnostics].filter(Boolean);
+const output = { hookSpecificOutput: { hookEventName: "SessionStart" } };
+if (parts.length > 0) output.hookSpecificOutput.additionalContext = parts.join('\n\n');
 
 try {
   const hint = buildSetupHint(location, state, registrations);
   if (hint) output.systemMessage = hint;
+} catch {
+  // Fail-open.
+}
+
+// Server compatibility: only when a REST API is configured; an unreachable server or an unusable
+// well-known document yields no line. The warning follows the setup hint, one line each.
+try {
+  if (apiBaseUrl()) {
+    const warning = await checkServer({ timeoutMs: 1000 });
+    if (warning) output.systemMessage = output.systemMessage ? output.systemMessage + '\n' + warning : warning;
+  }
 } catch {
   // Fail-open.
 }
@@ -407,4 +426,4 @@ try {
 } catch {
   // Fail-open.
 }
-process.stdout.write(JSON.stringify(output));
+emit(output);

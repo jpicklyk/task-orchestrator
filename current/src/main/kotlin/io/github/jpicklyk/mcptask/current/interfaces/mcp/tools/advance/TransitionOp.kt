@@ -1,0 +1,205 @@
+package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance
+
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.CallContext
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.api.advance.TransitionRequest
+import io.github.jpicklyk.mcptask.current.application.api.advance.TransitionTrigger
+import io.github.jpicklyk.mcptask.current.application.api.of
+import io.github.jpicklyk.mcptask.current.application.port.WriteScope
+import io.github.jpicklyk.mcptask.current.application.run.RunService
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceResult
+import io.github.jpicklyk.mcptask.current.application.service.BlockInput
+import io.github.jpicklyk.mcptask.current.application.service.CredentialRefValidation
+import io.github.jpicklyk.mcptask.current.application.service.buildDispatchProfileJson
+import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
+import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
+import io.github.jpicklyk.mcptask.current.application.support.toDomainError
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
+import io.github.jpicklyk.mcptask.current.domain.model.RunPauseReason
+import io.github.jpicklyk.mcptask.current.domain.model.RunStatus
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.NoteSchemaJson
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.DecisionLoader
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.runLimits
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.withPaused
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.serializer
+import org.slf4j.LoggerFactory
+
+private val logger = LoggerFactory.getLogger("AdvanceTransitionOp")
+
+/**
+ * `advance` op `transition`: applies a trigger to one item through the shared advance pipeline, with claim ownership
+ * and resource leases enforced on every surface (task-scope Q13 D2, D3).
+ */
+internal val transitionOp =
+    OpSpec<TransitionRequest, JsonElement>(
+        name = "transition",
+        doc =
+            "Move one item between phases with a trigger (start, complete, block, hold, resume, cancel, reopen). " +
+                "Gates, dependencies, claim ownership and resource leases apply; the result lists cascaded parents, " +
+                "unblocked items and what the next phase expects.",
+        profiles = orchestration(),
+        capability = ApiCapability.ADVANCE,
+        request = serializer<TransitionRequest>(),
+        errors =
+            setOf(
+                ErrorCode.NOT_FOUND,
+                ErrorCode.AMBIGUOUS_ID,
+                ErrorCode.FORBIDDEN,
+                ErrorCode.INVALID_TRANSITION,
+                ErrorCode.GATE_BLOCKED,
+                ErrorCode.DEPENDENCY_UNMET,
+                ErrorCode.NOT_CLAIM_HOLDER,
+                ErrorCode.SEAT_FORBIDDEN,
+                ErrorCode.RUN_PAUSED,
+                ErrorCode.RESOURCE_UNAVAILABLE,
+                ErrorCode.UNAUTHENTICATED,
+                ErrorCode.UNAVAILABLE
+            ),
+        execute = { env, ctx, req -> runTransition(env, ctx, req) }
+    )
+
+private suspend fun WriteScope.runTransition(
+    env: ToolExecutionContext,
+    ctx: CallContext,
+    req: TransitionRequest
+): Outcome<JsonElement> {
+    val refs = req.credentialRefs.orEmpty()
+    (CredentialRefValidation.validate(refs) as? CredentialRefValidation.Result.Invalid)?.let { invalid ->
+        val field = if (invalid.index >= 0) "/credentialRefs/${invalid.index}" else "/credentialRefs"
+        return Outcome.Err(invalidField(field, invalid.reason))
+    }
+
+    val id =
+        when (val resolved = AdvanceSupport.resolveInScope(stores, ctx, req.itemId)) {
+            is Outcome.Err -> return resolved
+            is Outcome.Ok -> resolved.value
+        }
+    val item =
+        when (val loaded = AdvanceSupport.loadItem(stores, id)) {
+            is Outcome.Err -> return loaded
+            is Outcome.Ok -> loaded.value
+        }
+
+    // While a run is paused for a limit (budget or attempts), a start under one of its seat tokens is refused (R27); a
+    // start without a token is not, and a manual pause leaves in-flight seats free to start (R23).
+    val seat = ctx.seat
+    // An unlimited run (no budget field) cannot be limit-paused, so its seats skip the read.
+    if (seat != null && seat.runLimited && req.trigger == TransitionTrigger.START) {
+        val run = stores.runStore().getById(seat.runId)
+        if (run != null && run.status == RunStatus.PAUSED && run.pauseReason != RunPauseReason.MANUAL) {
+            return Outcome.Err(RunService.runPaused(run))
+        }
+    }
+
+    // A decision named by prefix resolves under the call scope before the advance; the unit re-checks its state (R26).
+    val decisionId =
+        req.decisionId?.let { ref ->
+            when (val resolved = DecisionLoader.resolveId(stores, ctx.scope, ref)) {
+                is Outcome.Err -> return resolved
+                is Outcome.Ok -> resolved.value
+            }
+        }
+    // Under a restricted scope a full-UUID decision outside it must read like an unused id, not "belongs to another item".
+    val decisionHidden =
+        decisionId != null &&
+            !ctx.scope.isUnrestricted &&
+            stores.decisionRequestStore().getById(decisionId).let { found ->
+                found == null || ScopeGuard.check(ctx.scope, found.rootId, stores.workItemRepository()) is Outcome.Err
+            }
+    val block = if (req.reason != null || decisionId != null) BlockInput(req.reason?.domain, decisionId, decisionHidden) else null
+
+    val claim = ctx.principal.claim
+    val outcome =
+        try {
+            env.advanceServiceFactory().forItem(item).advance(
+                item = item,
+                trigger = req.trigger.wire,
+                summary = req.summary?.takeIf { it.isNotBlank() },
+                actorClaim = claim,
+                verification = ctx.principal.verification,
+                credentialRefs = refs,
+                enforceResourceLeases = true,
+                assignmentId = ctx.seat?.assignmentId,
+                seatCaller = SeatCaller.of(ctx),
+                block = block
+            )
+        } catch (e: PerRootConfigUnavailableException) {
+            return Outcome.Err(AdvanceSupport.configUnavailable(e.message))
+        } catch (e: PerRootConfigInvalidException) {
+            return Outcome.Err(e.toDomainError())
+        }
+
+    return when (outcome) {
+        is AdvanceOutcome.Failure -> Outcome.Err(AdvanceSupport.rooted(outcome.failure.error))
+        is AdvanceOutcome.Success -> {
+            val paused =
+                if (seat == null) {
+                    null
+                } else {
+                    when (val checked = env.runLimits.checkBudget(seat.runId, seat.runLimited)) {
+                        is Outcome.Err -> return checked
+                        is Outcome.Ok -> checked.value
+                    }
+                }
+            Outcome.Ok(element(env, ctx, item, outcome.result).withPaused(paused))
+        }
+    }
+}
+
+/**
+ * The `transition` result element, in the documented key order; empty and null members are omitted. Cascade and
+ * unblocked entries outside the call's scope are echoed as `{itemId}` only.
+ */
+private suspend fun WriteScope.element(
+    env: ToolExecutionContext,
+    ctx: CallContext,
+    item: WorkItem,
+    result: AdvanceResult
+): JsonObject {
+    val admitted = TransitionJson.admitted(ctx.scope, result.cascadeEvents, result.unblockedItems, stores.workItemRepository())
+    val schema = result.resolvedSchema
+    val notesByKey = if (schema == null) emptyMap() else stores.noteRepository().findByItemId(item.id).associateBy { it.key }
+    val phase = schema?.let { computePhaseNoteContext(result.newRole, it, notesByKey) }
+    val expectedKeys =
+        schema
+            ?.notes
+            ?.filter { it.role == result.newRole }
+            ?.map { it.key }
+            .orEmpty()
+    // The dispatch hint decorates a transition that already happened: a config read fault omits it (D7).
+    val dispatch =
+        omitOnConfigUnavailable(logger, "dispatch profile", item.id) {
+            env.resolveDispatchProfile(item, result.newRole, schema)
+        }
+
+    return buildJsonObject {
+        put("itemId", result.itemId.toString())
+        put("previousRole", TransitionJson.role(result.previousRole))
+        put("newRole", TransitionJson.role(result.newRole))
+        put("trigger", result.trigger)
+        result.statusLabel?.let { put("statusLabel", it) }
+        TransitionJson.cascades(result.cascadeEvents, admitted)?.let { put("cascades", it) }
+        TransitionJson.unblocked(result.unblockedItems, admitted)?.let { put("unblocked", it) }
+        if (expectedKeys.isNotEmpty()) put("expectedNotes", JsonArray(expectedKeys.map { JsonPrimitive(it) }))
+        phase?.guidanceKey?.let { put("guidanceKey", it) }
+        phase?.skillPointer?.let { put("skillPointer", it) }
+        dispatch?.let { put("dispatch", buildDispatchProfileJson(it)) }
+        NoteSchemaJson.buildViolationsArrayNonEmpty(result.violations)?.let { put("violations", it) }
+    }
+}

@@ -1,18 +1,20 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.application.service.EventRecorder
+import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.buildH2RepositoryProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
@@ -23,12 +25,12 @@ import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.routing.routing
 import io.ktor.server.sse.SSE
 import io.ktor.server.testing.testApplication
-import io.ktor.sse.ServerSentEvent
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
@@ -39,7 +41,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import java.time.Instant
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
 import io.ktor.client.plugins.sse.SSE as ClientSSE
@@ -64,17 +66,13 @@ import io.ktor.client.plugins.sse.SSE as ClientSSE
  * S-ids are stable identifiers frozen in `test-plan` -- do not renumber.
  */
 class SyncLostSseDeliveryTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     companion object {
         private const val TOKEN = "sync-lost-sse-test-token-xyz789"
 
         private val replayJson = Json { ignoreUnknownKeys = true }
-
-        /** Time given to a launched fixture-mutation/publish job to run before the SSE window opens. */
-        private const val SETTLE_DELAY_MS = 150L
-
-        /** Fixed window a connection listens for frames -- bounds every "assert nothing extra
-         * arrived" scenario so it cannot hang; mirrors [TagScopeSseEventsTest]'s `collectWithin`. */
-        private const val COLLECT_WINDOW_MS = 900L
 
         private fun decode(data: String?): ApiEvent = replayJson.decodeFromString(ApiEvent.serializer(), data.orEmpty())
 
@@ -84,11 +82,12 @@ class SyncLostSseDeliveryTest {
             rootIds: Set<UUID>? = null,
         ): Map<HashBytes, BearerTokenStore.TokenEntry> {
             val principal =
-                ApiPrincipal(
-                    tokenId = "sync-lost-sse-test-principal",
-                    scope = ApiScope(rootIds = rootIds, tagsInclude = tagsInclude),
+                Principal(
+                    id = "sync-lost-sse-test-principal",
+                    scope = AccessScope.principal(rootIds = rootIds, tagsInclude = tagsInclude),
                     capabilities = setOf(ApiCapability.READ),
-                    authMode = ApiAuthMode.BEARER,
+                    kind = PrincipalKind.SERVICE,
+                    proofStatus = ProofStatus.ISSUED,
                 )
             return mapOf(HashBytes(sha256(token)) to BearerTokenStore.TokenEntry(principal, expiresAt = null))
         }
@@ -99,20 +98,8 @@ class SyncLostSseDeliveryTest {
         ): WorkItem {
             val item = WorkItem(id = UUID.randomUUID(), parentId = null, title = "sync-lost-fixture", depth = 0, tags = tags)
             val result = provider.workItemRepository().create(item)
-            check(result is Result.Success) { "fixture item create failed: $result" }
+            check(result != null) { "fixture item create failed: $result" }
             return item
-        }
-
-        /** Mirrors [TagScopeSseEventsTest]: collects every frame delivered within a fixed window,
-         * then cancels -- never discards partial results the way `take(n)` under a timeout would. */
-        private suspend fun collectWithin(incoming: Flow<ServerSentEvent>): List<ApiEvent> {
-            val collected = mutableListOf<ApiEvent>()
-            coroutineScope {
-                val job = launch { incoming.collect { sse -> collected.add(decode(sse.data)) } }
-                delay(COLLECT_WINDOW_MS)
-                job.cancel()
-            }
-            return collected
         }
     }
 
@@ -132,6 +119,7 @@ class SyncLostSseDeliveryTest {
                 allowQueryToken = false,
                 authCheckIntervalSeconds = 60,
                 workItemRepository = workItemRepository,
+                redactAttribution = true
             )
         }
     }
@@ -143,7 +131,7 @@ class SyncLostSseDeliveryTest {
     @Test
     fun `S6a - a malformed Last-Event-ID header yields sync_lost unknown_event_id then live delivery`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application { wireEventsRoute(bus, tokenEntries(TOKEN), workItemRepository = null) }
             val sseClient = createClient { install(ClientSSE) }
             val liveId = UUID.randomUUID()
@@ -152,8 +140,8 @@ class SyncLostSseDeliveryTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
-                        bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = liveId, modifiedAt = Instant.now()), emptySet())
+                        bus.awaitSubscribers()
+                        bus.emit(ApiEventType.ITEM_CREATED, itemId = liveId)
                     }
                     sseClient.sse(
                         urlString = "/events",
@@ -185,7 +173,7 @@ class SyncLostSseDeliveryTest {
     @Test
     fun `S6b - no Last-Event-ID header at all is absent, not a resume request, and yields no sentinel`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application { wireEventsRoute(bus, tokenEntries(TOKEN), workItemRepository = null) }
             val sseClient = createClient { install(ClientSSE) }
             val liveId = UUID.randomUUID()
@@ -194,14 +182,14 @@ class SyncLostSseDeliveryTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
-                        bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = liveId, modifiedAt = Instant.now()), emptySet())
+                        bus.awaitSubscribers()
+                        bus.emit(ApiEventType.ITEM_CREATED, itemId = liveId)
                     }
                     sseClient.sse(
                         urlString = "/events",
                         request = { header(HttpHeaders.Authorization, "Bearer $TOKEN") },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        collected.addAll(incoming.collectUntil({ decode(it) }) { it.any { e -> e.itemId == liveId.toString() } })
                     }
                 }
             }
@@ -217,7 +205,7 @@ class SyncLostSseDeliveryTest {
     @Test
     fun `S7a - types filter drops non-matching replay events but the sentinel still arrives first`(): Unit =
         testApplication {
-            val bus = ApiEventBus(bufferSize = 3)
+            val bus = ApiEventBus(bufferSize = 3, source = db.repositoryProvider().eventStore())
             val published = mutableListOf<ApiEvent>()
             val eventTypes =
                 listOf(
@@ -228,9 +216,8 @@ class SyncLostSseDeliveryTest {
                     ApiEventType.ITEM_CREATED,
                 )
             eventTypes.forEach { t ->
-                val e = bus.buildEvent(t, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
+                val e = bus.emit(t, itemId = UUID.randomUUID())
                 published.add(e)
-                bus.publish(e, emptySet())
             }
             application { wireEventsRoute(bus, tokenEntries(TOKEN), workItemRepository = null) }
             val sseClient = createClient { install(ClientSSE) }
@@ -267,27 +254,44 @@ class SyncLostSseDeliveryTest {
     @Test
     fun `S7b - a live queue-overflow sentinel also bypasses the types filter`(): Unit =
         testApplication {
-            val bus = ApiEventBus(bufferSize = 1000, connectionQueueSize = 4)
+            val bus = ApiEventBus(bufferSize = 1000, connectionQueueSize = 4, source = db.repositoryProvider().eventStore())
             application { wireEventsRoute(bus, tokenEntries(TOKEN), workItemRepository = null) }
             val sseClient = createClient { install(ClientSSE) }
 
             val collected = mutableListOf<ApiEvent>()
             withTimeout(10.seconds) {
                 coroutineScope {
+                    val warmUpDelivered = CompletableDeferred<Unit>()
                     launch {
-                        delay(SETTLE_DELAY_MS)
-                        repeat(10) {
-                            bus.publish(
-                                bus.buildEvent(ApiEventType.NOTE_UPSERTED, itemId = UUID.randomUUID(), modifiedAt = Instant.now()),
-                                emptySet(),
-                            )
+                        // Handshake: a new subscriber registers BEFORE it reads its tail cursor, so rows committed in
+                        // that gap are skipped and never overflow. Emit warm-up events until the client has RECEIVED
+                        // one -- that proves the cursor is set and delivery is live. Only then commit the burst.
+                        while (bus.subscriberCount() == 0) delay(10) // settle-ok: S7b warm-up handshake poll (#460), left as-is
+                        while (!warmUpDelivered.isCompleted) {
+                            bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
+                            delay(25) // settle-ok: S7b warm-up emit spacing (#460), left as-is
                         }
+                        // Deterministic overflow: commit all ten rows under ONE commit signal. The bus fans a signal
+                        // out without suspending, so the 4-slot queue overflows however fast the client drains it.
+                        val item = UUID.randomUUID()
+                        val rows =
+                            EventRecorder(bus.source!!).record(
+                                List(10) { DomainEvent.NoteUpserted(UUID.randomUUID(), item, item, "k", "queue", 1) },
+                            )
+                        bus.committed(rows)
                     }
                     sseClient.sse(
                         urlString = "/events?types=${ApiEventType.ITEM_CREATED}",
                         request = { header(HttpHeaders.Authorization, "Bearer $TOKEN") },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        // Collect until the sentinel arrives (bounded by the withTimeout), not for a fixed window.
+                        incoming
+                            .takeWhile { sse ->
+                                val ev = decode(sse.data)
+                                collected.add(ev)
+                                if (ev.event == ApiEventType.ITEM_CREATED) warmUpDelivered.complete(Unit)
+                                ev.event != ApiEventType.SYNC_LOST
+                            }.collect {}
                     }
                 }
             }
@@ -310,8 +314,8 @@ class SyncLostSseDeliveryTest {
     @Test
     fun `S8 - a tags_include-scoped subscription still receives the sentinel across eviction while dropping out-of-scope replay`(): Unit =
         testApplication {
-            val provider = buildH2RepositoryProvider()
-            val bus = ApiEventBus(bufferSize = 3)
+            val provider = db.repositoryProvider()
+            val bus = ApiEventBus(bufferSize = 3, source = db.repositoryProvider().eventStore())
             val itemAlpha = createItem(provider, tags = "alpha")
             val itemBeta1 = createItem(provider, tags = "beta")
             val itemBeta2 = createItem(provider, tags = "beta")
@@ -319,9 +323,8 @@ class SyncLostSseDeliveryTest {
             val published = mutableListOf<ApiEvent>()
             val sequence = listOf(itemBeta1.id, itemAlpha.id, itemBeta2.id, itemAlpha.id, itemBeta3.id)
             sequence.forEach { id ->
-                val e = bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = id, modifiedAt = Instant.now())
+                val e = bus.emit(ApiEventType.ITEM_UPDATED, itemId = id)
                 published.add(e)
-                bus.publish(e, emptySet())
             }
             application { wireEventsRoute(bus, tokenEntries(TOKEN, tagsInclude = setOf("alpha")), provider.workItemRepository()) }
             val sseClient = createClient { install(ClientSSE) }
@@ -359,14 +362,13 @@ class SyncLostSseDeliveryTest {
     @Test
     fun `S9 - a root-scoped subscriber still receives the sentinel when only other roots' events were evicted, with no leak`(): Unit =
         testApplication {
-            val bus = ApiEventBus(bufferSize = 3)
+            val bus = ApiEventBus(bufferSize = 3, source = db.repositoryProvider().eventStore())
             val rootA = UUID.randomUUID()
             val rootB = UUID.randomUUID()
             val published = mutableListOf<ApiEvent>()
             repeat(5) {
-                val e = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
+                val e = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), rootId = rootB)
                 published.add(e)
-                bus.publish(e, setOf(rootB)) // every buffered event belongs to rootB only
             }
             application { wireEventsRoute(bus, tokenEntries(TOKEN, rootIds = setOf(rootA)), workItemRepository = null) }
             val sseClient = createClient { install(ClientSSE) }
@@ -376,8 +378,8 @@ class SyncLostSseDeliveryTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
-                        bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = liveId, modifiedAt = Instant.now()), setOf(rootA))
+                        bus.awaitSubscribers()
+                        bus.emit(ApiEventType.ITEM_CREATED, itemId = liveId, rootId = rootA)
                     }
                     sseClient.sse(
                         urlString = "/events",
@@ -411,12 +413,11 @@ class SyncLostSseDeliveryTest {
     @Test
     fun `probe - a mixed-case Last-Event-ID header still triggers replay - HTTP headers are case-insensitive`(): Unit =
         testApplication {
-            val bus = ApiEventBus(bufferSize = 3)
+            val bus = ApiEventBus(bufferSize = 3, source = db.repositoryProvider().eventStore())
             val published = mutableListOf<ApiEvent>()
             repeat(5) {
-                val e = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
+                val e = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
                 published.add(e)
-                bus.publish(e, emptySet())
             }
             application { wireEventsRoute(bus, tokenEntries(TOKEN), workItemRepository = null) }
             val sseClient = createClient { install(ClientSSE) }

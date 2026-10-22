@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
@@ -26,9 +25,8 @@ data class SchemaResponseFields(
  * Token-efficiency contract: the default serialization is reference-based — each entry
  * carries only {key, role, required, exists} (+ filled when [filledNoteKeys] is provided).
  * Static schema text (description, guidance, skill) is intentionally NOT included here;
- * agents fetch it on demand via `query_items` operation "schema" (see [buildFullSchemaEntriesJson]),
- * or receive full guidance in the two designated places (manage_notes itemContext and
- * gate-failure error payloads).
+ * agents fetch it on demand via `items_read` `select=schema` (see [buildFullSchemaEntriesJson]),
+ * or receive full guidance in gate-failure error payloads.
  *
  * Supports three shapes:
  * - Shape 1 (creation): exists=false for all, no filled field
@@ -62,6 +60,7 @@ fun buildExpectedNotesJson(
                 if (filledNoteKeys != null) {
                     put("filled", JsonPrimitive(entry.key in filledNoteKeys))
                 }
+                if (entry.shared) put("shared", JsonPrimitive(true))
                 if (seatAware) {
                     put("seat", entry.seat?.let { JsonPrimitive(it) } ?: JsonNull)
                 }
@@ -73,8 +72,8 @@ fun buildExpectedNotesJson(
 /**
  * Build the FULL schema-entry JSON array: {key, role, required, description, guidance?, skill?, maxLength?}.
  *
- * This is the reference target for the keys-only default above. Used by the `query_items`
- * operation "schema" (get_schema), which is the one place agents fetch complete schema text.
+ * This is the reference target for the keys-only default above. Used by `items_read`
+ * `select=schema`, which is the one place agents fetch complete schema text.
  *
  * `maxLength` is included only when set on the entry — it is NOT part of the keys-only
  * default shape produced by [buildExpectedNotesJson].
@@ -103,6 +102,9 @@ fun buildFullSchemaEntriesJson(
                 }
                 if (entry.independentOf.isNotEmpty()) {
                     put("independentOf", JsonArray(entry.independentOf.map { JsonPrimitive(it) }))
+                }
+                if (entry.shared) {
+                    put("shared", JsonPrimitive(true))
                 }
             }
         }
@@ -148,9 +150,9 @@ fun buildSchemaResponseFields(schema: WorkItemSchema?): SchemaResponseFields = b
 
 /**
  * Builds the `dispatch` JSON object for a single resolved [DispatchProfile]: `{agent?, model?,
- * effort?}`, each field present only when non-null. Used by `advance_item`'s per-transition
- * result and `get_context`'s item mode, both of which resolve a single profile for one role via
- * [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext.resolveDispatchProfile].
+ * effort?}`, each field present only when non-null. Used by the `advance` `transition` per-transition
+ * result and `items_read` `select=context` item mode, both of which resolve a single profile for one role via
+ * [io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext.resolveDispatchProfile].
  */
 fun buildDispatchProfileJson(profile: DispatchProfile): JsonObject =
     buildJsonObject {
@@ -160,7 +162,7 @@ fun buildDispatchProfileJson(profile: DispatchProfile): JsonObject =
     }
 
 /**
- * Builds the per-phase `dispatch` JSON object for `query_items`'s `schema` operation:
+ * Builds the per-phase `dispatch` JSON object for `items_read` `select=schema`:
  * `{"queue"|"work"|"review": {agent?, model?, effort?}}`, one entry per role present in
  * [dispatchByRole] (lowercase role name keys, via [Role.toJsonString]). Returns null — never an
  * empty object — when [dispatchByRole] is empty; callers omit the `dispatch` key entirely in that
@@ -176,7 +178,7 @@ fun buildDispatchByRoleJson(dispatchByRole: Map<Role, DispatchProfile>): JsonObj
 }
 
 /**
- * Builds the `resources` JSON array for `query_items`'s `schema` operation:
+ * Builds the `resources` JSON array for `items_read` `select=schema`:
  * `[{key, mode, ttlSeconds?}]`. Returns null — never an empty array — when [resources] is empty;
  * callers omit the `resources` key entirely in that case, same omit-when-empty contract as
  * [buildDispatchByRoleJson].
@@ -195,10 +197,10 @@ fun buildResourcesJson(resources: List<ResourceRequirement>): JsonArray? {
 }
 
 /**
- * Builds the `seats` JSON array for `query_items`'s `schema` operation and `get_context`'s item
- * mode: `[{name, phase, enters?, after?, readsExclude?}]`, in [seats]' order (merged order for a
+ * Builds the `seats` JSON array for `items_read` `select=schema` and `select=context` item
+ * mode: `[{name, phase, enters?, after?, readsExclude?, transitions?}]`, in [seats]' order (merged order for a
  * trait-merged schema). `enters` is included only when `true`; `after`/`readsExclude` only when
- * non-empty. Returns null — never an empty array — when [seats] is empty; callers omit the `seats`
+ * non-empty; `transitions` only when declared (an empty declared list is served as `[]`). Returns null — never an empty array — when [seats] is empty; callers omit the `seats`
  * key entirely in that case (same omit-when-empty contract as [buildDispatchByRoleJson]).
  */
 fun buildSeatsJson(seats: List<SeatDefinition>): JsonArray? {
@@ -213,6 +215,7 @@ fun buildSeatsJson(seats: List<SeatDefinition>): JsonArray? {
                 if (seat.readsExclude.isNotEmpty()) {
                     put("readsExclude", JsonArray(seat.readsExclude.map { JsonPrimitive(it) }))
                 }
+                seat.transitions?.let { declared -> put("transitions", JsonArray(declared.map { JsonPrimitive(it) })) }
             }
         }
     )
@@ -220,7 +223,7 @@ fun buildSeatsJson(seats: List<SeatDefinition>): JsonArray? {
 
 /**
  * Builds the FLAT per-seat `dispatchBySeat` JSON for a SINGLE phase's profile map used by
- * `get_context`'s item mode (current phase only): `{<seat>: {agent?, model?, effort?}}`. A profile
+ * `items_read` `select=context` item mode (current phase only): `{<seat>: {agent?, model?, effort?}}`. A profile
  * with every field resolving to null (an explicit clear via [io.github.jpicklyk.mcptask.current.domain.model.SeatDispatchOverride])
  * still emits `{}` for that seat, never omits it. Returns null — never an empty object — when
  * [profiles] is empty; callers omit the `dispatchBySeat` key entirely in that case.
@@ -233,7 +236,7 @@ fun buildDispatchBySeatFlatJson(profiles: Map<String, DispatchProfile>): JsonObj
 }
 
 /**
- * Builds the FULL per-phase, per-seat `dispatchBySeat` JSON for `query_items`'s `schema` operation:
+ * Builds the FULL per-phase, per-seat `dispatchBySeat` JSON for `items_read` `select=schema`:
  * `{"queue"|"work"|"review": {<seat>: {agent?, model?, effort?}}}`, phases in [Role] declaration
  * order ([Role.entries]: queue, work, review, ...), each phase included only when it has at least
  * one seat profile — see [buildDispatchBySeatFlatJson] for the per-phase shape. Returns null — never
@@ -255,8 +258,8 @@ fun buildDispatchBySeatJson(dispatchBySeat: Map<Role, Map<String, DispatchProfil
 }
 
 /**
- * Builds the `missingBySeat` JSON object shared by `get_context`'s `gateStatus`, `advance_item`'s
- * per-transition gate-failure payload, and their REST counterparts: `{<seat>: [keys], ...,
+ * Builds the `missingBySeat` JSON object shared by `items_read` `select=context` `gateStatus` and the
+ * `advance` `transition` gate-failure payload: `{<seat>: [keys], ...,
  * "unowned": [keys]}`. Returns null only when [missingBySeat] itself is null (a seat-less schema, or
  * a check that doesn't apply — see [computeMissingBySeat]); an empty map still serializes as `{}`,
  * never omitted, when the schema is seat-aware but nothing is missing.
@@ -267,3 +270,6 @@ fun buildMissingBySeatJson(missingBySeat: Map<String, List<String>>?): JsonObjec
         missingBySeat.forEach { (seat, keys) -> put(seat, JsonArray(keys.map { JsonPrimitive(it) })) }
     }
 }
+
+/** Lowercase wire name of a [Role] (`queue`, `work`, ...), as every schema-entry JSON field spells it. */
+private fun Role.toJsonString(): String = name.lowercase()

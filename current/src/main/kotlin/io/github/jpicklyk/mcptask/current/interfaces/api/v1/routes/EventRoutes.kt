@@ -1,28 +1,37 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.config.EnvBoolean
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.LOCAL_UNAUTH_PRINCIPAL
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowedItemIdsForTagScope
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.configName
+import io.github.jpicklyk.mcptask.current.application.api.grants
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
+import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
+import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_PRINCIPAL
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.TrustDecision
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.credentialResolverFor
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.directorOnlyForbidden
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.extractBearerToken
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.hasTagScope
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.isDirectorOnly
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.keySetUnavailable
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.unauthenticated
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.withHostOf
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelopeError
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEvent
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventType
-import io.ktor.http.HttpStatusCode
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
 import io.ktor.server.application.createRouteScopedPlugin
 import io.ktor.server.application.install
 import io.ktor.server.response.header
-import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.route
 import io.ktor.server.sse.sse
@@ -37,7 +46,6 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
-import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
@@ -52,7 +60,7 @@ private val sseJson =
     }
 
 /** The resolved SSE principal, stashed by the pre-flight auth plugin for the SSE handler to read. */
-private val SsePrincipalKey: AttributeKey<ApiPrincipal> = AttributeKey("SseResolvedPrincipal")
+private val SsePrincipalKey: AttributeKey<Principal> = AttributeKey("SseResolvedPrincipal")
 
 /** The connection's token expiry (nullable), stashed by the pre-flight auth plugin. */
 private val SseTokenExpiryKey: AttributeKey<Instant> = AttributeKey("SseTokenExpiry")
@@ -65,19 +73,15 @@ private val SseTokenExpiryKey: AttributeKey<Instant> = AttributeKey("SseTokenExp
  *
  * - **absent** — no narrowing requested; the principal's own scope applies. ([roots] empty,
  *   [malformed] false.)
- * - **malformed** ([malformed] true) — the parameter was supplied but yielded no usable UUID at
- *   all (`?root=`, `?root=garbage`). Rejected with 400 rather than silently treated as absent:
- *   dropping every value WIDENS the subscription to the principal's full scope, which is the
- *   opposite of what the caller asked for.
+ * - **malformed** ([malformed] true) — at least one supplied value is not a UUID (`?root=`, `?root=garbage`,
+ *   `?root=<uuid>&root=garbage`). Rejected with 400 `invalid_request`: a value is never silently dropped (Q32 ended
+ *   the AR-59 leniency that accepted a mix of valid and invalid values).
  * - **narrowing** ([roots] non-empty) — intersected with the principal's scope.
- *
- * A request mixing valid and invalid values (`?root=<uuid>&root=garbage`) is NOT malformed: the
- * valid values still narrow, so the drop cannot widen anything.
  */
 private class RootQueryParams(
     /** The values that parsed as UUIDs; empty when the parameter was absent or [malformed]. */
     val roots: Set<UUID>,
-    /** True when the parameter was present but not one value parsed as a UUID. */
+    /** True when the parameter was present and at least one of its values is not a UUID. */
     val malformed: Boolean,
 )
 
@@ -94,15 +98,15 @@ private class RootQueryParams(
 private fun parseRootQueryParams(raw: List<String>?): RootQueryParams {
     if (raw == null) return RootQueryParams(roots = emptySet(), malformed = false)
     val parsed =
-        raw
-            .mapNotNull {
-                try {
-                    UUID.fromString(it.trim())
-                } catch (_: IllegalArgumentException) {
-                    null
-                }
-            }.toSet()
-    return RootQueryParams(roots = parsed, malformed = parsed.isEmpty())
+        raw.map {
+            try {
+                UUID.fromString(it.trim())
+            } catch (_: IllegalArgumentException) {
+                null
+            }
+        }
+    if (parsed.isEmpty() || parsed.any { it == null }) return RootQueryParams(roots = emptySet(), malformed = true)
+    return RootQueryParams(roots = parsed.filterNotNull().toSet(), malformed = false)
 }
 
 /**
@@ -110,32 +114,26 @@ private fun parseRootQueryParams(raw: List<String>?): RootQueryParams {
  * must be rejected; returns `false` (having responded to nothing) when it may proceed.
  *
  * Two rejections, both fail-closed:
- * - **400 `validation_error`** — `?root=` present but no value parsed as a UUID. Accepting it
- *   would drop every value and WIDEN the subscription to [principal]'s whole scope.
- * - **403 `insufficient_scope`** — [principal] is root-scoped and its scope does not intersect
+ * - **400 `invalid_request`** — `?root=` present with a value that is not a UUID. Dropping it could
+ *   WIDEN the subscription to [principal]'s whole scope.
+ * - **403 `forbidden` {scope: root}** — [principal] is root-scoped and its scope does not intersect
  *   the requested roots. [ApiEventBus.subscribe] treats an empty root set as "all roots", so an
  *   empty intersection must never reach it: a token scoped to one root would otherwise obtain the
  *   full cross-root stream by asking for a root it cannot see. 403 rather than 404 mirrors
- *   `enforceScopeForItem`, which deliberately does not make scope a fuzzing oracle for holders of
+ *   [ScopeGuard], which deliberately does not make scope a fuzzing oracle for holders of
  *   valid tokens.
  *
- * This MUST run in the pre-flight `onCall` handler rather than inside `sse { }`: the SSE handler
+ * Both bodies are the 4.0 error envelope. This MUST run in the pre-flight `onCall` handler rather than inside `sse { }`: the SSE handler
  * executes in the response-body phase, after the 200 status is committed, where neither status
  * can still be sent.
  */
 private suspend fun respondIfRootQueryRejected(
     call: ApplicationCall,
-    principal: ApiPrincipal,
+    principal: Principal,
 ): Boolean {
     val rootQuery = parseRootQueryParams(call.request.queryParameters.getAll("root"))
     if (rootQuery.malformed) {
-        call.respond(
-            HttpStatusCode.BadRequest,
-            mapOf(
-                "error" to "validation_error",
-                "error_description" to "root query parameter must be a valid UUID",
-            ),
-        )
+        call.respondEnvelopeError(invalidField("root", "must be a UUID; every value is checked"))
         return true
     }
     val principalRoots = principal.scope.rootIds
@@ -145,16 +143,10 @@ private suspend fun respondIfRootQueryRejected(
     ) {
         sseLogger.debug(
             "SSE connection rejected for principal {}: requested roots {} outside scope",
-            principal.tokenId,
+            principal.id,
             rootQuery.roots,
         )
-        call.respond(
-            HttpStatusCode.Forbidden,
-            mapOf(
-                "error" to "insufficient_scope",
-                "error_description" to "Requested roots are outside this token's scope",
-            ),
-        )
+        call.respondEnvelopeError(ScopeGuard.forbidden(ForbiddenScope.ROOT, principalRoots.map { it.toString() }))
         return true
     }
     return false
@@ -174,16 +166,19 @@ private class SseInlineAuthConfig {
      */
     var jwksVerifier: JwksApiVerifier? = null
 
+    /** Anchor validation for JWT `scope.root_ids` (see [CredentialResolver]); the default admits every anchor. */
+    var nonRootAnchors: suspend (Set<UUID>) -> Set<UUID> = { emptySet() }
+
     /**
      * The resolved REST auth mode. When [ApiAuthConfig.Unauthenticated] (opt-in:
      * `API_AUTH_MODE=none` + `API_ALLOW_UNAUTHENTICATED=true`), every SSE connection is attached
-     * [LOCAL_UNAUTH_PRINCIPAL] with no token check at all -- mirrors [ApiBearerAuth]'s
+     * [LOCAL_PRINCIPAL] with no token check at all -- mirrors [ApiBearerAuth]'s
      * Unauthenticated branch so unauthenticated mode does not 401 every SSE connection.
      */
     var authConfig: ApiAuthConfig = ApiAuthConfig.Disabled
 
     /**
-     * Repository used to look up item tags for tag-scoped principals (`hasTagScope()`), both
+     * Repository used to look up item tags for tag-scoped principals (a non-empty `scope.tagsInclude`), both
      * here (pre-flight 403 when unavailable) and in the `sse { }` collect body (per-event drop).
      * Null when the caller wired [eventRoutes] without one -- tag-scoped connections are then
      * rejected rather than streamed unfiltered.
@@ -200,7 +195,10 @@ private class SseInlineAuthConfig {
  * committed. An auth check inside `sse { }` could therefore no longer send a 401. By running here
  * (an `onCall` handler), the 401/403 is sent before the SSE response is ever constructed.
  *
- * On success it stashes the resolved [ApiPrincipal] (and token expiry) into `call.attributes` for
+ * The credential is resolved through the one bearer pipeline (`CredentialResolver`), like [ApiBearerAuth]; a
+ * director-profile credential is refused here (the stream is not the director path).
+ *
+ * On success it stashes the resolved [Principal] (and token expiry) into `call.attributes` for
  * the SSE handler to read.
  */
 private val sseInlineAuthPlugin =
@@ -208,11 +206,16 @@ private val sseInlineAuthPlugin =
         name = "SseInlineAuth",
         createConfiguration = ::SseInlineAuthConfig,
     ) {
-        val tokenEntries = pluginConfig.tokenEntries
         val allowQueryToken = pluginConfig.allowQueryToken
-        val jwksVerifier = pluginConfig.jwksVerifier
         val authConfig = pluginConfig.authConfig
         val workItemRepository = pluginConfig.workItemRepository
+        val resolver =
+            credentialResolverFor(
+                authConfig,
+                pluginConfig.tokenEntries,
+                pluginConfig.jwksVerifier,
+                pluginConfig.nonRootAnchors
+            ) { Instant.now() }
 
         onCall { call ->
             // Opt-in unauthenticated mode (API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true):
@@ -220,8 +223,8 @@ private val sseInlineAuthPlugin =
             // mirrors ApiBearerAuth's Unauthenticated branch. Must run before the header/?token=
             // resolution below, or a credential-less SSE connection is 401'd in this mode too.
             if (authConfig is ApiAuthConfig.Unauthenticated) {
-                if (respondIfRootQueryRejected(call, LOCAL_UNAUTH_PRINCIPAL)) return@onCall
-                call.attributes.put(SsePrincipalKey, LOCAL_UNAUTH_PRINCIPAL)
+                if (respondIfRootQueryRejected(call, LOCAL_PRINCIPAL)) return@onCall
+                call.attributes.put(SsePrincipalKey, LOCAL_PRINCIPAL.withHostOf(call))
                 return@onCall
             }
 
@@ -247,79 +250,44 @@ private val sseInlineAuthPlugin =
 
             if (rawToken == null) {
                 call.response.header("WWW-Authenticate", "Bearer error=\"invalid_request\"")
-                call.respond(
-                    HttpStatusCode.Unauthorized,
-                    mapOf("error" to "invalid_request", "error_description" to "Missing bearer token"),
-                )
+                call.respondEnvelopeError(unauthenticated("Missing bearer token."))
                 return@onCall
             }
 
-            // Resolve the principal. Bearer mode: SHA-256 lookup against pre-loaded token entries
-            // (carries an explicit expiry → drives the periodic expiry watchdog). JWKS mode:
-            // tokenEntries is empty, so the lookup misses and we fall through to the JWT verifier,
-            // which also yields an expiry (`exp` is mandatory there) → same watchdog.
-            val digest = sha256Bytes(rawToken)
-            val entry = tokenEntries[HashBytes(digest)]
-
-            val principal: ApiPrincipal?
-            val expiry: Instant?
-            if (entry != null) {
-                principal = entry.principal
-                expiry = entry.expiresAt
-                if (expiry != null && Instant.now().isAfter(expiry)) {
-                    call.response.header("WWW-Authenticate", "Bearer error=\"invalid_token\"")
-                    call.respond(
-                        HttpStatusCode.Unauthorized,
-                        mapOf("error" to "invalid_token", "error_description" to "Token has expired"),
-                    )
-                    return@onCall
+            // Resolve through the one bearer pipeline. A token-file entry carries its own expiry (null: none); a
+            // JWT always carries its `exp`. The check happens ONCE, at connect; an SSE stream outlives it, so the
+            // expiry is carried through to the periodic watchdog below.
+            val resolved =
+                when (val decision = resolver?.resolve(rawToken) ?: TrustDecision.Unauthenticated) {
+                    is TrustDecision.Trusted -> decision.resolved
+                    is TrustDecision.Unavailable -> {
+                        call.respondEnvelopeError(keySetUnavailable(decision, sseLogger))
+                        return@onCall
+                    }
+                    is TrustDecision.Unauthenticated -> {
+                        call.response.header("WWW-Authenticate", "Bearer error=\"invalid_token\"")
+                        call.respondEnvelopeError(unauthenticated("Invalid or expired token."))
+                        return@onCall
+                    }
                 }
-            } else if (jwksVerifier != null) {
-                // JWKS mode — validate the token as a JWT. verifyWithExpiry() enforces
-                // exp/nbf/iss/aud and returns null on any failure. That check happens ONCE, at
-                // connect; an SSE stream outlives it, so carry the token's `exp` through to the
-                // periodic watchdog below rather than dropping it.
-                val verified = jwksVerifier.verifyWithExpiry(rawToken)
-                principal = verified?.principal
-                expiry = verified?.expiresAt
-            } else {
-                principal = null
-                expiry = null
-            }
-
-            if (principal == null) {
-                call.response.header("WWW-Authenticate", "Bearer error=\"invalid_token\"")
-                call.respond(
-                    HttpStatusCode.Unauthorized,
-                    mapOf("error" to "invalid_token", "error_description" to "Invalid or expired token"),
-                )
+            if (resolved.isDirectorOnly()) {
+                call.respondEnvelopeError(directorOnlyForbidden())
                 return@onCall
             }
+            val principal = resolved.principal.withHostOf(call)
+            val expiry = resolved.expiresAt
 
-            if (!principal.capabilities.contains(ApiCapability.READ) &&
-                !principal.capabilities.contains(ApiCapability.ADMIN)
-            ) {
-                call.respond(
-                    HttpStatusCode.Forbidden,
-                    mapOf(
-                        "error" to "insufficient_scope",
-                        "error_description" to "Token does not have read capability",
-                    ),
-                )
+            if (!principal.capabilities.grants(ApiCapability.READ)) {
+                call.respondEnvelopeError(ScopeGuard.forbidden(ForbiddenScope.CAPABILITY, ApiCapability.READ.configName()))
                 return@onCall
             }
 
             // Fail closed: a tag-scoped principal can only be safely streamed to when we can
             // look up item tags per event (the collect-site filter below). Without a repository
             // wired, reject rather than fall back to the pre-fix unfiltered stream.
-            if (principal.hasTagScope() && workItemRepository == null) {
-                call.respond(
-                    HttpStatusCode.Forbidden,
-                    mapOf(
-                        "error" to "insufficient_scope",
-                        "error_description" to "Tag-scoped tokens require event filtering, which is unavailable",
-                    ),
-                )
+            if (principal.scope.tagsInclude.isNotEmpty() && workItemRepository == null) {
+                // Tag-scoped streaming needs per-event filtering, which is unavailable here: fail closed.
+                call.respondEnvelopeError(ScopeGuard.forbidden(ForbiddenScope.TAG, principal.scope.tagsInclude))
                 return@onCall
             }
 
@@ -353,6 +321,8 @@ private val sseInlineAuthPlugin =
  * ## Scope filtering
  * `?root=<uuid>[&root=<uuid>...]` restricts events to those root subtrees.
  * Effective subscription = intersection(`?root=`, `principal.scope.rootIds`).
+ * Roots only: an event is delivered when its stamped `root_id` is a subscribed root (every listed id is a depth-0
+ * project root, validated at startup for bearer tokens and per credential for JWTs); there is no ancestor walk.
  *
  * That intersection is enforced FAIL-CLOSED, in the pre-flight plugin (see the note above on why
  * a rejection cannot come from inside `sse { }`):
@@ -365,15 +335,12 @@ private val sseInlineAuthPlugin =
  *   principal's full scope instead of narrowing it. Mixed valid/invalid values still narrow and
  *   are accepted.
  *
- * Unresolved-root events (the publisher could not determine an event's roots) are withheld from
- * root-scoped subscriptions by the bus itself, live and on replay — see [ApiEventBus.publish]'s
- * `rootsResolved` flag. A root-scoped client can therefore see FEWER events than an unrestricted
- * one, never events outside its scope; it re-fetches through the read API to reconverge.
+ * Every projected row carries its root, so the bus filters live delivery and replay by root alike;
+ * only control events (`sync.lost`, `auth.expired`) reach every subscriber.
  *
  * The `tags_include` half of scope is NOT applied at the bus-subscription level ([ApiEventBus]
  * has no tag dimension) -- it is enforced per event, in the `sse { }` collect body below, using
- * the same [io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowsItemTags] predicate
- * every other read route uses, via [workItemRepository]. This applies identically to live events
+ * the same [ScopeGuard] predicate every tool and read route uses, via [workItemRepository]. This applies identically to live events
  * and to `Last-Event-ID` replay, since both flow through the one collect site. A tag-scoped
  * principal connecting when [workItemRepository] is null is rejected with 403 in the pre-flight
  * plugin -- fail closed rather than stream unfiltered. Non-tag-scoped principals take exactly
@@ -386,21 +353,25 @@ private val sseInlineAuthPlugin =
  * credential) with no signal.
  *
  * ## Resume and gap reporting
- * `Last-Event-ID` replays buffered events with a higher id. When the requested id is no longer
- * replayable — evicted from the ring buffer, above the high-water mark (the counter restarts at 0
- * on restart), or present but unparsable — the bus emits a `sync.lost` event carrying a
+ * Event ids are `seq` values of the durable `events` table. `Last-Event-ID` replays the stored
+ * events with a higher seq (within the replay window). When the requested id is not replayable --
+ * older than the replay window (`API_SSE_BUFFER_SIZE`), above the newest seq, below the seq
+ * floor (every id the pre-4.0 in-memory ring buffer issued; the floor itself is a valid cursor), or present but unparsable -- the bus
+ * emits a `sync.lost` event carrying a
  * [io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.SyncLostReason] as the first frame
  * of the connection, before any replayed event. A blank header counts as no resume attempt.
  *
  * ## Event-ID namespace separation
- * IDs from [ApiEventBus] are INDEPENDENT of `/mcp`'s `EventStore`. Do NOT mix
- * `Last-Event-ID` values across the two SSE channels.
+ * IDs from [ApiEventBus] (the events table's seq) are INDEPENDENT of `/mcp`'s `EventStore`. Do NOT
+ * mix `Last-Event-ID` values across the two SSE channels.
  *
  * @param eventBus The shared [ApiEventBus] instance.
  * @param tokenEntries Pre-loaded bearer token entries with expiry metadata.
  * @param allowQueryToken Whether `?token=` query param is accepted.
  * @param jwksVerifier REST JWT verifier for jwks mode; null in bearer/disabled modes. When set,
  *   a token not found among [tokenEntries] is validated as a JWT.
+ * @param nonRootAnchors JWT `scope.root_ids` anchor validation; a token whose anchors include an existing non-root
+ *   resolves to nothing (401).
  * @param authCheckIntervalSeconds Interval between token-expiry checks.
  * @param authConfig The resolved REST auth mode; only [ApiAuthConfig.Unauthenticated] changes
  *   behavior here (bypasses the token check entirely). Defaults to [ApiAuthConfig.Disabled],
@@ -409,18 +380,19 @@ private val sseInlineAuthPlugin =
  *   described above. Null (the default) preserves prior behavior for callers that do not pass
  *   it, EXCEPT that a tag-scoped principal is now rejected with 403 rather than streamed
  *   unfiltered.
+ * @param redactAttribution `AppConfig.apiRedactNoteAttribution`: hide the event actor from non-ADMIN
+ *   principals. Required (no default): the caller passes the typed config value instead of this route reading the environment.
  */
 fun Route.eventRoutes(
     eventBus: ApiEventBus,
     tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry> = emptyMap(),
-    allowQueryToken: Boolean =
-        EnvBoolean.parse("API_ALLOW_QUERY_TOKEN_FOR_SSE", System.getenv("API_ALLOW_QUERY_TOKEN_FOR_SSE"), false),
+    allowQueryToken: Boolean = false,
     jwksVerifier: JwksApiVerifier? = null,
-    authCheckIntervalSeconds: Int =
-        System.getenv("API_SSE_AUTH_CHECK_INTERVAL_SECONDS")?.toIntOrNull() ?: 30,
+    nonRootAnchors: suspend (Set<UUID>) -> Set<UUID> = { emptySet() },
+    authCheckIntervalSeconds: Int = 30,
     authConfig: ApiAuthConfig = ApiAuthConfig.Disabled,
     workItemRepository: WorkItemRepository? = null,
-    redactAttribution: Boolean = AppConfig.fromEnv().apiRedactNoteAttribution,
+    redactAttribution: Boolean,
 ) {
     // Wrap the SSE handler in a dedicated child route so the pre-flight auth plugin is scoped
     // ONLY to /events and does not affect sibling routes.
@@ -429,6 +401,7 @@ fun Route.eventRoutes(
             this.tokenEntries = tokenEntries
             this.allowQueryToken = allowQueryToken
             this.jwksVerifier = jwksVerifier
+            this.nonRootAnchors = nonRootAnchors
             this.authConfig = authConfig
             this.workItemRepository = workItemRepository
         }
@@ -462,7 +435,7 @@ fun Route.eventRoutes(
             if (principalRoots != null && effectiveRoots.isEmpty()) {
                 sseLogger.warn(
                     "SSE connection refused for principal {}: empty effective root scope (principalRoots={}, queriedRoots={})",
-                    principal.tokenId,
+                    principal.id,
                     principalRoots,
                     queriedRoots,
                 )
@@ -501,14 +474,14 @@ fun Route.eventRoutes(
             sseLogger.debug(
                 "SSE connection {} opened (principal={}, roots={}, types={})",
                 subscriberId,
-                principal.tokenId,
+                principal.id,
                 effectiveRoots,
                 typeFilter,
             )
 
             // Capture the SseServerSession so it can be used in nested coroutines.
             val session = this
-            val flow = eventBus.subscribe(subscriberId, effectiveRoots, lastEventId, resumeRequested)
+            val flow = eventBus.connect(subscriberId, effectiveRoots, lastEventId, resumeRequested)
 
             // -----------------------------------------------------------------
             // Tag-scope filter (tags_include half of scope; see "Scope filtering" above)
@@ -565,9 +538,9 @@ fun Route.eventRoutes(
                                 ) {
                                     return@collect
                                 }
-                                // Attribution redaction, on egress only (the ring buffer keeps the
-                                // unredacted event), so live and Last-Event-ID replay are identical.
-                                // Same rule as AttributionRedactor: hidden only when the flag is on
+                                // Attribution redaction, on egress only (the events table keeps the
+                                // unredacted principal), so live and Last-Event-ID replay are identical.
+                                // Same rule as the tools note redaction: hidden only when the flag is on
                                 // AND the caller is not ADMIN. rootId is never redacted.
                                 val outbound =
                                     if (redactAttribution &&
@@ -602,12 +575,16 @@ fun Route.eventRoutes(
  * Returns `true` immediately (no lookup) when [principal] has no tag scope, so non-tag-scoped
  * and unscoped connections are byte-identical to the pre-fix behavior.
  *
- * Bus-level events ([ApiEvent.itemId] null, e.g. `sync.lost`/`auth.expired`) always pass --
- * there is no item to check tags against.
+ * Item-less events: the control events ([ApiEventType.CONTROL_EVENTS], `sync.lost`/`auth.expired`) always
+ * pass -- they carry stream state, not data. A `run.*` event, and a `decision.*` event that names no item, is anchored
+ * to its root ([ApiEvent.rootId]):
+ * it passes a restricted subscriber only when that root is in the subscriber's root set (when it has one) AND,
+ * for a tag-scoped one, the root item is admitted by [ScopeGuard] (a decision cached with the item decisions).
+ * Any other item-less event is dropped (fail closed).
  *
  * Fails CLOSED: an unparsable [ApiEvent.itemId], a missing [repository] (should not happen --
  * the pre-flight plugin already rejected this connection in that case), or a repository lookup
- * error (via [allowedItemIdsForTagScope]) all result in the event being dropped.
+ * error (via [ScopeGuard.admitted]) all result in the event being dropped.
  *
  * [cache] holds the per-connection id -> allowed decision. `item.*` and `scope.*` events bypass
  * and refresh the cache so a mid-stream tag change (add/remove) is honoured starting with the
@@ -615,12 +592,37 @@ fun Route.eventRoutes(
  */
 private suspend fun isEventVisibleToTagScope(
     event: ApiEvent,
-    principal: ApiPrincipal,
+    principal: Principal,
     repository: WorkItemRepository?,
     cache: MutableMap<UUID, Boolean>,
 ): Boolean {
-    if (!principal.hasTagScope()) return true
-    val itemId = event.itemId ?: return true
+    if (principal.scope.isUnrestricted) return true
+    if (event.itemId == null) {
+        if (event.event in ApiEventType.CONTROL_EVENTS) return true
+        if (event.event !in DomainEvent.RUN_TYPES && event.event !in DomainEvent.DECISION_TYPES) return false
+        val rootUuid =
+            try {
+                UUID.fromString(event.rootId ?: return false)
+            } catch (_: IllegalArgumentException) {
+                return false
+            }
+        val rootIds = principal.scope.rootIds
+        if (rootIds != null && rootUuid !in rootIds) return false
+        if (principal.scope.tagsInclude.isEmpty()) return true
+        cache[rootUuid]?.let { return it }
+        val admitted =
+            repository != null &&
+                ScopeGuard
+                    .admitted(
+                        AccessScope.principal(rootIds = null, tagsInclude = principal.scope.tagsInclude),
+                        setOf(rootUuid),
+                        repository,
+                    ).contains(rootUuid)
+        cache[rootUuid] = admitted
+        return admitted
+    }
+    if (principal.scope.tagsInclude.isEmpty()) return true
+    val itemId = event.itemId
     val uuid =
         try {
             UUID.fromString(itemId)
@@ -637,7 +639,9 @@ private suspend fun isEventVisibleToTagScope(
         if (repository == null) {
             false
         } else {
-            allowedItemIdsForTagScope(principal, setOf(uuid), repository).contains(uuid)
+            // The tag half only: the root half is applied at the bus subscription (every projected row carries its root).
+            val tagScope = AccessScope.principal(rootIds = null, tagsInclude = principal.scope.tagsInclude)
+            ScopeGuard.admitted(tagScope, setOf(uuid), repository).contains(uuid)
         }
     cache[uuid] = allowed
     return allowed
@@ -650,9 +654,3 @@ private fun ApiEvent.toServerSentEvent(): ServerSentEvent =
         event = this.event,
         id = this.id.toString(),
     )
-
-/** Computes SHA-256 of the UTF-8 encoding of [input]. */
-private fun sha256Bytes(input: String): ByteArray {
-    val md = MessageDigest.getInstance("SHA-256")
-    return md.digest(input.toByteArray(Charsets.UTF_8))
-}

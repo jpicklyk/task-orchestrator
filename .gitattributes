@@ -26,3 +26,5 @@ current/src/test/resources/golden/** text eol=lf
 .taskorchestrator/rules/*.md text eol=lf
 # Bundled copies the config-sync hook pushes; their hashes are listed in bundled-rules/manifest.json.
 claude-plugins/task-orchestrator/bundled-rules/*.md text eol=lf
+# Checked-in SQLite databases (the golden V17 upgrade fixture) are opaque binaries: never convert line endings.
+*.sqlite binary

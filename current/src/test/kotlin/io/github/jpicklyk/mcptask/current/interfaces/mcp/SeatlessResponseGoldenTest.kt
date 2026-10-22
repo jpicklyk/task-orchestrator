@@ -1,29 +1,26 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition
+import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.WRITE_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeTestAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeWriteAuthConfig
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.restContext
+import io.github.jpicklyk.mcptask.current.test.get
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
+import io.github.jpicklyk.mcptask.current.test.tools.ItemSchemaProbe
+import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.get
-import io.ktor.client.request.header
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.install
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
@@ -35,10 +32,9 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import java.nio.file.Files
@@ -63,10 +59,10 @@ import kotlin.test.fail
  * `seat`/`missingBySeat` keys, and every capture below goes red against its recorded golden.
  *
  * HARNESS (task-scope-addendum "Harness rule" — never a hand-built replica):
- * - MCP captures run through the REAL [ServerComposition.build] over H2 (LayerBackedGlobalLookup +
+ * - MCP captures run through the REAL [ServerComposition.build] over SQLite (LayerBackedGlobalLookup +
  *   PerRootConfigService, exactly as production wires it — pattern:
  *   [ServerCompositionResolverWiringTest]) and execute the REAL tool classes
- *   ([GetContextTool], [QueryItemsTool], [AdvanceItemTool]) against the resulting
+ *   (the `items_read` context probe and [ItemSchemaProbe]) against the resulting
  *   `composition.toolContext`.
  * - REST captures run through the REAL [installRestApiRoutes] with `ContentNegotiation` installed
  *   first (pattern: `ItemGateRouteTest`'s S15 production-topology wiring), reusing the SAME
@@ -94,9 +90,8 @@ import kotlin.test.fail
  *
  * GOLDEN MECHANISM: [normalizeGolden] normalizes exactly two field families (full rationale on the
  * function itself) and nothing else:
- * 1. `metadata.timestamp` and `metadata.version` — every MCP tool envelope (`ResponseUtil.createSuccessResponse`/
- *    `createErrorResponse`) always attaches `metadata: {timestamp, version}`
- *    (`ResponseUtilTest` "createMetadata includes timestamp and version"); the wall-clock
+ * 1. `metadata.timestamp` and `metadata.version` — every 3.x MCP tool envelope (and so the 3.x-shaped
+ *    [ItemSchemaProbe] that reproduces it for these goldens) attaches `metadata: {timestamp, version}`; the wall-clock
  *    `timestamp` varies every run, and `version` is the build version, which changes at every
  *    release: the recorded captures pinned `3.15.0` and the 3.16.0 version bump failed all nine
  *    MCP captures, so it is normalized as well. An earlier version of
@@ -148,6 +143,9 @@ import kotlin.test.fail
  * verification are orchestrator-run.
  */
 class SeatlessResponseGoldenTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     companion object {
         private val ROOT_ID: UUID = UUID.fromString("a1000000-0000-4000-8000-000000000000")
         private val FEATURE_TASK_ID: UUID = UUID.fromString("a1000000-0000-4000-8000-000000000001")
@@ -180,15 +178,8 @@ class SeatlessResponseGoldenTest {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Fixture wiring — REAL ServerComposition.build over H2, REAL per-root push
+    // Fixture wiring — REAL ServerComposition.build over SQLite, REAL per-root push
     // ─────────────────────────────────────────────────────────────────────────
-
-    private fun buildDatabaseManager(): DatabaseManager {
-        val dbName = "a1_seatless_golden_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        DirectDatabaseSchemaManager().updateSchema()
-        return DatabaseManager(database)
-    }
 
     /**
      * Writes the classpath global-config fixture to a real file under [tempDir], as
@@ -207,13 +198,11 @@ class SeatlessResponseGoldenTest {
     private class Fixture(
         val toolContext: ToolExecutionContext,
         val repositoryProvider: RepositoryProvider,
-        val noteSchemaService: io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService,
-        val degradedModePolicy: io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy,
-        val idempotencyCache: io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache,
+        val serverConfig: io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource,
     )
 
     /**
-     * Builds the REAL production composition (global file layer + per-root pushed layer over H2)
+     * Builds the REAL production composition (global file layer + per-root pushed layer over SQLite)
      * and materializes the four fixed-id fixture items described in the class KDoc, under one
      * fixed root with the repo's own per-root config pushed to it.
      */
@@ -224,8 +213,8 @@ class SeatlessResponseGoldenTest {
         val composition =
             ServerComposition(
                 appConfig = appConfig,
-                databaseManager = buildDatabaseManager(),
-                shutdownCoordinator = null,
+                databaseManager = db.databaseManager,
+                shutdownCoordinator = ShutdownCoordinator(),
             ).build()
 
         val repo = composition.toolContext.repositoryProvider
@@ -234,12 +223,12 @@ class SeatlessResponseGoldenTest {
                 .workItemRepository()
                 .create(
                     WorkItem(id = ROOT_ID, title = "A1 T0 golden root", type = "project", depth = 0),
-                ).getOrNull() ?: error("fixture: root item creation failed")
+                ) ?: error("fixture: root item creation failed")
 
             repo
-                .projectConfigRepository()
+                .configStore()
                 .upsert(ROOT_ID, classpathResourceText(REPO_CONFIG_RESOURCE))
-                .getOrNull() ?: error("fixture: per-root config push failed")
+                ?: error("fixture: per-root config push failed")
 
             repo
                 .workItemRepository()
@@ -253,7 +242,7 @@ class SeatlessResponseGoldenTest {
                         rootId = ROOT_ID,
                         depth = 1,
                     ),
-                ).getOrNull() ?: error("fixture: feature-task item creation failed")
+                ) ?: error("fixture: feature-task item creation failed")
 
             repo
                 .workItemRepository()
@@ -267,7 +256,7 @@ class SeatlessResponseGoldenTest {
                         rootId = ROOT_ID,
                         depth = 1,
                     ),
-                ).getOrNull() ?: error("fixture: bug-fix item creation failed")
+                ) ?: error("fixture: bug-fix item creation failed")
 
             repo
                 .workItemRepository()
@@ -281,7 +270,7 @@ class SeatlessResponseGoldenTest {
                         rootId = ROOT_ID,
                         depth = 1,
                     ),
-                ).getOrNull() ?: error("fixture: schema-free item creation failed")
+                ) ?: error("fixture: schema-free item creation failed")
 
             repo
                 .workItemRepository()
@@ -295,15 +284,13 @@ class SeatlessResponseGoldenTest {
                         rootId = ROOT_ID,
                         depth = 1,
                     ),
-                ).getOrNull() ?: error("fixture: terminal item creation failed")
+                ) ?: error("fixture: terminal item creation failed")
         }
 
         return Fixture(
             toolContext = composition.toolContext,
             repositoryProvider = repo,
-            noteSchemaService = composition.noteSchemaService,
-            degradedModePolicy = composition.degradedModePolicy,
-            idempotencyCache = composition.idempotencyCache,
+            serverConfig = composition.serverConfig,
         )
     }
 
@@ -316,10 +303,9 @@ class SeatlessResponseGoldenTest {
      * REST capture's `body` sub-object — see [restEnvelope] — gets the same treatment as a
      * top-level MCP envelope):
      *
-     * 1. `metadata.timestamp` — EVERY MCP tool envelope is built by `ResponseUtil.createSuccessResponse`
-     *    / `createErrorResponse`, which always attaches `metadata: {timestamp, version}`
-     *    (`ResponseUtilTest` "createMetadata includes timestamp and version": an ISO-8601
-     *    wall-clock capture time). `metadata.version` (the build version) is normalized in the same
+     * 1. `metadata.timestamp` — the 3.x-shaped [ItemSchemaProbe] envelope always attaches `metadata: {timestamp, version}`
+     *    (an ISO-8601 wall-clock capture time), as every 3.x envelope did when the goldens were recorded.
+     *    `metadata.version` (the build version) is normalized in the same
      *    step: it does not vary run-to-run, but it changes at every release. Confirmed absent from the REST `/gate` and REST
      *    advance-422 response bodies captured here (their fields are `itemId`/`title`/`role`/
      *    `gateStatus`/... and `error`/`details`/... respectively, per `ItemGateRouteTest` /
@@ -343,6 +329,12 @@ class SeatlessResponseGoldenTest {
                 patchedMetadata = JsonObject(patchedMetadata + ("version" to JsonPrimitive("<A1-T0-NORMALIZED-VERSION>")))
             }
             result = JsonObject(result + ("metadata" to patchedMetadata))
+        }
+
+        // A 4.0 envelope (REST ops capture): `meta.reqId` is a fresh per-call id; nothing else in `meta` varies.
+        val meta = result["meta"] as? JsonObject
+        if (meta != null && meta.containsKey("reqId")) {
+            result = JsonObject(result + ("meta" to JsonObject(meta + ("reqId" to JsonPrimitive("<A1-T0-NORMALIZED-REQID>")))))
         }
 
         val success = result["success"] as? JsonPrimitive
@@ -425,47 +417,47 @@ class SeatlessResponseGoldenTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `golden get_context feature-task QUEUE missing task-scope`(
+    fun `golden items_read context feature-task QUEUE missing task-scope`(
         @TempDir tempDir: Path,
     ): Unit =
         runBlocking {
             val fx = newFixture(tempDir)
             val params = buildJsonObject { put("itemId", JsonPrimitive(FEATURE_TASK_ID.toString())) }
-            val result = GetContextTool().execute(params, fx.toolContext)
-            compareOrRecord("get_context_feature_task", result)
+            val result = ItemContextProbe().execute(params, fx.toolContext)
+            compareOrRecord("context_feature_task", result)
         }
 
     @Test
-    fun `golden get_context bug-fix WORK missing notes across the trait-merged schema`(
+    fun `golden items_read context bug-fix WORK missing notes across the trait-merged schema`(
         @TempDir tempDir: Path,
     ): Unit =
         runBlocking {
             val fx = newFixture(tempDir)
             val params = buildJsonObject { put("itemId", JsonPrimitive(BUG_FIX_ID.toString())) }
-            val result = GetContextTool().execute(params, fx.toolContext)
-            compareOrRecord("get_context_bug_fix", result)
+            val result = ItemContextProbe().execute(params, fx.toolContext)
+            compareOrRecord("context_bug_fix", result)
         }
 
     @Test
-    fun `golden get_context schema-free item`(
+    fun `golden items_read context schema-free item`(
         @TempDir tempDir: Path,
     ): Unit =
         runBlocking {
             val fx = newFixture(tempDir)
             val params = buildJsonObject { put("itemId", JsonPrimitive(SCHEMA_FREE_ID.toString())) }
-            val result = GetContextTool().execute(params, fx.toolContext)
-            compareOrRecord("get_context_schema_free", result)
+            val result = ItemContextProbe().execute(params, fx.toolContext)
+            compareOrRecord("context_schema_free", result)
         }
 
     @Test
-    fun `golden get_context TERMINAL item`(
+    fun `golden items_read context TERMINAL item`(
         @TempDir tempDir: Path,
     ): Unit =
         runBlocking {
             val fx = newFixture(tempDir)
             val params = buildJsonObject { put("itemId", JsonPrimitive(TERMINAL_ID.toString())) }
-            val result = GetContextTool().execute(params, fx.toolContext)
-            compareOrRecord("get_context_terminal", result)
+            val result = ItemContextProbe().execute(params, fx.toolContext)
+            compareOrRecord("context_terminal", result)
         }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -483,7 +475,7 @@ class SeatlessResponseGoldenTest {
                     put("operation", JsonPrimitive("schema"))
                     put("itemId", JsonPrimitive(FEATURE_TASK_ID.toString()))
                 }
-            val result = QueryItemsTool().execute(params, fx.toolContext)
+            val result = ItemSchemaProbe().execute(params, fx.toolContext)
             compareOrRecord("query_items_schema_item_feature_task", result)
         }
 
@@ -498,7 +490,7 @@ class SeatlessResponseGoldenTest {
                     put("operation", JsonPrimitive("schema"))
                     put("itemId", JsonPrimitive(BUG_FIX_ID.toString()))
                 }
-            val result = QueryItemsTool().execute(params, fx.toolContext)
+            val result = ItemSchemaProbe().execute(params, fx.toolContext)
             compareOrRecord("query_items_schema_item_bug_fix", result)
         }
 
@@ -514,7 +506,7 @@ class SeatlessResponseGoldenTest {
                     put("type", JsonPrimitive("bug-fix"))
                     put("rootId", JsonPrimitive(ROOT_ID.toString()))
                 }
-            val result = QueryItemsTool().execute(params, fx.toolContext)
+            val result = ItemSchemaProbe().execute(params, fx.toolContext)
             compareOrRecord("query_items_schema_type_bug_fix", result)
         }
 
@@ -522,56 +514,8 @@ class SeatlessResponseGoldenTest {
     // MCP: advance_item start (feature-task, gate fail) + complete (bug-fix, gate fail)
     // ─────────────────────────────────────────────────────────────────────────
 
-    @Test
-    fun `golden advance_item start on feature-task fails the queue gate`(
-        @TempDir tempDir: Path,
-    ): Unit =
-        runBlocking {
-            val fx = newFixture(tempDir)
-            val params =
-                buildJsonObject {
-                    put(
-                        "transitions",
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("itemId", JsonPrimitive(FEATURE_TASK_ID.toString()))
-                                    put("trigger", JsonPrimitive("start"))
-                                },
-                            )
-                        },
-                    )
-                }
-            val result = AdvanceItemTool().execute(params, fx.toolContext)
-            compareOrRecord("advance_start_feature_task", result)
-        }
-
-    @Test
-    fun `golden advance_item complete on bug-fix fails the work gate`(
-        @TempDir tempDir: Path,
-    ): Unit =
-        runBlocking {
-            val fx = newFixture(tempDir)
-            val params =
-                buildJsonObject {
-                    put(
-                        "transitions",
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("itemId", JsonPrimitive(BUG_FIX_ID.toString()))
-                                    put("trigger", JsonPrimitive("complete"))
-                                },
-                            )
-                        },
-                    )
-                }
-            val result = AdvanceItemTool().execute(params, fx.toolContext)
-            compareOrRecord("advance_complete_bug_fix", result)
-        }
-
     // ─────────────────────────────────────────────────────────────────────────
-    // REST: GET /items/{id}/gate x2, POST /items/{id}/advance 422 x1
+    // REST: POST /ops/items_read context x2, POST /items/{id}/advance 422 x1
     // ─────────────────────────────────────────────────────────────────────────
 
     private fun restEnvelope(
@@ -587,13 +531,11 @@ class SeatlessResponseGoldenTest {
      * derived from the SAME [ApiAuthConfig.Bearer] passed as `apiConfig`, or every request 401s. */
     private fun tokenEntriesFor(
         authConfig: ApiAuthConfig
-    ): Map<io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes, BearerTokenStore.TokenEntry> =
-        (authConfig as? ApiAuthConfig.Bearer)?.tokens?.mapValues { (_, principal) ->
-            BearerTokenStore.TokenEntry(principal, expiresAt = null)
-        } ?: emptyMap()
+    ): Map<io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes, BearerTokenStore.TokenEntry> =
+        (authConfig as? ApiAuthConfig.Bearer)?.tokens ?: emptyMap()
 
     @Test
-    fun `golden REST GET items id gate feature-task`(
+    fun `golden REST ops items_read context feature-task`(
         @TempDir tempDir: Path,
     ): Unit =
         testApplication {
@@ -609,22 +551,17 @@ class SeatlessResponseGoldenTest {
                     allowQueryToken = false,
                     serverName = "a1-t0-golden",
                     serverVersion = "test",
-                    actorAuthEnabled = false,
-                    noteSchemaService = fx.noteSchemaService,
+                    serverConfig = fx.serverConfig,
                     toolContext = fx.toolContext,
-                    degradedModePolicy = fx.degradedModePolicy,
-                    idempotencyCache = fx.idempotencyCache,
+                    appConfig = AppConfig.fromEnv(),
                 )
             }
-            val response =
-                client.get("/api/v1/items/$FEATURE_TASK_ID/gate") {
-                    header("Authorization", "Bearer $TEST_TOKEN")
-                }
-            compareOrRecord("rest_gate_feature_task", restEnvelope(response.status, response.bodyAsText()))
+            val response = client.restContext(FEATURE_TASK_ID, TEST_TOKEN)
+            compareOrRecord("rest_context_feature_task", restEnvelope(response.status, response.bodyAsText()))
         }
 
     @Test
-    fun `golden REST GET items id gate bug-fix`(
+    fun `golden REST ops items_read context bug-fix`(
         @TempDir tempDir: Path,
     ): Unit =
         testApplication {
@@ -640,50 +577,12 @@ class SeatlessResponseGoldenTest {
                     allowQueryToken = false,
                     serverName = "a1-t0-golden",
                     serverVersion = "test",
-                    actorAuthEnabled = false,
-                    noteSchemaService = fx.noteSchemaService,
+                    serverConfig = fx.serverConfig,
                     toolContext = fx.toolContext,
-                    degradedModePolicy = fx.degradedModePolicy,
-                    idempotencyCache = fx.idempotencyCache,
+                    appConfig = AppConfig.fromEnv(),
                 )
             }
-            val response =
-                client.get("/api/v1/items/$BUG_FIX_ID/gate") {
-                    header("Authorization", "Bearer $TEST_TOKEN")
-                }
-            compareOrRecord("rest_gate_bug_fix", restEnvelope(response.status, response.bodyAsText()))
-        }
-
-    @Test
-    fun `golden REST POST items id advance feature-task returns 422 gate_blocked`(
-        @TempDir tempDir: Path,
-    ): Unit =
-        testApplication {
-            val fx = newFixture(tempDir)
-            val authConfig = makeWriteAuthConfig()
-            application {
-                install(ContentNegotiation) { json(McpJson) }
-                installRestApiRoutes(
-                    apiConfig = authConfig,
-                    eventBus = null,
-                    effectiveProvider = fx.repositoryProvider,
-                    apiTokenEntries = tokenEntriesFor(authConfig),
-                    allowQueryToken = false,
-                    serverName = "a1-t0-golden",
-                    serverVersion = "test",
-                    actorAuthEnabled = false,
-                    noteSchemaService = fx.noteSchemaService,
-                    toolContext = fx.toolContext,
-                    degradedModePolicy = fx.degradedModePolicy,
-                    idempotencyCache = fx.idempotencyCache,
-                )
-            }
-            val response =
-                client.post("/api/v1/items/$FEATURE_TASK_ID/advance") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"trigger":"start"}""")
-                }
-            compareOrRecord("rest_advance_422_feature_task", restEnvelope(response.status, response.bodyAsText()))
+            val response = client.restContext(BUG_FIX_ID, TEST_TOKEN)
+            compareOrRecord("rest_context_bug_fix", restEnvelope(response.status, response.bodyAsText()))
         }
 }

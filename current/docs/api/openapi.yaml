@@ -7,8 +7,11 @@ info:
     API_ENABLED=true. Base URL: /api/v1
 
     NOTE: This file is hand-maintained and may lag edge-case behavior. The source code and
-    api-rest.md are authoritative. See api-rest.md for full semantics including merge-patch
-    rules, ETag formats, idempotency, audit model, and the SSE replay known limitation.
+    api-rest.md are authoritative. See api-rest.md for full semantics including
+    ETag formats, idempotency, audit model, and the SSE replay known limitation.
+
+    Every operation also accepts the optional X-Client-Host request header
+    (components/parameters/clientHost), which names the calling client in the call log.
 
 servers:
   - url: /api/v1
@@ -29,6 +32,17 @@ components:
         accepts requests with no Authorization header at all — loopback-only, see api-rest.md §1.
 
   parameters:
+    clientHost:
+      name: X-Client-Host
+      in: header
+      required: false
+      description: >-
+        Optional name of the calling client application, recorded as the host on the request's call_log
+        and events rows. Precedence: this header, else the first User-Agent product token (the text before
+        the first slash), else rest. Normalized: control characters dropped, trimmed, lowercased, capped at
+        64 code points; an empty result counts as absent. Accepted on every operation. See api-rest.md section 6a.
+      schema:
+        type: string
     itemId:
       name: id
       in: path
@@ -42,133 +56,7 @@ components:
       required: true
       schema:
         type: string
-    depId:
-      name: id
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-    page:
-      name: page
-      in: query
-      schema:
-        type: integer
-        default: 1
-        minimum: 1
-        maximum: 100000
-    pageSize:
-      name: pageSize
-      in: query
-      schema:
-        type: integer
-        default: 50
-        minimum: 1
-        maximum: 200
-
   schemas:
-    ItemDto:
-      type: object
-      required: [id, title, summary, role, priority, requiresVerification, tags, properties,
-                 createdAt, modifiedAt, roleChangedAt, etag, depth, isClaimed]
-      properties:
-        id:
-          type: string
-          format: uuid
-        parentId:
-          type: string
-          format: uuid
-          nullable: true
-        title:
-          type: string
-        description:
-          type: string
-          nullable: true
-        summary:
-          type: string
-        type:
-          type: string
-          nullable: true
-        role:
-          type: string
-          enum: [queue, work, review, terminal, blocked]
-        previousRole:
-          type: string
-          enum: [queue, work, review]
-          nullable: true
-        statusLabel:
-          type: string
-          nullable: true
-        priority:
-          type: string
-          enum: [high, medium, low]
-        complexity:
-          type: integer
-          nullable: true
-        requiresVerification:
-          type: boolean
-        tags:
-          type: array
-          items:
-            type: string
-        properties:
-          type: object
-        createdAt:
-          type: string
-          format: date-time
-        modifiedAt:
-          type: string
-          format: date-time
-        roleChangedAt:
-          type: string
-          format: date-time
-        etag:
-          type: string
-          description: '"v1-<modifiedAtMillis>" — use as If-Match on PATCH'
-        depth:
-          type: integer
-        isClaimed:
-          type: boolean
-        notes:
-          type: array
-          items:
-            $ref: "#/components/schemas/NoteDto"
-          nullable: true
-          description: Populated when ?include=notes
-        children:
-          type: array
-          items:
-            $ref: "#/components/schemas/ItemDto"
-          nullable: true
-          description: Populated when ?include=children
-        dependencies:
-          $ref: "#/components/schemas/DependenciesDto"
-
-    NoteDto:
-      type: object
-      required: [key, role, body, createdAt, modifiedAt, etag]
-      properties:
-        key:
-          type: string
-        role:
-          type: string
-          enum: [queue, work, review]
-        body:
-          type: string
-        createdAt:
-          type: string
-          format: date-time
-        modifiedAt:
-          type: string
-          format: date-time
-        etag:
-          type: string
-          description: '"v1-<modifiedAtMillis>" — use as If-Match on PUT'
-        actor:
-          $ref: "#/components/schemas/ActorClaimDto"
-        verification:
-          $ref: "#/components/schemas/VerificationDto"
-
     ActorClaimDto:
       type: object
       nullable: true
@@ -176,711 +64,12 @@ components:
       properties:
         id:
           type: string
-          description: "Server-synthesized: api:<tokenId>"
+          description: "Server-synthesized: api:<id> (the credential principal's id)"
         kind:
           type: string
           enum: [orchestrator, subagent, user, external]
           description: Always "external" for REST API writes
         parent:
-          type: string
-          nullable: true
-
-    VerificationDto:
-      type: object
-      nullable: true
-      required: [status]
-      properties:
-        status:
-          type: string
-          enum: [absent, unchecked, verified, rejected, unavailable]
-        verifier:
-          type: string
-          nullable: true
-        reason:
-          type: string
-          nullable: true
-        proof:
-          allOf:
-            - $ref: '#/components/schemas/ProofEvidenceDto'
-          nullable: true
-          description: >-
-            Forensic evidence about the proof (SHA-256 hash + verified JWT claims), in place of
-            the raw proof. Requires ADMIN capability; independent of API_REDACT_NOTE_ATTRIBUTION.
-            Null when no proof was supplied, or for a non-admin caller.
-
-    ProofEvidenceDto:
-      type: object
-      required: [sha256]
-      properties:
-        sha256:
-          type: string
-          description: Lowercase hex SHA-256 digest of the proof's UTF-8 bytes.
-        iss:
-          type: string
-          nullable: true
-        sub:
-          type: string
-          nullable: true
-        aud:
-          type: array
-          items:
-            type: string
-          nullable: true
-        jti:
-          type: string
-          nullable: true
-        iat:
-          type: integer
-          format: int64
-          nullable: true
-          description: Epoch seconds.
-        exp:
-          type: integer
-          format: int64
-          nullable: true
-          description: Epoch seconds.
-        kid:
-          type: string
-          nullable: true
-        alg:
-          type: string
-          nullable: true
-
-    RoleTransitionDto:
-      type: object
-      required: [id, itemId, toRole, trigger, occurredAt]
-      properties:
-        id:
-          type: string
-          format: uuid
-        itemId:
-          type: string
-          format: uuid
-        fromRole:
-          type: string
-          nullable: true
-        toRole:
-          type: string
-        trigger:
-          type: string
-        statusLabel:
-          type: string
-          nullable: true
-        occurredAt:
-          type: string
-          format: date-time
-        actor:
-          $ref: "#/components/schemas/ActorClaimDto"
-        verification:
-          $ref: "#/components/schemas/VerificationDto"
-        consumedCredentials:
-          type: array
-          nullable: true
-          items:
-            type: string
-          description: >-
-            Opaque audit labels for credentials/resources this transition consumed — caller-supplied
-            credentialRefs unioned with any resource-lease keys the gate auto-derived. Omitted/null
-            when empty. NOT subject to API_REDACT_NOTE_ATTRIBUTION — visible to any READ caller,
-            unlike actor/verification on this same DTO.
-
-    DependenciesDto:
-      type: object
-      required: [blocks, blockedBy, related]
-      properties:
-        blocks:
-          type: array
-          items:
-            $ref: "#/components/schemas/DependencyEdgeDto"
-        blockedBy:
-          type: array
-          items:
-            $ref: "#/components/schemas/DependencyEdgeDto"
-        related:
-          type: array
-          items:
-            $ref: "#/components/schemas/DependencyEdgeDto"
-
-    DependencyEdgeDto:
-      type: object
-      required: [id, fromItemId, toItemId, type, createdAt]
-      properties:
-        id:
-          type: string
-          format: uuid
-        fromItemId:
-          type: string
-          format: uuid
-        toItemId:
-          type: string
-          format: uuid
-        type:
-          type: string
-          enum: [blocks, is_blocked_by, relates_to]
-        unblockAt:
-          type: string
-          nullable: true
-          enum: [queue, work, review, terminal]
-        createdAt:
-          type: string
-          format: date-time
-
-    BacklinkDto:
-      type: object
-      required: [fromItemId, fromTitle, type]
-      properties:
-        fromItemId:
-          type: string
-          format: uuid
-        fromTitle:
-          type: string
-        type:
-          type: string
-          enum: [blocks, is_blocked_by, relates_to]
-
-    ErrorDto:
-      type: object
-      required: [error, message]
-      properties:
-        error:
-          type: string
-          description: Machine-readable error code
-        message:
-          type: string
-          description: Human-readable description
-        details:
-          type: object
-          nullable: true
-
-    AuthErrorDto:
-      type: object
-      description: >-
-        OAuth/RFC 6750-style error body used by authentication/authorization rejections
-        (401 invalid_request / invalid_token, 403 insufficient_scope) and the SSE pre-flight
-        400 validation_error. Unlike ErrorDto it has error_description and no message.
-      required: [error, error_description]
-      properties:
-        error:
-          type: string
-          description: Machine-readable error code
-          enum: [invalid_request, invalid_token, insufficient_scope, validation_error]
-        error_description:
-          type: string
-          description: Human-readable description
-
-    ItemDeleteResultDto:
-      type: object
-      required: [id, deleted, descendantsDeleted]
-      properties:
-        id:
-          type: string
-        deleted:
-          type: integer
-          description: Total rows removed (the target item plus every descendant).
-        descendantsDeleted:
-          type: integer
-          description: Descendant-only count.
-
-    PageDto:
-      type: object
-      required: [items, page, pageSize, hasMore]
-      properties:
-        items:
-          type: array
-          items: {}
-        page:
-          type: integer
-        pageSize:
-          type: integer
-        totalItems:
-          type: integer
-          format: int64
-          nullable: true
-          description: May be null when computing an exact count is expensive.
-        hasMore:
-          type: boolean
-        skipped:
-          type: integer
-          nullable: true
-          description: >
-            Count of rows in this page's query window dropped for failing domain validation
-            (e.g. a corrupt/legacy row). Omitted when nothing was skipped. The row is still
-            counted in totalItems. Invariant: items.size == min(pageSize, totalItems - offset)
-            - skipped (clamped to the actual window). Currently populated on GET /items and
-            GET /items/roots.
-
-    ItemCreateDto:
-      type: object
-      required: [title]
-      properties:
-        title:
-          type: string
-        description:
-          type: string
-          nullable: true
-        summary:
-          type: string
-          nullable: true
-        parentId:
-          type: string
-          format: uuid
-          nullable: true
-        type:
-          type: string
-          nullable: true
-        priority:
-          type: string
-          nullable: true
-        complexity:
-          type: integer
-          nullable: true
-        requiresVerification:
-          type: boolean
-          nullable: true
-        tags:
-          type: array
-          items:
-            type: string
-          description: JSON array of tag strings (POST only — PATCH uses CSV string)
-        statusLabel:
-          type: string
-          nullable: true
-        properties:
-          type: object
-          nullable: true
-        metadata:
-          type: string
-          nullable: true
-
-    NoteWriteDto:
-      type: object
-      required: [role, body]
-      properties:
-        role:
-          type: string
-          enum: [queue, work, review]
-        body:
-          type: string
-        properties:
-          type: object
-          nullable: true
-          description: Reserved for future use; silently ignored in v1
-
-    DependencyCreateDto:
-      type: object
-      required: [fromItemId, toItemId, type]
-      properties:
-        fromItemId:
-          type: string
-          format: uuid
-        toItemId:
-          type: string
-          format: uuid
-        type:
-          type: string
-          enum: [blocks, is_blocked_by, relates_to]
-        unblockAt:
-          type: string
-          nullable: true
-          description: Must be absent/null for relates_to edges
-
-    AdvanceRequestDto:
-      type: object
-      required: [trigger]
-      properties:
-        trigger:
-          type: string
-          enum: [start, complete, block, hold, resume, cancel, reopen]
-        credentialRefs:
-          type: array
-          nullable: true
-          items:
-            type: string
-            pattern: '^[a-z0-9][a-z0-9\-_./]*$'
-          maxItems: 8
-          description: >-
-            Opaque audit labels for credentials/resources consumed by this transition (never secret
-            values). Each entry 1-128 chars matching the pattern. Once the target item declares at
-            least one resource via its traits (registry state alone does not trigger this), each
-            ref must name a declared/registered key (closed set) — an unrecognized ref returns 400
-            validation_error.
-            Declared resource keys are auto-recorded on work entry; you do not need to repeat them.
-        overrideResourceLeases:
-          type: boolean
-          nullable: true
-          default: false
-          description: >-
-            ADMIN-only. When true, skips the resource-lease gate for this transition (no lease taken,
-            gate bypassed not satisfied). A non-ADMIN caller setting this to true receives 403
-            insufficient_capability before the item is even loaded. WARN-logged; stamps
-            "(resource leases overridden)" on the persisted transition's summary.
-
-    ResourceLeaseDto:
-      type: object
-      required: [resourceKey, holderItemId, acquiredAt, expiresAt, originalAcquiredAt]
-      properties:
-        resourceKey:
-          type: string
-        holderItemId:
-          type: string
-          format: uuid
-        acquiredByActorId:
-          type: string
-          nullable: true
-          description: Present only for callers with ADMIN capability; omitted (not null) otherwise.
-        acquiredAt:
-          type: string
-          format: date-time
-        expiresAt:
-          type: string
-          format: date-time
-        originalAcquiredAt:
-          type: string
-          format: date-time
-
-    ResourceLeaseListResponseDto:
-      type: object
-      required: [leases]
-      properties:
-        leases:
-          type: array
-          items:
-            $ref: "#/components/schemas/ResourceLeaseDto"
-
-    ResourceLeaseReleaseResponseDto:
-      type: object
-      required: [resourceKey, releasedCount]
-      properties:
-        resourceKey:
-          type: string
-        releasedCount:
-          type: integer
-
-    ResourceLeaseIntervalDto:
-      type: object
-      required: [resourceKey, holderItemId, acquiredAt, expiresAt]
-      description: >-
-        One row per lease hold interval (append-only, never pruned in v1) — see the
-        resource_lease_history table.
-      properties:
-        resourceKey:
-          type: string
-        holderItemId:
-          type: string
-          format: uuid
-        acquiredByActorId:
-          type: string
-          nullable: true
-          description: Present only for callers with ADMIN capability; omitted (not null) otherwise.
-        acquiredAt:
-          type: string
-          format: date-time
-        expiresAt:
-          type: string
-          format: date-time
-        releasedAt:
-          type: string
-          format: date-time
-          nullable: true
-          description: Null while the interval is still open.
-        releaseReason:
-          type: string
-          nullable: true
-          enum: [released, expired, force_released]
-          description: Null while the interval is still open.
-        releasedByActorId:
-          type: string
-          nullable: true
-          description: >-
-            Present only for callers with ADMIN capability; omitted (not null) otherwise. Null for a
-            passive "expired" close (no explicit release action performed it).
-
-    ResourceLeaseHistoryResponseDto:
-      type: object
-      required: [intervals]
-      properties:
-        intervals:
-          type: array
-          items:
-            $ref: "#/components/schemas/ResourceLeaseIntervalDto"
-
-    MissingNoteDto:
-      type: object
-      required: [key, description]
-      properties:
-        key:
-          type: string
-        description:
-          type: string
-        guidance:
-          type: string
-          nullable: true
-        skill:
-          type: string
-          nullable: true
-
-    CascadeEventDto:
-      type: object
-      required: [itemId, title, previousRole, targetRole, applied]
-      properties:
-        itemId:
-          type: string
-          format: uuid
-        title:
-          type: string
-        previousRole:
-          type: string
-        targetRole:
-          type: string
-        applied:
-          type: boolean
-        statusLabel:
-          type: string
-          nullable: true
-        gateBlocked:
-          type: boolean
-          description: True when this cascade was suppressed by a required-note gate on the parent.
-        missingNotes:
-          type: array
-          nullable: true
-          description: Present only when gateBlocked is true.
-          items:
-            $ref: "#/components/schemas/MissingNoteDto"
-        error:
-          type: string
-          nullable: true
-          description: >-
-            Reason this cascade's own apply step failed (a persistence conflict), when applied is
-            false and no suppression flag is set. Null on success and on every
-            gate/resource/role/dependency suppression.
-        roleBlocked:
-          type: boolean
-          description: True when a terminal cascade was suppressed because the parent is blocked (held).
-        dependencyBlocked:
-          type: boolean
-          description: True when a terminal cascade was suppressed by an unmet blocking dependency on the parent.
-        blockers:
-          type: array
-          nullable: true
-          description: Present only when dependencyBlocked is true.
-          items:
-            $ref: "#/components/schemas/CascadeBlockerDto"
-        violations:
-          type: array
-          nullable: true
-          description: >-
-            A2: independence-attestation findings for this cascade's own target schema. Present
-            only when the list is non-empty; null (not an empty array) when independence checking
-            applies but finds nothing, and also when independence mode is off or the target schema
-            declares no independent_of. Populated in warn mode too, whenever there is something to
-            report.
-          items:
-            $ref: "#/components/schemas/IndependenceViolationDto"
-
-    CascadeBlockerDto:
-      type: object
-      required: [fromItemId, currentRole, requiredRole]
-      properties:
-        fromItemId:
-          type: string
-          format: uuid
-        currentRole:
-          type: string
-        requiredRole:
-          type: string
-
-    IndependenceViolationDto:
-      type: object
-      required: [key, constraint]
-      description: >-
-        A2: one independence-attestation finding, actor-free by construction (never an actor id,
-        proof, or claim on any surface, MCP or REST). See config-format.md "Independence (A2)".
-      properties:
-        key:
-          type: string
-          description: The declaring note's key (the note whose independent_of triggered this check).
-        seat:
-          type: string
-          nullable: true
-          description: The declaring note's owning seat. Omitted when the schema is not seat-aware.
-        constraint:
-          type: string
-          enum: [same_actor, missing_actor, unverified]
-        conflictingSeat:
-          type: string
-          nullable: true
-          description: >-
-            The seat this finding was raised against. Omitted for a missing_actor/unverified
-            finding raised against the declaring note itself rather than a specific conflicting
-            seat.
-        waived:
-          type: boolean
-          nullable: true
-          description: >-
-            True only for a same_actor finding covered by the independence: temporal-only waiver.
-            A waived finding never blocks a reject-mode transition. Omitted unless true.
-
-    UnblockedItemDto:
-      type: object
-      required: [itemId, title]
-      properties:
-        itemId:
-          type: string
-          format: uuid
-        title:
-          type: string
-
-    ExpectedNoteDto:
-      type: object
-      required: [key, role, required, description, exists]
-      properties:
-        key:
-          type: string
-        role:
-          type: string
-        required:
-          type: boolean
-        description:
-          type: string
-        guidance:
-          type: string
-          nullable: true
-        skill:
-          type: string
-          nullable: true
-        exists:
-          type: boolean
-
-    GateStatusDto:
-      type: object
-      required: [canAdvance, phase, missing]
-      properties:
-        canAdvance:
-          type: boolean
-        phase:
-          type: string
-          enum: [queue, work, review, terminal, blocked]
-          description: The item's CURRENT role, lowercased.
-        missing:
-          type: array
-          items:
-            type: string
-          description: Required-note KEY strings (schema order) still unfilled for phase.
-        missingBySeat:
-          type: object
-          nullable: true
-          description: >-
-            A1: missing's keys bucketed by owning seat, plus a reserved "unowned" bucket for a
-            required note with no owning seat — non-empty buckets only, in merged-seat order with
-            "unowned" always last. Present only when the item's resolved schema is seat-aware AND
-            phase != terminal (an empty object when seat-aware but nothing missing); omitted
-            entirely for a seat-less schema or a terminal item. See config-format.md "Seats
-            (Trait & Schema Dimension)".
-          additionalProperties:
-            type: array
-            items:
-              type: string
-        violations:
-          type: array
-          nullable: true
-          description: >-
-            A2: independence-attestation findings for phase. Present (possibly empty) whenever
-            independence mode is not off and the resolved schema declares independent_of
-            somewhere; omitted entirely otherwise, including for a terminal item. canAdvance
-            already accounts for a reject-mode block from a non-waived violation. See
-            config-format.md "Independence (A2)".
-          items:
-            $ref: "#/components/schemas/IndependenceViolationDto"
-
-    ItemGateDto:
-      type: object
-      required: [itemId, title, role, gateStatus]
-      properties:
-        itemId:
-          type: string
-          format: uuid
-        title:
-          type: string
-        role:
-          type: string
-          enum: [queue, work, review, terminal, blocked]
-        gateStatus:
-          $ref: "#/components/schemas/GateStatusDto"
-        guidanceKey:
-          type: string
-          nullable: true
-          description: >-
-            First missing required note's key with guidance text. Omitted from JSON (not
-            serialized as null) when there is none.
-        skillPointer:
-          type: string
-          nullable: true
-          description: >-
-            First missing required note's skill pointer. Omitted from JSON (not serialized as
-            null) when there is none.
-
-    AdvanceResponseDto:
-      type: object
-      required: [itemId, previousRole, newRole, trigger]
-      properties:
-        itemId:
-          type: string
-          format: uuid
-        previousRole:
-          type: string
-        newRole:
-          type: string
-        trigger:
-          type: string
-        statusLabel:
-          type: string
-          nullable: true
-        cascadeEvents:
-          type: array
-          description: >-
-            Cascade transitions applied (or gate-blocked) as a side effect of this advance —
-            e.g. completing the last child auto-completing the parent. Mirrors the MCP
-            advance_item cascadeEvents. Added when the REST and MCP advance paths were unified
-            behind AdvanceService.
-          items:
-            $ref: "#/components/schemas/CascadeEventDto"
-        unblockedItems:
-          type: array
-          description: Downstream items whose blocking dependencies are now satisfied.
-          items:
-            $ref: "#/components/schemas/UnblockedItemDto"
-        expectedNotes:
-          type: array
-          description: Schema notes expected for the item's NEW role (parity with MCP advance_item).
-          items:
-            $ref: "#/components/schemas/ExpectedNoteDto"
-        violations:
-          type: array
-          nullable: true
-          description: >-
-            A2: independence-attestation findings for the transition's target schema. Present only
-            when the list is non-empty; null (not an empty array) when independence checking
-            applies but finds nothing, and also when independence mode is off or the target schema
-            declares no independent_of. Populated in warn mode too, whenever there is something to
-            report. See config-format.md "Independence (A2)".
-          items:
-            $ref: "#/components/schemas/IndependenceViolationDto"
-
-    SearchHitDto:
-      type: object
-      required: [itemId, field, snippet, score]
-      properties:
-        itemId:
-          type: string
-          format: uuid
-        field:
-          type: string
-        snippet:
-          type: string
-        score:
-          type: number
-          format: double
-        noteKey:
           type: string
           nullable: true
 
@@ -939,25 +128,6 @@ components:
           type: integer
           description: Present only when configured.
 
-    SchemaDto:
-      type: object
-      required: [type, lifecycleMode, hasReviewPhase, notes, defaultTraits]
-      properties:
-        type:
-          type: string
-        lifecycleMode:
-          type: string
-        hasReviewPhase:
-          type: boolean
-        notes:
-          type: array
-          items:
-            $ref: "#/components/schemas/NoteSchemaEntryDto"
-        defaultTraits:
-          type: array
-          items:
-            type: string
-
     TraitDto:
       type: object
       required: [name, notes]
@@ -983,27 +153,6 @@ components:
           items:
             $ref: "#/components/schemas/ResourceRequirementDto"
 
-    ConfigSnapshotDto:
-      type: object
-      required: [schemas, traits, types, statusGraph]
-      properties:
-        schemas:
-          type: array
-          items:
-            $ref: "#/components/schemas/SchemaDto"
-        traits:
-          type: array
-          items:
-            $ref: "#/components/schemas/TraitDto"
-        types:
-          type: array
-          items:
-            type: string
-        statusGraph:
-          $ref: "#/components/schemas/StatusGraphDto"
-        defaultSchema:
-          $ref: "#/components/schemas/SchemaDto"
-
     EffectiveSchemaDto:
       type: object
       required: [type, matchedType, configSource, lifecycleMode, hasReviewPhase, notes, defaultTraits]
@@ -1022,7 +171,7 @@ components:
         configSource:
           type: string
           enum: [per-root, global]
-          description: Which layer supplied the schema — same literal MCP query_items(schema) uses.
+          description: Which layer supplied the schema - same literal the items_read schema select reports.
         configFingerprint:
           type: string
           nullable: true
@@ -1042,16 +191,17 @@ components:
 
     EffectiveConfigDto:
       type: object
-      required: [rootId, schemas, traits, types, statusGraph]
+      required: [schemas, traits, types, statusGraph]
       description: >-
-        Full per-root EFFECTIVE (layered) config view returned by
-        GET /roots/{rootId}/config/effective — every registered type resolved against rootId's
-        per-root config over the global fallback, in one response. Additive: distinct from
-        ConfigSnapshotDto (GLOBAL-only) and the raw stored YAML /roots/{rootId}/config returns.
+        The resolved (layered) config view returned by the `config` tool's `effective` op
+        (POST /ops/config; the element result less its `ok` flag) — every registered type resolved
+        against rootId's per-root config over the server config, in one result. Without a rootId
+        it is the server config alone.
       properties:
         rootId:
           type: string
           format: uuid
+          description: Omitted for the server-only view.
         schemas:
           type: array
           items:
@@ -1064,7 +214,7 @@ components:
           type: array
           items:
             type: string
-          description: Per-root and global schema keys that resolve to a schema for this root, in ascending natural String order; always equal to the `type` values of `schemas` (a key that does not resolve under the root's schema_resolution mode is omitted from both).
+          description: The union of the per-root and global schema keys, in ascending natural String order; always equal to the `type` values of `schemas`. Each key resolves by one precedence rule (per-root exact type, global exact type, per-root default, global default).
         statusGraph:
           $ref: "#/components/schemas/StatusGraphDto"
         defaultSchema:
@@ -1077,12 +227,6 @@ components:
           type: string
           nullable: true
           description: Omitted when no per-root config is pushed for this root.
-        schemaResolution:
-          type: string
-          enum: [legacy, layered, isolated]
-          description: >-
-            AR-39: this root's effective schema_resolution mode. Always populated on a 200
-            response ("legacy" when the key is absent everywhere).
 
     StatusGraphTypeDto:
       type: object
@@ -1092,6 +236,8 @@ components:
           type: string
         lifecycleMode:
           type: string
+          enum: [auto, manual, permanent, none]
+          description: A `none` type is lifecycle-free and has empty `transitions`.
         hasReviewPhase:
           type: boolean
         transitions:
@@ -1124,7 +270,7 @@ components:
     ServiceInfoDto:
       type: object
       required: [serverName, version, apiVersion, capabilities, claimModeAvailable,
-                 actorAuthenticationEnabled, features]
+                 verifier, features, configWarnings]
       properties:
         serverName:
           type: string
@@ -1138,8 +284,18 @@ components:
             type: string
         claimModeAvailable:
           type: boolean
-        actorAuthenticationEnabled:
-          type: boolean
+        verifier:
+          type: string
+          enum: [none, bearer, jwks]
+          description: >-
+            The API credential verifier in force: none (unauthenticated mode), bearer (token file) or jwks
+            (JWTs against a key set). Always present.
+        maxStale:
+          type: integer
+          format: int64
+          description: >-
+            With the jwks verifier, max_stale_seconds: the oldest a cached key set may be, in seconds, and still be
+            served after a failed refresh; past it a JWT is answered 503 unavailable. Omitted for the other verifiers.
         features:
           type: array
           items:
@@ -1149,6 +305,14 @@ components:
             ["seats", "dispatchBySeat", "independent_of", "rules"]), advertised unconditionally regardless
             of whether the resolved config for any given root declares seats or independent_of.
             Same list as WellKnownDto.features.
+        configWarnings:
+          type: array
+          items:
+            type: string
+          description: >-
+            Warnings stored with the SERVER config head: the reasons recorded when the global config file was
+            imported at boot (one per legacy top-level key such as orchestration, retrospective, actor_attribution
+            or schema_resolution), in the form push warnings use. Empty when there is no server config.
 
     WellKnownDto:
       type: object
@@ -1199,7 +363,7 @@ components:
       type: object
       required: [key, role, required, description]
       description: >-
-        Full note-schema entry as served by GET /items/{id}/schema — same base shape as
+        Full note-schema entry of the item schema view (items_read select schema) — same base shape as
         NoteSchemaEntryDto, plus the A1 seat fields. A distinct schema from NoteSchemaEntryDto
         because /config* and /config/effective (which use NoteSchemaEntryDto) do not serve seats
         in A1.
@@ -1242,9 +406,9 @@ components:
       type: object
       required: [type, configSource, notes, features]
       description: >-
-        Response body for GET /items/{id}/schema (A1c) — identical to MCP
-        query_items(operation="schema", itemId=...)'s data object; both are built by the same
-        ItemSchemaView.buildItemSchemaJson server-side function, never a second, separately
+        The item schema view (A1c), now served as the data of items_read select schema (the
+        GET /items/{id}/schema route is removed), built by the
+        ItemSchemaView server-side builder, never a second, separately
         maintained builder.
       properties:
         type:
@@ -1300,188 +464,35 @@ components:
         dbReachable:
           type: boolean
 
-    ProjectConfigResponseDto:
+    OpsEnvelope:
       type: object
-      required: [rootId, fingerprint, updatedAt]
-      properties:
-        rootId:
-          type: string
-          format: uuid
-        fingerprint:
-          type: string
-          description: >-
-            SHA-256 hex digest of the stored configYaml's UTF-8 bytes, after stripping one
-            leading BOM and normalizing CRLF to LF (the stored configYaml itself is unchanged)
-        updatedAt:
-          type: string
-          format: date-time
-        configYaml:
-          type: string
-          nullable: true
-          description: Raw stored YAML text; present on GET only (omitted on PUT)
-        warning:
-          type: string
-          nullable: true
-          description: Non-fatal notice when the root's `type` is not "project"
-        relation:
-          type: string
-          nullable: true
-          enum: [current, superseded, unknown]
-          description: >-
-            Present on GET only, and only when ?fingerprint= was supplied — classifies that
-            fingerprint against the root's stored fingerprint history.
-        ignoredSections:
-          type: array
-          nullable: true
-          items:
-            type: string
-          description: >-
-            Present on PUT only, and only when the pushed document has top-level keys not honored
-            by the per-root resolution layer (e.g. actor_authentication, which stays global-only).
-            Honored keys: work_item_schemas, note_schemas, traits, project, note_limits,
-            status_labels. Omitted entirely when empty.
-        schemaWarnings:
-          type: array
-          nullable: true
-          items:
-            type: string
-          description: >-
-            Present on PUT only, and only when YamlSchemaParser produced per-entry parse warnings
-            for the pushed document (e.g. a note schema entry with an invalid role value, which is
-            skipped rather than rejecting the whole push). The push still succeeds and the config
-            is still stored regardless of schemaWarnings. Omitted entirely when empty.
-
-    PlanDocumentResponseDto:
-      type: object
-      required: [id, rootId, slug, contentHash, status, createdAt, updatedAt]
-      properties:
-        id:
-          type: string
-          format: uuid
-        rootId:
-          type: string
-          format: uuid
-        slug:
-          type: string
-        contentHash:
-          type: string
-          description: SHA-256 hex digest of the stored body's UTF-8 bytes
-        status:
-          type: string
-          enum: [pending, adopted]
-        adoptedByItemId:
-          type: string
-          format: uuid
-          nullable: true
-          description: >-
-            Set once status is "adopted"; null while pending, and null again if the adopting
-            item is later deleted (ON DELETE SET NULL — status itself does not revert).
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-        body:
-          type: string
-          nullable: true
-          description: Raw stored document text; present on GET only (omitted on PUT)
-
-    PlanDocumentSummaryDto:
-      type: object
-      required: [id, rootId, slug, contentHash, status, createdAt, updatedAt]
-      description: Same shape as PlanDocumentResponseDto minus body, which list responses never include.
-      properties:
-        id:
-          type: string
-          format: uuid
-        rootId:
-          type: string
-          format: uuid
-        slug:
-          type: string
-        contentHash:
-          type: string
-        status:
-          type: string
-          enum: [pending, adopted]
-        adoptedByItemId:
-          type: string
-          format: uuid
-          nullable: true
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-
-    PlanDocumentListResponseDto:
-      type: object
-      required: [rootId, plans]
-      properties:
-        rootId:
-          type: string
-          format: uuid
-        plans:
-          type: array
-          items:
-            $ref: "#/components/schemas/PlanDocumentSummaryDto"
-
-    RuleResponseDto:
-      type: object
-      required: [rootId, key, rulesVersion, body]
       description: >-
-        Section 19a's per-key rule read. Mirrors the MCP query_rules tool's get data payload
-        minus resolvedFrom (REST has no item/skill-pointer mode).
+        The 4.0 response envelope: ok, then data (success) or error {code, kind, message, fix?, detail?}
+        (failure), and meta {reqId}. Per-tool data shapes are served by the tool's describe call.
+      required: [ok, meta]
       properties:
-        rootId:
-          type: string
-          format: uuid
-        key:
-          type: string
-          description: Rule key, matching ^[a-z0-9][a-z0-9._-]{0,99}$
-        rulesVersion:
-          type: string
-          description: >-
-            The backing rule/<key> plan document's contentHash (same value
-            PlanDocumentResponseDto/PlanDocumentSummaryDto report for that slug).
-        body:
-          type: string
-          description: Raw stored rule text, served byte-for-byte as stored.
-
-    RuleSummaryDto:
-      type: object
-      required: [key, rulesVersion, updatedAt]
-      description: One row of RuleListResponseDto.rules (section 19a); metadata only, never the body.
-      properties:
-        key:
-          type: string
-        rulesVersion:
-          type: string
-        updatedAt:
-          type: string
-          format: date-time
-
-    RuleListResponseDto:
-      type: object
-      required: [rootId, rules]
-      properties:
-        rootId:
-          type: string
-          format: uuid
-        rules:
-          type: array
-          description: Ordered by key ascending.
-          items:
-            $ref: "#/components/schemas/RuleSummaryDto"
+        ok:
+          type: boolean
+        data:
+          type: object
+          additionalProperties: true
+        error:
+          type: object
+          additionalProperties: true
+        meta:
+          type: object
+          required: [reqId]
+          properties:
+            reqId:
+              type: string
 
   responses:
     Unauthorized:
       description: >-
-        Missing or invalid bearer token. error is invalid_request (missing, non-Bearer or empty
-        credential) or invalid_token (unknown, expired or invalid token); the body carries
-        error_description, not message, and the response has a WWW-Authenticate header.
+        Missing or invalid bearer token: the unauthenticated error envelope (Q32). The RFC 6750
+        WWW-Authenticate challenge names the reason: error="invalid_request" (missing, non-Bearer or
+        empty credential) or error="invalid_token" (unknown, expired or invalid token). A JWT whose key set is
+        unavailable is not "invalid": see KeySetUnavailable.
       headers:
         WWW-Authenticate:
           description: Bearer challenge, e.g. Bearer error="invalid_token"
@@ -1490,735 +501,191 @@ components:
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/AuthErrorDto"
+            $ref: "#/components/schemas/OpsEnvelope"
+    KeySetUnavailable:
+      description: >-
+        The unavailable error envelope (retryable): a JWT was presented while the JWKS key set cannot be had (never
+        fetched, or older than max_stale_seconds), so the credential could be neither accepted nor rejected. Verification
+        fails closed: no identity is guessed. error.detail.retryAfterMs is 15000. There is NO WWW-Authenticate header.
+        Any route behind the jwks verifier can answer it, as can /mcp and GET /events with ?token=.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OpsEnvelope"
     Forbidden:
       description: >-
-        Authenticated but lacks required capability or scope. insufficient_scope uses the
-        AuthErrorDto body (error_description); host_not_allowed, scope_forbidden and
-        insufficient_capability use ErrorDto (message).
+        The forbidden error envelope; error.detail.scope is capability (the token lacks the route's
+        capability), root or tag (the item is outside the token's scope) or host (the Host header is
+        not allowed; required is a fixed literal, never the allowlist). A token-file credential with
+        profile director gets scope capability and required director on every path except
+        POST /api/v1/ops/director/{tool}.
       content:
         application/json:
           schema:
-            oneOf:
-              - $ref: "#/components/schemas/ErrorDto"
-              - $ref: "#/components/schemas/AuthErrorDto"
-    NotFound:
-      description: Resource not found
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorDto"
-    BadRequest:
-      description: Invalid request parameters or body
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorDto"
-    InternalServerError:
-      description: Database or server error
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorDto"
-    ConfigUnavailable:
-      description: >-
-        error="config_unavailable" — the item's (or root's) per-root config could not be read and
-        there was no last-known-good cached config to serve; transient, retryable, no Retry-After
-        header. REST and the MCP tools share one per-root config cache, so this is rarer than a
-        per-surface cache would produce.
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorDto"
-
+            $ref: "#/components/schemas/OpsEnvelope"
 paths:
-  /items:
-    get:
-      summary: List work items
-      operationId: listItems
-      tags: [items]
-      description: >-
-        A token with scope.tags_include is additionally filtered to items carrying at least one
-        allowed tag (item-level exact match, no ancestor walk). A tag-scoped caller reads a bounded
-        1000-row candidate window before filtering, then paginates the filtered result — totalItems
-        reflects only the visible (post-filter) count. A tag scope matching nothing returns 200
-        with an empty page, never 403.
-      parameters:
-        - $ref: "#/components/parameters/page"
-        - $ref: "#/components/parameters/pageSize"
-        - name: role
-          in: query
-          description: Matching is case-insensitive (the enum lists the canonical lower-case values). An unrecognized value returns 400 validation_error.
-          schema:
-            type: string
-            enum: [queue, work, review, blocked, terminal]
-        - name: priority
-          in: query
-          description: Matching is case-insensitive (the enum lists the canonical lower-case values). An unrecognized value returns 400 validation_error.
-          schema:
-            type: string
-            enum: [high, medium, low]
-        - name: tag
-          in: query
-          schema:
-            type: string
-          description: Comma-separated tags; all must be present (AND)
-        - name: tagAny
-          in: query
-          schema:
-            type: string
-          description: Comma-separated tags; any must be present (OR); overrides tag
-        - name: type
-          in: query
-          schema:
-            type: string
-        - name: parentId
-          in: query
-          schema:
-            type: string
-            format: uuid
-        - name: rootId
-          in: query
-          schema:
-            type: string
-            format: uuid
-        - name: modifiedAfter
-          in: query
-          schema:
-            type: string
-            format: date-time
-        - name: modifiedBefore
-          in: query
-          schema:
-            type: string
-            format: date-time
-        - name: createdAfter
-          in: query
-          schema:
-            type: string
-            format: date-time
-        - name: createdBefore
-          in: query
-          schema:
-            type: string
-            format: date-time
-        - name: claimStatus
-          in: query
-          description: Matching is case-insensitive (the enum lists the canonical lower-case values). An unrecognized value returns 400 validation_error.
-          schema:
-            type: string
-            enum: [claimed, unclaimed, expired]
-        - name: orderBy
-          in: query
-          schema:
-            type: string
-            enum: [title, priority, complexity, createdAt, modifiedAt, created, modified]
-        - name: orderDir
-          in: query
-          schema:
-            type: string
-            enum: [asc, desc]
-      responses:
-        "200":
-          description: Paginated item list
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/PageDto"
-                  - properties:
-                      items:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/ItemDto"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
-    post:
-      summary: Create a work item
-      operationId: createItem
-      tags: [items]
-      description: >-
-        When parentId is absent or null (a root-level create), the new item's ancestor chain is
-        only its own server-generated id, so a root_ids-scoped token is always denied (403
-        scope_forbidden) — a new id can never already be listed in root_ids. A tags_include-only
-        token may create a root only if the tags it creates that root with satisfy its own
-        tags_include allowlist (the new root is its own anchor, mirroring the parentId-outside-scope
-        check applied to a non-root create); otherwise 403 scope_forbidden, and nothing is
-        persisted.
-      parameters:
-        - name: Idempotency-Key
-          in: header
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ItemCreateDto"
-      responses:
-        "201":
-          description: Item created
-          headers:
-            ETag:
-              schema:
-                type: string
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ItemDto"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "413":
-          description: >-
-            Payload too large — body exceeds the shared 1 MiB write-body limit, enforced before
-            the body is buffered (Content-Length pre-check, then a capped channel read).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "415":
-          description: >-
-            Unsupported media type — Content-Type is present and is not application/json (an
-            absent header is accepted as */*); checked before the Idempotency-Key header or body
-            is read.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
-  /items/roots:
-    get:
-      summary: List root items (depth=0)
-      description: >
-        Scoped tokens return only the specific root items within scope (totalItems is the exact
-        scoped root count). Unscoped/admin callers get standard page/pageSize pagination with
-        totalItems from an exact COUNT query — no cap; page through all roots with repeated
-        requests. A scope.tags_include token is additionally filtered to items carrying at least
-        one allowed tag, applied in-memory over a bounded 1000-row candidate window (same caveat
-        as GET /items) — totalItems then reflects only the visible count. A tag scope matching
-        nothing returns 200 with an empty page, never 403.
-      operationId: listRootItems
-      tags: [items]
-      parameters:
-        - $ref: "#/components/parameters/page"
-        - $ref: "#/components/parameters/pageSize"
-      responses:
-        "200":
-          description: Root items
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/PageDto"
-                  - properties:
-                      items:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/ItemDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
   /items/{id}:
     get:
-      summary: Get a single work item
+      summary: Get a single work item (items_read select get)
       operationId: getItem
       tags: [items]
+      description: |
+        Equivalent to `POST /api/v1/ops/items_read` with `{"select":"get","itemId":"<id>"}`: the same
+        dispatcher, the same access (the bearer principal, its root/tag scope and capabilities) and the
+        same envelope body, apart from `meta.reqId`. `id` is a UUID or an 8 to 32 hex-character prefix.
+
+        The route takes no query parameter: any is `unknown_parameter` (`/<name>`); timestamps,
+        ancestors and `ifVersion` are served by the select over `/ops`. A successful answer carries
+        `ETag: "v<version>"`; a request whose `If-None-Match` names it (a tag list, a weak validator
+        or `*`, as for the note GET) is answered `304 Not Modified` with no body. An error is never a 304 and carries no ETag: an item outside the
+        caller's scope is `403 forbidden` (a missing id under a restricted scope too), whatever
+        `If-None-Match` says.
       parameters:
-        - $ref: "#/components/parameters/itemId"
-        - name: include
-          in: query
+        - name: id
+          in: path
+          required: true
+          description: Item id, a UUID or an 8 to 32 hex-character prefix.
           schema:
             type: string
-          description: >-
-            Comma-separated inclusions - notes, deps, children. When any recognized token is
-            present the response carries no ETag header and If-None-Match is ignored (never 304).
         - name: If-None-Match
           in: header
-          description: >-
-            Honored only when no recognized include is requested; ignored otherwise.
+          required: false
+          description: ETags from previous reads (a list, weak validators or `*`); naming the current one answers 304.
           schema:
             type: string
       responses:
         "200":
-          description: Item
+          description: >-
+            Envelope with `data` = the full item view (lean: empty members omitted, tags as an array); a pinned
+            item adds `schemaVersion` `{server?, root?, key?, layer?}` and, only when a pinned config version is no
+            longer the head, `stale: true`
           headers:
             ETag:
-              description: Absent when a recognized include is requested.
+              description: '"v<version>" of the item read.'
+              schema:
+                type: string
+            X-Req-Id:
+              description: The call's correlation id, equal to meta.reqId.
               schema:
                 type: string
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ItemDto"
+                $ref: "#/components/schemas/OpsEnvelope"
         "304":
-          description: Not modified (If-None-Match matched; never returned when include is requested)
+          description: Not Modified - If-None-Match names the current ETag (no body)
         "400":
-          $ref: "#/components/responses/BadRequest"
+          description: invalid_request (malformed id) or unknown_parameter (any query parameter) envelope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-    patch:
-      summary: JSON Merge Patch update
-      operationId: patchItem
-      tags: [items]
-      description: >-
-        When the patch re-parents the item (parentId changed to a non-null value), the new parent
-        is scope-checked the same way POST /items checks a create-time parentId — 403
-        scope_forbidden if the new parent is outside the caller's scope (root_ids or tags_include).
-        An unknown new parent still returns 400 not_found first; scope is checked only after the
-        parent is confirmed to exist, so scope_forbidden never becomes an existence oracle.
-
-        A re-parent that would create a cycle is rejected as 400 validation_error: parentId equal
-        to the item's own id ("An item cannot be its own parent") or naming one of the item's own
-        descendants ("Cannot re-parent an item under its own descendant"). Checked via an identity
-        comparison plus a full walk of the proposed parent's real ancestor chain (one batched
-        findAncestorChains lookup) — not bounded by the parent row's denormalized depth, so a stale
-        depth value can no longer let a cycle through. Ordering: 404 not_found (unknown parent) ->
-        403 scope_forbidden (parent outside scope) -> this 400 validation_error (self/descendant
-        cycle); nothing is written until all three clear. If the ancestor-chain lookup itself fails,
-        the patch returns 500 db_error rather than admitting the re-parent.
-
-        When the patch instead moves the item TO root (parentId changed from non-null to null), a
-        root_ids-scoped token gets 403 scope_forbidden unless the item's own id is itself in
-        root_ids — after the move the item's chain is just itself. The tag half is the entry-point
-        scope check, made against the item's tags as they are before the patch.
-      parameters:
-        - $ref: "#/components/parameters/itemId"
-        - name: If-Match
-          in: header
-          required: true
-          schema:
-            type: string
-          description: Current ETag; required — missing -> 400 precondition_required
-        - name: Idempotency-Key
-          in: header
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/merge-patch+json:
-            schema:
-              type: object
-              description: |
-                RFC 7396 merge patch. tags must be a CSV string (not array).
-                Server-owned fields id, role, previousRole, roleChangedAt, depth,
-                createdAt, modifiedAt, version, claimedBy, claimedAt, claimExpiresAt,
-                originalClaimedAt cannot be patched (400 field_not_patchable).
-          application/json:
-            schema:
-              type: object
-      responses:
-        "200":
-          description: Updated item
-          headers:
-            ETag:
-              schema:
-                type: string
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ItemDto"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          description: >-
-            error="version_conflict" — a concurrent writer's update won the version race between
-            the If-Match check and this request's own write (optimistic-lock loss). Distinct from
-            412 etag_mismatch below, which is a stale-If-Match-at-read-time guard, not a
-            concurrent-write guard. Retry with a fresh If-Match ETag.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "412":
-          description: ETag mismatch
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "413":
-          description: >-
-            Payload too large — body exceeds the shared 1 MiB write-body limit, enforced before
-            the body is buffered (Content-Length pre-check, then a capped channel read).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "415":
-          description: Unsupported media type
-          headers:
-            Accept-Patch:
-              schema:
-                type: string
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
-    delete:
-      summary: Delete item, or cascade-delete with ?recursive=true
-      description: |
-        Deletes the item. A parent item (one with direct children) is refused with 409
-        `has_children` (details.childCount = direct child count) unless `?recursive=true` is
-        given, in which case it and every descendant are deleted, leaves-first, inside one
-        transaction — all-or-nothing, matching the MCP `manage_items` delete operation's
-        semantics. A non-recursive delete of a leaf item still returns 204; a recursive delete
-        (of a leaf or a parent) returns 200 with an ItemDeleteResultDto body.
-      operationId: deleteItem
-      tags: [items]
-      parameters:
-        - $ref: "#/components/parameters/itemId"
-        - name: recursive
-          in: query
-          schema:
-            type: string
-          description: >
-            Case-insensitive "true" or "false"; absent means "false" (non-recursive, refuses a
-            parent with 409). Any other value (e.g. "1", "yes", "") is a 400 validation_error.
-        - name: If-Match
-          in: header
-          schema:
-            type: string
-          description: Optional conditional delete
-      responses:
-        "200":
-          description: Recursive delete succeeded
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ItemDeleteResultDto"
-        "204":
-          description: Non-recursive delete of a leaf item succeeded
-        "400":
-          description: Missing/invalid item id (bad_request) or an invalid `recursive` value (validation_error)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          description: Item has children and `?recursive=true` was not given
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "412":
-          description: ETag mismatch
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
-  /items/{id}/advance:
-    post:
-      summary: Trigger a role transition
-      operationId: advanceItem
-      tags: [items]
-      description: |
-        Runs the SAME advance pipeline as the MCP advance_item tool (resolve → validate →
-        required-note gate → resource-lease gate → apply → cascade → unblock), unified behind
-        AdvanceService.
-
-        Bypasses MCP claim ownership — a claimed item advances successfully regardless of
-        which MCP agent holds the claim. Response does NOT include claimedBy. WARN is logged
-        when API_WARN_ON_CLAIMED_ADVANCE=true (default).
-
-        Required-note gates ARE enforced: a start/complete that leaves a required note unfilled
-        is rejected with 422 (error code "gate_blocked") and the missing notes in details.missingNotes,
-        rather than silently advancing. When the target schema is seat-aware (A1),
-        details.missingBySeat additionally buckets those keys by owning seat, appended after
-        missingNotes — see GateStatusDto.missingBySeat. The response includes cascadeEvents,
-        unblockedItems, and expectedNotes (additive — older clients can ignore the new fields).
-
-        Resource-lease gate ALSO enforced on both start and resume (both re-enter WORK) — unlike
-        claim ownership above, this gate is NOT bypassed for ordinary callers; only an explicit
-        ADMIN overrideResourceLeases:true opts out (403 for non-admin callers who set it). Contention
-        returns 409 resource_unavailable with a Retry-After header — never the current holder's
-        identity. An item with no declared resources can never produce this response.
-      parameters:
-        - $ref: "#/components/parameters/itemId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/AdvanceRequestDto"
-      responses:
-        "200":
-          description: Transition applied
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AdvanceResponseDto"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          description: >-
-            Two independent discriminants share this status, both defensive on the REST path since
-            REST bypasses claim ownership by default (see the ownership/lease asymmetry above):
-            error="resource_unavailable" — resource lease contended; details.contendedResources lists
-            the contended keys and details.retryAfterMs the suggested backoff (echoed as a Retry-After
-            header, whole seconds, rounded up); no holder identity disclosed, use
-            GET /api/v1/resources/leases (ADMIN) to diagnose. Only reachable for items that declare
-            resources: via traits. error="not_claim_holder" — a different agent holds a live claim on
-            the item (not expected to occur on the REST path, which bypasses ownership enforcement,
-            but defensively mapped).
-          headers:
-            Retry-After:
-              schema:
-                type: integer
-              description: Present only for resource_unavailable. Whole seconds until the contended lease can possibly free up (rounded up, floor 1).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "422":
-          description: >-
-            Transition rejected. error="gate_blocked" with details.missingNotes (and, for a
-            seat-aware schema, details.missingBySeat) when a required-note gate fails, and/or (A2)
-            details.violations when a non-waived independence violation blocks in reject mode —
-            details.violations can be present and non-empty even when missingNotes is empty;
-            error="transition_blocked" with details.blockers when a dependency blocks the
-            transition; error="transition_failed" for invalid-state resolution/apply failures.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "413":
-          description: >-
-            Payload too large — body exceeds the shared 1 MiB write-body limit, enforced before
-            the body is buffered (Content-Length pre-check, then a capped channel read).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "415":
-          description: >-
-            Unsupported media type — Content-Type is present and is not application/json (an
-            absent header is accepted as */*); checked before the body is read.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
         "503":
-          $ref: "#/components/responses/ConfigUnavailable"
-
-  /items/{id}/tree:
-    get:
-      summary: Descendant tree (flat paginated list)
-      operationId: getItemTree
-      tags: [items]
-      parameters:
-        - $ref: "#/components/parameters/itemId"
-        - $ref: "#/components/parameters/page"
-        - $ref: "#/components/parameters/pageSize"
-        - name: depth
-          in: query
-          schema:
-            type: integer
-            minimum: 0
-          description: Max relative depth from root item. A non-integer or negative value returns 400 validation_error.
-      responses:
-        "200":
-          description: Tree nodes (root item always first)
+          $ref: "#/components/responses/KeySetUnavailable"
+        "403":
+          description: forbidden envelope (capability, root or tag scope, or a director-profile credential (detail.required director))
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/PageDto"
-                  - properties:
-                      items:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/ItemDto"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
+                $ref: "#/components/schemas/OpsEnvelope"
         "404":
-          $ref: "#/components/responses/NotFound"
-
-  /items/{id}/breadcrumbs:
-    get:
-      summary: Ancestor chain (root to item)
-      operationId: getItemBreadcrumbs
-      tags: [items]
-      description: >-
-        A scope.tags_include token additionally drops any ancestor in the chain that fails the tag
-        allowlist (item-level exact match) — this can return a non-empty, non-403 list even when
-        one or more ancestors are hidden.
-      parameters:
-        - $ref: "#/components/parameters/itemId"
-      responses:
-        "200":
-          description: List ordered root-first, target item last; truncated at scope root for scoped tokens
+          description: not_found envelope (unrestricted caller only)
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/ItemDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
+                $ref: "#/components/schemas/OpsEnvelope"
+        "409":
+          description: ambiguous_id envelope (the prefix matches several items the caller may see)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "500":
+          description: internal envelope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
 
   /items/{id}/children:
     get:
-      summary: Direct children of an item
+      summary: List an item's direct children (items_read select list)
       operationId: getItemChildren
       tags: [items]
-      description: >-
-        For a tags_include-scoped caller, children are filtered by tag before pagination, over a
-        bounded 1000-row candidate window (same caveat as GET /items) — totalItems is the filtered
-        count, not a raw DB COUNT. Unscoped and root_ids-only callers keep SQL-level
-        LIMIT/OFFSET and an exact COUNT, unaffected.
+      description: |
+        Equivalent to `POST /api/v1/ops/items_read` with `{"select":"list","parentId":"<id>","limit"?,"cursor"?}`:
+        the same dispatcher, access and envelope body, apart from `meta.reqId`. The page is the
+        compact item view (`id`/`parentId` as 8-hex short ids) with `data.page {total, truncated,
+        capped?, next?}`; the caller's root/tag scope is applied before paging, so `total` counts only
+        visible children. A parent the caller may not see, or one that matches nothing, is an empty
+        page. Only `limit` and `cursor` are accepted (anything else is `unknown_parameter`); a
+        non-integer `limit` is `invalid_request`. No ETag.
       parameters:
-        - $ref: "#/components/parameters/itemId"
-        - $ref: "#/components/parameters/page"
-        - $ref: "#/components/parameters/pageSize"
+        - name: id
+          in: path
+          required: true
+          description: Parent item id, a UUID or an 8 to 32 hex-character prefix.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Page size, 1 to 200 (default 50).
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          required: false
+          description: The page.next of the previous page.
+          schema:
+            type: string
       responses:
         "200":
-          description: Paginated children
+          description: Envelope with `data` = {items, page}
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/PageDto"
-                  - properties:
-                      items:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/ItemDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /items/{id}/gate:
-    get:
-      summary: Gate status for a single item (get_context item-mode parity)
-      operationId: getItemGate
-      tags: [items]
-      description: >-
-        Field-for-field identical to the MCP get_context tool's item-mode gateStatus /
-        guidanceKey / skillPointer, computed via the same resolveSchema + computePhaseNoteContext
-        path. No dependency/blocker info and no dispatch field. Carries no ETag and ignores
-        If-None-Match — unlike GET /items/{id}, gate status depends on notes and config, neither
-        of which item.modifiedAt versions. If the notes read fails, every required note for the
-        current phase is reported missing, the same as get_context.
-      parameters:
-        - $ref: "#/components/parameters/itemId"
-      responses:
-        "200":
-          description: Gate status
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ItemGateDto"
+                $ref: "#/components/schemas/OpsEnvelope"
         "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "503":
-          $ref: "#/components/responses/ConfigUnavailable"
-
-  /items/{id}/schema:
-    get:
-      summary: Resolved schema view for a single item (A1c)
-      operationId: getItemSchema
-      tags: [items]
-      description: >-
-        Body is EXACTLY equal to MCP query_items(operation="schema", itemId=...)'s data object —
-        both this route and that MCP operation call the same ItemSchemaView.buildItemSchemaJson
-        builder, so the two responses stay identical by construction. Id handling mirrors
-        GET /items/{id} and GET /items/{id}/gate: full UUID only (a hex prefix is rejected),
-        checked in order bad_request -> not_found -> scope_forbidden. Shares the same
-        configResolver and last-known-good per-root config cache as GET /items/{id}/gate — no
-        separate cache. No ETag / If-None-Match handling, same rationale as GET /items/{id}/gate.
-      parameters:
-        - $ref: "#/components/parameters/itemId"
-      responses:
-        "200":
-          description: Resolved schema view
+          description: invalid_request, invalid_cursor or unknown_parameter envelope
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ItemSchemaViewDto"
-        "400":
-          $ref: "#/components/responses/BadRequest"
+                $ref: "#/components/schemas/OpsEnvelope"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/KeySetUnavailable"
         "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          description: >-
-            error="not_found" — the item does not exist. error="no_schema" — the item is
-            schema-free (no type/tag match, and no "default" schema resolves).
+          description: forbidden envelope (capability; or a prefix that matches no item the caller may see, or a director-profile credential (detail.required director))
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "503":
-          $ref: "#/components/responses/ConfigUnavailable"
+                $ref: "#/components/schemas/OpsEnvelope"
+        "409":
+          description: ambiguous_id envelope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
 
   /items/{id}/notes:
     get:
-      summary: List notes for an item
+      summary: List notes for an item (notes_read list)
       operationId: listNotes
       tags: [notes]
+      description: |
+        A thin translation to `notes_read select=list`: the answer is the response envelope, byte-equal to
+        `POST /ops/notes_read` for the same arguments apart from `meta.reqId`. `data.items[]` are note summaries
+        `{id (8 hex characters), key, role, version, bodyLength, modifiedAt, actor?, verification?, owner?}` ordered by key
+        and never carry a body (read one with the single-note route). `actor`, `verification` and `owner` (`{id}`, the owning principal; omitted for an unowned note) are present only when
+        the caller may see attribution (an admin, or `API_REDACT_NOTE_ATTRIBUTION=false`); `verification` is
+        `{proofStatus (verified | verified_stale | issued | none | rejected), verifier?, reason?}`; proof evidence is never
+        shown. `data.page` is `{total, truncated, next?}` with an opaque cursor (envelope amendment U22): `total` is the
+        full count on every page, `truncated` is true exactly when notes exist after this page, and `next` is present
+        exactly when `truncated`. A query parameter other than the four below is `invalid_request` (400).
       parameters:
         - $ref: "#/components/parameters/itemId"
         - name: role
@@ -2226,288 +693,426 @@ paths:
           schema:
             type: string
             enum: [queue, work, review]
-        - name: key
+        - name: keys
           in: query
+          description: Comma-separated note keys to keep.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Page size, 1 to 200 (default 50).
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          description: Opaque cursor from the previous page's `data.page.next`.
           schema:
             type: string
       responses:
         "200":
-          description: Notes list
+          description: Envelope with ok=true
+          headers:
+            X-Req-Id:
+              schema:
+                type: string
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/NoteDto"
+                $ref: "#/components/schemas/OpsEnvelope"
+        "400":
+          description: invalid_request, unknown_parameter or invalid_cursor envelope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/KeySetUnavailable"
         "403":
-          $ref: "#/components/responses/Forbidden"
+          description: forbidden envelope (capability, root or tag scope, or a director-profile credential (detail.required director))
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
         "404":
-          $ref: "#/components/responses/NotFound"
+          description: not_found or ambiguous_id envelope for the item id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
 
   /items/{id}/notes/{key}:
     get:
-      summary: Get single note by key
+      summary: Get a single note by key (notes_read get)
       operationId: getNote
       tags: [notes]
+      description: |
+        A thin translation to `notes_read select=get`: the answer is the response envelope whose `data` is
+        `{id, key, role, version, body, modifiedAt, actor?, verification?, owner?}`. The `ETag` response header is `"v{version}"`;
+        an `If-None-Match` naming it (or `*`) answers 304 with no body. Writes have no resource route: use
+        `POST /ops/notes_write` (`upsert`, `delete`, each with an optional `expectedVersion`; an `upsert` may carry the admin-only `takeover` flag, and a write to another principal's non-shared note is `note_owned_by_other`). The route takes no query
+        parameter.
       parameters:
         - $ref: "#/components/parameters/itemId"
         - $ref: "#/components/parameters/noteKey"
-      responses:
-        "200":
-          description: Note
-          headers:
-            ETag:
-              schema:
-                type: string
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/NoteDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-    put:
-      summary: Upsert a note
-      operationId: upsertNote
-      tags: [notes]
-      parameters:
-        - $ref: "#/components/parameters/itemId"
-        - $ref: "#/components/parameters/noteKey"
-        - name: If-Match
+        - name: If-None-Match
           in: header
           schema:
             type: string
-          description: Optional on create; validated on update — mismatch -> 412
-        - name: Idempotency-Key
-          in: header
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/NoteWriteDto"
       responses:
-        "201":
-          description: Note created
+        "200":
+          description: Envelope with ok=true
           headers:
             ETag:
+              description: '"v{version}" of the note.'
+              schema:
+                type: string
+            X-Req-Id:
               schema:
                 type: string
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/NoteDto"
-        "200":
-          description: Note updated
+                $ref: "#/components/schemas/OpsEnvelope"
+        "304":
+          description: The note is still at the version named by If-None-Match (empty body)
           headers:
             ETag:
               schema:
                 type: string
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/NoteDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "412":
-          description: ETag mismatch on update
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "413":
-          description: >-
-            Payload too large — body exceeds the shared 1 MiB write-body limit, enforced before
-            the body is buffered (Content-Length pre-check, then a capped channel read).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "415":
-          description: >-
-            Unsupported media type — Content-Type is present and is not application/json (an
-            absent header is accepted as */*); checked before the Idempotency-Key header or body
-            is read.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-
-    delete:
-      summary: Delete a note
-      operationId: deleteNote
-      tags: [notes]
-      parameters:
-        - $ref: "#/components/parameters/itemId"
-        - $ref: "#/components/parameters/noteKey"
-      responses:
-        "204":
-          description: Deleted
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /items/{id}/dependencies:
-    get:
-      summary: Combined dependency view for an item
-      operationId: getItemDependencies
-      tags: [dependencies]
-      parameters:
-        - $ref: "#/components/parameters/itemId"
-      responses:
-        "200":
-          description: >-
-            Dependencies split by direction and type. For a tags_include-scoped caller, edges whose
-            counterparty item is outside the caller's scope are dropped from the response — this is
-            not a guarantee of completeness for scoped callers (see api-rest.md §3).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DependenciesDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /items/{id}/backlinks:
-    get:
-      summary: Items that reference this item via a dependency edge
-      operationId: getItemBacklinks
-      tags: [dependencies]
-      parameters:
-        - $ref: "#/components/parameters/itemId"
-      responses:
-        "200":
-          description: >-
-            Backlinks. For a tags_include-scoped caller, backlink rows whose source item is outside
-            the caller's scope are dropped from the response — this is not a guarantee of
-            completeness for scoped callers (see api-rest.md §3).
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/BacklinkDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /items/{id}/transitions:
-    get:
-      summary: Role-transition audit history for an item
-      operationId: getItemTransitions
-      tags: [transitions]
-      parameters:
-        - $ref: "#/components/parameters/itemId"
-        - $ref: "#/components/parameters/page"
-        - $ref: "#/components/parameters/pageSize"
-      responses:
-        "200":
-          description: Paginated transition history
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/PageDto"
-                  - properties:
-                      items:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/RoleTransitionDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /dependencies:
-    post:
-      summary: Create a dependency edge
-      operationId: createDependency
-      tags: [dependencies]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/DependencyCreateDto"
-      responses:
-        "201":
-          description: Edge created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DependencyEdgeDto"
         "400":
-          $ref: "#/components/responses/BadRequest"
+          description: invalid_request or unknown_parameter envelope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/KeySetUnavailable"
+        "403":
+          description: forbidden envelope (capability, root or tag scope, or a director-profile credential (detail.required director))
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "404":
+          description: not_found envelope (item, or note with id "<itemUuid>/<key>") or ambiguous_id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+
+  /config/schema:
+    get:
+      summary: The JSON Schema every config document is validated against
+      operationId: getConfigSchema
+      tags: [config]
+      description: >-
+        The JSON Schema (draft 2020-12) for a config document, served byte for byte as
+        application/schema+json (not wrapped in an envelope). The ETag changes exactly when the
+        schema does.
+      parameters:
+        - name: If-None-Match
+          in: header
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The schema document
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/schema+json:
+              schema:
+                type: object
+        "304":
+          description: Not modified
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/KeySetUnavailable"
         "403":
           $ref: "#/components/responses/Forbidden"
+
+  /ops/{tool}:
+    post:
+      summary: Call a 4.0 tool (RPC)
+      operationId: callOp
+      tags: [ops]
+      description: |
+        The canonical RPC route over the 4.0 tool registry. The body is the tool's MCP arguments
+        (`select` for a read tool, `ops[]` for a write tool, `describe: true` for its schema); the
+        answer is the response envelope, byte-equal to what MCP returns for the same arguments and
+        access, apart from `meta.reqId` (also the `X-Req-Id` header). The HTTP status comes from the
+        envelope error code (200 for ok, 207 for a partial batch); no route picks one by hand.
+
+        Identity is the bearer credential (`api:<id>`); a body `actor` is ignored, so idempotency
+        keys (`ops[].idempotencyKey`) are namespaced per token. Capability is checked per select/op
+        (ADMIN grants all): a read select lacking it fails the whole call with `forbidden`
+        (`scope: capability`), an op element lacking it fails alone and is never executed. The
+        token's root/tag scope reaches every handler; an out-of-scope item is `forbidden`
+        (`scope: root|tag`), list reads filter instead.
+
+        Faults answer an envelope with status 400 `invalid_request`: a tool that is not registered
+        (field `tool`), a `Content-Type` other than `application/json` (field
+        `Content-Type`; absent is accepted), an `Idempotency-Key` header (field `Idempotency-Key`; use
+        `ops[].idempotencyKey`), or a body that is not a JSON object (field `$`). A body over 1 MiB
+        is 413 `payload_too_large`. A missing or invalid credential answers the 401 unauthenticated
+        envelope (see Unauthorized). Serves every registered select and op whatever its MCP profile set,
+        REST-only members included.
+
+        The `advance` tool (`/ops/advance`) replaces the 3.x `advance_item` and `claim_item` tools and the
+        removed `POST /items/{id}/advance` route. Its `ops[]` elements are `transition` (apply a trigger),
+        `claim` (by `itemId` or `select`), `release` and `heartbeat`, all needing the `advance` capability.
+        Claim ownership and resource leases are enforced on this route exactly as on MCP. Inside a run that is not closed,
+        whose pinned schema declares `seats`, a `transition` is also checked against the caller's seat: a caller that
+        may not send the trigger to that item is `403 seat_forbidden` (`detail`: `itemId`, `seat` (omitted without a
+        token), `action`, `allowedSeats`), nothing is applied, and a human credential is exempt. A cascade into such a
+        member the caller could not advance directly is not applied and is reported with `blocked: seat`.
+        A terminal cascade never moves a parent in `review`: it is reported with `blocked: gate` and
+        `reason: review-pending` (no `missing`). A `claim` that takes
+        an item over another holder pair's lapsed claim adds `displaced: {assignmentId?, expiredAt, principal?}`
+        to its result (`principal` only for a caller that may see principals) and records the table-only
+        `claim.expired` row with `reason: "displaced"` and `displacedBy` (the new holder's assignment id, or
+        null); a claim.expired row found by a sweep or advance carries `reason: "expired"`.
+
+        `items_write` ops are `create`, `update`, `delete`, and `create_tree`, `complete_tree` and `repin`
+        (orchestration profile only). `repin` (`{op: "repin", id, expectedVersion?}`, `write-items` capability)
+        moves the item's config pin to the current config heads and answers `{ok, id, version, repinned,
+        schemaVersion?}`; `repinned: false` means the pin was current and nothing was written. A `notes_write`
+        `upsert` of a key that a pinned item's pinned schema lacks but the current head schema requires fails
+        `schema_pinned_conflict` (409; `detail.itemId`, `pinnedVersion`, `currentVersion` as
+        `server:<n|none>/root:<n|none>`): repin the item first.
+
+        The `docs_read` and `docs_write` tools replace the 3.x `manage_plan_documents` tool and the removed
+        `/roots/{rootId}/plans[/{slug}]` routes. `docs_read` selects are `get`, `list`, `history` and `links`
+        (`READ`); `docs_write` ops are `upsert`, `archive`, `unarchive`, `delete`, `attach` and `detach`, all needing
+        `write-docs` (`write-config` grants none of them). A document is addressed by `(rootId, kind, slug)`.
+        `bodyFromFile` is refused on this route
+        (`invalid_request`, no file read).
+
+        The `config` tool (`/ops/config`) replaces the 3.x `manage_project_config` and `query_rules` tools and the
+        per-root config, rule and config-discovery routes (`/roots/{rootId}/config*`, `/roots/{rootId}/rules*`,
+        `/config`, `/config/schemas*`, `/config/traits`, `/config/types`, `/config/status-graph`, all removed).
+        Its `ops[]` elements are `get`, `history`, `validate`, `effective` and `rules` (capability `read`) and
+        `push`, `rollback` and `reset` (capability `write-config`). Only `GET /config/schema` stays a route.
+
+        The `report` tool (`/ops/report`, capability `read`; on MCP the director profile only) serves aggregate
+        reports. Its selects are `usage` (windows at most 400 days), `gates`, `contention` and an anchor `rollup` (at
+        most 31 days), `waste` (at most 7 days) and a run `rollup` (the whole run). `usage` reports call-log calls, errors,
+        response bytes, token estimate, average and maximum latency, retries and replays per `groupBy` group over a
+        half-open `[since, until)` window (default the last 7 days, at most 400; at most 31 inside the raw horizon reads
+        `call_log`, `basis: raw`, otherwise the per-day summaries plus the raw tail, `basis: daily`), with
+        `data.window` next to `items` and `page`. `gates` counts rejected transitions (`transition.rejected` events;
+        `blocks` and `items`) per `noteKey` (default), `type`, `trait` or `errorCode`. `contention` counts claim and
+        lease events per `resource` (`acquired`, `rejected`, `expired`, `released`, `forceReleased`, with
+        `contentionRate`, `expiryRate` and `forceReleaseRate` rounded to 4 decimals and omitted when the denominator
+        is 0). `gates` and `contention` windows are at most 31 days. Each item's `key` is `{<groupBy>: value}`, or `{}`
+        when the group value is missing (never a JSON `null`). `waste` answers one object of call-pattern waste
+        signals (`redundantReads`, `overFetch`, `readsWithoutLaterWrite`, `emptyNext`, `relatedFollowThrough`,
+        `lifecycleFreeRejections`, each `{value?, numerator, denominator, basis?}`), with no grouping and no page.
+        `rollup` takes exactly one of `anchorId` and `runId` (neither is `invalid_request` on `/anchorId`, both on
+        `/runId`). With `anchorId` it answers one object for the anchor's subtree (inclusive):
+        `{scope: {anchorId, rootId}, window: {since, until, clamped?}, itemCounts: {total, byRole}, blocked: {total},
+        transitions: {total, cascades, rejected}, notes: {written}, cost: {calls, errors, retries, responseBytes,
+        responseTokensEst, basis: targets}}`, short ids only; with neither `since` nor `until` the window runs from the
+        subtree's first event to its last plus 1 ms, clamped to 31 days (`window.clamped`). Its cost is a lower bound
+        (calls that named a subtree item or wrote one of its events). With `runId` (resolved like `runs_read` `get`;
+        `since` or `until` with it is `invalid_request` on that field) it answers the whole run: `scope: {runId,
+        rootId}`, `window` from `openedAt` to `closedAt` or now, `run: {status, terminalReason?, openedAt, closedAt?}`,
+        item and blocked counts over the current members (`blocked.byReason`, plus `resumable` and `dwellMs` when
+        non-zero), transitions and notes from the events stamped with the run, `cost` (`basis: run`) from the calls
+        stamped with it, `decisions: {open, byClass, bySeverity}`, `seats: {active, stalled, count}`, `attempts: {total,
+        max}` and `budget: {used, limit?, basis: enforced}`. A closed run answers the snapshot stored in its
+        `run.ended` event; a root-scoped token sees only runs of its roots.
+        Scope differs per select. `usage`, `waste` and `rollup` read `call_log` rows, which carry no tags: a tag-scoped token is
+        `forbidden` (`scope: tag`) and a root-scoped token sees only calls recorded against its roots; `groupBy:
+        principal` needs `admin` (else `forbidden`, `scope: capability`) and is raw-only (`invalid_request` on the
+        daily basis). `gates` and `contention` read events: a tag-scoped token is not refused and sees only the events
+        whose item currently carries an allowed tag, and a root-scoped token sees only the events of its roots.
+
+        The `runs_read` tool (`get`, `list`, `seats`, `frontier`; capability `read`) and the `runs_write` tool (`open`, `update`,
+        `close`, `pause`, `resume`, `mark`, `assign`, `end_seat`, `raise`, `withdraw`; capability `runs`, and `ack` and `answer` with
+        capability `decide`) serve runs and decisions. A run is as visible as
+        its root: a run whose root is outside the token's scope is `forbidden` (`root` or `tag`) before any permission
+        rule, and `list` leaves it out. `open` returns `coordinatorToken`, the run's coordinator credential (shown once).
+        A token is shown once: a keyed replay of `open` or `assign` returns the stored result without
+        `coordinatorToken` or `seatToken` and with `tokenRedacted: true` (the idempotency store never holds a token);
+        re-assign the seat for a fresh token, or close the run and open a new one for a new coordinator token.
+        The coordinator is the caller presenting that token as the top-level `seatToken`. `close` is for the
+        coordinator, the director profile or a human token; `pause` and `resume` for the director profile or a human
+        token (never under a seat token); `update` and `assign` for the coordinator; `end_seat` for the seat's own
+        token; a refusal is `forbidden` with `detail.scope: principal_kind` and `detail.required` the allowed kinds.
+        `assign{runId, itemId, seat, hints?}` returns `{assignmentId, seatToken, attempt}` (an unknown seat is
+        `not_found`, `detail.kind: seat`); `end_seat{outcome, summary?, links?}` returns `{assignmentId, itemId, seat,
+        attempt, outcome, endedAt, released}`; `seats{runId, itemId?, ended?}` returns `{runId, seats}` without any
+        token. `frontier{runId}` returns `{runId, status, stalled, counts, ready, inFlight, waiting}` (item ids are
+        8-hex short ids; members and blockers outside the token's scope are left out). Every run view carries
+        `activeSeats` and `stalledSeats`; under a restricted scope, `members`, `activeSeats` and `stalledSeats` count
+        only what the caller's scope can see. `mark` is REST only: it sets a named instant on a run in any status, first write wins, and
+        `marked: false` reports a replay.
+        Decisions: `runs_write` `raise` (capability `runs`), `ack` and `answer` (capability `decide`) and `withdraw`
+        (capability `runs`); `runs_read` `decisions{runId?, itemId?, rootId?, overdue?, limit?, cursor?}` (newest
+        first) and `decision{decisionId}` (capability `read`). `decisions` has no status filter: every summary carries
+        `status`, so a caller filters by status client-side. A decision is as visible as its root, like a run.
+        Any body may carry a top-level `seatToken` (every tool): it is accepted only while its assignment is active
+        and only from the principal it was issued to; otherwise the call is `401 unauthenticated` with the fixed
+        message `The seat token is not accepted.` and no detail, before anything else in the body is read. A call
+        under a token loses ADMIN, holds claims as its seat (principal plus assignment), owns the notes it creates or
+        adopts as its seat (owner pair), records its seat as each written note's attribution seat, and is its own
+        idempotency principal. `advance` `heartbeat` takes `usage{tokens, costUsd}` under a
+        token. The run errors are 409 `run_closed` (`runId`, `terminalReason`), `run_paused` (`runId`, `pauseReason`,
+        `pauseDecisionId?`), `invalid_run_state` (`runId`, `status`, `allowed`), `run_at_capacity` (transient; `runId`,
+        `active`, `max`) and `decision_closed` (`decisionId`, `status`); a refused seat is 403 `seat_forbidden`. The check
+        order is scope, then permission, then the state of the run. The coordinator token of a closed run is dead
+        (`401 unauthenticated`); a director or human `close` still works.
+      parameters:
+        - name: tool
+          in: path
+          required: true
+          description: Registry tool name.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: The tool's arguments, exactly as in an MCP tools/call.
+              additionalProperties: true
+      responses:
+        "200":
+          description: Envelope with ok=true; every batch element succeeded (any failed element makes the call 207)
+          headers:
+            X-Req-Id:
+              description: The call's correlation id, equal to meta.reqId.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "207":
+          description: Partial batch - some ops[] elements failed (see results[].error)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "400":
+          description: invalid_request or unknown_parameter envelope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/KeySetUnavailable"
+        "403":
+          description: forbidden envelope (capability, root or tag scope, or a director-profile credential (detail.required director)) or another 403 catalog code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
         "409":
           description: >-
-            duplicate_dependency — an edge with the same fromItemId/toItemId/type already exists.
+            Envelope whose top-level error is a 409 catalog code: version_conflict, schema_pinned_conflict
+            (a notes_write upsert against a stale pin), resource_unavailable and the other conflict codes
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorDto"
+                $ref: "#/components/schemas/OpsEnvelope"
         "413":
-          description: >-
-            Payload too large — body exceeds the shared 1 MiB write-body limit, enforced before
-            the body is buffered (Content-Length pre-check, then a capped channel read).
+          description: payload_too_large envelope (body over 1 MiB)
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "415":
-          description: >-
-            Unsupported media type — Content-Type is present and is not application/json (an
-            absent header is accepted as */*); checked before the body is read.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
+                $ref: "#/components/schemas/OpsEnvelope"
         "500":
-          $ref: "#/components/responses/InternalServerError"
+          description: internal envelope (fixed message; detail only in the server log)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
 
-  /dependencies/{id}:
-    delete:
-      summary: Remove a dependency edge
-      operationId: deleteDependency
-      tags: [dependencies]
+  /ops/director/{tool}:
+    post:
+      summary: Call a director-profile tool (RPC)
+      operationId: callDirectorOp
+      tags: [ops]
+      description: |
+        The director tool profile over REST, through the same dispatcher as `/ops/{tool}`: the same body,
+        envelopes, statuses, capability and scope checks, serving only the director set (`items_read` `get`,
+        `list`, `overview`, `blocked`; `deps_read` `list`, `graph`; `runs_read` `get`, `list`, `frontier`,
+        `decisions`, `decision`; `runs_write` `open`, `close`, `pause`, `resume`, `ack`, `answer`, `withdraw`). For a
+        member of that set the envelope is
+        byte-equal to the `/ops/{tool}` answer, apart from `meta.reqId`.
+
+        A registered tool with no member in the director set is 403 `forbidden` (`scope: capability`,
+        `required: director`); an unregistered name is 400 `invalid_request` (field `tool`); a select hidden
+        inside a visible tool is the dispatcher's 400 `invalid_request` (`/select`). This is the only path a
+        token-file credential with `profile: director` may call; every other path answers that credential 403
+        `forbidden` (`required: director`).
       parameters:
-        - $ref: "#/components/parameters/depId"
+        - name: tool
+          in: path
+          required: true
+          description: Registry tool name (lowercase).
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: The tool's arguments, exactly as in an MCP tools/call.
+              additionalProperties: true
       responses:
-        "204":
-          description: Deleted
+        "200":
+          description: Envelope with ok=true
+          headers:
+            X-Req-Id:
+              description: The call's correlation id, equal to meta.reqId.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "400":
+          description: invalid_request or unknown_parameter envelope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/KeySetUnavailable"
         "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
+          description: forbidden envelope (a tool outside the director set, capability, root or tag scope)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "413":
+          description: payload_too_large envelope (body over 1 MiB)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "500":
+          description: internal envelope (fixed message; detail only in the server log)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
 
   /resources/leases:
     get:
@@ -2515,19 +1120,30 @@ paths:
       operationId: listResourceLeases
       tags: [resources]
       description: >-
-        Cross-project, server-wide — not root-scoped, unlike the rest of this API. Backs the
-        resource-lease gate on POST /items/{id}/advance and the resources: trait dimension.
+        Cross-project, server-wide - not root-scoped, unlike the rest of this API. Backs the
+        resource-lease gate of the `advance` tool's `transition` op and the resources: trait
+        dimension. Answers the response envelope: a list page ordered by (resourceKey, holderItemId)
+        whose `page.total` equals `items.length` (lease cardinality is bounded, so the list is never
+        truncated). Item shape: `{resourceKey, holderItemId, acquiredByActorId?, acquiredAt,
+        expiresAt, originalAcquiredAt}`; `acquiredByActorId` is present only for ADMIN callers.
+        Requires `read`; a token without it gets `forbidden` (`scope: capability`).
       responses:
         "200":
-          description: >-
-            Active leases. acquiredByActorId is present per-entry only for ADMIN callers
-            (omitted, not null, for others).
+          description: Envelope with ok=true and a list page of active leases
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ResourceLeaseListResponseDto"
+                $ref: "#/components/schemas/OpsEnvelope"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/KeySetUnavailable"
+        "403":
+          description: forbidden envelope (the token lacks `read`, or a director-profile credential (detail.required director))
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
 
   /resources/leases/{key}:
     delete:
@@ -2535,8 +1151,11 @@ paths:
       operationId: forceReleaseResourceLease
       tags: [resources]
       description: >-
-        ADMIN only. Recovers a lease stuck by a crashed holder without waiting out the TTL (up to
-        24h) or disabling enforcement server-wide. WARN-logged with the acting principal's token id.
+        ADMIN only (`admin` capability; otherwise `forbidden` with `scope: capability`, `required:
+        admin`). Recovers a lease stuck by a crashed holder without waiting out the TTL (up to 24h) or
+        disabling enforcement server-wide; this is the only recovery path now that the advance
+        `overrideResourceLeases` flag is gone. WARN-logged with the acting principal's token id.
+        Answers the response envelope: `data = {resourceKey, releasedCount}`.
       parameters:
         - name: key
           in: path
@@ -2547,23 +1166,35 @@ paths:
             maxLength: 128
       responses:
         "200":
-          description: Released
+          description: Envelope with ok=true; data is {resourceKey, releasedCount}
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ResourceLeaseReleaseResponseDto"
+                $ref: "#/components/schemas/OpsEnvelope"
         "400":
-          $ref: "#/components/responses/BadRequest"
+          description: invalid_request envelope (field `key` fails the pattern or length)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/KeySetUnavailable"
         "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          description: No active lease exists on this key (idempotent-safe — a repeat call 404s, not a second 200)
+          description: forbidden envelope (the token lacks `admin`, or a director-profile credential (detail.required director))
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorDto"
+                $ref: "#/components/schemas/OpsEnvelope"
+        "404":
+          description: >-
+            not_found envelope with detail kind `lease`: no active lease exists on this key (a repeat
+            call after a successful release is a 404, not a second 200)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
 
   /resources/leases/history:
     get:
@@ -2571,9 +1202,15 @@ paths:
       operationId: listResourceLeaseHistory
       tags: [resources]
       description: >-
-        Append-only lease-interval audit log — answers "who held resource R at time T" after a
-        lease has already been released, stolen, or force-released, which the current-holders-only
-        /resources/leases list cannot. No pruning/retention in v1.
+        Append-only lease-interval audit log - answers "who held resource R at time T" after a lease
+        has already been released, stolen, or force-released, which the current-holders-only
+        /resources/leases list cannot. Closed intervals are pruned by RETENTION_LEASE_HISTORY_DAYS
+        (default 365); open intervals never. Answers the response envelope: a
+        list page, newest-first `(acquiredAt DESC, id ASC)`, with `page.total` the count of all matching
+        intervals, `page.truncated` true while more remain and `page.next` the cursor for the next page. Item shape:
+        `{resourceKey, holderItemId, acquiredByActorId?, acquiredAt, expiresAt, releasedAt?,
+        releaseReason?, releasedByActorId?}`; the two actor ids are present only for ADMIN callers.
+        Requires `read`.
       parameters:
         - name: key
           in: query
@@ -2588,829 +1225,50 @@ paths:
           description: >-
             ISO-8601 instant. When present, returns every interval held at that instant
             (acquiredAt <= at < coalesce(releasedAt, expiresAt)). When absent, returns the most
-            recent intervals, newest-first.
+            recent intervals. An unparsable value is invalid_request on field `at`.
           schema:
             type: string
             format: date-time
         - name: limit
           in: query
           required: false
-          description: Default 100, clamped to [1, 500].
+          description: Integer from 1 to 200, default 50. Any other value is invalid_request on field `limit`.
           schema:
             type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          description: >-
+            The previous page's `page.next` (an offset only, not bound to key/at). Absent is the first
+            page; a malformed or empty value is invalid_cursor.
+          schema:
+            type: string
       responses:
         "200":
-          description: >-
-            Matching intervals. acquiredByActorId / releasedByActorId are present per-entry only
-            for ADMIN callers (omitted, not null, for others).
+          description: Envelope with ok=true and a list page of lease intervals
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ResourceLeaseHistoryResponseDto"
+                $ref: "#/components/schemas/OpsEnvelope"
         "400":
-          $ref: "#/components/responses/BadRequest"
+          description: invalid_request envelope (fields key, at or limit) or invalid_cursor envelope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
         "401":
           $ref: "#/components/responses/Unauthorized"
-
-  /transitions:
-    get:
-      summary: Recent transitions across all items
-      operationId: listTransitions
-      tags: [transitions]
-      description: >-
-        Scope-filtered by ancestor chain for root_ids-scoped tokens. A scope.tags_include token is
-        additionally filtered to transitions on items carrying an allowed tag (item-level exact
-        match) — a tag scope matching nothing returns 200 with an empty page, never 403.
-
-        Scan cap: the underlying fetch is bounded at 1000 rows regardless of how many transitions
-        match `since`. Beyond that cap, pages come back truncated (hasMore reads false even though
-        older matching transitions exist past the scan limit). Narrow `since` rather than paging
-        deeper to stay under the cap.
-      parameters:
-        - name: since
-          in: query
-          schema:
-            type: string
-            format: date-time
-          description: Default 24 hours ago when absent or blank. An unparsable value returns 400 validation_error.
-        - $ref: "#/components/parameters/page"
-        - $ref: "#/components/parameters/pageSize"
-      responses:
-        "200":
-          description: Scope-filtered transition history
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/PageDto"
-                  - properties:
-                      items:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/RoleTransitionDto"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
-  /search:
-    get:
-      summary: FTS5 full-text search over item titles and summaries
-      operationId: searchItems
-      tags: [search]
-      description: >-
-        A scope.tags_include token has its hits filtered to items carrying an allowed tag
-        (item-level exact match, applied after the FTS5 query) — a tag scope matching nothing
-        returns 200 with an empty list, never 403.
-      parameters:
-        - name: q
-          in: query
-          required: true
-          schema:
-            type: string
-        - name: ancestorId
-          in: query
-          schema:
-            type: string
-            format: uuid
-        - name: role
-          in: query
-          description: Matching is case-insensitive (the enum lists the canonical lower-case values). An unrecognized value returns 400 validation_error.
-          schema:
-            type: string
-            enum: [queue, work, review, blocked, terminal]
-        - name: tag
-          in: query
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Ranked search hits (up to 50)
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/SearchHitDto"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-
-  /notes/search:
-    get:
-      summary: FTS5 full-text search over note bodies
-      operationId: searchNotes
-      tags: [search]
-      description: >-
-        A scope.tags_include token has its hits filtered to notes on items carrying an allowed tag
-        (item-level exact match, applied after the FTS5 query) — a tag scope matching nothing
-        returns 200 with an empty list, never 403.
-      parameters:
-        - name: q
-          in: query
-          required: true
-          schema:
-            type: string
-        - name: ancestorId
-          in: query
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "200":
-          description: Ranked note-body hits (up to 50)
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/SearchHitDto"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
-  /config:
-    get:
-      summary: Full config snapshot
-      operationId: getConfig
-      tags: [config]
-      parameters:
-        - name: If-None-Match
-          in: header
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Config snapshot
-          headers:
-            ETag:
-              schema:
-                type: string
-                description: '"cfg-<fingerprint>"'
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ConfigSnapshotDto"
-        "304":
-          description: Not modified
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
-  /config/schemas:
-    get:
-      summary: All schema definitions
-      operationId: listSchemas
-      tags: [config]
-      parameters:
-        - name: If-None-Match
-          in: header
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Schema list
-          headers:
-            ETag:
-              schema:
-                type: string
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/SchemaDto"
-        "304":
-          description: Not modified
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
-  /config/schemas/{type}:
-    get:
-      summary: Single schema by type
-      operationId: getSchema
-      tags: [config]
-      parameters:
-        - name: type
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: If-None-Match
-          in: header
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Schema
-          headers:
-            ETag:
-              schema:
-                type: string
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SchemaDto"
-        "304":
-          description: Not modified
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /config/traits:
-    get:
-      summary: All trait definitions
-      operationId: listTraits
-      tags: [config]
-      parameters:
-        - name: If-None-Match
-          in: header
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Traits list
-          headers:
-            ETag:
-              schema:
-                type: string
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/TraitDto"
-        "304":
-          description: Not modified
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
-  /config/types:
-    get:
-      summary: Sorted list of registered type name strings
-      operationId: listTypes
-      tags: [config]
-      parameters:
-        - name: If-None-Match
-          in: header
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Type names
-          headers:
-            ETag:
-              schema:
-                type: string
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: string
-        "304":
-          description: Not modified
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
-  /config/status-graph:
-    get:
-      summary: Structural role-transition graph
-      operationId: getStatusGraph
-      tags: [config]
-      description: |
-        IMPORTANT: This is the structural/schema-defined graph only. It does NOT reflect
-        runtime gate enforcement (note gates, dependency blockers, claim ownership).
-        Do not use to pre-compute which transitions to enable in UI — call advance and
-        surface the 422 error instead.
-      parameters:
-        - name: If-None-Match
-          in: header
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Status graph
-          headers:
-            ETag:
-              schema:
-                type: string
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/StatusGraphDto"
-        "304":
-          description: Not modified
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
-  /roots/{rootId}/config:
-    parameters:
-      - name: rootId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-    get:
-      summary: Read back the stored per-root config
-      operationId: getProjectConfig
-      tags: [project-config]
-      description: |
-        Requires READ + scope (rootId must be within the token's rootIds when scoped). Mirrors
-        the MCP manage_project_config tool's get operation — does not validate that the WorkItem
-        itself exists, only that a config row has been pushed.
-      parameters:
-        - name: If-None-Match
-          in: header
-          schema:
-            type: string
-        - name: fingerprint
-          in: query
-          schema:
-            type: string
-          description: >-
-            Optional SHA-256 hex digest (BOM-stripped, CRLF-normalized before hashing — see
-            ProjectConfigResponseDto.fingerprint); when supplied, adds a `relation` field
-            ("current"/"superseded"/"unknown") to the response, classifying it against the
-            root's stored fingerprint history.
-      responses:
-        "200":
-          description: Stored config
-          headers:
-            ETag:
-              schema:
-                type: string
-                description: '"cfg-<fingerprint>"'
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ProjectConfigResponseDto"
-        "304":
-          description: Not modified
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          description: No config has been pushed for this root
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-
-    put:
-      summary: Validate and store raw config YAML for a root
-      operationId: putProjectConfig
-      tags: [project-config]
-      description: |
-        Requires WRITE_CONFIG + scope. Delegates the full validate-then-persist pipeline
-        (size cap -> root exists -> root is depth-0 -> SafeConstructor parse-validate ->
-        embedded-rootId guard -> fast-forward fingerprint guard -> upsert) to
-        ProjectConfigPushService — the SAME service the MCP manage_project_config tool's push
-        operation calls, so both surfaces converge on identical DB state for the same payload.
-
-        The embedded-rootId guard: if the parsed document has a top-level project.rootId that
-        parses as a UUID and differs from {rootId}, the push is rejected as 422 rootid_mismatch
-        unless ?force=true is set. An absent or non-UUID project.rootId is not an error.
-
-        The fast-forward (known-old) guard: the incoming configYaml's fingerprint is classified
-        against {rootId}'s stored fingerprint history. A fingerprint that is superseded (present
-        in history but not current) is rejected as 409 superseded — distinct from 412
-        etag_mismatch, which is a concurrent-write guard rather than a known-old-content guard —
-        unless ?force=true is set. current (idempotent re-push) and unknown (divergent edit, or
-        no row/history yet) both proceed normally.
-
-        On success, top-level keys in the parsed document not honored by the per-root resolution
-        layer (work_item_schemas, note_schemas, traits, project, note_limits, status_labels) are
-        reported in the response's ignoredSections array — e.g. actor_authentication, which stays
-        global-only.
-      parameters:
-        - name: If-Match
-          in: header
-          schema:
-            type: string
-          description: >-
-            Optional; validated against the CURRENT stored fingerprint's ETag when a row already
-            exists. Ignored on a first push (no prior row to match).
-        - name: force
-          in: query
-          schema:
-            type: boolean
-            default: false
-          description: >-
-            Bypass push guards — skips both the embedded project.rootId mismatch check and the
-            fast-forward fingerprint guard.
-      requestBody:
-        required: true
-        content:
-          application/yaml:
-            schema:
-              type: string
-          text/plain:
-            schema:
-              type: string
-      responses:
-        "200":
-          description: Config validated and stored
-          headers:
-            ETag:
-              schema:
-                type: string
-                description: '"cfg-<fingerprint>"'
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ProjectConfigResponseDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          description: rootId does not resolve to an existing WorkItem
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "409":
-          description: >-
-            configYaml's fingerprint is known-old (superseded) — present in the root's
-            fingerprint history but not current; retry with ?force=true to overwrite anyway
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "412":
-          description: If-Match mismatch against the current fingerprint
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "413":
-          description: >-
-            configYaml exceeds the 128 KiB cap (unchanged); now enforced before the body is fully
-            buffered.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "422":
-          description: >-
-            rootId is not depth-0, configYaml failed parse-validation, or configYaml embeds a
-            mismatched project.rootId (rootid_mismatch)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-
-    delete:
-      summary: Delete the stored per-root config
-      operationId: deleteProjectConfig
-      tags: [project-config]
-      description: Requires WRITE_CONFIG + scope.
-      responses:
-        "204":
-          description: Deleted
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          description: No config row existed for this root
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-
-  /roots/{rootId}/config/effective:
-    parameters:
-      - name: rootId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-    get:
-      summary: Effective (layered, per-root-over-global) config view for a root
-      operationId: getEffectiveConfig
-      tags: [project-config]
-      description: |
-        Additive route (AR-39/C5): every registered type (the union of this root's per-root
-        work_item_schemas keys and the global schema service's keys) that resolves against rootId's
-        layered config (per its schema_resolution mode), in one response — the same view EffectiveConfigResolver and MCP
-        query_items(schema, type=K, rootId=R) already compute. Distinct from GET /config
-        (GLOBAL-only) and GET /roots/{rootId}/config (the RAW stored YAML): reports each type's
-        RESOLVED base schema only, with no trait merging. Purely additive — no existing /config*
-        or /roots/{rootId}/config route, body, or ETag changes.
-
-        Authorization/validation order: READ capability -> parse {rootId} as a UUID (400) ->
-        ApiScope.rootIds scope check (403) -> root WorkItem exists (404) -> root is depth-0 (422)
-        -> exactly one per-root config read, wrapped in the same config_unavailable 503 envelope
-        POST /items/{id}/advance and GET /items/{id}/gate use.
-      parameters:
-        - name: If-None-Match
-          in: header
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Effective config for this root
-          headers:
-            ETag:
-              schema:
-                type: string
-                description: >-
-                  '"eff-<fingerprint>"' — a composite SHA-256 over both layers' fingerprints;
-                  distinct from the "cfg-" prefix /config* and /roots/{rootId}/config use.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/EffectiveConfigDto"
-        "304":
-          description: Not modified
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          description: rootId does not resolve to an existing WorkItem
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "422":
-          description: rootId resolves to a WorkItem that is not depth-0
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "500":
-          description: >-
-            The root-lookup read itself failed with a repository error other than not-found (a
-            transient DB failure), distinct from the 404 case above.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
         "503":
-          $ref: "#/components/responses/ConfigUnavailable"
-
-  /roots/{rootId}/plans:
-    parameters:
-      - name: rootId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-    get:
-      summary: List metadata-only plan document summaries for a root
-      operationId: listPlanDocuments
-      tags: [plan-documents]
-      description: |
-        Requires READ + scope. Returns metadata-only summaries (never the body) for every
-        document under {rootId}, ordered by slug ascending.
-      parameters:
-        - name: status
-          in: query
-          schema:
-            type: string
-            enum: [pending, adopted]
-          description: Optional filter to a single status.
-      responses:
-        "200":
-          description: Plan document summaries
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PlanDocumentListResponseDto"
-        "400":
-          description: Invalid status query parameter
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
+          $ref: "#/components/responses/KeySetUnavailable"
         "403":
-          $ref: "#/components/responses/Forbidden"
-
-  /roots/{rootId}/plans/{slug}:
-    parameters:
-      - name: rootId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      - name: slug
-        in: path
-        required: true
-        schema:
-          type: string
-    get:
-      summary: Read back a stored plan document, including its body
-      operationId: getPlanDocument
-      tags: [plan-documents]
-      description: |
-        Requires READ + scope. Mirrors the MCP manage_plan_documents tool's get operation.
-      responses:
-        "200":
-          description: Stored plan document
+          description: forbidden envelope (the token lacks `read`, or a director-profile credential (detail.required director))
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PlanDocumentResponseDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          description: No document exists at this slug
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-
-    put:
-      summary: Validate and stash a plan document body for a root+slug
-      operationId: putPlanDocument
-      tags: [plan-documents]
-      description: |
-        Requires WRITE_CONFIG + scope. Delegates the full validate-then-persist pipeline
-        (size cap -> root exists -> root is depth-0 -> stash) to PlanDocumentService — the
-        SAME service the MCP manage_plan_documents tool's stash operation calls, so both
-        surfaces converge on identical DB state (including contentHash) for the same payload.
-
-        A document already at status "adopted" for this slug cannot be overwritten by stash —
-        adoption is a one-way transition, rejected as 409 adopted_conflict. A "pending" document
-        at that slug is overwritten in place.
-      requestBody:
-        required: true
-        content:
-          text/plain:
-            schema:
-              type: string
-      responses:
-        "200":
-          description: Plan document validated and stashed
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PlanDocumentResponseDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          description: rootId does not resolve to an existing WorkItem
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "409":
-          description: The slug is already adopted; adoption is one-way and cannot be overwritten
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "413":
-          description: >-
-            body exceeds the 64 KiB cap (16 KiB / 16384 UTF-8 bytes for a `rule/<key>` slug); now
-            enforced before the body is fully buffered.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "422":
-          description: rootId is not depth-0
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-
-  /roots/{rootId}/rules:
-    parameters:
-      - name: rootId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-    get:
-      summary: List rule keys under a root, metadata only
-      operationId: listRules
-      tags: [rules]
-      description: |
-        Requires READ + scope. Returns {key, rulesVersion, updatedAt} for every valid
-        rule/<key> plan document under {rootId}, sorted by key ascending, never the body.
-        Read-only REST counterpart of the MCP query_rules tool's list operation; both
-        surfaces converge on the same RuleService.
-      responses:
-        "200":
-          description: Rule key summaries
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/RuleListResponseDto"
-        "400":
-          description: rootId is missing or not a valid UUID
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          description: rootId does not resolve to an existing WorkItem
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "422":
-          description: rootId resolves to a WorkItem that is not depth-0
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "500":
-          description: The root-lookup or list read itself failed with a repository error.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-
-  /roots/{rootId}/rules/{key}:
-    parameters:
-      - name: rootId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      - name: key
-        in: path
-        required: true
-        schema:
-          type: string
-          pattern: "^[a-z0-9][a-z0-9._-]{0,99}$"
-    get:
-      summary: Read back one rule's body and rulesVersion
-      operationId: getRule
-      tags: [rules]
-      description: |
-        Requires READ + scope. Reads the rule/<key> plan document under {rootId} verbatim.
-        Read-only REST counterpart of the MCP query_rules tool's direct (rootId+key) get
-        lookup; both surfaces converge on the same RuleService, so rulesVersion (the backing
-        document's contentHash) and body always agree between MCP and REST for the same key.
-        REST has no item/skill-pointer mode -- use the MCP query_rules tool with
-        itemId+noteKey for that resolution.
-      responses:
-        "200":
-          description: The rule's body and rulesVersion
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/RuleResponseDto"
-        "400":
-          description: rootId is missing or not a valid UUID, or key fails the rule-key grammar
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          description: >-
-            Either rootId does not resolve to an existing WorkItem (error: not_found), or
-            rootId is a valid depth-0 root but no rule/<key> document exists there
-            (error: rule_not_found).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "422":
-          description: rootId resolves to a WorkItem that is not depth-0
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "500":
-          description: The root-lookup or document read itself failed with a repository error.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
+                $ref: "#/components/schemas/OpsEnvelope"
 
   /info:
     get:
@@ -3419,13 +1277,34 @@ paths:
       tags: [service]
       responses:
         "200":
-          description: Service info
+          description: Ok envelope whose data is the service info
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ServiceInfoDto"
+                allOf:
+                  - $ref: "#/components/schemas/OpsEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ServiceInfoDto"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          description: config_invalid envelope (the stored server config head cannot be loaded)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "503":
+          description: >-
+            unavailable envelope: the server config head cannot be read, or (jwks verifier) the credential's key set is
+            unavailable (no WWW-Authenticate); retry after error.retryAfterMs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
 
   /health:
     get:
@@ -3482,22 +1361,25 @@ paths:
         Use a fetch-based SSE library (e.g. @microsoft/fetch-event-source) with
         Authorization: Bearer, or enable API_ALLOW_QUERY_TOKEN_FOR_SSE=true for ?token= access.
 
+        The stream is a projection of the durable events table (4.0, V20): event ids are the
+        table's seq (above 10^12, monotonic, durable across restarts), writes from other processes
+        sharing the database stream within about one second, and nothing a rolled-back write did
+        is ever streamed. Rejections, lease, config and plan-document rows are table-only.
+
         Scope filtering: root scope (?root= intersected with principal.scope.rootIds) is applied
-        identically to the live stream and to Last-Event-ID replay — ring-buffer entries carry
-        affectedRoots metadata so replay is not unfiltered. A root-scoped principal (non-null
-        scope.rootIds) whose ?root= values do not intersect that scope gets 403 insufficient_scope
-        before the SSE stream opens; ?root= present with zero valid UUIDs gets 400 validation_error
-        (mixed valid/invalid values narrow and are accepted). A principal with scope.tags_include set
-        is additionally filtered per event (live and replay alike), using the same allowsItemTags
-        predicate as the REST collection endpoints; see api-rest.md §21/§3. KNOWN LIMITATION:
+        identically to the live stream and to Last-Event-ID replay -- every row carries its root_id,
+        so replay is not unfiltered. A root-scoped principal (non-null
+        scope.rootIds) whose ?root= values do not intersect that scope gets 403 forbidden (scope root)
+        before the SSE stream opens; any ?root= value that is not a UUID gets 400 invalid_request (Q32:
+        a mix of valid and invalid values is rejected too). Every pre-flight body is the error envelope. A
+        principal with scope.tags_include set is additionally filtered per event (live and replay alike),
+        using the same ScopeGuard predicate as the tools and REST reads; see api-rest.md §21/§3. KNOWN LIMITATION:
         item.deleted is dropped for a tag-scoped connection (its tags can no longer be resolved once
-        the item is gone), and dependency.* events on an ancestor-cache miss now fail CLOSED — they
-        reach only unrestricted subscribers (no ?root= filter, no scope.rootIds), never a root-scoped
-        one — see api-rest.md §25.
+        the item is gone) -- see api-rest.md section 24.
 
         A tags_include-scoped token additionally requires the route's WorkItemRepository wiring;
-        if that is unavailable the pre-flight plugin rejects the connection with 403
-        insufficient_scope rather than serving an unfiltered stream.
+        if that is unavailable the pre-flight plugin rejects the connection with 403 forbidden
+        (scope tag) rather than serving an unfiltered stream.
 
         Event ID namespace is independent from /mcp SSE channel. Do NOT reuse Last-Event-ID
         values across the two channels.
@@ -3525,16 +1407,17 @@ paths:
           schema:
             type: string
           description: >-
-            Resume from this event ID; replay is filtered by root and tags_include the same way
-            the live stream is. When the id is no longer replayable — older than the retained
-            ring buffer, above the current high-water mark (e.g. after a server restart, since
-            the id counter restarts at 0), or unparsable — the server emits a sync.lost event
-            with a reason (buffer_evicted or unknown_event_id) as the first frame, then
-            immediately replays the FULL retained buffer after it (replay resumes from the
-            sentinel's own id, not the client's cursor — no second reconnect needed). A blank or
-            absent header is not a resume attempt and never triggers sync.lost.
-            API_SSE_BUFFER_SIZE=0 legally retains nothing, so every resume attempt that carries a
-            Last-Event-ID yields buffer_evicted with no events to replay.
+            Resume from this event ID (a seq); replay is read from the events table and filtered
+            by root and tags_include the same way the live stream is, deduplicated against live
+            delivery by id. API_SSE_BUFFER_SIZE (default 1000) is the replay window. When the id
+            is not replayable -- more than the window behind the newest event (buffer_evicted),
+            above the newest event, below the 10^12 seq floor (any pre-4.0 ring-buffer id; the floor itself is a valid start-of-log cursor),
+            or unparsable (unknown_event_id) -- the server emits a sync.lost event with that reason
+            as the first frame, then immediately replays the whole window after it (replay resumes
+            from the sentinel's own id, max(10^12, newest - window), not the client's cursor -- no
+            second reconnect needed). A blank or absent header is not a resume attempt and never
+            triggers sync.lost. API_SSE_BUFFER_SIZE=0 means no replay: every resume behind the
+            newest event yields buffer_evicted with no events to replay.
       responses:
         "200":
           description: SSE stream (text/event-stream)
@@ -3545,34 +1428,40 @@ paths:
                 description: |
                   Each event: id:<n>\nevent:<type>\ndata:<ApiEvent JSON>\n\n
                   Event types: item.created, item.updated, item.deleted, item.advanced,
-                  note.upserted, note.deleted, dependency.added, dependency.removed,
-                  scope.entered, scope.left, sync.lost, auth.expired
+                  note.upserted, note.deleted, note.ownership_transferred, dependency.added, dependency.removed,
+                  scope.entered, scope.left, run.opened, run.updated, run.paused, run.resumed, run.ended,
+                  run.marked, seat.ended, decision.raised, decision.acknowledged, decision.answered,
+                  decision.withdrawn, sync.lost, auth.expired
 
                   ApiEvent JSON fields: id, event, itemId (null for sync.lost/auth.expired),
                   modifiedAt, newRole (item.advanced only), actor ({id, kind, parent?}, the writer;
                   domain events only; omitted when unknown, or for a non-admin caller when
                   API_REDACT_NOTE_ATTRIBUTION is true; never proof/verification), rootId (depth-0
-                  ancestor of the item; domain events only; omitted when unresolved, e.g. events
-                  published while no client was connected, live and on replay; never redacted), and reason — set only on sync.lost,
+                  ancestor of the item; present on every domain event since 4.0, live and on
+                  replay; never redacted), runId (run.*, seat.ended and decision.* events; run.* carry no
+                  itemId), decisionId, class and severity (decision.* events only; a decision event never
+                  carries an actor), and reason -- set only on sync.lost,
                   one of queue_overflow (per-connection queue overflowed), buffer_evicted
-                  (resumed Last-Event-ID older than the retained ring buffer), or
-                  unknown_event_id (resumed Last-Event-ID above the high-water mark or
-                  unparsable); null/absent on every other event type.
+                  (resumed Last-Event-ID further behind than the replay window), or
+                  unknown_event_id (resumed Last-Event-ID above the newest event, below the
+                  seq floor, or unparsable); null/absent on every other event type.
 
                   auth.expired: sent and the stream closed when the connection's token expires
                   (checked every API_SSE_AUTH_CHECK_INTERVAL_SECONDS). Fires for every JWKS session
                   (exp is a required claim in jwks mode — a token with no exp is rejected at auth
-                  time, 401 invalid_token). Does not fire for API_AUTH_MODE=none unauthenticated
+                  time, 401 unauthenticated). Does not fire for API_AUTH_MODE=none unauthenticated
                   sessions or for a bearer token with no expires_at — neither has an expiry to watch.
         "400":
           description: >-
-            Pre-flight validation failure: ?root= present but yields zero valid UUIDs
-            (validation_error, error_description body).
+            Pre-flight validation failure: a ?root= value is not a UUID (invalid_request envelope,
+            field root).
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AuthErrorDto"
+                $ref: "#/components/schemas/OpsEnvelope"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/KeySetUnavailable"
         "403":
           $ref: "#/components/responses/Forbidden"

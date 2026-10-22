@@ -41,7 +41,7 @@
       "resources": []
     }
   },
-  "noteActors": { "01bb5ffb-56f8-4886-ab2e-2659627e35a9": [] },
+  "noteOwners": { "01bb5ffb-56f8-4886-ab2e-2659627e35a9": [] },
   "parents": {
     "20654a3b-11cf-4c27-b578-9a0c81c37837": { "role": "work", "canAdvance": true, "missing": [] }
   },

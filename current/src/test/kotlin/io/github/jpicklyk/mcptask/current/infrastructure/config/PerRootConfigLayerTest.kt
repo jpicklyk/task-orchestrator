@@ -1,19 +1,23 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
+import io.github.jpicklyk.mcptask.current.test.get
+import io.github.jpicklyk.mcptask.current.test.getFingerprint
+import io.github.jpicklyk.mcptask.current.test.rootItemId
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -23,16 +27,20 @@ import kotlin.test.assertNull
 /**
  * Independently authored against the frozen `test-plan` note on item `df7d579a` (scenarios S6,
  * S11). Exercises [PerRootConfigService]'s new [PerRootConfigService.layer] port method — the
- * DB-backed harness style mirrors [PerRootConfigServiceTest]'s existing H2 setup. S11's
+ * DB-backed harness style mirrors [PerRootConfigServiceTest]'s existing database setup. S11's
  * cold-read-error / warm-LKG cases reuse the `FailableProjectConfigRepository` wrapper technique
- * from `AdvanceItemToolConfigUnavailableTest` (a `ProjectConfigRepository` delegate whose
+ * from `AdvanceItemToolConfigUnavailableTest` (a `ConfigStore` delegate whose
  * `getFingerprint` can be switched to fail), authored fresh here since that fixture is file-private
  * there and not a shared/importable fake.
  */
 class PerRootConfigLayerTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
     private lateinit var database: Database
     private lateinit var databaseManager: DatabaseManager
-    private lateinit var repository: SQLiteProjectConfigRepository
+    private lateinit var repository: SqliteConfigStore
     private lateinit var workItemRepository: SQLiteWorkItemRepository
     private lateinit var service: PerRootConfigService
     private lateinit var rootItemId: UUID
@@ -40,11 +48,9 @@ class PerRootConfigLayerTest {
     @BeforeEach
     fun setUp() =
         runBlocking {
-            val dbName = "test_${System.nanoTime()}"
-            database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-            databaseManager = DatabaseManager(database)
-            DirectDatabaseSchemaManager().updateSchema()
-            repository = SQLiteProjectConfigRepository(databaseManager)
+            database = sqliteDb.database
+            databaseManager = sqliteDb.databaseManager
+            repository = SqliteConfigStore(databaseManager)
             workItemRepository = SQLiteWorkItemRepository(databaseManager)
             service = PerRootConfigService(repository)
 
@@ -58,13 +64,13 @@ class PerRootConfigLayerTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S6 getNoteLimitsMode is null when no config row exists`() =
+    fun `S6 getNoteLimitsMode is null when no config row exists`(): Unit =
         runBlocking {
             assertNull(service.getNoteLimitsMode(rootItemId))
         }
 
     @Test
-    fun `S6 getNoteLimitsMode is warn when note_limits is present as an empty map`() =
+    fun `S6 getNoteLimitsMode is warn when note_limits is present as an empty map`(): Unit =
         runBlocking {
             repository.upsert(rootItemId, "note_limits: {}\n")
             assertEquals("warn", service.getNoteLimitsMode(rootItemId))
@@ -75,13 +81,13 @@ class PerRootConfigLayerTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S6 layer returns null when no config row exists`() =
+    fun `S6 layer returns null when no config row exists`(): Unit =
         runBlocking {
             assertNull(service.layer(rootItemId))
         }
 
     @Test
-    fun `S6 layer returns PER_ROOT source with the row fingerprint and the parsed schemas`() =
+    fun `S6 layer returns PER_ROOT source with the row fingerprint and the parsed schemas`(): Unit =
         runBlocking {
             val yaml =
                 """
@@ -113,14 +119,15 @@ class PerRootConfigLayerTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S11 layer returns null for unparseable per-root YAML`() =
+    fun `S11 layer fails closed for a head without canonical JSON`(): Unit =
         runBlocking {
+            // The ConfigTestSupport shim stores NULL canonical_json for YAML that does not parse.
             repository.upsert(rootItemId, "work_item_schemas: [\ninvalid yaml: :\n  - broken")
-            assertNull(service.layer(rootItemId))
+            assertFailsWith<io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException> { service.layer(rootItemId) }
         }
 
     @Test
-    fun `S11 layer throws PerRootConfigUnavailableException on a cold read error`() =
+    fun `S11 layer throws PerRootConfigUnavailableException on a cold read error`(): Unit =
         runBlocking {
             val wrapper = FailableProjectConfigRepository(repository)
             wrapper.failFingerprint = true
@@ -131,7 +138,7 @@ class PerRootConfigLayerTest {
         }
 
     @Test
-    fun `S11 layer serves the last-known-good layer when a warm cache hits a read error`() =
+    fun `S11 layer serves the last-known-good layer when a warm cache hits a read error`(): Unit =
         runBlocking {
             val wrapper = FailableProjectConfigRepository(repository)
             val warmService = PerRootConfigService(wrapper)
@@ -161,14 +168,16 @@ class PerRootConfigLayerTest {
 }
 
 private class FailableProjectConfigRepository(
-    private val delegate: ProjectConfigRepository,
-) : ProjectConfigRepository by delegate {
+    private val delegate: ConfigStore,
+) : ConfigStore by delegate {
     @Volatile var failFingerprint: Boolean = false
 
-    override suspend fun getFingerprint(rootItemId: UUID) =
-        if (failFingerprint) {
-            Result.Error(RepositoryError.DatabaseError("x"))
-        } else {
-            delegate.getFingerprint(rootItemId)
-        }
+    override suspend fun head(
+        scope: ConfigScope,
+        rootId: UUID?
+    ) = if (failFingerprint) {
+        throw IllegalStateException("x")
+    } else {
+        delegate.head(scope, rootId)
+    }
 }

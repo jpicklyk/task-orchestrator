@@ -1,0 +1,1 @@
+table|usage_fold|usage_fold|CREATE TABLE usage_fold ( singleton INTEGER PRIMARY KEY CHECK (singleton = 1), folded_through TEXT NOT NULL CHECK (length(folded_through) = 10), folded_at TEXT NOT NULL CHECK (length(folded_at) = 23) )

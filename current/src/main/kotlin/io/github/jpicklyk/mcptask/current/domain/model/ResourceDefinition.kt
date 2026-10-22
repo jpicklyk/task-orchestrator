@@ -14,7 +14,7 @@ package io.github.jpicklyk.mcptask.current.domain.model
  *
  * This is the server-global lock namespace: a resource `key` referenced by a trait's
  * [ResourceRequirement] resolves its default TTL and description against this registry — see
- * [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext.resolveResourceRegistry]
+ * [io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext.resolveResourceRegistry]
  * for the per-root/global layering (global wins on key collision, the inverse of trait-note
  * layering, since the lock namespace itself is server-global).
  *

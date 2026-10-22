@@ -1,0 +1,40 @@
+{
+    "success": true,
+    "data": {
+        "item": {
+            "id": "a1000000",
+            "parentId": "a1000000",
+            "type": "a1-t0-unmapped-type",
+            "title": "A1 T0 golden schema-free",
+            "role": "work",
+            "priority": "medium",
+            "depth": 1,
+            "version": 1
+        },
+        "schema": [
+            {
+                "key": "session-tracking",
+                "role": "work",
+                "required": true,
+                "exists": false,
+                "filled": false
+            }
+        ],
+        "gateStatus": {
+            "canAdvance": false,
+            "phase": "work",
+            "missing": [
+                "session-tracking"
+            ],
+            "blockedBy": "note"
+        },
+        "transitions": {
+            "block": "blocked",
+            "cancel": "terminal",
+            "complete": "terminal",
+            "hold": "blocked",
+            "start": "terminal"
+        },
+        "guidanceKey": "session-tracking"
+    }
+}

@@ -5,6 +5,24 @@ export const meta = {
   phases: [{ title: 'Review' }],
 }
 // @core-begin
+// @generated:tool-names-begin (scripts/gen-call-shapes.mjs; do not edit, run it to refresh)
+const TOOL_NAMES = Object.freeze({
+  ADVANCE: 'advance',
+  CONFIG: 'config',
+  DEPS_READ: 'deps_read',
+  DEPS_WRITE: 'deps_write',
+  DOCS_READ: 'docs_read',
+  DOCS_WRITE: 'docs_write',
+  ITEMS_READ: 'items_read',
+  ITEMS_WRITE: 'items_write',
+  NOTES_READ: 'notes_read',
+  NOTES_WRITE: 'notes_write',
+  REPORT: 'report',
+  RUNS_READ: 'runs_read',
+  RUNS_WRITE: 'runs_write',
+})
+// @generated:tool-names-end
+const MCP_TOOL_PREFIX = 'mcp__mcp-task-orchestrator__'
 const ENVELOPE_VERSION = 'envelope-v1'
 const VERDICTS = ['pass', 'pass-with-observations', 'fail-blocking']
 const INDEPENDENCE_MODES = ['independent', 'independent-degraded', 'not-independent', 'n/a']
@@ -135,9 +153,16 @@ function normalizeArgs(raw) {
   if (!Array.isArray(parsed.items) || parsed.items.length < 1) {
     return { ok: false, reason: 'invalid args: items must be a non-empty array' }
   }
+  // serverRunId is optional: the open server run the reviewed items belong to (a review lane on a
+  // run member writes under a seat token read from its stage's tokenFile).
+  if (parsed.serverRunId !== undefined && parsed.serverRunId !== null &&
+      (typeof parsed.serverRunId !== 'string' ||
+       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(parsed.serverRunId))) {
+    return { ok: false, reason: 'invalid args: bad serverRunId' }
+  }
 
   const ITEM_REQUIRED = ['id', 'short', 'type', 'configFingerprint', 'traits', 'worktree', 'stages', 'review']
-  const REVIEW_REQUIRED = ['ownedFiles', 'commits', 'implementerActors', 'testAuthorActors', 'requiredReviewNotes']
+  const REVIEW_REQUIRED = ['ownedFiles', 'commits', 'requiredReviewNotes']
   const STAGE_REQUIRED = ['seat', 'lane', 'phase', 'notes', 'writes', 'protocol', 'dispatch', 'output']
   const items = []
   for (const rawItem of parsed.items) {
@@ -173,6 +198,12 @@ function normalizeArgs(raw) {
       if (st.output !== 'review-v1' && st.output !== 'simplify-v1') {
         return { ok: false, reason: 'invalid args: bad stage output' }
       }
+      if (st.tokenFile !== undefined && st.tokenFile !== null && (typeof st.tokenFile !== 'string' || st.tokenFile === '')) {
+        return { ok: false, reason: 'invalid args: bad stage tokenFile' }
+      }
+      if (st.tokenFile && !parsed.serverRunId) {
+        return { ok: false, reason: 'invalid args: stage tokenFile requires serverRunId' }
+      }
     }
     items.push(
       Object.assign({}, rawItem, {
@@ -198,12 +229,7 @@ function normalizeArgs(raw) {
   return { ok: true, plan }
 }
 
-/** laneActor(stage, item, plan) -> {id, kind:'subagent', parent:'workflow:'+runId} */
-function laneActor(stage, item, plan) {
-  return { id: `${stage.lane}:${item.short}:${plan.runId}`, kind: 'subagent', parent: `workflow:${plan.runId}` }
-}
-
-function preflightItem(item, plan) {
+function preflightItem(item) {
   if (!isAbsolutePath(item.worktree)) return 'worktree not absolute'
   if (Array.isArray(item.waitsFor) && item.waitsFor.length > 0) return 'waitsFor not allowed in review-wave'
   for (const st of item.stages) {
@@ -246,28 +272,20 @@ function preflightItem(item, plan) {
   }
   const uncovered = (item.review.requiredReviewNotes || []).filter((k) => !owner.has(k))
   if (uncovered.length > 0) return `uncovered required review note(s) ${uncovered.join(', ')}`
-  for (const st of item.stages) {
-    const actor = laneActor(st, item, plan)
-    if ((item.review.implementerActors || []).includes(actor.id)) return 'reviewer would match implementer actor'
-  }
-  for (const st of item.stages) {
-    const actor = laneActor(st, item, plan)
-    if ((item.review.testAuthorActors || []).includes(actor.id)) return 'reviewer would match test-author actor'
-  }
   return null
 }
 
 /**
  * preflight(plan) -> {runnable:item[], refused:[{id, reason}]}
  * Defensive per-item checks: absolute worktree, no waitsFor/extraLockKeys/readsExclude,
- * lane uniqueness, lane coverage of required review notes, and reviewer-independence
- * of every lane actor against the implementer/test-author actor lists.
+ * lane uniqueness and lane coverage of required review notes. Reviewer independence is the
+ * server's: it enforces seat lanes and reports independent_of findings in gateStatus.violations.
  */
 function preflight(plan) {
   const runnable = []
   const refused = []
   for (const item of plan.items) {
-    const reason = preflightItem(item, plan)
+    const reason = preflightItem(item)
     if (reason) refused.push({ id: item.id, reason })
     else runnable.push(item)
   }
@@ -290,9 +308,9 @@ function laneSchema(outputId) {
         type: 'array',
         items: {
           type: 'object',
-          required: ['key', 'actor'],
+          required: ['key'],
           properties: {
-            key: { type: 'string' }, actor: { type: 'string' },
+            key: { type: 'string' }, seat: { type: 'string' },
             chars: { type: 'integer' }, warning: { type: 'string' },
           },
         },
@@ -335,22 +353,27 @@ function promptScope(plan, item) {
   return lines.join('\n')
 }
 
-/** Part 3: tool selection. manage_notes only for a note-owning lane; advance_item/manage_items never named. */
+/** Part 3: tool selection. notes_write only for a note-owning lane; advance and items_write never named. */
 function promptTools(stage) {
-  const names = [
-    'mcp__mcp-task-orchestrator__query_items',
-    'mcp__mcp-task-orchestrator__query_notes',
-    'mcp__mcp-task-orchestrator__get_context',
-    'mcp__mcp-task-orchestrator__query_rules',
-  ]
-  if (stage.notes && stage.notes.length > 0) names.push('mcp__mcp-task-orchestrator__manage_notes')
-  return `TOOLS: load with ToolSearch select:${names.join(',')}`
+  const names = [TOOL_NAMES.ITEMS_READ, TOOL_NAMES.NOTES_READ, TOOL_NAMES.CONFIG]
+  if (stage.notes && stage.notes.length > 0) names.push(TOOL_NAMES.NOTES_WRITE)
+  return `TOOLS: load with ToolSearch select:${names.map((n) => MCP_TOOL_PREFIX + n).join(',')}`
 }
 
-/** Part 4: actor. */
-function promptActor(stage, item, plan) {
-  const actor = laneActor(stage, item, plan)
-  return `ACTOR: ${JSON.stringify(actor)} — place this actor inside every notes[] element you write.`
+/**
+ * Part 4: seat token, a lane of a bound server run only. Names the token FILE, never the token.
+ * Lanes that share a seat share one assignment and one token file, so a lane never ends its seat:
+ * the coordinator's post-run sweep does.
+ */
+function promptSeatToken(plan, stage) {
+  if (!plan.serverRunId || !stage.tokenFile) return ''
+  return [
+    `SEAT TOKEN: run ${plan.serverRunId}. The ${stage.seat} seat token is the single line in the file ${normalizePath(stage.tokenFile)}. ` +
+      'Read it with your file tool, trim it, and pass it as the top-level seatToken field of every task-orchestrator call you make, reads included.',
+    'Never print, quote, echo, log or commit the token or the file content, and never copy it into a note or your final message.',
+    'A call refused unauthenticated ("The seat token is not accepted.") means the seat was superseded or ended: stop and return ' +
+      'status "stopped", reason "seat-token-rejected". Never end the seat yourself: sibling lanes may share it, and the coordinator ends it.',
+  ].join('\n')
 }
 
 /** Part 5: owned notes / sibling notes. */
@@ -364,7 +387,7 @@ function promptOwnedNotes(item, stage) {
   const siblingStr = sibling.join(', ') || 'none'
   return (
     `NOTES: this lane owns [${owned}]. Sibling lanes own [${siblingStr}] — not yours.\n` +
-    'Always pass keys= on every query_notes call.'
+    'Always pass keys:[...] on every notes_read list call.'
   )
 }
 
@@ -376,11 +399,11 @@ function promptRules(plan, stage) {
   }
   const skillKeys = Array.isArray(stage.skills) ? stage.skills : []
   const lines = [
-    `RULES: fetch each key below via query_rules(operation:"get", rootId:"${plan.rootId}", key:<key>) and follow the returned body over anything paraphrased here.`,
+    `RULES: fetch each key below via config(ops:[{op:"rules", rootId:"${plan.rootId}", key:<key>}]) and follow the returned body over anything paraphrased here.`,
     `Keys: ${keys.join(', ')}.`,
-    'RESOURCE_NOT_FOUND for a key falls back to this stage\'s skills entry of the same name' +
+    'A not_found result for a key falls back to this stage\'s skills entry of the same name' +
       (skillKeys.length ? ` (${skillKeys.join(', ')})` : '') +
-      ', then the note guidance from query_items(operation:"schema", itemId).',
+      ', then the note guidance from items_read(select:"schema", itemId, fields:["guidance"]).',
     `A missing PROTOCOL key (${PROTOCOL_KEY}) is fatal: status stopped, reason "rule ${PROTOCOL_KEY} unavailable".`,
     'Record every key you fetched, with its rulesVersion, under the envelope\'s rulesFetched.',
   ]
@@ -391,11 +414,11 @@ function promptRules(plan, stage) {
 function promptDriftPin(item, stage) {
   if (item.schemaFree || !stage.notes || stage.notes.length === 0) return ''
   const lines = [
-    `DRIFT PIN: before your first write, call query_items(operation:"schema", itemId:"${item.id}").`,
+    `DRIFT PIN: before your first write, call items_read(select:"schema", itemId:"${item.id}").`,
     `Its configFingerprint must equal ${item.configFingerprint}.`,
   ]
   if (item.itemTraits !== undefined) {
-    lines.push(`get(itemId) -> properties.traits must equal ${JSON.stringify(item.itemTraits)}.`)
+    lines.push(`items_read(select:"get", itemId) -> traits (the item's top-level traits array) must equal ${JSON.stringify(item.itemTraits)}.`)
   } else {
     lines.push(`For reference, traits: ${JSON.stringify(item.traits || [])}.`)
   }
@@ -403,20 +426,33 @@ function promptDriftPin(item, stage) {
   return lines.join('\n')
 }
 
-/** Part 8: config-unavailable retry, constant. */
+/** Part 8: per-element results and the error vocabulary, constant. */
+function promptResults() {
+  return [
+    'RESULTS: a write tool answers data.results[i], one entry per ops[] element; read each element\'s own ok and ' +
+      'data.results[i].error (code, detail, fix). A call-level partial_failure only means "an element failed, look per ' +
+      'element"; an atomic batch (atomic: true) is the exception and answers the failing element\'s own error with error.index.',
+    'ERRORS: retried: unavailable, once (CONFIG RETRY). Never retried: run_paused {pauseReason, pauseDecisionId} (a director or ' +
+      'a human answers; return status "stopped", reason "run_paused"), note_owned_by_other {ownerSeat}, seat_forbidden, ' +
+      'not_claim_holder, decision_closed, forbidden, not_found. A success carrying paused:{decisionId} means the run paused: ' +
+      'write nothing more and return status "stopped", reason "run_paused".',
+  ].join('\n')
+}
+
+/** Part 9: config-unavailable retry, constant. */
 function promptConfigRetry() {
   return (
-    'CONFIG RETRY: on a config_unavailable failure, retry once after one intervening read call ' +
+    'CONFIG RETRY: on an unavailable failure (kind shedding), retry once after one intervening read call ' +
     '— no sleep. A second failure returns status "deferred", reason "config-unavailable".'
   )
 }
 
-/** Part 9: inline note bodies, only for a note-owning lane. */
+/** Part 10: inline note bodies, only for a note-owning lane. */
 function promptInlineBodies(stage) {
   if (!stage.notes || stage.notes.length === 0) return ''
   return (
-    'NOTE BODIES: pass body inline on every manage_notes upsert. Never use bodyFromFile. ' +
-    're-trim and re-upsert if any upsert response carries a warning.'
+    'NOTE BODIES: pass body inline on every notes_write upsert (ops:[{op:"upsert", itemId, key, role, body}]). ' +
+    'Never use bodyFromFile. Re-trim and re-upsert if a result element carries a warning.'
   )
 }
 
@@ -443,14 +479,13 @@ function promptDiff(plan, item, stage) {
   return lines.join('\n')
 }
 
-/** Part 11: independence context, review-v1 lanes only. */
+/** Part 12: independence context, review-v1 lanes only. */
 function promptIndependence(item, stage) {
   if (stage.output !== 'review-v1') return ''
   return (
-    `INDEPENDENCE: call get_context(itemId:"${item.id}") and read gateStatus.violations. ` +
-    `implementerActors: ${JSON.stringify(item.review.implementerActors || [])}. ` +
-    `testAuthorActors: ${JSON.stringify(item.review.testAuthorActors || [])}. ` +
-    'Record independence.mode; violations carry seat names only.'
+    `INDEPENDENCE: call items_read(select:"context", itemId:"${item.id}") and read gateStatus.violations ` +
+    '(present when the schema declares independent_of; each names seats only). The server enforces each seat\'s lane, ' +
+    'so who wrote a note is its seat. Record independence.mode and copy the violations.'
   )
 }
 
@@ -488,8 +523,8 @@ function promptLaneMode(stage, outs) {
 /** Part 13: entry verification and, for review-v1 lanes, the verdict contract. */
 function promptEntryVerdict(stage) {
   const lines = [
-    'ENTRY: call get_context(itemId) first. Role must be "review": report entry.alreadyInPhase true. ' +
-      'Otherwise write nothing and return status "stopped", reason "not in review". Never call advance_item.',
+    'ENTRY: call items_read(select:"context", itemId) first. item.role must be "review": report entry.alreadyInPhase true. ' +
+      'Otherwise write nothing and return status "stopped", reason "not in review". Never call advance.',
   ]
   if (stage.output === 'review-v1') {
     lines.push(
@@ -502,7 +537,7 @@ function promptEntryVerdict(stage) {
 
 /** Part 14: return contract. */
 function promptReturn(stage) {
-  return `RETURN: return the structured envelope (${stage.output}); notes are the report.`
+  return `RETURN: return the structured envelope (${stage.output}); notes are the report. Each notes[] entry is {key, chars?, warning?}.`
 }
 
 /**
@@ -515,10 +550,11 @@ function lanePrompt(plan, item, stage, outs) {
     promptSeatLine(plan, item, stage),
     promptScope(plan, item),
     promptTools(stage),
-    promptActor(stage, item, plan),
+    promptSeatToken(plan, stage),
     promptOwnedNotes(item, stage),
     promptRules(plan, stage),
     promptDriftPin(item, stage),
+    promptResults(),
     promptConfigRetry(),
     promptInlineBodies(stage),
     promptDiff(plan, item, stage),
@@ -712,7 +748,7 @@ async function runItem(plan, item, deps) {
 }
 
 /**
- * runReview(plan, deps) -> {contract:'review-wave/result-v1', started:true, runId, planDocSlug, items, refused, deferred}
+ * runReview(plan, deps) -> {contract:'review-wave/result-v1', started:true, runId, serverRunId, items, refused, deferred}
  * deps = {agent, parallel, log, phase?}. Runs preflight, then ONE parallel() over one
  * runItem thunk per runnable item — no cross-item edges, locks, or milestones, and
  * deps.phase is never called (review-wave has a single phase, 'Review').
@@ -725,7 +761,7 @@ async function runReview(plan, deps) {
   const thunks = pf.runnable.map((item) => () => runItem(plan, item, { agent, log }))
   const items = await deps.parallel(thunks)
   return {
-    contract: 'review-wave/result-v1', started: true, runId: plan.runId, planDocSlug: plan.planDocSlug,
+    contract: 'review-wave/result-v1', started: true, runId: plan.runId, serverRunId: plan.serverRunId || null,
     items, refused: pf.refused, deferred: plan.deferred || [],
   }
 }

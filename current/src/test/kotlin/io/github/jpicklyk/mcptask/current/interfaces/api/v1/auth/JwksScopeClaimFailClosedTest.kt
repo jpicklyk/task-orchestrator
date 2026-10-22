@@ -11,20 +11,25 @@ import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
-import io.github.jpicklyk.mcptask.current.infrastructure.config.CacheState
-import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksResult
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.config.NoOpStatusLabelService
+import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
+import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
+import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.installMcpStreamableHttp
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.CacheState
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksKeySetProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksResult
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpAuthMode
+import io.github.jpicklyk.mcptask.current.test.get
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.verifyWithExpiryOrNull
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
@@ -41,12 +46,12 @@ import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import kotlinx.coroutines.test.runTest
 import org.bouncycastle.jce.provider.BouncyCastleProvider
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.slf4j.LoggerFactory
 import java.security.Security
 import java.util.UUID
@@ -68,6 +73,9 @@ import java.util.UUID
  * JwksApiVerifierExpiryTest.kt, McpJwksRestAuthTest.kt) — no file under `src/main` was opened.
  */
 class JwksScopeClaimFailClosedTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     companion object {
         init {
             if (Security.getProvider("BC") == null) {
@@ -97,7 +105,6 @@ class JwksScopeClaimFailClosedTest {
         coEvery { provider.getKeySet() } returns JwksResult(JWKSet(listOf(rsaKey.toPublicJWK())), freshCacheState)
         every { provider.getResolvedIssuer() } returns null
         every { provider.close() } just Runs
-        coEvery { provider.getKeySetForIssuer(any()) } returns JwksResult(JWKSet(listOf(rsaKey.toPublicJWK())), freshCacheState)
         return provider
     }
 
@@ -152,7 +159,7 @@ class JwksScopeClaimFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S1 to_scope with mixed-case tags and two root_ids resolves verbatim`() =
+    fun `S1 to_scope with mixed-case tags and two root_ids resolves verbatim`(): Unit =
         runTest {
             val u1 = UUID.randomUUID().toString()
             val u2 = UUID.randomUUID().toString()
@@ -179,7 +186,7 @@ class JwksScopeClaimFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S3 absent or empty to_scope forms are all unrestricted`() =
+    fun `S3 absent or empty to_scope forms are all unrestricted`(): Unit =
         runTest {
             val verifier = JwksApiVerifier(defaultConfig, rsaMockCache())
 
@@ -219,7 +226,7 @@ class JwksScopeClaimFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S4 unknown top-level claim does not affect a valid to_scope`() =
+    fun `S4 unknown top-level claim does not affect a valid to_scope`(): Unit =
         runTest {
             val u1 = UUID.randomUUID().toString()
             val claims =
@@ -241,7 +248,7 @@ class JwksScopeClaimFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S5 malformed root_ids values are rejected`() =
+    fun `S5 malformed root_ids values are rejected`(): Unit =
         runTest {
             val u1 = UUID.randomUUID().toString()
             val verifier = JwksApiVerifier(defaultConfig, rsaMockCache())
@@ -259,7 +266,7 @@ class JwksScopeClaimFailClosedTest {
                 val jwt = signRsa(claims)
                 assertNull(verifier.verify(jwt), "S5[$label]: malformed root_ids must reject the whole JWT (verify)")
                 assertNull(
-                    verifier.verifyWithExpiry(jwt),
+                    verifier.verifyWithExpiryOrNull(jwt),
                     "S5[$label]: malformed root_ids must reject the whole JWT (verifyWithExpiry)",
                 )
             }
@@ -270,7 +277,7 @@ class JwksScopeClaimFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S6 malformed tags_include values are rejected`() =
+    fun `S6 malformed tags_include values are rejected`(): Unit =
         runTest {
             val verifier = JwksApiVerifier(defaultConfig, rsaMockCache())
             val malformedTagsInclude: List<Pair<String, Any>> =
@@ -284,7 +291,7 @@ class JwksScopeClaimFailClosedTest {
                 val jwt = signRsa(claims)
                 assertNull(verifier.verify(jwt), "S6[$label]: malformed tags_include must reject the whole JWT (verify)")
                 assertNull(
-                    verifier.verifyWithExpiry(jwt),
+                    verifier.verifyWithExpiryOrNull(jwt),
                     "S6[$label]: malformed tags_include must reject the whole JWT (verifyWithExpiry)",
                 )
             }
@@ -295,7 +302,7 @@ class JwksScopeClaimFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S7 malformed to_scope shape is rejected`() =
+    fun `S7 malformed to_scope shape is rejected`(): Unit =
         runTest {
             val u1 = UUID.randomUUID().toString()
             val u2 = UUID.randomUUID().toString()
@@ -311,7 +318,7 @@ class JwksScopeClaimFailClosedTest {
                 val jwt = signRsa(claims)
                 assertNull(verifier.verify(jwt), "S7[$label]: malformed to_scope must reject the whole JWT (verify)")
                 assertNull(
-                    verifier.verifyWithExpiry(jwt),
+                    verifier.verifyWithExpiryOrNull(jwt),
                     "S7[$label]: malformed to_scope must reject the whole JWT (verifyWithExpiry)",
                 )
             }
@@ -322,7 +329,7 @@ class JwksScopeClaimFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S8 malformed to_scope logs a WARN naming the claim path, never the JWT`() =
+    fun `S8 malformed to_scope logs a WARN naming the claim path, never the JWT`(): Unit =
         runTest {
             val verifier = JwksApiVerifier(defaultConfig, rsaMockCache())
             val u1 = UUID.randomUUID().toString()
@@ -335,7 +342,7 @@ class JwksScopeClaimFailClosedTest {
             for ((label, scopeValue) in malformedToScopeCases) {
                 val claims = buildClaims(extraClaims = mapOf("to_scope" to scopeValue))
                 val jwt = signRsa(claims)
-                var result: ApiPrincipal? = null
+                var result: Principal? = null
                 val warnMessages = captureWarnLogs { result = verifier.verify(jwt) }
                 assertNull(result, "S8[$label]: sanity -- malformed to_scope must still reject the JWT")
                 assertTrue(warnMessages.isNotEmpty(), "S8[$label]: must log at least one WARN")
@@ -365,18 +372,10 @@ class JwksScopeClaimFailClosedTest {
                 ),
         )
 
-    private fun inMemoryRepositoryProvider(): DefaultRepositoryProvider =
-        DefaultRepositoryProvider(
-            DatabaseManager(
-                Database.connect(
-                    "jdbc:h2:mem:jwksscopefailclosed_${System.nanoTime()};DB_CLOSE_DELAY=-1",
-                    driver = "org.h2.Driver",
-                ),
-            ).also { DirectDatabaseSchemaManager().updateSchema() },
-        )
+    private fun inMemoryRepositoryProvider(): DefaultRepositoryProvider = db.repositoryProvider()
 
     private fun io.ktor.server.application.Application.installJwksScopeTestApp(verifier: JwksApiVerifier) {
-        installMcpStreamableHttp(emptyMcpServer())
+        installMcpStreamableHttp(emptyMcpServer(), appConfig = AppConfig.fromEnv(), mcpAuth = McpAuthMode.Local)
         val repositoryProvider = inMemoryRepositoryProvider()
         installRestApiRoutes(
             apiConfig = defaultConfig,
@@ -386,23 +385,21 @@ class JwksScopeClaimFailClosedTest {
             allowQueryToken = false,
             serverName = "jwks-scope-fail-closed-test",
             serverVersion = "1.0.0",
-            actorAuthEnabled = false,
-            noteSchemaService = NoOpNoteSchemaService,
+            serverConfig = ServerConfigSource { null },
             toolContext =
                 ToolExecutionContext(
                     repositoryProvider,
-                    NoOpNoteSchemaService,
-                    statusLabelService = YamlStatusLabelService(),
-                    perRootConfigService = PerRootConfigService(repositoryProvider.projectConfigRepository()),
+                    statusLabelService = NoOpStatusLabelService,
+                    perRootConfigService = PerRootConfigService(repositoryProvider.configStore()),
+                    unitOfWork = db.unitOfWork()
                 ),
-            degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
-            idempotencyCache = IdempotencyCache(),
             jwksVerifier = verifier,
+            appConfig = AppConfig.fromEnv(),
         )
     }
 
     @Test
-    fun `S9 malformed to_scope 401s on a real REST route with invalid_token`() =
+    fun `S9 malformed to_scope 401s on a real REST route with invalid_token`(): Unit =
         testApplication {
             val verifier = JwksApiVerifier(defaultConfig, rsaMockCache())
             application { installJwksScopeTestApp(verifier) }
@@ -428,7 +425,7 @@ class JwksScopeClaimFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S16 malformed to_capabilities widens to READ-only with a WARN naming the claim`() =
+    fun `S16 malformed to_capabilities widens to READ-only with a WARN naming the claim`(): Unit =
         runTest {
             val verifier = JwksApiVerifier(defaultConfig, rsaMockCache())
             val malformedCapabilities: List<Pair<String, Any>> =
@@ -440,7 +437,7 @@ class JwksScopeClaimFailClosedTest {
             for ((label, capabilitiesValue) in malformedCapabilities) {
                 val claims = buildClaims(extraClaims = mapOf("to_capabilities" to capabilitiesValue))
                 val jwt = signRsa(claims)
-                var principal: ApiPrincipal? = null
+                var principal: Principal? = null
                 val warnMessages = captureWarnLogs { principal = verifier.verify(jwt) }
                 assertNotNull(principal, "S16[$label]: malformed to_capabilities must not reject the whole JWT (D9)")
                 assertEquals(setOf(ApiCapability.READ), principal!!.capabilities, "S16[$label]: must default to READ-only")
@@ -456,7 +453,7 @@ class JwksScopeClaimFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S17 duplicate root_ids collapse to a single entry (JWKS)`() =
+    fun `S17 duplicate root_ids collapse to a single entry (JWKS)`(): Unit =
         runTest {
             val u1 = UUID.randomUUID().toString()
             val claims = buildClaims(extraClaims = mapOf("to_scope" to mapOf("root_ids" to listOf(u1, u1))))
@@ -471,7 +468,7 @@ class JwksScopeClaimFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S18 uppercase UUID text is accepted as the same root id (JWKS)`() =
+    fun `S18 uppercase UUID text is accepted as the same root id (JWKS)`(): Unit =
         runTest {
             val u1 = UUID.randomUUID()
             val upper = u1.toString().uppercase()
@@ -487,7 +484,7 @@ class JwksScopeClaimFailClosedTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `Probe -- stringified-set root_ids scalar is rejected`() =
+    fun `Probe -- stringified-set root_ids scalar is rejected`(): Unit =
         runTest {
             val u1 = UUID.randomUUID().toString()
             val claims = buildClaims(extraClaims = mapOf("to_scope" to mapOf("root_ids" to "{$u1}")))
@@ -499,7 +496,7 @@ class JwksScopeClaimFailClosedTest {
         }
 
     @Test
-    fun `Probe -- root_ids element with leading whitespace is rejected`() =
+    fun `Probe -- root_ids element with leading whitespace is rejected`(): Unit =
         runTest {
             val u1 = UUID.randomUUID().toString()
             val claims = buildClaims(extraClaims = mapOf("to_scope" to mapOf("root_ids" to listOf(" $u1"))))
@@ -511,7 +508,7 @@ class JwksScopeClaimFailClosedTest {
         }
 
     @Test
-    fun `Probe -- wrong-case key name ROOT_IDS is an unknown key, not root_ids`() =
+    fun `Probe -- wrong-case key name ROOT_IDS is an unknown key, not root_ids`(): Unit =
         runTest {
             val u1 = UUID.randomUUID().toString()
             val claims = buildClaims(extraClaims = mapOf("to_scope" to mapOf("ROOT_IDS" to listOf(u1))))
@@ -523,7 +520,7 @@ class JwksScopeClaimFailClosedTest {
         }
 
     @Test
-    fun `Probe -- nested list root_ids is rejected`() =
+    fun `Probe -- nested list root_ids is rejected`(): Unit =
         runTest {
             val u1 = UUID.randomUUID().toString()
             val claims = buildClaims(extraClaims = mapOf("to_scope" to mapOf("root_ids" to listOf(listOf(u1)))))
@@ -532,7 +529,7 @@ class JwksScopeClaimFailClosedTest {
         }
 
     @Test
-    fun `Probe -- tags_include as a map instead of a list is rejected`() =
+    fun `Probe -- tags_include as a map instead of a list is rejected`(): Unit =
         runTest {
             val claims = buildClaims(extraClaims = mapOf("to_scope" to mapOf("tags_include" to mapOf("a" to "b"))))
             val verifier = JwksApiVerifier(defaultConfig, rsaMockCache())

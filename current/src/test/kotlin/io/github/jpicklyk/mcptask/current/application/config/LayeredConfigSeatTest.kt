@@ -17,7 +17,7 @@ import kotlin.test.assertTrue
 /**
  * Unit tests for [LayeredConfig]'s seat-layering and dispatch-by-seat merge rules (item `79cd4f0c`,
  * stage A1a), scenarios S7-S9 of the frozen `test-plan`/`task-scope-addendum`. Mirrors
- * [SchemaResolutionPrecedenceTest]'s and [EffectiveConfigResolverTest]'s style of constructing
+ * [EffectiveConfigResolverTest]'s style of constructing
  * [ConfigDocument]/[ConfigLayer]/[LayerBackedGlobalLookup] fixtures directly and calling
  * [LayeredConfig] methods — including its `internal` merge functions, which are visible from this
  * module's test source set (confirmed for [io.github.jpicklyk.mcptask.current.infrastructure.config.YamlSchemaParser],
@@ -70,10 +70,10 @@ class LayeredConfigSeatTest {
         // dispatchTraitsFor order: item traits first, then defaultTraits, distinct.
         val traits = listOf("t-item", "t-def")
 
-        val dispatch = config.mergeDispatch(traits)
+        val dispatch = TraitResolver(config).dispatch(traits)
         assertEquals(DispatchProfile(agent = "A", effort = "high"), dispatch[Role.WORK], "today's phase-default rule is unchanged")
 
-        val byseat = config.mergeDispatchBySeat(traits, schemaSeats)
+        val byseat = TraitResolver(config).dispatchBySeat(traits, schemaSeats)
         assertEquals(setOf(Role.WORK), byseat.keys, "no REVIEW key: 'ghost' is not in the schema's merged seats")
 
         val work = byseat.getValue(Role.WORK)
@@ -100,7 +100,7 @@ class LayeredConfigSeatTest {
             )
         val config = LayeredConfig(UUID.randomUUID(), null, globalLookup(doc))
 
-        val byseat = config.mergeDispatchBySeat(listOf("t-def"), emptyList())
+        val byseat = TraitResolver(config).dispatchBySeat(listOf("t-def"), emptyList())
 
         assertTrue(byseat.isEmpty(), "no merged seats -> dispatchBySeat must be empty, not carry the trait's seat override")
     }
@@ -170,7 +170,7 @@ class LayeredConfigSeatTest {
             "per-root supplies T's dispatch block (bySeat only), so global's phase-level profile must not leak through"
         )
 
-        val byseat = config.mergeDispatchBySeat(listOf("T"), listOf(SeatDefinition("s1", Role.WORK)))
+        val byseat = TraitResolver(config).dispatchBySeat(listOf("T"), listOf(SeatDefinition("s1", Role.WORK)))
         assertEquals(
             DispatchProfile(model = "p"),
             byseat[Role.WORK]?.get("s1"),
@@ -189,24 +189,23 @@ class LayeredConfigSeatTest {
         val perRootDocLegacy =
             ConfigDocument(
                 workItemSchemas = mapOf("default" to WorkItemSchema(type = "default", seats = listOf(SeatDefinition("p1", Role.WORK)))),
-                traits = emptyMap(),
-                schemaResolution = SchemaResolutionMode.LEGACY
+                traits = emptyMap()
             )
         val legacyConfig =
             LayeredConfig(UUID.randomUUID(), ConfigLayer(perRootDocLegacy, "pr-fp", ConfigSource.PER_ROOT), globalLookup(globalDoc))
-        val legacyResult = legacyConfig.resolveBaseSchema("unknown", emptyList())!!
+        val legacyResult = legacyConfig.resolveBaseSchema("unknown")!!
         assertEquals(ConfigSource.PER_ROOT, legacyResult.source)
         assertEquals(
             listOf(SeatDefinition("p1", Role.WORK)),
             legacyResult.schema.seats,
-            "LEGACY resolves the per-root default; its seats must not merge with global's g1"
+            "the per-root default beats the server default; its seats must not merge with global's g1"
         )
 
         val perRootDocLayered =
-            ConfigDocument(workItemSchemas = emptyMap(), traits = emptyMap(), schemaResolution = SchemaResolutionMode.LAYERED)
+            ConfigDocument(workItemSchemas = emptyMap(), traits = emptyMap())
         val layeredConfig =
             LayeredConfig(UUID.randomUUID(), ConfigLayer(perRootDocLayered, "pr-fp", ConfigSource.PER_ROOT), globalLookup(globalDoc))
-        val layeredResult = layeredConfig.resolveBaseSchema("default", emptyList())!!
+        val layeredResult = layeredConfig.resolveBaseSchema("default")!!
         assertEquals(ConfigSource.GLOBAL, layeredResult.source)
         assertEquals(listOf(SeatDefinition("g1", Role.WORK)), layeredResult.schema.seats)
     }
@@ -233,9 +232,9 @@ class LayeredConfigSeatTest {
                     )
             )
         val config = LayeredConfig(UUID.randomUUID(), null, globalLookup(doc))
-        val item = WorkItem(title = "S9 item", type = "bug-fix", role = Role.WORK, depth = 0, properties = """{"traits":["t1"]}""")
+        val item = WorkItem(title = "S9 item", type = "bug-fix", role = Role.WORK, depth = 0, traits = listOf("t1"))
 
-        val merged = config.mergeTraits(item, baseSchema)
+        val merged = TraitResolver(config).mergeSchema(baseSchema, item.traits, item.id)
 
         val implementer = merged.seats.single { it.name == "implementer" }
         assertEquals(Role.WORK, implementer.phase, "a trait may add seats but not redefine a base seat -- the base phase wins")
@@ -249,7 +248,7 @@ class LayeredConfigSeatTest {
 
     // ──────────────────────────────────────────────
     // S2 (resolver half) — resolveSchema's merged seat order is base seats, then trait seats,
-    // exercised through EffectiveConfigResolver rather than LayeredConfig.mergeTraits directly, so
+    // exercised through EffectiveConfigResolver rather than TraitResolver.mergeSchema directly, so
     // a mutation that merges trait seats before base seats reddens even when the names don't
     // collide (task-scope §2 example order; task-scope §4 merged-order row; red: M14).
     // ──────────────────────────────────────────────
@@ -286,7 +285,7 @@ class LayeredConfigSeatTest {
     // ──────────────────────────────────────────────
     // S7 (resolver half) — resolveDispatchBySeat's item-traits-first-then-defaultTraits walk order
     // (dispatchTraitsFor), exercised through EffectiveConfigResolver rather than
-    // LayeredConfig.mergeDispatchBySeat with a pre-ordered list, so a mutation that walks
+    // TraitResolver.dispatchBySeat with a pre-ordered list, so a mutation that walks
     // defaultTraits before item traits reddens (task-scope §4; test-plan S7; red: M4b).
     // ──────────────────────────────────────────────
 
@@ -304,7 +303,7 @@ class LayeredConfigSeatTest {
                         )
                 )
             val resolver = EffectiveConfigResolver(globalLookup(doc), perRoot = null)
-            val item = WorkItem(title = "S7 item", type = "bug-fix", role = Role.WORK, depth = 0, properties = """{"traits":["t-item"]}""")
+            val item = WorkItem(title = "S7 item", type = "bug-fix", role = Role.WORK, depth = 0, traits = listOf("t-item"))
             val resolvedSchema =
                 WorkItemSchema(type = "bug-fix", defaultTraits = listOf("t-def"), seats = listOf(SeatDefinition("x", Role.WORK)))
 

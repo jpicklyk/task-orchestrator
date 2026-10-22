@@ -7,8 +7,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlWorkItemSchemaService
+import io.github.jpicklyk.mcptask.current.infrastructure.config.GlobalConfigFile
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -21,13 +20,13 @@ import kotlin.test.assertNull
 /**
  * S6 — reproduces the LEGACY precedence facets already characterized by S1-S3 of
  * `LegacyPrecedenceCharacterizationTest`, but calling [EffectiveConfigResolver] directly with a
- * [ServiceBackedGlobalLookup] and a hand-written fake [PerRootConfigSource] — no
+ * [LayerBackedGlobalLookup] and a hand-written fake [PerRootConfigSource] — no
  * `ToolExecutionContext` involved anywhere in this file. Oracle: item `ce346f52`'s frozen
  * `task-scope` quirks Q1/Q3/Q4 (type/tag precedence) and Q6-Q12 (facet merge rules), restated by
  * `test-plan` S6 as "reproduces S1-S3. No revert red; substitute: orchestrator mutation (Q1 order
  * swap; Q8 early return removed) must redden S1/S4/S6."
  *
- * NEW-SURFACE (test-plan S6): [EffectiveConfigResolver] and [ServiceBackedGlobalLookup] are
+ * NEW-SURFACE (test-plan S6): [EffectiveConfigResolver] and [LayerBackedGlobalLookup] are
  * introduced by this feature, so no source revert can yield behavioral red here — the red-proof
  * for this file is the orchestrator-run mutation named above, applied to
  * `EffectiveConfigResolver`/`LayeredConfig` and re-run against these same assertions.
@@ -96,10 +95,7 @@ class EffectiveConfigResolverTest {
     fun setUp() {
         val path = writeGlobalYaml(globalNoDefaultYaml)
         globalLookup =
-            ServiceBackedGlobalLookup(
-                YamlWorkItemSchemaService(path),
-                YamlStatusLabelService(path)
-            )
+            LayerBackedGlobalLookup(GlobalConfigFile(path).layer())
     }
 
     private class FakePerRootConfigSource(
@@ -195,20 +191,18 @@ class EffectiveConfigResolverTest {
         }
 
     @Test
-    fun `S6 - resolveSchemaWithSource falls through to the global tag probe when type and per-root both miss (Q3, Q4)`(): Unit =
+    fun `S6 - resolveSchemaWithSource never resolves through a tag (tags never select a schema)`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
             val resolver = resolverWithRoot(rootId)
 
             val item = makeItem(type = null, tags = listOf("container"), rootId = rootId)
-            val result = resolver.resolveSchemaWithSource(item)!!
 
-            assertEquals(ConfigSource.GLOBAL, result.source)
-            assertEquals(listOf("container-note"), result.schema.notes.map { it.key })
+            assertNull(resolver.resolveSchemaWithSource(item), "a null type uses only the default chain, and no default exists here")
         }
 
     @Test
-    fun `S6 - resolveTypeSchema does not fall back to tags, unlike resolveSchemaWithSource (S2 mirror)`(): Unit =
+    fun `S6 - neither resolveTypeSchema nor resolveSchema falls back to tags`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
             val resolver = resolverWithRoot(rootId)
@@ -217,12 +211,7 @@ class EffectiveConfigResolverTest {
             assertNull(typeOnly, "no default schema anywhere in this fixture, and resolveTypeSchema must not consult tags")
 
             val itemWithTag = makeItem(type = "unknown", tags = listOf("container"), rootId = rootId)
-            val viaFull = resolver.resolveSchema(itemWithTag)
-            assertEquals(
-                listOf("container-note"),
-                viaFull!!.notes.map { it.key },
-                "sanity: the tag path resolveTypeSchema skips does resolve via resolveSchema"
-            )
+            assertNull(resolver.resolveSchema(itemWithTag), "resolveSchema must not consult tags either")
         }
 
     @Test
@@ -263,7 +252,7 @@ class EffectiveConfigResolverTest {
         }
 
     @Test
-    fun `S6 - resolveResourceRegistry merges non-colliding keys, global wins on collision (Q9)`(): Unit =
+    fun `S6 - resolveResourceRegistry is the server registry only, a per-root registry is ignored`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
             val resolver = resolverWithRoot(rootId)
@@ -271,7 +260,7 @@ class EffectiveConfigResolverTest {
             val registry = resolver.resolveResourceRegistry(rootId)
 
             assertEquals(1, registry.size)
-            assertEquals("global version", registry["shared-key"]?.description, "global wins on the colliding key")
+            assertEquals("global version", registry["shared-key"]?.description, "the server definition is the only one")
             assertEquals(222, registry["shared-key"]?.defaultTtlSeconds)
         }
 

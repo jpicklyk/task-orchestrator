@@ -18,7 +18,7 @@ import kotlin.test.assertTrue
  * Oracles are [ShutdownCoordinator]'s own KDoc (class-level `:8-14, 21-24`, [ShutdownCoordinator.addCleanupAction]
  * `:32-37 (per test-plan citation)`, [ShutdownCoordinator.awaitCompletion] / drain `finally` `:62-73`) plus the
  * contract frozen in the item's `test-plan` note: C1 every [ShutdownCoordinator.addCleanupAction] call that
- * returns normally has its action run exactly once; C2 forward registration order; C3 a throwing action never
+ * returns normally has its action run exactly once; C2 reverse (LIFO) registration order; C3 a throwing action never
  * aborts the rest nor propagates to the registrar; C4 [ShutdownCoordinator.initiateShutdown] is exactly-once.
  *
  * Concurrency scenarios use [CyclicBarrier]/latches to force the interleaving deterministically — never
@@ -28,7 +28,7 @@ class ShutdownCoordinatorTest {
     // ---- S1: forward order --------------------------------------------------------------
 
     @Test
-    fun `S1 actions run in exact registration order`() {
+    fun `S1 actions run in exact reverse registration order (LIFO)`() {
         val coordinator = ShutdownCoordinator()
         val order = mutableListOf<String>()
         coordinator.addCleanupAction("A") { order.add("A") }
@@ -37,7 +37,9 @@ class ShutdownCoordinatorTest {
 
         coordinator.initiateShutdown("s1-order")
 
-        assertEquals(listOf("A", "B", "C"), order, "actions must run in exact forward registration order")
+        // Oracle: AR-77 rec 3 / plan v4-phase1-core 3.10 -- cleanup drains LIFO so the database,
+        // registered first, is released last.
+        assertEquals(listOf("C", "B", "A"), order, "actions must run in exact reverse registration order")
     }
 
     // ---- S2: single-threaded reentrant registration during drain -----------------------
@@ -60,9 +62,9 @@ class ShutdownCoordinatorTest {
         assertDoesNotThrow { coordinator.initiateShutdown("s2-reentrant") }
 
         assertEquals(
-            listOf("A", "reentrant", "late", "C"),
+            listOf("C", "reentrant", "late", "A"),
             order,
-            "a reentrant registration must run immediately in place, without throwing and without skipping C"
+            "LIFO drain: C first, then reentrant, whose late registration runs immediately in place, then A"
         )
     }
 
@@ -285,7 +287,7 @@ class ShutdownCoordinatorTest {
     // ---- Probes: duplicates / ordering, boundary 1 -----------------------------------------
 
     @Test
-    fun `duplicate action names run every registration, not deduplicated, preserving order`() {
+    fun `duplicate action names run every registration, not deduplicated, preserving reverse registration order`() {
         val coordinator = ShutdownCoordinator()
         val order = mutableListOf<String>()
         coordinator.addCleanupAction("dup") { order.add("first") }
@@ -295,7 +297,7 @@ class ShutdownCoordinatorTest {
         coordinator.initiateShutdown("dup-name-probe")
 
         assertEquals(
-            listOf("first", "second", "third"),
+            listOf("third", "second", "first"),
             order,
             "name is an opaque log label, never a dedup key"
         )

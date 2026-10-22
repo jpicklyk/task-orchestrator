@@ -1,5 +1,6 @@
 // Drives phase-guard.mjs as a subprocess while an in-process http stub server plays the
-// GET /api/v1/items/{id}/gate role that phase-guard.mjs's Promise.all fetches from.
+// POST /api/v1/ops/items_read (select context) role that phase-guard.mjs's Promise.all fetches from
+// (0bbdc4cc P10: the 4.0 gate read; the 3.x GET /api/v1/items/{id}/gate route is never requested).
 //
 // MUST use async `spawn` (not `spawnSync`): spawnSync blocks THIS process's event loop for the
 // duration of the child, so the stub server — which runs in this same process — could never
@@ -18,7 +19,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -57,28 +58,54 @@ function readMarker(tempDir, sessionId, agentId) {
   return withRedirectedTmp(tempDir, () => readPhaseGuardMarker(phaseGuardMarkerPath(sessionId, agentId)));
 }
 
-/** Starts an http stub answering GET /api/v1/items/{id}/gate from `routes[id]`, either a
+/** Starts an http stub playing the 4.0 gate read: POST /api/v1/ops/items_read with body
+ * {select:'context', itemId}. The reply is looked up from `routes[body.itemId]`, either a
  * `{status, body}` pair or a `(req, res) => void` function for custom behavior (e.g. a delay, or
- * never responding). Any id not in `routes` gets 404. Resolves once listening. */
-function startStub(routes) {
+ * never responding). Any id not in `routes` gets a 404 not_found error envelope. `legacyGate`, when
+ * given, serves the 3.x GET /api/v1/items/{id}/gate route from it (id -> {status, body}) so a test
+ * can prove the hook never falls back to it. Every request is recorded on `server.requests` as
+ * {method, url, body}. Resolves once listening. */
+function startStub(routes, { legacyGate } = {}) {
   return new Promise((resolveListen) => {
+    const requests = [];
     const server = createServer((req, res) => {
-      const match = req.url.match(/^\/api\/v1\/items\/([^/]+)\/gate$/);
-      const id = match ? match[1] : null;
-      const route = id ? routes[id] : undefined;
-      if (route === undefined) {
-        res.writeHead(404, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'not_found', message: `Item ${id} not found` }));
-        return;
-      }
-      if (typeof route === 'function') {
-        route(req, res);
-        return;
-      }
-      const { status = 200, body = {} } = route;
-      res.writeHead(status, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(body));
+      let raw = '';
+      req.on('data', (d) => {
+        raw += d;
+      });
+      req.on('end', () => {
+        requests.push({ method: req.method, url: req.url, body: raw });
+        const legacyMatch = req.url.match(/^\/api\/v1\/items\/([^/]+)\/gate$/);
+        if (req.method === 'GET' && legacyMatch && legacyGate && legacyGate[legacyMatch[1]]) {
+          const { status = 200, body = {} } = legacyGate[legacyMatch[1]];
+          res.writeHead(status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(body));
+          return;
+        }
+        let id = null;
+        if (req.method === 'POST' && req.url === '/api/v1/ops/items_read') {
+          try {
+            id = JSON.parse(raw).itemId ?? null;
+          } catch {
+            id = null;
+          }
+        }
+        const route = id ? routes[id] : undefined;
+        if (route === undefined) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: { code: 'not_found', kind: 'permanent', message: `Item ${id} not found` } }));
+          return;
+        }
+        if (typeof route === 'function') {
+          route(req, res);
+          return;
+        }
+        const { status = 200, body = {} } = route;
+        res.writeHead(status, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(body));
+      });
     });
+    server.requests = requests;
     server.listen(0, '127.0.0.1', () => resolveListen(server));
   });
 }
@@ -89,7 +116,7 @@ function stopStub(server) {
 
 /** Spawns phase-guard.mjs asynchronously, feeds it `payload` on stdin, and resolves with its
  * exit status + stdout once it closes. */
-function runHook(payload, tempDir, apiUrl, modeOverride) {
+function runHook(payload, tempDir, apiUrl, modeOverride, extraEnv) {
   return new Promise((resolvePromise, rejectPromise) => {
     const env = { ...process.env, TEMP: tempDir, TMP: tempDir, TMPDIR: tempDir, TASK_ORCHESTRATOR_HOME: join(tempDir, 'to-home-empty'), TASK_ORCHESTRATOR_CEILING: tempDir };
     delete env.AGENT_CONFIG_DIR;
@@ -97,6 +124,7 @@ function runHook(payload, tempDir, apiUrl, modeOverride) {
     delete env.TASK_ORCHESTRATOR_MODE;
     if (apiUrl) env.TASK_ORCHESTRATOR_API_URL = apiUrl;
     if (modeOverride) env.TASK_ORCHESTRATOR_MODE = modeOverride;
+    if (extraEnv) Object.assign(env, extraEnv);
     const child = spawn(process.execPath, [HOOK], { env, cwd: tempDir });
     let stdout = '';
     let stderr = '';
@@ -128,17 +156,30 @@ function runHookRaw(rawInput, tempDir, apiUrl) {
   });
 }
 
+/** The 4.0 items_read context reply (api-reference "items_read" select context): the item view,
+ * its gateStatus, and the optional guidanceKey / skillPointer. Returns {status, body}. */
 const gateOk = (over = {}) => ({
   status: 200,
   body: {
-    itemId: over.itemId,
-    title: over.title ?? 'Widget frobnicator',
-    role: over.role ?? 'work',
-    gateStatus: { canAdvance: over.canAdvance ?? false, phase: over.role ?? 'work', missing: over.missing ?? [] },
-    ...(over.guidanceKey ? { guidanceKey: over.guidanceKey } : {}),
-    ...(over.skillPointer ? { skillPointer: over.skillPointer } : {}),
+    ok: true,
+    data: {
+      item: { id: over.itemId, title: over.title ?? 'Widget frobnicator', role: over.role ?? 'work' },
+      gateStatus: { canAdvance: over.canAdvance ?? false, missing: over.missing ?? [], violations: [] },
+      ...(over.guidanceKey ? { guidanceKey: over.guidanceKey } : {}),
+      ...(over.skillPointer ? { skillPointer: over.skillPointer } : {}),
+    },
+    meta: { reqId: 'req00001' },
   },
 });
+
+/** A 4.0 error envelope reply at the given HTTP status. */
+const gateErr = (status, code, kind = 'permanent') => ({
+  status,
+  body: { ok: false, error: { code, kind, message: `${code} fixture` }, meta: { reqId: 'req00002' } },
+});
+
+const INERT_PHASE_GUARD =
+  'task-orchestrator: phase-guard.mjs is inert: no REST API URL resolves (set TASK_ORCHESTRATOR_API_URL or client.json apiUrl); in 4.0 schema facts and gate state come from the server.';
 
 // ── S4: block on missing required notes (string-key shape) ──────────────────────────────────
 
@@ -158,7 +199,8 @@ test('S4: role work with non-empty missing (string keys) blocks, names the key +
     assert.equal(out.decision, 'block');
     assert.ok(out.reason.includes('implementation-notes'), out.reason);
     assert.ok(out.reason.includes(itemId.slice(0, 8)), out.reason);
-    assert.ok(out.reason.includes('manage_notes(upsert)'), out.reason);
+    assert.ok(out.reason.includes('notes_write'), out.reason);
+    assert.ok(!out.reason.includes('manage_notes'), out.reason);
     assert.equal(readMarker(tempDir, sessionId, agentId).blocks, 1);
   } finally {
     await stopStub(server);
@@ -173,15 +215,7 @@ test('S4b: missing normalized from an object shape ([{key: ...}]) blocks the sam
   const itemId = '5b579f7d-a545-4dae-a869-c7d657d205c3';
   seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
   const server = await startStub({
-    [itemId]: {
-      status: 200,
-      body: {
-        itemId,
-        title: 'Object-shape item',
-        role: 'work',
-        gateStatus: { canAdvance: false, phase: 'work', missing: [{ key: 'implementation-notes' }] },
-      },
-    },
+    [itemId]: gateOk({ itemId, title: 'Object-shape item', role: 'work', missing: [{ key: 'implementation-notes' }] }),
   });
   try {
     const res = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, `http://127.0.0.1:${server.address().port}`);
@@ -312,7 +346,7 @@ test('S7b: a 403 (token lacking READ) for the item does not block', async () => 
   const itemId = 'b1bde5e3-019b-9d04-0409-2d2bcd28691c';
   seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
   const server = await startStub({
-    [itemId]: { status: 403, body: { error: 'scope_forbidden', message: 'no READ capability' } },
+    [itemId]: gateErr(403, 'forbidden'),
   });
   try {
     const res = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, `http://127.0.0.1:${server.address().port}`);
@@ -891,12 +925,9 @@ test('B2: two Stops — first blocks on work notes and preserves enteredRoles, s
     [itemId]: (req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(
-        JSON.stringify({
-          itemId,
-          title: 'Widget frobnicator',
-          role,
-          gateStatus: { canAdvance: false, phase: role, missing: role === 'work' ? ['implementation-notes'] : ['review-checklist'] },
-        }),
+        JSON.stringify(
+          gateOk({ itemId, role, missing: role === 'work' ? ['implementation-notes'] : ['review-checklist'] }).body,
+        ),
       );
     },
   });
@@ -979,6 +1010,281 @@ test('to_mod_active on stdin: emits {} without blocking or fetching, marker unto
     // Control: without the flag the same setup blocks.
     const control = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, `http://127.0.0.1:${server.address().port}`);
     assert.equal(JSON.parse(control.stdout).decision, 'block');
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// ══ 0bbdc4cc (P10): the gate is read from the server over POST /api/v1/ops/items_read ══════════
+
+function writeBootstrapConfig(dir) {
+  const cfgDir = join(dir, '.taskorchestrator');
+  mkdirSync(cfgDir, { recursive: true });
+  writeFileSync(join(cfgDir, 'config.yaml'), 'project:\n  rootId: 11111111-1111-1111-1111-111111111111\n', 'utf-8');
+}
+
+test('S3: the gate read is exactly POST /api/v1/ops/items_read with body {select:"context", itemId}, once per recorded item', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `s3req-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemA = 'f1f1f1f1-0000-0000-0000-00000000000a';
+  const itemB = 'f1f1f1f1-0000-0000-0000-00000000000b';
+  seedMarker(tempDir, sessionId, agentId, { items: [itemA, itemB], blocks: 0 });
+  const server = await startStub({
+    [itemA]: gateOk({ itemId: itemA, role: 'work', missing: ['implementation-notes'] }),
+    [itemB]: gateOk({ itemId: itemB, role: 'work', missing: [] }),
+  });
+  try {
+    const res = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, `http://127.0.0.1:${server.address().port}`);
+    assert.equal(res.status, 0);
+    assert.equal(JSON.parse(res.stdout).decision, 'block');
+    assert.equal(server.requests.length, 2);
+    for (const r of server.requests) {
+      assert.equal(r.method, 'POST');
+      assert.equal(r.url, '/api/v1/ops/items_read');
+    }
+    const bodies = server.requests.map((r) => JSON.parse(r.body)).sort((x, y) => x.itemId.localeCompare(y.itemId));
+    assert.deepEqual(bodies, [
+      { select: 'context', itemId: itemA },
+      { select: 'context', itemId: itemB },
+    ]);
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('D2: the gate is keyed by the marker id that was requested, not by the id the view returns', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `d2-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = 'f2f2f2f2-0000-0000-0000-000000000001';
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
+  // the compact view id is a short form; the block reason must still name the MARKER id's uuid8
+  const server = await startStub({
+    [itemId]: gateOk({ itemId: 'zz-compact-id', role: 'work', missing: ['implementation-notes'], title: 'Keyed by request' }),
+  });
+  try {
+    const res = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, `http://127.0.0.1:${server.address().port}`);
+    const out = JSON.parse(res.stdout);
+    assert.equal(out.decision, 'block');
+    assert.ok(out.reason.includes(itemId.slice(0, 8)), out.reason);
+    assert.ok(out.reason.includes('Keyed by request'), out.reason);
+    assert.ok(!out.reason.includes('zz-compact-id'), out.reason);
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('S3: the block reason keeps the sentence shape and names no retired 3.x tool', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `s3sent-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = 'f3f3f3f3-0000-0000-0000-000000000001';
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
+  const server = await startStub({
+    [itemId]: gateOk({ itemId, role: 'work', missing: ['implementation-notes', 'session-tracking'], title: 'Sentence check' }),
+  });
+  try {
+    const res = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, `http://127.0.0.1:${server.address().port}`);
+    const out = JSON.parse(res.stdout);
+    assert.equal(out.decision, 'block');
+    const prefix = `Item ${itemId.slice(0, 8)} "Sentence check" is in work with required notes still missing: `;
+    assert.ok(out.reason.includes(prefix), out.reason);
+    assert.ok(out.reason.includes('implementation-notes') && out.reason.includes('session-tracking'), out.reason);
+    for (const retired of ['manage_notes', 'advance_item', 'get_context']) {
+      assert.ok(!out.reason.includes(retired), `${retired} in: ${out.reason}`);
+    }
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('S10: a non-ok context envelope (forbidden, not_found, unauthenticated, unavailable, internal) never blocks that item', async () => {
+  const cases = [
+    gateErr(403, 'forbidden'),
+    gateErr(404, 'not_found'),
+    gateErr(401, 'unauthenticated'),
+    gateErr(503, 'unavailable', 'shedding'),
+    gateErr(500, 'internal'),
+    gateErr(200, 'internal'), // ok:false even with HTTP 200
+  ];
+  for (const reply of cases) {
+    const tempDir = freshTempDir();
+    const sessionId = `s10-${randomUUID()}`;
+    const agentId = 'agent-1';
+    const itemId = 'f4f4f4f4-0000-0000-0000-000000000001';
+    seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
+    // The legacy GET route WOULD block if it were ever consulted as a fallback.
+    const server = await startStub(
+      { [itemId]: reply },
+      { legacyGate: { [itemId]: { status: 200, body: { itemId, title: 'legacy', role: 'work', gateStatus: { canAdvance: false, missing: ['implementation-notes'] } } } } },
+    );
+    try {
+      const res = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, `http://127.0.0.1:${server.address().port}`);
+      assert.equal(res.status, 0, reply.body.error.code);
+      assert.equal(res.stdout.trim(), '{}', `${reply.status} ${reply.body.error.code}: ${res.stdout}`);
+      assert.ok(server.requests.every((r) => !r.url.includes('/gate')), JSON.stringify(server.requests));
+    } finally {
+      await stopStub(server);
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('S10: one item answering with an error envelope does not hide the other item that blocks', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `s10mix-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const okItem = 'f5f5f5f5-0000-0000-0000-000000000001';
+  const badItem = 'f6f6f6f6-0000-0000-0000-000000000002';
+  seedMarker(tempDir, sessionId, agentId, { items: [badItem, okItem], blocks: 0 });
+  const server = await startStub({
+    [badItem]: gateErr(404, 'not_found'),
+    [okItem]: gateOk({ itemId: okItem, role: 'work', missing: ['implementation-notes'], title: 'Still blocking' }),
+  });
+  try {
+    const res = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, `http://127.0.0.1:${server.address().port}`);
+    const out = JSON.parse(res.stdout);
+    assert.equal(out.decision, 'block');
+    assert.ok(out.reason.includes(okItem.slice(0, 8)), out.reason);
+    assert.ok(!out.reason.includes(badItem.slice(0, 8)), out.reason);
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('S9: a server that only serves the 3.x GET /items/{id}/gate route -> {}, the GET is never requested, the marker is cleared', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `s9-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = 'f7f7f7f7-0000-0000-0000-000000000001';
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
+  const server = await startStub(
+    {}, // ops route: 404 not_found envelope for every id
+    { legacyGate: { [itemId]: { status: 200, body: { itemId, title: 'legacy', role: 'work', gateStatus: { canAdvance: false, missing: ['implementation-notes'] } } } } },
+  );
+  try {
+    const res = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, `http://127.0.0.1:${server.address().port}`);
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout.trim(), '{}');
+    assert.ok(server.requests.length >= 1, 'the ops route must have been tried');
+    assert.ok(server.requests.every((r) => r.method === 'POST' && r.url === '/api/v1/ops/items_read'), JSON.stringify(server.requests));
+    const marker = readMarker(tempDir, sessionId, agentId);
+    assert.deepEqual(marker.items, []);
+    assert.equal(marker.blocks, 0);
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('S9 probe: a 3.x-shaped body ({success}) from the ops route is not a gate and never blocks', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `s9legacy-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = 'f7f7f7f7-0000-0000-0000-000000000002';
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
+  const server = await startStub({
+    [itemId]: {
+      status: 200,
+      body: { success: true, data: { item: { id: itemId, title: 't', role: 'work' }, gateStatus: { canAdvance: false, missing: ['implementation-notes'] } } },
+    },
+  });
+  try {
+    const res = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, `http://127.0.0.1:${server.address().port}`);
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout.trim(), '{}');
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('S13: agent_type workflow-subagent -> {} before any fetch, even with a blocking marker', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `s13wf-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = 'f8f8f8f8-0000-0000-0000-000000000001';
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
+  const server = await startStub({ [itemId]: gateOk({ itemId, role: 'work', missing: ['implementation-notes'] }) });
+  try {
+    const res = await runHook(
+      { session_id: sessionId, agent_id: agentId, agent_type: 'workflow-subagent' },
+      tempDir,
+      `http://127.0.0.1:${server.address().port}`,
+    );
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout.trim(), '{}');
+    assert.equal(server.requests.length, 0, 'no gate request for a workflow subagent');
+    // Control: any other agent_type with the same marker and gate does block.
+    const control = await runHook(
+      { session_id: sessionId, agent_id: agentId, agent_type: 'task-orchestrator:implementer' },
+      tempDir,
+      `http://127.0.0.1:${server.address().port}`,
+    );
+    assert.equal(JSON.parse(control.stdout).decision, 'block');
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('S12: located config + no API URL -> exactly the inert systemMessage once per session, then {}; exit 0 every time', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `s12-inert-${randomUUID()}`;
+  const agentId = 'agent-1';
+  writeBootstrapConfig(tempDir);
+  seedMarker(tempDir, sessionId, agentId, { items: ['f9f9f9f9-0000-0000-0000-000000000001'], blocks: 0 });
+  try {
+    const first = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, undefined, undefined, { AGENT_CONFIG_DIR: tempDir });
+    assert.equal(first.status, 0);
+    assert.deepEqual(JSON.parse(first.stdout), { systemMessage: INERT_PHASE_GUARD });
+    const second = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, undefined, undefined, { AGENT_CONFIG_DIR: tempDir });
+    assert.equal(second.status, 0);
+    assert.equal(second.stdout.trim(), '{}');
+    // a different session gets its own inert line
+    const otherSession = `s12-inert-other-${randomUUID()}`;
+    seedMarker(tempDir, otherSession, agentId, { items: ['f9f9f9f9-0000-0000-0000-000000000002'], blocks: 0 });
+    const third = await runHook({ session_id: otherSession, agent_id: agentId }, tempDir, undefined, undefined, { AGENT_CONFIG_DIR: tempDir });
+    assert.equal(third.status, 0);
+    assert.deepEqual(JSON.parse(third.stdout), { systemMessage: INERT_PHASE_GUARD });
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('S12: no config located + no API URL stays silent ({}) with no inert line', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `s12-noconfig-${randomUUID()}`;
+  const agentId = 'agent-1';
+  seedMarker(tempDir, sessionId, agentId, { items: ['fafafafa-0000-0000-0000-000000000001'], blocks: 0 });
+  try {
+    const res = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, undefined);
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout.trim(), '{}');
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('S12: with an API URL set the inert line is never emitted (config located, gate read normally)', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `s12-configured-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = 'fbfbfbfb-0000-0000-0000-000000000001';
+  writeBootstrapConfig(tempDir);
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
+  const server = await startStub({ [itemId]: gateOk({ itemId, role: 'work', missing: [] }) });
+  try {
+    const res = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, `http://127.0.0.1:${server.address().port}`, undefined, { AGENT_CONFIG_DIR: tempDir });
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout.trim(), '{}');
+    assert.equal(server.requests.length, 1);
   } finally {
     await stopStub(server);
     rmSync(tempDir, { recursive: true, force: true });

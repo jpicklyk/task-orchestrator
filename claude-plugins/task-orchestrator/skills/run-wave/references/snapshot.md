@@ -15,9 +15,9 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
  blocked:[{itemId, role, blockType, blockedBy:[{itemId, role, effectiveUnblockRole, satisfied}]}],
  schemas:{<itemId>: {status:"ok"|"not-found"|"unavailable", type, configFingerprint, configSource,
           notes:[{key, role, required, seat?, skill?}], seats?, dispatch?, dispatchBySeat?, resources?}},
- carryIns?:{<itemId>: {keys:[string], dispositions:string|null}},  // only candidates with >=1 carry-in-* note
  scopes?:{<itemId>: {files:[string], dependsOn?:[string]}},        // only candidates joined to a same-parent candidate by an unsatisfied dependency edge
- noteActors:{<itemId>: [{key, actorId}]},              // only for role=work candidates (S4 resume)
+ carryIns?:{<itemId>: {keys:[string], dispositions:string|null}},  // only candidates with >=1 carry-in-* note
+ noteOwners:{<itemId>: [{key, seat}]},                 // only for role=work candidates (S4 resume)
  parents:{<id>: {role, canAdvance, missing[]}},         // S11
  profile:{…parsed run-profile.json, or {} when absent},
  probe:{…verbatim output of the `probe` subcommand},
@@ -32,18 +32,34 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
   into `args.project.appendOnlyFiles`; see post-run.md) — the skill never fills those defaults in by hand before writing the
   snapshot.
 - `probe` — the verbatim JSON the `probe` subcommand prints (`pluginVersion`, `phase0Hooks`,
-  `workflowSizeGuideline`, `allow`, and whatever else it emits — copy it as-is, do not curate the
-  fields). Required. `chooseEntry` reads `probe.phase0Hooks` for entry mode and `plan` copies
-  `probe.pluginVersion`/`probe.workflowSizeGuideline` into `capabilities`/`sizeGuideline`.
-- `carryIns` — optional. One entry per candidate that has at least one note key starting `carry-in-` (from `query_notes(operation:"list", includeBody:false)`); `keys` is those keys, `dispositions` is the body of the item's `carry-in-dispositions` note, or of the `## Carry-in dispositions` section of its planner queue note, else `null`. With `scopes`, this is one of the two places a note body is read for the snapshot. `plan` drops `carry-in-dispositions` and duplicates from `keys`, copies the result to each item's `carryIns`, and lists in `lateCarryIns` the keys of an item with no planner stage that no disposition line covers (a line covers a key only when it starts with the exact `<key>:`).
+  `hookMarkers`, `workflowSizeGuideline`, `allow`, `serverCompat`, and whatever else it emits — copy
+  it as-is, do not curate the fields). Required. `chooseEntry` reads `probe.phase0Hooks` for entry
+  mode and `plan` copies `probe.pluginVersion`/`probe.workflowSizeGuideline` into
+  `capabilities`/`sizeGuideline`. `serverCompat` is checked in Step 0 F2 (non-null stops the run);
+  `probe --no-server-check` skips that network check and `--api-url <url>` overrides the resolved URL.
+- `profile.runBudget` — optional `{tokens?, costUsd?, attemptsPerSeat?, maxActiveSeats?}`: when set,
+  `plan` copies it to `meta.runBudget` and `run-ops --phase open` sends it as the run's `budget`
+  (absent means no cap; the server refuses a budget above its configured ceiling). `plan` also copies
+  the snapshot's `ancestorId` to `meta.scopeId`, the run's `scopeId`.
+- `noteOwners` — optional, `role:"work"` candidates only: `{key, seat}` per note whose
+  `notes_read(select:"list")` entry shows `owner.seat` (shown only when the caller may see
+  attribution). A resumed work seat whose every owned note is owned by that seat is skipped; a note
+  with no owner row never skips a seat.
 - `scopes` - optional. One entry per candidate that an unsatisfied dependency edge joins to another candidate with the same `parentId`. `files` is every repo path the item's planner queue note or summary names as a file to edit (including `Shared file, lock-serialized:` lines); `dependsOn` is the ids (short or full UUID) on its `Depends on <id>:` lines. Only the extracted paths and ids enter the snapshot, not the note body. In `shared` mode `plan` compares canonical `files` for exact equality (backslashes become `/`, empty and `.` segments dropped, drive letter lowercased, a `git.repoRoot` prefix stripped; entries with `*` or `?` are skipped) and puts one advisory `shared-file edge` string in `meta.warnings` per edge whose two scopes share a file and whose dependent has no matching `dependsOn`. A directory-vs-file overlap and a blocker that is not a candidate get no warning. `explain` prints the warnings on a `Warnings:` line.
+- `carryIns` - optional. One entry per candidate that has at least one note key starting `carry-in-` (from `notes_read(select:"list", itemId)` with no `keys` filter); `keys` is those keys, `dispositions` is the body of the item's `carry-in-dispositions` note (`notes_read(select:"get", itemId, key:"carry-in-dispositions")`), or of the `## Carry-in dispositions` section of its planner queue note, else `null`. This is the one place a note body enters the snapshot. `plan` drops `carry-in-dispositions` and duplicates from `keys`, copies the result to each item's `carryIns`, and lists in `lateCarryIns` the keys of an item with no planner stage that no disposition line covers (a line covers a key only when it starts with the exact `<key>:`).
 - `git.repoRoot` — `git rev-parse --show-toplevel`, forward-slashed, no trailing slash. Required:
   `plan` derives every item's `worktree`/`branch` path from it in `per-item` mode and (absent a
   `--worktree`/`--branch` override) in `shared` mode too.
-- `candidates` — besides the ready and `role:"work"` items, include every non-terminal item in the target scope that `get_blocked_items` reports as blocked only by other candidates, with `source:"ready"`. `get_next_item` no longer returns them, and the planner reports any blocked item missing from `candidates` as `not projected`. Under `--entry pre-entered` an in-run edge becomes a cross-run deferral.
-- `candidates[].traits` — the item's `properties` field is a JSON string; parse it and pull out
-  the `traits` array. An absent `properties` or an absent `traits` key inside it both mean `[]`,
+- `candidates` — besides the ready and `role:"work"` items, include every non-terminal item in the target scope that `items_read(select:"blocked")` reports as blocked only by other candidates, with `source:"ready"`. `items_read(select:"next")` does not return them, and the planner reports any blocked item missing from `candidates` as `not projected`. Under `--entry pre-entered` an in-run edge becomes a cross-run deferral.
+- `candidates[].traits` — the item's top-level `traits` array, as `items_read` `get`, `list` and
+  `next` render it (the compact and full views both carry it). An absent `traits` member means `[]`,
   not an error.
+- `blocked[]` — from `items_read(select:"blocked")`: `itemId` is the entry's `id`, `blockType` its
+  `blockType`, and each `blockedBy` entry is one of its `blockers` (`id` → `itemId`, `role`,
+  `threshold` → `effectiveUnblockRole`, `satisfied`).
+- `parents` — from `items_read(select:"context", itemId:<parent>)`: `role` is `item.role`,
+  `canAdvance` and `missing` are `gateStatus.canAdvance` and `gateStatus.missing`.
+- `rulesServed` — the `config` `rules` list (`{key, rulesVersion}` per rule) for `rootId`.
 
 ## `validateSnapshot` errors this shape introduces
 

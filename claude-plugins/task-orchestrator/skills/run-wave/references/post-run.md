@@ -4,20 +4,64 @@ Runs once a run's execution phase is done — either the Method A task notificat
 Method B's own loop reaches `next → {complete: true}`. This is the same sequence for both
 methods; the only difference is what triggers entry into it (see the main `SKILL.md` Step 7).
 
-Each step below writes `state.phase` before it ends, per the turn-boundary protocol in
-`SKILL.md` — resume (F7 / the Resume matrix) re-enters at the first step not yet recorded.
+Each step below records the phase before it ends (`run-ops --phase update --run-phase <phase>`
+under the coordinator token, and the local `state.json`), per the turn-boundary protocol in
+`SKILL.md` — resume (F7 / the Resume matrix) re-enters at the first step not yet recorded. Every
+coordinator call below carries the coordinator token as the top-level `seatToken`; read every
+write's answer per element (`data.results[i]`, see RESULTS in `SKILL.md`).
 
 ---
 
 ## Step 0 — Load the result
 
-Re-read `run/<runId>` (the plan document) and its `state` document. Save the notification's
-result JSON (Method A) or the accumulated `outs`/`stages` from state (Method B) to
-`<scratchpad>/run-wave/<runId>/result.json`. Any item with no envelope recorded at all — neither
-a successful `stage-result` nor a `stopped` marker — is treated as `stopped: "agent returned
-null"`. Set `state.phase = "notified"`.
+Read the local `<scratchpad>/run-wave/<runId>/plan.json` (bound: it carries `args.serverRunId`) and
+`state.json`. Save the notification's result JSON (Method A) or the accumulated `outs`/`stages`
+from state (Method B) to `<scratchpad>/run-wave/<runId>/result.json`. Any item with no envelope
+recorded at all — neither a successful `stage-result` nor a `stopped` marker — is treated as
+`stopped: "agent returned null"`. A result with `started: false` (or a launch that threw) means
+nothing ran: skip to Step 7 and close the run `failed`. Record the phase `notified`.
 
-Tool: `manage_plan_documents(operation="get", ...)`.
+An altitude-safe result (`altitudeSafe: true`, from a plan made with `--altitude-safe`) is saved and
+verified the same way: it keeps `items[].stages` (status, commits, files, note keys) and the file
+lists under `items[].outputs.<seat>`, plus a `rollup` of counts, and cuts every reason to 120
+characters. The seat prose (planner decisions, corrections, deviations) is not in it; read it from
+the seats' notes when a later step needs it. `redProofShape` survives, cut to 200 characters; Step
+7c reads the full shape from the test-plan note's `red-proof-shape:` line. A `reseat` from a safe
+result passes scrubbed outputs, so a fix-cycle prompt shows `decisions: none` and
+`diagnosisCorrections: none`: tell the reseated seat to read the item's queue notes, and give a
+test-author reseat `--declarations`.
+
+`runs_read(select:"get", runId:<serverRunId>)` shows the run's status: a `paused` run (`pauseReason`
+budget, attempts or manual) is surfaced to the user now, with its pause decision; post-run work
+that needs no new seat continues, and the run closes as usual.
+
+---
+
+## Step 0a — Report usage
+
+Method A: write the Workflow task notification's usage to `<scratchpad>/run-wave/<runId>/usage.json`
+as `{"tokens": N, "duration": N}` (add `"costUsd": N` when the notification reports a cost). Then
+`node "<helper>" run-ops --plan <plan> --phase heartbeat --usage <usage.json>` renders an `advance`
+call `[claim(first item), heartbeat{usage: {tokens, costUsd?}}, release]`; send it under the
+coordinator token (a heartbeat's `usage` needs a seat token and a held claim, so the coordinator
+claims the run's first member for the length of this one call). This reports the run total once:
+the server keeps the highest value per seat. Any element error is Friction, never retried, and never
+blocks the close. A success carrying `paused: {decisionId}` means the report crossed the run budget:
+surface the decision. Method B: report the same way when a run total is known; otherwise skip.
+
+---
+
+## Step 0b — End the seats
+
+`runs_read(select:"seats", runId:<serverRunId>)` lists the active seats; save its `data` to
+`<scratchpad>/run-wave/<runId>/seats.json`. Then `node "<helper>" run-ops --plan <plan> --phase
+end-seats --seats <seats.json> --result <result.json>` renders one `end_seat` element per still-active
+member seat (outcome `done` for a done stage, `failed` for a stopped one, `abandoned` otherwise; the
+coordinator row and ended seats are skipped) with the aligned `tokenFiles`. Send each element in a
+call of its own under the token read from its `tokenFiles[i]` (the coordinator token is refused on
+`end_seat`). An `unauthenticated` element means that seat was superseded or ended in the meantime:
+record it and go on. A seat that ended itself is not listed. `close` with reason `completed` is
+refused while a seat is active, so this sweep always runs before Step 7.
 
 ---
 
@@ -131,106 +175,131 @@ hand-written script.
 
 ---
 
-## Step 2 — Actor audit
+## Step 2 — Notes audit
 
-`query_notes(operation="list", itemId=<item>, keys=[<that item's seat notes>], includeBody=false)`
-for every item in the run; write the observed `{itemId, key, actorId}` rows to
-`<scratchpad>/run-wave/<runId>/observed-actors.json`. Then run `node "<helper>" actors --plan
-<scratchpad>/run-wave/<runId>/plan.json --notes <scratchpad>/run-wave/<runId>/observed-actors.json
---result <scratchpad>/run-wave/<runId>/result.json`
-— passing `--notes` is what turns this call from *listing* the expected table (`{itemId, key,
-actorId}`, `actorId` = `<seat>:<short>:<runId>`) into *auditing* observed against expected.
-**Always pass `--result`**: it limits the expected notes per item to stages whose result status
-is actually `done`, so an item whose stages were deferred or never ran is reported `skipped: true`
-(not a `missing`-notes failure) instead of flagging notes from a stage that never executed. It
-**exits 0 when every item's notes match (or is `skipped`) and 3 when any item has a `missing` or
-`mismatched` entry**; as with `verify`, read the JSON body regardless of exit code.
+`notes_read(select:"list", itemId:<item>, keys:[<that item's seat notes>])` for every item in the
+run (list answers carry no bodies); write the observed `{itemId, key}` rows to
+`<scratchpad>/run-wave/<runId>/observed-notes.json`. Then run `node "<helper>" notes-audit --plan
+<scratchpad>/run-wave/<runId>/plan.json --notes <scratchpad>/run-wave/<runId>/observed-notes.json
+--result <scratchpad>/run-wave/<runId>/result.json` — passing `--notes` is what turns this call from
+*listing* the expected table (`{itemId, key, seat, optional?}`) into *auditing* observed against
+expected. **Always pass `--result`**: it limits the expected notes per item to stages whose result
+status is actually `done`, so an item whose stages were deferred or never ran is reported
+`skipped: true` (not a `missing`-notes failure). It **exits 0 when no item has a `missing` entry (or
+is `skipped`) and 3 otherwise**; as with `verify`, read the JSON body regardless of exit code.
 
-An item carrying any `missing` or `mismatched` entry means that item **fails this run**, same as
-a Step 1 verify failure — do not advance it. The rule this enforces: only the seat that owns a
-note may (re-)write it; a mismatch is evidence something wrote outside its lane, not a cosmetic
-discrepancy to wave through.
+An item carrying any `missing` entry **fails this run**, same as a Step 1 verify failure — do not
+advance it. Who wrote a note is not audited here: the server enforces each seat's lane (a write
+to another seat's key is refused `note_owned_by_other` with `ownerSeat`, a forbidden action
+`seat_forbidden`), so a filled note is its seat's.
 
-A reseated seat is the one exception: a note written by `<seat>-a<n>` (actor
-`<seat>-a<n>:<short>:<runId>`) is accepted in the `<seat>` lane when the actor is grammar-valid for
-that seat and short/runId. That grammar alone decides without `--result`, and with `--result` when the
-item's row has no `reseats` array; when the row carries a `reseats` array it is authoritative and must
-record the seat with `baseSeat` equal to `<seat>` (an empty array accepts none).
-
-An **optional** note (a stage's `optionalNotes`; the expected-actors table marks it `optional:
-true`) that was never written is **not** `missing` and does not fail the item — but if it was
-written under another actor it is still `mismatched`. In a seat-less plan `delegation-metadata` is not a seat's
-note: the planner lists it under the item's `orchestratorNotes`, no seat
-prompt may write it, and the orchestrator records it in Step 3.
+An **optional** note (a stage's `optionalNotes`; the expected table marks it `optional: true`) that
+was never written is **not** `missing` and does not fail the item. In a seat-less plan
+`delegation-metadata` is not a seat's note: the planner lists it under the item's
+`orchestratorNotes`, no seat prompt may write it, and the orchestrator records it in Step 3.
 
 ---
 
 ## Step 3 — Orchestrator notes
 
-Two notes, both actor `{id: "orchestrator:<session>", kind: "orchestrator"}` (not any seat's
-actor — these are the front door's own notes about the run, filled after Steps 1–2 have
-concrete results to report):
+Two notes, written by you with `notes_write` `upsert` (body inline, no token: these are the front
+door's own notes about the run, filled after Steps 1–2 have concrete results to report):
 
 1. **`session-tracking`** — outcome per item, files touched, deviations from the plan, and
    Friction (the declarations-scan hit count from Method B step 4, any Step 0 fallback taken in
-   `SKILL.md`, any `verify`/actor-audit failure). Write this **after** verify and the actor audit
-   have run, in confirmed past tense — not as a speculative "pending verification" draft you
-   intend to edit later.
+   `SKILL.md`, any `verify`/notes-audit failure, a failed usage report). Write this **after**
+   verify and the notes audit have run, in confirmed past tense — not as a speculative "pending
+   verification" draft you intend to edit later.
 2. **`delegation-metadata`** — the single provenance line, produced by
-   `node "<helper>" provenance --plan <plan> --result <result> --method A|B --turns <n> --usage <usage-file> [--meta-dir <dir>]`. **Method A: `--usage` is mandatory.**
-   Before running the helper, write the Workflow task notification's usage (total tokens, duration in
-   ms) to `<scratchpad>/run-wave/<runId>/usage.json` as `{"tokens": N, "duration": N}`; the helper
-   records that run total once, on the run's first item, and `tokens=see:<firstItemShort>` (likewise
-   `duration=`) on every other item, so per-item sums never multiply the run total. **Method B:** pass
-   `--usage` only if a per-item file exists (`{"items": {"<short>": {"tokens": N, "duration": N}}}`);
-   omit it otherwise (tokens/duration read `unknown`). Pass `--meta-dir` when per-seat `*.meta.json` files with
-   the actually-reported model exist (gives `model-source` other than `self-report`); otherwise
-   the line falls back to each stage's self-reported `modelReported`. This line is what the
-   session-retrospective skill's structured-provenance parser reads — do not hand-write it, and
-   do not reorder its fields.
+   `node "<helper>" provenance --plan <plan> --result <result> --method A|B --turns <n> --usage <usage-file> [--meta-dir <dir>]`. **Method A: `--usage` is mandatory** (the Step 0a
+   file): the helper records that run total once, on the run's first item, and
+   `tokens=see:<firstItemShort>` (likewise `duration=`) on every other item, so per-item sums never
+   multiply the run total. **Method B:** pass `--usage` only if a per-item file exists
+   (`{"items": {"<short>": {"tokens": N, "duration": N}}}`); omit it otherwise (tokens/duration read
+   `unknown`). Pass `--meta-dir` when per-seat `*.meta.json` files with the actually-reported model
+   exist (gives `model-source` other than `self-report`); otherwise the line falls back to each
+   stage's self-reported `modelReported`. A bound plan appends `server-run=<uuid>` after the fixed
+   fields. This line is what the session-retrospective skill's structured-provenance parser reads —
+   do not hand-write it, and do not reorder its fields.
 
 ---
 
 ## Step 4 — Batched advance
 
-**One** `advance_item(transitions=[...])` call covering every item that passed Steps 1–2:
-`trigger: "start"` for an item whose schema has a review phase, `trigger: "complete"` for one
-that doesn't (mirrors the standard "prefer `complete` for an item's final transition" guidance —
-here "final for this run" means "no review phase to enter", not "this is the item's last ever
-transition"). An item that failed Step 1 or Step 2 is **excluded** from this call entirely — it
-stays in its current phase for a human or a follow-up run to sort out, it does not get force-
-advanced.
+**Live-owed hold first.** For each item that passed Steps 1–2, read its `session-tracking` note
+(`notes_read(select:"get", itemId, key:"session-tracking")`): a `**Live-owed**:` line naming an
+open entry holds that item in work — leave it out of the call below and report it. When the line
+is absent, read the item's spec note's State matrix the same way; no line and no open matrix
+entry means no hold.
 
-After the call:
-- Collect every entry in the response's `unblockedItems` — these feed Step 9 of the main skill
-  (they join the next frontier automatically, you don't need to re-derive them).
-- Surface **every** `cascadeEvents` entry that carries `gateBlocked: true` — a cascade that
-  itself got gate-blocked is not a silent no-op, tell the user which ancestor and which missing
-  note blocked it.
+**One** `advance` call, under the coordinator token, with one `transition` element per item that
+passed Steps 1–2 and is not held: `trigger: "start"` for an item whose schema has a review phase,
+`trigger: "complete"` for one that doesn't ("final for this run" means "no review phase to enter",
+not "this is the item's last ever transition"). An item that failed Step 1 or Step 2 is
+**excluded** from this call entirely — it stays in its current phase for a human or a follow-up run
+to sort out, it does not get force-advanced.
 
-Set `state.phase = "post-run"`.
+After the call, save its answer to `<scratchpad>/run-wave/<runId>/advance.json` and run
+`node "<helper>" follow-ups --in <advance.json>`, which returns `{unblocked, seatBlocked,
+gateBlocked, reviewPending, gateMissing}` (item ids):
+
+- `unblocked` — these feed Step 9 of the main skill (they join the next frontier automatically).
+- `seatBlocked` — a cascade into a parent stopped `blocked: seat`: the parent is a member of a run
+  that is not closed and the write's caller could not send that trigger to it. Re-send the parent's
+  transition yourself under the coordinator token (`start` when the cascade's `targetRole` was work
+  from queue, `complete` when it was terminal), and report what it answered.
+- `gateBlocked` — a cascade stopped at a parent missing required notes (`gateMissing[<id>]`): tell
+  the user which ancestor and which notes; it is not a silent no-op.
+- `reviewPending` — a terminal cascade into a parent in review is always suppressed: the parent
+  leaves review only by an explicit advance (Step 5 "Wave parent review", Step 7b). Informational.
+- An element error is per element (`data.results[i].error`): `run_paused` stops this step and is
+  surfaced; anything else is reported for that item.
+
+Record the phase `post-run`.
 
 ---
 
 ## Step 5 — Review hand-off
 
-Set `state.phase = "review"` before dispatching or handing off the reviewer — a resume landing
-after this point (Resume matrix, `SKILL.md`) continues at Step 8 there instead of re-running
-Step 4's batched advance.
+Record the phase `review` before dispatching or handing off the reviewer — a resume landing after
+this point (Resume matrix, `SKILL.md`) continues at Step 8 there instead of re-running Step 4's
+batched advance.
 
+**Under `review: "handoff"`** (the project's `run-profile.json`), run Step 7 first — the run closes
+before the project's own review step (this repo: `/implement` Step 5) — and do not dispatch the
+generic reviewer yourself.
+
+**Otherwise**, per advanced item that entered a review phase: on a bound run, first assign its
+reviewer lane like any schema seat — `node "<helper>" run-ops --plan <plan> --phase assign --item
+<short> --seat reviewer`, sent under the coordinator token, the `seatToken` written to the rendered
+token file (a token-less write to a seat-owned key of a run member is `note_owned_by_other`). Then
 `node "<helper>" review-prompt --plan <scratchpad>/run-wave/<runId>/plan.json --item <short>
---result <scratchpad>/run-wave/<runId>/result.json` per advanced item that entered a review
-phase — **always pass `--result`**; without it the diff command falls back to a bare "owned
-files: planner output" line instead of the real `git diff <baseSha>..HEAD -- <owned files>`
-pathspec. Unless the project's `run-profile.json` sets `review: "handoff"` — in which case
-control passes to the project's own review step instead (this repo: `/implement` Step 5) and you
-do not dispatch the generic reviewer yourself. The generic review prompt is deliberately thin:
-seat line, the owned-file diff command, which notes to fill, and which rule keys apply — it
-carries no rule text inline (the reviewer fetches those itself).
+--result <scratchpad>/run-wave/<runId>/result.json` — **always pass `--result`**; without it the
+diff command falls back to a bare "owned files: planner output" line instead of the real
+`git diff <baseSha>..HEAD -- <owned files>` pathspec. The generic review prompt is deliberately
+thin: seat line, the owned-file diff command, which notes to fill, which rule keys apply and, on a
+bound run, the token file and END SEAT — it carries no rule text inline (the reviewer fetches those
+itself) and never the token. The review-wave workflow (`review-wave/args-v1`) takes the same
+`serverRunId` and a per-stage `tokenFile`; lanes that share a seat share one assignment and one
+token file, and its lanes never end their seat, so run Step 0b's sweep again before Step 7.
 
-**Wave parent review.** Before any reviewer for the wave parent itself is dispatched or handed off (a feature-level review; this repo's `/implement` Step 6 item 3), `get_context(itemId=<parent>)` and branch on its role. No review-role entry in its schema -> do not advance it: `start` from work with no review phase lands TERMINAL (`current/docs/api-reference.md:1237`; `container` is such a type, `.taskorchestrator/config.yaml:148-155`). Role `work` and `gateStatus.canAdvance` -> `advance_item` `trigger:"start"` (work->review) first, then dispatch. Role `work`, not `canAdvance` -> fill the orchestrator's own missing work notes or surface the seat-owned ones; never dispatch a reviewer at a work-role parent. Role `queue` -> run the `SKILL.md` Step 5 parent check first. Already `review` -> dispatch. Advance immediately before dispatch, not earlier: a REVIEW parent with every required note filled cascades to TERMINAL when its last child completes (`CascadeDetector.kt:130-163`, `current/docs/api-reference.md:1262-1266`).
+**Wave parent review.** Before any reviewer for the wave parent itself is dispatched or handed off
+(a feature-level review; this repo's `/implement` Step 6 item 3), `items_read(select:"context",
+itemId:<parent>)` and branch on its role. No review-role entry in its schema → do not advance it:
+`start` from work with no review phase lands terminal. Role `work` and `gateStatus.canAdvance` →
+`advance` `transition` `start` (work→review) under the coordinator token first, then dispatch. Role
+`work`, not `canAdvance` → fill the orchestrator's own missing work notes or surface the seat-owned
+ones; never dispatch a reviewer at a work-role parent. Role `queue` → run the `SKILL.md` Step 5
+parent check first. Already `review` → dispatch. On 4.0 a review-role parent is never moved by a
+child's terminal cascade (it is suppressed with reason `review-pending`), so the parent can enter
+review as soon as its work notes are filled.
 
-**Security-assessment items.** The review-prompt helper does not know the item's schema. When the item's resolved schema has a `security-assessment` note (check `get_context` expectedNotes), append to the generated review prompt a line naming the worktree path beside the diff command, plus: "Apply the /security-review method to this item's owned-file diff in its worktree — `git -C <worktree> diff <baseSha>..HEAD -- <owned files>` — not by invoking the built-in command, which diffs the session cwd and is empty for a worktree branch."
+**Security-assessment items.** The review-prompt helper does not know the item's schema. When the
+item's resolved schema has a `security-assessment` note (check `items_read(select:"context")`'s
+`schema` list), append to the generated review prompt a line naming the worktree path beside the
+diff command, plus: "Apply the /security-review method to this item's owned-file diff in its
+worktree — `git -C <worktree> diff <baseSha>..HEAD -- <owned files>` — not by invoking the built-in
+command, which diffs the session cwd and is empty for a worktree branch."
 
 **Fix cycle after a Fail.** When a review returns Fail, run the same four seats again, in order,
 each scoped to one numbered amendment `A<n>` (A1 for the first Fail, A2 for the next). There is no
@@ -257,32 +326,42 @@ cap on cycles.
 **Fallback.** Resume-by-name works in Method B or when seats are dispatched by hand. Method A seats
 run inside the implement-wave Workflow and generally cannot be resumed after it ends; there, and for
 any seat that cannot be resumed, dispatch a fresh seat with id `<seat>-a<n>` (e.g. `planner-a1`, valid when the item has a planner stage)
-and the same scope, so the actor audit and audit trail distinguish the cycle. Render that seat's
-prompt with the helper's `reseat` command instead of writing it by hand:
+and the same scope, so the audit trail distinguishes the cycle. The server knows only schema seats,
+so a fix-cycle seat runs under its **base** seat's assignment: on a still-open run, first re-`assign`
+the base seat (`run-ops --phase assign --item <short> --seat <base seat>`, coordinator token; this
+supersedes the old assignment as attempt n+1) and write the new `seatToken` to the base seat's token
+file. When the run is already closed (for example after a `review: "handoff"` close), open a run over
+that one item (`runs_write(ops:[{op:"open", rootId, items:[<itemId>], label:"<runId>-a<n>"}])`),
+bind a copy of the plan to it (`bind-run --in plan.json --server-run <uuid>` written to
+`plan-a<n>.json`), assign the base seat under that run's coordinator token, pass the copy to
+`reseat`, and close that run after the cycle. Render the seat's prompt with the helper's `reseat`
+command instead of writing it by hand:
 
 ```
 node "<helper>" reseat --plan <plan.json> --run <runId> --result <result.json> \
-  --item <short> --seat <seat>-a<n> [--declarations <file>] [--model <m>] [--tokens <n>] [--pre <sha>]
+  --item <short> --seat <seat>-a<n> [--declarations <file>] [--model <m>] [--tokens <n>] [--pre <sha>] [--assignment <uuid>]
 ```
 
 `--seat` must be a stage seat of the item plus `-a<n>` (n >= 1, no leading zero); a reviewer seat
 is not reseated (use `review-prompt`). The prompt is the base stage's prompt under the `<seat>-a<n>`
-actor id and commit trailer, with no ENTRY block and a `FIX CYCLE A<n>` line. A test-author base on
-an item with a declarations stage needs declarations from the result or `--declarations <file>`
-(plain text; `none` or empty counts as absent), else the command exits 3 with `missingDeclaration:`.
-The output JSON carries a `result` copy with the seat appended to `items[].reseats`
-(`{seat, baseSeat, cycle, model, tokens, pre}`; `pre` defaults to the item worktree's `HEAD`, is
-recorded once and never moves): write it back to `result.json`. Verify then judges the
+commit trailer, with no ENTRY block, the base seat's token file and END SEAT on a bound plan
+(`tokenFile` in the output), and a `FIX CYCLE A<n>` line. A test-author base on an item with a
+declarations stage needs declarations from the result or `--declarations <file>` (plain text;
+`none` or empty counts as absent), else the command exits 3 with `missingDeclaration:`. The output
+JSON carries a `result` copy with the seat appended to `items[].reseats`
+(`{seat, baseSeat, cycle, model, tokens, pre, assignment?}`; `pre` defaults to the item worktree's
+`HEAD`, is recorded once and never moves; `assignment` is the `assignmentId` the base seat's
+re-`assign` answered): write it back to `result.json`. Verify then judges the
 test-author-before-implementer order only over item commits at or before the earliest recorded
 `pre`, so an implementer-after-author fix cycle is accepted; a `pre` outside the run's history is a
 finding. Verify trusts the ledger `pre`: a `--pre` earlier than an order violation hides it, so pass the real pre-fix `HEAD`.
 
 **Re-review after fixes.** If the original reviewer seat cannot be resumed once fixes land, dispatch a
 fresh `task-orchestrator:reviewer` scoped to the fix commits (`git diff <prevReviewedSha>..HEAD -- <owned
-files>`) plus the original blocking findings. The orchestrator never appends to or re-upserts a note
-whose stored actor is a seat (`review-checklist`, `test-manifest`, `test-plan`,
-`test-independence-audit`, or any other seat-owned key) — that flips its stored actor and turns the
-seat's verdict into a self-confirmation. Any orchestrator confirmation goes under its own key,
+files>`) plus the original blocking findings. The orchestrator never writes a note a seat owns
+(`review-checklist`, `test-manifest`, `test-plan`, `test-independence-audit`, or any other seat-owned
+key): the server refuses it (`note_owned_by_other`), and a confirmation must never come from the
+seat's own verdict being rewritten. Any orchestrator confirmation goes under its own key,
 `orchestrator-confirmation` (role review, optional; off-schema is fine).
 
 **Recording out-of-run seats.** Every seat dispatched outside the run for an item (re-review,
@@ -290,7 +369,7 @@ fix-cycle `<seat>-a<n>`, amendment planner) is recorded by re-running
 `node "<helper>" provenance ... --item <short> --extra-seats <seat>:<model>:<tokens>,...` — with the
 same flags as Step 3, including `--usage` under Method A (omitting it on the run's first item
 replaces the recorded run total with `tokens=unknown`) — and
-re-upserting that item's `delegation-metadata` (orchestrator-owned, so no actor flip) with the
+re-upserting that item's `delegation-metadata` (orchestrator-owned) with the
 two-line output (grammar line, then `extra-seats=...`). The list is cumulative: each re-run passes
 every out-of-run seat so far. Take tokens from the Agent result's usage; use `unknown` if not
 reported. Seats recorded by `reseat` are read from the `reseats` ledger in `--result`, listed first,
@@ -308,6 +387,8 @@ process requires:
 - Arbitration of a red test authored by an independent test-author seat (per the project's
   arbitration rule — this repo: `/implement` Step 4b) is a **human or a separately-dispatched
   arbitration agent's** call, not this skill's.
+- A decision a seat raised (`awaiting_decision`, with its `decisionId`) or a pause decision of the
+  run is answered by a human or a director, never by the coordinator.
 - Opening a PR and merging it are the checkpoints that carry an item from review to terminal in
   most projects — this skill does not open PRs itself; that's the project workflow's job (this
   repo: `/implement` Step 6).
@@ -326,19 +407,28 @@ process requires:
 
 ## Step 7 — Close and loop
 
-Once the review hand-off (Step 5) is dispatched and any immediate human checkpoints (Step 6) are
-surfaced, set `state.phase = "closed"`. Report, in one place, every item that was **deferred**
-(cross-run edge, resource contention, run-size cap — with reasons), every item that was
-**stopped** (invalid envelope, verify/actor-audit failure), and every item that was **excluded**
-at planning time (unowned required note, unavailable schema config) — each with its specific
-reason, not a bare count. Then return to `SKILL.md` Step 9: re-run Step 2 (a fresh snapshot),
-letting the items surfaced in Step 4's `unblockedItems` join the new frontier.
+Once the review hand-off (Step 5) is dispatched or handed off, any review seats of this run have
+been swept (Step 0b again), and any immediate human checkpoints (Step 6) are surfaced, close the
+run: `node "<helper>" run-ops --plan <plan> --phase close --result <result.json>` renders
+`{op: "close", runId, reason}` — `completed` when the result says `started: true`, `failed` when it
+says `started: false` or the launch threw (no result); pass `--reason cancelled` for an explicit user
+stop or `--reason abandoned` for a Resume re-plan of an unrecoverable run (any other `--reason` exits
+2). Send it under the coordinator token. `invalid_run_state` on a `completed` close means a seat is
+still active: run Step 0b's sweep, then close again. The answer's `snapshot` lists `openDecisions`
+(a close withdraws no decision): report them.
 
-Cleanup: once an item's seats have committed, delete its recovery snapshots with `git for-each-ref --format=%(refname) refs/wip/<short>` piped to `git update-ref -d` for each ref (`refs/wip/<short>` and `refs/wip/<short>-<seat>`). Leave a snapshot in place for any item that stopped without committing.
+Report, in one place, every item that was **deferred** (cross-run edge, resource contention,
+run-size cap — with reasons), every item that was **stopped** (invalid envelope, verify/notes-audit
+failure, `awaiting_decision`, `run_paused`, `seat-token-rejected`), every item **held** live-owed,
+and every item that was **excluded** at planning time (unowned required note, unavailable schema
+config) — each with its specific reason, not a bare count. Suggest `/session-retrospective --run
+<serverRunId>` for the retrospective of this run. Then return to `SKILL.md` Step 9: re-run Step 2
+(a fresh snapshot), letting the items surfaced in Step 4's `unblocked` join the new frontier.
 
-A `closed` run's state document and pointer line are left in place (`manage_plan_documents` has
-no delete) — Step 0 F7's `phase != "closed"` filter is what keeps a finished run from being
-mistaken for an open one on the next invocation.
+Cleanup: once an item's seats have committed, delete its recovery snapshots with `git for-each-ref --format=%(refname) refs/wip/<short>` piped to `git update-ref -d` for each ref (`refs/wip/<short>` and `refs/wip/<short>-<seat>`). Leave a snapshot in place for any item that stopped without committing. Delete `<scratchpad>/run-wave/<runId>/tokens/` once the run is closed: its tokens are dead.
+
+A closed run stays readable (`runs_read` `get`) and its pointer line stays in place — Step 0 F7
+reads only open and paused runs, so a finished run is never mistaken for an open one.
 
 ---
 
@@ -370,11 +460,11 @@ background and go on to `SKILL.md` Step 9; the next wave's planners do not wait 
    from further proofs. Escalate on evidence as the rule says — a real gap expands the audit to
    the rest of that item's scenarios, still scoped.
 5. **Record once, on the wave parent** (the feature or container the run was scoped to; the
-   single item when the run had one), under `red-proof-results`, actor `orchestrator:<session>`:
-   one line per item — proofs run, red/survived, gaps, equivalents, approximate minutes, the
-   scratch path and merged SHA. Reviewers of later waves read it there; nobody re-runs it.
+   single item when the run had one), under `red-proof-results` (`notes_write` `upsert`, no
+   token): one line per item — proofs run, red/survived, gaps, equivalents, approximate minutes,
+   the scratch path and merged SHA. Reviewers of later waves read it there; nobody re-runs it.
 6. **Remove the scratch worktree** (`git worktree remove --force <unique-tmp>`) and set
-   `state.redProofs = "done"` on the run's state document so a resume does not repeat the step.
+   `redProofs: "done"` in the run's local `state.json` so a resume does not repeat the step.
 
 ---
 
@@ -384,47 +474,46 @@ Applies to a parent with 2 or more children whose resolved schema has a review p
 `feature-implementation`), once EVERY child is terminal. Shared mode: before the feature PR is
 pushed, so before Step 7a. Per-item mode: after the last child's PR has merged; it does not wait
 on Step 7a. Not covered: a parent with one child (that child's review covers the range) and a
-parent whose schema has no review phase (it cascades to terminal; the gate checks only required
-notes, `GatePredicate.kt:64-75`).
+parent whose schema has no review phase (it cascades to terminal when its last child completes and
+its required notes are filled).
 
-**Why every child first.** A review-role parent whose required notes are filled cascades to
-terminal when its last child completes: `CascadeDetector.kt:130-163` detects the all-children-terminal
-event and the cascade gate at `AdvanceService.kt:961-980` (`missingForComplete`) checks the
-required notes and independence violations (`AdvanceService.kt:963-967`); this holds for lifecycle `auto`. A feature review written
-earlier can therefore close the parent before any finding is disposed.
+**Why every child first.** The feature review judges the whole merged range, so it waits for the
+last child. On 4.0 the old hazard is gone: a terminal cascade into a parent in `review` is always
+suppressed (`blocked: gate`, reason `review-pending`), so finishing a child never closes a
+review-role parent, and the parent leaves review only by the explicit advance in item 4.
 
-1. **Dispatch one feature reviewer.** The parent is in review. Dispatch one
-   `task-orchestrator:reviewer` with an explicit `model`: the model the parent's review dispatch
-   profile names, else `opus`. Range: the merged diff of the feature's owned files, pathspec = the
-   union of the children's owned files (the reviewer also runs `git diff --stat <range>` over the WHOLE
-   range, without the pathspec, and flags any off-scope change; this whole-range check applies in
-   shared mode, while in per-item mode compare each child PR's merged diff instead, since the base
-   merges in between are not the feature's changes): shared mode `git -C <feature-worktree> diff <base>...HEAD
-   -- <paths>`; per-item mode the same pathspec over the base-branch range from the SHA before the
-   first child merged to the merged tip, so unrelated base merges stay out. Input: each child's
-   `review-checklist` (`query_notes(operation="list", itemId=<child>, keys=["review-checklist"])`
-   per child); list any child without one as such. The reviewer fills the parent's review-phase notes; the orchestrator
-   never rewrites them.
-2. **On Fail**, the orchestrator dispatches a fix seat (a fresh `implementer-a<n>`, scoped to the
-   finding's file) against the PARENT feature, with NO `advance_item` call: its dispatch prompt must
-   name it a NON-ENTRY seat (a default implementer's `advance_item(start)` on the review-role
-   parent would complete it, `RoleTransitionHandler.kt:446`). In shared mode it commits on the
-   feature branch; in per-item mode there is no feature branch, so the fix lands as its own small PR
-   against the base branch and the re-check reads that PR's diff. Either way it carries a
-   `Seat: implementer-a<n>` trailer and a `[<parent-short>]` tag, and the
-   orchestrator records the dispatch in the parent's `delegation-metadata`. Never reopen a terminal
-   child to carry a fix: that seat's `advance_item(start)` fails on a terminal child, and
-   completing the child again cascades the parent to terminal (every parent note is filled,
-   including the Fail `review-checklist`; `CascadeDetector.kt:130-163`, `AdvanceService.kt:961-980`)
-   before the re-check and dispositions. The SAME feature reviewer then re-checks only the fixed
-   findings (a fresh reviewer seat when the original cannot be resumed). A blocking finding can only
-   be disposed `fixed`.
-3. **Dispose every finding.** In the parent's `orchestrator-confirmation` (role review, actor
-   `orchestrator:<session>`), one line per finding:
+1. **Dispatch one feature reviewer.** The parent is in review (Step 5 "Wave parent review").
+   Dispatch one `task-orchestrator:reviewer` with an explicit `model`: the model the parent's
+   review dispatch profile names, else `opus`. Range: the merged diff of the feature's owned files,
+   pathspec = the union of the children's owned files (the reviewer also runs `git diff --stat
+   <range>` over the WHOLE range, without the pathspec, and flags any off-scope change; this
+   whole-range check applies in shared mode, while in per-item mode compare each child PR's merged
+   diff instead, since the base merges in between are not the feature's changes): shared mode
+   `git -C <feature-worktree> diff <base>...HEAD -- <paths>`; per-item mode the same pathspec over
+   the base-branch range from the SHA before the first child merged to the merged tip, so unrelated
+   base merges stay out. Input: each child's `review-checklist`
+   (`notes_read(select:"get", itemId:<child>, key:"review-checklist")` per child); list any child
+   without one as such. The reviewer fills the parent's review-phase notes; the orchestrator never
+   rewrites them.
+2. **On Fail**, the default fix path is a fix seat (a fresh `implementer-a<n>`, scoped to the
+   finding's file) against the PARENT feature: its dispatch prompt must name it a NON-ENTRY seat
+   that never transitions the parent. In shared mode it commits on the feature branch; in per-item
+   mode there is no feature branch, so the fix lands as its own small PR against the base branch
+   and the re-check reads that PR's diff. Either way it carries a `Seat: implementer-a<n>` trailer
+   and a `[<parent-short>]` tag, and the orchestrator records the dispatch in the parent's
+   `delegation-metadata`. Because a review-role parent no longer cascades to terminal, a child fix
+   path is also allowed when the finding belongs to one child's files: `reopen` that child, let its
+   own seats fix it, and complete it again — the parent stays in review. Prefer the parent seat
+   unless the fix clearly belongs to one child. The SAME feature reviewer then re-checks only the
+   fixed findings (a fresh reviewer seat when the original cannot be resumed). A blocking finding
+   can only be disposed `fixed`.
+3. **Dispose every finding.** In the parent's `orchestrator-confirmation` (role review, written by
+   you with `notes_write` `upsert`), one line per finding:
    `<id>: fixed <sha|PR> | follow-up <item-id> | accepted: <reason>`, ending with
    `<N> of <N> disposed`. A follow-up item must exist before its line is written
    (`/task-orchestrator:create-item`).
-4. **Complete.** The orchestrator's explicit `complete` on the parent, only after N of N.
+4. **Complete.** The orchestrator's explicit `advance` `transition` `complete` on the parent, only
+   after N of N.
 
 **Honest limit.** No server gate and no helper checks dispositions: `orchestrator-confirmation`
 is optional and off-schema, so this is discipline, not enforcement. Under `review: "handoff"` the

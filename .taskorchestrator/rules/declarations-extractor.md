@@ -77,10 +77,12 @@ because "the extractor was told not to" reproduces that failure.
   implementation commit. `src/main` is the implementation tree the extractor reads from and the
   author is barred from.
 - `harness:` examples for this repo: `io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configureTestApp`
-  (`ApiTestHelper.kt:153`) and `configureWriteTestApp` (`WriteRoutesTest.kt:76`).
-- `runtime call order:` for an MCP tool is this pinned sentence, verbatim: "`McpToolAdapter`
-  preprocesses params, calls `validateParams`, then `execute` inside `withConfigSession`;
-  `execute()` alone never validates" (`interfaces/mcp/McpToolAdapter.kt:101-111`). For a REST
+  (`ApiTestHelper.kt:122`) and `configureWriteTestApp` (`WriteRoutesTest.kt:24`).
+- `runtime call order:` for an MCP tool is this pinned sentence, verbatim: "`McpOperationAdapter`
+  hands every call to `ToolDispatcher.dispatch`, which checks the principal (and seat token), the
+  capability, `describe` and the selector, decodes the arguments with `RequestDecoder`, then runs
+  the select or op inside `withEventActor` and `withConfigSession`; a handler's `run` alone never
+  decodes or checks access" (`interfaces/shared/tools/ToolDispatcher.kt:50-84`). For a REST
   route it is the route's check order, copied from the frozen error table.
 - Orchestration tool names: `Grep` for the scan step; `SendMessage` to report a missing or
   unresolvable declaration back to the orchestrator rather than guessing one.

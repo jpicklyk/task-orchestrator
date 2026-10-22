@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
-import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
@@ -12,32 +11,23 @@ import io.github.jpicklyk.mcptask.current.domain.model.SeatDispatchOverride
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 
 /**
- * [GlobalConfigLookup] answered from one already-parsed global [ConfigLayer], with the same
- * semantics as the YAML-backed global services but derived from the document instead of separate
- * loaders:
+ * [GlobalConfigLookup] answered from one already-parsed server [ConfigLayer]:
  *
- * - type and tag lookups are exact document lookups with the `"default"` schema folded in as the
- *   last step (mirroring `YamlWorkItemSchemaService.getSchemaForType`/`getSchemaForTags`);
+ * - schema lookups are exact document lookups (no `"default"` fold; [LayeredConfig] owns that step);
  * - `note_limits.mode` falls back to `"warn"` when the document does not opine;
  * - status labels: no `status_labels` section means [NoOpStatusLabelService] defaults; a present
  *   section maps a trigger to its (possibly explicitly null) value, and an absent trigger to null.
  *
- * A null [layer] (no global config file) behaves as an empty document with a null fingerprint.
+ * A null [layer] (no server config file) behaves as an empty document with a null fingerprint.
  */
 class LayerBackedGlobalLookup(
     private val layer: ConfigLayer?,
 ) : GlobalConfigLookup {
     private val document: ConfigDocument = layer?.document ?: ConfigDocument.EMPTY
 
-    override fun schemaForType(type: String): WorkItemSchema? = document.workItemSchemas[type] ?: document.workItemSchemas[DEFAULT_KEY]
+    override fun exactSchema(key: String): WorkItemSchema? = document.workItemSchemas[key]
 
-    override fun notesForTags(tags: List<String>): List<NoteSchemaEntry>? {
-        for (tag in tags) {
-            val schema = document.workItemSchemas[tag]
-            if (schema != null) return schema.notes
-        }
-        return document.workItemSchemas[DEFAULT_KEY]?.notes
-    }
+    override fun schemaKeys(): Set<String> = document.workItemSchemas.keys
 
     override fun traitNotes(name: String): List<NoteSchemaEntry>? = document.traits[name]
 
@@ -45,11 +35,26 @@ class LayerBackedGlobalLookup(
 
     override fun traitDispatch(name: String): Map<Role, DispatchProfile> = document.traitDispatch[name] ?: emptyMap()
 
+    override fun traitSeats(name: String): List<SeatDefinition> = document.traitSeats[name] ?: emptyList()
+
+    override fun traitDispatchBySeat(name: String): Map<Role, Map<String, SeatDispatchOverride>> =
+        document.traitDispatchBySeat[name] ?: emptyMap()
+
     override fun resourceRegistry(): Map<String, ResourceDefinition> = document.resourceRegistry
 
     override fun noteLimitsMode(): String = document.noteLimitsMode ?: DEFAULT_NOTE_LIMITS_MODE
 
+    override fun independencePolicy(): IndependencePolicy = document.independence ?: IndependencePolicy.DEFAULT
+
+    override fun runsConfig(): RunsConfig? = document.runs
+
+    override fun decisionClasses(): Map<String, DecisionClassConfig>? = document.decisionClasses
+
     override fun fingerprint(): String? = layer?.fingerprint
+
+    override fun versionId(): java.util.UUID? = layer?.versionId
+
+    override fun version(): Int? = layer?.version
 
     override fun traitNames(): List<String> = document.traits.keys.toList()
 
@@ -58,21 +63,7 @@ class LayerBackedGlobalLookup(
         return if (labels.containsKey(trigger)) labels[trigger] else null
     }
 
-    override fun exactSchema(key: String): WorkItemSchema? = document.workItemSchemas[key]
-
-    override fun hasExactTagSchema(tag: String): Boolean = document.workItemSchemas.containsKey(tag)
-
-    override fun schemaResolution(): SchemaResolutionMode? = document.schemaResolution
-
-    override fun traitSeats(name: String): List<SeatDefinition> = document.traitSeats[name] ?: emptyList()
-
-    override fun traitDispatchBySeat(name: String): Map<Role, Map<String, SeatDispatchOverride>> =
-        document.traitDispatchBySeat[name] ?: emptyMap()
-
-    override fun independencePolicy(): IndependencePolicy = document.independence ?: IndependencePolicy.DEFAULT
-
     private companion object {
-        const val DEFAULT_KEY = "default"
         const val DEFAULT_NOTE_LIMITS_MODE = "warn"
     }
 }

@@ -18,11 +18,11 @@ import kotlinx.serialization.Serializable
  * Endpoint:
  * - `GET /.well-known/mcp-task-orchestrator.json` — returns [WellKnownDto] with public metadata.
  *
- * @param serverName The public service name. Defaults to the `MCP_SERVER_NAME` env variable.
+ * @param serverName The public service name (the composition root passes `AppConfig.mcpServerName`).
  * @param serverVersion The build version string.
  */
 fun Route.wellKnownRoutes(
-    serverName: String = System.getenv("MCP_SERVER_NAME") ?: "mcp-task-orchestrator-current",
+    serverName: String = "mcp-task-orchestrator-current",
     serverVersion: String = "unknown",
 ) {
     get("/.well-known/mcp-task-orchestrator.json") {

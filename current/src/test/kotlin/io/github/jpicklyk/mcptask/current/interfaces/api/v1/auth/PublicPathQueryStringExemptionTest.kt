@@ -1,5 +1,13 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth
 
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -49,13 +57,19 @@ class PublicPathQueryStringExemptionTest {
 
     private fun bearerConfig(): ApiAuthConfig.Bearer {
         val principal =
-            ApiPrincipal(
-                tokenId = "public-path-probe-principal",
-                scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+            Principal(
+                id = "public-path-probe-principal",
+                scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
                 capabilities = setOf(ApiCapability.READ),
-                authMode = ApiAuthMode.BEARER,
+                kind = PrincipalKind.SERVICE,
+                proofStatus = ProofStatus.ISSUED,
             )
-        return ApiAuthConfig.Bearer(tokens = mapOf(HashBytes(sha256(PROBE_TOKEN)) to principal))
+        return ApiAuthConfig.Bearer(
+            tokens =
+                mapOf(
+                    HashBytes(sha256(PROBE_TOKEN)) to BearerTokenStore.TokenEntry(principal, expiresAt = null)
+                )
+        )
     }
 
     /** Installs [ApiBearerAuth] with a caller-chosen `publicPaths` set (default `publicPrefixes`
@@ -69,7 +83,7 @@ class PublicPathQueryStringExemptionTest {
         install(ContentNegotiation) { json(McpJson) }
         install(ApiBearerAuth) {
             authConfig = config
-            tokenEntries = config.tokens.mapValues { (_, p) -> BearerTokenStore.TokenEntry(p, expiresAt = null) }
+            tokenEntries = config.tokens
             this.publicPaths = publicPaths
         }
         routing {
@@ -82,7 +96,7 @@ class PublicPathQueryStringExemptionTest {
     }
 
     @Test
-    fun `exact public path WITH a query string is exempted - the core regression fix`() =
+    fun `exact public path WITH a query string is exempted - the core regression fix`(): Unit =
         testApplication {
             application { wireProbeApp(publicPaths = setOf("/api/v1/probe")) }
             val response = client.get("/api/v1/probe?token=abc&extra=1")
@@ -94,14 +108,14 @@ class PublicPathQueryStringExemptionTest {
         }
 
     @Test
-    fun `exact public path with no query string is exempted (baseline)`() =
+    fun `exact public path with no query string is exempted (baseline)`(): Unit =
         testApplication {
             application { wireProbeApp(publicPaths = setOf("/api/v1/probe")) }
             assertEquals(HttpStatusCode.OK, client.get("/api/v1/probe").status)
         }
 
     @Test
-    fun `a non-exempted path still requires auth regardless of query string, and a valid header still works`() =
+    fun `a non-exempted path still requires auth regardless of query string, and a valid header still works`(): Unit =
         testApplication {
             application { wireProbeApp(publicPaths = setOf("/api/v1/probe")) }
 
@@ -124,7 +138,7 @@ class PublicPathQueryStringExemptionTest {
         }
 
     @Test
-    fun `prefix-leak probe - probefoo and probe2 do not inherit the probe exemption`() =
+    fun `prefix-leak probe - probefoo and probe2 do not inherit the probe exemption`(): Unit =
         testApplication {
             application { wireProbeApp(publicPaths = setOf("/api/v1/probe")) }
             assertEquals(
@@ -140,7 +154,7 @@ class PublicPathQueryStringExemptionTest {
         }
 
     @Test
-    fun `trailing slash on the exempted path is not treated as the same exact path`() =
+    fun `trailing slash on the exempted path is not treated as the same exact path`(): Unit =
         testApplication {
             application { wireProbeApp(publicPaths = setOf("/api/v1/probe")) }
             val response = client.get("/api/v1/probe/")
@@ -155,7 +169,7 @@ class PublicPathQueryStringExemptionTest {
         }
 
     @Test
-    fun `publicPrefixes matching also ignores the query string`() =
+    fun `publicPrefixes matching also ignores the query string`(): Unit =
         testApplication {
             application { wireProbeApp(publicPaths = setOf("/api/v1/probe")) } // publicPrefixes defaults to "/.well-known/"
             val response = client.get("/.well-known/discovery?x=1&y=2")
@@ -167,7 +181,7 @@ class PublicPathQueryStringExemptionTest {
         }
 
     @Test
-    fun `multiple query params and a bare trailing question mark still match the exempted path`() =
+    fun `multiple query params and a bare trailing question mark still match the exempted path`(): Unit =
         testApplication {
             application { wireProbeApp(publicPaths = setOf("/api/v1/probe")) }
             assertEquals(

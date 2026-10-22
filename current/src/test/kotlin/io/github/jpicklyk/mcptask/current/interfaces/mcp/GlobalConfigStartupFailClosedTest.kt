@@ -1,26 +1,24 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.bootstrap.CurrentMcpServer
+import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.mockk.mockk
-import io.mockk.verify
-import org.jetbrains.exposed.v1.jdbc.Database
+import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
-import org.slf4j.Logger
 import java.nio.file.Files
 import java.nio.file.Path
-import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Independent test-author suite for item b1addc2b -- "Fail closed on unparseable global config and
- * invalid actor_authentication values". Covers test-plan scenarios S1, S3, S6, S9, S13 -- the
+ * Independent test-author suite for item b1addc2b -- "Fail closed on unparseable global config".
+ * Covers test-plan scenarios S1, S6 and the DEGRADED_MODE_POLICY variable case of S13 -- the
  * composition-root and startup-propagation half of the fix. Loader-level parsing coverage (S2, S5,
  * S7, S8, S10-S12, S15, and the config-parsing probes) is in
  * `io.github.jpicklyk.mcptask.current.infrastructure.config.GlobalConfigFailClosedTest`.
@@ -28,21 +26,17 @@ import kotlin.test.assertTrue
  * Oracle source: the item's frozen `diagnosis` note (decisions D1, D3, D5) and `test-plan` note
  * (queue phase) -- never this file's own reading of the fixed source. All scenarios here are
  * EXISTING-SURFACE per the test-plan: [ServerComposition]'s constructor (including its `logger`
- * parameter) and `build()`, [CurrentMcpServer]'s constructor and `run()`, and [DegradedModePolicy]
+ * parameter) and `build()`, [CurrentMcpServer]'s constructor and `run()`
  * were all public before this fix. Only the *behavior* on a broken or absent global config, and
  * the new startup WARN for a real jwks verifier under `accept-cached`, are new -- both reachable
  * via a plain revert of the fix, which therefore yields behavioral red directly.
  */
 class GlobalConfigStartupFailClosedTest {
-    /** Builds an H2-backed DatabaseManager with schema created (no live env reads). Mirrors
-     * `ServerCompositionTest.buildDatabaseManager`. */
-    private fun buildDatabaseManager(): DatabaseManager {
-        val dbName = "global_config_startup_test_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        DirectDatabaseSchemaManager().updateSchema()
-        return DatabaseManager(database)
-    }
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
 
+    /** Builds a SQLite-backed DatabaseManager with schema created (no live env reads). Mirrors
+     * `ServerCompositionTest.buildDatabaseManager`. */
     private fun writeGlobalConfig(
         dir: Path,
         content: String
@@ -64,90 +58,23 @@ class GlobalConfigStartupFailClosedTest {
         return AppConfig.fromEnv { key -> env[key] }
     }
 
-    private fun jwksConfig(policy: String): String =
-        """
-        actor_authentication:
-          degraded_mode_policy: $policy
-          verifier:
-            type: jwks
-            audience: "test-audience"
-            issuer: "https://issuer.example.com"
-            jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
-            algorithms:
-              - RS256
-        """.trimIndent()
-
     // -------------------------------------------------------------------------
     // S1 -- an empty AGENT_CONFIG_DIR (no .taskorchestrator/config.yaml at all) is a legitimate
     // "nothing configured" state: build() succeeds with coded defaults. D1
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S1 build() over an empty AGENT_CONFIG_DIR succeeds with ACCEPT_CACHED, a null note-schema fingerprint, and actor auth disabled`(
+    fun `S1 build() over an empty AGENT_CONFIG_DIR succeeds with a null note-schema fingerprint`(
         @TempDir tempDir: Path
     ) {
         val composition =
             ServerComposition(
                 appConfig = agentConfigDirAppConfig(tempDir),
-                databaseManager = buildDatabaseManager(),
-                shutdownCoordinator = null,
+                databaseManager = db.databaseManager,
+                shutdownCoordinator = ShutdownCoordinator(),
             ).build()
 
-        assertEquals(DegradedModePolicy.ACCEPT_CACHED, composition.degradedModePolicy)
-        assertNull(composition.noteSchemaService.getConfigFingerprint())
-        assertFalse(composition.actorAuthEnabled)
-    }
-
-    // -------------------------------------------------------------------------
-    // S3 -- a real jwks verifier under (effective) accept-cached logs exactly one startup WARN,
-    // for both static-JWKS and DID-trust configurations. D5
-    // -------------------------------------------------------------------------
-
-    @Test
-    fun `S3 build() logs exactly one accept-cached WARN for a real jwks verifier (static JWKS)`(
-        @TempDir tempDir: Path
-    ) {
-        writeGlobalConfig(
-            tempDir,
-            """
-            actor_authentication:
-              verifier:
-                type: jwks
-                audience: "test-audience"
-                issuer: "https://issuer.example.com"
-                jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
-                algorithms:
-                  - RS256
-            """.trimIndent()
-        )
-        val logger = mockk<Logger>(relaxed = true)
-
-        ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), null, logger).build()
-
-        verify(exactly = 1) { logger.warn(match<String> { it.contains("accept-cached") }) }
-    }
-
-    @Test
-    fun `S3 build() logs exactly one accept-cached WARN for a real jwks verifier (DID-trust)`(
-        @TempDir tempDir: Path
-    ) {
-        writeGlobalConfig(
-            tempDir,
-            """
-            actor_authentication:
-              verifier:
-                type: jwks
-                did_allowlist:
-                  - "did:web:example.com"
-                algorithms:
-                  - EdDSA
-            """.trimIndent()
-        )
-        val logger = mockk<Logger>(relaxed = true)
-
-        ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), null, logger).build()
-
-        verify(exactly = 1) { logger.warn(match<String> { it.contains("accept-cached") }) }
+        assertNull(runBlocking { composition.serverConfig.layer() }?.fingerprint)
     }
 
     // -------------------------------------------------------------------------
@@ -163,15 +90,6 @@ class GlobalConfigStartupFailClosedTest {
         writeGlobalConfig(
             configDir,
             """
-            actor_authentication:
-              degraded_mode_policy: reject
-              verifier:
-                type: jwks
-                audience: "test-audience"
-                issuer: "https://issuer.example.com"
-                jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
-                algorithms:
-                  - RS256
             traits: [
             """.trimIndent()
         )
@@ -190,7 +108,7 @@ class GlobalConfigStartupFailClosedTest {
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = AppConfig.fromEnv { key -> env[key] }
             )
 
@@ -203,101 +121,21 @@ class GlobalConfigStartupFailClosedTest {
     }
 
     // -------------------------------------------------------------------------
-    // S9 -- build() over an invalid degraded_mode_policy value throws IAE. D2/D3
+    // S13 -- a set DEGRADED_MODE_POLICY variable fails build closed, whatever its value. D5
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S9 build() over an invalid degraded_mode_policy value throws IAE`(
+    fun `S13 a set DEGRADED_MODE_POLICY variable fails build closed whatever its value`(
         @TempDir tempDir: Path
     ) {
-        writeGlobalConfig(
-            tempDir,
-            """
-            actor_authentication:
-              degraded_mode_policy: banana
-              verifier:
-                type: noop
-            """.trimIndent()
-        )
-
-        val ex =
-            assertFailsWith<IllegalArgumentException> {
-                ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), null).build()
-            }
-        assertTrue(ex.message?.contains("banana") == true, "Expected 'banana' in: ${ex.message}")
-    }
-
-    // -------------------------------------------------------------------------
-    // S13 -- the startup WARN fires only when the EFFECTIVE (post-env-override) policy is
-    // accept-cached AND the verifier is a real jwks. D5
-    // -------------------------------------------------------------------------
-
-    @Test
-    fun `S13 jwks with YAML reject logs zero accept-cached WARNs`(
-        @TempDir tempDir: Path
-    ) {
-        writeGlobalConfig(tempDir, jwksConfig(policy = "reject"))
-        val logger = mockk<Logger>(relaxed = true)
-
-        ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), null, logger).build()
-
-        verify(exactly = 0) { logger.warn(match<String> { it.contains("accept-cached") }) }
-    }
-
-    @Test
-    fun `S13 jwks with YAML accept-self-reported logs zero accept-cached WARNs`(
-        @TempDir tempDir: Path
-    ) {
-        writeGlobalConfig(tempDir, jwksConfig(policy = "accept-self-reported"))
-        val logger = mockk<Logger>(relaxed = true)
-
-        ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), null, logger).build()
-
-        verify(exactly = 0) { logger.warn(match<String> { it.contains("accept-cached") }) }
-    }
-
-    @Test
-    fun `S13 noop verifier under accept-cached logs zero accept-cached WARNs`(
-        @TempDir tempDir: Path
-    ) {
-        writeGlobalConfig(
-            tempDir,
-            """
-            actor_authentication:
-              verifier:
-                type: noop
-            """.trimIndent()
-        )
-        val logger = mockk<Logger>(relaxed = true)
-
-        ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), null, logger).build()
-
-        verify(exactly = 0) { logger.warn(match<String> { it.contains("accept-cached") }) }
-    }
-
-    @Test
-    fun `S13 jwks YAML accept-cached overridden by env reject logs zero accept-cached WARNs`(
-        @TempDir tempDir: Path
-    ) {
-        writeGlobalConfig(tempDir, jwksConfig(policy = "accept-cached"))
-        val appConfig = agentConfigDirAppConfig(tempDir, extraEnv = mapOf("DEGRADED_MODE_POLICY" to "reject"))
-        val logger = mockk<Logger>(relaxed = true)
-
-        ServerComposition(appConfig, buildDatabaseManager(), null, logger).build()
-
-        verify(exactly = 0) { logger.warn(match<String> { it.contains("accept-cached") }) }
-    }
-
-    @Test
-    fun `S13 jwks YAML reject overridden by env accept-cached logs exactly one accept-cached WARN`(
-        @TempDir tempDir: Path
-    ) {
-        writeGlobalConfig(tempDir, jwksConfig(policy = "reject"))
-        val appConfig = agentConfigDirAppConfig(tempDir, extraEnv = mapOf("DEGRADED_MODE_POLICY" to "accept-cached"))
-        val logger = mockk<Logger>(relaxed = true)
-
-        ServerComposition(appConfig, buildDatabaseManager(), null, logger).build()
-
-        verify(exactly = 1) { logger.warn(match<String> { it.contains("accept-cached") }) }
+        writeGlobalConfig(tempDir, "# no keys")
+        for (value in listOf("reject", "accept-cached", "accept-self-reported")) {
+            val appConfig = agentConfigDirAppConfig(tempDir, extraEnv = mapOf("DEGRADED_MODE_POLICY" to value))
+            val ex =
+                assertFailsWith<IllegalArgumentException>("value $value") {
+                    ServerComposition(appConfig, db.databaseManager, ShutdownCoordinator()).build()
+                }
+            assertTrue(ex.message?.contains("DEGRADED_MODE_POLICY") == true, "Expected the variable in: ${ex.message}")
+        }
     }
 }

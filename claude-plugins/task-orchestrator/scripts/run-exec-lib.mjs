@@ -1,14 +1,20 @@
 // run-exec-lib.mjs — Method B scheduling ("next"), prompt rendering, envelope parsing/
-// mapping, the declarations scan, post-run git verification, the expected-actor table, and
-// the provenance line — over the SAME run plan Method A (workflows/implement-wave.js) runs.
+// mapping, the declarations scan, post-run git verification, the notes audit, the provenance
+// line, and the server-run ops the orchestrator sends (runOps, closeReason, advanceFollowUps) —
+// over the SAME run plan Method A (workflows/implement-wave.js) runs.
 //
 // Pure except EXEC_COMMANDS' handlers, which call the injected `io` (readInput/readText/
 // writeOut/fail/exit/git/loadCore) rather than fs/process/git directly — this file itself
 // never references those globals. Every function below takes the loaded core
 // (scripts/lib/wave-core.mjs) as an injected first parameter where it needs core behaviour;
-// pure helpers (validateAgainst, scanReport's word list, verify, expectedActors/auditActors,
-// provenance, reviewPrompt) take no core because they don't call into the @core-begin region,
-// per the frozen contract (Appendix D, dispatch contract for f8d3232e).
+// pure helpers (validateAgainst, scanReport's word list, verify, notesAudit, provenance,
+// closeReason, advanceFollowUps) take no core because they don't call into the @core-begin region.
+//
+// No function here renders a seat token or a coordinator token: the orchestrator holds them,
+// writes seat tokens to the token files runOps names, and adds the right token as the top-level
+// seatToken of each call it sends. The stage-result handler reads the run's token files solely
+// to redact them (with any seatToken/coordinatorToken key) from the state it prints; nothing
+// renders them.
 
 import { extractLastBalancedJson } from './ralph-lib.mjs'
 import { formatProvenance, formatExtraSeats, parseExtraSeats } from './provenance-lib.mjs'
@@ -503,14 +509,18 @@ function isAbsentDeclaration(text) {
 
 /**
  * reseat(core, doc, result, idOrShort, seat, opts) ->
- *   {ok:true, prompt, seat, baseSeat, cycle, actor, result} | {ok:false, error}.
+ *   {ok:true, prompt, seat, baseSeat, cycle, tokenFile, result} | {ok:false, error}.
  * seat = '<stageSeat>-a<n>' (n >= 1, no leading zero; the base must be a non-reviewer stage seat
  * of the item). The prompt is core.seatPrompt over a clone of the base stage renamed to `seat`
  * with enters:false, outs from the result item's outputs (keyed by base seat), plus a FIX CYCLE
- * line (and the Method B addendum on Method B plans). opts = {declarations?, model?, tokens?, pre?}.
+ * line (and the Method B addendum on Method B plans). opts = {declarations?, model?, tokens?, pre?,
+ * assignment?}. On a bound run the reseat runs under the BASE seat's server assignment (the
+ * orchestrator re-assigns the base seat first, which supersedes it as attempt n+1, and writes the new
+ * token to the base seat's token file); the prompt names that file (tokenFile, null when unbound).
  * `result` in the return is a copy with items[i].reseats upserted {seat, baseSeat, cycle, model,
- * tokens, pre}: model/tokens update only when passed, pre never moves; the input is not mutated.
- * Throws 'invalid args: ...' for argument errors; returns {ok:false} for a missing declaration.
+ * tokens, pre, assignment?}: model/tokens/assignment update only when passed, pre never moves; the
+ * input is not mutated. Throws 'invalid args: ...' for argument errors; returns {ok:false} for a
+ * missing declaration.
  */
 export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
   const m = RESEAT_SEAT_RE.exec(String(seat || ''))
@@ -551,7 +561,11 @@ export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
   }
 
   const stage = Object.assign({}, baseStage, { seat, enters: false })
-  let text = core.seatPrompt(plan, item, stage, outs)
+  // The server knows only the base seat: the fix cycle reads the base seat's token file.
+  const tokenFile = core.seatTokenFile(plan, item, baseStage)
+  const promptPlan = tokenFile ? Object.assign({}, plan, { serverRunId: null }) : plan
+  let text = core.seatPrompt(promptPlan, item, stage, outs)
+  if (tokenFile) text += `\n${reseatTokenPart(plan, baseStage, tokenFile)}`
   text += `\nFIX CYCLE A${cycle}: work only section "## Amendment A${cycle}" of the item's planning note and the blocking findings it cites.`
   if (isMethodB(doc)) text += `\n${methodBReturn(core, plan, stage)}`
 
@@ -567,14 +581,31 @@ export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
       tokens: opts.tokens !== undefined && opts.tokens !== null ? opts.tokens : 'unknown',
       pre: opts.pre || '',
     }
+    if (opts.assignment) entry.assignment = opts.assignment
     ledger.push(entry)
   } else {
     if (opts.model) entry.model = opts.model
     if (opts.tokens !== undefined && opts.tokens !== null) entry.tokens = opts.tokens
+    if (opts.assignment) entry.assignment = opts.assignment
   }
   outItem.reseats = ledger
 
-  return { ok: true, prompt: text, seat, baseSeat, cycle, actor: core.seatActor(stage, item, plan), result: out }
+  return { ok: true, prompt: text, seat, baseSeat, cycle, tokenFile: tokenFile || null, result: out }
+}
+
+/**
+ * The SEAT TOKEN, DEVIATION and END SEAT parts of a fix-cycle seat on a bound run. The fix cycle is
+ * not a schema seat, so it runs under the base seat's fresh assignment and token file.
+ */
+function reseatTokenPart(plan, baseStage, tokenFile) {
+  return [
+    `SEAT TOKEN: run ${plan.serverRunId}. This fix cycle runs under the ${baseStage.seat} seat's fresh assignment: your seat token is the single line in the file ${tokenFile}. ` +
+      'Read it with your file tool, trim it, and pass it as the top-level seatToken field of every task-orchestrator call you make, reads included. ' +
+      'Never print, quote, echo, log or commit the token or the file content. A call refused unauthenticated ("The seat token is not accepted.") means ' +
+      'this assignment was superseded or ended: stop at once and return status "stopped", reason "seat-token-rejected".',
+    'END SEAT: load runs_write too (ToolSearch select:mcp__mcp-task-orchestrator__runs_write). As your last task-orchestrator call, end the seat with your seat token: runs_write(ops:[{op:"end_seat", outcome, summary}]); ' +
+      'outcome "done" for status done, "failed" for stopped, "abandoned" for deferred. Set seatEnded: true in the envelope when it succeeded.',
+  ].join('\n')
 }
 
 // ---------------------------------------------------------------------------------------
@@ -642,12 +673,13 @@ export function validateAgainst(schema, value, path = '$') {
 }
 
 /**
- * stageResult(core, doc, state, idOrShort, seat, finalText, {agentTypeUsed, agentTypeFallback}={})
+ * stageResult(core, doc, state, idOrShort, seat, finalText, {agentTypeUsed, agentTypeFallback, knownTokens}={})
  * -> {status, reason, state} (a NEW state object; input not mutated).
  * Parse via extractLastBalancedJson -> JSON.parse -> validateAgainst(envelopeSchema). Empty/
  * whitespace text and unparseable text are both treated as an invalid envelope. First
  * failure -> retry (envelopeRetries:1 recorded); second failure -> stopped 'invalid envelope'.
- * A valid envelope maps via core.mapStageResult and records outs[key] = env.output unredacted.
+ * A valid envelope maps via core.mapStageResult and records outs[key] = env.output after core.stripTokens(env, opts.knownTokens) removes
+ * seatToken/coordinatorToken keys and redacts every known token value.
  */
 export function stageResult(core, doc, state, idOrShort, seat, finalText, opts = {}) {
   const { plan } = resolvePlan(core, doc)
@@ -682,6 +714,7 @@ export function stageResult(core, doc, state, idOrShort, seat, finalText, opts =
 
   let validationErrors = []
   if (!parseError) {
+    env = core.stripTokens(env, opts.knownTokens || [])
     const schema = core.envelopeSchema(stage.output, plan.outputSchemas, { enters: stage.enters })
     validationErrors = validateAgainst(schema, env)
   }
@@ -825,7 +858,7 @@ export function resultFromState(core, doc, state) {
     contract: 'implement-wave/result-v1',
     started: true,
     runId: plan.runId,
-    planDocSlug: plan.planDocSlug,
+    serverRunId: plan.serverRunId || null,
     items,
     refused: preflight.refused,
     deferred: plan.deferred || [],
@@ -1175,17 +1208,16 @@ export function verify(doc, result, gitFacts) {
 }
 
 /**
- * expectedActors(doc) -> [{itemId, key, actorId:'<seat>:<short>:<runId>'}].
- * args/stage/note order; inserted stages carry no notes (nothing to yield); orchestratorNotes
- * are not stage-owned so they never appear here.
+ * expectedNotes(doc) -> [{itemId, key, seat, optional?}] in args/stage/note order. Inserted stages
+ * own no notes; orchestratorNotes are not stage-owned, so they never appear here.
  */
-export function expectedActors(doc) {
+export function expectedNotes(doc) {
   const out = []
   for (const item of doc.args.items) {
     for (const stage of item.stages) {
       const optional = new Set(stage.optionalNotes || [])
       for (const key of stage.notes || []) {
-        const row = { itemId: item.id, key, actorId: `${stage.seat}:${item.short}:${doc.args.runId}` }
+        const row = { itemId: item.id, key, seat: stage.seat }
         if (optional.has(key)) row.optional = true
         out.push(row)
       }
@@ -1195,91 +1227,38 @@ export function expectedActors(doc) {
 }
 
 /**
- * reseatAccepts(resItem, expectedActorId, observedActorId, hasResult) -> boolean. True when the
- * observed actor id is exactly `<seat>-a<n>:<short>:<runId>` for the expected
- * `<seat>:<short>:<runId>` (RESEAT_SEAT_RE, capture 1 === the expected seat, identical tail) AND:
- *  - no result document (hasResult false), or the result row has no `reseats` array (absent/null/
- *    non-array): the grammar alone decides;
- *  - the result row carries a `reseats` array (even empty): the ledger is authoritative and needs
- *    an entry with `seat` === the observed seat part and `baseSeat` === the expected seat.
+ * notesAudit(doc, observed, itemIds?, opts?) -> {ok, items:[{itemId, short, ok, missing, skipped?}]}.
+ * observed = [{itemId, key}] (the orchestrator lists each item's notes with notes_read list keys:[...]).
+ * A required stage-owned note with no observed row is `missing`; an optional one never is. Who wrote a
+ * note is not audited: the server enforces each seat's lane (note_owned_by_other, seat_forbidden).
+ * With opts.result (the run's result document), only stages whose result status is `done` are
+ * expected; an item with no result entry, or no done stage that owns a note, reports
+ * {ok:true, missing:[], skipped:true}.
  */
-function reseatAccepts(resItem, expectedActorId, observedActorId, hasResult) {
-  const exp = String(expectedActorId).split(':')
-  const obs = String(observedActorId || '').split(':')
-  if (exp.length < 3 || obs.length !== exp.length) return false
-  if (obs.slice(1).join(':') !== exp.slice(1).join(':')) return false
-  const m = RESEAT_SEAT_RE.exec(obs[0])
-  if (!m || m[1] !== exp[0]) return false
-  const ledger = hasResult && resItem ? resItem.reseats : undefined
-  if (!Array.isArray(ledger)) return true
-  return ledger.some((entry) => entry && entry.seat === obs[0] && entry.baseSeat === exp[0])
-}
-
-/**
- * auditActors(doc, observed, itemIds?, opts?) -> {ok, items:[{itemId, short, ok, missing, mismatched}]}.
- * observed = [{itemId, key, actorId}] (e.g. from query_notes). Without opts.result every stage's
- * notes are expected (and reseated actors match by grammar, see below). With opts.result (the run's result
- * document, D7), the expected rows for an item are limited to stages whose result status is
- * `done` (`result.items[].stages[].status`) — an item with no result entry, or whose every stage
- * is non-done (e.g. every writing stage deferred), contributes no expected rows and reports
- * `{ok:true, missing:[], mismatched:[], skipped:true}` instead of flagging notes from stages that
- * never ran. An observed `<seat>-a<n>:<short>:<runId>` actor is accepted for the expected `<seat>` lane when
- * it is grammar-valid and either there is no result, or the item's result row has no `reseats`
- * array (grammar fallback); when the row carries a `reseats` array it is authoritative and must
- * list that seat with that baseSeat (an empty array accepts nothing).
- */
-export function auditActors(doc, observed, itemIds, opts) {
+export function notesAudit(doc, observed, itemIds, opts) {
   const filter = itemIds ? new Set(itemIds) : null
-
-  if (!opts || !opts.result) {
-    const expected = expectedActors(doc)
-    const items = doc.args.items
-      .filter((item) => !filter || filter.has(item.id) || filter.has(item.short))
-      .map((item) => {
-        const expectedForItem = expected.filter((e) => e.itemId === item.id)
-        const observedForItem = (observed || []).filter((o) => o.itemId === item.id)
-        const missing = []
-        const mismatched = []
-        for (const e of expectedForItem) {
-          const found = observedForItem.find((o) => o.key === e.key)
-          if (!found) {
-            if (!e.optional) missing.push(e.key)
-          } else if (found.actorId !== e.actorId && !reseatAccepts(null, e.actorId, found.actorId, false)) mismatched.push({ key: e.key, expected: e.actorId, actual: found.actorId })
-        }
-        return { itemId: item.id, short: item.short, ok: missing.length === 0 && mismatched.length === 0, missing, mismatched }
-      })
-    return { ok: items.every((it) => it.ok), items }
-  }
-
-  const resultByItemId = new Map((opts.result.items || []).map((r) => [r.id, r]))
+  const resultByItemId = opts && opts.result ? new Map((opts.result.items || []).map((r) => [r.id, r])) : null
   const items = doc.args.items
     .filter((item) => !filter || filter.has(item.id) || filter.has(item.short))
     .map((item) => {
-      const resItem = resultByItemId.get(item.id)
-      const doneSeats = new Set(((resItem && resItem.stages) || []).filter((s) => s.status === 'done').map((s) => s.seat))
-      const expectedForItem = []
-      for (const stage of item.stages) {
-        if (!doneSeats.has(stage.seat)) continue
-        const optional = new Set(stage.optionalNotes || [])
-        for (const key of stage.notes || []) {
-          const row = { key, actorId: `${stage.seat}:${item.short}:${doc.args.runId}` }
-          if (optional.has(key)) row.optional = true
-          expectedForItem.push(row)
+      let stages = item.stages
+      if (resultByItemId) {
+        const resItem = resultByItemId.get(item.id)
+        const doneSeats = new Set(((resItem && resItem.stages) || []).filter((s) => s.status === 'done').map((s) => s.seat))
+        stages = resItem ? item.stages.filter((s) => doneSeats.has(s.seat)) : []
+        if (!stages.some((s) => (s.notes || []).length > 0)) {
+          return { itemId: item.id, short: item.short, ok: true, missing: [], skipped: true }
         }
       }
-      if (!resItem || expectedForItem.length === 0) {
-        return { itemId: item.id, short: item.short, ok: true, missing: [], mismatched: [], skipped: true }
-      }
-      const observedForItem = (observed || []).filter((o) => o.itemId === item.id)
+      const have = new Set((observed || []).filter((o) => o && o.itemId === item.id).map((o) => o.key))
       const missing = []
-      const mismatched = []
-      for (const e of expectedForItem) {
-        const found = observedForItem.find((o) => o.key === e.key)
-        if (!found) {
-          if (!e.optional) missing.push(e.key)
-        } else if (found.actorId !== e.actorId && !reseatAccepts(resItem, e.actorId, found.actorId, true)) mismatched.push({ key: e.key, expected: e.actorId, actual: found.actorId })
+      for (const stage of stages) {
+        const optional = new Set(stage.optionalNotes || [])
+        for (const key of stage.notes || []) {
+          if (!optional.has(key) && !have.has(key) && !missing.includes(key)) missing.push(key)
+        }
       }
-      return { itemId: item.id, short: item.short, ok: missing.length === 0 && mismatched.length === 0, missing, mismatched }
+      return { itemId: item.id, short: item.short, ok: missing.length === 0, missing }
     })
   return { ok: items.every((it) => it.ok), items }
 }
@@ -1365,6 +1344,7 @@ export function provenance({ core, doc, result, method, turns, usage, meta, jour
     if (substituted.length > 0) fields.substituted = substituted
     fields.modelSource = anyFromMeta && !anySelfReport ? 'meta' : 'self-report'
     if (journal) fields.journal = journal
+    if (doc.args.serverRunId) fields.extra = { 'server-run': doc.args.serverRunId }
 
     out[item.id] = formatProvenance(fields)
   }
@@ -1389,13 +1369,15 @@ export function provenance({ core, doc, result, method, turns, usage, meta, jour
 
 /**
  * reviewPrompt(core, doc, idOrShort, result?) -> text joined by '\n\n'.
+ * On a bound run (args.serverRunId) it names the reviewer lane's token file
+ * (<scratchDir>/tokens/<short>.reviewer.token) and the END SEAT call; the token itself never appears.
  * Seat line, the owned-file diff command (planner output's mainFiles+docFiles+testFiles+
  * existingTestEdits, relativized against the worktree and args.repoRoot, as quoted ':(literal)'/
  * ':(glob)' pathspecs when a result is given, deduped after relativizePath canonicalization (so
  * 'src/./a.js' and 'src//a.js' give one ':(literal)src/a.js'), plus an 'UNROOTED (not in
  * pathspec): ...' part naming each distinct non-empty unrooted entry (still absolute, or
  * containing '..'); else a bare diff noting 'owned files: planner output'), a line to fill the
- * review-phase notes, REVIEW_RULES by key (no rule text), and the reviewer actor.
+ * review-phase notes and REVIEW_RULES by key (no rule text).
  * Whole tree (D5): when any owned entry relativizes to '' ('.', './', the worktree or repo root
  * itself), the diff line is the bare `git -C <worktree> diff <base>..HEAD` with no ' -- '
  * pathspec at all; non-empty unrooted entries are still named on the UNROOTED line.
@@ -1447,19 +1429,244 @@ export function reviewPrompt(core, doc, idOrShort, result) {
   }
 
   parts.push(
-    'Fill this item\'s review-phase notes (get_context expectedNotes, role review). ' +
-    'Pass keys= on every query_notes call.'
+    'Fill this item\'s review-phase notes (items_read(select:"context", itemId) lists them under schema, role review). ' +
+    'Pass keys:[...] on every notes_read list call; write with notes_write upsert, body inline.'
   )
 
   parts.push(
-    `RULES: fetch each key below via query_rules(operation:"get", rootId:"${plan.rootId}", key:<key>) ` +
+    `RULES: fetch each key below via config(ops:[{op:"rules", rootId:"${plan.rootId}", key:<key>}]) ` +
     `and follow the returned body. Keys: ${REVIEW_RULES.join(', ')}.`
   )
 
-  const actor = { id: `reviewer:${item.short}:${plan.runId}`, kind: 'subagent', parent: `workflow:${plan.runId}` }
-  parts.push(`ACTOR: ${JSON.stringify(actor)}`)
+  const tokenFile = core.seatTokenFile(plan, item, { seat: 'reviewer' })
+  if (tokenFile) {
+    parts.push(
+      `SEAT TOKEN: run ${plan.serverRunId}. Your seat token is the single line in the file ${tokenFile}. Read it with your file tool, ` +
+      'trim it, and pass it as the top-level seatToken field of every task-orchestrator call you make, reads included. Never print, ' +
+      'quote, echo, log or commit the token or the file content. A call refused unauthenticated ("The seat token is not accepted.") ' +
+      'means the lane was superseded or ended: stop and return status "stopped", reason "seat-token-rejected".'
+    )
+    parts.push(
+      'END SEAT: as your last task-orchestrator call, end the lane with your seat token: runs_write(ops:[{op:"end_seat", outcome, summary}]); ' +
+      'outcome "done" when your notes are filled, "failed" otherwise. Set seatEnded: true in the envelope when it succeeded.'
+    )
+  }
 
   return parts.join('\n\n')
+}
+
+// ---------------------------------------------------------------------------------------
+// Server-run ops (pure). The orchestrator sends what these render; the Workflow runtime has no
+// MCP access and this file never calls the server.
+// ---------------------------------------------------------------------------------------
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+export const CLOSE_REASONS = ['completed', 'cancelled', 'failed', 'abandoned']
+const BUDGET_KEYS = ['tokens', 'costUsd', 'attemptsPerSeat', 'maxActiveSeats']
+
+/**
+ * closeReason(result, override?) -> 'completed' | 'failed' | 'cancelled' | 'abandoned'.
+ * override 'cancelled' or 'abandoned' (an explicit user stop, or a Resume re-plan of an unrecoverable
+ * run) wins; any other non-empty override throws 'invalid args: ...'. Else 'completed' when
+ * result.started === true, 'failed' when it is false or there is no result (the launch threw).
+ */
+export function closeReason(result, override) {
+  if (override !== undefined && override !== null && override !== '') {
+    if (override === 'cancelled' || override === 'abandoned') return override
+    throw new Error(`invalid args: --reason must be cancelled or abandoned, got ${JSON.stringify(override)}`)
+  }
+  return result && result.started === true ? 'completed' : 'failed'
+}
+
+function resultsOf(advanceResult) {
+  if (!advanceResult || typeof advanceResult !== 'object') return []
+  const data = advanceResult.data && typeof advanceResult.data === 'object' ? advanceResult.data : advanceResult
+  return Array.isArray(data.results) ? data.results : []
+}
+
+/**
+ * advanceFollowUps(advanceResult) -> {unblocked, seatBlocked, gateBlocked, reviewPending, gateMissing}.
+ * advanceResult is an advance response (the envelope or its data): data.results[i] per transition.
+ * Over the successful elements: unblocked = unblocked[].itemId; from cascades[] with applied false,
+ * seatBlocked = blocked "seat" (the coordinator token re-sends the parent's transition), reviewPending
+ * = blocked "gate" with reason "review-pending" (a terminal cascade into a parent in review, by design),
+ * gateBlocked = any other blocked "gate" (gateMissing[itemId] = its missing[].key). Every array holds
+ * item ids, deduplicated, in result order; every member is present ([] / {} when nothing applies).
+ */
+export function advanceFollowUps(advanceResult) {
+  const out = { unblocked: [], seatBlocked: [], gateBlocked: [], reviewPending: [], gateMissing: {} }
+  const add = (list, id) => {
+    if (typeof id === 'string' && id && !list.includes(id)) list.push(id)
+  }
+  for (const r of resultsOf(advanceResult)) {
+    if (!r || r.ok === false) continue
+    for (const u of r.unblocked || []) add(out.unblocked, u && u.itemId)
+    for (const c of r.cascades || []) {
+      if (!c || c.applied !== false) continue
+      if (c.blocked === 'seat') add(out.seatBlocked, c.itemId)
+      else if (c.blocked === 'gate' && c.reason === 'review-pending') add(out.reviewPending, c.itemId)
+      else if (c.blocked === 'gate') {
+        add(out.gateBlocked, c.itemId)
+        const keys = (c.missing || []).map((m) => m && m.key).filter((k) => typeof k === 'string')
+        out.gateMissing[c.itemId] = Array.from(new Set([...(out.gateMissing[c.itemId] || []), ...keys]))
+      }
+    }
+  }
+  return out
+}
+
+function requireBound(doc) {
+  const id = doc && doc.args && doc.args.serverRunId
+  if (typeof id !== 'string' || !UUID_RE.test(id)) {
+    throw new Error('invalid args: the plan is not bound to a server run (run bind-run first)')
+  }
+  return id
+}
+
+function seatRowsOf(seats) {
+  if (Array.isArray(seats)) return seats
+  if (!seats || typeof seats !== 'object') return []
+  const data = seats.data && typeof seats.data === 'object' ? seats.data : seats
+  if (Array.isArray(data.seats)) return data.seats
+  if (Array.isArray(data.items)) return data.items
+  return []
+}
+
+function stageOutcome(result, itemId, seat) {
+  const resItem = result && Array.isArray(result.items) ? result.items.find((r) => r.id === itemId) : null
+  const st = resItem && (resItem.stages || []).find((s) => s.seat === seat)
+  if (st && st.status === 'done') return 'done'
+  if (st && st.status === 'stopped') return 'failed'
+  return 'abandoned'
+}
+
+function runHints(doc, phase) {
+  const hints = {
+    plan: doc.args.runId,
+    method: (doc.meta && doc.meta.method) || 'A',
+    worktreeMode: doc.args.worktreeMode,
+  }
+  if (phase) hints.phase = phase
+  return hints
+}
+
+/**
+ * runOps(core, doc, opts) -> {tool, ops, tokenFiles?} - the exact ops array the orchestrator sends.
+ * Never carries a seatToken key: the orchestrator adds the right token top-level (the coordinator
+ * token, except end_seat, which goes under each seat's own token).
+ * opts.phase:
+ *   open      runs_write open {rootId, items, scopeId?, label: runId, title, hints:{plan, method,
+ *             worktreeMode}, budget?} (budget only from the profile's opt-in runBudget, meta.runBudget).
+ *   assign    runs_write assign {runId, itemId, seat}; without opts.item every non-inserted stage of
+ *             every item (Method A, at launch), with opts.item + opts.seat that one seat (Method B, a
+ *             review lane, a reseat's base seat). tokenFiles[i] is where results[i].seatToken goes.
+ *   update    runs_write update {runId, hints} with hints.phase = opts.runPhase (the hints replace).
+ *   heartbeat advance [claim(first item), heartbeat{usage:{tokens, costUsd?}}, release] from opts.usage.
+ *   end-seats one runs_write end_seat per still-active member seat in opts.seats (runs_read seats
+ *             data); outcome done/failed/abandoned from opts.result's stage status; the coordinator
+ *             row and ended rows are skipped; tokenFiles[i] names the seat's token file.
+ *   close     runs_write close {runId, reason: closeReason(opts.result, opts.reason)}.
+ * Throws 'invalid args: ...' on bad input.
+ */
+export function runOps(core, doc, opts = {}) {
+  if (!doc || !doc.args) throw new Error('invalid args: not a plan document')
+  const phase = opts.phase
+  const items = doc.args.items || []
+  if (phase === 'open') {
+    if (items.length === 0) throw new Error('invalid args: the plan admits no items')
+    const op = {
+      op: 'open',
+      rootId: doc.args.rootId,
+      items: items.map((it) => it.id),
+    }
+    const scopeId = doc.meta && doc.meta.scopeId
+    if (typeof scopeId === 'string' && scopeId) op.scopeId = scopeId
+    op.label = doc.args.runId
+    op.title = `run-wave ${doc.args.runId} (${items.length} item${items.length === 1 ? '' : 's'})`
+    op.hints = runHints(doc)
+    const rb = doc.meta && doc.meta.runBudget
+    if (rb && typeof rb === 'object' && !Array.isArray(rb)) {
+      const budget = {}
+      for (const k of BUDGET_KEYS) if (typeof rb[k] === 'number' && rb[k] > 0) budget[k] = rb[k]
+      if (Object.keys(budget).length > 0) op.budget = budget
+    }
+    return { tool: 'runs_write', ops: [op] }
+  }
+  if (phase === 'assign') {
+    const runId = requireBound(doc)
+    const { plan } = resolvePlan(core, doc)
+    const ops = []
+    const tokenFiles = []
+    if (opts.item || opts.seat) {
+      if (!opts.item || !opts.seat) throw new Error('invalid args: assign takes --item and --seat together')
+      const item = findItem(plan, opts.item)
+      const stage = item.stages.find((s) => s.seat === opts.seat)
+      if (stage && stage.inserted) throw new Error(`invalid args: ${opts.seat} is an inserted stage and runs token-less`)
+      ops.push({ op: 'assign', runId, itemId: item.id, seat: opts.seat })
+      tokenFiles.push(core.seatTokenFile(plan, item, stage || { seat: opts.seat }))
+    } else {
+      for (const item of plan.items) {
+        for (const stage of item.stages) {
+          const file = core.seatTokenFile(plan, item, stage)
+          if (!file) continue
+          ops.push({ op: 'assign', runId, itemId: item.id, seat: stage.seat })
+          tokenFiles.push(file)
+        }
+      }
+    }
+    return { tool: 'runs_write', ops, tokenFiles }
+  }
+  if (phase === 'update') {
+    const runId = requireBound(doc)
+    if (typeof opts.runPhase !== 'string' || !/^[a-z][a-z-]{0,31}$/.test(opts.runPhase)) {
+      throw new Error('invalid args: update needs --run-phase <name>')
+    }
+    return { tool: 'runs_write', ops: [{ op: 'update', runId, hints: runHints(doc, opts.runPhase) }] }
+  }
+  if (phase === 'heartbeat') {
+    requireBound(doc)
+    if (items.length === 0) throw new Error('invalid args: the plan admits no items')
+    const u = opts.usage
+    if (!u || typeof u !== 'object' || !Number.isInteger(u.tokens) || u.tokens < 0) {
+      throw new Error('invalid args: --usage needs {tokens: integer >= 0, costUsd?: number}')
+    }
+    const usage = { tokens: u.tokens }
+    if (u.costUsd !== undefined && u.costUsd !== null) {
+      if (typeof u.costUsd !== 'number' || !(u.costUsd >= 0)) throw new Error('invalid args: usage.costUsd must be a number >= 0')
+      usage.costUsd = u.costUsd
+    }
+    const itemId = items[0].id
+    return {
+      tool: 'advance',
+      ops: [
+        { op: 'claim', itemId },
+        { op: 'heartbeat', itemId, usage },
+        { op: 'release', itemId },
+      ],
+    }
+  }
+  if (phase === 'end-seats') {
+    requireBound(doc)
+    const { plan } = resolvePlan(core, doc)
+    const byId = new Map(plan.items.map((it) => [it.id.toLowerCase(), it]))
+    const ops = []
+    const tokenFiles = []
+    for (const row of seatRowsOf(opts.seats)) {
+      if (!row || row.status !== 'active' || row.seat === 'coordinator' || !row.itemId) continue
+      const item = byId.get(String(row.itemId).toLowerCase())
+      if (!item) continue
+      const stage = item.stages.find((s) => s.seat === row.seat)
+      const outcome = stageOutcome(opts.result, item.id, row.seat)
+      ops.push({ op: 'end_seat', outcome, summary: `run-wave ${doc.args.runId}: ended by the post-run sweep (${outcome})` })
+      tokenFiles.push(core.seatTokenFile(plan, item, stage || { seat: row.seat }))
+    }
+    return { tool: 'runs_write', ops, tokenFiles }
+  }
+  if (phase === 'close') {
+    const runId = requireBound(doc)
+    return { tool: 'runs_write', ops: [{ op: 'close', runId, reason: closeReason(opts.result, opts.reason) }] }
+  }
+  throw new Error(`invalid args: --phase must be open, assign, update, heartbeat, end-seats or close, got ${JSON.stringify(phase)}`)
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1516,6 +1723,23 @@ function execPrompt(argv, io) {
   io.exit(0)
 }
 
+/** Token-file values under <scratchDir>/tokens (trimmed, non-empty); used only to redact. */
+function readKnownTokens(doc, io) {
+  const scratch = doc && doc.args && doc.args.project && doc.args.project.scratchDir
+  if (typeof scratch !== 'string' || !scratch) return []
+  const dir = `${scratch.replace(/[\\/]+$/, '')}/tokens`
+  const names = io.listDir(dir) || []
+  const out = []
+  for (const name of names) {
+    if (!String(name).endsWith('.token')) continue
+    const text = io.readText(`${dir}/${name}`)
+    if (typeof text !== 'string') continue
+    const t = text.trim()
+    if (t) out.push(t)
+  }
+  return out
+}
+
 function execStageResult(argv, io) {
   const doc = io.readInput(flagValue(argv, '--plan'))
   const state = readStateOrFail(doc, argv, io)
@@ -1523,6 +1747,7 @@ function execStageResult(argv, io) {
   const core = io.loadCore()
   const envelopeText = io.readText(flagValue(argv, '--envelope'))
   const opts = {
+    knownTokens: readKnownTokens(doc, io),
     agentTypeUsed: flagValue(argv, '--agent-type', null),
     agentTypeFallback: argv.includes('--agent-type-fallback'),
   }
@@ -1605,24 +1830,69 @@ function execVerify(argv, io) {
   io.exit(out.ok ? 0 : 3)
 }
 
-function execActors(argv, io) {
+function execNotesAudit(argv, io) {
   const doc = io.readInput(flagValue(argv, '--plan'))
   const notesPath = flagValue(argv, '--notes')
   if (!notesPath) {
-    io.writeOut(JSON.stringify(expectedActors(doc)))
+    io.writeOut(JSON.stringify(expectedNotes(doc)))
     io.exit(0)
     return
   }
   const observed = io.readInput(notesPath)
   const itemsFlag = flagValue(argv, '--items')
   const itemIds = itemsFlag ? itemsFlag.split(',') : undefined
-  // D7: optional --result limits expected notes to stages that actually ran (status 'done'),
-  // so an item with only deferred/never-run stages is 'skipped' rather than flagged 'missing'.
+  // Optional --result limits expected notes to stages that actually ran (status 'done'), so an item
+  // with only deferred/never-run stages is 'skipped' rather than flagged 'missing'.
   const resultPath = flagValue(argv, '--result')
   const resultDoc = resultPath ? io.readInput(resultPath) : undefined
-  const result = auditActors(doc, observed, itemIds, resultDoc ? { result: resultDoc } : undefined)
+  const core = io.loadCore()
+  const result = notesAudit(doc, observed, itemIds, resultDoc ? { result: resolveResultDoc(core, doc, resultDoc) } : undefined)
   io.writeOut(JSON.stringify(result))
   io.exit(result.ok ? 0 : 3)
+}
+
+function execFollowUps(argv, io) {
+  const inPath = flagValue(argv, '--in')
+  const answer = inPath ? io.readInput(inPath) : null
+  if (!answer) {
+    io.fail(2, 'invalid args', `--in ${inPath} could not be read as an advance answer`)
+    return
+  }
+  io.writeOut(JSON.stringify(advanceFollowUps(answer)))
+  io.exit(0)
+}
+
+function execRunOps(argv, io) {
+  const planPath = flagValue(argv, '--plan')
+  const doc = io.readInput(planPath)
+  if (!doc || !doc.args) {
+    io.fail(2, 'invalid args', `--plan ${planPath} could not be read or parsed as a plan`)
+    return
+  }
+  const core = io.loadCore()
+  const read = (flag) => {
+    const p = flagValue(argv, flag)
+    if (!p) return undefined
+    const v = io.readInput(p)
+    if (v === null || v === undefined) throw new Error(`invalid args: ${flag} ${p} could not be read as JSON`)
+    return v
+  }
+  let resultDoc = read('--result')
+  const state = read('--state')
+  if (resultDoc === undefined && state !== undefined) resultDoc = state
+  if (resultDoc !== undefined) resultDoc = resolveResultDoc(core, doc, resultDoc)
+  const out = runOps(core, doc, {
+    phase: flagValue(argv, '--phase'),
+    item: flagValue(argv, '--item'),
+    seat: flagValue(argv, '--seat'),
+    seats: read('--seats'),
+    usage: read('--usage'),
+    result: resultDoc,
+    reason: flagValue(argv, '--reason'),
+    runPhase: flagValue(argv, '--run-phase'),
+  })
+  io.writeOut(JSON.stringify(out))
+  io.exit(0)
 }
 
 function execProvenance(argv, io) {
@@ -1702,11 +1972,17 @@ function execReseat(argv, io) {
     io.fail(2, 'invalid args', `--declarations ${declPath} is not readable`)
     return
   }
+  const assignment = flagValue(argv, '--assignment')
+  if (assignment !== undefined && !UUID_RE.test(assignment)) {
+    io.fail(2, 'invalid args', `--assignment ${assignment} must be the assignment UUID runs_write assign returned`)
+    return
+  }
   const out = reseat(core, doc, result, item, flagValue(argv, '--seat'), {
     declarations: declText,
     model: flagValue(argv, '--model'),
     tokens: tokensRaw === undefined ? undefined : (Number.isFinite(Number(tokensRaw)) ? Number(tokensRaw) : tokensRaw),
     pre,
+    assignment,
   })
   io.writeOut(JSON.stringify(out))
   io.exit(out.ok ? 0 : 3)
@@ -1728,8 +2004,10 @@ export const EXEC_COMMANDS = {
   'stage-result': execStageResult,
   'scan-declarations': execScanDeclarations,
   verify: execVerify,
-  actors: execActors,
+  'notes-audit': execNotesAudit,
   provenance: execProvenance,
   'review-prompt': execReviewPrompt,
   reseat: execReseat,
+  'run-ops': execRunOps,
+  'follow-ups': execFollowUps,
 }

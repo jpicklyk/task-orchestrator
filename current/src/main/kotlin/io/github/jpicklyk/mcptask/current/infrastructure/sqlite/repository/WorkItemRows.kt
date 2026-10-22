@@ -1,0 +1,308 @@
+package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
+
+import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
+import io.github.jpicklyk.mcptask.current.domain.model.BlockedReason
+import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
+import io.github.jpicklyk.mcptask.current.domain.model.PinLayer
+import io.github.jpicklyk.mcptask.current.domain.model.Priority
+import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.SchemaPin
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ItemTraitsTable
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
+import org.jetbrains.exposed.v1.core.Column
+import org.jetbrains.exposed.v1.core.ColumnType
+import org.jetbrains.exposed.v1.core.Op
+import org.jetbrains.exposed.v1.core.ResultRow
+import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.dao.id.EntityID
+import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.java.UUIDColumnType
+import org.jetbrains.exposed.v1.jdbc.JdbcTransaction
+import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.jetbrains.exposed.v1.jdbc.statements.jdbc.JdbcResult
+import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
+import org.slf4j.LoggerFactory
+import java.time.Instant
+import java.util.UUID
+
+/*
+ * Shared internals of the four SQLite work-item stores: the total row mapper, the one raw-query helper, the
+ * one hierarchy traversal primitive and the scope resolver built on it.
+ */
+
+private val rowLogger = LoggerFactory.getLogger("io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.WorkItemRows")
+
+/** Total mapping from a `work_items` row to a [WorkItem]: every row is returned, violations ride in `diagnostics`. */
+internal object WorkItemRows {
+    fun toWorkItem(row: ResultRow): WorkItem {
+        val unreadable = mutableListOf<String>()
+        val item =
+            WorkItem(
+                id = row[WorkItemsTable.id].value,
+                parentId = row[WorkItemsTable.parentId],
+                rootId = row[WorkItemsTable.rootId],
+                title = row[WorkItemsTable.title],
+                description = row[WorkItemsTable.description],
+                summary = row[WorkItemsTable.summary],
+                // A NULL role is a lifecycle-free row (V26 CHECK pairs it with lifecycle 'none'): read as null, never
+                // folded to QUEUE. The role CHECK admits only the five role names otherwise.
+                role = row[WorkItemsTable.role]?.let { Role.fromString(it) },
+                statusLabel = row[WorkItemsTable.statusLabel],
+                previousRole = row[WorkItemsTable.previousRole]?.let { Role.fromString(it) },
+                priority = Priority.fromString(row[WorkItemsTable.priority]) ?: Priority.MEDIUM,
+                complexity = row[WorkItemsTable.complexity],
+                requiresVerification = row[WorkItemsTable.requiresVerification],
+                depth = row[WorkItemsTable.depth],
+                metadata = row[WorkItemsTable.metadata],
+                tags = row[WorkItemsTable.tags],
+                type = row[WorkItemsTable.type],
+                properties = row[WorkItemsTable.properties],
+                createdAt = readInstant(row, WorkItemsTable.createdAt, unreadable) ?: Instant.EPOCH,
+                modifiedAt = readInstant(row, WorkItemsTable.modifiedAt, unreadable) ?: Instant.EPOCH,
+                roleChangedAt = readInstant(row, WorkItemsTable.roleChangedAt, unreadable) ?: Instant.EPOCH,
+                version = row[WorkItemsTable.version],
+                claimedBy = row[WorkItemsTable.claimedBy],
+                claimedAt = readInstant(row, WorkItemsTable.claimedAt, unreadable),
+                claimExpiresAt = readInstant(row, WorkItemsTable.claimExpiresAt, unreadable),
+                originalClaimedAt = readInstant(row, WorkItemsTable.originalClaimedAt, unreadable),
+                claimAssignmentId = row[WorkItemsTable.claimAssignmentId],
+                blockedReason = row[WorkItemsTable.blockedReason]?.let { BlockedReason.fromWire(it) },
+                blockedRef = row[WorkItemsTable.blockedRef],
+                pin = readPin(row, unreadable),
+                diagnostics = emptyList()
+            )
+        val violations = unreadable + item.violations()
+        // A valid row carries no diagnostics, so later copy() calls validate exactly like an application-built item.
+        if (violations.isEmpty()) return item.copy(diagnostics = null)
+        rowLogger.warn("Stored WorkItem row {} violates domain invariants: {}", item.id, violations)
+        return item.copy(diagnostics = violations)
+    }
+
+    /**
+     * The row's config pin (the V26 `pinned_*` columns and `lifecycle`): present iff `pinned_at` is set. A `lifecycle`
+     * value that names no [LifecycleMode] (such as Q31b's `none`) reads as null.
+     */
+    private fun readPin(
+        row: ResultRow,
+        unreadable: MutableList<String>
+    ): SchemaPin? {
+        val pinnedAt = readInstant(row, WorkItemsTable.pinnedAt, unreadable) ?: return null
+        return SchemaPin(
+            serverVersionId = row[WorkItemsTable.pinnedServerCfg],
+            rootVersionId = row[WorkItemsTable.pinnedRootCfg],
+            schemaKey = row[WorkItemsTable.pinnedSchemaKey],
+            schemaLayer = PinLayer.fromWire(row[WorkItemsTable.pinnedSchemaLayer]),
+            lifecycle = row[WorkItemsTable.lifecycle]?.let { LifecycleMode.fromString(it) },
+            pinnedAt = pinnedAt
+        )
+    }
+
+    /**
+     * Reads a timestamp column without throwing: text [UtcTimestamp] cannot parse (and any integer value, which
+     * is deliberately NOT read as epoch millis) yields null plus a diagnostic naming the column. A non-null
+     * column falls back to [Instant.EPOCH] at the call site so the row still rehydrates.
+     */
+    private fun <T : Instant?> readInstant(
+        row: ResultRow,
+        column: Column<T>,
+        unreadable: MutableList<String>
+    ): Instant? =
+        try {
+            row[column]
+        } catch (e: IllegalArgumentException) {
+            unreadable += "Unreadable timestamp in column '${column.name}': ${e.message}"
+            null
+        }
+
+    /** Loads rows for [ids] in chunks, all inside the caller's transaction. Result order is unspecified. */
+    fun loadByIds(ids: Collection<UUID>): List<WorkItem> =
+        ids.chunked(SQL_IN_CHUNK_SIZE).flatMap { chunk ->
+            val entityIds = chunk.map { EntityID(it, WorkItemsTable) }
+            withTraits(
+                WorkItemsTable
+                    .selectAll()
+                    .where { WorkItemsTable.id inList entityIds }
+                    .map { toWorkItem(it) }
+            )
+        }
+
+    /**
+     * The trait names of each id in [ids], in position order, as ONE statement (a bound JSON id set). An id with
+     * no trait rows is absent. Must run inside an active transaction.
+     */
+    fun traitsByIds(ids: Collection<UUID>): Map<UUID, List<String>> {
+        if (ids.isEmpty()) return emptyMap()
+        val out = LinkedHashMap<UUID, MutableList<String>>()
+        ItemTraitsTable
+            .selectAll()
+            .where { WorkViewSql.inIdSet(ItemTraitsTable.itemId, ids) }
+            .orderBy(ItemTraitsTable.itemId, SortOrder.ASC)
+            .orderBy(ItemTraitsTable.position, SortOrder.ASC)
+            .forEach { row -> out.getOrPut(row[ItemTraitsTable.itemId]) { mutableListOf() }.add(row[ItemTraitsTable.name]) }
+        return out
+    }
+
+    /**
+     * [items] with their traits attached, from ONE extra statement however many items there are (none when the
+     * list is empty). Every read path that returns items goes through here (or [loadByIds]), so a mapped row never
+     * reaches a caller without its traits. Must run inside an active transaction.
+     */
+    fun withTraits(items: List<WorkItem>): List<WorkItem> {
+        if (items.isEmpty()) return items
+        val byId = traitsByIds(items.map { it.id })
+        return items.map { item -> byId[item.id]?.let { item.copy(traits = it) } ?: item }
+    }
+
+    /** [withTraits] for one item. */
+    fun withTraits(item: WorkItem): WorkItem = withTraits(listOf(item)).single()
+}
+
+/**
+ * Runs a SELECT through the raw prepared-statement API and maps its result: Exposed's `exec` routes through
+ * `executeUpdate` on the sqlite driver, which rejects SELECT-returning CTEs ("Query returns results"). Values are
+ * bound as typed parameters, never interpolated. Must run inside an active transaction.
+ */
+internal fun <T> JdbcTransaction.rawQuery(
+    sql: String,
+    args: List<Pair<ColumnType<*>, Any?>>,
+    map: (JdbcResult) -> T
+): T {
+    val ps = connection.prepareStatement(sql, false)
+    try {
+        ps.fillParameters(args)
+        return map(ps.executeQuery())
+    } finally {
+        ps.closeIfPossible()
+    }
+}
+
+/** Reads a BLOB `id` column value back into a [UUID]. */
+internal fun uuidOf(raw: Any): UUID {
+    @Suppress("UNCHECKED_CAST")
+    return UUIDColumnType().valueFromDB(raw) as UUID
+}
+
+/** The one parent_id traversal: bounded, cycle-safe, shared by descendants and scope resolution. */
+internal object HierarchyTraversal {
+    /**
+     * Every item reachable from [seeds] by following `parent_id` downward, [seeds] themselves included
+     * when they exist. Levels count from 0 (a seed). The recursive arm stops expanding at level
+     * [MAX_TRAVERSAL_DEPTH]; reaching that level means the data is cyclic or pathologically deep, which is an
+     * error for every caller (these traversals feed cascade deletes, restamps and scoped queries, where a
+     * silently short answer is worse than failing).
+     */
+    fun subtreeIds(seeds: Set<UUID>): Set<UUID> {
+        if (seeds.isEmpty()) return emptySet()
+        val uuidType = UUIDColumnType()
+        val placeholders = seeds.joinToString(",") { "?" }
+        val sql =
+            """
+            WITH RECURSIVE walk(id, lvl) AS (
+                SELECT id, 0 FROM work_items WHERE id IN ($placeholders)
+                UNION ALL
+                SELECT wi.id, w.lvl + 1 FROM work_items wi
+                JOIN walk w ON wi.parent_id = w.id
+                WHERE w.lvl < $MAX_TRAVERSAL_DEPTH
+            )
+            SELECT id, lvl FROM walk
+            """.trimIndent()
+        var exceeded = false
+        val ids = LinkedHashSet<UUID>()
+        TransactionManager.current().rawQuery(sql, seeds.map { uuidType to it }) { rs ->
+            while (rs.next()) {
+                ids.add(uuidOf(rs.getObject("id")!!))
+                if ((rs.getObject("lvl") as Number).toInt() >= MAX_TRAVERSAL_DEPTH) exceeded = true
+            }
+        }
+        if (exceeded) {
+            throw IllegalStateException(
+                "Hierarchy traversal exceeded the maximum depth $MAX_TRAVERSAL_DEPTH (cyclic parent_id data?)"
+            )
+        }
+        return ids
+    }
+
+    /** [subtreeIds] without the root itself. */
+    fun descendantIds(root: UUID): Set<UUID> = subtreeIds(setOf(root)) - root
+}
+
+/**
+ * The resolved WHERE-clause form of a caller-supplied root set (see [ScopeResolver.resolve]).
+ *
+ * [ByRoot] is the fast path: it binds ONE parameter per requested root and lets SQLite use
+ * `idx_work_items_root_id`. [ByIds] is the historical path: the traversal expands the scope to every
+ * descendant id and binds them all, which is O(subtree) bound variables and fails outright above
+ * SQLITE_MAX_VARIABLE_NUMBER (250,000 in the bundled xerial build).
+ */
+internal sealed interface ResolvedScope {
+    /** The condition this scope contributes to a WHERE clause. */
+    fun toCondition(): Op<Boolean>
+
+    /** Nothing is in scope. Callers short-circuit to an empty result rather than query. */
+    data object Empty : ResolvedScope {
+        override fun toCondition(): Op<Boolean> = Op.FALSE
+    }
+
+    /** Every requested id is a stamped depth-0 root: `root_id IN (rootIds)` is the whole scope. */
+    data class ByRoot(
+        val rootIds: Set<UUID>
+    ) : ResolvedScope {
+        override fun toCondition(): Op<Boolean> = WorkItemsTable.rootId inList rootIds
+    }
+
+    /** Fallback: the fully expanded id set (roots + all descendants). */
+    data class ByIds(
+        val ids: Set<UUID>
+    ) : ResolvedScope {
+        override fun toCondition(): Op<Boolean> = WorkItemsTable.id inList ids.map { EntityID(it, WorkItemsTable) }
+    }
+}
+
+internal object ScopeResolver {
+    /**
+     * Resolve a PRINCIPAL scope's root set (an [io.github.jpicklyk.mcptask.current.application.port.AccessScope]'s
+     * `rootIds`) into a scope filter: `root_id IN (rootIds)`, or [ResolvedScope.Empty] for an empty set. Never
+     * traverses. A listed id is a project root by contract (anchor validation); V9 stamps every item with the id of
+     * its depth-0 ancestor, so `{x : x.root_id = R}` is the whole tree of R. An id that is not a root simply admits
+     * nothing (fail closed); it never widens to a containing tree.
+     */
+    fun resolve(rootIds: Set<UUID>): ResolvedScope = if (rootIds.isEmpty()) ResolvedScope.Empty else ResolvedScope.ByRoot(rootIds)
+
+    /**
+     * Resolve a REQUEST subtree filter (`ancestorId`, or the root ids derived from it) into a scope filter,
+     * preferring the flat `root_id` predicate whenever it is provably equivalent.
+     *
+     * Fast path (ALL-OR-NOTHING): taken only when EVERY id in [ids] resolves to a row that is
+     * a stamped depth-0 root, `parent_id IS NULL AND root_id = id`; then `{x : x.root_id = R}` is exactly
+     * `subtree(R)`. One non-root, unstamped, inconsistently stamped or missing id and the whole call falls back to
+     * [HierarchyTraversal.subtreeIds], so a below-root id keeps meaning "only this item's subtree, itself included".
+     *
+     * Must be called from within an active Exposed transaction.
+     */
+    fun subtree(ids: Set<UUID>): ResolvedScope {
+        if (ids.isEmpty()) return ResolvedScope.Empty
+        if (allAreStampedRoots(ids)) return ResolvedScope.ByRoot(ids)
+
+        val scopeIds = HierarchyTraversal.subtreeIds(ids)
+        return if (scopeIds.isEmpty()) ResolvedScope.Empty else ResolvedScope.ByIds(scopeIds)
+    }
+
+    /**
+     * True when every id in [rootIds] exists AND is a stamped depth-0 root. A missing id fails the
+     * count check, so a scope naming a non-existent root falls back to the traversal.
+     */
+    private fun allAreStampedRoots(rootIds: Set<UUID>): Boolean {
+        val entityIds = rootIds.map { EntityID(it, WorkItemsTable) }
+        var matched = 0
+        WorkItemsTable
+            .selectAll()
+            .where { WorkItemsTable.id inList entityIds }
+            .forEach { row ->
+                val id = row[WorkItemsTable.id].value
+                if (row[WorkItemsTable.parentId] != null || row[WorkItemsTable.rootId] != id) return false
+                matched++
+            }
+        return matched == rootIds.size
+    }
+}

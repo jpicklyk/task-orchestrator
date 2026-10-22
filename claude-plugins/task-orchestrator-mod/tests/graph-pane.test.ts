@@ -1,6 +1,11 @@
 // Tests of the /to-graph pane (T3 a47dcd6f, top-down rewrite): the pure model, layout, router, raster and
 // activity modules as units, and the Pane mounted on terminal AND desktop over an in-memory `$.state`
 // (the test kit has no state noun). Test names carry the task-scope's G-numbers.
+//
+// 4.0 (item 5dbd8275, AC7): the pane reads items_read (get, context, history, list) and notes_read; a claim is shown from
+// `claimDetail`; a write is recognised by its `ops[]` and a gate block by the `gate_blocked` error of an advance
+// result element (current/docs/api-reference.md "advance", "items_read", "notes_read"); the 8-hex short id is what the
+// snapshot nodes carry, so a full uuid in a call is matched to its card by short id (task-scope D1).
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
@@ -77,9 +82,9 @@ test('parseScopeArg: empty, root, id, prefix and junk', () => {
 
 test('formatDetail: missing notes, can-advance and a claim', () => {
   const lines = formatDetail({
-    item: { id: 'a47dcd6f-f956', title: 'Pane', role: 'work' },
+    item: { id: 'a47dcd6f', title: 'Pane', role: 'work' },
     gateStatus: { canAdvance: false, phase: 'work', missing: ['implementation-notes', { key: 'session-tracking' }] },
-    claim: { claimedBy: 'agent-7', claimExpiresAt: '2026-10-03T16:00:00Z', isExpired: true },
+    claimDetail: { claimedBy: 'agent-7', claimedAt: '2026-10-03T15:00:00Z', claimExpiresAt: '2026-10-03T16:00:00Z', isExpired: true },
   })
   expect(lines).toContain('can advance: no')
   expect(lines).toContain('missing notes: implementation-notes, session-tracking')
@@ -376,21 +381,23 @@ test('G10 (unit): cellSize clamps and defaults', () => {
 // ── activity ────────────────────────────────────────────────────────────────────────────
 
 test('G13: touchedIds covers every call shape', () => {
-  expect(touchedIds({ itemId: 'a1', actor: { id: 'orchestrator:x' } })).toEqual([{ id: 'a1', actor: 'orchestrator:x' }])
-  expect(touchedIds({ transitions: [{ itemId: 't1', trigger: 'start' }, { itemId: 't2', actor: { id: 'implementer:y' } }], actor: { id: 'top' } })).toEqual([
-    { id: 't1', actor: 'top' },
-    { id: 't2', actor: 'implementer:y' },
-  ])
-  expect(touchedIds({ claims: [{ itemId: 'c1' }], notes: [{ itemId: 'n1' }, { itemId: 'c1' }], items: [{ id: 'i1' }, { itemId: 'i2' }] }).map(t => t.id)).toEqual(['c1', 'n1', 'i1', 'i2'])
+  expect(touchedIds({ itemId: 'a1' })).toEqual([{ id: 'a1' }])
+  expect(touchedIds({ item: 'b2' })).toEqual([{ id: 'b2' }])
+  expect(touchedIds({ itemId: 'a1', item: 'b2', ops: [{ op: 'transition', itemId: 't1', trigger: 'start' }] }).map(t => t.id)).toEqual(['a1', 'b2', 't1'])
+  expect(touchedIds({ ops: [{ op: 'transition', itemId: 't1', trigger: 'start' }, { op: 'upsert', itemId: 'n1', key: 'k' }, { op: 'create', id: 'i1' }, { itemId: 'i2', id: 'ignored' }] }).map(t => t.id)).toEqual(['t1', 'n1', 'i1', 'i2'])
+  expect(touchedIds({ ops: [{ op: 'add', from: 'f1', to: 'g1', type: 'blocks' }] }).map(t => t.id)).toEqual(['f1', 'g1'])
+  // a repeated id is one touch; the actor of an element is no part of a touch
+  expect(touchedIds({ ops: [{ itemId: 'x1', actor: { id: 'orchestrator:x' } }, { itemId: 'x1' }] })).toEqual([{ id: 'x1' }])
   expect(touchedIds(null)).toEqual([])
   expect(touchedIds({ query: 'x' })).toEqual([])
+  expect(touchedIds({ ops: [null, 'str', 7, { itemId: 5 }, { from: 9 }] })).toEqual([])
 })
 
 test('G13: seatOf precedence, shortModel, resolveId', () => {
-  expect(seatOf('s1', { s1: { seat: 'reviewer' } }, 'implementer:x')).toBe('reviewer')
-  expect(seatOf('s1', {}, 'implementer:x:y')).toBe('implementer')
+  expect(seatOf('s1', { s1: { seat: 'reviewer' } })).toBe('reviewer')
   expect(seatOf('s1', {})).toBe('agent')
   expect(seatOf(undefined, {})).toBe('main')
+  expect(seatOf(undefined, { s1: { seat: 'reviewer' } })).toBe('main')
   expect(shortModel('claude-opus-5-5-20260101')).toBe('opus-5-5')
   expect(shortModel('opus')).toBe('opus')
   expect(shortModel(undefined)).toBeUndefined()
@@ -399,6 +406,12 @@ test('G13: seatOf precedence, shortModel, resolveId', () => {
   expect(resolveId('aaa', [A, B])).toBeNull()
   expect(resolveId('zzzz', [A, B])).toBeNull()
   expect(resolveId('aaaa', ['aaaa1111', 'aaaa2222'])).toBeNull()
+})
+
+test('G13 (D1): resolveId matches a full uuid to the short id of a card, and nothing else', () => {
+  expect(resolveId(`${A}-0000-4000-8000-000000000000`, [A, B])).toBe(A)
+  expect(resolveId(`${B.toUpperCase()}-0000-4000-8000-000000000000`, [A, B])).toBe(B)
+  expect(resolveId('cccc9999-0000-4000-8000-000000000000', [A, B])).toBeNull()
 })
 
 test('G13: recordActivity returns the same object inside 10s; pruneActivity expires and keeps identity when idle', () => {
@@ -444,7 +457,7 @@ test('G16: edgePlan picks the richest drawing that fits', () => {
 
 test('G12 (unit): detailLines authors, phase age, summary and tolerated failures', () => {
   const ctx = {
-    item: { id: 'a47dcd6f-f956', title: 'Pane', role: 'work' },
+    item: { id: 'a47dcd6f', title: 'Pane', role: 'work' },
     gateStatus: { canAdvance: false, phase: 'work', missing: ['session-tracking'] },
     schema: [
       { key: 'implementation-notes', role: 'work', required: true, filled: true, seat: 'implementer' },
@@ -454,8 +467,8 @@ test('G12 (unit): detailLines authors, phase age, summary and tolerated failures
     ],
   }
   const now = 10_000_000
-  const item = { id: 'a47dcd6f-f956', title: 'Pane', type: 'feature-task', summary: 'Rewrite the graph', roleChangedAt: new Date(now - 125 * 60_000).toISOString() }
-  const notes = { notes: [{ key: 'implementation-notes', role: 'work', actor: { id: 'implementer:x', kind: 'subagent' } }] }
+  const item = { id: 'a47dcd6f-f956-44fd-b0be-0d24719d945b', title: 'Pane', type: 'feature-task', summary: 'Rewrite the graph', roleChangedAt: new Date(now - 125 * 60_000).toISOString() }
+  const notes = { items: [{ id: 'b1b1b1b1', key: 'implementation-notes', role: 'work', version: 1, bodyLength: 40, modifiedAt: '2026-10-03T12:00:00Z', actor: { id: 'implementer:x', kind: 'subagent' } }], page: { total: 1, truncated: false } }
   const lines = detailLines({ itemId: 'a47dcd6f-f956', ctx, item, notes, now })
   expect(lines[0]).toBe('Pane [a47dcd6f] · feature-task')
   expect(lines).toContain('phase: work · in phase 2h 5m')
@@ -714,15 +727,21 @@ for (const [cw, ch] of [[10, 20], [8.4, 18]] as const) {
 // ── click: detail, copy ─────────────────────────────────────────────────────────────────
 
 const TO = 'mcp__mcp-task-orchestrator__'
-const reply = (body: unknown) => ({ content: [{ type: 'text', text: JSON.stringify(body) }] })
-const failed = (message: string) => ({ isError: true, content: [{ type: 'text', text: message }] })
+const reply = (body: unknown) => ({ content: [{ type: 'text', text: 'ok' }], structuredContent: { ok: true, data: body } })
+const failed = (message: string) => ({
+  isError: true,
+  content: [{ type: 'text', text: `internal: ${message}` }],
+  structuredContent: { ok: false, error: { code: 'internal', kind: 'transient', message } },
+})
+/** The full uuid of a short fixture id. */
+const fullOf = (id: string) => `${id}-0000-4000-8000-000000000000`
 
 function serveTo(on: On, over: { failContext?: boolean; failNotes?: boolean; failItem?: boolean } = {}) {
   const calls: { tool: string; args: Record<string, unknown> }[] = []
   const now = 10_000_000
   on('mcp.call', async (_$, e) => {
     calls.push({ tool: e.tool, args: e.args })
-    if (e.tool === 'get_context') {
+    if (e.tool === 'items_read' && e.args.select === 'context') {
       if (over.failContext === true) return { value: failed('ctx boom') } as never
 
       return {
@@ -736,15 +755,20 @@ function serveTo(on: On, over: { failContext?: boolean; failNotes?: boolean; fai
         }),
       } as never
     }
-    if (e.tool === 'query_items') {
+    if (e.tool === 'items_read' && e.args.select === 'get') {
       if (over.failItem === true) return { value: failed('item boom') } as never
 
-      return { value: reply({ id: A, title: 'Title T1', type: 'feature-task', summary: 'A summary', roleChangedAt: new Date(now - 125 * 60_000).toISOString() }) } as never
+      return { value: reply({ id: fullOf(A), title: 'Title T1', type: 'feature-task', summary: 'A summary', roleChangedAt: new Date(now - 125 * 60_000).toISOString() }) } as never
     }
-    if (e.tool === 'query_notes') {
+    if (e.tool === 'notes_read') {
       if (over.failNotes === true) return { value: failed('notes boom') } as never
 
-      return { value: reply({ notes: [{ key: 'implementation-notes', role: 'work', actor: { id: 'implementer:x', kind: 'subagent' } }] }) } as never
+      return {
+        value: reply({
+          items: [{ id: 'b1b1b1b1', key: 'implementation-notes', role: 'work', version: 1, bodyLength: 40, modifiedAt: '2026-10-03T12:00:00Z', actor: { id: 'implementer:x', kind: 'subagent' } }],
+          page: { total: 1, truncated: false },
+        }),
+      } as never
     }
 
     return { value: failed(`unexpected ${e.tool}`) } as never
@@ -769,15 +793,18 @@ for (const surface of SURFACES) {
     expect(d?.lines).toContain('phase: work · in phase 2h 5m')
     expect(d?.lines).toContain('✓ implementation-notes · implementer · by implementer:x')
     expect(d?.lines).toContain('✗ session-tracking · orchestrator · missing')
-    expect(s.calls.map(c => c.tool).sort()).toEqual(['get_context', 'query_items', 'query_notes'])
-    expect(s.calls.find(c => c.tool === 'query_notes')?.args).toMatchObject({ operation: 'list', itemId: A, includeBody: false })
-    expect(s.calls.find(c => c.tool === 'query_items')?.args).toMatchObject({ operation: 'get', itemId: A, includeTimestamps: true })
+    expect(s.calls.map(c => c.tool).sort()).toEqual(['items_read', 'items_read', 'notes_read'])
+    expect(s.calls.find(c => c.tool === 'notes_read')?.args).toMatchObject({ select: 'list', itemId: A, limit: 200 })
+    expect(s.calls.find(c => c.args.select === 'get')?.args).toMatchObject({ select: 'get', itemId: A, fields: ['createdAt', 'modifiedAt', 'roleChangedAt'] })
+    expect(s.calls.find(c => c.args.select === 'context')?.args).toMatchObject({ select: 'context', itemId: A })
+    // Copy UUID needs the full id, which only the get view carries.
+    expect((r.valueOf('graphDetail') as { uuid?: string } | undefined)?.uuid).toBe(fullOf(A))
     expect(await ui.find({ key: 'detail-close' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'by implementer:x' })).toBeDefined()
     await ui.unmount()
   })
 
-  test(`G12: ${surface} a failed get_context says Could not read; a failed notes read keeps the rest`, async ($, on) => {
+  test(`G12: ${surface} a failed context read says Could not read; a failed notes read keeps the rest`, async ($, on) => {
     const r = rig(on, { graphSnapshot: asSnapshot(f1()), graphScope: ROOT_ID })
     serveTo(on, { failContext: true })
     mock.clock(on, { now: 1 })
@@ -897,29 +924,36 @@ const changedAt = (r: ReturnType<typeof rig>, id = A) => ((r.valueOf('graphActiv
 
 test('G14: a TO write on a snapshot item records the worker and the change; the result passes through', async ($, on) => {
   const { r } = hookRig($, on)
-  const res = await $.tool.call({ tool: `${TO}advance_item`, transitions: [{ itemId: A, trigger: 'start', actor: { id: 'implementer:c858:hand', kind: 'subagent' } }] } as never)
+  const res = await $.tool.call({ tool: `${TO}advance`, ops: [{ op: 'transition', itemId: A, trigger: 'start' }] } as never)
   expect(res).toMatchObject({ result: { ok: true }, text: 'ok' })
-  expect(working(r)?.[0]).toMatchObject({ agentId: 'main', seat: 'implementer' })
+  expect(working(r)?.[0]).toMatchObject({ agentId: 'main', seat: 'main' })
+  expect(changedAt(r)).toBe(1_000_000)
+})
+
+test('G14 (D1): a write naming the item by its full uuid lands on the card of its short id', async ($, on) => {
+  const { r } = hookRig($, on)
+  await $.tool.call({ tool: `${TO}advance`, ops: [{ op: 'transition', itemId: fullOf(A), trigger: 'start' }] } as never)
+  expect(working(r)).toHaveLength(1)
   expect(changedAt(r)).toBe(1_000_000)
 })
 
 test('G14: a read tool sets working but not changed; an unknown id writes nothing', async ($, on) => {
   const { r } = hookRig($, on)
-  await $.tool.call({ tool: `${TO}query_items`, operation: 'get', itemId: B } as never)
+  await $.tool.call({ tool: `${TO}items_read`, select: 'get', itemId: B } as never)
   expect(working(r, B)).toHaveLength(1)
   expect(changedAt(r, B)).toBeUndefined()
   const writes = r.sets.filter(s => s.key === 'graphActivity').length
-  await $.tool.call({ tool: `${TO}advance_item`, itemId: 'ffffffff-0000', trigger: 'start' } as never)
-  await $.tool.call({ tool: `${TO}manage_notes`, notes: [{ itemId: 'zz' }] } as never)
+  await $.tool.call({ tool: `${TO}advance`, ops: [{ op: 'transition', itemId: 'ffffffff-0000', trigger: 'start' }] } as never)
+  await $.tool.call({ tool: `${TO}notes_write`, ops: [{ op: 'upsert', itemId: 'zz', key: 'k', role: 'work', body: 'b' }] } as never)
   expect(r.sets.filter(s => s.key === 'graphActivity')).toHaveLength(writes)
 })
 
 test('G14: a repeat call within 10s writes nothing; the entries expire on the mocked clock', async ($, on) => {
   const { r, clock } = hookRig($, on)
-  await $.tool.call({ tool: `${TO}advance_item`, itemId: A, trigger: 'start' } as never)
+  await $.tool.call({ tool: `${TO}advance`, ops: [{ op: 'transition', itemId: A, trigger: 'start' }] } as never)
   const writes = r.sets.filter(s => s.key === 'graphActivity').length
   await clock.advance(2_000)
-  await $.tool.call({ tool: `${TO}advance_item`, itemId: A, trigger: 'start' } as never)
+  await $.tool.call({ tool: `${TO}advance`, ops: [{ op: 'transition', itemId: A, trigger: 'start' }] } as never)
   expect(r.sets.filter(s => s.key === 'graphActivity')).toHaveLength(writes)
   await clock.advance(30_000)
   await clock.settle()
@@ -934,7 +968,7 @@ test("G14: the pane's own calls are not working; a foreign call is, and a throwi
   const noted: { tool: string; changed: boolean }[] = []
   const io = { note: async (e: { tool: string }, changed: boolean) => void noted.push({ tool: e.tool, changed }) }
   const call = (plugin: string, result: unknown = ok) => Object.assign(async () => result, { origin: { plugin } })
-  const e = { tool: `${TO}advance_item`, itemId: A }
+  const e = { tool: `${TO}advance`, ops: [{ op: 'transition', itemId: A, trigger: 'start' }] }
   expect(await trackToolCall(io, e, call(PLUGIN) as never)).toBe(ok)
   expect(noted).toEqual([])
   expect(await trackToolCall(io, e, call('somebody-else') as never)).toBe(ok)
@@ -1140,7 +1174,7 @@ for (const [n, whole] of [[WHOLE_CLICK_MAX - 1, true], [WHOLE_CLICK_MAX, false]]
 // ── source guard, controls ──────────────────────────────────────────────────────────────
 
 test('the pane calls only read tools', () => {
-  expect(READ_TOOLS).toEqual(['query_items', 'get_context', 'query_notes'])
+  expect(READ_TOOLS).toEqual(['items_read', 'notes_read'])
   for (const tool of READ_TOOLS) expect(WRITE_TOOLS.has(tool)).toBe(false)
 })
 
@@ -1543,34 +1577,65 @@ for (const surface of SURFACES) {
   })
 }
 
-test('S9: gateBlocks reads the gate_blocked rows of an advance_item result and nothing else', () => {
-  const text = JSON.stringify({
-    results: [
-      { itemId: A, trigger: 'start', applied: false, errorCode: 'gate_blocked', missingNotes: [{ key: 'implementation-notes', description: 'd' }, 'session-tracking'], targetRole: 'review' },
-      { itemId: B, trigger: 'start', applied: true, newRole: 'work' },
-      { itemId: C, trigger: 'start', applied: false, errorCode: 'dependency_blocked' },
-    ],
-    summary: { total: 3, succeeded: 1, failed: 2 },
-  })
-  expect(gateBlocks(`${TO}advance_item`, text)).toEqual([{ itemId: A, missing: ['implementation-notes', 'session-tracking'], targetRole: 'review' }])
-  expect(gateBlocks(`${TO}advance_item`, 'not json')).toEqual([])
-  expect(gateBlocks(`${TO}advance_item`, undefined)).toEqual([])
-  expect(gateBlocks(`${TO}manage_notes`, text)).toEqual([])
-  expect(gateBlocks('Bash', text)).toEqual([])
+/** One advance result element that was refused by a gate: the 4.0 error carries the item and the missing notes. */
+const gateRow = (itemId: string, missing: unknown[], role = 'work') => ({
+  ok: false,
+  error: { code: 'gate_blocked', kind: 'permanent', message: 'required notes missing', detail: { itemId, role, missing } },
+})
+const okRow = (itemId: string) => ({ ok: true, itemId, previousRole: 'queue', newRole: 'work', trigger: 'start' })
+/** The advance envelope for these result rows (a batch with failures is partial_failure next to the full data). */
+const advanceEnvelope = (rows: unknown[]) => {
+  const bad = rows.filter(r => (r as { ok: boolean }).ok === false).length
+  const summary = { ok: rows.length - bad, failed: bad }
+  if (bad === 0) return { ok: true, data: { results: rows, summary } }
+
+  return { ok: false, error: { code: 'partial_failure', kind: 'permanent', message: `${bad} of ${rows.length} failed` }, data: { results: rows, summary } }
+}
+
+test('S9: gateBlocks reads the gate_blocked rows of an advance result and nothing else', () => {
+  const rows = [
+    gateRow(A, [{ key: 'implementation-notes', role: 'work' }, 'session-tracking']),
+    okRow(B),
+    { ok: false, error: { code: 'dependency_unmet', kind: 'permanent', message: 'blocked by a dependency', detail: { itemId: C } } },
+  ]
+  const result = { structuredContent: advanceEnvelope(rows) }
+  expect(gateBlocks(`${TO}advance`, result)).toEqual([{ itemId: A, missing: ['implementation-notes', 'session-tracking'] }])
+  // the tool.call shape nests the same envelope one level down
+  expect(gateBlocks(`${TO}advance`, { ref: 'r', result, text: 'ok' })).toEqual([{ itemId: A, missing: ['implementation-notes', 'session-tracking'] }])
+  expect(gateBlocks(`${TO}advance`, 'not json')).toEqual([])
+  expect(gateBlocks(`${TO}advance`, undefined)).toEqual([])
+  expect(gateBlocks(`${TO}advance`, { content: [{ type: 'text', text: 'ok' }] })).toEqual([])
+  expect(gateBlocks(`${TO}notes_write`, result)).toEqual([])
+  expect(gateBlocks('Bash', result)).toEqual([])
+  // the 3.x answer shape is not read
+  const legacy = { structuredContent: { results: [{ itemId: A, trigger: 'start', applied: false, errorCode: 'gate_blocked', missingNotes: ['x'], targetRole: 'review' }], summary: {} } }
+  expect(gateBlocks(`${TO}advance`, legacy)).toEqual([])
+})
+
+test('S9: gateBlocks keeps one row per blocked element, in order, and tolerates a missing list', () => {
+  const result = { structuredContent: advanceEnvelope([gateRow(A, ['one']), gateRow(B, [{ key: 'two' }, { key: 'three' }]), gateRow(C, [])]) }
+  expect(gateBlocks(`${TO}advance`, result)).toEqual([
+    { itemId: A, missing: ['one'] },
+    { itemId: B, missing: ['two', 'three'] },
+    { itemId: C, missing: [] },
+  ])
+  const noOk = { structuredContent: advanceEnvelope([okRow(A), okRow(B)]) }
+  expect(gateBlocks(`${TO}advance`, noOk)).toEqual([])
 })
 
 test('S9: trackToolCall hands the blocks to the recorder after the activity and returns the result unchanged', async () => {
   const order: string[] = []
   const gated: unknown[] = []
   const io = { note: async () => void order.push('note'), gate: async (rows: unknown) => void (order.push('gate'), gated.push(rows)) }
-  const ran = { ref: 'r', result: {}, text: JSON.stringify({ results: [{ itemId: A, applied: false, errorCode: 'gate_blocked', missingNotes: ['x'] }] }) }
+  const ran = { ref: 'r', result: { structuredContent: advanceEnvelope([gateRow(A, ['x'])]) }, text: 'ok' }
   const call = Object.assign(async () => ran, { origin: { plugin: 'somebody-else' } })
-  expect(await trackToolCall(io, { tool: `${TO}advance_item`, itemId: A }, call as never)).toBe(ran)
+  const e = { tool: `${TO}advance`, ops: [{ op: 'transition', itemId: A, trigger: 'start' }] }
+  expect(await trackToolCall(io, e, call as never)).toBe(ran)
   expect(order).toEqual(['note', 'gate'])
   expect(gated).toEqual([[{ itemId: A, missing: ['x'] }]])
   // A throwing recorder never touches the result.
   const boom = { note: async () => undefined, gate: async () => Promise.reject(new Error('down')) }
-  expect(await trackToolCall(boom, { tool: `${TO}advance_item`, itemId: A }, call as never)).toBe(ran)
+  expect(await trackToolCall(boom, e, call as never)).toBe(ran)
 })
 
 test('S9: recordGateBlocks keeps identity on a repeat, pruneActivity expires blocks after 10 min, a later write clears one', () => {
@@ -1591,27 +1656,27 @@ test('S9: recordGateBlocks keeps identity on a repeat, pruneActivity expires blo
   expect(recordActivity(legacy, { id: B, agentId: 'main', seat: 'main', changed: true }, t0).blocked).toBeUndefined()
 })
 
-test('S9: a gate-blocked advance_item marks its card; a later write on it clears the mark; the mark expires', async ($, on) => {
+test('S9: a gate-blocked advance marks its card; a later write on it clears the mark; the mark expires', async ($, on) => {
   const r = rig(on, { graphSnapshot: asSnapshot(f1()), graphScope: ROOT_ID })
   const clock = mock.clock(on, { now: 1_000_000 })
   on('mcp.call', async () => ({ value: failed('offline') }) as never)
   on('fs.read', async () => {
     throw new Error('ENOENT')
   })
-  const blockedText = JSON.stringify({ results: [{ itemId: A, trigger: 'start', applied: false, errorCode: 'gate_blocked', missingNotes: [{ key: 'implementation-notes' }], targetRole: 'review' }], summary: { total: 1, succeeded: 0, failed: 1 } })
-  const appliedText = JSON.stringify({ results: [{ itemId: A, trigger: 'complete', applied: true }], summary: { total: 1, succeeded: 1, failed: 0 } })
-  const triggerOf = (e: unknown) => ((e as { transitions?: { trigger?: string }[] }).transitions ?? [])[0]?.trigger
-  on('tool.call', async (_$, e) => ({ ref: 'r', result: {}, text: triggerOf(e) === 'start' ? blockedText : appliedText }) as never)
+  const blockedEnv = advanceEnvelope([gateRow(A, [{ key: 'implementation-notes' }], 'work')])
+  const appliedEnv = advanceEnvelope([okRow(A)])
+  const triggerOf = (e: unknown) => ((e as { ops?: { trigger?: string }[] }).ops ?? [])[0]?.trigger
+  on('tool.call', async (_$, e) => ({ ref: 'r', result: { structuredContent: triggerOf(e) === 'start' ? blockedEnv : appliedEnv }, text: 'ok' }) as never)
   const blockedOf = () => (r.valueOf('graphActivity') as { blocked?: Record<string, unknown> } | undefined)?.blocked
-  const res = await $.tool.call({ tool: `${TO}advance_item`, transitions: [{ itemId: A, trigger: 'start' }] } as never)
-  expect(res).toMatchObject({ text: blockedText })
-  expect(blockedOf()?.[A]).toEqual({ at: 1_000_000, missing: ['implementation-notes'], target: 'review' })
+  const res = await $.tool.call({ tool: `${TO}advance`, ops: [{ op: 'transition', itemId: A, trigger: 'start' }] } as never)
+  expect(res).toMatchObject({ result: { structuredContent: blockedEnv } })
+  expect(blockedOf()?.[A]).toEqual({ at: 1_000_000, missing: ['implementation-notes'] })
   // A later successful write on the item clears the mark. (The clock stays put: past 300ms the mod's own
   // re-snapshot would land, and with this offline server it holds no items to attribute calls to.)
-  await $.tool.call({ tool: `${TO}advance_item`, transitions: [{ itemId: A, trigger: 'complete' }] } as never)
+  await $.tool.call({ tool: `${TO}advance`, ops: [{ op: 'transition', itemId: A, trigger: 'complete' }] } as never)
   expect(blockedOf()?.[A]).toBeUndefined()
   // Blocked again; ten minutes on the mocked clock expire it.
-  await $.tool.call({ tool: `${TO}advance_item`, transitions: [{ itemId: A, trigger: 'start' }] } as never)
+  await $.tool.call({ tool: `${TO}advance`, ops: [{ op: 'transition', itemId: A, trigger: 'start' }] } as never)
   expect(blockedOf()?.[A]).toBeDefined()
   await clock.advance(GATE_BLOCK_MS + 1_000)
   await clock.settle()
@@ -1806,8 +1871,8 @@ const gateBlockedRig = (on: On) => {
   on('fs.read', async () => {
     throw new Error('ENOENT')
   })
-  const out = { text: JSON.stringify({ results: [{ itemId: A, trigger: 'start', applied: false, errorCode: 'gate_blocked', missingNotes: [{ key: 'implementation-notes' }], targetRole: 'review' }], summary: { total: 1, succeeded: 0, failed: 1 } }) }
-  on('tool.call', async () => ({ ref: 'r', result: {}, text: out.text }) as never)
+  const out = { env: advanceEnvelope([gateRow(A, [{ key: 'implementation-notes' }], 'work')]) as unknown }
+  on('tool.call', async () => ({ ref: 'r', result: { structuredContent: out.env }, text: 'ok' }) as never)
   const toasts: string[] = []
   on('ui.toast', async (_$, e) => {
     toasts.push(e.text)
@@ -1817,20 +1882,21 @@ const gateBlockedRig = (on: On) => {
 
   return { toasts, out, r }
 }
+const startOps = { ops: [{ op: 'transition', itemId: A, trigger: 'start' }] }
 
-test('S8: with graphToasts on, a gate-blocked advance_item of this session toasts its label, target and missing notes', { options: { graphToasts: true } }, async ($, on) => {
+test('S8: with graphToasts on, a gate-blocked advance of this session toasts its label and missing notes', { options: { graphToasts: true } }, async ($, on) => {
   const { toasts, out } = gateBlockedRig(on)
-  await $.tool.call({ tool: `${TO}advance_item`, transitions: [{ itemId: A, trigger: 'start' }] } as never)
-  expect(toasts).toEqual(['✗ Gate blocked: T1 -> review: implementation-notes'])
+  await $.tool.call({ tool: `${TO}advance`, ...startOps } as never)
+  expect(toasts).toEqual(['\u2717 Gate blocked: T1: implementation-notes'])
   // An applied row raises none.
-  out.text = JSON.stringify({ results: [{ itemId: A, applied: true }] })
-  await $.tool.call({ tool: `${TO}advance_item`, transitions: [{ itemId: A, trigger: 'start' }] } as never)
+  out.env = advanceEnvelope([okRow(A)])
+  await $.tool.call({ tool: `${TO}advance`, ...startOps } as never)
   expect(toasts).toHaveLength(1)
 })
 
-test('S8: with graphToasts at its default (off), a gate-blocked advance_item raises no toast but still marks the card', async ($, on) => {
+test('S8: with graphToasts at its default (off), a gate-blocked advance raises no toast but still marks the card', async ($, on) => {
   const { toasts, r } = gateBlockedRig(on)
-  await $.tool.call({ tool: `${TO}advance_item`, transitions: [{ itemId: A, trigger: 'start' }] } as never)
+  await $.tool.call({ tool: `${TO}advance`, ...startOps } as never)
   expect(toasts).toEqual([])
   expect((r.valueOf('graphActivity') as { blocked?: Record<string, unknown> }).blocked?.[A]).toBeDefined()
 })
@@ -1922,23 +1988,33 @@ for (const surface of SURFACES) {
 
 // ── 1262993f: the default scope follows the latest transition (activeScope, /to-graph, This feature) ──
 // Oracle: the item's summary rule and the frozen diagnosis decisions D1-D6 (test-plan S1-S17), never the code.
+// 4.0 (item 5dbd8275, AC7): the reads are items_read history (the latest transitions, full UUIDs) and items_read
+// context without an itemId (the active items with their root-first `ancestors` as compact views carrying 8-hex
+// short ids and a `type`); the owning scope of one item is `get` with fields ['ancestors']; the legacy rule is a
+// `list`. Ids are compared by short id (D1), so the scope values below are compared in their short form.
 
-const WR = 'wroot000-0000-4000-8000-000000000000'
-const WFEATURES = 'wfeats00-0000-4000-8000-000000000000'
-const WBUGS = 'wbugs000-0000-4000-8000-000000000000'
-const WF = 'wfeat000-0000-4000-8000-000000000001'
-const WT = 'wtask000-0000-4000-8000-000000000002'
-const WU = 'wsubt000-0000-4000-8000-000000000003'
-const WT2 = 'wtask000-0000-4000-8000-000000000004'
-const WF2 = 'wfeat000-0000-4000-8000-000000000005'
-const WT3 = 'wtask000-0000-4000-8000-000000000006'
-const WB = 'wbug0000-0000-4000-8000-000000000007'
-const WA = 'wstale00-0000-4000-8000-000000000008'
-const WD = 'wdirect0-0000-4000-8000-000000000009'
-const WW = 'wnotype0-0000-4000-8000-00000000000a'
-const WZ = 'wother00-0000-4000-8000-00000000000b'
-const WO = 'wotherr0-0000-4000-8000-00000000000c'
+const WR = 'a1000001-0000-4000-8000-000000000000'
+const WFEATURES = 'a1000002-0000-4000-8000-000000000000'
+const WBUGS = 'a1000003-0000-4000-8000-000000000000'
+const WF = 'a2000001-0000-4000-8000-000000000001'
+const WT = 'a2000002-0000-4000-8000-000000000002'
+const WU = 'a2000003-0000-4000-8000-000000000003'
+const WT2 = 'a2000004-0000-4000-8000-000000000004'
+const WF2 = 'a2000005-0000-4000-8000-000000000005'
+const WT3 = 'a2000006-0000-4000-8000-000000000006'
+const WB = 'a3000001-0000-4000-8000-000000000007'
+const WA = 'a3000002-0000-4000-8000-000000000008'
+const WD = 'a3000003-0000-4000-8000-000000000009'
+const WW = 'a3000004-0000-4000-8000-00000000000a'
+const WZ = 'a4000001-0000-4000-8000-00000000000b'
+const WO = 'a4000002-0000-4000-8000-00000000000c'
 const WNOW = 1_760_000_000_000
+
+/** The 8-hex short id of an id. */
+const k = (v: string): string => v.slice(0, 8).toLowerCase()
+/** An atom or call value in its short form (null and non-strings stay as they are). */
+const norm = (v: unknown): unknown => (typeof v === 'string' ? k(v) : v)
+const isoOf = (ms: number) => new Date(ms).toISOString()
 
 type WItem = { id: string; parentId: string | null; title: string; type?: string; role: string }
 const WITEMS: WItem[] = [
@@ -1959,45 +2035,98 @@ const WITEMS: WItem[] = [
   { id: WZ, parentId: WO, title: 'Other project task', type: 'feature-task', role: 'work' },
 ]
 
-type WWorld = { items?: WItem[]; active?: string[]; transitions?: string[] | null; failResume?: boolean; failGetOf?: string }
-const ancestorsOf = (items: WItem[], id: string): { id: string; title: string; depth: number }[] => {
-  const out: { id: string; title: string; depth: number }[] = []
+type WWorld = { items?: WItem[]; active?: string[]; transitions?: string[] | null; failResume?: boolean; failHistory?: boolean; failActive?: boolean; failGetOf?: string }
+
+const chainOf = (items: WItem[], id: string): WItem[] => {
+  const out: WItem[] = []
   let cur = items.find(i => i.id === id)?.parentId ?? null
   while (cur !== null) {
     const p = items.find(i => i.id === cur)
     if (p === undefined) break
-    out.unshift({ id: p.id, title: p.title, depth: 0 })
+    out.unshift(p)
     cur = p.parentId
   }
-  out.forEach((a, i) => {
-    a.depth = i
-  })
 
   return out
 }
+/** The compact view of an item (4.0): 8-hex id and parentId, type, title, role, depth. */
+const compactOf = (items: WItem[], it: WItem) => ({
+  id: k(it.id),
+  ...(it.parentId !== null ? { parentId: k(it.parentId) } : {}),
+  ...(it.type !== undefined ? { type: it.type } : {}),
+  title: it.title,
+  role: it.role,
+  depth: chainOf(items, it.id).length,
+  version: 1,
+})
 
-/** The TO server's reads for this item: replies are parsed JSON, a failure is the string 'FAIL'. */
+/** The TO server's reads for this item: replies are the envelope data, a failure is the string 'FAIL'. */
 function worldReply(w: WWorld, tool: string, args: Record<string, unknown>): unknown {
   const items = w.items ?? WITEMS
-  if (tool === 'get_context' && args.mode === 'session-resume') {
-    if (w.failResume === true) return 'FAIL'
-    const active = (w.active ?? []).map(id => ({ id, title: items.find(i => i.id === id)?.title ?? id, role: 'work', ancestors: ancestorsOf(items, id) }))
-    const rows = w.transitions === null ? undefined : (w.transitions ?? []).map((itemId, k) => ({ itemId, fromRole: 'queue', toRole: 'work', transitionedAt: new Date(WNOW - k * 1000).toISOString() }))
+  const find = (arg: unknown): WItem | undefined => {
+    if (typeof arg !== 'string' || arg.length < 8) return undefined
+    const hit = items.filter(i => i.id.startsWith(arg.toLowerCase()))
 
-    return { activeItems: active, ...(rows !== undefined ? { recentTransitions: rows } : {}) }
+    return hit.length === 1 ? hit[0] : undefined
   }
-  if (tool === 'query_items' && args.operation === 'get') {
-    const id = String(args.itemId)
-    if (w.failGetOf === id) return 'FAIL'
-    const it = items.find(i => i.id === id)
-    if (it === undefined) return 'FAIL'
+  if (tool === 'items_read' && args.select === 'history') {
+    if (w.failResume === true || w.failHistory === true) return 'FAIL'
+    if (w.transitions === null) return {}
+    const rows = (w.transitions ?? []).map((itemId, i) => ({ seq: 1_000_000_000_000 + i, id: `ev${i}`, itemId, occurredAt: isoOf(WNOW - i * 1000), trigger: 'start', fromRole: 'queue', toRole: 'work' }))
 
-    return { id: it.id, title: it.title, role: it.role, ...(it.type !== undefined ? { type: it.type } : {}), ...(args.includeAncestors === true ? { ancestors: ancestorsOf(items, id) } : {}) }
+    return { items: rows, page: { total: rows.length, truncated: false } }
+  }
+  if (tool === 'items_read' && args.select === 'context' && args.itemId === undefined) {
+    if (w.failResume === true || w.failActive === true) return 'FAIL'
+    const active = (w.active ?? []).flatMap(id => {
+      const it = items.find(i => i.id === id)
+
+      return it === undefined ? [] : [{ ...compactOf(items, it), ancestors: chainOf(items, id).map(a => compactOf(items, a)) }]
+    })
+    const empty = { items: [], page: { total: 0, truncated: false } }
+
+    return { active: { items: active, page: { total: active.length, truncated: false } }, blocked: empty, stalled: [], claimSummary: { active: 0, expired: 0, unclaimed: 0 } }
+  }
+  if (tool === 'items_read' && args.select === 'context') {
+    const it = find(args.itemId)
+
+    return it === undefined ? 'FAIL' : { item: compactOf(items, it) }
+  }
+  if (tool === 'items_read' && args.select === 'get') {
+    const it = find(args.itemId)
+    if (it === undefined || w.failGetOf === it.id) return 'FAIL'
+    const fields = (args.fields as string[] | undefined) ?? []
+
+    return {
+      id: it.id,
+      ...(it.parentId !== null ? { parentId: it.parentId } : {}),
+      title: it.title,
+      role: it.role,
+      ...(it.type !== undefined ? { type: it.type } : {}),
+      depth: chainOf(items, it.id).length,
+      version: 1,
+      ...(fields.includes('ancestors') ? { ancestors: chainOf(items, it.id).map(a => compactOf(items, a)) } : {}),
+    }
   }
   // The legacy rule: newest work-role feature-implementation under the root.
-  if (tool === 'query_items' && args.operation === 'search' && args.type === 'feature-implementation') return { items: [{ id: WA, title: 'Stale feature A', type: 'feature-implementation', role: 'work' }], total: 1, returned: 1 }
-  if (tool === 'query_items') return { items: [], total: 0, returned: 0, limit: 50, offset: 0 }
-  if (tool === 'query_dependencies') return { dependencies: [] }
+  if (tool === 'items_read' && args.select === 'list' && args.type === 'feature-implementation') {
+    const stale = items.find(i => i.id === WA) as WItem
+
+    return { items: [compactOf(items, stale)], page: { total: 1, truncated: false } }
+  }
+  // The snapshot's subtree walk.
+  if (tool === 'items_read' && args.select === 'list' && typeof args.ancestorId === 'string') {
+    const inTree = (id: string | null): boolean => id !== null && (id.startsWith(String(args.ancestorId).toLowerCase()) || inTree(items.find(i => i.id === id)?.parentId ?? null))
+    const rows = items.filter(i => inTree(i.id)).map(i => compactOf(items, i))
+    const offset = args.cursor === undefined ? 0 : Number(String(args.cursor).slice(2))
+    const limit = Number(args.limit ?? 50)
+    const next = offset + limit < rows.length ? `c:${offset + limit}` : undefined
+
+    return { items: rows.slice(offset, offset + limit), page: { total: rows.length, truncated: next !== undefined, ...(next !== undefined ? { next } : {}) } }
+  }
+  if (tool === 'items_read' && args.select === 'list') return { items: [], page: { total: 0, truncated: false } }
+  if (tool === 'items_read' && args.select === 'overview') return { anchor: { id: k(WR), title: 'Project' }, items: [], page: { total: 0, truncated: false } }
+  if (tool === 'deps_read') return { items: [], page: { total: 0, truncated: false } }
 
   return 'FAIL'
 }
@@ -2008,7 +2137,7 @@ const fakeCall = (w: WWorld) => {
   const call = async (tool: string, args: Record<string, unknown>): Promise<unknown> => {
     calls.push({ tool, args })
     const r = worldReply(w, tool, args)
-    if (r === 'FAIL') throw new Error(`${tool} failed`)
+    if (r === 'FAIL') throw new Error(`${tool}: internal: failed`)
 
     return r
   }
@@ -2016,28 +2145,30 @@ const fakeCall = (w: WWorld) => {
   return { call, calls }
 }
 
-const scopeOf = (w: WWorld) => activeScope(fakeCall(w).call, WR, WNOW)
+const scopeOf = async (w: WWorld) => norm(await activeScope(fakeCall(w).call, WR, WNOW))
+const getsOfId = (calls: WCall[], id: string) => calls.filter(c => c.tool === 'items_read' && c.args.select === 'get' && typeof c.args.itemId === 'string' && k(c.args.itemId) === k(id))
+const ownerGets = (calls: WCall[], id: string) => getsOfId(calls, id).filter(c => ((c.args.fields as string[] | undefined) ?? []).includes('ancestors'))
 
 test('S1 (unit): a task in work resolves to its feature', async () => {
-  expect(await scopeOf({ active: [WT], transitions: [WT] })).toBe(WF)
+  expect(await scopeOf({ active: [WT], transitions: [WT] })).toBe(k(WF))
 })
 
 test('S2 (unit): a bug under a container resolves to the bug itself, never the stale feature', async () => {
-  expect(await scopeOf({ active: [WA, WB], transitions: [WB, WA] })).toBe(WB)
+  expect(await scopeOf({ active: [WA, WB], transitions: [WB, WA] })).toBe(k(WB))
 })
 
 test('S3 (unit): the first ACTIVE transition wins over a newer inactive one; duplicates and order are taken as returned', async () => {
   // WB is not active (terminal), so the newer transitions on it are skipped; the first active one names WT.
-  expect(await scopeOf({ active: [WT], transitions: [WB, WB, WT, WA] })).toBe(WF)
+  expect(await scopeOf({ active: [WT], transitions: [WB, WB, WT, WA] })).toBe(k(WF))
   // The first active in returned order wins even when a later row is also active.
-  expect(await scopeOf({ active: [WT, WB], transitions: [WB, WT] })).toBe(WB)
-  expect(await scopeOf({ active: [WT, WB], transitions: [WT, WB] })).toBe(WF)
+  expect(await scopeOf({ active: [WT, WB], transitions: [WB, WT] })).toBe(k(WB))
+  expect(await scopeOf({ active: [WT, WB], transitions: [WT, WB] })).toBe(k(WF))
 })
 
 test('S4 (unit): nothing active, the newest transition (terminal) still names its feature via the ancestors read', async () => {
   const { call, calls } = fakeCall({ active: [], transitions: [WT, WB] })
-  expect(await activeScope(call, WR, WNOW)).toBe(WF)
-  expect(calls.filter(c => c.tool === 'query_items' && c.args.operation === 'get' && c.args.itemId === WT && c.args.includeAncestors === true)).toHaveLength(1)
+  expect(norm(await activeScope(call, WR, WNOW))).toBe(k(WF))
+  expect(ownerGets(calls, WT)).toHaveLength(1)
 })
 
 test('S7 (unit): a newest transition belonging to another project resolves to null', async () => {
@@ -2046,19 +2177,19 @@ test('S7 (unit): a newest transition belonging to another project resolves to nu
 
 test('S10 (unit): a feature left in queue by a gate-blocked start cascade still owns its task', async () => {
   const items = WITEMS.map(i => (i.id === WF ? { ...i, role: 'queue' } : i))
-  expect(await scopeOf({ items, active: [WT], transitions: [WT] })).toBe(WF)
+  expect(await scopeOf({ items, active: [WT], transitions: [WT] })).toBe(k(WF))
 })
 
 test('S11 (unit): an item directly under the root resolves to itself', async () => {
-  expect(await scopeOf({ active: [WD], transitions: [WD] })).toBe(WD)
+  expect(await scopeOf({ active: [WD], transitions: [WD] })).toBe(k(WD))
 })
 
 test('S12 (unit): non-container intermediates are skipped on the way to the feature', async () => {
-  expect(await scopeOf({ active: [WT2], transitions: [WT2] })).toBe(WF)
+  expect(await scopeOf({ active: [WT2], transitions: [WT2] })).toBe(k(WF))
 })
 
 test('S13 (unit): the nearest feature wins; the root-first ancestors are walked nearest-first', async () => {
-  expect(await scopeOf({ active: [WT3], transitions: [WT3] })).toBe(WF2)
+  expect(await scopeOf({ active: [WT3], transitions: [WT3] })).toBe(k(WF2))
 })
 
 test('S14 (unit): a moved item that is itself a container resolves to null', async () => {
@@ -2066,7 +2197,7 @@ test('S14 (unit): a moved item that is itself a container resolves to null', asy
 })
 
 test('S15 (unit): a node reply with no type counts as a non-container', async () => {
-  expect(await scopeOf({ active: [WW], transitions: [WW] })).toBe(WW)
+  expect(await scopeOf({ active: [WW], transitions: [WW] })).toBe(k(WW))
 })
 
 test('probe (unit): empty and absent replies are all "no candidate"; repeat calls agree', async () => {
@@ -2074,19 +2205,25 @@ test('probe (unit): empty and absent replies are all "no candidate"; repeat call
   expect(await scopeOf({ active: [], transitions: null })).toBeNull()
   expect(await scopeOf({ active: [WT], transitions: [] })).toBeNull()
   const w: WWorld = { active: [WB], transitions: [WB] }
-  expect(await scopeOf(w)).toBe(WB)
-  expect(await scopeOf(w)).toBe(WB)
+  expect(await scopeOf(w)).toBe(k(WB))
+  expect(await scopeOf(w)).toBe(k(WB))
 })
 
-test('S16 (unit): one session-resume read with the exact request shape, read tools only, bounded gets', async () => {
+test('S16 (unit): one history read and one active-items read with the exact request shapes, read tools only, bounded gets', async () => {
   expect(SCOPE_LOOKBACK_MS).toBe(14 * 24 * 60 * 60 * 1000)
   const { call, calls } = fakeCall({ active: [WT], transitions: [WT] })
-  expect(await activeScope(call, WR, WNOW)).toBe(WF)
-  expect(calls[0]).toEqual({ tool: 'get_context', args: { mode: 'session-resume', since: new Date(WNOW - SCOPE_LOOKBACK_MS).toISOString(), ancestorId: WR, includeAncestors: true, limit: 200 } })
-  expect(calls.filter(c => c.tool === 'get_context')).toHaveLength(1)
+  expect(norm(await activeScope(call, WR, WNOW))).toBe(k(WF))
+  const history = calls.filter(c => c.args.select === 'history')
+  const context = calls.filter(c => c.args.select === 'context')
+  expect(history).toHaveLength(1)
+  expect(history[0]).toEqual({ tool: 'items_read', args: { select: 'history', since: isoOf(WNOW - SCOPE_LOOKBACK_MS), limit: 200 } })
+  expect(context).toHaveLength(1)
+  expect(context[0]?.tool).toBe('items_read')
+  expect(context[0]?.args).toMatchObject({ select: 'context', limit: 200, fields: ['ancestors'] })
+  expect(k(String(context[0]?.args.ancestorId))).toBe(k(WR))
   for (const c of calls) expect(READ_TOOLS).toContain(c.tool)
-  // Chain is root > Features > F > T: at most one get per ancestor below the root.
-  expect(calls.filter(c => c.tool === 'query_items').length).toBeLessThanOrEqual(3)
+  // Chain is root > Features > F > T: the active read already carries the ancestors, so at most the item's own get.
+  expect(calls.filter(c => c.args.select === 'get').length).toBeLessThanOrEqual(3)
 })
 
 // Integration: the command and the button, with the TO server and project config under the loaded plugin.
@@ -2129,8 +2266,9 @@ const runToGraph = async ($: WEngine) => {
   await $.session.start({ cwd: '/work/project', surface: 'terminal', isInteractive: true } as never)
   await $.command.run({ command: 'to-graph', args: '' } as never)
 }
-const scopeSets = (r: ReturnType<typeof rig>) => r.sets.filter(s => s.key === 'graphScope').map(s => s.value)
-const paneSeed = { graphSnapshot: { ...asSnapshot(f1()), rootId: WR }, graphScope: null }
+const scopeNow = (r: ReturnType<typeof rig>) => norm(r.valueOf('graphScope'))
+const scopeSets = (r: ReturnType<typeof rig>) => r.sets.filter(s => s.key === 'graphScope').map(s => norm(s.value))
+const paneSeed = { graphSnapshot: { ...asSnapshot(f1()), rootId: k(WR) }, graphScope: null }
 const pressFeature = async ($: WEngine) => {
   const ui = await mountAt($, 'terminal')
   await ui.press({ key: 'scope-feature' })
@@ -2143,76 +2281,92 @@ const REPRO: WWorld = { active: [WA, WB], transitions: [WB, WA] }
 test('S2 (int): /to-graph with no argument scopes to the bug that moved, not the stale feature', async ($, on) => {
   const { r } = scopeRig(on, REPRO)
   await runToGraph($)
-  expect(r.valueOf('graphScope')).toBe(WB)
-  expect(scopeSets(r)).not.toContain(WA)
+  expect(scopeNow(r)).toBe(k(WB))
+  expect(scopeSets(r)).not.toContain(k(WA))
 })
 
 test('S1 (int): /to-graph resolves a task in work to its feature', async ($, on) => {
   const { r } = scopeRig(on, { active: [WT], transitions: [WT] })
   await runToGraph($)
-  expect(r.valueOf('graphScope')).toBe(WF)
+  expect(scopeNow(r)).toBe(k(WF))
 })
 
 test('S4 (int): nothing active, the newest move is a terminal task: its feature', async ($, on) => {
   const { r } = scopeRig(on, { active: [], transitions: [WT] })
   await runToGraph($)
-  expect(r.valueOf('graphScope')).toBe(WF)
+  expect(scopeNow(r)).toBe(k(WF))
 })
 
 test('S17 (int): the This feature button picks the bug that moved, as the command does', async ($, on) => {
   const { r } = scopeRig(on, REPRO, { seed: paneSeed })
   await pressFeature($)
-  expect(scopeSets(r)).toContain(WB)
-  expect(scopeSets(r)).not.toContain(WA)
+  expect(scopeSets(r)).toContain(k(WB))
+  expect(scopeSets(r)).not.toContain(k(WA))
 })
 
 test('S1 (int): the This feature button resolves a task in work to its feature', async ($, on) => {
   const { r } = scopeRig(on, { active: [WT], transitions: [WT] }, { seed: paneSeed })
   await pressFeature($)
-  expect(scopeSets(r)).toContain(WF)
+  expect(scopeSets(r)).toContain(k(WF))
 })
 
-test('S5 (int): a failed session-resume read falls back to the legacy newest-work feature', async ($, on) => {
-  const { r } = scopeRig(on, { ...REPRO, failResume: true })
+test('S5 (int): a failed history/active read falls back to the legacy newest-work feature', async ($, on) => {
+  const { r, calls } = scopeRig(on, { ...REPRO, failResume: true })
   await runToGraph($)
-  expect(r.valueOf('graphScope')).toBe(WA)
+  expect(scopeNow(r)).toBe(k(WA))
+  const legacy = calls.find(c => c.args.select === 'list' && c.args.type === 'feature-implementation')
+  expect(legacy?.tool).toBe('items_read')
+  expect(legacy?.args).toMatchObject({ select: 'list', type: 'feature-implementation', role: 'work', sort: 'modifiedAt', order: 'desc', limit: 1 })
+  expect(k(String(legacy?.args.ancestorId))).toBe(k(WR))
+})
+
+test('S5 (int): a failed history read alone also falls back', async ($, on) => {
+  const { r } = scopeRig(on, { ...REPRO, failHistory: true })
+  await runToGraph($)
+  expect(scopeNow(r)).toBe(k(WA))
+})
+
+test('S5 (int): a failed active-items read alone also falls back', async ($, on) => {
+  const { r } = scopeRig(on, { ...REPRO, failActive: true })
+  await runToGraph($)
+  expect(scopeNow(r)).toBe(k(WA))
 })
 
 test('S6 (int): no recent transitions falls back to the legacy rule', async ($, on) => {
   const { r } = scopeRig(on, { active: [WB], transitions: [] })
   await runToGraph($)
-  expect(r.valueOf('graphScope')).toBe(WA)
+  expect(scopeNow(r)).toBe(k(WA))
 })
 
 test('S7 (int): a newest transition from another project falls back to the legacy rule', async ($, on) => {
   const { r } = scopeRig(on, { active: [], transitions: [WZ] })
   await runToGraph($)
-  expect(r.valueOf('graphScope')).toBe(WA)
+  expect(scopeNow(r)).toBe(k(WA))
 })
 
 test('S8 (int): a failing read during the walk falls back to the legacy rule (command)', async ($, on) => {
   const { r } = scopeRig(on, { active: [], transitions: [WT], failGetOf: WT })
   await runToGraph($)
-  expect(r.valueOf('graphScope')).toBe(WA)
+  expect(scopeNow(r)).toBe(k(WA))
 })
 
 test('S8 (int): the button also falls back when the walk fails', async ($, on) => {
   const { r } = scopeRig(on, { active: [], transitions: [WT], failGetOf: WT }, { seed: paneSeed })
   await pressFeature($)
-  expect(scopeSets(r)).toContain(WA)
+  expect(scopeSets(r)).toContain(k(WA))
 })
 
 test('S9 (int): with no project rootId the command makes no scope-resolution MCP call', async ($, on) => {
   const { calls } = scopeRig(on, REPRO, { config: false })
   await runToGraph($)
-  expect(calls.filter(c => c.tool === 'get_context' || (c.tool === 'query_items' && c.args.operation !== 'overview'))).toEqual([])
+  expect(calls.filter(c => c.tool === 'items_read' && c.args.select !== 'overview')).toEqual([])
 })
 
 // -- 8f1064d7: auto vs pinned scope; the auto scope follows this session's own TO activity --
 // Oracle: the item's summary clauses (Q1-Q4, container sentence QC) and task-scope sections (TS-n) as frozen in
 // test-plan S1-S17, never the code. Reuses the 1262993f world (WITEMS/worldReply/fakeCall/scopeRig fixtures).
 
-// Real UUID-shaped (hex) ids for the paths that parse ids from text or prefixes.
+// Further hex ids.
 const HF = 'abcdef01-0000-4000-8000-0000000000f1'
 const HT = 'abcdef02-0000-4000-8000-0000000000f2'
 const HA = 'abcdef03-0000-4000-8000-0000000000f3'
@@ -2224,30 +2378,9 @@ const HITEMS: WItem[] = [
 ]
 const FW = (over: WWorld = {}): WWorld => ({ items: HITEMS, ...over })
 
-/** worldReply that also accepts a unique id prefix on `query_items get` (the tool accepts one), answering with the full id. */
-const prefixReply = (w: WWorld, tool: string, args: Record<string, unknown>): unknown => {
-  if (tool === 'query_items' && args.operation === 'get') {
-    const id = String(args.itemId)
-    const hit = (w.items ?? WITEMS).filter(i => i.id.startsWith(id))
-    if (hit.length === 1 && hit[0] !== undefined) return worldReply(w, tool, { ...args, itemId: hit[0].id })
-  }
+const pfxCall = fakeCall
 
-  return worldReply(w, tool, args)
-}
-const pfxCall = (w: WWorld) => {
-  const calls: WCall[] = []
-  const call = async (tool: string, args: Record<string, unknown>): Promise<unknown> => {
-    calls.push({ tool, args })
-    const r = prefixReply(w, tool, args)
-    if (r === 'FAIL') throw new Error(`${tool} failed`)
-
-    return r
-  }
-
-  return { call, calls }
-}
-
-/** scopeRig with a prefix-aware TO server, a passthrough tool.call and an agent.spawn answer. */
+/** scopeRig with a passthrough tool.call and an agent.spawn answer. */
 function followRig(on: On, w: WWorld, seed: Record<string, unknown>) {
   const r = rig(on, seed)
   const calls: WCall[] = []
@@ -2260,7 +2393,7 @@ function followRig(on: On, w: WWorld, seed: Record<string, unknown>) {
   mock.clock(on, { now: WNOW })
   on('mcp.call', async (_$, e) => {
     calls.push({ tool: e.tool, args: e.args })
-    const out = prefixReply(w, e.tool, e.args)
+    const out = worldReply(w, e.tool, e.args)
 
     return { value: out === 'FAIL' ? failed(`${e.tool} boom`) : reply(out) } as never
   })
@@ -2276,18 +2409,16 @@ function followRig(on: On, w: WWorld, seed: Record<string, unknown>) {
   return { r, calls }
 }
 
-const FSNAP: GraphSnapshot = { ...asSnapshot(gview([mk(WA, 'work', 'T1', 'Stale feature A')])), rootId: WR, scopeId: WA }
-const followSeed = (over: Record<string, unknown> = {}) => ({ graphSnapshot: FSNAP, graphScope: WA, graphPaneOpen: true, graphScopeMode: 'auto', ...over })
+const FSNAP: GraphSnapshot = { ...asSnapshot(gview([mk(k(WA), 'work', 'T1', 'Stale feature A')])), rootId: k(WR), scopeId: k(WA) }
+const followSeed = (over: Record<string, unknown> = {}) => ({ graphSnapshot: FSNAP, graphScope: k(WA), graphPaneOpen: true, graphScopeMode: 'auto', ...over })
 const startFollow = ($: WEngine) => $.session.start({ cwd: '/work/project', surface: 'terminal', isInteractive: true } as never)
 const runToGraphArgs = async ($: WEngine, args: string) => {
   await startFollow($)
   await $.command.run({ command: 'to-graph', args } as never)
 }
-const touch = ($: WEngine, ...ids: string[]) =>
-  $.tool.call({ tool: `${TO}advance_item`, transitions: ids.map(itemId => ({ itemId, trigger: 'start', actor: { id: 'implementer:x:r-1', kind: 'subagent' } })) } as never)
+const touch = ($: WEngine, ...ids: string[]) => $.tool.call({ tool: `${TO}advance`, ops: ids.map(itemId => ({ op: 'transition', itemId, trigger: 'start' })) } as never)
 const spawn = ($: WEngine, description: string, prompt: string) => $.agent.spawn({ subagentType: 'task-orchestrator:implementer', description, prompt } as never)
-const getsOf = (calls: WCall[], id: string) => calls.filter(c => c.tool === 'query_items' && c.args.operation === 'get' && c.args.itemId === id)
-const anyGets = (calls: WCall[]) => calls.filter(c => c.tool === 'query_items' && c.args.operation === 'get')
+const anyGets = (calls: WCall[]) => calls.filter(c => c.tool === 'items_read' && c.args.select === 'get')
 
 // -- happy --
 
@@ -2296,34 +2427,43 @@ test('S1 (8f1064d7): auto mode, a touch outside the snapshot moves the scope to 
   await startFollow($)
   const res = await touch($, WT)
   expect(res).toMatchObject({ result: { ok: true }, text: 'ok' })
-  expect(scopeSets(r)).toEqual([WF])
-  expect(r.valueOf('graphScope')).toBe(WF)
+  expect(scopeSets(r)).toEqual([k(WF)])
+  expect(scopeNow(r)).toBe(k(WF))
 })
 
 test('S1 (8f1064d7): bare /to-graph is auto: it unpins, then the next out-of-snapshot touch follows', async ($, on) => {
   const { r } = followRig(on, FW({ active: [WA], transitions: [WA] }), followSeed({ graphScopeMode: 'pinned' }))
   await runToGraph($)
   expect(r.valueOf('graphScopeMode')).toBe('auto')
-  expect(r.valueOf('graphScope')).toBe(WA)
+  expect(scopeNow(r)).toBe(k(WA))
   r.state.set(SLOT('graphSnapshot'), { value: FSNAP, version: 50 })
   r.state.set(SLOT('graphPaneOpen'), { value: true, version: 50 })
   await touch($, WT)
-  expect(r.valueOf('graphScope')).toBe(WF)
+  expect(scopeNow(r)).toBe(k(WF))
 })
 
-test('S2 (8f1064d7): an 8-hex id prefix touch resolves to the full owning-feature uuid', async ($, on) => {
+test('S2 (8f1064d7): an 8-hex id prefix touch resolves to its owning feature', async ($, on) => {
   const { r, calls } = followRig(on, FW(), followSeed())
   await startFollow($)
   await touch($, HT.slice(0, 8))
-  expect(r.valueOf('graphScope')).toBe(HF)
-  expect(getsOf(calls, HT.slice(0, 8))[0]?.args).toEqual({ operation: 'get', itemId: HT.slice(0, 8), includeAncestors: true })
+  expect(scopeNow(r)).toBe(k(HF))
+  const owner = ownerGets(calls, HT)
+  expect(owner.length).toBeGreaterThanOrEqual(1)
+  expect(owner[0]?.args).toMatchObject({ select: 'get', fields: ['ancestors'] })
+})
+
+test('S2 (8f1064d7, D1): a touch naming the item by its full uuid resolves the same way', async ($, on) => {
+  const { r } = followRig(on, FW(), followSeed())
+  await startFollow($)
+  await touch($, HT)
+  expect(scopeNow(r)).toBe(k(HF))
 })
 
 test('S3 (8f1064d7): a bug under the Bugs container scopes to the bug itself', async ($, on) => {
   const { r } = followRig(on, FW(), followSeed())
   await startFollow($)
   await touch($, WB)
-  expect(r.valueOf('graphScope')).toBe(WB)
+  expect(scopeNow(r)).toBe(k(WB))
 })
 
 test('S4 (8f1064d7): agent.spawn naming the root then a task moves to the task feature; the spawn result is untouched', async ($, on) => {
@@ -2331,15 +2471,15 @@ test('S4 (8f1064d7): agent.spawn naming the root then a task moves to the task f
   await startFollow($)
   const res = await spawn($, 'implement', `Project ${WR} then work on ${HT} please`)
   expect(res).toMatchObject({ model: 'claude-opus-5-5', agentId: 'sub-8f' })
-  expect(r.valueOf('graphScope')).toBe(HF)
-  expect(scopeSets(r)).toEqual([HF])
+  expect(scopeNow(r)).toBe(k(HF))
+  expect(scopeSets(r)).toEqual([k(HF)])
 })
 
 test('S4 (8f1064d7): a uuid in the description wins over one in the prompt', async ($, on) => {
   const { r } = followRig(on, FW(), followSeed())
   await startFollow($)
   await spawn($, `item ${HT}`, `other ${WB}`)
-  expect(r.valueOf('graphScope')).toBe(HF)
+  expect(scopeNow(r)).toBe(k(HF))
 })
 
 test('S5 (8f1064d7): pinned shows Follow; pressing it returns to auto with the bare-command scope, and later touches follow again', async ($, on) => {
@@ -2349,10 +2489,10 @@ test('S5 (8f1064d7): pinned shows Follow; pressing it returns to auto with the b
   expect(await ui.find({ key: 'scope-follow' })).toBeDefined()
   await ui.press({ key: 'scope-follow' })
   expect(r.valueOf('graphScopeMode')).toBe('auto')
-  expect(r.valueOf('graphScope')).toBe(WF)
+  expect(scopeNow(r)).toBe(k(WF))
   r.state.set(SLOT('graphSnapshot'), { value: FSNAP, version: 60 })
   await touch($, WB)
-  expect(r.valueOf('graphScope')).toBe(WB)
+  expect(scopeNow(r)).toBe(k(WB))
   await ui.unmount()
 })
 
@@ -2365,32 +2505,32 @@ test('S5 (8f1064d7): auto mode shows no Follow control', async ($, on) => {
 })
 
 test('S5 (8f1064d7): Follow with no recent transitions falls back to the legacy newest-work feature, like the bare command', async ($, on) => {
-  const { r } = followRig(on, FW({ active: [], transitions: [] }), followSeed({ graphScopeMode: 'pinned', graphScope: WF }))
+  const { r } = followRig(on, FW({ active: [], transitions: [] }), followSeed({ graphScopeMode: 'pinned', graphScope: k(WF) }))
   await startFollow($)
   const ui = await mountAt($, 'terminal')
   await ui.press({ key: 'scope-follow' })
   expect(r.valueOf('graphScopeMode')).toBe('auto')
-  expect(r.valueOf('graphScope')).toBe(WA)
+  expect(scopeNow(r)).toBe(k(WA))
   await ui.unmount()
 })
 
 // -- activeScope: containers and the root are skipped when choosing the moved item --
 
-const KIDS = Array.from({ length: 12 }, (_, i): WItem => ({ id: `wkont${String(i).padStart(3, '0')}-0000-4000-8000-000000000000`, parentId: WR, title: `Container ${i}`, type: 'container', role: 'work' }))
-const KONTS = KIDS.map(k => k.id)
+const KIDS = Array.from({ length: 12 }, (_, i): WItem => ({ id: `${(0xc0000000 + i).toString(16)}-0000-4000-8000-000000000000`, parentId: WR, title: `Container ${i}`, type: 'container', role: 'work' }))
+const KONTS = KIDS.map(c => c.id)
 const KW = (over: WWorld): WWorld => ({ items: [...HITEMS, ...KIDS], ...over })
 
 test('S6 (8f1064d7): a container ahead of the task in the active transitions is skipped', async () => {
-  expect(await scopeOf({ active: [WBUGS, WT], transitions: [WBUGS, WT] })).toBe(WF)
+  expect(await scopeOf({ active: [WBUGS, WT], transitions: [WBUGS, WT] })).toBe(k(WF))
 })
 
 test('S7 (8f1064d7): the project root ahead of the task is skipped', async () => {
-  expect(await scopeOf({ active: [WR, WT], transitions: [WR, WT] })).toBe(WF)
+  expect(await scopeOf({ active: [WR, WT], transitions: [WR, WT] })).toBe(k(WF))
 })
 
 test('S8 (8f1064d7): nothing active: the newest non-container transition is used for the fallback', async () => {
-  expect(await scopeOf({ active: [], transitions: [WBUGS, WT] })).toBe(WF)
-  expect(await scopeOf({ active: [], transitions: [WR, WBUGS, WFEATURES, WB] })).toBe(WB)
+  expect(await scopeOf({ active: [], transitions: [WBUGS, WT] })).toBe(k(WF))
+  expect(await scopeOf({ active: [], transitions: [WR, WBUGS, WFEATURES, WB] })).toBe(k(WB))
 })
 
 test('S8 (8f1064d7): a container-only history is still null', async () => {
@@ -2402,35 +2542,37 @@ test('S8 (8f1064d7): at most SCOPE_CANDIDATE_LIMIT distinct ids are examined; re
   expect(SCOPE_CANDIDATE_LIMIT).toBe(10)
   const nine = KONTS.slice(0, 9)
   const ten = KONTS.slice(0, 10)
+  const scope = async (w: WWorld) => norm(await activeScope(pfxCall(w).call, WR, WNOW))
   // Nine containers then the task: the task is the 10th distinct id, still examined.
-  expect(await activeScope(pfxCall(KW({ active: [...nine, HT], transitions: [...nine, HT] })).call, WR, WNOW)).toBe(HF)
-  expect(await activeScope(pfxCall(KW({ active: [], transitions: [...nine, HT] })).call, WR, WNOW)).toBe(HF)
+  expect(await scope(KW({ active: [...nine, HT], transitions: [...nine, HT] }))).toBe(k(HF))
+  expect(await scope(KW({ active: [], transitions: [...nine, HT] }))).toBe(k(HF))
   // Ten containers then the task: the task is the 11th, never examined.
-  expect(await activeScope(pfxCall(KW({ active: [...ten, HT], transitions: [...ten, HT] })).call, WR, WNOW)).toBeNull()
-  expect(await activeScope(pfxCall(KW({ active: [], transitions: [...ten, HT] })).call, WR, WNOW)).toBeNull()
+  expect(await scope(KW({ active: [...ten, HT], transitions: [...ten, HT] }))).toBeNull()
+  expect(await scope(KW({ active: [], transitions: [...ten, HT] }))).toBeNull()
   // Twenty rows naming one container count as one distinct id.
   const dup = Array.from({ length: 20 }, () => WBUGS)
-  expect(await activeScope(pfxCall(KW({ active: [WBUGS, HT], transitions: [...dup, HT] })).call, WR, WNOW)).toBe(HF)
+  expect(await scope(KW({ active: [WBUGS, HT], transitions: [...dup, HT] }))).toBe(k(HF))
 })
 
-test('S15 (8f1064d7): the container fix keeps the read bound (root > Features > F > T: at most 3 query_items) and read tools only', async () => {
+test('S15 (8f1064d7): the container fix keeps the read bound (root > Features > F > T: at most 3 gets) and read tools only', async () => {
   const { call, calls } = fakeCall({ active: [WBUGS, WT], transitions: [WBUGS, WT] })
-  expect(await activeScope(call, WR, WNOW)).toBe(WF)
-  expect(calls.filter(c => c.tool === 'get_context')).toHaveLength(1)
+  expect(norm(await activeScope(call, WR, WNOW))).toBe(k(WF))
+  expect(calls.filter(c => c.args.select === 'context')).toHaveLength(1)
+  expect(calls.filter(c => c.args.select === 'history')).toHaveLength(1)
   for (const c of calls) expect(READ_TOOLS).toContain(c.tool)
   const single = fakeCall({ active: [WT], transitions: [WT] })
-  expect(await activeScope(single.call, WR, WNOW)).toBe(WF)
-  expect(single.calls.filter(c => c.tool === 'query_items').length).toBeLessThanOrEqual(3)
+  expect(norm(await activeScope(single.call, WR, WNOW))).toBe(k(WF))
+  expect(single.calls.filter(c => c.args.select === 'get').length).toBeLessThanOrEqual(3)
 })
 
 // -- pinned never moves --
 
 const PINS: [string, (ui: Awaited<ReturnType<typeof mountAt>>) => Promise<void>, Record<string, unknown>, string | null][] = [
-  ['This feature', async ui => ui.press({ key: 'scope-feature' }), {}, WF],
+  ['This feature', async ui => ui.press({ key: 'scope-feature' }), {}, k(WF)],
   ['Whole project', async ui => ui.press({ key: 'scope-project' }), {}, null],
-  ['node click', async ui => ui.press({ key: `open:${WA}` }), { graphScope: ROOT_ID, graphSnapshot: { ...FSNAP, scopeId: ROOT_ID } }, ROOT_ID],
-  ['Open graph', async ui => ui.press({ key: 'detail-open-graph' }), { graphScope: ROOT_ID, graphSnapshot: { ...FSNAP, scopeId: ROOT_ID }, graphDetail: { itemId: WA, lines: ['x'] } }, WA],
-  ['breadcrumb', async ui => ui.press({ key: `crumb:${WFEATURES}` }), { graphSnapshot: { ...FSNAP, trail: [{ id: WR, title: 'Project' }, { id: WFEATURES, title: 'Features' }, { id: WA, title: 'Stale feature A' }] } }, WFEATURES],
+  ['node click', async ui => ui.press({ key: `open:${k(WA)}` }), { graphScope: ROOT_ID, graphSnapshot: { ...FSNAP, scopeId: ROOT_ID } }, ROOT_ID],
+  ['Open graph', async ui => ui.press({ key: 'detail-open-graph' }), { graphScope: ROOT_ID, graphSnapshot: { ...FSNAP, scopeId: ROOT_ID }, graphDetail: { itemId: k(WA), lines: ['x'] } }, k(WA)],
+  ['breadcrumb', async ui => ui.press({ key: `crumb:${k(WFEATURES)}` }), { graphSnapshot: { ...FSNAP, trail: [{ id: k(WR), title: 'Project' }, { id: k(WFEATURES), title: 'Features' }, { id: k(WA), title: 'Stale feature A' }] } }, k(WFEATURES)],
 ]
 for (const [name, act, seed, expected] of PINS) {
   test(`S9 (8f1064d7): after ${name} the scope is pinned and a later out-of-snapshot touch does not move it`, async ($, on) => {
@@ -2439,11 +2581,11 @@ for (const [name, act, seed, expected] of PINS) {
     const ui = await mountAt($, 'terminal')
     await act(ui)
     expect(r.valueOf('graphScopeMode')).toBe('pinned')
-    expect(r.valueOf('graphScope')).toBe(expected)
+    expect(scopeNow(r)).toBe(expected)
     const writes = scopeSets(r).length
     await touch($, WB)
     expect(scopeSets(r)).toHaveLength(writes)
-    expect(r.valueOf('graphScope')).toBe(expected)
+    expect(scopeNow(r)).toBe(expected)
     await ui.unmount()
   })
 }
@@ -2452,11 +2594,11 @@ test('S9 (8f1064d7): /to-graph <id> pins and a later out-of-snapshot touch does 
   const { r } = followRig(on, FW(), followSeed())
   await runToGraphArgs($, HA)
   expect(r.valueOf('graphScopeMode')).toBe('pinned')
-  expect(r.valueOf('graphScope')).toBe(HA)
+  expect(scopeNow(r)).toBe(k(HA))
   r.state.set(SLOT('graphSnapshot'), { value: FSNAP, version: 70 })
   r.state.set(SLOT('graphPaneOpen'), { value: true, version: 70 })
   await touch($, WB)
-  expect(r.valueOf('graphScope')).toBe(HA)
+  expect(scopeNow(r)).toBe(k(HA))
 })
 
 test('S9 (8f1064d7): the control for /to-graph <id>: a bare /to-graph then the same touch does move to the bug', async ($, on) => {
@@ -2466,7 +2608,7 @@ test('S9 (8f1064d7): the control for /to-graph <id>: a bare /to-graph then the s
   r.state.set(SLOT('graphSnapshot'), { value: FSNAP, version: 70 })
   r.state.set(SLOT('graphPaneOpen'), { value: true, version: 70 })
   await touch($, WB)
-  expect(r.valueOf('graphScope')).toBe(WB)
+  expect(scopeNow(r)).toBe(k(WB))
 })
 
 test('S9 (8f1064d7): /to-graph root pins the whole project (null) and a touch does not move it', async ($, on) => {
@@ -2482,14 +2624,16 @@ test('S9 (8f1064d7): /to-graph root pins the whole project (null) and a touch do
 
 // -- guards: nothing moves, nothing throws --
 
-test('S10 (8f1064d7): a touch of an id already in the snapshot neither moves the scope nor reads it', async ($, on) => {
-  const { r, calls } = followRig(on, FW(), followSeed({ graphScope: WF }))
+test('S10 (8f1064d7): a touch of an id already in the snapshot neither moves the scope nor reads it (by short id or full uuid)', async ($, on) => {
+  const { r, calls } = followRig(on, FW(), followSeed({ graphScope: k(WF) }))
   await startFollow($)
   const res = await touch($, WA)
   expect(res).toMatchObject({ result: { ok: true }, text: 'ok' })
+  const again = await touch($, k(WA))
+  expect(again).toMatchObject({ result: { ok: true }, text: 'ok' })
   expect(scopeSets(r)).toEqual([])
-  expect(r.valueOf('graphScope')).toBe(WF)
-  expect(getsOf(calls, WA)).toEqual([])
+  expect(scopeNow(r)).toBe(k(WF))
+  expect(getsOfId(calls, WA)).toEqual([])
 })
 
 const NO_MOVE: [string, string, WWorld][] = [
@@ -2505,9 +2649,9 @@ for (const [name, id, extra] of NO_MOVE) {
     const res = await touch($, id)
     expect(res).toMatchObject({ result: { ok: true }, text: 'ok' })
     // The path was reached (the id was looked up), and nothing was written.
-    expect(getsOf(calls, id).length).toBeGreaterThanOrEqual(1)
+    expect(getsOfId(calls, id).length).toBeGreaterThanOrEqual(1)
     expect(scopeSets(r)).toEqual([])
-    expect(r.valueOf('graphScope')).toBe(WA)
+    expect(scopeNow(r)).toBe(k(WA))
   })
 }
 
@@ -2516,7 +2660,7 @@ test('S11 (8f1064d7): a failing read during a spawn follow leaves the scope alon
   await startFollow($)
   const res = await spawn($, 'x', `work on ${HT}`)
   expect(res).toMatchObject({ model: 'claude-opus-5-5', agentId: 'sub-8f' })
-  expect(getsOf(calls, HT).length).toBeGreaterThanOrEqual(1)
+  expect(getsOfId(calls, HT).length).toBeGreaterThanOrEqual(1)
   expect(scopeSets(r)).toEqual([])
 })
 
@@ -2526,7 +2670,7 @@ for (const [name, seed] of [['closed', { graphPaneOpen: false }], ['never opened
     await startFollow($)
     await touch($, WT)
     expect(scopeSets(r)).toEqual([])
-    expect(r.valueOf('graphScope')).toBe(WA)
+    expect(scopeNow(r)).toBe(k(WA))
     expect(anyGets(calls)).toEqual([])
   })
 }
@@ -2545,13 +2689,13 @@ test('S13 (8f1064d7): the same out-of-snapshot touch twice reads that id at most
   await startFollow($)
   await touch($, WT)
   await touch($, WT)
-  expect(getsOf(calls, WT)).toHaveLength(1)
-  expect(scopeSets(r)).toEqual([WF])
+  expect(getsOfId(calls, WT)).toHaveLength(1)
+  expect(scopeSets(r)).toEqual([k(WF)])
   for (const c of calls) expect(READ_TOOLS).toContain(c.tool)
 })
 
 test('S13 (8f1064d7): a touch whose owning scope already is the scope writes nothing', async ($, on) => {
-  const { r } = followRig(on, FW(), followSeed({ graphScope: WF }))
+  const { r } = followRig(on, FW(), followSeed({ graphScope: k(WF) }))
   await startFollow($)
   await touch($, WT)
   expect(scopeSets(r)).toEqual([])
@@ -2561,35 +2705,35 @@ test('S14 (8f1064d7): one call naming two out-of-snapshot items makes one move, 
   const { r } = followRig(on, FW(), followSeed())
   await startFollow($)
   await touch($, WT, WB)
-  expect(scopeSets(r)).toEqual([WF])
+  expect(scopeSets(r)).toEqual([k(WF)])
 })
 
 test('S14 (8f1064d7): the same item named twice in one call is one move and one read', async ($, on) => {
   const { r, calls } = followRig(on, FW(), followSeed())
   await startFollow($)
   await touch($, WT, WT)
-  expect(scopeSets(r)).toEqual([WF])
-  expect(getsOf(calls, WT)).toHaveLength(1)
+  expect(scopeSets(r)).toEqual([k(WF)])
+  expect(getsOfId(calls, WT)).toHaveLength(1)
 })
 
 const bandProps = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } as never
 
 test('S17 (8f1064d7): the band opening the pane after a pin and close returns to auto without moving the scope', async ($, on) => {
-  const { r } = followRig(on, FW(), followSeed({ graphSnapshot: { ...f1(), rootId: WR }, graphPaneOpen: false, graphScopeMode: 'pinned' }))
+  const { r } = followRig(on, FW(), followSeed({ graphSnapshot: { ...f1(), rootId: k(WR) }, graphPaneOpen: false, graphScopeMode: 'pinned' }))
   await startFollow($)
   const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'AbovePrompt', props: bandProps })
   await ui.press({ key: 'band-open' })
   expect(r.valueOf('graphScopeMode')).toBe('auto')
   expect(scopeSets(r)).toEqual([])
-  r.state.set(SLOT('graphSnapshot'), { value: { ...f1(), rootId: WR }, version: 80 })
+  r.state.set(SLOT('graphSnapshot'), { value: { ...f1(), rootId: k(WR) }, version: 80 })
   r.state.set(SLOT('graphPaneOpen'), { value: true, version: 80 })
   await touch($, WT)
-  expect(r.valueOf('graphScope')).toBe(WF)
+  expect(scopeNow(r)).toBe(k(WF))
   await ui.unmount()
 })
 
 test('S17 (8f1064d7): the band pressed while the pane is already open does not unpin', async ($, on) => {
-  const { r } = followRig(on, FW(), followSeed({ graphSnapshot: { ...f1(), rootId: WR }, graphPaneOpen: true, graphScopeMode: 'pinned' }))
+  const { r } = followRig(on, FW(), followSeed({ graphSnapshot: { ...f1(), rootId: k(WR) }, graphPaneOpen: true, graphScopeMode: 'pinned' }))
   await startFollow($)
   const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'AbovePrompt', props: bandProps })
   await ui.press({ key: 'band-open' })
@@ -2600,17 +2744,17 @@ test('S17 (8f1064d7): the band pressed while the pane is already open does not u
 
 // -- probes --
 
-test('probe (8f1064d7): an empty itemId reads nothing; a missing actor still follows; an uppercase uuid passes through', async ($, on) => {
+test('probe (8f1064d7): an empty itemId reads nothing; a flat single-op call still follows; an uppercase uuid passes through', async ($, on) => {
   const { r, calls } = followRig(on, FW(), followSeed())
   await startFollow($)
-  const empty = await $.tool.call({ tool: `${TO}advance_item`, transitions: [{ itemId: '', trigger: 'start' }] } as never)
+  const empty = await $.tool.call({ tool: `${TO}advance`, ops: [{ op: 'transition', itemId: '', trigger: 'start' }] } as never)
   expect(empty).toMatchObject({ result: { ok: true } })
   expect(anyGets(calls)).toEqual([])
   expect(scopeSets(r)).toEqual([])
-  await $.tool.call({ tool: `${TO}advance_item`, itemId: WT, trigger: 'start' } as never)
-  expect(r.valueOf('graphScope')).toBe(WF)
+  await $.tool.call({ tool: `${TO}advance`, ops: [{ op: 'transition', itemId: WT, trigger: 'start' }] } as never)
+  expect(scopeNow(r)).toBe(k(WF))
   // Uppercase uuid: the result passes through untouched (no oracle for case handling beyond that).
-  const up = await $.tool.call({ tool: `${TO}advance_item`, itemId: HT.toUpperCase(), trigger: 'start' } as never)
+  const up = await $.tool.call({ tool: `${TO}advance`, ops: [{ op: 'transition', itemId: HT.toUpperCase(), trigger: 'start' }] } as never)
   expect(up).toMatchObject({ result: { ok: true }, text: 'ok' })
 })
 
@@ -2628,24 +2772,25 @@ test('probe (8f1064d7): a spawn with no uuid, or naming only the root, reads not
 // -- pure units: owningScope and firstSpawnUuid --
 
 test('S16 (8f1064d7): owningScope resolves the nearest feature, the item itself under a container, and null for root/container/other project', async () => {
-  const own = (id: string) => owningScope(pfxCall(FW()).call, id, WR)
-  expect(await own(WT)).toBe(WF)
-  expect(await own(WT2)).toBe(WF)
-  expect(await own(WT3)).toBe(WF2)
-  expect(await own(WB)).toBe(WB)
-  expect(await own(WD)).toBe(WD)
+  const own = async (id: string) => norm(await owningScope(pfxCall(FW()).call, id, WR))
+  expect(await own(WT)).toBe(k(WF))
+  expect(await own(WT2)).toBe(k(WF))
+  expect(await own(WT3)).toBe(k(WF2))
+  expect(await own(WB)).toBe(k(WB))
+  expect(await own(WD)).toBe(k(WD))
   expect(await own(WBUGS)).toBeNull()
   expect(await own(WFEATURES)).toBeNull()
   expect(await own(WR)).toBeNull()
   expect(await own(WZ)).toBeNull()
 })
 
-test('S16 (8f1064d7): owningScope reads once with the exact shape and returns the full id for a prefix', async () => {
+test('S16 (8f1064d7): owningScope reads once with the exact shape and returns the owning feature for a prefix', async () => {
   const { call, calls } = pfxCall(FW())
-  expect(await owningScope(call, HT.slice(0, 8), WR)).toBe(HF)
-  expect(calls[0]).toEqual({ tool: 'query_items', args: { operation: 'get', itemId: HT.slice(0, 8), includeAncestors: true } })
+  expect(norm(await owningScope(call, HT.slice(0, 8), WR))).toBe(k(HF))
+  expect(calls[0]?.tool).toBe('items_read')
+  expect(calls[0]?.args).toEqual({ select: 'get', itemId: HT.slice(0, 8), fields: ['ancestors'] })
   for (const c of calls) expect(READ_TOOLS).toContain(c.tool)
-  // Root > Features > F > T: one get for the item, at most one per ancestor below the root.
+  // Root > Features > F > T: one get for the item, the ancestors come with it.
   expect(calls.length).toBeLessThanOrEqual(3)
 })
 
@@ -2668,28 +2813,15 @@ test('S4 (8f1064d7): firstSpawnUuid prefers the description, then the prompt, sk
 
 // -- 087c6077: another session's transition follows the auto scope, through the loaded plugin --
 // Oracles (frozen in the item's test-plan): [RM] README scope bullet, [TS] task-scope B (eligible event, 3s trailing
-// debounce, listener = followActivity), 8f1064d7 owningScope. The loaded plugin has its own module instance, so the
+// debounce, listener = followActivity), 8f1064d7 owningScope. 4.0 (task-scope AC5, D4): the SSE actor is the transport
+// principal shared by every session on a credential, so attribution is the echo window alone: a frame outside a recent
+// local write, for this project's root, is another session's. The loaded plugin has its own module instance, so the
 // live-to-pane listener is exercised end to end: SSE frames come from the test's process.spawn handler.
 
 // A pane that is not open yet, so /to-graph opens it, counts a subscriber and starts the events stream.
 const CLOSED = { graphPaneOpen: false }
 const API_URL = 'http://localhost:3001'
 const SSE_TIME = { timeoutMs: 30_000 } as never
-
-/** The world's reads, plus the snapshot's subtree search (the shared world answers it with no rows). */
-const subtreeReply = (w: WWorld, tool: string, args: Record<string, unknown>): unknown => {
-  if (tool === 'query_items' && args.operation === 'search' && args.type === undefined && typeof args.ancestorId === 'string') {
-    const items = w.items ?? WITEMS
-    const inTree = (id: string | null): boolean => id !== null && (id === args.ancestorId || inTree(items.find(i => i.id === id)?.parentId ?? null))
-    const rows = items.filter(i => inTree(i.id)).map(i => ({ ...i, depth: ancestorsOf(items, i.id).length, priority: 'medium' }))
-    const offset = Number(args.offset ?? 0)
-    const limit = Number(args.limit ?? 50)
-
-    return { items: rows.slice(offset, offset + limit), total: rows.length, returned: Math.min(limit, Math.max(0, rows.length - offset)), limit, offset }
-  }
-
-  return prefixReply(w, tool, args)
-}
 
 /** followRig with an events stream: process.spawn yields whatever `push` queues. */
 function sseFollowRig(on: On, w: WWorld, seed: Record<string, unknown>) {
@@ -2704,7 +2836,7 @@ function sseFollowRig(on: On, w: WWorld, seed: Record<string, unknown>) {
   const clock = mock.clock(on, { now: WNOW })
   on('mcp.call', async (_$, e) => {
     calls.push({ tool: e.tool, args: e.args })
-    const out = subtreeReply(w, e.tool, e.args)
+    const out = worldReply(w, e.tool, e.args)
 
     return { value: out === 'FAIL' ? failed(`${e.tool} boom`) : reply(out) } as never
   })
@@ -2728,12 +2860,13 @@ function sseFollowRig(on: On, w: WWorld, seed: Record<string, unknown>) {
     queue.push(t)
     wake()
   }
-  /** One item.advanced frame for this project root; `actor: null` leaves the actor out (an older server). */
-  const advancedFrame = (itemId: string, over: { actor?: { id: string; parent?: string } | null; rootId?: string } = {}) => {
-    const data: Record<string, unknown> = { id: 1, event: 'item.advanced', itemId, rootId: over.rootId ?? WR }
-    if (over.actor !== null) data.actor = over.actor ?? { id: 'other-session:9', kind: 'orchestrator' }
+  /** One item.advanced frame (with its `id:` line) for this project root, or `over.rootId`. */
+  let seq = 1_000_000_000_000
+  const advancedFrame = (itemId: string, over: { rootId?: string } = {}) => {
+    seq++
+    const data: Record<string, unknown> = { id: seq, event: 'item.advanced', itemId, rootId: over.rootId ?? WR, actor: { id: 'api:shared', kind: 'external' } }
 
-    return `event: item.advanced\ndata: ${JSON.stringify(data)}\n\n`
+    return `id: ${seq}\nevent: item.advanced\ndata: ${JSON.stringify(data)}\n\n`
   }
   const settleBy = async (ms: number) => {
     await clock.advance(ms)
@@ -2750,28 +2883,37 @@ test('S15 (087c6077): auto mode: another session\'s item.advanced for an out-of-
   await runToGraph($)
   await settleBy(1_000)
   expect(r.valueOf('graphScopeMode')).toBe('auto')
-  expect(r.valueOf('graphScope')).toBe(WA)
+  expect(scopeNow(r)).toBe(k(WA))
   push(advancedFrame(WT))
   await settleBy(2_000)
   // Not yet: the trailing debounce is 3s.
-  expect(r.valueOf('graphScope')).toBe(WA)
+  expect(scopeNow(r)).toBe(k(WA))
   await settleBy(1_500)
-  expect(r.valueOf('graphScope')).toBe(WF)
-  expect(scopeSets(r).at(-1)).toBe(WF)
+  expect(scopeNow(r)).toBe(k(WF))
+  expect(scopeSets(r).at(-1)).toBe(k(WF))
 })
 
-test('S15 (087c6077): the same frame without an actor (window attribution) or for another root never moves the scope; the actor frame right after does', SSE_TIME, async ($, on) => {
+test('S15 (087c6077): a frame for another root never moves the scope; the same frame for this root right after does', SSE_TIME, async ($, on) => {
   const { r, push, advancedFrame, settleBy } = sseFollowRig(on, FOLLOW_ACTIVE(WA), followSeed(CLOSED))
   await runToGraph($)
   await settleBy(1_000)
-  push(advancedFrame(WB, { actor: null }))
   push(advancedFrame(WB, { rootId: WZ }))
   await settleBy(10_000)
-  expect(r.valueOf('graphScope')).toBe(WA)
-  // Control on the same fixture: a remote-by-actor frame for the same item follows.
+  expect(scopeNow(r)).toBe(k(WA))
+  // Control on the same fixture: a frame for this project's root for the same item follows.
   push(advancedFrame(WB))
   await settleBy(3_500)
-  expect(r.valueOf('graphScope')).toBe(WB)
+  expect(scopeNow(r)).toBe(k(WB))
+})
+
+test('S15 (087c6077, D4): the actor on the frame is ignored - a frame carrying any actor follows when it is outside a local write', SSE_TIME, async ($, on) => {
+  const { r, push, settleBy } = sseFollowRig(on, FOLLOW_ACTIVE(WA), followSeed(CLOSED))
+  await runToGraph($)
+  await settleBy(1_000)
+  const data = { id: 1_000_000_000_500, event: 'item.advanced', itemId: WB, rootId: WR }
+  push(`id: 1000000000500\nevent: item.advanced\ndata: ${JSON.stringify(data)}\n\n`)
+  await settleBy(3_500)
+  expect(scopeNow(r)).toBe(k(WB))
 })
 
 test('S15 (087c6077): a wave of frames moves the scope once, to the owning scope of the last item', SSE_TIME, async ($, on) => {
@@ -2785,8 +2927,23 @@ test('S15 (087c6077): a wave of frames moves the scope once, to the owning scope
   await settleBy(1_000)
   push(advancedFrame(WT))
   await settleBy(4_000)
-  expect(r.valueOf('graphScope')).toBe(WF)
-  expect(scopeSets(r).slice(before)).toEqual([WF])
+  expect(scopeNow(r)).toBe(k(WF))
+  expect(scopeSets(r).slice(before)).toEqual([k(WF)])
+})
+
+test('S15 (087c6077, D4): right after a local write the frames are our echo and nothing follows; once the quiet time has passed a frame does', SSE_TIME, async ($, on) => {
+  const { r, push, advancedFrame, settleBy } = sseFollowRig(on, FOLLOW_ACTIVE(WA), followSeed(CLOSED))
+  await runToGraph($)
+  await settleBy(1_000)
+  // A local TO write that does not move the scope itself (a note write on an item already in view).
+  await $.tool.call({ tool: `${TO}notes_write`, ops: [{ op: 'upsert', itemId: k(WA), key: 'k', role: 'work', body: 'b' }] } as never)
+  push(advancedFrame(WB))
+  await settleBy(5_000)
+  expect(scopeNow(r)).toBe(k(WA))
+  await settleBy(31_000)
+  push(advancedFrame(WB))
+  await settleBy(3_500)
+  expect(scopeNow(r)).toBe(k(WB))
 })
 
 test('S16 (087c6077): pinned scope never moves for a remote advance; after an unpin (bare /to-graph) the same frame moves it', SSE_TIME, async ($, on) => {
@@ -2794,18 +2951,18 @@ test('S16 (087c6077): pinned scope never moves for a remote advance; after an un
   await runToGraphArgs($, HA)
   await settleBy(1_000)
   expect(r.valueOf('graphScopeMode')).toBe('pinned')
-  expect(r.valueOf('graphScope')).toBe(HA)
+  expect(scopeNow(r)).toBe(k(HA))
   push(advancedFrame(WB))
   await settleBy(5_000)
   expect(r.valueOf('graphScopeMode')).toBe('pinned')
-  expect(r.valueOf('graphScope')).toBe(HA)
+  expect(scopeNow(r)).toBe(k(HA))
   // Control on the same fixture: unpinned, the same kind of frame follows.
   await $.command.run({ command: 'to-graph', args: '' } as never)
   await settleBy(1_000)
   expect(r.valueOf('graphScopeMode')).toBe('auto')
   push(advancedFrame(WB))
   await settleBy(4_000)
-  expect(r.valueOf('graphScope')).toBe(WB)
+  expect(scopeNow(r)).toBe(k(WB))
 })
 
 // The test's `$` carries no `ui.close` (the kit raises it only from a plugin's `$.ui.close`), so an inline plugin
@@ -2830,36 +2987,35 @@ test('S16 (087c6077): after the pane is closed a remote advance moves nothing; w
   await settleBy(1_000)
   push(advancedFrame(WB))
   await settleBy(4_000)
-  expect(r.valueOf('graphScope')).toBe(WB)
+  expect(scopeNow(r)).toBe(k(WB))
   await $.command.run({ command: 'close-graph', args: '' } as never)
   await settleBy(1_000)
   const writes = scopeSets(r).length
   push(advancedFrame(WT))
   await settleBy(5_000)
   expect(scopeSets(r)).toHaveLength(writes)
-  expect(r.valueOf('graphScope')).toBe(WB)
+  expect(scopeNow(r)).toBe(k(WB))
 })
 
 test('S17 (087c6077): an advance for an item already in the snapshot reads nothing and keeps the scope; one outside it reads the item', SSE_TIME, async ($, on) => {
   const { r, calls, push, advancedFrame, settleBy } = sseFollowRig(on, FOLLOW_ACTIVE(WT), followSeed(CLOSED))
   await runToGraph($)
   await settleBy(1_000)
-  expect(r.valueOf('graphScope')).toBe(WF)
+  expect(scopeNow(r)).toBe(k(WF))
   const snapshotIds = (r.valueOf('graphSnapshot') as GraphSnapshot).nodes.map(n => n.id)
-  expect(snapshotIds).toContain(WT)
-  expect(snapshotIds).not.toContain(WB)
-  // The ownership lookup is the get with includeAncestors (plan-label reads are plain gets and are not the follow's).
-  const owner = (id: string) => getsOf(calls, id).filter(c => c.args.includeAncestors === true).length
-  const before = owner(WT)
+  expect(snapshotIds).toContain(k(WT))
+  expect(snapshotIds).not.toContain(k(WB))
+  // The ownership lookup is the get with fields ['ancestors'] (plan-label reads are plain gets and are not the follow's).
+  const before = ownerGets(calls, WT).length
   push(advancedFrame(WT))
   await settleBy(5_000)
-  expect(owner(WT)).toBe(before)
-  expect(r.valueOf('graphScope')).toBe(WF)
+  expect(ownerGets(calls, WT).length).toBe(before)
+  expect(scopeNow(r)).toBe(k(WF))
   // Control on the same fixture: an item outside the snapshot is looked up and the scope moves.
   push(advancedFrame(WB))
   await settleBy(4_000)
-  expect(owner(WB)).toBeGreaterThanOrEqual(1)
-  expect(r.valueOf('graphScope')).toBe(WB)
+  expect(ownerGets(calls, WB).length).toBeGreaterThanOrEqual(1)
+  expect(scopeNow(r)).toBe(k(WB))
 })
 
 // -- 087c6077 A1: a pane opened through the band's 'band-open' press follows other sessions too --
@@ -2876,26 +3032,25 @@ const bandOpen = async ($: WEngine) => {
   return band
 }
 
-test('A1-S1 (087c6077): a pane opened by the band press and drawn follows another session; actorless and other-root frames on the same fixture do not', SSE_TIME, async ($, on) => {
+test('A1-S1 (087c6077): a pane opened by the band press and drawn follows another session; other-root frames on the same fixture do not', SSE_TIME, async ($, on) => {
   const { r, push, advancedFrame, settleBy } = sseFollowRig(on, FOLLOW_ACTIVE(WA), followSeed(CLOSED))
   await startFollow($)
   const band = await bandOpen($)
   const pane = await mountAt($, 'terminal')
   await settleBy(1_000)
   expect(r.valueOf('graphScopeMode')).toBe('auto')
-  expect(r.valueOf('graphScope')).toBe(WA)
-  // Window-attributed (no actor) and other-root frames are never followed: the actor frame below is the falsifier.
-  push(advancedFrame(WB, { actor: null }))
+  expect(scopeNow(r)).toBe(k(WA))
+  // Other-root frames are never followed: the same-root frame below is the falsifier.
   push(advancedFrame(WB, { rootId: WZ }))
   await settleBy(10_000)
-  expect(r.valueOf('graphScope')).toBe(WA)
+  expect(scopeNow(r)).toBe(k(WA))
   const before = scopeSets(r).length
   push(advancedFrame(WT))
   await settleBy(2_000)
-  expect(r.valueOf('graphScope')).toBe(WA)
+  expect(scopeNow(r)).toBe(k(WA))
   await settleBy(1_500)
-  expect(r.valueOf('graphScope')).toBe(WF)
-  expect(scopeSets(r).slice(before)).toEqual([WF])
+  expect(scopeNow(r)).toBe(k(WF))
+  expect(scopeSets(r).slice(before)).toEqual([k(WF)])
   await pane.unmount()
   await band.unmount()
 })
@@ -2906,45 +3061,45 @@ test('A1-S2 (087c6077): /to-graph, close, then a band reopen follows again; the 
   await settleBy(1_000)
   push(advancedFrame(WB))
   await settleBy(4_000)
-  expect(r.valueOf('graphScope')).toBe(WB)
+  expect(scopeNow(r)).toBe(k(WB))
   await $.command.run({ command: 'close-graph', args: '' } as never)
   await settleBy(1_000)
   const closedWrites = scopeSets(r).length
   push(advancedFrame(WT))
   await settleBy(5_000)
   expect(scopeSets(r)).toHaveLength(closedWrites)
-  expect(r.valueOf('graphScope')).toBe(WB)
+  expect(scopeNow(r)).toBe(k(WB))
   const band = await bandOpen($)
   const pane = await mountAt($, 'terminal')
   await settleBy(1_000)
-  expect(r.valueOf('graphScope')).toBe(WB)
+  expect(scopeNow(r)).toBe(k(WB))
   const reopened = scopeSets(r).length
   push(advancedFrame(WT))
   await settleBy(4_000)
-  expect(r.valueOf('graphScope')).toBe(WF)
-  expect(scopeSets(r).slice(reopened)).toEqual([WF])
+  expect(scopeNow(r)).toBe(k(WF))
+  expect(scopeSets(r).slice(reopened)).toEqual([k(WF)])
   await pane.unmount()
   await band.unmount()
 })
 
-test('A1-S3 (087c6077): regression: a /to-graph pane that is then drawn still follows, once; a window-attributed frame first does not', SSE_TIME, async ($, on) => {
+test('A1-S3 (087c6077): regression: a /to-graph pane that is then drawn still follows, once', SSE_TIME, async ($, on) => {
   const { r, push, advancedFrame, settleBy } = sseFollowRig(on, FOLLOW_ACTIVE(WA), followSeed(CLOSED))
   await runToGraph($)
   const pane = await mountAt($, 'terminal')
   await settleBy(1_000)
   const before = scopeSets(r).length
-  push(advancedFrame(WB, { actor: null }))
+  push(advancedFrame(WB, { rootId: WZ }))
   await settleBy(10_000)
   expect(scopeSets(r).slice(before)).toEqual([])
-  expect(r.valueOf('graphScope')).toBe(WA)
+  expect(scopeNow(r)).toBe(k(WA))
   push(advancedFrame(WT))
   await settleBy(4_000)
-  expect(r.valueOf('graphScope')).toBe(WF)
-  expect(scopeSets(r).slice(before)).toEqual([WF])
+  expect(scopeNow(r)).toBe(k(WF))
+  expect(scopeSets(r).slice(before)).toEqual([k(WF)])
   await pane.unmount()
 })
 
-test('A1-S4 (087c6077): repeated Pane draws leave one listener: a wave of frames moves the scope once, to the last item; actorless frames first move nothing', SSE_TIME, async ($, on) => {
+test('A1-S4 (087c6077): repeated Pane draws leave one listener: a wave of frames moves the scope once, to the last item', SSE_TIME, async ($, on) => {
   const { r, push, advancedFrame, settleBy } = sseFollowRig(on, FOLLOW_ACTIVE(WA), followSeed(CLOSED))
   await startFollow($)
   const band = await bandOpen($)
@@ -2954,7 +3109,7 @@ test('A1-S4 (087c6077): repeated Pane draws leave one listener: a wave of frames
   const pane = await mountAt($, 'terminal')
   await settleBy(1_000)
   const before = scopeSets(r).length
-  push(advancedFrame(WB, { actor: null }))
+  push(advancedFrame(WB, { rootId: WZ }))
   await settleBy(10_000)
   expect(scopeSets(r).slice(before)).toEqual([])
   push(advancedFrame(WB))
@@ -2963,8 +3118,8 @@ test('A1-S4 (087c6077): repeated Pane draws leave one listener: a wave of frames
   await settleBy(1_000)
   push(advancedFrame(WT))
   await settleBy(4_000)
-  expect(r.valueOf('graphScope')).toBe(WF)
-  expect(scopeSets(r).slice(before)).toEqual([WF])
+  expect(scopeNow(r)).toBe(k(WF))
+  expect(scopeSets(r).slice(before)).toEqual([k(WF)])
   await pane.unmount()
   await band.unmount()
 })
@@ -2977,12 +3132,12 @@ test('A1-S5 (087c6077): a band-opened pane that is closed follows nothing; while
   await settleBy(1_000)
   push(advancedFrame(WB))
   await settleBy(4_000)
-  expect(r.valueOf('graphScope')).toBe(WB)
+  expect(scopeNow(r)).toBe(k(WB))
   await $.command.run({ command: 'close-graph', args: '' } as never)
   await settleBy(1_000)
   const writes = scopeSets(r).length
   push(advancedFrame(WT))
   await settleBy(5_000)
   expect(scopeSets(r)).toHaveLength(writes)
-  expect(r.valueOf('graphScope')).toBe(WB)
+  expect(scopeNow(r)).toBe(k(WB))
 })

@@ -16,7 +16,7 @@ import kotlin.test.assertTrue
  *
  * S1/S7's live-transport half and S6's `main()` invocation are intentionally out of scope for this
  * suite too (see `StartupOutcomeTest`'s class doc) — this class only exercises [ReadinessMarker]
- * directly, never a live [io.github.jpicklyk.mcptask.current.interfaces.mcp.CurrentMcpServer].
+ * directly, never a live [io.github.jpicklyk.mcptask.current.bootstrap.CurrentMcpServer].
  */
 class ReadinessMarkerTest {
     // ---- S2: clean shutdown clears the marker (HEALTHCHECK semantics: non-serving != healthy) ----

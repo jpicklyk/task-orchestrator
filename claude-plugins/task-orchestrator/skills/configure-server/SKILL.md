@@ -1,6 +1,6 @@
 ---
 name: configure-server
-description: "Configures how the MCP Task Orchestrator SERVER runs and is reached — transport (HTTP vs STDIO), the REST API, port publishing, config mounts, and config-sync. Use when a user says: run the server, register the image, set up the Docker container, enable the REST API, set up config-sync, reconfigure the server, change transport, expose the API, reconnect to a different endpoint, or allow a hostname. NOT for first-time onboarding (that's quick-start), NOT for project/personal setup (that's init), and NOT for note schemas / gates / traits / actor_authentication policy (that's manage-schemas) — this skill only decides how the container is launched and reached."
+description: "Configures how the MCP Task Orchestrator SERVER runs and is reached — transport (HTTP vs STDIO), the REST API, port publishing, config mounts, and config-sync. Use when a user says: run the server, register the image, set up the Docker container, enable the REST API, set up config-sync, reconfigure the server, change transport, expose the API, reconnect to a different endpoint, or allow a hostname. NOT for first-time onboarding (that's quick-start), NOT for project/personal setup (that's init), and NOT for note schemas / gates / traits (that's manage-schemas) — this skill only decides how the container is launched and reached. Caller identity is set by the REST auth mode (API_AUTH_MODE), which this skill renders."
 argument-hint: "[optional: 'recommended', 'http', 'stdio', 'bearer', or a change request e.g. 'enable REST']"
 ---
 
@@ -9,13 +9,14 @@ argument-hint: "[optional: 'recommended', 'http', 'stdio', 'bearer', or a change
 Decides **how the MCP Task Orchestrator container is launched and reached**: transport, REST API mode,
 port publishing, config mount, and config-sync. This is a runtime/deployment concern, distinct from
 `quick-start` (first-time onboarding narrative) and `manage-schemas` (workflow gates/traits/
-`resources:`/`actor_authentication` content inside `.taskorchestrator/config.yaml`). If the user wants
+`resources:` content inside `.taskorchestrator/config.yaml`). Who a caller is comes from `API_AUTH_MODE`
+and its credentials, which this skill renders; no config key sets it. If the user wants
 schema or gate changes — including resource-lease declarations — redirect to `/manage-schemas` instead
 of proceeding here.
 
 One operator escape hatch worth knowing when launching the container: `RESOURCE_LEASES_ENFORCED=false`
 (env, default true) disables resource-lease gate enforcement server-wide — a kill switch for lease
-contention incidents, same gate-policy category as `DEGRADED_MODE_POLICY`. Configuring which resources
+contention incidents. Configuring which resources
 exist and which traits declare them stays in `/manage-schemas`; this skill only knows the switch.
 
 The full fragment catalog (exact env tuples, loopback caveat, Windows/MSYS caveat, `.mcp.json` shapes)
@@ -78,8 +79,8 @@ AskUserQuestion(questions: [{
   question: "REST API mode?", header: "REST API", multiSelect: false,
   options: [
     { label: "Unauthenticated (Recommended)", description: "No token needed. Loopback-bound only. Enables config-sync with zero extra setup." },
-    { label: "Bearer token", description: "Token-authenticated. For shared/multi-user setups." },
-    { label: "Off", description: "MCP only, no REST, no config-sync." }
+    { label: "Bearer token", description: "Token-authenticated. For shared/multi-user setups. The same token also guards /mcp." },
+    { label: "Off", description: "MCP only, no REST, no config-sync. /mcp then serves every caller unauthenticated, so it needs an explicit opt-in." }
   ]
 }])
 ```
@@ -90,7 +91,11 @@ AskUserQuestion(questions: [{
 - **Bearer** → ask for the host path to the token YAML (free-text/"Other" answer), e.g.
   `~/.taskorchestrator-secrets/api-tokens.yaml`. If the file doesn't exist yet, point at
   `current/docs/api-rest.md` §1 for the token-generation snippet — this skill does not generate tokens.
-- **Off** → REST fragment is just `-e API_ENABLED=false`; config-sync will no-op (tell the user).
+- **Off** → REST fragment is `-e API_ENABLED=false -e MCP_ALLOW_UNAUTHENTICATED=true`; config-sync will
+  no-op (tell the user). Without the opt-in, an HTTP server with the API off refuses to start (`MCP_AUTH`,
+  [fleet deployment](../../../../current/docs/fleet-deployment.md)); with it, `/mcp` serves every caller as
+  the `local` principal, so render the loopback SECURITY caveat here too and keep `-p 127.0.0.1:3001:3001`.
+  The recommended default keeps the API on and needs no opt-in.
 
 ---
 
@@ -162,6 +167,16 @@ No REST, no port, no config-sync — say so.
    }
    ```
 
+   In bearer mode the entry carries the token as a header, written as the placeholder (Claude Code
+   expands it from the environment; never write the token itself into the file):
+
+   ```json
+   "headers": {"Authorization": "Bearer ${TASK_ORCHESTRATOR_API_TOKEN}"}
+   ```
+
+   The same bearer authenticates `/mcp`, `/mcp/knowledge` and `/mcp/director`
+   ([fleet deployment](../../../../current/docs/fleet-deployment.md)).
+
 3. **Client-side config-sync env** — export in the user's own shell/profile, not the container:
 
    ```
@@ -172,8 +187,14 @@ No REST, no port, no config-sync — say so.
 
    Add `TASK_ORCHESTRATOR_API_TOKEN=<token>` only when the REST API requires authentication (bearer or jwks mode). **Omitting this env var, with no
    `client.json` supplying a URL either, is the single most common way config-sync silently no-ops** (`config-sync.mjs` returns early when `apiBaseUrl()` in
-   `hooks/api-client.mjs` finds no URL) —
+   `hooks/lib/api-client.mjs` finds no URL) —
    always render it, never treat it as optional polish.
+
+4. **The director entry (optional).** `/task-orchestrator:init` registers it by default; render it here
+   when the user asks for it or runs this skill alone. A second entry, `mcp-task-orchestrator-director`
+   (its key must contain `task-orchestrator`), whose `url` is `http://localhost:3001/mcp/director`, with the
+   same `headers` form in bearer mode. It serves only reads, run control and decisions
+   ([API reference, tool profiles](../../../../current/docs/api-reference.md#tool-profiles)).
 
 If REST mode is **unauthenticated**, always print the SECURITY caveat (verbatim from
 `references/runtime-config.md` → "Loopback footgun") immediately before or after the docker run block.
@@ -201,9 +222,9 @@ For any HTTP render, walk through:
 3. **Reconnect the client:** update `.mcp.json` (Step 5, piece 2) if not already in place, then run
    `/mcp` in Claude Code — confirm `mcp-task-orchestrator` shows connected with all tools listed.
 4. If REST is enabled, sanity-check it: `curl http://localhost:3001/api/v1/health` should return `200`.
-5. A 403, `host_not_allowed`, or a JSON-RPC error (code -32000) on `/mcp` means the request's `Host`
-   header is not allowlisted — see `references/runtime-config.md` → "Host allowlist
-   (MCP_ALLOWED_HOSTS)".
+5. An HTTP `403` with the `forbidden` error envelope (`scope: host`) on `/mcp`, `/api/v1` or
+   `/.well-known` means the request's `Host` header is not allowlisted — see
+   `references/runtime-config.md` → "Host allowlist (MCP_ALLOWED_HOSTS)".
 
 Next: run `/task-orchestrator:init` in each project (or `/task-orchestrator:init --user` once for a personal root).
 
@@ -220,12 +241,21 @@ consequently none of these convenience features. When recommending a setup for o
 (not a one-off trial), prefer the HTTP render in Step 5 for this reason, in addition to config-sync's
 per-project hot-reload benefit already covered in Step 1.
 
-The completion guard reads `GET /api/v1/items/{id}/gate`, a READ-capability endpoint — under bearer
-auth, the token rendered for `TASK_ORCHESTRATOR_API_TOKEN` needs `read` in addition to whatever
-capability its other consumers need (config-sync's documented token is `write-config` only, which
-does not imply `read`). A token scoped to `write-config` alone leaves the guard silently inert (every
-gate GET returns 403, which the guard treats as fail-open, not an error) — call this out whenever
-rendering a bearer-mode token for a workspace that also uses the guard.
+The completion guard reads an item's gate state with `POST /api/v1/ops/items_read` and `select: context`,
+a READ-capability call — under bearer auth, the token rendered for `TASK_ORCHESTRATOR_API_TOKEN` needs
+`read` in addition to whatever capability its other consumers need (config-sync's documented token is
+`read` + `write-config` + `write-docs`: `read` for the config get and validate and the rule listing,
+`write-config` for the push, `write-docs` for the rule upserts; plan-capture needs `write-docs`).
+`docs_write` needs `write-docs` and `write-config` does not grant it
+([REST API, authentication](../../../../current/docs/api-rest.md#1-authentication)). A token scoped to
+`write-config` alone leaves the guard silently inert (the gate read returns 403, which the guard treats
+as fail-open, not an error) — call this out whenever rendering a bearer-mode token for a workspace that
+also uses the guard.
+
+Two token properties matter for decisions on a run. `kind: human`, with a real proof and no seat token, is what answers a `human-only` decision
+class (a director or agent credential cannot), and `profile: director` confines a token to the director
+path (`POST /api/v1/ops/director/{tool}`, `/mcp/director`); both are set in the token file
+([fleet deployment](../../../../current/docs/fleet-deployment.md)).
 
 ## Reconfiguring later
 

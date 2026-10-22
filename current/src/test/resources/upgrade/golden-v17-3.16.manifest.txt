@@ -1,0 +1,18 @@
+# Golden V17 (3.16-format) database. Regenerate with GoldenV17Generator; never edit by hand.
+# Synthetic rows only (BaselineDataset literals); never derived from a real database.
+file=golden-v17-3.16.sqlite
+sha256=322da8fabc677d16b9fdd096711ba44e24f191386eecc6d3fdce7cb16e48a036
+size_bytes=270336
+schema_version=17
+flyway=flyway-core-11.8.2.jar
+sqlite_jdbc=3.53.4.0
+sqlite=3.53.4
+generator_base_commit=8f5830eef292488a4689a7085c54ce57ddc26bb2
+count.dependencies=5
+count.notes=3
+count.plan_documents=2
+count.project_config=1
+count.resource_lease_history=3
+count.resource_leases=2
+count.role_transitions=3
+count.work_items=8

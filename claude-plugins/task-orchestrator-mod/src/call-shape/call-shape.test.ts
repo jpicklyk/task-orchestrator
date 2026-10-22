@@ -1,102 +1,320 @@
+// Call-shape rewrite for the 4.0 tool surface (item 5dbd8275, scenarios S2 to S4; AC2 of the frozen task-scope).
+//
+// Oracles: the task-scope AC2 rule set (R1, R2, W1 to W4) and the 4.0 call shapes of
+// current/docs/api-reference.md ("items_read" selects and filters; "advance" call shape: `ops` array of flat
+// objects naming their `op`, optional top-level `atomic`, `seatToken`; the `actor` of an element is the
+// call's principal, so a caller-supplied one is dropped).
 import { expect, test } from 'claude-code/testing'
 
 import { isOwnCall, rewriteCall } from './rewrite.ts'
 
 const ROOT = 'ce064d2c-7c03-4eac-ae7d-89a14c2ba273'
+const OTHER_ROOT = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d'
+const TO = 'mcp__mcp-task-orchestrator__'
+const ACTOR = { id: 'implementer:x', kind: 'subagent', parent: 'workflow:r-1' }
+
+/** The tool names of the 4.0 catalog (claude-plugins/task-orchestrator/hooks/lib/tool-catalog.json). */
+const CATALOG_TOOLS = ['advance', 'config', 'deps_read', 'deps_write', 'docs_read', 'docs_write', 'items_read', 'items_write', 'notes_read', 'notes_write', 'report', 'runs_read', 'runs_write']
+
 const unchanged = (tool: string, input: Record<string, unknown>, root: string | null = ROOT) => {
   const r = rewriteCall(tool, input, root)
   expect(r.changes).toEqual([])
   expect(r.input).toBe(input)
 }
 
-test('rule A: injects ancestorId on the four scoped shapes', () => {
-  for (const [tool, input] of [
-    ['query_items', { operation: 'search' }],
-    ['get_next_item', {}],
-    ['get_blocked_items', {}],
-    ['get_context', { mode: 'health-check' }],
-    ['get_context', {}],
-    ['get_context', { mode: 'session-resume', since: 'x' }],
-  ] as const) {
-    const r = rewriteCall(tool, { ...input }, ROOT)
+// --- S2: R1 injection and R2 opt-out -----------------------------------------------------
+
+test('S2 R1: injects ancestorId on items_read list, next, blocked and context without an itemId', () => {
+  for (const input of [{ select: 'list' }, { select: 'next' }, { select: 'blocked' }, { select: 'context' }, { select: 'list', depth: 1 }, { select: 'list', parentId: null }]) {
+    const r = rewriteCall('items_read', { ...input }, ROOT)
     expect(r.input.ancestorId).toBe(ROOT)
-    expect(r.changes).toEqual([`${tool} +ancestorId=ce064d2c`])
+    expect(r.input.select).toBe(input.select)
+    expect(r.changes).toHaveLength(1)
+    expect(r.changes[0]).toContain('items_read')
   }
 })
 
-test('rule A: skip conditions leave input untouched', () => {
-  unchanged('query_items', { operation: 'search', query: 'foo' })
-  unchanged('query_items', { operation: 'overview' })
-  unchanged('query_items', { operation: 'get', itemId: 'abcd' })
-  unchanged('query_items', { operation: 'search', ancestorId: 'x' })
-  unchanged('query_items', { operation: 'search', ancestorId: null })
-  unchanged('query_items', { operation: 'search', parentId: 'p' })
-  unchanged('query_items', { operation: 'search', depth: 0 })
-  unchanged('query_items', { operation: 'search', tags: 'retrospective-trend' })
-  unchanged('query_items', { operation: 'search', tags: 'container' })
-  unchanged('query_items', { operation: 'search', tags: 'bug, anything' })
-  unchanged('query_items', { operation: 'search', type: 'agent-observation' })
-  unchanged('query_items', { operation: 'search', type: 'feature-task' })
-  unchanged('get_next_item', { tags: 'improvement-proposal' })
-  unchanged('get_blocked_items', { type: 'x' })
-  unchanged('get_context', { mode: 'health-check', tags: 'container' })
-  unchanged('query_items', { operation: 'search', ancestorId: '' })
-  unchanged('get_context', { itemId: 'abcd' })
-  unchanged('get_context', { mode: 'item' })
-  unchanged('query_items', { operation: 'search' }, null)
-  unchanged('get_blocked_items', {}, null)
-  unchanged('advance_item', {})
+test('S2 R1: injects the root it is given, not a fixed one', () => {
+  expect(rewriteCall('items_read', { select: 'list' }, OTHER_ROOT).input.ancestorId).toBe(OTHER_ROOT)
 })
 
-test('rule A: parentId null counts as absent, so ancestorId is injected', () => {
-  const r = rewriteCall('query_items', { operation: 'search', parentId: null }, ROOT)
-  expect(r.input.ancestorId).toBe(ROOT)
+test('S2 R1: does not mutate the input it was given', () => {
+  const input = { select: 'list', limit: 20 }
+  const r = rewriteCall('items_read', input, ROOT)
+  expect(r.input).not.toBe(input)
+  expect(input).toEqual({ select: 'list', limit: 20 })
+  expect(r.input.limit).toBe(20)
 })
 
-test('rule B: reserved agentId/tool_use_id survive a rewrite', () => {
-  const r = rewriteCall('get_next_item', { agentId: 'ag1', tool_use_id: 'tu1' }, ROOT)
+test('S2 R1: every skip condition leaves the input untouched', () => {
+  // other selects
+  unchanged('items_read', { select: 'get', itemId: 'abcdef12' })
+  unchanged('items_read', { select: 'search', query: 'foo' })
+  unchanged('items_read', { select: 'overview' })
+  unchanged('items_read', { select: 'history' })
+  unchanged('items_read', { select: 'schema', type: 'feature-task' })
+  // context with an item
+  unchanged('items_read', { select: 'context', itemId: 'abcdef12' })
+  // ancestorId already given
+  unchanged('items_read', { select: 'list', ancestorId: 'abcdef12' })
+  unchanged('items_read', { select: 'next', ancestorId: ROOT })
+  // a narrower or global question
+  unchanged('items_read', { select: 'list', parentId: 'abcdef12' })
+  unchanged('items_read', { select: 'list', depth: 0 })
+  unchanged('items_read', { select: 'list', tags: ['retrospective-trend'] })
+  unchanged('items_read', { select: 'next', tags: ['improvement-proposal'] })
+  unchanged('items_read', { select: 'list', type: 'agent-observation' })
+  unchanged('items_read', { select: 'blocked', type: 'feature-task' })
+  unchanged('items_read', { select: 'list', traits: ['needs-test-author'] })
+  // no project root known
+  unchanged('items_read', { select: 'list' }, null)
+  unchanged('items_read', { select: 'blocked' }, null)
+})
+
+test('S2 R1: applies to items_read only', () => {
+  unchanged('runs_read', { select: 'list' })
+  unchanged('notes_read', { select: 'list', itemId: 'abcdef12' })
+  unchanged('deps_read', { select: 'list', item: 'abcdef12' })
+  unchanged('docs_read', { select: 'list' })
+})
+
+test('S2 R2: an empty ancestorId is removed and nothing is injected (the 4.0 opt-out)', () => {
+  for (const input of [{ select: 'list', ancestorId: '' }, { select: 'next', ancestorId: '', limit: 5 }, { select: 'context', ancestorId: '' }]) {
+    const r = rewriteCall('items_read', { ...input }, ROOT)
+    expect('ancestorId' in r.input).toBe(false)
+    expect(r.input.select).toBe(input.select)
+    expect(r.changes).toHaveLength(1)
+  }
+  const kept = rewriteCall('items_read', { select: 'next', ancestorId: '', limit: 5 }, ROOT)
+  expect(kept.input.limit).toBe(5)
+})
+
+test('S2 R2: the opt-out is not undone by the injection in the same call', () => {
+  const r = rewriteCall('items_read', { select: 'list', ancestorId: '' }, ROOT)
+  expect(r.input.ancestorId).toBeUndefined()
+})
+
+test('S2: the retired 3.x scoped tools get no rewrite any more', () => {
+  const retired = ['query', 'items'].join('_')
+  const retiredNext = ['get', 'next', 'item'].join('_')
+  unchanged(retired, { operation: 'search' })
+  unchanged(retiredNext, {})
+})
+
+// --- S3: W1 to W4 ------------------------------------------------------------------------
+
+test('S3 W1+W3: a flat notes_write op becomes ops[0] and loses the actor', () => {
+  const input = { op: 'upsert', itemId: 'abcdef12', key: 'test-manifest', role: 'work', body: 'b', actor: ACTOR }
+  const r = rewriteCall('notes_write', input, null)
+  expect(r.input).toEqual({ ops: [{ op: 'upsert', itemId: 'abcdef12', key: 'test-manifest', role: 'work', body: 'b' }] })
+  expect('actor' in r.input).toBe(false)
+  expect(r.changes).toHaveLength(2)
+  expect(input.actor).toEqual(ACTOR)
+  expect('ops' in input).toBe(false)
+})
+
+test('S3 W1: atomic and seatToken stay at the top level, everything else moves into the element', () => {
+  const r = rewriteCall('advance', { op: 'transition', itemId: 'abcdef12', trigger: 'start', atomic: true, seatToken: 'tok-1' }, ROOT)
+  expect(r.input).toEqual({ ops: [{ op: 'transition', itemId: 'abcdef12', trigger: 'start' }], atomic: true, seatToken: 'tok-1' })
+  expect(r.changes).toHaveLength(1)
+})
+
+test('S3 W1: an empty seatToken is still a top-level key, not an element field', () => {
+  const r = rewriteCall('advance', { op: 'transition', itemId: 'abcdef12', trigger: 'start', seatToken: '' }, ROOT)
+  expect(r.input.seatToken).toBe('')
+  expect((r.input.ops as Record<string, unknown>[])[0]).toEqual({ op: 'transition', itemId: 'abcdef12', trigger: 'start' })
+})
+
+test('S3 W1: a call that already has ops is not wrapped again', () => {
+  const input = { op: 'upsert', ops: [{ op: 'upsert', itemId: 'a', key: 'k', role: 'work', body: 'b' }] }
+  const r = rewriteCall('notes_write', input, null)
+  expect(r.input.ops).toEqual([{ op: 'upsert', itemId: 'a', key: 'k', role: 'work', body: 'b' }])
+})
+
+test('S3 W2: advance transitions[] becomes ops[] with op transition, keeping an element op it already has', () => {
+  const r = rewriteCall(
+    'advance',
+    {
+      transitions: [
+        { itemId: 'aaaaaaaa', trigger: 'start', actor: ACTOR },
+        { itemId: 'bbbbbbbb', trigger: 'complete', op: 'transition' },
+      ],
+      atomic: true,
+    },
+    ROOT,
+  )
+  expect(r.input).toEqual({
+    ops: [
+      { op: 'transition', itemId: 'aaaaaaaa', trigger: 'start' },
+      { op: 'transition', itemId: 'bbbbbbbb', trigger: 'complete' },
+    ],
+    atomic: true,
+  })
+  expect('transitions' in r.input).toBe(false)
+  expect(r.changes.length).toBeGreaterThanOrEqual(1)
+})
+
+test('S3 W2: notes_write notes[] becomes ops[] with op upsert, keeping an op an element already has', () => {
+  const r = rewriteCall('notes_write', { notes: [{ itemId: 'aaaaaaaa', key: 'k1', role: 'work', body: 'one' }, { op: 'delete', itemId: 'bbbbbbbb', key: 'k2' }] }, null)
+  expect(r.input).toEqual({
+    ops: [
+      { op: 'upsert', itemId: 'aaaaaaaa', key: 'k1', role: 'work', body: 'one' },
+      { op: 'delete', itemId: 'bbbbbbbb', key: 'k2' },
+    ],
+  })
+  expect('notes' in r.input).toBe(false)
+  expect(r.changes).toHaveLength(1)
+})
+
+test('S3 W2: transitions[] on another tool is not converted', () => {
+  unchanged('notes_write', { transitions: [{ itemId: 'a', trigger: 'start' }] }, null)
+})
+
+test('S3 W2: notes[] is converted only when ops is absent', () => {
+  unchanged('notes_write', { ops: [{ op: 'upsert', itemId: 'a', key: 'k', role: 'work', body: 'b' }], notes: [{ itemId: 'x', key: 'y' }] }, null)
+})
+
+test('S3 W3: an actor is dropped on every TO tool, a call without one is left alone', () => {
+  for (const tool of CATALOG_TOOLS) {
+    const r = rewriteCall(tool, { actor: ACTOR, marker: tool }, ROOT)
+    expect('actor' in r.input).toBe(false)
+    expect(r.input.marker).toBe(tool)
+    expect(r.changes).toHaveLength(1)
+    unchanged(tool, { marker: tool })
+  }
+})
+
+test('S3 W3: the top-level actor and the actor of every ops element are dropped, nothing else in them', () => {
+  const r = rewriteCall(
+    'notes_write',
+    {
+      actor: ACTOR,
+      ops: [
+        { op: 'upsert', itemId: 'a', key: 'k1', role: 'work', body: 'x', actor: ACTOR },
+        { op: 'upsert', itemId: 'b', key: 'k2', role: 'work', body: 'y' },
+        { op: 'upsert', itemId: 'c', key: 'k3', role: 'work', body: 'z', actor: { id: 'own', kind: 'user' } },
+      ],
+    },
+    null,
+  )
+  expect(r.input).toEqual({
+    ops: [
+      { op: 'upsert', itemId: 'a', key: 'k1', role: 'work', body: 'x' },
+      { op: 'upsert', itemId: 'b', key: 'k2', role: 'work', body: 'y' },
+      { op: 'upsert', itemId: 'c', key: 'k3', role: 'work', body: 'z' },
+    ],
+  })
+  expect(r.changes).toHaveLength(1)
+})
+
+test('S3 W3: an actor inside an element is dropped even with no top-level actor', () => {
+  const r = rewriteCall('advance', { ops: [{ op: 'transition', itemId: 'a', trigger: 'start', actor: ACTOR }] }, ROOT)
+  expect(r.input).toEqual({ ops: [{ op: 'transition', itemId: 'a', trigger: 'start' }] })
+})
+
+test('S3 W3: the reserved routing fields survive the rewrite', () => {
+  const r = rewriteCall('advance', { ops: [{ op: 'transition', itemId: 'a', trigger: 'start' }], actor: ACTOR, agentId: 'ag1', tool_use_id: 'tu1', seatToken: 'tok' }, ROOT)
   expect(r.input.agentId).toBe('ag1')
   expect(r.input.tool_use_id).toBe('tu1')
-  expect(r.input.ancestorId).toBe(ROOT)
-  const actor = { id: 'a', kind: 'user' }
-  const n = rewriteCall('manage_notes', { operation: 'upsert', actor, agentId: 'ag1', tool_use_id: 'tu1', notes: [{ key: 'k' }] }, null)
-  expect(n.input.agentId).toBe('ag1')
-  expect(n.input.tool_use_id).toBe('tu1')
+  expect(r.input.seatToken).toBe('tok')
 })
 
-test('rule B: copies the actor only into actor-less elements, keeps top-level', () => {
-  const own = { id: 'own', kind: 'user' }
-  const actor = { id: 'a', kind: 'subagent' }
-  const input = { operation: 'upsert', actor, requestId: 'r', notes: [{ key: 'a' }, { key: 'b', actor: own }, { key: 'c' }] }
-  const r = rewriteCall('manage_notes', input, null)
-  expect(r.changes).toEqual(['manage_notes actor -> notes[0,2]'])
-  expect(r.input.actor).toEqual(actor)
-  expect(r.input.requestId).toBe('r')
-  expect(r.input.notes).toEqual([
-    { key: 'a', actor },
-    { key: 'b', actor: own },
-    { key: 'c', actor },
+test('S3 W4: traits inside properties move to the op, other properties stay', () => {
+  const r = rewriteCall(
+    'items_write',
+    { ops: [{ op: 'create', title: 'T', type: 'feature-task', properties: { traits: ['needs-test-author', 'delegated'], planLabel: 'T3' } }] },
+    ROOT,
+  )
+  expect(r.input).toEqual({
+    ops: [{ op: 'create', title: 'T', type: 'feature-task', traits: ['needs-test-author', 'delegated'], properties: { planLabel: 'T3' } }],
+  })
+  expect(r.changes).toHaveLength(1)
+})
+
+test('S3 W4: properties holding only traits is deleted once emptied', () => {
+  const r = rewriteCall('items_write', { ops: [{ op: 'update', itemId: 'abcdef12', properties: { traits: ['delegated'] } }] }, ROOT)
+  expect(r.input).toEqual({ ops: [{ op: 'update', itemId: 'abcdef12', traits: ['delegated'] }] })
+  const el = (r.input.ops as Record<string, unknown>[])[0]!
+  expect('properties' in el).toBe(false)
+})
+
+test('S3 W4: an op that already has traits keeps them and the properties traits are dropped', () => {
+  const r = rewriteCall('items_write', { ops: [{ op: 'create', title: 'T', traits: ['kept'], properties: { traits: ['dropped'], planLabel: 'T1' } }] }, ROOT)
+  expect(r.input).toEqual({ ops: [{ op: 'create', title: 'T', traits: ['kept'], properties: { planLabel: 'T1' } }] })
+  const only = rewriteCall('items_write', { ops: [{ op: 'update', itemId: 'abcdef12', traits: ['kept'], properties: { traits: ['dropped'] } }] }, ROOT)
+  expect(only.input).toEqual({ ops: [{ op: 'update', itemId: 'abcdef12', traits: ['kept'] }] })
+})
+
+test('S3 W4: every create and update element is rewritten on its own', () => {
+  const r = rewriteCall(
+    'items_write',
+    {
+      ops: [
+        { op: 'create', title: 'A', properties: { traits: ['one'] } },
+        { op: 'update', itemId: 'abcdef12', title: 'B' },
+        { op: 'update', itemId: 'fedcba98', properties: { traits: ['two'], planLabel: 'T2' } },
+      ],
+    },
+    ROOT,
+  )
+  expect(r.input.ops).toEqual([
+    { op: 'create', title: 'A', traits: ['one'] },
+    { op: 'update', itemId: 'abcdef12', title: 'B' },
+    { op: 'update', itemId: 'fedcba98', traits: ['two'], properties: { planLabel: 'T2' } },
   ])
-  expect(input.notes[0]).toEqual({ key: 'a' })
 })
 
-test('rule B: no change for delete, missing actor, non-array notes, all-actored', () => {
-  const actor = { id: 'a', kind: 'user' }
-  unchanged('manage_notes', { operation: 'delete', actor, notes: [{ key: 'a' }] })
-  unchanged('manage_notes', { operation: 'upsert', notes: [{ key: 'a' }] })
-  unchanged('manage_notes', { operation: 'upsert', actor, notes: 'nope' })
-  unchanged('manage_notes', { operation: 'upsert', actor, notes: [{ key: 'a', actor }] })
+test('S3 W4: properties without traits, and other op kinds, are not touched', () => {
+  unchanged('items_write', { ops: [{ op: 'create', title: 'T', properties: { planLabel: 'T3' } }] })
+  unchanged('items_write', { ops: [{ op: 'delete', itemId: 'abcdef12' }] })
+  unchanged('items_write', { ops: [{ op: 'update', itemId: 'abcdef12', title: 'x' }] })
 })
 
-test('own-call predicate', () => {
+test('S3 W1+W4: a flat items_write create has its traits lifted after being wrapped', () => {
+  const r = rewriteCall('items_write', { op: 'create', title: 'T', properties: { traits: ['delegated'] } }, ROOT)
+  expect(r.input).toEqual({ ops: [{ op: 'create', title: 'T', traits: ['delegated'] }] })
+})
+
+// --- S4: already-4.0 input and own calls ------------------------------------------------
+
+test('S4: input already in 4.0 shape comes back as the same object with no changes', () => {
+  unchanged('items_read', { select: 'list', ancestorId: ROOT, limit: 100 })
+  unchanged('items_read', { select: 'get', itemId: 'abcdef12', fields: ['ancestors'] })
+  unchanged('notes_write', { ops: [{ op: 'upsert', itemId: 'a', key: 'k', role: 'work', body: 'b' }] }, null)
+  unchanged('advance', { ops: [{ op: 'transition', itemId: 'a', trigger: 'start' }], atomic: true, seatToken: 'tok' })
+  unchanged('items_write', { ops: [{ op: 'create', title: 'T', traits: ['a'], properties: { planLabel: 'T1' } }] })
+  unchanged('runs_write', { ops: [{ op: 'mark', runId: 'abcdef12', key: 'retro' }] })
+  unchanged('deps_write', { ops: [{ op: 'add', from: 'abcdef12', to: 'fedcba98', type: 'blocks' }] })
+  unchanged('config', { ops: [{ op: 'get' }] })
+  unchanged('deps_read', { select: 'list', item: 'abcdef12', direction: 'all' })
+})
+
+test('S4: replay - rewriting the output again changes nothing', () => {
+  for (const [tool, input] of [
+    ['notes_write', { op: 'upsert', itemId: 'a', key: 'k', role: 'work', body: 'b', actor: ACTOR }],
+    ['advance', { transitions: [{ itemId: 'a', trigger: 'start', actor: ACTOR }] }],
+    ['items_write', { ops: [{ op: 'create', title: 'T', properties: { traits: ['x'] } }] }],
+    ['items_read', { select: 'list' }],
+  ] as const) {
+    const first = rewriteCall(tool, { ...input }, ROOT)
+    expect(first.changes.length).toBeGreaterThan(0)
+    const second = rewriteCall(tool, first.input, ROOT)
+    expect(second.changes).toEqual([])
+    expect(second.input).toBe(first.input)
+  }
+})
+
+test('S4: own-call predicate', () => {
   expect(isOwnCall('task-orchestrator-mod', 'task-orchestrator-mod')).toBe(true)
   expect(isOwnCall('engine', 'task-orchestrator-mod')).toBe(false)
   expect(isOwnCall(undefined, 'task-orchestrator-mod')).toBe(false)
 })
 
+// --- integration through the loaded plugin ----------------------------------------------
+
 const CONFIG = `project:\n  rootId: ${ROOT}\n`
 
-test('integration: tool.call repairs input beneath to the command hooks and logs', async ($, on) => {
+test('integration: tool.call repairs input beneath to the command hooks and logs one line per rule', async ($, on) => {
   const seen: Record<string, unknown>[] = []
   const logs: string[] = []
   on('fs.read', async () => ({ value: CONFIG }) as never)
@@ -111,18 +329,32 @@ test('integration: tool.call repairs input beneath to the command hooks and logs
     return { ref: 'r', result: 'ok', text: 'ok' } as never
   })
 
-  await $.tool.call({ tool: 'mcp__mcp-task-orchestrator__query_items', operation: 'search' } as never)
-  await $.tool.call({
-    tool: 'mcp__mcp-task-orchestrator__manage_notes',
-    operation: 'upsert',
-    actor: { id: 'a', kind: 'user' },
-    notes: [{ itemId: 'x', key: 'k', role: 'work' }],
-  } as never)
+  await $.tool.call({ tool: `${TO}items_read`, select: 'list' } as never)
+  await $.tool.call({ tool: `${TO}notes_write`, op: 'upsert', itemId: 'abcdef12', key: 'k', role: 'work', body: 'b', actor: ACTOR } as never)
 
   expect(seen[0]?.ancestorId).toBe(ROOT)
-  expect((seen[1]?.notes as { actor?: unknown }[])[0]?.actor).toEqual({ id: 'a', kind: 'user' })
-  expect(logs.some(l => l.includes('call-shape: query_items +ancestorId=ce064d2c'))).toBe(true)
-  expect(logs.some(l => l.includes('call-shape: manage_notes actor -> notes[0]'))).toBe(true)
+  expect(seen[1]?.ops).toEqual([{ op: 'upsert', itemId: 'abcdef12', key: 'k', role: 'work', body: 'b' }])
+  expect(seen[1]?.actor).toBeUndefined()
+  expect(seen[1]?.op).toBeUndefined()
+  expect(logs.some(l => l.includes('call-shape: items_read R1'))).toBe(true)
+  expect(logs.some(l => l.includes('call-shape: notes_write W1'))).toBe(true)
+  expect(logs.some(l => l.includes('call-shape: notes_write W3'))).toBe(true)
+})
+
+test('integration: an advance call with transitions[] reaches the command hooks as ops[]', async ($, on) => {
+  const seen: Record<string, unknown>[] = []
+  on('fs.read', async () => ({ value: CONFIG }) as never)
+  on('ui.log', async () => ({ value: undefined }) as never)
+  on('tool.call', async (_$, e) => {
+    seen.push(e as unknown as Record<string, unknown>)
+
+    return { ref: 'r', result: 'ok', text: 'ok' } as never
+  })
+
+  await $.tool.call({ tool: `${TO}advance`, transitions: [{ itemId: 'abcdef12', trigger: 'start', actor: ACTOR }] } as never)
+
+  expect(seen[0]?.ops).toEqual([{ op: 'transition', itemId: 'abcdef12', trigger: 'start' }])
+  expect(seen[0]?.transitions).toBeUndefined()
 })
 
 test('integration: unscoped when the config is unreadable', async ($, on) => {
@@ -136,11 +368,11 @@ test('integration: unscoped when the config is unreadable', async ($, on) => {
     return { ref: 'r', result: 'ok', text: 'ok' } as never
   })
 
-  await $.tool.call({ tool: 'mcp__mcp-task-orchestrator__query_items', operation: 'search' } as never)
+  await $.tool.call({ tool: `${TO}items_read`, select: 'list' } as never)
   expect(seen[0]?.ancestorId).toBeUndefined()
 })
 
-test('integration: nothing logged when nothing changed; tagged listings stay unscoped', async ($, on) => {
+test('integration: nothing is logged when nothing changed, and tagged listings stay unscoped', async ($, on) => {
   const seen: Record<string, unknown>[] = []
   const logs: string[] = []
   on('fs.read', async () => ({ value: CONFIG }) as never)
@@ -155,10 +387,32 @@ test('integration: nothing logged when nothing changed; tagged listings stay uns
     return { ref: 'r', result: 'ok', text: 'ok' } as never
   })
 
-  await $.tool.call({ tool: 'mcp__mcp-task-orchestrator__query_items', operation: 'search', tags: 'retrospective-trend' } as never)
-  await $.tool.call({ tool: 'mcp__mcp-task-orchestrator__query_items', operation: 'search', ancestorId: '' } as never)
+  await $.tool.call({ tool: `${TO}items_read`, select: 'list', tags: ['retrospective-trend'] } as never)
+  await $.tool.call({ tool: `${TO}items_read`, select: 'get', itemId: 'abcdef12' } as never)
+  await $.tool.call({ tool: `${TO}notes_write`, ops: [{ op: 'upsert', itemId: 'a', key: 'k', role: 'work', body: 'b' }] } as never)
 
   expect(seen[0]?.ancestorId).toBeUndefined()
-  expect(seen[1]?.ancestorId).toBe('')
   expect(logs.filter(l => l.includes('call-shape'))).toEqual([])
+})
+
+test('integration: an empty ancestorId reaches the command hooks removed, and is not re-scoped', async ($, on) => {
+  const seen: Record<string, unknown>[] = []
+  const logs: string[] = []
+  on('fs.read', async () => ({ value: CONFIG }) as never)
+  on('ui.log', async (_$, e) => {
+    logs.push(e.text)
+
+    return { value: undefined } as never
+  })
+  on('tool.call', async (_$, e) => {
+    seen.push(e as unknown as Record<string, unknown>)
+
+    return { ref: 'r', result: 'ok', text: 'ok' } as never
+  })
+
+  await $.tool.call({ tool: `${TO}items_read`, select: 'list', ancestorId: '' } as never)
+
+  expect(seen[0]?.ancestorId).toBeUndefined()
+  expect(logs.some(l => l.includes('call-shape: items_read R2'))).toBe(true)
+  expect(logs.some(l => l.includes('call-shape: items_read R1'))).toBe(false)
 })

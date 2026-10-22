@@ -748,9 +748,9 @@ test('S11b: mapEntry — entry.alreadyInPhase, and gate_blocked with previousRol
 // S14 (failure) — config_unavailable (after seat-side retry) defers; independent item still done
 // ============================================================================================
 
-test('S14 (unit): mapEntry maps entry.errorCode "config_unavailable" to deferred "config-unavailable" (P§4.3)', () => {
+test('S14 (unit): mapEntry maps entry.errorCode "unavailable" (4.0 shedding code, retried once by the seat) to deferred "config-unavailable" (P§4.3)', () => {
   const core = loadCore(SCRIPT_PATH)
-  const r = core.mapEntry({ entry: { errorCode: 'config_unavailable', retried: true } }, 'seat')
+  const r = core.mapEntry({ entry: { errorCode: 'unavailable', retried: true } }, 'seat')
   assert.deepEqual(r, { status: 'deferred', reason: 'config-unavailable' })
 })
 
@@ -764,7 +764,7 @@ test('S14 (unit): mapStageResult maps env.reason "config-unavailable" to deferre
   assert.deepEqual(core.mapStageResult(stage, env, 'seat'), { status: 'deferred', reason: 'config-unavailable' })
 })
 
-test('S14: config_unavailable (after the seat\'s own retry) maps to deferred "config-unavailable"; a dependent is deferred as an in-run blocker; an independent third item still reaches done (P§4.3, P§4.6)', async () => {
+test('S14: unavailable (4.0 shedding, after the seat\'s own retry) maps to deferred "config-unavailable"; a dependent is deferred as an in-run blocker; an independent third item still reaches done (P§4.3, P§4.6)', async () => {
   const core = loadCore(SCRIPT_PATH)
   const itemA = itemFixture({ short: 'cfgA', stages: stages.featureTaskLike() })
   const itemB = itemFixture({
@@ -776,7 +776,7 @@ test('S14: config_unavailable (after the seat\'s own retry) maps to deferred "co
   const script = {
     [`implementer:${itemA.short}`]: implementerEnvelope({
       reason: 'config-unavailable',
-      entry: { errorCode: 'config_unavailable', retried: true },
+      entry: { errorCode: 'unavailable', retried: true },
     }),
   }
   const { agent, calls } = fakeAgent(script)

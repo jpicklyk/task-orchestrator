@@ -34,7 +34,11 @@ class AppConfigTest {
         assertEquals(3001, c.mcpHttpPort)
 
         assertEquals("data/current-tasks.db", c.databasePath)
-        assertTrue(c.useFlyway)
+        // Oracle: plan v4-phase1-core 3.10 / 6 -- USE_FLYWAY is ignored; AppConfig no longer carries it.
+        assertTrue(
+            AppConfig::class.java.declaredFields.none { it.name == "useFlyway" },
+            "AppConfig must not expose a useFlyway setting",
+        )
         assertEquals("INFO", c.logLevel)
         assertNull(c.agentConfigDir)
         assertEquals(10, c.databaseMaxConnections)
@@ -53,13 +57,10 @@ class AppConfigTest {
         // Redaction defaults to true (redact).
         assertTrue(c.apiRedactNoteAttribution)
 
-        // Warn defaults to true.
-        assertTrue(c.apiWarnOnClaimedAdvance)
-
         assertEquals(emptyList(), c.corsAllowedOrigins)
         assertEquals(listOf("GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"), c.corsAllowedMethods)
-        assertEquals(listOf("Authorization", "Content-Type", "If-Match"), c.corsAllowedHeaders)
-        assertEquals(listOf("ETag", "Last-Event-ID", "Retry-After"), c.corsExposeHeaders)
+        assertEquals(listOf("Authorization", "Content-Type", "If-Match", "X-Client-Host"), c.corsAllowedHeaders)
+        assertEquals(listOf("ETag", "Last-Event-ID", "Retry-After", "X-Req-Id"), c.corsExposeHeaders)
         assertEquals(3600L, c.corsMaxAgeSeconds)
     }
 
@@ -77,7 +78,6 @@ class AppConfigTest {
                     "MCP_HTTP_HOST" to "127.0.0.1",
                     "MCP_HTTP_PORT" to "8080",
                     "DATABASE_PATH" to "/tmp/x.db",
-                    "USE_FLYWAY" to "false",
                     "LOG_LEVEL" to "DEBUG",
                     "DATABASE_MAX_CONNECTIONS" to "25",
                     "DATABASE_SHOW_SQL" to "true",
@@ -87,7 +87,6 @@ class AppConfigTest {
                     "API_SSE_AUTH_CHECK_INTERVAL_SECONDS" to "45",
                     "API_SSE_BUFFER_SIZE" to "2048",
                     "API_TOKENS_PATH" to "/secrets/custom.yaml",
-                    "API_WARN_ON_CLAIMED_ADVANCE" to "false",
                     "CORS_MAX_AGE_SECONDS" to "7200",
                 ),
             )
@@ -98,7 +97,6 @@ class AppConfigTest {
         assertEquals("127.0.0.1", c.mcpHttpHost)
         assertEquals(8080, c.mcpHttpPort)
         assertEquals("/tmp/x.db", c.databasePath)
-        assertFalse(c.useFlyway)
         assertEquals("DEBUG", c.logLevel)
         assertEquals(25, c.databaseMaxConnections)
         assertTrue(c.databaseShowSql)
@@ -109,7 +107,6 @@ class AppConfigTest {
         assertEquals(45, c.apiSseAuthCheckIntervalSeconds)
         assertEquals(2048, c.apiSseBufferSize)
         assertEquals("/secrets/custom.yaml", c.apiTokensPath)
-        assertFalse(c.apiWarnOnClaimedAdvance)
         assertEquals(7200L, c.corsMaxAgeSeconds)
     }
 
@@ -167,13 +164,6 @@ class AppConfigTest {
         // Any non-"false" value keeps redaction on.
         assertTrue(AppConfig.fromEnv(env("API_REDACT_NOTE_ATTRIBUTION" to "true")).apiRedactNoteAttribution)
         assertFalse(AppConfig.fromEnv(env("API_REDACT_NOTE_ATTRIBUTION" to "0")).apiRedactNoteAttribution)
-    }
-
-    @Test
-    fun `warn on claimed advance only disabled by literal false`() {
-        assertFalse(AppConfig.fromEnv(env("API_WARN_ON_CLAIMED_ADVANCE" to "false")).apiWarnOnClaimedAdvance)
-        assertFalse(AppConfig.fromEnv(env("API_WARN_ON_CLAIMED_ADVANCE" to "FALSE")).apiWarnOnClaimedAdvance)
-        assertTrue(AppConfig.fromEnv(env("API_WARN_ON_CLAIMED_ADVANCE" to "true")).apiWarnOnClaimedAdvance)
     }
 
     // ------------------------------------------------------------------
@@ -248,5 +238,24 @@ class AppConfigTest {
         assertNull(unset.agentConfigDir)
         // Fallback equals the JVM user.dir property.
         assertEquals(System.getProperty("user.dir"), AppConfig.resolveConfigBaseDir(unset.agentConfigDir))
+    }
+
+    // ------------------------------------------------------------------
+    // USE_FLYWAY / SCHEMA_MODE (typed settings read by DatabaseManager)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `USE_FLYWAY presence maps to ignoredUseFlywaySet and SCHEMA_MODE to schemaModeRaw`() {
+        val unset = AppConfig.fromEnv { null }
+        assertFalse(unset.ignoredUseFlywaySet)
+        assertNull(unset.schemaModeRaw)
+
+        val set = AppConfig.fromEnv(env("USE_FLYWAY" to "false", "SCHEMA_MODE" to " Validate "))
+        assertTrue(set.ignoredUseFlywaySet)
+        assertEquals(" Validate ", set.schemaModeRaw)
+
+        val typo = AppConfig.fromEnv(env("USE_FLYWAYS" to "1", "SCHEMA_MODES" to "validate"))
+        assertFalse(typo.ignoredUseFlywaySet)
+        assertNull(typo.schemaModeRaw)
     }
 }

@@ -15,6 +15,7 @@ ktor = "3.4.3"
 sqlite = "3.53.4.0"
 exposed = "1.2.0"
 flyway = "11.8.2"
+hikaricp = "7.1.0"
 
 # Logging
 slf4j = "2.0.17"
@@ -38,8 +39,18 @@ junit = "5.12.2"
 # versions (>= 2.4.20) are a known incompatibility (KoInternalException) -- see LayeringTest.kt.
 konsist = "0.17.3"
 
+# ASM (test-only): bytecode reader for the request-field consumption guard (RequestFieldConsumption.kt).
+# 9.9 reads class-file major 65 (JVM 21 target).
+asm = "9.9"
+
 # YAML
 snakeyaml = "2.6"
+
+# JSON Schema validation (config structural validator). 1.5.x supports draft 2020-12 on Jackson 2; 2.x/3.x move
+# the API. Its transitive jackson-databind/-core 2.18.3 carry advisories (GHSA-3pjw-73gf-8qr5, GHSA-72hv-8253-57qq),
+# so jackson-bom pins the whole Jackson family to a patched release.
+jsonSchemaValidator = "1.5.9"
+jacksonBom = "2.21.7"
 
 # JWT / JWKS
 nimbusJoseJwt = "10.3"
@@ -70,6 +81,7 @@ ktor-bom                              = { module = "io.ktor:ktor-bom",          
 ktor-server-cio                       = { module = "io.ktor:ktor-server-cio",                       version.ref = "ktor" }
 ktor-server-sse                       = { module = "io.ktor:ktor-server-sse",                       version.ref = "ktor" }
 ktor-server-cors                      = { module = "io.ktor:ktor-server-cors",                      version.ref = "ktor" }
+ktor-server-status-pages              = { module = "io.ktor:ktor-server-status-pages",              version.ref = "ktor" }
 ktor-server-content-negotiation       = { module = "io.ktor:ktor-server-content-negotiation",       version.ref = "ktor" }
 ktor-serialization-kotlinx-json       = { module = "io.ktor:ktor-serialization-kotlinx-json",       version.ref = "ktor" }
 ktor-server-test-host                 = { module = "io.ktor:ktor-server-test-host",                 version.ref = "ktor" }
@@ -82,6 +94,7 @@ exposed-core = { module = "org.jetbrains.exposed:exposed-core", version.ref = "e
 exposed-dao = { module = "org.jetbrains.exposed:exposed-dao", version.ref = "exposed" }
 exposed-jdbc = { module = "org.jetbrains.exposed:exposed-jdbc", version.ref = "exposed" }
 exposed-java-time = { module = "org.jetbrains.exposed:exposed-java-time", version.ref = "exposed" }
+hikaricp = { module = "com.zaxxer:HikariCP", version.ref = "hikaricp" }
 # Flyway
 flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
 
@@ -92,6 +105,10 @@ kotlin-logging-jvm = { module = "io.github.oshai:kotlin-logging-jvm", version.re
 
 # YAML
 snakeyaml = { module = "org.yaml:snakeyaml", version.ref = "snakeyaml" }
+
+# JSON Schema validation
+json-schema-validator = { module = "com.networknt:json-schema-validator", version.ref = "jsonSchemaValidator" }
+jackson-bom = { module = "com.fasterxml.jackson:jackson-bom", version.ref = "jacksonBom" }
 
 # JWT / JWKS
 nimbus-jose-jwt = { module = "com.nimbusds:nimbus-jose-jwt", version.ref = "nimbusJoseJwt" }
@@ -109,6 +126,7 @@ junit-api = { module = "org.junit.jupiter:junit-jupiter-api", version.ref = "jun
 junit-engine = { module = "org.junit.jupiter:junit-jupiter-engine", version.ref = "junit" }
 junit-params = { module = "org.junit.jupiter:junit-jupiter-params", version.ref = "junit" }
 konsist = { module = "com.lemonappdev:konsist", version.ref = "konsist" }
+asm = { module = "org.ow2.asm:asm", version.ref = "asm" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

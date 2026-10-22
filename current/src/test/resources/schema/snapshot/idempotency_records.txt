@@ -1,0 +1,2 @@
+index|idx_idempotency_records_created_at|idempotency_records|CREATE INDEX idx_idempotency_records_created_at ON idempotency_records(created_at)
+table|idempotency_records|idempotency_records|CREATE TABLE idempotency_records ( principal_id TEXT NOT NULL, operation TEXT NOT NULL, key TEXT NOT NULL, fingerprint TEXT NOT NULL CHECK (length(fingerprint) = 64), result_json TEXT NOT NULL, created_at TEXT NOT NULL CHECK (length(created_at) = 23), PRIMARY KEY (principal_id, operation, key) )

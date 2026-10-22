@@ -1,11 +1,14 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
+import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestAnswerers
+import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestSeverity
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.RunBudget
 import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.SeatDispatchOverride
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
@@ -25,9 +28,14 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
  * only domain model types and Kotlin stdlib collections, so `application` -> `infrastructure`/
  * `interfaces` layering is never at risk from this file (enforced by `LayeringTest`).
  *
- * `schemaResolution` is parsed here and honored by [LayeredConfig] (AR-39, C4): a per-root
- * document's `schema_resolution` key is one of the [PER_ROOT_HONORED_SECTIONS].
+ * The 3.x `schema_resolution` key is no longer modeled: a document carrying it still parses, with one
+ * finding saying the key was removed, and the key has no effect.
  *
+ * @property warnings the warnings as plain text, one per finding ([warningViolations] with the paths dropped).
+ * @property errors the findings that [ParseMode.STRICT] classified as errors (a former soft skip), each with its JSON
+ *   Pointer path; always empty for a document parsed in [ParseMode.MIGRATION].
+ * @property warningViolations the warnings with their JSON Pointer paths: every finding in [ParseMode.MIGRATION],
+ *   only the advisory ones in [ParseMode.STRICT].
  * @property traitResources per-trait resource requirements; a trait with no `resources:` key is
  *   absent from the map entirely (not mapped to an empty list).
  * @property traitDispatch per-trait, per-phase dispatch routing profiles; a trait with no
@@ -40,19 +48,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
  *   otherwise the parsed trigger->label map. A value of `null` for a given trigger key means
  *   "explicitly clear this trigger's label" — only an absent KEY in this map falls through to
  *   another layer.
- * @property schemaResolution this document's opted-in [SchemaResolutionMode], or `null` when the
- *   top-level `schema_resolution` key is absent, non-string, or does not match one of
- *   [SchemaResolutionMode.fromConfigString]'s recognized values (the latter case adds a warning).
- *   Honored by [LayeredConfig] to select the effective resolution mode (AR-39, C4).
- * @property actorAuthenticationSection the raw YAML value of the top-level `actor_authentication`
- *   key (a map, a scalar, or `null` for an explicit `actor_authentication: null`), or `null` when
- *   the key is entirely absent. Carried as raw YAML rather than a typed shape so this document
- *   doesn't need to duplicate `YamlActorAuthenticationConfigService`'s validation rules — the
- *   service that reads this field still owns parsing it into an
- *   [io.github.jpicklyk.mcptask.current.domain.model.ActorAuthenticationConfig].
  * @property presentSections the top-level keys of the document, in document order (a
- *   `LinkedHashSet`), untransformed — used to compute `ignoredSections` for a per-root config push
- *   without hand-maintaining a separate literal set.
+ *   `LinkedHashSet`), untransformed.
  * @property traitSeats per-trait `seats:` lists (A1a); a trait with no `seats:` key at all is
  *   absent from the map entirely — mirroring [traitResources]/[traitDispatch] — NOT mapped to an
  *   empty list. [LayeredConfig.traitSeats] uses presence in [traits] (not this map) to decide
@@ -78,39 +75,42 @@ data class ConfigDocument(
     val noteLimitsMode: String? = null,
     val independence: IndependencePolicy? = null,
     val statusLabels: Map<String, String?>? = null,
-    val schemaResolution: SchemaResolutionMode? = null,
-    val actorAuthenticationSection: Any? = null,
     val presentSections: Set<String> = emptySet(),
     val warnings: List<String> = emptyList(),
+    val errors: List<ConfigViolation> = emptyList(),
+    val warningViolations: List<ConfigViolation> = emptyList(),
     val traitSeats: Map<String, List<SeatDefinition>> = emptyMap(),
     val traitDispatchBySeat: Map<String, Map<Role, Map<String, SeatDispatchOverride>>> = emptyMap(),
+    val runs: RunsConfig? = null,
+    val decisionClasses: Map<String, DecisionClassConfig>? = null,
 ) {
     companion object {
         /** The empty document: no schemas, no traits, no opinion on any other facet. */
         val EMPTY: ConfigDocument = ConfigDocument(workItemSchemas = emptyMap(), traits = emptyMap())
-
-        /**
-         * Top-level `configYaml` keys honored by the per-root resolution layer. Replaces
-         * `ProjectConfigPushService.HONORED_TOP_LEVEL_SECTIONS` (a hand-maintained literal set) —
-         * this is the single source of truth other top-level keys (e.g. `actor_authentication`,
-         * which stays global-only) are checked against to compute `ignoredSections`.
-         *
-         * The 8 sections honored as of AR-39 (C4): `schema_resolution` was parsed but excluded
-         * from this set in C1 (pure restructuring); it is now honored, so a per-root document that
-         * opts into `layered` or `isolated` resolution no longer shows up as an ignored section on
-         * push.
-         */
-        val PER_ROOT_HONORED_SECTIONS: Set<String> =
-            setOf(
-                "work_item_schemas",
-                "note_schemas",
-                "traits",
-                "project",
-                "note_limits",
-                "status_labels",
-                "resources",
-                "schema_resolution",
-                "independence",
-            )
     }
 }
+
+/**
+ * The top-level `runs:` block. In one document a null field means "this document does not set it" (a layering caller
+ * falls through to the next layer); [LayeredConfig.runsConfig] resolves each field separately and applies the
+ * defaults only when no layer sets it: [stallAfterSeconds] 600, every budget ceiling unlimited. Budgets are opt-in:
+ * a null [budgets] (or a null field inside it) never caps anything. `cost_usd` is held in micro-USD.
+ */
+data class RunsConfig(
+    val stallAfterSeconds: Int? = null,
+    val budgets: RunBudget? = null,
+)
+
+/**
+ * One entry of the top-level `decision_classes:` block. A null field means "this entry does not set it": the field
+ * keeps the built-in class's value (or the default of a class that is not built in), see
+ * `io.github.jpicklyk.mcptask.current.application.decision.DecisionClasses`. [expiresAfterSeconds] is the
+ * `expires_after` value in seconds; [onExpiry] is always `escalate` when set.
+ */
+data class DecisionClassConfig(
+    val answerers: DecisionRequestAnswerers? = null,
+    val severity: DecisionRequestSeverity? = null,
+    val expiresAfterSeconds: Long? = null,
+    val onExpiry: String? = null,
+    val freeform: Boolean? = null,
+)

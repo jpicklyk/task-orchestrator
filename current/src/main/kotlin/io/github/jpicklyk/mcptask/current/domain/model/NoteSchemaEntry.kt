@@ -30,15 +30,18 @@ package io.github.jpicklyk.mcptask.current.domain.model
  * @property required Whether this note must be filled before advancing past its phase
  * @property description Human-readable description of what the note should contain
  * @property guidance Optional detailed instructions for filling the note
- * @property maxLength Optional maximum note body length in characters. When set, `manage_notes`
- *   enforces it at upsert time (after body/bodyFromFile resolution) per the configured
- *   `note_limits.mode` (warn or reject). Null means no limit is enforced.
+ * @property maxLength Optional maximum note body length in characters. When set, every note write path
+ *   (`notes_write` over MCP and `POST /api/v1/ops/notes_write`, `items_write` `create_tree`) enforces it through the shared
+ *   note command service, after body/bodyFromFile resolution and CRLF-to-LF normalization, per the
+ *   configured `note_limits.mode` (warn or reject). Null means no limit is enforced.
  * @property seat Name of the [io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition] that
  *   owns filling this note (an orchestration signal only, A1a). Null means the note has no declared
  *   owner; in a seat-aware schema (see [WorkItemSchema.isSeatAware]) that surfaces as "unowned" —
  *   see `io.github.jpicklyk.mcptask.current.application.service.SeatOwnership`.
  * @property independentOf Seat names this note's authorship must be independent of (an
  *   orchestration signal only; A1a parses and serves it, A2 enforces it).
+ * @property shared When true the key is exempt from note ownership: any caller may upsert or delete it (last writer
+ *   wins). Default false; an off-schema key is never shared.
  */
 data class NoteSchemaEntry(
     val key: String,
@@ -49,5 +52,6 @@ data class NoteSchemaEntry(
     val skill: String? = null,
     val maxLength: Int? = null,
     val seat: String? = null,
-    val independentOf: List<String> = emptyList()
+    val independentOf: List<String> = emptyList(),
+    val shared: Boolean = false
 )

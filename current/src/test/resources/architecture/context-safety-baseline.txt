@@ -1,0 +1,2 @@
+# Two-way ratchet baseline: <path relative to current/src/main/kotlin/.../current/> <violating line count>
+# Fix a site and LOWER or DELETE its line; a new violation (or a stale line) fails the test.

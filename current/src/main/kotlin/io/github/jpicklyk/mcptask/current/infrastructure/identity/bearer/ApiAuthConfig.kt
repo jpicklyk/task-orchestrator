@@ -1,0 +1,75 @@
+package io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer
+
+import io.github.jpicklyk.mcptask.current.infrastructure.security.ConstantTimeCompare
+
+// Sealed configuration for the REST API authentication layer.
+// Loaded once at startup by ApiAuthConfigLoader from environment variables and
+// (for bearer mode) a YAML secret file.
+// Phase 2 reads this config to decide whether to install the authentication plugin
+// and which verification path to take for each request.
+sealed class ApiAuthConfig {
+    // API is disabled (API_ENABLED=false). Phase 2 skips registering /api/v1/* routes.
+    data object Disabled : ApiAuthConfig()
+
+    // Static bearer-token mode. The tokens map is loaded once at startup (BearerTokenStore.loadWithEntries):
+    // every entry's key is the SHA-256 digest of the plaintext token wrapped in HashBytes for structural
+    // equality, and the value is the entry (principal, expiry, credential profile) the CredentialResolver
+    // resolves to. The map is immutable after construction -- token rotation requires a restart.
+    data class Bearer(
+        val tokens: Map<HashBytes, BearerTokenStore.TokenEntry>,
+    ) : ApiAuthConfig()
+
+    // JWKS-validated JWT mode. JWTs are verified against the JWKS endpoint at url on
+    // every request; key material is cached for cacheTtlSeconds seconds.
+    // url: JWKS endpoint URL
+    // issuer: Expected iss claim value
+    // audience: Expected aud claim value
+    // algorithms: Non-empty allowlist of accepted signing algorithms (e.g. RS256, EdDSA)
+    // cacheTtlSeconds: How long to retain the JWKS in-memory before re-fetching
+    data class Jwks(
+        val url: String,
+        val issuer: String,
+        val audience: String,
+        val algorithms: List<String>,
+        val cacheTtlSeconds: Long,
+        // max_token_lifetime_seconds equivalent for the REST API: env API_JWKS_MAX_TOKEN_LIFETIME_SECONDS.
+        // Caps token acceptance: exp - now > this + 60s clock skew is always rejected; when iat is present, iat more
+        // than 60s in the future or exp - iat > this + 60s is also rejected. Defaulted so existing
+        // constructor call sites keep compiling; ApiAuthConfigLoader enforces > 0 at parse time.
+        val maxTokenLifetimeSeconds: Long = 86400,
+        // env API_JWKS_MAX_STALE_SECONDS: the oldest a cached key set may be (from its real fetch
+        // time) and still be served after a failed refresh; past it the key set is unavailable and
+        // every JWT fails closed. ApiAuthConfigLoader enforces > 0 and >= cacheTtlSeconds.
+        val maxStaleSeconds: Long = 3600,
+        // env API_JWKS_ALLOW_INSECURE_URL: besides admitting a plaintext-http loopback url (checked
+        // by ApiAuthConfigLoader), admits the loopback address class in the key fetch's egress guard.
+        val allowInsecureUrl: Boolean = false,
+    ) : ApiAuthConfig()
+
+    // Opt-in unauthenticated mode (API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true).
+    // Every request is attached the local principal LOCAL_PRINCIPAL (ADMIN,
+    // unrestricted scope) with NO credential check at all. Intended only for a loopback-bound
+    // single-user local server -- see the SECURITY warn logged at startup in CurrentMcpServer.
+    data object Unauthenticated : ApiAuthConfig()
+}
+
+// Wrapper around a SHA-256 digest ByteArray that provides the structural equality
+// contract required to use the digest as a Map key.
+//
+// Raw ByteArray identity equality makes it unsuitable for map lookups -- two independently
+// computed digests of the same token would compare unequal even though they represent the
+// same credential. This wrapper delegates equals to ConstantTimeCompare.equal so that
+// all lookups are timing-safe, and derives hashCode from ByteArray.contentHashCode.
+//
+// Always wrap a digest before inserting into or looking up from the token entry map.
+class HashBytes(
+    val bytes: ByteArray
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is HashBytes) return false
+        return ConstantTimeCompare.equal(bytes, other.bytes)
+    }
+
+    override fun hashCode(): Int = bytes.contentHashCode()
+}

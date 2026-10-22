@@ -20,7 +20,7 @@ import {
   STATE_CONTRACT, REVIEW_RULES,
   initState, checkState, resolvePlan, findItem, findStage, outsBySeat,
   next, prompt, validateAgainst, stageResult, scanReport, resultFromState,
-  verify, expectedActors, auditActors, provenance, reviewPrompt,
+  verify, expectedNotes, notesAudit, provenance, reviewPrompt,
 } from '../run-exec-lib.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -28,6 +28,7 @@ const PLUGIN_ROOT = join(HERE, '..', '..') // claude-plugins/task-orchestrator
 const IMPLEMENT_WAVE = join(PLUGIN_ROOT, 'workflows', 'implement-wave.js')
 const RUN_PLANNER = join(PLUGIN_ROOT, 'scripts', 'run-planner.mjs')
 const FIXTURES = join(HERE, 'fixtures', 'run-planner')
+const SERVER_RUN_ID = '8f14e45f-ceea-4672-8a3e-5e8f4a9b7c10' // result-v1 carries the server run id, not a plan slug (cac1bffa D4)
 
 function realCore() {
   return loadWaveCore()
@@ -583,7 +584,7 @@ test('S11: verify passes (ok:true, no findings) for a fully owned, well-formed c
   const { doc, item, plannerOut } = verifyFixture()
   const implOut = outputFor('implementer-v1')
   const result = {
-    contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, planDocSlug: 'run/x',
+    contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, serverRunId: SERVER_RUN_ID,
     items: [{
       id: item.id, short: 'aaaaaaaa', status: 'done', reason: 'ok',
       stages: [
@@ -613,7 +614,7 @@ test('S11: verify passes (ok:true, no findings) for a fully owned, well-formed c
 test('S11: verify reports "missing sha <sha>" when a stage commit is absent from gitFacts.exists', () => {
   const { doc, item, plannerOut } = verifyFixture()
   const result = {
-    contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, planDocSlug: 'run/x',
+    contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, serverRunId: SERVER_RUN_ID,
     items: [{
       id: item.id, short: 'aaaaaaaa', status: 'done', reason: 'ok',
       stages: [
@@ -635,7 +636,7 @@ test('S11: verify reports "missing sha <sha>" when a stage commit is absent from
 test('S11: verify reports "missing Seat trailer <sha7>" when a writing stage commit body lacks the trailer', () => {
   const { doc, item, plannerOut } = verifyFixture()
   const result = {
-    contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, planDocSlug: 'run/x',
+    contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, serverRunId: SERVER_RUN_ID,
     items: [{
       id: item.id, short: 'aaaaaaaa', status: 'done', reason: 'ok',
       stages: [
@@ -659,7 +660,7 @@ test('S11: verify reports "missing Seat trailer <sha7>" when a writing stage com
 test('S11: verify reports "implementer wrote unowned <file>" when the implementer commit touches a file outside mainFiles/docFiles', () => {
   const { doc, item, plannerOut } = verifyFixture()
   const result = {
-    contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, planDocSlug: 'run/x',
+    contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, serverRunId: SERVER_RUN_ID,
     items: [{
       id: item.id, short: 'aaaaaaaa', status: 'done', reason: 'ok',
       stages: [
@@ -683,7 +684,7 @@ test('S11: verify reports "implementer wrote unowned <file>" when the implemente
 test('S11: verify reports "test-author commit <sha7> precedes implementer" when the author\'s commit is earlier in gitFacts.commits', () => {
   const { doc, item, plannerOut } = verifyFixture()
   const result = {
-    contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, planDocSlug: 'run/x',
+    contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, serverRunId: SERVER_RUN_ID,
     items: [{
       id: item.id, short: 'aaaaaaaa', status: 'done', reason: 'ok',
       stages: [
@@ -712,7 +713,7 @@ test('S11: verify reports "test-author commit <sha7> precedes implementer" when 
 test('S11: verify puts an untagged commit (no [<short>] in subject) into warnings, not findings', () => {
   const { doc, item, plannerOut } = verifyFixture()
   const result = {
-    contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, planDocSlug: 'run/x',
+    contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, serverRunId: SERVER_RUN_ID,
     items: [{
       id: item.id, short: 'aaaaaaaa', status: 'done', reason: 'ok',
       stages: [
@@ -746,7 +747,7 @@ test('S11 (temp-git CLI): the verify CLI row exits 0 for a clean repo and 3 for 
   const doc = { contract: 'run-wave/plan-doc-v1', args, meta: {} }
   const plannerOut = outputFor('planner-v1', { mainFiles: ['src/x.js'] })
   const okResult = {
-    contract: 'implement-wave/result-v1', started: true, runId: args.runId, planDocSlug: 'run/x',
+    contract: 'implement-wave/result-v1', started: true, runId: args.runId, serverRunId: SERVER_RUN_ID,
     items: [{
       id: item.id, short: 'aaaaaaaa', status: 'done', reason: 'ok',
       stages: [
@@ -778,7 +779,7 @@ test('S11 (temp-git CLI): the verify CLI row exits 0 for a clean repo and 3 for 
 
 // ── S12: actors ──────────────────────────────────────────────────────────────────────────────
 
-test('S12: expectedActors lists one row per stage note in args/stage/note order, actorId "<seat>:<short>:<runId>", excluding inserted-stage and orchestratorNotes rows', () => {
+test('S12 (4.0 D6): expectedNotes lists one {itemId, key} row per stage note in args/stage/note order, no actorId, excluding inserted-stage and orchestratorNotes rows', () => {
   const plannerStage = { seat: 'planner', phase: 'queue', notes: ['specification'], writes: false, dispatch: {}, output: 'planner-v1' }
   const implStage = { seat: 'implementer', phase: 'work', enters: true, writes: true, notes: ['session-tracking', 'implementation-notes'], dispatch: {}, output: 'implementer-v1' }
   const insertedStage = { seat: 'declarations-extractor', phase: 'work', inserted: true, notes: [], writes: false, dispatch: {}, output: 'declarations-v1' }
@@ -786,16 +787,17 @@ test('S12: expectedActors lists one row per stage note in args/stage/note order,
   const args = planFixture({ items: [item], runId: 'r-test-9999' })
   const doc = { contract: 'run-wave/plan-doc-v1', args, meta: {} }
 
-  const rows = expectedActors(doc)
-  assert.deepEqual(rows, [
-    { itemId: item.id, key: 'specification', actorId: 'planner:aaaaaaaa:r-test-9999' },
-    { itemId: item.id, key: 'session-tracking', actorId: 'implementer:aaaaaaaa:r-test-9999' },
-    { itemId: item.id, key: 'implementation-notes', actorId: 'implementer:aaaaaaaa:r-test-9999' },
+  const rows = expectedNotes(doc)
+  assert.deepEqual(rows.map((r) => ({ itemId: r.itemId, key: r.key })), [
+    { itemId: item.id, key: 'specification' },
+    { itemId: item.id, key: 'session-tracking' },
+    { itemId: item.id, key: 'implementation-notes' },
   ])
+  assert.equal(rows.some((r) => Object.hasOwn(r, 'actorId')), false, 'AC1: no actor id in the expected table')
   assert.equal(rows.some((r) => r.key === 'delegation-metadata'), false)
 })
 
-test('S12: auditActors reports missing and mismatched actor ids against the expected table', () => {
+test('S12 (4.0 D6): notesAudit reports missing notes only - an observed row with a foreign actorId is not a mismatch and the row has no mismatched field', () => {
   const plannerStage = { seat: 'planner', phase: 'queue', notes: ['specification'], writes: false, dispatch: {}, output: 'planner-v1' }
   const implStage = { seat: 'implementer', phase: 'work', enters: true, writes: true, notes: ['session-tracking'], dispatch: {}, output: 'implementer-v1' }
   const item = itemFixture({ short: 'aaaaaaaa', stages: [plannerStage, implStage] })
@@ -803,21 +805,21 @@ test('S12: auditActors reports missing and mismatched actor ids against the expe
   const doc = { contract: 'run-wave/plan-doc-v1', args, meta: {} }
 
   const observed = [{ itemId: item.id, key: 'specification', actorId: 'wrong-actor' }]
-  const audit = auditActors(doc, observed)
+  const audit = notesAudit(doc, observed)
   const row = audit.items.find((i) => i.short === 'aaaaaaaa')
   assert.equal(audit.ok, false)
   assert.equal(row.ok, false)
   assert.deepEqual(row.missing, ['session-tracking'])
-  assert.deepEqual(row.mismatched, [{ key: 'specification', expected: 'planner:aaaaaaaa:r-test-1234', actual: 'wrong-actor' }])
+  assert.equal(Object.hasOwn(row, 'mismatched'), false, 'D6: the server enforces lanes, so there is no mismatched list')
 })
 
-test('S12: auditActors is ok:true when every expected actor id matches', () => {
+test('S12 (4.0 D6): notesAudit is ok:true when every expected {itemId, key} row is observed', () => {
   const plannerStage = { seat: 'planner', phase: 'queue', notes: ['specification'], writes: false, dispatch: {}, output: 'planner-v1' }
   const item = itemFixture({ short: 'aaaaaaaa', stages: [plannerStage] })
   const args = planFixture({ items: [item], runId: 'r-test-4321' })
   const doc = { contract: 'run-wave/plan-doc-v1', args, meta: {} }
-  const observed = [{ itemId: item.id, key: 'specification', actorId: 'planner:aaaaaaaa:r-test-4321' }]
-  const audit = auditActors(doc, observed)
+  const observed = [{ itemId: item.id, key: 'specification' }]
+  const audit = notesAudit(doc, observed)
   assert.equal(audit.ok, true)
 })
 
@@ -830,7 +832,7 @@ function provenanceFixture(runId) {
   const args = planFixture({ items: [item], runId })
   const doc = { contract: 'run-wave/plan-doc-v1', args, meta: { inRunEdges: [] } }
   const result = {
-    contract: 'implement-wave/result-v1', started: true, runId, planDocSlug: `run/${runId}`,
+    contract: 'implement-wave/result-v1', started: true, runId, serverRunId: SERVER_RUN_ID,
     items: [{
       id: item.id, short: 'aaaaaaaa', status: 'done', reason: 'ok',
       stages: [
@@ -860,6 +862,16 @@ test('S13: run-exec-lib provenance() uses adapter=claude-agent for method B', ()
   assert.match(lines[item.id], /^adapter=claude-agent /)
 })
 
+test('S16 (D4): provenance() appends server-run=<uuid> when the plan is bound (args.serverRunId) and omits it when not; run= stays the r-id', () => {
+  const { doc, item, result } = provenanceFixture('r-test-0009')
+  const unboundLine = provenance({ core: realCore(), doc, result, method: 'A', turns: 1 })[item.id]
+  const boundDoc = { ...doc, args: { ...doc.args, serverRunId: SERVER_RUN_ID, project: { scratchDir: '/tmp/scratch', shell: 'bash' } } }
+  const bound = provenance({ core: realCore(), doc: boundDoc, result, method: 'A', turns: 1 })[item.id]
+  assert.ok(bound.includes(` server-run=${SERVER_RUN_ID}`), bound)
+  assert.match(bound, /(^| )run=r-test-0009( |$)/)
+  assert.equal(unboundLine.includes('server-run='), false, 'fixture condition: the same result with an unbound plan carries no token')
+})
+
 function twoItemProvenance(runId) {
   const mk = (short) => itemFixture({
     short,
@@ -870,7 +882,7 @@ function twoItemProvenance(runId) {
   const b = mk('bbbbbbbb')
   const doc = { contract: 'run-wave/plan-doc-v1', args: planFixture({ items: [a, b], runId }), meta: { inRunEdges: [] } }
   const result = {
-    contract: 'implement-wave/result-v1', started: true, runId, planDocSlug: `run/${runId}`,
+    contract: 'implement-wave/result-v1', started: true, runId, serverRunId: SERVER_RUN_ID,
     items: [a, b].map((it) => ({
       id: it.id, short: it.short, status: 'done', reason: 'ok', outputs: {},
       stages: [{ seat: 'implementer', status: 'done', reason: 'ok', modelReported: 'sonnet', notes: [], commits: { pre: '', post: '' }, files: [] }],
@@ -984,31 +996,31 @@ test('S14: CLI exits 2 on a state runId mismatch (Appendix D exit-2 list; RED if
   assert.match(JSON.parse(res.stderr).detail ?? JSON.parse(res.stderr).error ?? '', /state runId mismatch/)
 })
 
-test('S14: CLI actors --plan --notes exits 3 when an expected actor row is missing', () => {
+test('S14 (4.0): CLI notes-audit --plan --notes exits 3 when an expected note row is missing', () => {
   const dir = mkdtempSync(join(tmpdir(), 'run-exec-cli-'))
   const plannerStage = { seat: 'planner', phase: 'queue', notes: ['specification'], writes: false, dispatch: {}, output: 'planner-v1' }
   const item = itemFixture({ short: 'aaaaaaaa', stages: [plannerStage] })
-  const args = planFixture({ items: [item], runId: 'r-test-cli-actors' })
+  const args = planFixture({ items: [item], runId: 'r-test-cli-notes' })
   const doc = { contract: 'run-wave/plan-doc-v1', args, meta: {} }
   const planPath = join(dir, 'plan.json')
   const notesPath = join(dir, 'notes.json')
   writeFileSync(planPath, JSON.stringify(doc))
   writeFileSync(notesPath, JSON.stringify([]))
-  const res = runCli(['actors', '--plan', planPath, '--notes', notesPath])
+  const res = runCli(['notes-audit', '--plan', planPath, '--notes', notesPath])
   assert.equal(res.status, 3)
   assert.equal(JSON.parse(res.stdout).ok, false)
 })
 
-test('S14: CLI actors --plan (no --notes) is audit-free and exits 0', () => {
+test('S14 (4.0): CLI notes-audit --plan (no --notes) is audit-free and exits 0', () => {
   const dir = mkdtempSync(join(tmpdir(), 'run-exec-cli-'))
   const { planPath } = writeCliDoc(dir)
-  const res = runCli(['actors', '--plan', planPath])
+  const res = runCli(['notes-audit', '--plan', planPath])
   assert.equal(res.status, 0, res.stderr)
 })
 
 // ── S15: review-prompt ───────────────────────────────────────────────────────────────────────
 
-test('S15: reviewPrompt includes the seat line, run id, scoped diff command, REVIEW_RULES keys, and the reviewer actor id', () => {
+test('S15 (4.0): reviewPrompt includes the seat line, run id, scoped diff command and REVIEW_RULES keys, names config rules, and carries no actor', () => {
   const core = realCore()
   const plannerStage = { seat: 'planner', phase: 'queue', notes: [], writes: false, dispatch: {}, output: 'planner-v1' }
   const implStage = { seat: 'implementer', phase: 'work', enters: true, writes: true, notes: [], dispatch: {}, output: 'implementer-v1' }
@@ -1023,8 +1035,10 @@ test('S15: reviewPrompt includes the seat line, run id, scoped diff command, REV
   for (const key of REVIEW_RULES) {
     assert.ok(text.includes(key), `expected review-prompt to reference rule key ${key}`)
   }
-  assert.match(text, /reviewer:aaaaaaaa:r-test-0055/)
-  assert.match(text, /query_rules/)
+  assert.equal(/reviewer:aaaaaaaa:r-test-0055/.test(text), false, 'AC1: no reviewer actor id')
+  assert.equal(text.includes('ACTOR:'), false)
+  assert.equal(text.includes('query_rules'), false, 'AC2: the retired rules tool is gone')
+  assert.match(text, /config\(/, 'AC2: rules are fetched through the config tool')
 })
 
 test('S15: reviewPrompt with a result narrows the diff to the owned files from the planner output', () => {
@@ -1036,7 +1050,7 @@ test('S15: reviewPrompt with a result narrows the diff to the owned files from t
   const doc = { contract: 'run-wave/plan-doc-v1', args, meta: {} }
   const plannerOut = outputFor('planner-v1', { mainFiles: ['src/x.js'], docFiles: ['docs/x.md'] })
   const result = {
-    contract: 'implement-wave/result-v1', started: true, runId: 'r-test-0056', planDocSlug: 'run/r-test-0056',
+    contract: 'implement-wave/result-v1', started: true, runId: 'r-test-0056', serverRunId: SERVER_RUN_ID,
     items: [{ id: item.id, short: 'aaaaaaaa', status: 'done', reason: 'ok', stages: [], outputs: { planner: plannerOut } }],
     refused: [], deferred: [],
   }
@@ -1140,7 +1154,7 @@ test('B1 (CLI, real git log): verify surfaces a per-commit unowned-file finding 
   const doc = { contract: 'run-wave/plan-doc-v1', args, meta: {} }
   const plannerOut = outputFor('planner-v1', { mainFiles: ['src/x.js'] }) // src/unowned.js is NOT declared owned
   const result = {
-    contract: 'implement-wave/result-v1', started: true, runId: args.runId, planDocSlug: 'run/x',
+    contract: 'implement-wave/result-v1', started: true, runId: args.runId, serverRunId: SERVER_RUN_ID,
     items: [{
       id: item.id, short: 'aaaaaaaa', status: 'done', reason: 'ok',
       stages: [
@@ -1171,7 +1185,7 @@ test('B2: verify attributes each stage\'s (pre..post] commits correctly — a no
   const implSha = 'b'.repeat(40)
   const authorSha = 'c'.repeat(40)
   const result = {
-    contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, planDocSlug: 'run/x',
+    contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, serverRunId: SERVER_RUN_ID,
     items: [{
       id: item.id, short: 'aaaaaaaa', status: 'done', reason: 'ok',
       stages: [
@@ -1216,7 +1230,7 @@ test('B2\': a first writing stage whose `pre` is the unresolved wave baseSha att
   const implPostSha = 'd'.repeat(40) // implementer's declared `post` — chronologically LAST
 
   const result = {
-    contract: 'implement-wave/result-v1', started: true, runId: args.runId, planDocSlug: 'run/x',
+    contract: 'implement-wave/result-v1', started: true, runId: args.runId, serverRunId: SERVER_RUN_ID,
     items: [{
       id: item.id, short: 'aaaaaaaa', status: 'done', reason: 'ok',
       stages: [
@@ -1482,7 +1496,7 @@ test('S10-verify: verify does NOT flag an implementer commit touching a planner 
   const plannerOut = outputFor('planner-v1', { mainFiles: ['src/x.js'], testFiles: ['scripts/tests/x.test.mjs'] })
   const implOut = outputFor('implementer-v1')
   const result = {
-    contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, planDocSlug: 'run/x',
+    contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, serverRunId: SERVER_RUN_ID,
     items: [{
       id: item.id, short: 'aaaa1000', status: 'done', reason: 'ok',
       stages: [
@@ -1510,7 +1524,7 @@ test('S10-verify: verify DOES flag the same implementer commit touching planner 
   const { doc, item, plannerOut } = verifyFixture() // planner + implementer + test-author; testFiles: ['scripts/tests/x.test.mjs']
   const implOut = outputFor('implementer-v1')
   const result = {
-    contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, planDocSlug: 'run/x',
+    contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, serverRunId: SERVER_RUN_ID,
     items: [{
       id: item.id, short: 'aaaaaaaa', status: 'done', reason: 'ok',
       stages: [
@@ -1534,8 +1548,8 @@ test('S10-verify: verify DOES flag the same implementer commit touching planner 
   )
 })
 
-// ---- S12 (D7): auditActors(doc, observed, itemIds, opts) skips expected rows for an item whose ----
-// ---- result stages are all non-done; CLI actors --result exits 0 in that case ----
+// ---- S12 (D7): notesAudit(doc, observed, itemIds, opts) skips expected rows for an item whose ----
+// ---- result stages are all non-done; CLI notes-audit --result exits 0 in that case ----
 
 function s12Fixture() {
   const plannerStage = { seat: 'planner', phase: 'queue', notes: ['specification'], writes: false, dispatch: {}, output: 'planner-v1' }
@@ -1543,7 +1557,7 @@ function s12Fixture() {
   const args = planFixture({ items: [item], runId: 'r-test-s12def' })
   const doc = { contract: 'run-wave/plan-doc-v1', args, meta: {} }
   const result = {
-    contract: 'implement-wave/result-v1', started: true, runId: 'r-test-s12def', planDocSlug: 'run/x',
+    contract: 'implement-wave/result-v1', started: true, runId: 'r-test-s12def', serverRunId: SERVER_RUN_ID,
     items: [{
       id: item.id, short: 's12def', status: 'deferred', reason: 'blocked',
       stages: [
@@ -1556,10 +1570,10 @@ function s12Fixture() {
   return { doc, item, result }
 }
 
-test('S12: auditActors(doc, observed, itemIds, {result}) reports ok:true, missing:[], skipped:true for an item whose result stages are all non-done (D7)', () => {
+test('S12: notesAudit(doc, observed, itemIds, {result}) reports ok:true, missing:[], skipped:true for an item whose result stages are all non-done (D7)', () => {
   const { doc, result } = s12Fixture()
   const observed = [] // nothing observed -- would otherwise report the "specification" note missing
-  const audit = auditActors(doc, observed, undefined, { result })
+  const audit = notesAudit(doc, observed, undefined, { result })
   const row = audit.items.find((i) => i.short === 's12def')
   assert.equal(audit.ok, true)
   assert.ok(row)
@@ -1568,10 +1582,10 @@ test('S12: auditActors(doc, observed, itemIds, {result}) reports ok:true, missin
   assert.equal(row.skipped, true)
 })
 
-test('S12: auditActors is unchanged (reports missing) when opts.result is absent, byte-for-byte with the pre-D7 (doc, observed) call (D7, contrast)', () => {
+test('S12: notesAudit is unchanged (reports missing) when opts.result is absent, byte-for-byte with the pre-D7 (doc, observed) call (D7, contrast)', () => {
   const { doc, result } = s12Fixture()
   const observed = []
-  const withoutResult = auditActors(doc, observed)
+  const withoutResult = notesAudit(doc, observed)
   const row = withoutResult.items.find((i) => i.short === 's12def')
   assert.equal(withoutResult.ok, false)
   assert.ok(row)
@@ -1579,7 +1593,7 @@ test('S12: auditActors is unchanged (reports missing) when opts.result is absent
   assert.deepEqual(row.missing, ['specification'])
 })
 
-test('S12 CLI: actors --plan --notes --result exits 0 when the only missing-note item has all-deferred stages in --result (D7)', () => {
+test('S12 CLI: notes-audit --plan --notes --result exits 0 when the only missing-note item has all-deferred stages in --result (D7)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'run-exec-cli-actors-result-'))
   const { doc, result } = s12Fixture()
   const planPath = join(dir, 'plan.json')
@@ -1588,19 +1602,19 @@ test('S12 CLI: actors --plan --notes --result exits 0 when the only missing-note
   writeFileSync(planPath, JSON.stringify(doc))
   writeFileSync(notesPath, JSON.stringify([]))
   writeFileSync(resultPath, JSON.stringify(result))
-  const res = runCli(['actors', '--plan', planPath, '--notes', notesPath, '--result', resultPath])
+  const res = runCli(['notes-audit', '--plan', planPath, '--notes', notesPath, '--result', resultPath])
   assert.equal(res.status, 0, res.stderr)
   assert.equal(JSON.parse(res.stdout).ok, true)
 })
 
-test('S12 CLI: actors --plan --notes (no --result) still exits 3 for the same all-deferred item (D7, contrast — confirms --result is what changes the outcome)', () => {
+test('S12 CLI: notes-audit --plan --notes (no --result) still exits 3 for the same all-deferred item (D7, contrast — confirms --result is what changes the outcome)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'run-exec-cli-actors-noresult-'))
   const { doc } = s12Fixture()
   const planPath = join(dir, 'plan.json')
   const notesPath = join(dir, 'notes.json')
   writeFileSync(planPath, JSON.stringify(doc))
   writeFileSync(notesPath, JSON.stringify([]))
-  const res = runCli(['actors', '--plan', planPath, '--notes', notesPath])
+  const res = runCli(['notes-audit', '--plan', planPath, '--notes', notesPath])
   assert.equal(res.status, 3)
   assert.equal(JSON.parse(res.stdout).ok, false)
 })
@@ -1691,7 +1705,7 @@ test('#393: live-shape conformance - recorded Method B hand-backs from run r-202
   assert.equal(impl.status, 'done')
 })
 
-// ---- 1f00ae1e: optional notes do not fail the actors audit; prompt names orchestrator notes ----
+// ---- 1f00ae1e: optional notes do not fail the notes audit; prompt names orchestrator notes ----
 
 function optionalAuditFixture({ withOptional = true } = {}) {
   const implStage = {
@@ -1704,56 +1718,57 @@ function optionalAuditFixture({ withOptional = true } = {}) {
   const args = planFixture({ items: [item], runId: 'r-test-opt1' })
   const doc = { contract: 'run-wave/plan-doc-v1', args, meta: {} }
   const result = {
-    contract: 'implement-wave/result-v1', started: true, runId: 'r-test-opt1', planDocSlug: 'run/x',
+    contract: 'implement-wave/result-v1', started: true, runId: 'r-test-opt1', serverRunId: SERVER_RUN_ID,
     items: [{ id: item.id, short: 'bbbbbbbb', status: 'done', stages: [{ seat: 'implementer', status: 'done' }], outputs: {} }],
     refused: [], deferred: [],
   }
   return { doc, item, result }
 }
-const OPT_ACTOR = 'implementer:bbbbbbbb:r-test-opt1'
 
-test('1f00ae1e: expectedActors marks optional rows; non-optional rows keep their exact shape', () => {
+test('1f00ae1e (4.0): expectedNotes marks optional rows; non-optional rows carry no optional flag', () => {
   const { doc, item } = optionalAuditFixture()
-  assert.deepEqual(expectedActors(doc), [
-    { itemId: item.id, key: 'session-tracking', actorId: OPT_ACTOR },
-    { itemId: item.id, key: 'extra-observations', actorId: OPT_ACTOR, optional: true },
+  const rows = expectedNotes(doc)
+  assert.deepEqual(rows.map((r) => ({ itemId: r.itemId, key: r.key, optional: r.optional === true })), [
+    { itemId: item.id, key: 'session-tracking', optional: false },
+    { itemId: item.id, key: 'extra-observations', optional: true },
   ])
+  assert.equal(Object.hasOwn(rows[0], 'optional'), false, 'non-optional rows keep no optional field')
 })
 
-test('1f00ae1e: auditActors - an absent optional note is not missing (no-result and result branches)', () => {
+test('1f00ae1e: notesAudit - an absent optional note is not missing (no-result and result branches)', () => {
   const { doc, item, result } = optionalAuditFixture()
-  const observed = [{ itemId: item.id, key: 'session-tracking', actorId: OPT_ACTOR }]
-  for (const audit of [auditActors(doc, observed), auditActors(doc, observed, undefined, { result })]) {
+  const observed = [{ itemId: item.id, key: 'session-tracking' }]
+  for (const audit of [notesAudit(doc, observed), notesAudit(doc, observed, undefined, { result })]) {
     assert.equal(audit.ok, true)
     assert.deepEqual(audit.items[0].missing, [])
-    assert.deepEqual(audit.items[0].mismatched, [])
   }
 })
 
-test('1f00ae1e: auditActors - an optional note present under the wrong actor is still mismatched', () => {
+test('1f00ae1e (4.0 D6): notesAudit - an optional note present under any actorId is simply present (no mismatch class)', () => {
   const { doc, item, result } = optionalAuditFixture()
   const observed = [
-    { itemId: item.id, key: 'session-tracking', actorId: OPT_ACTOR },
+    { itemId: item.id, key: 'session-tracking' },
     { itemId: item.id, key: 'extra-observations', actorId: 'orchestrator:xx' },
   ]
-  for (const audit of [auditActors(doc, observed), auditActors(doc, observed, undefined, { result })]) {
-    assert.equal(audit.ok, false)
-    assert.deepEqual(audit.items[0].mismatched, [{ key: 'extra-observations', expected: OPT_ACTOR, actual: 'orchestrator:xx' }])
+  for (const audit of [notesAudit(doc, observed), notesAudit(doc, observed, undefined, { result })]) {
+    assert.equal(audit.ok, true)
+    assert.deepEqual(audit.items[0].missing, [])
+    assert.equal(Object.hasOwn(audit.items[0], 'mismatched'), false)
   }
 })
 
-test('1f00ae1e: auditActors - an absent required note is still missing', () => {
+test('1f00ae1e: notesAudit - an absent required note is still missing', () => {
   const { doc, item, result } = optionalAuditFixture()
-  const observed = [{ itemId: item.id, key: 'extra-observations', actorId: OPT_ACTOR }]
-  for (const audit of [auditActors(doc, observed), auditActors(doc, observed, undefined, { result })]) {
+  const observed = [{ itemId: item.id, key: 'extra-observations' }]
+  for (const audit of [notesAudit(doc, observed), notesAudit(doc, observed, undefined, { result })]) {
     assert.equal(audit.ok, false)
     assert.deepEqual(audit.items[0].missing, ['session-tracking'])
   }
 })
 
-test('1f00ae1e: auditActors - a legacy plan without optionalNotes still reports every absent note as missing', () => {
+test('1f00ae1e: notesAudit - a legacy plan without optionalNotes still reports every absent note as missing', () => {
   const { doc, item } = optionalAuditFixture({ withOptional: false })
-  const audit = auditActors(doc, [{ itemId: item.id, key: 'session-tracking', actorId: OPT_ACTOR }])
+  const audit = notesAudit(doc, [{ itemId: item.id, key: 'session-tracking' }])
   assert.equal(audit.ok, false)
   assert.deepEqual(audit.items[0].missing, ['extra-observations'])
 })
@@ -1801,7 +1816,7 @@ function v414Row(item, plannerOut, post, pre = 'aaaa000') {
 
 function v414Run(items, rows, gitFacts) {
   const doc = { contract: 'run-wave/plan-doc-v1', args: planFixture({ items }), meta: {} }
-  const result = { contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, planDocSlug: 'run/x', items: rows, refused: [], deferred: [] }
+  const result = { contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, serverRunId: SERVER_RUN_ID, items: rows, refused: [], deferred: [] }
   return verify(doc, result, gitFacts)
 }
 
@@ -1933,7 +1948,7 @@ test('#414 (temp-git CLI): verify with post HEAD and absolute/directory declarat
   const doc = { contract: 'run-wave/plan-doc-v1', args, meta: {} }
   const plannerOut = outputFor('planner-v1', { mainFiles: [`${top}/src/pkg/`] })
   const result = {
-    contract: 'implement-wave/result-v1', started: true, runId: args.runId, planDocSlug: 'run/x',
+    contract: 'implement-wave/result-v1', started: true, runId: args.runId, serverRunId: SERVER_RUN_ID,
     items: [v414Row(item, plannerOut, 'HEAD', baseSha)], refused: [], deferred: [],
   }
   const dir = mkdtempSync(join(tmpdir(), 'run-exec-cli-verify414-'))

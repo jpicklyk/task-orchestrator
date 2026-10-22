@@ -1,0 +1,482 @@
+@file:OptIn(StoreWrite::class)
+
+package io.github.jpicklyk.mcptask.current.application.service
+
+import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.support.UnitResult
+import io.github.jpicklyk.mcptask.current.application.support.eventRootOf
+import io.github.jpicklyk.mcptask.current.application.support.writeUnit
+import io.github.jpicklyk.mcptask.current.domain.error.DomainError
+import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
+import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.event.DeleteCause
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
+import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.domain.model.Note
+import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
+import java.util.UUID
+
+/**
+ * One note write: the raw, un-normalized request. [bodyFromFile] is the server-side path the caller supplied
+ * when [body] was read from a file (recorded on the
+ote.upserted row; never the file contents); null for an
+ * inline body.
+ */
+data class NoteUpsertCommand(
+    val itemId: UUID,
+    val key: String,
+    val role: String,
+    val body: String,
+    val actorClaim: ActorClaim?,
+    val verification: VerificationResult?,
+    /**
+     * Who makes the write, for the claim fence ([FenceGuard]): while the item carries an active claim, only its holder
+     * may write. Null fences on any active claim (fail closed). No default: every call site states its caller.
+     */
+    val caller: ClaimHolder?,
+    val bodyFromFile: String? = null,
+    /**
+     * Optimistic-concurrency guard, mirroring `DocumentService`: null writes unconditionally; 0 means "must create"
+     * (the note must not exist); n means the note's current version must equal n. Anything else is
+     * `version_conflict` and nothing is written. Negative values are the caller's `invalid_request`.
+     */
+    val expectedVersion: Long? = null,
+    /**
+     * Take over a note owned by another principal ([NoteOwnership]). Honoured only when [takeoverAllowed]; asking
+     * without it is `forbidden{capability, admin}`. Fail-closed defaults: `create_tree` passes neither.
+     */
+    val takeover: Boolean = false,
+    /** Whether the caller holds the capability `takeover` needs (ADMIN); decided by the transport, never inferred here. */
+    val takeoverAllowed: Boolean = false,
+    /**
+     * The seat of the call's seat token (R22), null without one. It is the note's attribution seat on every write. With
+     * [caller] it is also the ownership pair: a note created or adopted under a token is owned by `(principal, seat)`
+     * (notes.owner_seat), and only that pair (or a shared key) may rewrite it.
+     */
+    val callerSeat: String? = null,
+    /**
+     * Who writes, for ownership rule 2 ([NoteSeatRule], R23): the seat token's seat, run and member item, and whether the
+     * caller is human. Defaults to an agent without a token, refused on every seat-owned key of an item in an open run.
+     */
+    val seatCaller: SeatCaller = SeatCaller.NONE
+)
+
+/** A note that passed the write policy: the normalized [role] and [body], plus any soft-limit [warning]. */
+data class PreparedNote(
+    val role: String,
+    val body: String,
+    val warning: NoteLengthWarning?
+)
+
+/** A body over the schema `maxLength` that `note_limits.mode: warn` accepted. */
+data class NoteLengthWarning(
+    val key: String,
+    val maxLength: Int,
+    val actualLength: Int
+) {
+    /** The human-readable text surfaced to callers (MCP `warning`, REST `warning`). */
+    fun message(): String = "body length $actualLength exceeds maxLength $maxLength for key '$key'"
+}
+
+/** The stored note ([Note.version] included), whether this write created it, and any soft-limit [warning]. */
+data class NoteWriteResult(
+    val note: Note,
+    val created: Boolean,
+    val warning: NoteLengthWarning?
+)
+
+/**
+ * The single owner of the note write policy, shared by `notes_write` and `items_write` `create_tree`. JSON-free and transport-free: callers map the returned [DomainError] codes to
+ * their own wire shapes.
+ *
+ * Policy, in this order: role normalization (locale-invariant lowercase, no trim; must be
+ * queue|work|review), the absolute byte cap ([MAX_NOTE_BODY_BYTES], measured on the raw body, any
+ * `note_limits` mode), CRLF-to-LF normalization (a lone CR is kept), the schema-role rule (a key the
+ * item's resolved schema declares must carry the schema's role), and the schema `maxLength` (measured
+ * on the normalized body; `note_limits.mode: reject` fails, `warn` accepts with a [NoteLengthWarning]). A key the
+ * pinned schema of a pinned item does not declare but its head schema REQUIRES is `schema_pinned_conflict`.
+ *
+ * Every write records its own `events` rows through the unit's sink, in the same unit: `note.upserted` (the
+ * principal is the note's own actor claim and verification) and `note.deleted` (cause `explicit`), under the
+ * owning item's root ([eventRootOf]). A write called inside an ambient unit joins it.
+ * A `PerRootConfigUnavailableException` from the config resolver propagates; it is not an [Outcome].
+ *
+ * Ownership ([NoteOwnership]) runs with rule 2 ([NoteSeatRule]) on upsert and delete: the item's open run is read
+ * through [openRunResolver] inside the unit, only when the resolved schema is seat-aware and the key is seat-owned and
+ * not `shared`. A rule-2 allow ([SeatVerdict.Allow]) is decisive: rule 3 is skipped and the note's owner is kept.
+ */
+class NoteCommandService(
+    private val repositoryProvider: RepositoryProvider,
+    private val configResolver: EffectiveConfigResolver,
+    private val unitOfWork: UnitOfWork,
+    /** The not-closed run an item is a member of; the default resolves none (rule 2 never refuses). */
+    private val openRunResolver: suspend (UUID) -> UUID? = { null }
+) {
+    private val links = LinkService(repositoryProvider, unitOfWork)
+    private val pinService = SchemaPinService(configResolver)
+
+    /** Validate-only: runs the write policy for [item] and stores nothing. */
+    suspend fun prepare(
+        item: WorkItem,
+        key: String,
+        role: String,
+        body: String
+    ): Outcome<PreparedNote> {
+        val normalizedRole = role.lowercase()
+        if (normalizedRole !in VALID_ROLES) {
+            return Outcome.Err(invalidRequest("role", "role must be one of: queue, work, review", role))
+        }
+
+        val bytes = body.toByteArray(Charsets.UTF_8).size
+        if (bytes > MAX_NOTE_BODY_BYTES) {
+            return Outcome.Err(
+                DomainError(
+                    code = ErrorCode.PAYLOAD_TOO_LARGE,
+                    message = "Note '$key' body is $bytes bytes, exceeds the $MAX_NOTE_BODY_BYTES byte cap",
+                    detail = ErrorDetail.PayloadTooLarge(MAX_NOTE_BODY_BYTES.toLong(), bytes.toLong()),
+                    fixArgs = mapOf("max" to MAX_NOTE_BODY_BYTES.toString())
+                )
+            )
+        }
+
+        val normalizedBody = body.replace("\r\n", "\n")
+
+        val schemaEntry = schemaEntryOf(item, key)
+        if (schemaEntry == null) pinnedConflict(item, key)?.let { return Outcome.Err(it) }
+        if (schemaEntry != null) {
+            val expectedRole = schemaEntry.role.name.lowercase()
+            if (normalizedRole != expectedRole) {
+                val reason =
+                    "key '$key' is declared in the schema with role '$expectedRole', " +
+                        "but the note has role '$role'. Schema-declared keys must use the schema role."
+                return Outcome.Err(
+                    DomainError(
+                        code = ErrorCode.SCHEMA_VIOLATION,
+                        message = reason,
+                        detail = ErrorDetail.SchemaViolation(type = item.type, reason = reason)
+                    )
+                )
+            }
+        }
+
+        val maxLength = schemaEntry?.maxLength
+        var warning: NoteLengthWarning? = null
+        if (maxLength != null && normalizedBody.length > maxLength) {
+            if (configResolver.resolveNoteLimitsMode(item.rootId) == "reject") {
+                return Outcome.Err(
+                    DomainError(
+                        code = ErrorCode.NOTE_TOO_LONG,
+                        message = "body length ${normalizedBody.length} exceeds maxLength $maxLength for key '$key'",
+                        detail = ErrorDetail.NoteTooLong(key, maxLength, normalizedBody.length),
+                        fixArgs = mapOf("key" to key, "max" to maxLength.toString())
+                    )
+                )
+            }
+            warning = NoteLengthWarning(key, maxLength, normalizedBody.length)
+        }
+
+        return Outcome.Ok(PreparedNote(normalizedRole, normalizedBody, warning))
+    }
+
+    /**
+     * `schema_pinned_conflict` (plan section 3.8): [item] is pinned, its pinned schema has no entry for [key], and the
+     * schema it would resolve to at the config heads REQUIRES [key]. The caller must `repin` the item before writing the
+     * note. Null when the item is unpinned (or pins are off), or the head schema does not declare [key] as required.
+     */
+    private suspend fun pinnedConflict(
+        item: WorkItem,
+        key: String
+    ): DomainError? {
+        if (item.pin == null || !configResolver.pinsEnabled) return null
+        val headEntry = configResolver.resolveSchemaAtHead(item)?.notes?.firstOrNull { it.key == key } ?: return null
+        if (!headEntry.required) return null
+        val (pinnedVersion, currentVersion) = pinService.versionLabels(item)
+        return DomainError(
+            code = ErrorCode.SCHEMA_PINNED_CONFLICT,
+            message =
+                "Note '$key' is required by the current schema ($currentVersion) but item ${item.id} is pinned to " +
+                    "$pinnedVersion, whose schema does not declare it; repin the item first.",
+            detail = ErrorDetail.SchemaPinnedConflict(item.id, pinnedVersion, currentVersion),
+            fixArgs = mapOf("itemId" to item.id.toString(), "pinnedVersion" to pinnedVersion, "currentVersion" to currentVersion)
+        )
+    }
+
+    /** Looks up the item, applies the write policy, and upserts the note in one write unit. */
+    suspend fun upsert(cmd: NoteUpsertCommand): Outcome<NoteWriteResult> {
+        val noteRepo = repositoryProvider.noteRepository()
+        // writeUnit maps any thrown exception to a store fault; config-unavailable must still propagate (not an Outcome).
+        var configUnavailable: PerRootConfigUnavailableException? = null
+        val result =
+            unitOfWork.writeUnit<Outcome<NoteWriteResult>>(
+                "NoteCommandService.upsert",
+                onFault = { Outcome.Err(it) }
+            ) {
+                val item =
+                    repositoryProvider.workItemRepository().getById(cmd.itemId)
+                        ?: return@writeUnit UnitResult.Rollback(
+                            Outcome.Err(notFound(EntityKind.ITEM, cmd.itemId.toString(), "WorkItem '${cmd.itemId}' not found"))
+                        )
+                FenceGuard.check(item, cmd.caller, now).let { if (it is Outcome.Err) return@writeUnit UnitResult.Rollback(it) }
+                var schema: WorkItemSchema? = null
+                val prepared =
+                    try {
+                        when (val p = prepare(item, cmd.key, cmd.role, cmd.body)) {
+                            is Outcome.Ok -> p.value
+                            is Outcome.Err -> return@writeUnit UnitResult.Rollback(p)
+                        }.also { schema = configResolver.resolveSchema(item) }
+                    } catch (e: PerRootConfigUnavailableException) {
+                        configUnavailable = e
+                        return@writeUnit UnitResult.Rollback(
+                            Outcome.Err(notFound(EntityKind.ITEM, cmd.itemId.toString(), "config unavailable"))
+                        )
+                    }
+                val entry = schema?.notes?.firstOrNull { it.key == cmd.key }
+                val seatRule = seatRuleFor(item, entry, schema, cmd.seatCaller)
+                val existing = noteRepo.findByItemIdAndKey(cmd.itemId, cmd.key)
+                val decision =
+                    when (
+                        val decided =
+                            NoteOwnership.decide(
+                                itemId = cmd.itemId,
+                                key = cmd.key,
+                                existing = existing,
+                                entry = entry,
+                                caller = cmd.caller,
+                                callerSeat = cmd.callerSeat,
+                                takeover = cmd.takeover,
+                                takeoverAllowed = cmd.takeoverAllowed,
+                                seatRule = seatRule,
+                                ownerSeat = existing?.ownerSeat
+                            )
+                    ) {
+                        is Outcome.Err -> return@writeUnit UnitResult.Rollback(decided)
+                        is Outcome.Ok -> decided.value
+                    }
+                cmd.expectedVersion?.let { expected ->
+                    versionMismatch(cmd.itemId, cmd.key, existing, expected)?.let { return@writeUnit UnitResult.Rollback(Outcome.Err(it)) }
+                }
+                // The owner seat is written together with the owner id (create, adopt, transfer) and kept otherwise. A
+                // takeover is never under a token, so a transfer clears it. The attribution seat (`seat`) is the caller's on
+                // every write, like actor_*. A write the seat rule allows ([SeatVerdict.Allow]) decides Allowed on an owned
+                // note, so it lands in the `else` row: attribution moves, the owner pair never does (R21 Ruling 9).
+                //   Adopted (owner_id IS NULL, caller non-null) -> (caller, callerSeat)
+                //   Transferred (admin takeover, rule 2 deferred) -> (to, null)
+                //   create (no existing note) -> (caller, callerSeat), or (null, null) without a caller
+                //   otherwise (owner pair, seat-rule allow, shared, null caller on an unowned note) -> kept
+                val ownerId: String?
+                val ownerSeat: String?
+                when {
+                    decision is NoteOwnership.Decision.Adopted -> {
+                        ownerId = cmd.caller?.principalId
+                        ownerSeat = cmd.callerSeat
+                    }
+                    decision is NoteOwnership.Decision.Transferred -> {
+                        ownerId = decision.to
+                        ownerSeat = null
+                    }
+                    existing == null -> {
+                        ownerId = cmd.caller?.principalId
+                        ownerSeat = if (ownerId != null) cmd.callerSeat else null
+                    }
+                    else -> {
+                        ownerId = existing.ownerId
+                        ownerSeat = existing.ownerSeat
+                    }
+                }
+                val note =
+                    try {
+                        Note(
+                            id = existing?.id ?: UUID.randomUUID(),
+                            itemId = cmd.itemId,
+                            key = cmd.key,
+                            role = prepared.role,
+                            body = prepared.body,
+                            actorClaim = cmd.actorClaim,
+                            verification = cmd.verification,
+                            ownerId = ownerId,
+                            seat = cmd.callerSeat,
+                            ownerSeat = ownerSeat
+                        )
+                    } catch (e: ValidationException) {
+                        return@writeUnit UnitResult.Rollback(
+                            Outcome.Err(invalidRequest("key", e.message ?: "Invalid note", cmd.key))
+                        )
+                    }
+                val stored = noteRepo.upsert(note)
+                val rootId = eventRootOf(item, repositoryProvider.workItemRepository())
+                when (decision) {
+                    is NoteOwnership.Decision.Adopted ->
+                        events.record(noteOwnershipTransferredEvent(stored, rootId, null, ownerId!!, decision.legacyActor))
+                    is NoteOwnership.Decision.Transferred ->
+                        events.record(noteOwnershipTransferredEvent(stored, rootId, decision.from, decision.to))
+                    else -> Unit
+                }
+                events.record(noteUpsertedEvent(stored, rootId, cmd.bodyFromFile))
+                links.syncNote(stored.id, rootId, stored.body, existing?.body, now)
+                UnitResult.Commit(Outcome.Ok(NoteWriteResult(stored, existing == null, prepared.warning)))
+            }
+        val unavailable = configUnavailable
+        if (unavailable != null) throw unavailable
+        return result
+    }
+
+    /**
+     * Deletes the note `(itemId, key)` and returns it. The item must exist (`not_found` kind item) and so must the note
+     * (`not_found` kind note, id `<itemId>/<key>`). A non-null [expectedVersion] must equal the note's current version
+     * (`version_conflict` otherwise, the note kept); the compare shares the delete's write unit. An item with an active
+     * claim held by someone other than [caller] is `not_claim_holder` ([FenceGuard]), checked right after the item lookup.
+     * A note another actor owns is `note_owned_by_other` ([NoteOwnership], checked after the existence check and before
+     * the version compare); a delete never takes ownership over. Resolving the schema (the key's `shared` flag) can throw
+     * [PerRootConfigUnavailableException], which propagates as in [upsert]. Rule 2 ([NoteSeatRule]) applies to a delete
+     * exactly as to an upsert, for [seatCaller].
+     */
+    suspend fun delete(
+        itemId: UUID,
+        key: String,
+        expectedVersion: Long? = null,
+        caller: ClaimHolder?,
+        callerSeat: String? = null,
+        seatCaller: SeatCaller = SeatCaller.NONE
+    ): Outcome<Note> {
+        var configUnavailable: PerRootConfigUnavailableException? = null
+        val result =
+            unitOfWork.writeUnit<Outcome<Note>>("NoteCommandService.delete", onFault = { Outcome.Err(it) }) {
+                val workItems = repositoryProvider.workItemRepository()
+                val item =
+                    workItems.getById(itemId)
+                        ?: return@writeUnit UnitResult.Rollback(
+                            Outcome.Err(notFound(EntityKind.ITEM, itemId.toString(), "WorkItem '$itemId' not found"))
+                        )
+                FenceGuard.check(item, caller, now).let { if (it is Outcome.Err) return@writeUnit UnitResult.Rollback(it) }
+                val noteRepo = repositoryProvider.noteRepository()
+                val existing =
+                    noteRepo.findByItemIdAndKey(itemId, key)
+                        ?: return@writeUnit UnitResult.Rollback(
+                            Outcome.Err(notFound(EntityKind.NOTE, noteRef(itemId, key), "Note '$key' not found on item $itemId"))
+                        )
+                val schema =
+                    try {
+                        configResolver.resolveSchema(item)
+                    } catch (e: PerRootConfigUnavailableException) {
+                        configUnavailable = e
+                        return@writeUnit UnitResult.Rollback(
+                            Outcome.Err(notFound(EntityKind.ITEM, itemId.toString(), "config unavailable"))
+                        )
+                    }
+                val entry = schema?.notes?.firstOrNull { it.key == key }
+                NoteOwnership
+                    .decide(
+                        itemId = itemId,
+                        key = key,
+                        existing = existing,
+                        entry = entry,
+                        caller = caller,
+                        callerSeat = callerSeat,
+                        takeover = false,
+                        takeoverAllowed = false,
+                        seatRule = seatRuleFor(item, entry, schema, seatCaller),
+                        ownerSeat = existing.ownerSeat
+                    ).let { if (it is Outcome.Err) return@writeUnit UnitResult.Rollback(it) }
+                expectedVersion?.let { expected ->
+                    versionMismatch(itemId, key, existing, expected)?.let { return@writeUnit UnitResult.Rollback(Outcome.Err(it)) }
+                }
+                noteRepo.delete(existing.id)
+                events.record(noteDeletedEvent(existing, eventRootOf(item, workItems), DeleteCause.EXPLICIT))
+                links.onNoteDeleted(existing.id)
+                UnitResult.Commit(Outcome.Ok(existing))
+            }
+        val unavailable = configUnavailable
+        if (unavailable != null) throw unavailable
+        return result
+    }
+
+    /** The schema entry the item's resolved schema declares for [key], or null (an off-schema key is non-shared). */
+    private suspend fun schemaEntryOf(
+        item: WorkItem,
+        key: String
+    ): NoteSchemaEntry? = configResolver.resolveSchema(item)?.notes?.firstOrNull { it.key == key }
+
+    /**
+     * The rule-2 [SeatRule] of a write of [entry]'s key on [item] by [caller], over the facts read here, in the caller's
+     * unit: [SeatRule.NONE] (no read, always defers) unless [schema] is seat-aware, the key is seat-owned and it is not
+     * `shared`; otherwise the item's open run is read once and captured. A human caller reads the run too: inside an
+     * open run its write is a decisive allow, outside one rule 3 applies.
+     */
+    private suspend fun seatRuleFor(
+        item: WorkItem,
+        entry: NoteSchemaEntry?,
+        schema: WorkItemSchema?,
+        caller: SeatCaller
+    ): SeatRule {
+        val seats = schema?.seats.orEmpty()
+        if (entry?.shared == true || NoteSeatRule.ownerSeatOf(entry, seats) == null) return SeatRule.NONE
+        val openRunId = openRunResolver(item.id) ?: return SeatRule.NONE
+        return SeatRule { id, key, _, _ -> NoteSeatRule.check(id, key, entry, seats, openRunId, caller) }
+    }
+
+    /** The `version_conflict` of a write guarded by [expected] against [existing], or null when the guard holds. */
+    private fun versionMismatch(
+        itemId: UUID,
+        key: String,
+        existing: Note?,
+        expected: Long
+    ): DomainError? {
+        val actual = existing?.version ?: 0L
+        if (expected == actual) return null
+        val id = existing?.id?.toString() ?: noteRef(itemId, key)
+        return DomainError(
+            code = ErrorCode.VERSION_CONFLICT,
+            message = "Note '$key' is at version $actual, not $expected.",
+            detail = ErrorDetail.VersionConflict(EntityKind.NOTE, id, expected, actual),
+            fixArgs = mapOf("kind" to "note", "id" to id, "actual" to actual.toString())
+        )
+    }
+
+    private fun invalidRequest(
+        field: String,
+        reason: String,
+        received: String?
+    ): DomainError =
+        DomainError(
+            code = ErrorCode.INVALID_REQUEST,
+            message = reason,
+            detail = ErrorDetail.InvalidRequest(listOf(FieldViolation(field, reason, received)))
+        )
+
+    private fun notFound(
+        kind: EntityKind,
+        id: String,
+        message: String
+    ): DomainError =
+        DomainError(
+            code = ErrorCode.NOT_FOUND,
+            message = message,
+            detail = ErrorDetail.NotFound(kind, id),
+            fixArgs = mapOf("kind" to kind.name.lowercase(), "id" to id)
+        )
+
+    companion object {
+        /** The id a keyed note without a row reports in `not_found` and `version_conflict`: `<itemId>/<key>`. */
+        fun noteRef(
+            itemId: UUID,
+            key: String
+        ): String = "$itemId/$key"
+
+        /** Absolute cap on a note body's UTF-8 size, measured on the raw body, in every `note_limits` mode. */
+        const val MAX_NOTE_BODY_BYTES = 65536
+
+        private val VALID_ROLES = setOf("queue", "work", "review")
+    }
+}

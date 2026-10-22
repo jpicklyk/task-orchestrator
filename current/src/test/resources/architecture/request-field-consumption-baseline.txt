@@ -1,0 +1,4 @@
+# Two-way ratchet baseline for RequestFieldConsumptionGuardTest.
+# Line format: <owner binary name>#<wire field name>  # <reason, mandatory>
+# A declared request field no production code reads belongs here only with a reason and a follow-up item;
+# a stale line (the field is now read or gone) fails the test.

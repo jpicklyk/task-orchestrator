@@ -1,17 +1,17 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.buildH2RepositoryProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -37,8 +37,8 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.security.MessageDigest
-import java.time.Instant
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
 import io.ktor.client.plugins.sse.SSE as ClientSSE
@@ -55,7 +55,7 @@ import io.ktor.client.plugins.sse.SSE as ClientSSE
  *
  * - O1/O2 `current/docs/api-rest.md` SS3 (`tags_include` is item-level, exact CSV membership, no
  *   ancestor walk, empty = no constraint) and SS21 (replay applies the same filter as live fan-out).
- * - O3 [ApiScope] KDoc (`rootIds == null` = unrestricted roots; `tagsInclude` must ALSO hold).
+ * - O3 [AccessScope] KDoc (`rootIds == null` = unrestricted roots; `tagsInclude` must ALSO hold).
  * - O4 [io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowsItemTags] KDoc (exact
  *   membership, no prefix/substring; empty `tagsInclude` = no constraint).
  * - O5 the item's `diagnosis` note (fail-closed: no repository wired + tag-scoped token -> 403;
@@ -66,18 +66,20 @@ import io.ktor.client.plugins.sse.SSE as ClientSSE
  * replay-idempotency probe (reconnecting twice with the same `Last-Event-ID` yields the same set).
  */
 class TagScopeSseEventsTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     companion object {
         private const val TOKEN = "tag-scope-test-token-abc123"
 
         private val replayJson = Json { ignoreUnknownKeys = true }
 
-        /** Time given to a launched fixture-mutation/publish job to run before the SSE window opens. */
-        private const val SETTLE_DELAY_MS = 150L
-
-        /** Fixed window a connection listens for frames -- long enough for [SETTLE_DELAY_MS] plus a
-         * few chained steps, short enough to keep the suite fast. Bounds every test's SSE wait so
-         * none can hang: this replaces `take(n)`, which (wrapped in a timeout) would discard any
-         * partial results collected before the timeout fired. */
+        /**
+         * Fixed window a connection listens for frames, used only where nothing is expected to arrive (positive
+         * deliveries collect until a barrier event instead). Bounds every such wait so the test cannot hang: this
+         * replaces `take(n)`, which (wrapped in a timeout) would discard any partial results collected before the
+         * timeout fired.
+         */
         private const val COLLECT_WINDOW_MS = 900L
 
         private fun sha256(input: String): ByteArray {
@@ -91,11 +93,12 @@ class TagScopeSseEventsTest {
             rootIds: Set<UUID>? = null,
         ): Map<HashBytes, BearerTokenStore.TokenEntry> {
             val principal =
-                ApiPrincipal(
-                    tokenId = "tag-scope-test-principal",
-                    scope = ApiScope(rootIds = rootIds, tagsInclude = tagsInclude),
+                Principal(
+                    id = "tag-scope-test-principal",
+                    scope = AccessScope.principal(rootIds = rootIds, tagsInclude = tagsInclude),
                     capabilities = setOf(ApiCapability.READ),
-                    authMode = ApiAuthMode.BEARER,
+                    kind = PrincipalKind.SERVICE,
+                    proofStatus = ProofStatus.ISSUED,
                 )
             return mapOf(HashBytes(sha256(token)) to BearerTokenStore.TokenEntry(principal, expiresAt = null))
         }
@@ -108,7 +111,7 @@ class TagScopeSseEventsTest {
         ): WorkItem {
             val item = WorkItem(id = UUID.randomUUID(), parentId = null, title = "tag-scope-fixture", depth = 0, tags = tags)
             val result = provider.workItemRepository().create(item)
-            check(result is Result.Success) { "fixture item create failed: $result" }
+            check(result != null) { "fixture item create failed: $result" }
             return item
         }
 
@@ -126,7 +129,7 @@ class TagScopeSseEventsTest {
                     launch {
                         incoming.collect { sse -> collected.add(decode(sse.data)) }
                     }
-                delay(COLLECT_WINDOW_MS)
+                delay(COLLECT_WINDOW_MS) // settle-ok: nothing-arrives window, bounds every collect
                 job.cancel()
             }
             return collected
@@ -148,6 +151,7 @@ class TagScopeSseEventsTest {
                 allowQueryToken = false,
                 authCheckIntervalSeconds = 60,
                 workItemRepository = workItemRepository,
+                redactAttribution = true
             )
         }
     }
@@ -159,8 +163,8 @@ class TagScopeSseEventsTest {
     @Test
     fun `S1 - a write to an in-scope item is delivered to a tags_include-scoped subscription`(): Unit =
         testApplication {
-            val provider = buildH2RepositoryProvider()
-            val bus = ApiEventBus()
+            val provider = db.repositoryProvider()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val itemA = createItem(provider, tags = "alpha")
             application { wireEventsRoute(bus, tokenEntries(TOKEN, tagsInclude = setOf("alpha")), provider.workItemRepository()) }
             val sseClient = createClient { install(ClientSSE) }
@@ -169,17 +173,17 @@ class TagScopeSseEventsTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
-                        bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemA.id, modifiedAt = Instant.now()), emptySet())
+                        bus.awaitSubscribers()
+                        bus.emit(ApiEventType.ITEM_CREATED, itemId = itemA.id)
                     }
                     sseClient.sse(
                         urlString = "/events",
                         request = {
                             header(HttpHeaders.Authorization, "Bearer $TOKEN")
-                            header("Last-Event-ID", "0")
+                            header("Last-Event-ID", FROM_START)
                         },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        collected.addAll(incoming.collectUntil({ decode(it) }) { it.any { e -> e.itemId == itemA.id.toString() } })
                     }
                 }
             }
@@ -190,8 +194,8 @@ class TagScopeSseEventsTest {
     @Test
     fun `S2 - an out-of-scope write produces no event, and a follow-up in-scope write proves the connection is live`(): Unit =
         testApplication {
-            val provider = buildH2RepositoryProvider()
-            val bus = ApiEventBus()
+            val provider = db.repositoryProvider()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val itemA = createItem(provider, tags = "alpha")
             val itemB = createItem(provider, tags = "beta")
             application { wireEventsRoute(bus, tokenEntries(TOKEN, tagsInclude = setOf("alpha")), provider.workItemRepository()) }
@@ -201,22 +205,21 @@ class TagScopeSseEventsTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         // Out-of-scope write first -- must produce nothing.
-                        bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemB.id, modifiedAt = Instant.now()), emptySet())
-                        delay(SETTLE_DELAY_MS)
+                        bus.emit(ApiEventType.ITEM_CREATED, itemId = itemB.id)
                         // In-scope write second -- proves the connection is actually live, not just
                         // silent. A filter that dropped everything (including A) would fail this.
-                        bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemA.id, modifiedAt = Instant.now()), emptySet())
+                        bus.emit(ApiEventType.ITEM_CREATED, itemId = itemA.id)
                     }
                     sseClient.sse(
                         urlString = "/events",
                         request = {
                             header(HttpHeaders.Authorization, "Bearer $TOKEN")
-                            header("Last-Event-ID", "0")
+                            header("Last-Event-ID", FROM_START)
                         },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        collected.addAll(incoming.collectUntil({ decode(it) }) { it.any { e -> e.itemId == itemA.id.toString() } })
                     }
                 }
             }
@@ -231,12 +234,12 @@ class TagScopeSseEventsTest {
     @Test
     fun `S3 - replay includes only the in-scope buffered event, and reconnecting is idempotent`(): Unit =
         testApplication {
-            val provider = buildH2RepositoryProvider()
-            val bus = ApiEventBus()
+            val provider = db.repositoryProvider()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val itemA = createItem(provider, tags = "alpha")
             val itemB = createItem(provider, tags = "beta")
-            bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemA.id, modifiedAt = Instant.now()), emptySet())
-            bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemB.id, modifiedAt = Instant.now()), emptySet())
+            bus.emit(ApiEventType.ITEM_CREATED, itemId = itemA.id)
+            bus.emit(ApiEventType.ITEM_CREATED, itemId = itemB.id)
 
             application { wireEventsRoute(bus, tokenEntries(TOKEN, tagsInclude = setOf("alpha")), provider.workItemRepository()) }
             val sseClient = createClient { install(ClientSSE) }
@@ -248,7 +251,7 @@ class TagScopeSseEventsTest {
                         urlString = "/events",
                         request = {
                             header(HttpHeaders.Authorization, "Bearer $TOKEN")
-                            header("Last-Event-ID", "0")
+                            header("Last-Event-ID", FROM_START)
                         },
                     ) {
                         collected.addAll(collectWithin(incoming))
@@ -276,7 +279,7 @@ class TagScopeSseEventsTest {
     @Test
     fun `S4 - rootIds-only scope (empty tags_include) filters by root exactly as before the tag fix`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val root1 = UUID.randomUUID()
             val root2 = UUID.randomUUID()
             val inRoot = UUID.randomUUID()
@@ -290,19 +293,18 @@ class TagScopeSseEventsTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
-                        bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = outOfRoot, modifiedAt = Instant.now()), setOf(root2))
-                        delay(SETTLE_DELAY_MS)
-                        bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = inRoot, modifiedAt = Instant.now()), setOf(root1))
+                        bus.awaitSubscribers()
+                        bus.emit(ApiEventType.ITEM_CREATED, itemId = outOfRoot, rootId = root2)
+                        bus.emit(ApiEventType.ITEM_CREATED, itemId = inRoot, rootId = root1)
                     }
                     sseClient.sse(
                         urlString = "/events",
                         request = {
                             header(HttpHeaders.Authorization, "Bearer $TOKEN")
-                            header("Last-Event-ID", "0")
+                            header("Last-Event-ID", FROM_START)
                         },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        collected.addAll(incoming.collectUntil({ decode(it) }) { it.any { e -> e.itemId == inRoot.toString() } })
                     }
                 }
             }
@@ -313,10 +315,10 @@ class TagScopeSseEventsTest {
     @Test
     fun `S5 - an unscoped principal receives all events, live and via replay (regression)`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val replayedId = UUID.randomUUID()
             val liveId = UUID.randomUUID()
-            bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = replayedId, modifiedAt = Instant.now()), emptySet())
+            bus.emit(ApiEventType.ITEM_CREATED, itemId = replayedId)
 
             application { wireEventsRoute(bus, tokenEntries(TOKEN, tagsInclude = emptySet(), rootIds = null), workItemRepository = null) }
             val sseClient = createClient { install(ClientSSE) }
@@ -325,17 +327,17 @@ class TagScopeSseEventsTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
-                        bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = liveId, modifiedAt = Instant.now()), emptySet())
+                        bus.awaitSubscribers()
+                        bus.emit(ApiEventType.ITEM_CREATED, itemId = liveId)
                     }
                     sseClient.sse(
                         urlString = "/events",
                         request = {
                             header(HttpHeaders.Authorization, "Bearer $TOKEN")
-                            header("Last-Event-ID", "0")
+                            header("Last-Event-ID", FROM_START)
                         },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        collected.addAll(incoming.collectUntil({ decode(it) }) { it.any { e -> e.itemId == liveId.toString() } })
                     }
                 }
             }
@@ -352,8 +354,8 @@ class TagScopeSseEventsTest {
     @Test
     fun `S6a - adding the in-scope tag mid-stream makes the item's next event deliverable`(): Unit =
         testApplication {
-            val provider = buildH2RepositoryProvider()
-            val bus = ApiEventBus()
+            val provider = db.repositoryProvider()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val itemB = createItem(provider, tags = "beta")
             application { wireEventsRoute(bus, tokenEntries(TOKEN, tagsInclude = setOf("alpha")), provider.workItemRepository()) }
             val sseClient = createClient { install(ClientSSE) }
@@ -362,20 +364,20 @@ class TagScopeSseEventsTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         val retagged = itemB.copy(tags = "alpha,beta")
                         val updateResult = provider.workItemRepository().update(retagged)
-                        check(updateResult is Result.Success) { "fixture retag failed: $updateResult" }
-                        bus.publish(bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = itemB.id, modifiedAt = Instant.now()), emptySet())
+                        check(updateResult != null) { "fixture retag failed: $updateResult" }
+                        bus.emit(ApiEventType.ITEM_UPDATED, itemId = itemB.id)
                     }
                     sseClient.sse(
                         urlString = "/events",
                         request = {
                             header(HttpHeaders.Authorization, "Bearer $TOKEN")
-                            header("Last-Event-ID", "0")
+                            header("Last-Event-ID", FROM_START)
                         },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        collected.addAll(incoming.collectUntil({ decode(it) }) { it.isNotEmpty() })
                     }
                 }
             }
@@ -386,8 +388,8 @@ class TagScopeSseEventsTest {
     @Test
     fun `S6b - removing the in-scope tag mid-stream makes the item's next event non-deliverable`(): Unit =
         testApplication {
-            val provider = buildH2RepositoryProvider()
-            val bus = ApiEventBus()
+            val provider = db.repositoryProvider()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val itemA = createItem(provider, tags = "alpha")
             application { wireEventsRoute(bus, tokenEntries(TOKEN, tagsInclude = setOf("alpha")), provider.workItemRepository()) }
             val sseClient = createClient { install(ClientSSE) }
@@ -396,17 +398,17 @@ class TagScopeSseEventsTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         val retagged = itemA.copy(tags = "beta")
                         val updateResult = provider.workItemRepository().update(retagged)
-                        check(updateResult is Result.Success) { "fixture retag failed: $updateResult" }
-                        bus.publish(bus.buildEvent(ApiEventType.NOTE_UPSERTED, itemId = itemA.id, modifiedAt = Instant.now()), emptySet())
+                        check(updateResult != null) { "fixture retag failed: $updateResult" }
+                        bus.emit(ApiEventType.NOTE_UPSERTED, itemId = itemA.id)
                     }
                     sseClient.sse(
                         urlString = "/events",
                         request = {
                             header(HttpHeaders.Authorization, "Bearer $TOKEN")
-                            header("Last-Event-ID", "0")
+                            header("Last-Event-ID", FROM_START)
                         },
                     ) {
                         collected.addAll(collectWithin(incoming))
@@ -426,10 +428,10 @@ class TagScopeSseEventsTest {
     @Test
     fun `S7a - a whitespace-padded csv tag element matches by exact trimmed value`(): Unit =
         testApplication {
-            val provider = buildH2RepositoryProvider()
-            val bus = ApiEventBus()
+            val provider = db.repositoryProvider()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val itemSpaced = createItem(provider, tags = " alpha , beta ")
-            bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemSpaced.id, modifiedAt = Instant.now()), emptySet())
+            bus.emit(ApiEventType.ITEM_CREATED, itemId = itemSpaced.id)
 
             application { wireEventsRoute(bus, tokenEntries(TOKEN, tagsInclude = setOf("alpha")), provider.workItemRepository()) }
             val sseClient = createClient { install(ClientSSE) }
@@ -440,7 +442,7 @@ class TagScopeSseEventsTest {
                     urlString = "/events",
                     request = {
                         header(HttpHeaders.Authorization, "Bearer $TOKEN")
-                        header("Last-Event-ID", "0")
+                        header("Last-Event-ID", FROM_START)
                     },
                 ) {
                     collected.addAll(collectWithin(incoming))
@@ -457,8 +459,8 @@ class TagScopeSseEventsTest {
     @Test
     fun `S7b - null, empty, and superstring tags are all excluded from a tag-scoped subscription`(): Unit =
         testApplication {
-            val provider = buildH2RepositoryProvider()
-            val bus = ApiEventBus()
+            val provider = db.repositoryProvider()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val itemNull = createItem(provider, tags = null)
             val itemEmpty = createItem(provider, tags = "")
             // "alphabet" is a superstring of "alpha" -- membership must be exact, never substring/prefix.
@@ -470,17 +472,16 @@ class TagScopeSseEventsTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         listOf(itemNull, itemEmpty, itemSuperstring).forEach {
-                            bus.publish(bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = it.id, modifiedAt = Instant.now()), emptySet())
-                            delay(60L)
+                            bus.emit(ApiEventType.ITEM_UPDATED, itemId = it.id)
                         }
                     }
                     sseClient.sse(
                         urlString = "/events",
                         request = {
                             header(HttpHeaders.Authorization, "Bearer $TOKEN")
-                            header("Last-Event-ID", "0")
+                            header("Last-Event-ID", FROM_START)
                         },
                     ) {
                         collected.addAll(collectWithin(incoming))
@@ -500,10 +501,10 @@ class TagScopeSseEventsTest {
     @Test
     fun `S8 - bus-level events with no itemId reach a tag-scoped connection, live and replayed`(): Unit =
         testApplication {
-            val provider = buildH2RepositoryProvider()
-            val bus = ApiEventBus()
-            // Pre-buffer one bus-level sentinel so Last-Event-ID=0 must replay it.
-            bus.publish(bus.buildEvent(ApiEventType.SYNC_LOST), emptySet())
+            val provider = db.repositoryProvider()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
+            // P8: control events are never stored, so the "replayed" bus-level event is now the replay-gap
+            // sentinel itself: Last-Event-ID 0 is an old ring-buffer id, answered with sync.lost unknown_event_id.
 
             application { wireEventsRoute(bus, tokenEntries(TOKEN, tagsInclude = setOf("alpha")), provider.workItemRepository()) }
             val sseClient = createClient { install(ClientSSE) }
@@ -512,8 +513,8 @@ class TagScopeSseEventsTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
-                        bus.publish(bus.buildEvent(ApiEventType.SYNC_LOST), emptySet())
+                        bus.awaitSubscribers()
+                        bus.publish(bus.buildEvent(ApiEventType.SYNC_LOST))
                     }
                     sseClient.sse(
                         urlString = "/events",
@@ -522,7 +523,7 @@ class TagScopeSseEventsTest {
                             header("Last-Event-ID", "0")
                         },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        collected.addAll(incoming.collectUntil({ decode(it) }) { it.size >= 2 })
                     }
                 }
             }
@@ -540,9 +541,9 @@ class TagScopeSseEventsTest {
     // -------------------------------------------------------------------------------------------
 
     @Test
-    fun `S9a - a tag-scoped subscription is refused with 403 insufficient_scope when no repository is wired`() =
+    fun `S9a - a tag-scoped subscription is refused with 403 forbidden when no repository is wired`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application { wireEventsRoute(bus, tokenEntries(TOKEN, tagsInclude = setOf("alpha")), workItemRepository = null) }
 
             val response = client.get("/events") { header(HttpHeaders.Authorization, "Bearer $TOKEN") }
@@ -553,13 +554,16 @@ class TagScopeSseEventsTest {
                 "S9a: tag-scoped token + no repository wired must fail closed with 403, not stream unfiltered",
             )
             val body = response.bodyAsText()
-            assertTrue(body.contains("insufficient_scope"), "S9a: 403 body must report insufficient_scope. Got: $body")
+            assertTrue(
+                body.contains("\"forbidden\"") && body.contains("\"scope\":\"tag\""),
+                "S9a: 403 body must be forbidden {scope: tag}. Got: $body"
+            )
         }
 
     @Test
     fun `S9b - an unscoped subscription still streams 200 when no repository is wired`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application { wireEventsRoute(bus, tokenEntries(TOKEN, tagsInclude = emptySet()), workItemRepository = null) }
             val sseClient = createClient { install(ClientSSE) }
 
@@ -567,20 +571,17 @@ class TagScopeSseEventsTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
-                        bus.publish(
-                            bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now()),
-                            emptySet()
-                        )
+                        bus.awaitSubscribers()
+                        bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
                     }
                     sseClient.sse(
                         urlString = "/events",
                         request = {
                             header(HttpHeaders.Authorization, "Bearer $TOKEN")
-                            header("Last-Event-ID", "0")
+                            header("Last-Event-ID", FROM_START)
                         },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        collected.addAll(incoming.collectUntil({ decode(it) }) { it.isNotEmpty() })
                     }
                 }
             }
@@ -594,8 +595,8 @@ class TagScopeSseEventsTest {
     @Test
     fun `S10 - combined rootIds and tags_include scope requires both dimensions to match`(): Unit =
         testApplication {
-            val provider = buildH2RepositoryProvider()
-            val bus = ApiEventBus()
+            val provider = db.repositoryProvider()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val root1 = UUID.randomUUID()
             val root2 = UUID.randomUUID()
 
@@ -616,30 +617,19 @@ class TagScopeSseEventsTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
-                        bus.publish(
-                            bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = wrongTagInRoot.id, modifiedAt = Instant.now()),
-                            setOf(root1),
-                        )
-                        delay(60L)
-                        bus.publish(
-                            bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = rightTagOutOfRoot.id, modifiedAt = Instant.now()),
-                            setOf(root2),
-                        )
-                        delay(60L)
-                        bus.publish(
-                            bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = bothMatch.id, modifiedAt = Instant.now()),
-                            setOf(root1),
-                        )
+                        bus.awaitSubscribers()
+                        bus.emit(ApiEventType.ITEM_UPDATED, itemId = wrongTagInRoot.id, rootId = root1)
+                        bus.emit(ApiEventType.ITEM_UPDATED, itemId = rightTagOutOfRoot.id, rootId = root2)
+                        bus.emit(ApiEventType.ITEM_UPDATED, itemId = bothMatch.id, rootId = root1)
                     }
                     sseClient.sse(
                         urlString = "/events",
                         request = {
                             header(HttpHeaders.Authorization, "Bearer $TOKEN")
-                            header("Last-Event-ID", "0")
+                            header("Last-Event-ID", FROM_START)
                         },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        collected.addAll(incoming.collectUntil({ decode(it) }) { it.any { e -> e.itemId == bothMatch.id.toString() } })
                     }
                 }
             }
@@ -658,8 +648,8 @@ class TagScopeSseEventsTest {
     @Test
     fun `S11 - item_deleted for an item that was in scope before deletion is dropped (documented gap)`(): Unit =
         testApplication {
-            val provider = buildH2RepositoryProvider()
-            val bus = ApiEventBus()
+            val provider = db.repositoryProvider()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val itemA = createItem(provider, tags = "alpha")
             application { wireEventsRoute(bus, tokenEntries(TOKEN, tagsInclude = setOf("alpha")), provider.workItemRepository()) }
             val sseClient = createClient { install(ClientSSE) }
@@ -668,16 +658,16 @@ class TagScopeSseEventsTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
+                        bus.awaitSubscribers()
                         val deleteResult = provider.workItemRepository().delete(itemA.id)
-                        check(deleteResult is Result.Success) { "fixture delete failed: $deleteResult" }
-                        bus.publish(bus.buildEvent(ApiEventType.ITEM_DELETED, itemId = itemA.id, modifiedAt = Instant.now()), emptySet())
+                        check(deleteResult != null) { "fixture delete failed: $deleteResult" }
+                        bus.emit(ApiEventType.ITEM_DELETED, itemId = itemA.id)
                     }
                     sseClient.sse(
                         urlString = "/events",
                         request = {
                             header(HttpHeaders.Authorization, "Bearer $TOKEN")
-                            header("Last-Event-ID", "0")
+                            header("Last-Event-ID", FROM_START)
                         },
                     ) {
                         collected.addAll(collectWithin(incoming))

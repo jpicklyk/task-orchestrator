@@ -1,23 +1,25 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.config.NoOpStatusLabelService
+import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
+import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.buildH2RepositoryProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.installMcpStreamableHttp
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpAuthMode
+import io.github.jpicklyk.mcptask.current.test.get
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -41,7 +43,7 @@ import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import java.time.Instant
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
 import io.ktor.client.plugins.sse.SSE as ClientSSE
@@ -66,6 +68,9 @@ import io.ktor.client.plugins.sse.SSE as ClientSSE
  * Per the frozen `test-plan` note, S-ids are stable identifiers -- do not renumber.
  */
 class SseAuthFullWiringTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     companion object {
         private const val VALID_TOKEN = "sse-full-wiring-valid-token"
         private const val NO_CAP_TOKEN = "sse-full-wiring-nocap-token"
@@ -79,22 +84,31 @@ class SseAuthFullWiringTest {
      * [GARBAGE_TOKEN] is deliberately absent from both maps for the S5 401 case. */
     private fun bearerConfig(): Pair<ApiAuthConfig.Bearer, Map<HashBytes, BearerTokenStore.TokenEntry>> {
         val readPrincipal =
-            ApiPrincipal(
-                tokenId = "sse-full-wiring-read",
-                scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+            Principal(
+                id = "sse-full-wiring-read",
+                scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
                 capabilities = setOf(ApiCapability.READ),
-                authMode = ApiAuthMode.BEARER,
+                kind = PrincipalKind.SERVICE,
+                proofStatus = ProofStatus.ISSUED,
             )
         val noCapPrincipal =
-            ApiPrincipal(
-                tokenId = "sse-full-wiring-nocap",
-                scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+            Principal(
+                id = "sse-full-wiring-nocap",
+                scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
                 capabilities = setOf(ApiCapability.WRITE_ITEMS),
-                authMode = ApiAuthMode.BEARER,
+                kind = PrincipalKind.SERVICE,
+                proofStatus = ProofStatus.ISSUED,
             )
         val readKey = HashBytes(sha256(VALID_TOKEN))
         val noCapKey = HashBytes(sha256(NO_CAP_TOKEN))
-        val config = ApiAuthConfig.Bearer(tokens = mapOf(readKey to readPrincipal, noCapKey to noCapPrincipal))
+        val config =
+            ApiAuthConfig.Bearer(
+                tokens =
+                    mapOf(
+                        readKey to BearerTokenStore.TokenEntry(readPrincipal, expiresAt = null),
+                        noCapKey to BearerTokenStore.TokenEntry(noCapPrincipal, expiresAt = null),
+                    ),
+            )
         val entries =
             mapOf(
                 readKey to BearerTokenStore.TokenEntry(readPrincipal, expiresAt = null),
@@ -120,7 +134,7 @@ class SseAuthFullWiringTest {
         tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry>,
         allowQueryToken: Boolean,
     ) {
-        installMcpStreamableHttp(emptyServer())
+        installMcpStreamableHttp(emptyServer(), appConfig = AppConfig.fromEnv(), mcpAuth = McpAuthMode.Local)
         installRestApiRoutes(
             apiConfig = apiConfig,
             eventBus = bus,
@@ -129,17 +143,15 @@ class SseAuthFullWiringTest {
             allowQueryToken = allowQueryToken,
             serverName = "sse-full-wiring-test",
             serverVersion = "1.0.0",
-            actorAuthEnabled = false,
-            noteSchemaService = NoOpNoteSchemaService,
+            serverConfig = ServerConfigSource { null },
             toolContext =
                 ToolExecutionContext(
                     provider,
-                    NoOpNoteSchemaService,
-                    statusLabelService = YamlStatusLabelService(),
-                    perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                    statusLabelService = NoOpStatusLabelService,
+                    perRootConfigService = PerRootConfigService(provider.configStore()),
+                    unitOfWork = db.unitOfWork()
                 ),
-            degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
-            idempotencyCache = IdempotencyCache(),
+            appConfig = AppConfig.fromEnv(),
         )
     }
 
@@ -151,19 +163,19 @@ class SseAuthFullWiringTest {
     fun `S1 - allowQueryToken enabled, valid token in query, no Authorization header, connects and delivers event`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
-            val provider = buildH2RepositoryProvider()
-            val bus = ApiEventBus()
+            val provider = db.repositoryProvider()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application { wireProd(apiConfig, bus, provider, entries, allowQueryToken = true) }
 
             val itemId = UUID.randomUUID()
-            bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemId, modifiedAt = Instant.now()), emptySet())
+            bus.emit(ApiEventType.ITEM_CREATED, itemId = itemId)
 
             val sseClient = createClient { install(ClientSSE) }
             val collected = mutableListOf<String>()
             withTimeout(10.seconds) {
                 sseClient.sse(
                     urlString = "/api/v1/events?token=$VALID_TOKEN",
-                    request = { header("Last-Event-ID", "0") },
+                    request = { header("Last-Event-ID", FROM_START) },
                 ) {
                     incoming.take(1).toList().forEach { collected.add(it.event ?: "") }
                 }
@@ -178,12 +190,12 @@ class SseAuthFullWiringTest {
     fun `S2 - bearer mode with Authorization header and no query token connects and delivers event`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
-            val provider = buildH2RepositoryProvider()
-            val bus = ApiEventBus()
+            val provider = db.repositoryProvider()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application { wireProd(apiConfig, bus, provider, entries, allowQueryToken = false) }
 
             val itemId = UUID.randomUUID()
-            bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemId, modifiedAt = Instant.now()), emptySet())
+            bus.emit(ApiEventType.ITEM_CREATED, itemId = itemId)
 
             val sseClient = createClient { install(ClientSSE) }
             val collected = mutableListOf<String>()
@@ -192,7 +204,7 @@ class SseAuthFullWiringTest {
                     urlString = "/api/v1/events",
                     request = {
                         header(HttpHeaders.Authorization, "Bearer $VALID_TOKEN")
-                        header("Last-Event-ID", "0")
+                        header("Last-Event-ID", FROM_START)
                     },
                 ) {
                     incoming.take(1).toList().forEach { collected.add(it.event ?: "") }
@@ -207,17 +219,17 @@ class SseAuthFullWiringTest {
     @Test
     fun `S3 - unauthenticated mode wiring connects to SSE with no credentials at all`(): Unit =
         testApplication {
-            val provider = buildH2RepositoryProvider()
-            val bus = ApiEventBus()
+            val provider = db.repositoryProvider()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application { wireProd(ApiAuthConfig.Unauthenticated, bus, provider, emptyMap(), allowQueryToken = false) }
 
             val itemId = UUID.randomUUID()
-            bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemId, modifiedAt = Instant.now()), emptySet())
+            bus.emit(ApiEventType.ITEM_CREATED, itemId = itemId)
 
             val sseClient = createClient { install(ClientSSE) }
             val collected = mutableListOf<String>()
             withTimeout(10.seconds) {
-                sseClient.sse(urlString = "/api/v1/events", request = { header("Last-Event-ID", "0") }) {
+                sseClient.sse(urlString = "/api/v1/events", request = { header("Last-Event-ID", FROM_START) }) {
                     incoming.take(1).toList().forEach { collected.add(it.event ?: "") }
                 }
             }
@@ -232,10 +244,18 @@ class SseAuthFullWiringTest {
     // -------------------------------------------------------------------------------------------
 
     @Test
-    fun `S4 - allowQueryToken false rejects a query-token-only request with 401`() =
+    fun `S4 - allowQueryToken false rejects a query-token-only request with 401`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
-            application { wireProd(apiConfig, ApiEventBus(), buildH2RepositoryProvider(), entries, allowQueryToken = false) }
+            application {
+                wireProd(
+                    apiConfig,
+                    ApiEventBus(source = db.repositoryProvider().eventStore()),
+                    db.repositoryProvider(),
+                    entries,
+                    allowQueryToken = false
+                )
+            }
             assertEquals(
                 HttpStatusCode.Unauthorized,
                 client.get("/api/v1/events?token=$VALID_TOKEN").status,
@@ -244,19 +264,35 @@ class SseAuthFullWiringTest {
         }
 
     @Test
-    fun `S5 - allowQueryToken true with an unknown garbage token returns 401`() =
+    fun `S5 - allowQueryToken true with an unknown garbage token returns 401`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
-            application { wireProd(apiConfig, ApiEventBus(), buildH2RepositoryProvider(), entries, allowQueryToken = true) }
+            application {
+                wireProd(
+                    apiConfig,
+                    ApiEventBus(source = db.repositoryProvider().eventStore()),
+                    db.repositoryProvider(),
+                    entries,
+                    allowQueryToken = true
+                )
+            }
             val response = client.get("/api/v1/events?token=$GARBAGE_TOKEN")
             assertEquals(HttpStatusCode.Unauthorized, response.status, "S5: an unrecognized query token must 401, not 200")
         }
 
     @Test
-    fun `S6 - a query token must not leak authentication onto a non-SSE route`() =
+    fun `S6 - a query token must not leak authentication onto a non-SSE route`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
-            application { wireProd(apiConfig, ApiEventBus(), buildH2RepositoryProvider(), entries, allowQueryToken = true) }
+            application {
+                wireProd(
+                    apiConfig,
+                    ApiEventBus(source = db.repositoryProvider().eventStore()),
+                    db.repositoryProvider(),
+                    entries,
+                    allowQueryToken = true
+                )
+            }
             val response = client.get("/api/v1/items?token=$VALID_TOKEN")
             assertEquals(
                 HttpStatusCode.Unauthorized,
@@ -266,10 +302,18 @@ class SseAuthFullWiringTest {
         }
 
     @Test
-    fun `S7 - no credential - items 401, health 200, mcp initialize is not gated by the REST bearer check`() =
+    fun `S7 - no credential - items 401, health 200, mcp initialize is not gated by the REST bearer check`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
-            application { wireProd(apiConfig, ApiEventBus(), buildH2RepositoryProvider(), entries, allowQueryToken = false) }
+            application {
+                wireProd(
+                    apiConfig,
+                    ApiEventBus(source = db.repositoryProvider().eventStore()),
+                    db.repositoryProvider(),
+                    entries,
+                    allowQueryToken = false
+                )
+            }
 
             assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/items").status, "S7: /api/v1/items requires auth")
             assertEquals(HttpStatusCode.OK, client.get("/api/v1/health").status, "S7: /api/v1/health stays public")
@@ -292,10 +336,18 @@ class SseAuthFullWiringTest {
     // -------------------------------------------------------------------------------------------
 
     @Test
-    fun `S8 - a query token lacking READ or ADMIN returns 403`() =
+    fun `S8 - a query token lacking READ or ADMIN returns 403`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
-            application { wireProd(apiConfig, ApiEventBus(), buildH2RepositoryProvider(), entries, allowQueryToken = true) }
+            application {
+                wireProd(
+                    apiConfig,
+                    ApiEventBus(source = db.repositoryProvider().eventStore()),
+                    db.repositoryProvider(),
+                    entries,
+                    allowQueryToken = true
+                )
+            }
             val response = client.get("/api/v1/events?token=$NO_CAP_TOKEN")
             assertEquals(HttpStatusCode.Forbidden, response.status, "S8: sec.21 'Requires READ or ADMIN capability'")
         }
@@ -304,20 +356,20 @@ class SseAuthFullWiringTest {
     fun `S9 - valid query token with root and types params still authenticates - path matched, query ignored`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
-            val provider = buildH2RepositoryProvider()
-            val bus = ApiEventBus()
+            val provider = db.repositoryProvider()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application { wireProd(apiConfig, bus, provider, entries, allowQueryToken = true) }
 
             val root = UUID.randomUUID()
             val itemId = UUID.randomUUID()
-            bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemId, modifiedAt = Instant.now()), setOf(root))
+            bus.emit(ApiEventType.ITEM_CREATED, itemId = itemId, rootId = root)
 
             val sseClient = createClient { install(ClientSSE) }
             val collected = mutableListOf<String>()
             withTimeout(10.seconds) {
                 sseClient.sse(
                     urlString = "/api/v1/events?token=$VALID_TOKEN&root=$root&types=item.created",
-                    request = { header("Last-Event-ID", "0") },
+                    request = { header("Last-Event-ID", FROM_START) },
                 ) {
                     incoming.take(1).toList().forEach { collected.add(it.event ?: "") }
                 }
@@ -330,10 +382,18 @@ class SseAuthFullWiringTest {
         }
 
     @Test
-    fun `S10 - empty, absent, and whitespace token values all 401 when the flag is on`() =
+    fun `S10 - empty, absent, and whitespace token values all 401 when the flag is on`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
-            application { wireProd(apiConfig, ApiEventBus(), buildH2RepositoryProvider(), entries, allowQueryToken = true) }
+            application {
+                wireProd(
+                    apiConfig,
+                    ApiEventBus(source = db.repositoryProvider().eventStore()),
+                    db.repositoryProvider(),
+                    entries,
+                    allowQueryToken = true
+                )
+            }
 
             assertEquals(
                 HttpStatusCode.Unauthorized,
@@ -357,10 +417,18 @@ class SseAuthFullWiringTest {
     // -------------------------------------------------------------------------------------------
 
     @Test
-    fun `probe - eventsfoo and events2 do not inherit the events publicPaths exemption`() =
+    fun `probe - eventsfoo and events2 do not inherit the events publicPaths exemption`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
-            application { wireProd(apiConfig, ApiEventBus(), buildH2RepositoryProvider(), entries, allowQueryToken = false) }
+            application {
+                wireProd(
+                    apiConfig,
+                    ApiEventBus(source = db.repositoryProvider().eventStore()),
+                    db.repositoryProvider(),
+                    entries,
+                    allowQueryToken = false
+                )
+            }
             assertEquals(
                 HttpStatusCode.Unauthorized,
                 client.get("/api/v1/eventsfoo").status,
@@ -374,10 +442,18 @@ class SseAuthFullWiringTest {
         }
 
     @Test
-    fun `probe - trailing slash on the events path is not silently exempted`() =
+    fun `probe - trailing slash on the events path is not silently exempted`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
-            application { wireProd(apiConfig, ApiEventBus(), buildH2RepositoryProvider(), entries, allowQueryToken = false) }
+            application {
+                wireProd(
+                    apiConfig,
+                    ApiEventBus(source = db.repositoryProvider().eventStore()),
+                    db.repositoryProvider(),
+                    entries,
+                    allowQueryToken = false
+                )
+            }
             val response = client.get("/api/v1/events/")
             assertTrue(
                 response.status != HttpStatusCode.OK,
@@ -389,11 +465,11 @@ class SseAuthFullWiringTest {
     fun `probe - BEARER uppercase scheme is accepted - RFC 7235 auth-scheme tokens are case-insensitive`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
-            val provider = buildH2RepositoryProvider()
-            val bus = ApiEventBus()
+            val provider = db.repositoryProvider()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application { wireProd(apiConfig, bus, provider, entries, allowQueryToken = false) }
 
-            bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now()), emptySet())
+            bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
 
             val sseClient = createClient { install(ClientSSE) }
             val collected = mutableListOf<String>()
@@ -402,7 +478,7 @@ class SseAuthFullWiringTest {
                     urlString = "/api/v1/events",
                     request = {
                         header(HttpHeaders.Authorization, "BEARER $VALID_TOKEN")
-                        header("Last-Event-ID", "0")
+                        header("Last-Event-ID", FROM_START)
                     },
                 ) {
                     incoming.take(1).toList().forEach { collected.add(it.event ?: "") }
@@ -415,10 +491,18 @@ class SseAuthFullWiringTest {
         }
 
     @Test
-    fun `probe - percent-encoded events path still enforces auth - no path-decoding bypass`() =
+    fun `probe - percent-encoded events path still enforces auth - no path-decoding bypass`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
-            application { wireProd(apiConfig, ApiEventBus(), buildH2RepositoryProvider(), entries, allowQueryToken = false) }
+            application {
+                wireProd(
+                    apiConfig,
+                    ApiEventBus(source = db.repositoryProvider().eventStore()),
+                    db.repositoryProvider(),
+                    entries,
+                    allowQueryToken = false
+                )
+            }
             // %65 decodes to 'e' -- this path is byte-for-byte "/api/v1/events" once decoded.
             val response = client.get("/api/v1/%65vents")
             assertEquals(
@@ -432,7 +516,15 @@ class SseAuthFullWiringTest {
     fun `probe - duplicate token query params resolve deterministically without hanging or crashing`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
-            application { wireProd(apiConfig, ApiEventBus(), buildH2RepositoryProvider(), entries, allowQueryToken = true) }
+            application {
+                wireProd(
+                    apiConfig,
+                    ApiEventBus(source = db.repositoryProvider().eventStore()),
+                    db.repositoryProvider(),
+                    entries,
+                    allowQueryToken = true
+                )
+            }
             // sec.21 does not document a resolution order for repeated ?token= params, so this probe
             // only guards against a crash or an indefinite hang -- not a specific winner. If the
             // garbage token wins, the call returns a fast 401. If the valid token wins, the request
@@ -449,10 +541,18 @@ class SseAuthFullWiringTest {
         }
 
     @Test
-    fun `probe - health with a query string stays public`() =
+    fun `probe - health with a query string stays public`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
-            application { wireProd(apiConfig, ApiEventBus(), buildH2RepositoryProvider(), entries, allowQueryToken = false) }
+            application {
+                wireProd(
+                    apiConfig,
+                    ApiEventBus(source = db.repositoryProvider().eventStore()),
+                    db.repositoryProvider(),
+                    entries,
+                    allowQueryToken = false
+                )
+            }
             assertEquals(
                 HttpStatusCode.OK,
                 client.get("/api/v1/health?x=1").status,
@@ -464,14 +564,12 @@ class SseAuthFullWiringTest {
     fun `probe - Last-Event-ID reconnect replays correctly over the query-token SSE path`(): Unit =
         testApplication {
             val (apiConfig, entries) = bearerConfig()
-            val provider = buildH2RepositoryProvider()
-            val bus = ApiEventBus()
+            val provider = db.repositoryProvider()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application { wireProd(apiConfig, bus, provider, entries, allowQueryToken = true) }
 
-            val e1 = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
-            bus.publish(e1, emptySet())
-            val e2 = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
-            bus.publish(e2, emptySet())
+            val e1 = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
+            val e2 = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
 
             val sseClient = createClient { install(ClientSSE) }
             val collected = mutableListOf<ApiEvent>()

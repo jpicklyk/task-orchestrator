@@ -18,13 +18,13 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
  * schema entries are still missing for the relevant trigger, and (2) (A2) which independent_of
  * independence-attestation violations exist for the relevant trigger.
  *
- * Two trigger semantics mirror the historical inline logic in AdvanceItemTool:
+ * Two trigger semantics:
  * - start: only required notes for the item's CURRENT role must be filled.
  * - complete (and cascade-to-terminal): ALL required notes across ALL phases must be filled.
  *
  * The function returns the structured list of missing [NoteSchemaEntry] objects (preserving key,
  * description, guidance, and skill), so each caller can build its own response shape
- * (MCP JSON missingNotes array, or REST gateMissingNotes DTO). No JSON is produced here.
+ * (the `missing` array of a `gate_blocked` detail or of `items_read` `select=context`). No JSON is produced here.
  *
  * A note is "filled" when it exists with a non-blank body -- see [filledNoteKeys].
  */
@@ -39,8 +39,8 @@ object GatePredicate {
 
     /**
      * Compute the set of note keys that count as "filled" -- i.e. notes that exist with a
-     * non-blank body. This is the single source of truth for fill-check logic, matching
-     * NoteSchemaJsonHelpers.buildFilledKeys.
+     * non-blank body. This is the single source of truth for fill-check logic (AR-92: the one
+     * predicate every gate, preview and phase-note view uses).
      */
     fun filledNoteKeys(notes: List<Note>): Set<String> = notes.filter { it.body.isNotBlank() }.map { it.key }.toSet()
 
@@ -211,10 +211,17 @@ object GatePredicate {
     }
 
     /**
-     * Identity of a note: verification.proofClaims.sub when verification.status == VERIFIED
-     * and that sub is non-null, else actorClaim.id (may be null when the note is actor-less).
+     * Identity of a note: the attribution pair (principal identity, seat). The principal identity is
+     * verification.proofClaims.sub when the verification is a cryptographic proof (`status == VERIFIED`) and that sub is
+     * non-null, else actorClaim.id (may be null when the note is actor-less); the seat is the attribution seat of the
+     * note's latest write ([Note.seat], R22), null for a write made without a seat token. Ownership (`ownerId`,
+     * `ownerSeat`) is never read here. Two notes of one principal written under
+     * different seats are different identities; a token-less note and a seat note of the same principal are different
+     * pairs too (strict enforcement of that gap is R23's seat gate).
      */
-    private fun identityOf(note: Note): String? {
+    private fun identityOf(note: Note): Pair<String?, String?> = principalIdentityOf(note) to note.seat
+
+    private fun principalIdentityOf(note: Note): String? {
         val verification = note.verification
         if (verification != null && verification.status == VerificationStatus.VERIFIED) {
             verification.proofClaims?.sub?.let { return it }
@@ -222,6 +229,12 @@ object GatePredicate {
         return note.actorClaim?.id
     }
 
+    /**
+     * True only for a cryptographic proof. A note's stored status is [VerificationStatus.VERIFIED] exactly when its
+     * proof status is `verified` (the stored vocabulary does not distinguish `verified_stale`, and the audit
+     * records a stale-verified principal as VERIFIED); `issued` (a server-issued token: UNCHECKED, `api-bearer`),
+     * `none` and `rejected` are all unverified, on purpose: attestation wants cryptographic proof.
+     */
     private fun isVerified(note: Note): Boolean = note.verification?.status == VerificationStatus.VERIFIED
 
     /** True when [body]'s first line, CR-stripped and trimmed, equals [TEMPORAL_ONLY_WAIVER] exactly. */

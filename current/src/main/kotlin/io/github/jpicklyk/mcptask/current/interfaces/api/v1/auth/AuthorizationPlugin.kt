@@ -1,19 +1,18 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth
 
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.ktor.http.HttpStatusCode
-import io.ktor.server.application.ApplicationCall
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.configName
+import io.github.jpicklyk.mcptask.current.application.api.grants
+import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
+import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelopeError
 import io.ktor.server.application.createRouteScopedPlugin
 import io.ktor.server.application.install
-import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.RouteSelector
 import io.ktor.server.routing.RouteSelectorEvaluation
 import io.ktor.server.routing.RoutingResolveContext
 import org.slf4j.LoggerFactory
-import java.util.UUID
 
 private val authzLogger = LoggerFactory.getLogger("ApiAuthorization")
 
@@ -28,34 +27,18 @@ private fun makeCapabilityPlugin(cap: ApiCapability) =
     createRouteScopedPlugin("RequireCapability-$cap", ::CapabilityPluginConfig) {
         pluginConfig.requiredCapability = cap
         onCall { call ->
-            val principal = call.attributes.getOrNull(ApiPrincipalKey)
-            if (principal == null) {
-                call.respond(
-                    HttpStatusCode.Unauthorized,
-                    mapOf("error" to "unauthenticated", "error_description" to "No authenticated principal"),
-                )
-                return@onCall
-            }
+            val principal = call.apiPrincipal()
 
-            val allowed =
-                principal.capabilities.contains(ApiCapability.ADMIN) ||
-                    principal.capabilities.contains(pluginConfig.requiredCapability)
+            val allowed = principal.capabilities.grants(pluginConfig.requiredCapability)
 
             if (!allowed) {
                 authzLogger.debug(
                     "Access denied: tokenId='{}' requires {} but has {}",
-                    principal.tokenId,
+                    principal.id,
                     pluginConfig.requiredCapability,
                     principal.capabilities,
                 )
-                call.respond(
-                    HttpStatusCode.Forbidden,
-                    mapOf(
-                        "error" to "insufficient_scope",
-                        "error_description" to
-                            "Required capability: ${pluginConfig.requiredCapability.name.lowercase().replace('_', '-')}",
-                    ),
-                )
+                call.respondEnvelopeError(ScopeGuard.forbidden(ForbiddenScope.CAPABILITY, pluginConfig.requiredCapability.configName()))
                 return@onCall
             }
         }
@@ -84,8 +67,8 @@ private class CapabilityRouteSelector(
 // Route-level DSL helper that enforces a required ApiCapability before delegating to build.
 //
 // Wraps build() in a fresh transparent child route carrying a route-scoped plugin that
-// checks the resolved ApiPrincipal has cap (or ADMIN). Returns 403 Forbidden on failure,
-// 401 when unauthenticated.
+// checks the resolved Principal has cap (or ADMIN). Answers 403 `forbidden` {scope: capability,
+// required: <cap>} on failure (as the tool dispatcher does), 401 `unauthenticated` when there is no principal.
 //
 // Usage:
 //   requireCapability(ApiCapability.READ) {
@@ -103,248 +86,4 @@ fun Route.requireCapability(
     child.install(makeCapabilityPlugin(cap))
     child.build()
     return child
-}
-
-// Parses a WorkItem's comma-separated `tags` column into a trimmed, non-empty tag set.
-//
-// Null/blank input yields the empty set. Whitespace around each element is trimmed
-// (" alpha , beta " -> {"alpha", "beta"}) and empty elements are dropped, matching the
-// CSV convention used everywhere else in the item layer.
-private fun parseItemTagCsv(tags: String?): Set<String> =
-    tags
-        ?.split(",")
-        ?.map { it.trim() }
-        ?.filter { it.isNotEmpty() }
-        ?.toSet()
-        ?: emptySet()
-
-/**
- * Single source of truth for the `tags_include` half of scope enforcement.
- *
- * Returns true when a principal with this scope is allowed to see an item whose `tags`
- * column is [tags]. The rule mirrors [ApiScope]: `tagsInclude` applies to the item itself
- * (it never walks the ancestor chain), membership is exact (no prefix/substring matching),
- * and an EMPTY `tagsInclude` means "no tag constraint" -- so an unscoped or null principal
- * always returns true.
- *
- * This is the predicate every read route must apply to items it did not already push through
- * [enforceScopeForItem]: list rows, tree/children descendants, breadcrumb ancestors, search
- * hits and transition subjects. Before it existed each route hand-rolled the same CSV split,
- * and five of them simply forgot to -- letting a tag-scoped token read out-of-scope data.
- */
-fun ApiPrincipal?.allowsItemTags(tags: String?): Boolean {
-    val tagsInclude = this?.scope?.tagsInclude ?: emptySet()
-    if (tagsInclude.isEmpty()) return true
-    return parseItemTagCsv(tags).any { it in tagsInclude }
-}
-
-/**
- * True when this principal carries a non-empty `tags_include` allowlist.
- *
- * Routes use this as the branch guard so that non-tag-scoped callers take exactly the code
- * path they took before tag filtering existed -- identical queries, identical totals.
- */
-fun ApiPrincipal?.hasTagScope(): Boolean = !this?.scope?.tagsInclude.isNullOrEmpty()
-
-/**
- * True when this principal's `root_ids` scope admits [id] as a ROOT item, i.e. an item whose
- * ancestor chain is just itself. An unrestricted principal (`rootIds = null`) always may; a
- * root-restricted one only when [id] is itself a listed root -- never for a server-generated id,
- * so a root-restricted principal can neither create a root nor move an unlisted item to root.
- */
-fun ApiPrincipal.mayHoldRoot(id: UUID): Boolean = scope.rootIds?.contains(id) ?: true
-
-/**
- * Drops every item the principal's `tags_include` allowlist excludes.
- *
- * A no-op (returns the receiver unchanged) when the principal has no tag scope.
- */
-fun List<WorkItem>.filterByTagScope(principal: ApiPrincipal?): List<WorkItem> =
-    if (!principal.hasTagScope()) this else filter { principal.allowsItemTags(it.tags) }
-
-/**
- * Resolves which of [itemIds] the principal's tag scope admits.
- *
- * For surfaces that carry only an item id and not its tags -- search hits (`SearchHitDto`
- * exposes `itemId` alone) and transition rows -- so the tags have to be looked up before the
- * rows can be filtered.
- *
- * Returns [itemIds] unchanged, with no DB round-trip, when the principal has no tag scope.
- * Fails CLOSED on a lookup failure: an id whose tags could not be read is not returned, since
- * the alternative is handing out rows nobody verified.
- */
-suspend fun allowedItemIdsForTagScope(
-    principal: ApiPrincipal?,
-    itemIds: Set<UUID>,
-    repo: WorkItemRepository,
-): Set<UUID> {
-    if (!principal.hasTagScope() || itemIds.isEmpty()) return itemIds
-    return when (val result = repo.findByIds(itemIds)) {
-        is Result.Success ->
-            result.data
-                .filterByTagScope(principal)
-                .map { it.id }
-                .toSet()
-        is Result.Error -> {
-            authzLogger.warn(
-                "Tag scope filter: failed to load {} items for tag lookup: {}",
-                itemIds.size,
-                result.error.message,
-            )
-            emptySet()
-        }
-    }
-}
-
-/**
- * Resolves which of [itemIds] the principal's FULL scope admits -- both the `rootIds`
- * ancestor-chain rule and the `tagsInclude` predicate.
- *
- * For surfaces that carry only a counterparty item id and neither that item's ancestry nor
- * its tags -- backlink rows (`BacklinkRow.fromItemId`) and dependency edges (the far end of a
- * `Dependency`) -- so both have to be looked up before the rows can be filtered. This is the
- * batch counterpart to [enforceScopeForItem]: that function checks one subject item inline
- * against an [ApplicationCall]; this one checks a whole set of counterparty ids against a
- * principal directly, for routes that already scope-checked their subject item and now need
- * to filter the OTHER side of each row/edge.
- *
- * Applies the rootIds rule first via a single batch [WorkItemRepository.findAncestorChains]
- * call over all of [itemIds], then delegates the surviving ids to [allowedItemIdsForTagScope]
- * so the two rules can never drift apart.
- *
- * Returns [itemIds] unchanged, with ZERO DB round-trips, when the principal has neither a
- * `rootIds` restriction nor a `tagsInclude` restriction. Fails CLOSED on a lookup failure: an
- * id whose ancestry could not be read is not returned, mirroring [enforceScopeForItem]'s
- * error handling (deny rather than leak).
- */
-suspend fun allowedItemIdsForScope(
-    principal: ApiPrincipal?,
-    itemIds: Set<UUID>,
-    repo: WorkItemRepository,
-): Set<UUID> {
-    if (itemIds.isEmpty()) return itemIds
-
-    val rootIds = principal?.scope?.rootIds
-    if (rootIds == null && !principal.hasTagScope()) return itemIds
-
-    var candidates = itemIds
-
-    if (rootIds != null) {
-        val chainResult = repo.findAncestorChains(itemIds)
-        if (chainResult.isError()) {
-            authzLogger.warn(
-                "Scope filter: failed to fetch ancestor chains for {} items: {}",
-                itemIds.size,
-                (chainResult as Result.Error).error.message,
-            )
-            return emptySet()
-        }
-        val chains = chainResult.getOrNull()!!
-        candidates =
-            candidates.filterTo(mutableSetOf()) { itemId ->
-                val ancestors = chains[itemId] ?: emptyList()
-                val idsInChain = ancestors.map { it.id }.toSet() + itemId
-                idsInChain.any { it in rootIds }
-            }
-    }
-
-    return allowedItemIdsForTagScope(principal, candidates, repo)
-}
-
-// Scope-enforcement helper for individual item access.
-//
-// Checks whether itemId is accessible to the authenticated principal by walking its
-// ancestor chain. Returns true when access is allowed, false when the route should
-// respond with 403.
-//
-// Scope rules (section 4.5 of the plan):
-// 1. If principal.scope.rootIds is null -- unrestricted; access always granted.
-// 2. If principal.scope.rootIds is non-null -- the item (or any ancestor) must be one of
-//    the listed root UUIDs.
-// 3. If principal.scope.tagsInclude is non-empty -- the item must carry at least one of
-//    those tags (tag scope does NOT walk ancestors).
-//
-// Routes should respond 403 (not 404) when this returns false -- deliberately leaking
-// existence to avoid making scope a fuzzing oracle for callers with valid tokens.
-suspend fun enforceScopeForItem(
-    call: ApplicationCall,
-    itemId: UUID,
-    repo: WorkItemRepository,
-): Boolean {
-    val principal =
-        call.attributes.getOrNull(ApiPrincipalKey)
-            ?: run {
-                authzLogger.warn("enforceScopeForItem called without authenticated principal for itemId={}", itemId)
-                return false
-            }
-
-    val scope = principal.scope
-
-    // rootIds check -- walk ancestor chain
-    val rootIds = scope.rootIds
-    if (rootIds != null) {
-        val chainResult = repo.findAncestorChains(setOf(itemId))
-        if (chainResult.isError()) {
-            authzLogger.warn(
-                "Failed to fetch ancestor chain for itemId={}: {}",
-                itemId,
-                (chainResult as Result.Error).error.message,
-            )
-            return false
-        }
-        val chain = chainResult.getOrNull()!!
-        val ancestors = chain[itemId] ?: emptyList()
-        // The chain is root-first; itemId itself is NOT in the chain, so we add it manually.
-        val idsInChain = ancestors.map { it.id }.toSet() + itemId
-
-        if (idsInChain.none { it in rootIds }) {
-            authzLogger.debug(
-                "Scope denied: itemId={} not under any of rootIds={} for tokenId='{}'",
-                itemId,
-                rootIds,
-                principal.tokenId,
-            )
-            return false
-        }
-    }
-
-    // Tag scope check (item only -- no ancestor walk); delegates to the shared predicate
-    // so single-item access and collection filtering can never drift apart.
-    val tagsInclude = scope.tagsInclude
-    if (tagsInclude.isNotEmpty()) {
-        val itemResult = repo.getById(itemId)
-        if (itemResult.isError()) {
-            authzLogger.warn(
-                "Failed to fetch item {} for tag scope check: {}",
-                itemId,
-                (itemResult as Result.Error).error.message,
-            )
-            return false
-        }
-        val item: WorkItem = itemResult.getOrNull()!!
-
-        if (!principal.allowsItemTags(item.tags)) {
-            authzLogger.debug(
-                "Tag scope denied: item {} has tags '{}' but principal requires one of {}",
-                itemId,
-                item.tags,
-                tagsInclude,
-            )
-            return false
-        }
-    }
-
-    return true
-}
-
-// Capability check helper for use inside route handlers without the DSL wrapper.
-//
-// Returns true when the authenticated principal has cap or ApiCapability.ADMIN.
-// Routes should respond 403 when this returns false.
-fun hasCapability(
-    call: ApplicationCall,
-    cap: ApiCapability,
-): Boolean {
-    val principal = call.attributes.getOrNull(ApiPrincipalKey) ?: return false
-    return principal.capabilities.contains(ApiCapability.ADMIN) || principal.capabilities.contains(cap)
 }

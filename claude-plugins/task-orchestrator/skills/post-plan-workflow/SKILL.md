@@ -1,71 +1,110 @@
 ---
 name: post-plan-workflow
-description: "Internal, hook-triggered: materializes MCP items from the approved plan and dispatches implementation."
+description: "Internal, hook-triggered when a plan is approved: materializes MCP items from the plan and dispatches implementation."
 user-invocable: false
 ---
 
-# Post-Plan Workflow — Materialize and Implement
+# Post-Plan Workflow - Materialize and Implement
 
-Plan approval is the green light for the full pipeline. Proceed through all three phases without stopping; the one expected stop is the turn that ends when a run-wave Method A launch hands control to the async notification (see Phase 2, Route).
+Plan approval is the green light for the full pipeline. Run all three phases without stopping; the one expected stop is the turn that ends when a run-wave Method A launch hands control to its async notification (Phase 2, Route). Shapes are in [`_generated/call-shapes.md`](../_generated/call-shapes.md); ids below are 8-hex shorts.
 
 ## Phase 1: Materialize
 
-Complete materialization **before** any implementation begins.
+Finish materialization **before** any implementation begins.
 
-**Prefer a stashed docRef over re-authoring note bodies.** On HTTP+REST workspaces, the `plan-capture` hook stashes the just-approved plan as a plan document as ExitPlanMode fires, and reports the slug via `additionalContext` (`Task Orchestrator: plan stashed as plan document '<slug>' (root <rootId>)`). When that context is present, or `manage_plan_documents(operation="list", rootId=..., status="pending")` confirms a pending document for this root, use it as the source of truth for materialization — quote/reference its content instead of retyping the plan into note bodies. Fall back to the plan text already in context when no stashed doc exists (stdio setups, or the hook failed open).
+**Prefer the stashed plan.** The `plan-capture` hook stashes the approved plan as a plan document when ExitPlanMode fires and reports the slug in its context (`plan stashed as plan document '<slug>' (root <rootId>)`). Confirm it and read it:
 
-1. **Create MCP items** from the approved plan using `create_work_tree` (preferred for structured work with dependencies) or `manage_items` (for individual items). Apply appropriate schema tags based on the plan and the project's `.taskorchestrator/config.yaml` — this activates gate enforcement for each item. If the config defines separate schemas for containers vs. child tasks, apply the appropriate tag at each level.
-   - **Anchor the root under the project when known:** resolve the project rootId from session context (injected by the SessionStart hook) or `.taskorchestrator/config.yaml`'s `project.rootId`. When known, set the new root item's `parentId` to that rootId (directly, or to the appropriate category container beneath it if one already exists) so materialized work lands inside the project's tree instead of at a bare depth 0. When no rootId is known, create at depth 0 as before.
-   - **Dedup check before each new root or feature item** (children inherit their parent's check): run ONE unscoped `query_items(operation="search", query="<title key terms>", limit=5)`. Unscoped on purpose — depth-0 process-global items such as agent-observations sit outside any project ancestor, so an `ancestorId`-scoped search misses them. Show close matches as one FYI line (role + short id each) and keep materializing — the user decides whether to act; never auto-link, auto-skip or auto-cancel.
-2. **Wire dependency edges** between items — use `BLOCKS` only for a semantic dependency (B consumes A's API, output or decision), `fan-out`/`fan-in` patterns for parallel work. Record each edge's reason on the dependent's spec note as one line: `Depends on <blocker short>: <reason>` (dependencies carry no description of their own). When two items in one feature only edit the same file, add no edge: per-file locks serialize a shared file inside one shared-worktree run, while an edge that unblocks at review or terminal costs a separate run (in shared mode an edge that unblocks at work or queue stays in the same run). Name the file in both items' spec notes on one line: `Shared file, lock-serialized: <path> (with <other short>)`. `run-planner plan` warns (advisory, exit 0) on a same-feature edge whose scopes share a file and whose dependent has no `Depends on` line for that blocker. The warning fires only in shared mode.
-3. **Check `expectedNotes` in create responses** — if the item's tags match a schema, the response includes the expected note keys and phases. Fill required queue-phase notes (`feature-summary`, `task-scope`, etc.) with content from the plan before advancing.
-   - **`feature-implementation` root:** keep its `feature-summary` note lean — goal (2-3 sentences), a findings→tasks table mapping plan findings to the child items just created, dependency edges between those children, and a pointer to non-goals (target under 2k chars). Put full alternatives/blast-radius/risk-flags/test-strategy detail in each child's `task-scope` note instead — that's where `/spec-quality`'s full bar applies.
-   - **Test-owner flag:** for each seat-aware item (any type whose `query_items(operation="schema", itemId=...)` response declares `seats`) that lists no `test-author` seat and whose spec note names test files or test commands, show one FYI line `test owner: <short> lists tests without needs-test-author - add the trait (preferred) or drop the tests; run-wave stops a seat-aware item after its planner (a seat-less item is not stopped; its implementer gets a TESTS ARE YOURS line instead)`. Never add the trait yourself.
-4. **Verify all item UUIDs exist** — confirm the full item graph is materialized before proceeding
+```to-call
+{"tool": "docs_read", "select": "list", "args": {"rootId": "9f3a1c22", "kind": "plan"}}
+```
 
-**If `create_work_tree` fails:** Check partial state with `query_items(operation='overview')`. Delete partial items with `manage_items(operation="delete", itemIds=["<uuid>"], recursive=true)` and retry.
+A plan with no `adoptedBy` is still pending. `docs_read` `get` with `kind: "plan"` and the `slug` returns the body. Quote or anchor its sections instead of retyping them; with no stashed document (stdio setups, hook failed open) use the plan text in context.
 
-Do NOT dispatch implementation agents until materialization is complete. Agents need MCP item UUIDs to self-report progress.
+1. **Create the items** with one `create_tree` call (all-or-nothing, so there is no partial state to repair). Every item needs a declared `type` (read `config effective` `types`; see create-item Step 4); `traits` and `tags` are arrays. Anchor the root under the project: set `parentId` to the project rootId (or a category container beneath it) when known. Dedup first, once per new root or feature (children inherit): one unscoped `items_read` `search` (`kinds: ["item"]`, `limit: 5`); unscoped on purpose so legacy depth-0 and other-root items show. Show close matches as one FYI line and keep going; never auto-link, auto-skip or auto-cancel.
+
+```to-call
+{"tool": "items_write", "op": "create_tree", "args": {"root": {"title": "Add retry layer", "type": "feature-implementation"}, "parentId": "9f3a1c22", "docRef": {"slug": "retry-layer"}, "children": [{"ref": "t1", "title": "Backoff policy", "type": "feature-task", "noteAnchors": [{"noteKey": "task-scope", "role": "queue", "anchor": "backoff-policy"}]}, {"ref": "t2", "title": "Retry tests", "type": "feature-task"}], "deps": [{"from": "t1", "to": "t2"}]}}
+```
+
+   `docRef` plus `noteAnchors` cut plan sections into notes and the root adopts the document; `notes[]` writes explicit bodies. The result is `{ok, id, version, items, deps, notes}` and carries no `expectedNotes`.
+
+2. **Dependencies.** A `blocks` edge (the `deps` array, or `deps_write` later) is for a semantic dependency only: the dependent cannot start meaningfully until the other item is done.
+   - Give each edge a `Depends on <short>: <reason>` line on the dependent's spec note (write it once `items[]` gives the ids).
+   - Items that only share files in one shared-worktree run get NO edge; the per-file lock serializes same-file edits. Record each shared file as `Shared file, lock-serialized: <path> (with <short>)` in both items' scopes.
+   - Qualifications: this holds in shared-worktree mode only; an edge that unblocks at review or terminal costs a separate run, because the dependent cannot enter the run until the blocker reaches that role; per-item worktree mode still defers on overlap.
+
+3. **Fill queue notes.** Read the schema (a create returns no `expectedNotes`):
+
+```to-call
+{"tool": "items_read", "select": "schema", "args": {"itemId": "4b7d0e19", "fields": ["guidance"]}}
+```
+
+   `data` is `{schemaFree: true}` for a schema-free item. Otherwise fill each required queue note (`feature-summary`, `task-scope`, ...) from the plan, in one `notes_write` call with an `upsert` element per note.
+   - **`feature-implementation` root:** keep `feature-summary` lean (under 2k chars): goal in 2-3 sentences, a findings-to-tasks table mapping plan findings to the child items just created, the dependency edges between them, and a pointer to non-goals. Alternatives, blast radius, risk flags and test strategy go in each child's `task-scope`.
+   - **Test owner flag.** Detect seats from the `items_read` `schema` answer (`seats`). For each seat-aware item that lists no test-author seat and whose spec note names test files or test commands, show one FYI line: `test owner: <short> lists tests without needs-test-author - add the trait (preferred) or drop the tests; run-wave stops a seat-aware item after its planner (a seat-less item is not stopped; its implementer gets a TESTS ARE YOURS line instead)`. Never add the trait automatically.
+
+4. **Verify the graph.** Confirm every id in `items[]` exists:
+
+```to-call
+{"tool": "items_read", "select": "overview", "args": {"itemId": "4b7d0e19"}}
+```
+
+Do not dispatch implementation agents until materialization is complete; they need the item ids to report progress.
 
 ## Phase 2: Implement
 
 ### Route: run-wave or hand-dispatch
 
-Hand off to `/task-orchestrator:run-wave` only when ALL four conditions hold; each is a concrete probe:
+Hand off to `/task-orchestrator:run-wave` only when ALL four conditions hold. Each is a concrete probe:
 
-1. **Two or more unblocked leaf items.** At least two leaf items (no children) were materialized and are unblocked: they are absent from `get_blocked_items(ancestorId=<materialized root>)`.
-2. **A rootId resolves** (project or personal), in the order run-wave Step 1 uses: session context (`Active project:` or `Personal root:` line), else `project.rootId` from the file on that context's `Config:` line, else `.taskorchestrator/config.yaml`.
-3. **Queue notes are filled.** Each of those leaves has its required queue notes filled (`get_context(itemId)` shows no missing queue notes) or is schema-free (the response has no `noteSchema`).
-4. **Protocol rules are served.** `query_rules(operation="list", rootId)` lists `protocol.entry-seat`, `protocol.in-phase-seat` and `protocol.read-only-agent`. A seed made earlier this session (by init or the run-wave F3 repair) shows up in this list.
+1. **Two or more unblocked leaf items.** At least two leaves (no children) were materialized and none appears in the blocked list:
 
-If all four hold, invoke `/task-orchestrator:run-wave <materialized root id>` and follow it. Plan approval counts as run-wave's Checkpoint 1. When a degradation forces a human look (`meta.excluded` or `meta.degradations` non-empty, or an empty run), show the `explain` table and end the turn; never use `AskUserQuestion`. A Method A launch ending the turn is expected. run-wave's post-run replaces Phase 3 below, which then applies only to the hand-dispatch path.
+```to-call
+{"tool": "items_read", "select": "blocked", "args": {"ancestorId": "4b7d0e19"}}
+```
 
-If any condition fails, hand-dispatch as described below and add one line naming the failed condition(s); for conditions 2 and 4, point at `/task-orchestrator:init`.
+2. **A rootId resolves** (project or personal), in run-wave Step 1's order: session context (`Active project:` or `Personal root:` line), then `project.rootId` from the file on that context's `Config:` line, then `.taskorchestrator/config.yaml`.
+3. **Queue notes are filled.** For each leaf, `items_read` `context` with its `itemId` shows no missing queue notes in `gateStatus.missing`, or its schema read is `{schemaFree: true}`.
+4. **Protocol rules are served.** This lists `protocol.entry-seat`, `protocol.in-phase-seat` and `protocol.read-only-agent` (a seed made earlier this session by init or the run-wave repair shows up):
+
+```to-call
+{"tool": "config", "op": "rules", "args": {"rootId": "9f3a1c22"}}
+```
+
+If all four hold, invoke `/task-orchestrator:run-wave <materialized root id>` and follow it. Plan approval counts as run-wave's Checkpoint 1. When a degradation forces a human look (`meta.excluded` or `meta.degradations` non-empty, or an empty run), show the `explain` table and end the turn; never use `AskUserQuestion`. A Method A launch ending the turn is expected. run-wave's post-run replaces Phase 3, which then applies only to the hand-dispatch path.
+
+If any condition fails, hand-dispatch and add one line naming the failed condition(s); for conditions 2 and 4 point at `/task-orchestrator:init`.
 
 ### Hand-dispatch
 
-Dispatch subagents to execute the plan:
+- Each subagent **owns one item**: put the item id in the delegation prompt.
+- Resolve each note's `guidance` and `skill` with `items_read` `schema` (`fields: ["guidance"]`) and embed the guidance as authoring instructions. When a note has a `skill`, add: "Before filling the `<key>` note, invoke `/<skill>` and follow its framework."
+- **Agents own phase entry only.** Each agent calls `advance` `transition` with `trigger: "start"` once to enter work, fills the work-phase notes and returns:
 
-- Each subagent **owns one MCP item** — include the item UUID in the delegation prompt
-- Resolve each note's `guidance`/`skill` via `query_items(operation="schema", itemId=...)` (`expectedNotes` itself is keys-only); embed `guidance` in the delegation prompt as authoring instructions
-- When a note's `skill` is set, include in the delegation prompt: "Before filling the `<key>` note, invoke `/<skill>` and follow its framework." This ensures subagents receive deterministic skill routing rather than relying on guidance prose
-- **Agents own phase entry only** — each agent calls `advance_item(trigger="start")` once to enter work phase, fills work-phase notes, and returns. The orchestrator handles all further transitions (work→review or work→terminal depending on schema). Agents do NOT call `advance_item` a second time
-- Fill work-phase notes (`implementation-notes`, `session-tracking`, etc.) as the agent works
-- Respect dependency ordering — do not dispatch an agent for a blocked item until its blockers complete
-- **Between waves:** call `get_blocked_items(ancestorId="<featureRootId>")` to confirm upstream items completed — dependency gating implicitly verifies agents transitioned their items. `ancestorId` catches blockers anywhere in the feature's subtree (not just direct children, which `parentId` alone would miss). If downstream items are still blocked, investigate the upstream blocker
-- **Do not** call `advance_item` or `complete_tree` for terminal transitions on items delegated to agents — the orchestrator reviews and advances to terminal after agents return
+```to-call
+{"tool": "advance", "op": "transition", "args": {"itemId": "4b7d0e19", "trigger": "start"}}
+```
 
-Do NOT use `AskUserQuestion` between phases — proceed autonomously.
+- Respect dependency order: do not dispatch an agent for a blocked item until its blockers complete.
+- **Between waves** run `items_read` `blocked` with the feature's `ancestorId` (it catches blockers anywhere in the subtree, not just direct children). An item still blocked means an upstream item never transitioned: investigate it.
+- Do **not** transition delegated items to terminal yourself before their agents return; the orchestrator reviews and advances them afterwards.
+
+Do not use `AskUserQuestion` between phases.
 
 ## Phase 3: Verify
 
-After all agents complete:
+After all agents return:
 
-1. Run `query_items(operation="search", parentId=..., role="work")` — any results are items agents failed to transition. Use `/status-progression` to diagnose and manually advance stuck items
-2. Run `get_context()` health check to see what completed, what stalled, and what needs attention
-3. Review any stalled items — check which notes are missing with `get_context(itemId=...)`
-4. Address blockers or incomplete work as needed
+1. List items still in work (agents that failed to transition) and diagnose them with `/status-progression`:
 
-## Workflow Complete
+```to-call
+{"tool": "items_read", "select": "list", "args": {"ancestorId": "4b7d0e19", "role": "work"}}
+```
 
-The post-plan workflow is done. Report the final status to the user — what completed, what needs attention, and any items still in progress.
+2. Run the health check to see what completed, stalled or is blocked: `items_read` `context` with the same `ancestorId`.
+3. For each stalled item, `items_read` `context` with its `itemId` shows `gateStatus.missing`.
+4. Address blockers or incomplete work.
+
+## Workflow complete
+
+Report the final status: what completed, what needs attention, what is still in progress.

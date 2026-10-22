@@ -1,22 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.security
 
-import java.security.MessageDigest
-
-/**
- * Computes the SHA-256 digest of [bytes] and returns it as a lowercase hex string.
- *
- * This is the single server-side definition of the raw SHA-256 hex primitive. Config fingerprints
- * specifically MUST route through [configFingerprint] (which normalizes before hashing), not this
- * function directly — see [configFingerprint]'s KDoc.
- *
- * Scoped to the config subsystem: other pre-existing SHA-256/hex call sites in this codebase
- * (`BearerTokenStore`, `AuthenticationPlugin`, `EventRoutes`) are tracked separately and are not
- * converted to this utility here.
- */
-fun sha256Hex(bytes: ByteArray): String {
-    val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
-    return digest.joinToString("") { "%02x".format(it) }
-}
+import io.github.jpicklyk.mcptask.current.application.support.sha256Hex
 
 /**
  * Normalizes [configYaml] for fingerprinting: strips exactly one leading UTF-8 BOM (U+FEFF) if
@@ -32,8 +16,8 @@ fun normalizeConfigForFingerprint(configYaml: String): String = configYaml.remov
  * result, UTF-8 encoded. This is the single server-side definition of the config-fingerprint hash:
  * fingerprints are compared for equality between the client (`config-sync.mjs`'s
  * `configFingerprint`) and the server
- * ([io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository.computeFingerprint]
- * and [io.github.jpicklyk.mcptask.current.infrastructure.config.YamlNoteSchemaService]'s global-config
+ * ([io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore.computeFingerprint]
+ * and [io.github.jpicklyk.mcptask.current.infrastructure.config.YamlWorkItemSchemaService]'s global-config
  * fingerprint) — every server-side config-fingerprint call site MUST route through this function so
  * the two sides can never silently diverge on BOM/CRLF handling (e.g. a Windows checkout with CRLF
  * line endings must fingerprint identically to an LF checkout of the same content). The STORED

@@ -16,9 +16,7 @@ services:
       DATABASE_PATH: /app/data/current-tasks.db
       MCP_TRANSPORT: stdio
       LOG_LEVEL: INFO
-      USE_FLYWAY: "true"
       AGENT_CONFIG_DIR: /project
-      MCP_SERVER_NAME: mcp-task-orchestrator
     logging:
       driver: json-file
       options:
@@ -51,18 +49,23 @@ services:
       MCP_HTTP_HOST: 0.0.0.0
       MCP_HTTP_PORT: "3001"
       LOG_LEVEL: INFO
-      USE_FLYWAY: "true"
       AGENT_CONFIG_DIR: /project
-      MCP_SERVER_NAME: mcp-task-orchestrator
-      # MCP-over-HTTP only. The REST API is an opt-in layer that hard-requires an auth mode
-      # (API_AUTH_MODE=bearer|jwks); leaving it enabled with no auth mode is a fatal startup error.
+      # MCP-over-HTTP only. The REST API is an opt-in layer that needs an explicit auth mode
+      # (API_AUTH_MODE=bearer|jwks, or none with API_ALLOW_UNAUTHENTICATED=true as in the http-rest profile);
+      # leaving it enabled with no auth mode is a fatal startup error.
       # To enable the REST API, set API_ENABLED: "true" and add API_AUTH_MODE + token/JWKS config
       # (see current/docs/quick-start.md "Enabling the REST API").
       API_ENABLED: "false"
+      # With the REST API off there is no credential to check, so HTTP startup is refused unless
+      # this opt-in is set. /mcp then serves every caller as the single `local` principal with no
+      # authentication. For per-caller credentials, enable the REST API in bearer or jwks mode
+      # instead: /mcp then uses the same credential.
+      MCP_ALLOW_UNAUTHENTICATED: "true"
     ports:
       # Bind to loopback only (Streamable HTTP spec: prefer localhost when running locally).
-      # The /mcp endpoint is unauthenticated; do not expose it on all interfaces. To reach it
-      # from other hosts, front it with an authenticated reverse proxy or change to "3001:3001".
+      # In this profile /mcp has no authentication (MCP_ALLOW_UNAUTHENTICATED above); do not
+      # expose it on all interfaces. To reach it from other hosts, front it with an authenticated
+      # reverse proxy or change to "3001:3001".
       - "127.0.0.1:3001:3001"
     logging:
       driver: json-file
@@ -98,13 +101,11 @@ services:
       MCP_HTTP_HOST: 0.0.0.0
       MCP_HTTP_PORT: "3001"
       LOG_LEVEL: INFO
-      USE_FLYWAY: "true"
       # Single-repo convenience: this compose file runs from one project dir, so it mounts that
       # repo's .taskorchestrator config as the global fallback (AGENT_CONFIG_DIR). The MULTI-project
       # recommended default (per /configure-server) uses NO config mount and relies on config-sync
       # to push each repo's config into the per-root DB store instead.
       AGENT_CONFIG_DIR: /project
-      MCP_SERVER_NAME: mcp-task-orchestrator
       # Recommended single-developer posture: REST API on, unauthenticated, loopback-bound.
       # See claude-plugins/task-orchestrator/skills/configure-server/references/runtime-config.md
       # and current/docs/api-rest.md §1 for the auth-mode rationale.

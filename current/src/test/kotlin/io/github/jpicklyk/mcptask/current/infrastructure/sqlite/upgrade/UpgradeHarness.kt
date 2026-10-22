@@ -1,0 +1,424 @@
+package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade
+
+import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
+import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepKind
+import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepReport
+import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.StartupIntegrity
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.FlywayDatabaseSchemaManager
+import kotlinx.coroutines.runBlocking
+import org.flywaydb.core.api.callback.Callback
+import org.flywaydb.core.api.callback.Context
+import org.flywaydb.core.api.callback.Event
+import java.io.File
+import java.sql.Connection
+import java.sql.DriverManager
+
+/**
+ * The migration upgrade harness: proves a migration preserves data and invariants on a POPULATED database.
+ *
+ * Per migration N (2 to latest): migrate a fresh file to N-1 with plain Flyway, seed [BaselineDataset] and the
+ * [MigrationSeed] for N, snapshot every row, run the bare migration chain to latest (plain Flyway, never a
+ * production startup path), then check:
+ * - every pre-existing row is still there with unchanged values in every column present before and after,
+ *   compared exactly, where a [MigrationSeed.expected] transform (when a seed's migration rewrites a column)
+ *   supplies the exact post-migration value instead of the pre-migration one; a row of a table the chain dropped
+ *   must be found where a seed's [MigrationSeed.relocated] says it went, with the values it names;
+ * - `PRAGMA foreign_key_check` is empty;
+ * - per FTS table: the indexed-document count equals the backing table, `integrity-check` (rank=1) passes
+ *   and a seeded token is found by MATCH. This runs BEFORE any production startup, because
+ *   [StartupIntegrity.checkFts] auto-rebuilds and would mask a broken index;
+ * - [StartupIntegrity.verifyInventory] does not throw (expected FTS tables and triggers all exist);
+ * - a Flyway BEFORE_EACH_MIGRATE callback saw `foreign_keys = 0` on Flyway's own connection every time.
+ */
+object UpgradeHarness {
+    /** Records `PRAGMA foreign_keys` on Flyway's own connection before each migration. */
+    class FkProbe : Callback {
+        val observed = mutableListOf<String>()
+
+        /** Observed values that are not 0 (foreign-key enforcement was ON during a migration). */
+        fun violations(): List<String> = observed.filter { it != "0" }
+
+        override fun supports(
+            event: Event?,
+            context: Context?
+        ): Boolean = event == Event.BEFORE_EACH_MIGRATE
+
+        override fun canHandleInTransaction(
+            event: Event?,
+            context: Context?
+        ): Boolean = true
+
+        override fun handle(
+            event: Event?,
+            context: Context?
+        ) {
+            context!!.connection.createStatement().use { st ->
+                st.executeQuery("PRAGMA foreign_keys").use { rs -> observed += if (rs.next()) rs.getString(1) else "?" }
+            }
+        }
+
+        override fun getCallbackName(): String = "fkProbe"
+    }
+
+    fun urlFor(file: File): String = "jdbc:sqlite:" + file.absolutePath.replace(File.separatorChar, '/')
+
+    private val templates = java.util.concurrent.ConcurrentHashMap<Int, File>()
+
+    /**
+     * Copies a database migrated to exactly [version] (plain Flyway, no seed) to [dest]. The per-version
+     * template is built once per JVM (migrate then `VACUUM INTO`, like SqliteTemplate) and copied per call,
+     * so a test pays Flyway once per version, not once per test. Returns the JDBC URL of [dest].
+     */
+    fun copyAt(
+        version: Int,
+        dest: File
+    ): String {
+        val template =
+            templates.computeIfAbsent(version) {
+                val dir =
+                    java.nio.file.Files
+                        .createTempDirectory("to-upgrade-template-$version-")
+                        .toFile()
+                dir.deleteOnExit()
+                val migrated = File(dir, "migrated.db")
+                migrate(urlFor(migrated), target = version)
+                val flat = File(dir, "template.db")
+                val target = flat.absolutePath.replace(File.separatorChar, '/').replace("'", "''")
+                DriverManager.getConnection(urlFor(migrated)).use { c -> c.createStatement().use { it.execute("VACUUM INTO '$target'") } }
+                migrated.delete()
+                flat.deleteOnExit()
+                flat
+            }
+        dest.parentFile?.mkdirs()
+        java.nio.file.Files
+            .copy(template.toPath(), dest.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        return urlFor(dest)
+    }
+
+    /** Plain Flyway through the production configuration (never a startup path): migrate to [target] or latest. */
+    fun migrate(
+        url: String,
+        target: Int? = null,
+        probe: FkProbe = FkProbe()
+    ): FkProbe {
+        FlywayDatabaseSchemaManager(url)
+            .flywayConfiguration(target = target?.toString())
+            .callbacks(probe)
+            .load()
+            .migrate()
+        return probe
+    }
+
+    /** Every migration version Flyway finds on the classpath, ascending. */
+    fun migrationVersions(scratchDir: File): List<Int> {
+        val url = urlFor(File(scratchDir, "versions.db"))
+        return FlywayDatabaseSchemaManager(url)
+            .flywayConfiguration()
+            .load()
+            .info()
+            .all()
+            .map { it.version.version.toInt() }
+            .sorted()
+    }
+
+    /** One step's outcome: [failures] is empty when the upgrade preserved everything. */
+    class StepResult(
+        val version: Int,
+        val failures: List<String>,
+        val probe: FkProbe
+    )
+
+    /** Row snapshot: table to (hex id to (column to value)). */
+    typealias Dump = Map<String, Map<String, Map<String, Any?>>>
+
+    fun userTables(conn: Connection): List<String> =
+        conn.createStatement().use { st ->
+            st.executeQuery("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").use { rs ->
+                buildList {
+                    while (rs.next()) {
+                        val n = rs.getString(1)
+                        if (n != FlywayDatabaseSchemaManager.HISTORY_TABLE && n !in ftsAndShadowNames()) add(n)
+                    }
+                }
+            }
+        }
+
+    private fun ftsAndShadowNames(): Set<String> =
+        StartupIntegrity.FTS_TABLES
+            .flatMap { fts -> listOf(fts) + listOf("_data", "_idx", "_content", "_docsize", "_config").map { fts + it } }
+            .toSet()
+
+    /**
+     * The row key of [table]: `id` when present, else its declared primary-key columns, else none (the whole row is the
+     * key). Keying a table such as `call_log` (`req_id`) by its primary key keeps a row identified across a later
+     * `ADD COLUMN`.
+     */
+    private fun keyColumns(
+        conn: Connection,
+        table: String
+    ): List<String> {
+        val columns = mutableListOf<Pair<String, Int>>()
+        conn.createStatement().use { st ->
+            st.executeQuery("PRAGMA table_info($table)").use { rs ->
+                while (rs.next()) columns += rs.getString("name") to rs.getInt("pk")
+            }
+        }
+        if (columns.any { it.first == "id" }) return listOf("id")
+        return columns.filter { it.second > 0 }.sortedBy { it.second }.map { it.first }
+    }
+
+    fun dump(conn: Connection): Dump =
+        userTables(conn).associateWith { table ->
+            val rows = linkedMapOf<String, Map<String, Any?>>()
+            val key = keyColumns(conn, table)
+            conn.createStatement().use { st ->
+                st.executeQuery("SELECT * FROM $table").use { rs ->
+                    val meta = rs.metaData
+                    while (rs.next()) {
+                        val row = linkedMapOf<String, Any?>()
+                        for (i in 1..meta.columnCount) {
+                            val v = rs.getObject(i)
+                            row[meta.getColumnName(i)] = if (v is ByteArray) v.joinToString("") { "%02x".format(it) } else v
+                        }
+                        // A NULL key column would collide on the string "null": key the whole row instead.
+                        val id = if (key.isEmpty() || key.any { row[it] == null }) null else key.joinToString("|") { row[it].toString() }
+                        rows[id ?: row.toString()] = row
+                    }
+                }
+            }
+            rows
+        }
+
+    /**
+     * The row after the [seeds] transforms, applied in ascending version order: [MigrationSeed.expected] for the bare
+     * chain, [MigrationSeed.expectedAfterDataSteps] when the production data steps also ran ([afterDataSteps]).
+     */
+    private fun expectedRow(
+        table: String,
+        row: Map<String, Any?>,
+        seeds: List<MigrationSeed>,
+        afterDataSteps: Boolean
+    ): Map<String, Any?> {
+        var current = row
+        for (seed in seeds.sortedBy { it.version }) {
+            val overrides = if (afterDataSteps) seed.expectedAfterDataSteps(table, current) else seed.expected(table, current)
+            if (overrides.isNotEmpty()) current = current + overrides
+        }
+        return current
+    }
+
+    /**
+     * Every failure of the post-migration invariants against [before]. [transforms] are the seeds whose migrations
+     * ran in this chain (see [applicableSeeds]); their [MigrationSeed.expected] values are compared exactly, or their
+     * [MigrationSeed.expectedAfterDataSteps] values when the production data steps ran too (a [dataSteps] report or a
+     * non-empty [registeredDataSteps] is given).
+     */
+    fun checkUpgrade(
+        conn: Connection,
+        before: Dump,
+        transforms: List<MigrationSeed>,
+        probe: FkProbe?,
+        dataSteps: DataStepReport? = null,
+        registeredDataSteps: List<DataStep> = emptyList()
+    ): List<String> {
+        val failures = mutableListOf<String>()
+        val afterDataSteps = dataSteps != null || registeredDataSteps.isNotEmpty()
+        failures += dataStepFailures(conn, dataSteps, registeredDataSteps)
+        if (probe != null && probe.observed.isEmpty()) failures += "the foreign-key probe never fired (vacuous check)"
+        probe?.violations()?.forEach { failures += "foreign_keys was '$it' (not 0) on Flyway's connection during a migration" }
+
+        val after = dump(conn)
+        for ((table, rows) in before) {
+            val afterRows = after[table]
+            if (afterRows == null) {
+                failures += relocationFailures(table, rows, after, transforms, afterDataSteps)
+                continue
+            }
+            for ((id, beforeRow) in rows) {
+                val row = expectedRow(table, beforeRow, transforms, afterDataSteps)
+                val now = afterRows[id]
+                if (now == null) {
+                    failures += "$table row $id was lost"
+                    continue
+                }
+                for ((col, value) in row) {
+                    if (col !in now) continue
+                    if (now[col] != value) failures += "$table row $id column $col changed: '$value' to '${now[col]}'"
+                }
+            }
+        }
+
+        conn.createStatement().use { st ->
+            st.executeQuery("PRAGMA foreign_key_check").use { rs ->
+                while (rs.next()) failures += "foreign_key_check: ${rs.getString(1)} row ${rs.getString(2)} -> ${rs.getString(3)}"
+            }
+        }
+
+        failures += ftsFailures(conn)
+        runCatching { StartupIntegrity.verifyInventory(conn) }.onFailure { failures += "inventory: ${it.message}" }
+        return failures
+    }
+
+    /**
+     * The failures for [table], present in [before] but missing after the chain: unless a seed relocates its rows
+     * ([MigrationSeed.relocated]) the table "disappeared"; otherwise every row must be found at its relocation with
+     * exactly the expected values.
+     */
+    private fun relocationFailures(
+        table: String,
+        rows: Map<String, Map<String, Any?>>,
+        after: Dump,
+        transforms: List<MigrationSeed>,
+        afterDataSteps: Boolean
+    ): List<String> {
+        val ordered = transforms.sortedBy { it.version }
+        val moves =
+            rows.mapValues { (_, beforeRow) ->
+                val row = expectedRow(table, beforeRow, ordered, afterDataSteps)
+                ordered.firstNotNullOfOrNull { it.relocated(table, row) }
+            }
+        if (rows.isEmpty() || moves.values.all { it == null }) return listOf("table $table disappeared")
+        val failures = mutableListOf<String>()
+        for ((id, move) in moves) {
+            if (move == null) {
+                failures += "table $table was dropped and its row $id was not relocated"
+                continue
+            }
+            val now = after[move.table]?.get(move.id)
+            if (now == null) {
+                failures += "$table row $id was not found at its relocation ${move.table} row ${move.id}"
+                continue
+            }
+            for ((col, value) in move.expected) {
+                if (col !in now) continue
+                if (now[col] != value) {
+                    failures += "$table row $id relocated to ${move.table} column $col: expected '$value' but found '${now[col]}'"
+                }
+            }
+        }
+        return failures
+    }
+
+    /**
+     * A once step that is registered (or that the run reported as applied or skipped) but has no `data_steps` row
+     * means the readiness gate would have refused this database. Vacuous while no production step exists.
+     */
+    private fun dataStepFailures(
+        conn: Connection,
+        report: DataStepReport?,
+        registered: List<DataStep>
+    ): List<String> {
+        if (report == null && registered.isEmpty()) return emptyList()
+        val recorded =
+            conn.createStatement().use { st ->
+                st.executeQuery("SELECT name FROM data_steps").use { rs -> buildSet { while (rs.next()) add(rs.getString(1)) } }
+            }
+        val expected =
+            registered.filter { it.kind == DataStepKind.ONCE }.map { it.name } + (report?.applied.orEmpty()) + (report?.skipped.orEmpty())
+        return expected.distinct().filter { it !in recorded }.map { "data step '$it' has no data_steps row" }
+    }
+
+    private fun ftsFailures(conn: Connection): List<String> {
+        val failures = mutableListOf<String>()
+        for ((fts, backing) in StartupIntegrity.FTS_BACKING) {
+            try {
+                val indexed = scalar(conn, "SELECT count(*) FROM ${fts}_docsize")
+                val actual = scalar(conn, "SELECT count(*) FROM $backing")
+                if (indexed != actual) failures += "$fts indexes $indexed documents but $backing has $actual rows"
+                conn.createStatement().use { it.execute("INSERT INTO $fts($fts, rank) VALUES('integrity-check', 1)") }
+                val token = BaselineDataset.FTS_TOKENS.getValue(backing)
+                // A MATCH can only find the token when the backing table holds a row (documents are empty below V12).
+                if (actual > 0 && scalar(conn, "SELECT count(*) FROM $fts WHERE $fts MATCH '$token'") < 1) {
+                    failures += "$fts does not find the seeded token '$token'"
+                }
+            } catch (e: Exception) {
+                failures += "$fts check failed: ${e.message}"
+            }
+        }
+        return failures
+    }
+
+    private fun scalar(
+        conn: Connection,
+        sql: String
+    ): Int =
+        conn.createStatement().use { st ->
+            st.executeQuery(sql).use { rs ->
+                rs.next()
+                rs.getInt(1)
+            }
+        }
+
+    /** Seeds whose migration is applied by the step for [version]: step N migrates N-1 to latest, so seeds with version >= N. */
+    fun applicableSeeds(
+        version: Int,
+        seeds: List<MigrationSeed>
+    ): List<MigrationSeed> = seeds.filter { it.version >= version }
+
+    /**
+     * Boots the production data-step runner against the already migrated database at [url] (the same composition the
+     * server builds, with an empty AGENT_CONFIG_DIR so no config or network is touched) and returns its report.
+     */
+    fun runProductionDataSteps(
+        url: String,
+        dir: File
+    ): DataStepReport = runProductionDataStepsWithPlan(url, dir).first
+
+    /** Like [runProductionDataSteps], also returning the registered steps in run order (for [checkUpgrade]). */
+    fun runProductionDataStepsWithPlan(
+        url: String,
+        dir: File,
+        extraSteps: List<DataStep> = emptyList()
+    ): Pair<DataStepReport, List<DataStep>> {
+        val configDir = File(dir, "empty-agent-config").also { it.mkdirs() }
+        val appConfig = AppConfig.fromEnv { key -> if (key == "AGENT_CONFIG_DIR") configDir.absolutePath else null }
+        val databaseManager = DatabaseManager(appConfig = appConfig)
+        check(databaseManager.initialize(url)) { "could not open $url for the data-step run" }
+        try {
+            val runner =
+                ServerComposition(appConfig, databaseManager, ShutdownCoordinator(), extraDataSteps = extraSteps)
+                    .build()
+                    .dataStepRunner
+            val plan = runner.plan()
+            return runBlocking { runner.run() } to plan
+        } finally {
+            databaseManager.shutdown()
+        }
+    }
+
+    /**
+     * Runs the whole step for migration [version]: fresh file at version-1, baseline plus that version's seed,
+     * bare migrate to latest, then [checkUpgrade] and the seed's own [MigrationSeed.verify].
+     */
+    fun runStep(
+        version: Int,
+        dir: File,
+        seeds: List<MigrationSeed>
+    ): StepResult {
+        val file = File(dir, "step-$version.db")
+        val url = urlFor(file)
+        // The highest migration below this one: version - 1 does not exist while the chain has a gap.
+        migrate(url, target = migrationVersions(dir).last { it < version })
+        val ownSeed = seeds.firstOrNull { it.version == version }
+        DriverManager.getConnection(url).use { conn ->
+            BaselineDataset.seed(conn)
+            ownSeed?.seed(conn)
+        }
+        val before = DriverManager.getConnection(url).use { dump(it) }
+        val probe = migrate(url)
+        val (report, registered) = runProductionDataStepsWithPlan(url, dir)
+        val failures =
+            DriverManager.getConnection(url).use { conn ->
+                val found = checkUpgrade(conn, before, applicableSeeds(version, seeds), probe, report, registered).toMutableList()
+                if (ownSeed != null) {
+                    runCatching { ownSeed.verify(conn) }.onFailure { found += "seed V$version verify: ${it.message}" }
+                }
+                found
+            }
+        return StepResult(version, failures, probe)
+    }
+}

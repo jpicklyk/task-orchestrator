@@ -68,10 +68,11 @@ test('hooks-config.json matchers match the registration.mjs builder output (no d
   const config = JSON.parse(readFileSync(HOOKS_CONFIG, 'utf-8'));
 
   const expectedByCommand = {
-    'skill-enforcement.mjs': orchestratorToolMatcher(['manage_notes']),
-    'enforce-actor-attribution.mjs': orchestratorToolMatcher(['advance_item', 'manage_notes']),
-    'retro-trigger.mjs': orchestratorToolMatcher(['advance_item', 'complete_tree']),
-    'phase-guard-record.mjs': orchestratorToolMatcher(['advance_item']),
+    'skill-enforcement.mjs': orchestratorToolMatcher(['notes_write']),
+    'retro-trigger.mjs': orchestratorToolMatcher(['runs_write']),
+    'phase-guard-record.mjs': orchestratorToolMatcher(['advance', 'items_read']),
+    'dispatch-hint.mjs': orchestratorToolMatcher(['advance']),
+    'director-watch.mjs': orchestratorToolMatcher(['runs_read']),
   };
 
   const allMatchers = [];

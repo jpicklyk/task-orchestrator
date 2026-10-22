@@ -22,6 +22,7 @@ import assert from 'node:assert/strict'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mkdtempSync } from 'node:fs'
+import { RETIRED_3X_TOOLS } from '../lib/contract-checks.mjs'
 import { tmpdir } from 'node:os'
 
 import { scriptText, coreSlice, loadMeta, fakeParallel } from './workflow-harness.mjs'
@@ -49,14 +50,14 @@ const RULES_DIR = join(REPO, '.taskorchestrator', 'rules')
 const CORE_NAMES = [
   'ENVELOPE_VERSION', 'VERDICTS', 'INDEPENDENCE_MODES', 'SIMPLIFY_ANGLES', 'BRANCH_SCOPED_SKILLS',
   'PROTOCOL_KEY', 'SCOPING_RULE_KEY', 'REQUIRED_FEATURES', 'REVIEW_OUTPUT_SCHEMAS',
-  'normalizePath', 'normalizeArgs', 'preflight', 'laneActor', 'laneSchema', 'lanePrompt',
+  'normalizePath', 'normalizeArgs', 'preflight', 'laneSchema', 'lanePrompt',
   'mapLaneResult', 'aggregateVerdict', 'runItem', 'runReview',
 ]
 const core = loadCoreNamed(SCRIPT_PATH, CORE_NAMES)
 const {
   ENVELOPE_VERSION, VERDICTS, INDEPENDENCE_MODES, SIMPLIFY_ANGLES, BRANCH_SCOPED_SKILLS,
   PROTOCOL_KEY, SCOPING_RULE_KEY, REQUIRED_FEATURES, REVIEW_OUTPUT_SCHEMAS,
-  normalizePath, normalizeArgs, preflight, laneActor, laneSchema, lanePrompt,
+  normalizePath, normalizeArgs, preflight, laneSchema, lanePrompt,
   mapLaneResult, aggregateVerdict, runItem, runReview,
 } = core
 
@@ -135,7 +136,7 @@ function passEnvelope(notesFilled, { verdict = 'pass', findings = [], independen
   return {
     status: 'done',
     reason: 'ok',
-    notes: notesFilled.map((key) => ({ key, actor: 'reviewer:x:r-test-0001' })),
+    notes: notesFilled.map((key) => ({ key })),
     commits: { pre: 'p', post: 'q' },
     files: [],
     modelReported: 'fake-model',
@@ -309,16 +310,9 @@ test('T-schema: laneSchema(outputId) required list, status enum, and entry shape
   }
 })
 
-test('laneActor(stage, item, plan) returns the declared id/kind/parent shape', () => {
-  const plan = planFrom(() => {})
-  const item = plan.items[0]
-  const stage = item.stages[1] // reviewer.review-quality
-  const actor = laneActor(stage, item, plan)
-  assert.deepEqual(actor, {
-    id: 'reviewer.review-quality:aaaaaaaa:r-test-0001',
-    kind: 'subagent',
-    parent: 'workflow:r-test-0001',
-  })
+// 4.0 (cac1bffa AC1): the actor is gone; the server enforces lanes by seat token.
+test('laneActor is removed from the core (AC1): asking loadCoreNamed for it throws a ReferenceError', () => {
+  assert.throws(() => loadCoreNamed(SCRIPT_PATH, ['laneActor']), ReferenceError)
 })
 
 // =============================================================================
@@ -998,21 +992,21 @@ test('S7 probe: optionalReviewNotes absent from raw defaults to [] on the normal
 // Oracle: test-plan S8; P §1.6; c1-dispatch-contract.md Appendix A preflight() description.
 // =============================================================================
 
-test('S8: implementerActors contains a lane\'s computed actor id -> "reviewer would match implementer actor"', () => {
+test('S8 (4.0): an implementerActors entry spelled like a lane id no longer refuses the item - no actor is computed (AC1)', () => {
   const plan = planFrom((raw) => {
     raw.items[0].review.implementerActors = ['reviewer.review-quality:aaaaaaaa:r-test-0001']
   })
   const { refused } = preflight(plan)
-  assert.deepEqual(refused, [{ id: plan.items[0].id, reason: 'reviewer would match implementer actor' }])
+  assert.deepEqual(refused, [], 'fixture condition: the 3.x core refused exactly this input with "reviewer would match implementer actor"')
 })
 
-test('S8: testAuthorActors contains a lane\'s computed actor id (and implementerActors does not) -> "reviewer would match test-author actor"', () => {
+test('S8 (4.0): a testAuthorActors entry spelled like a lane id no longer refuses the item (AC1)', () => {
   const plan = planFrom((raw) => {
     raw.items[0].review.implementerActors = ['implementer:aaaaaaaa:r-impl-0001']
     raw.items[0].review.testAuthorActors = ['reviewer.review-quality:aaaaaaaa:r-test-0001']
   })
   const { refused } = preflight(plan)
-  assert.deepEqual(refused, [{ id: plan.items[0].id, reason: 'reviewer would match test-author actor' }])
+  assert.deepEqual(refused, [], 'fixture condition: the 3.x core refused exactly this input with "reviewer would match test-author actor"')
 })
 
 // =============================================================================
@@ -1043,9 +1037,11 @@ test('S9: no prompt contains a <sha>..<sha> content-diff form (only <baseSha>..H
   assert.equal(/[0-9a-f]{7,40}\.\.[0-9a-f]{7,40}/.test(prompt), false)
 })
 
-test('S9: the prompt instructs "Always pass keys= on every query_notes call."', () => {
+test('S9 (4.0): the prompt instructs passing keys on every notes_read list call and never names query_notes', () => {
   const { prompt } = promptFor(() => {})
-  assert.ok(prompt.includes('keys='))
+  assert.match(prompt, /keys[:=]/)
+  assert.ok(prompt.includes('notes_read'))
+  assert.equal(prompt.includes('query_notes'), false)
 })
 
 test('S9: the prompt states the READ-ONLY lane boundary verbatim', () => {
@@ -1058,10 +1054,11 @@ test('S9: the prompt names protocol.read-only-agent as the fetched protocol key'
   assert.ok(prompt.includes('protocol.read-only-agent'))
 })
 
-test('S9: the prompt embeds the lane actor id and "workflow:<runId>" as its parent', () => {
+test('S9 (4.0): the prompt carries no actor id and no "workflow:<runId>" parent (AC1)', () => {
   const { prompt, plan } = promptFor(() => {})
-  assert.ok(prompt.includes('reviewer.review-quality:aaaaaaaa:r-test-0001'))
-  assert.ok(prompt.includes(`workflow:${plan.runId}`))
+  assert.equal(prompt.includes('ACTOR:'), false)
+  assert.equal(prompt.includes('reviewer.review-quality:aaaaaaaa:r-test-0001'), false)
+  assert.equal(prompt.includes(`workflow:${plan.runId}`), false)
 })
 
 function toolsLineOf(prompt) {
@@ -1070,26 +1067,46 @@ function toolsLineOf(prompt) {
   return line
 }
 
+
+// 58facb39: the TOOLS: line names 4.0 tools as mcp__mcp-task-orchestrator__<tool>. Parse the tool part of every
+// entry so assertions compare exact entries (a bare includes() of 'advance' or '...advance_item' is vacuous).
+const MCP_TOOL_PREFIX_UNDER_TEST = 'mcp__mcp-task-orchestrator__'
+function toolsEntriesOf(prompt) {
+  const line = prompt.split(String.fromCharCode(10)).find((l) => l.trim().startsWith('TOOLS:'))
+  assert.ok(line, 'prompt must contain a TOOLS: line')
+  return line.split(MCP_TOOL_PREFIX_UNDER_TEST).slice(1).map((s) => (s.match(/^[a-z_]+/) || ['*'])[0])
+}
+
 test('S9: the review-v1 TOOLS: select list never names advance_item or manage_items as an available tool (the prompt separately and correctly PROHIBITS advance_item by name elsewhere, in its ENTRY section — verified not to be a false positive: "Never call advance_item." is present outside the TOOLS: line)', () => {
   const { prompt } = promptFor(() => {})
   const toolsLine = toolsLineOf(prompt)
   assert.equal(toolsLine.includes('advance_item'), false)
   assert.equal(toolsLine.includes('manage_items'), false)
+  assert.ok(!toolsEntriesOf(prompt).includes('advance'), 'no exact advance entry in TOOLS:')
   assert.equal(prompt.includes('manage_items'), false, 'manage_items must not appear anywhere in the prompt')
-  assert.ok(prompt.includes('Never call advance_item.'), 'the prompt explicitly prohibits advance_item by name outside the tool list')
+  assert.match(prompt, /never call advance/i, 'the prompt explicitly prohibits the advance tool outside the tool list')
 })
 
-test('S9: a review-v1 lane with non-empty notes includes manage_notes in its tool list', () => {
+test('S9: a review-v1 lane with non-empty notes includes notes_write in its TOOLS: list', () => {
   const { prompt } = promptFor(() => {})
-  assert.ok(prompt.includes('manage_notes'))
+  assert.ok(toolsEntriesOf(prompt).includes('notes_write'), toolsLineOf(prompt))
+})
+
+test('S9 (58facb39 AC4): exact TOOLS: entries - notes-owning lane is items_read, notes_read, config, notes_write; notes-less lane drops notes_write', () => {
+  const owning = toolsEntriesOf(promptFor(() => {}).prompt)
+  assert.deepEqual([...owning].sort(), ['config', 'items_read', 'notes_read', 'notes_write'])
+  const notesLess = toolsEntriesOf(promptFor(() => {}, 0).prompt)
+  assert.deepEqual([...notesLess].sort(), ['config', 'items_read', 'notes_read'])
 })
 
 test('S9: the simplify lane prompt forbids invoking /simplify, has no manage_notes in its TOOLS: list, and its TOOLS: list never names advance_item/manage_items', () => {
   const { prompt } = promptFor(() => {}, 0)
   assert.ok(prompt.includes('Do not invoke /simplify'))
   const toolsLine = toolsLineOf(prompt)
+  assert.ok(!toolsEntriesOf(prompt).includes('notes_write'), 'notes-less lane TOOLS: must not list notes_write')
   assert.equal(toolsLine.includes('manage_notes'), false)
   assert.equal(toolsLine.includes('advance_item'), false)
+  assert.ok(!toolsEntriesOf(prompt).includes('advance'), 'no exact advance entry in TOOLS:')
   assert.equal(toolsLine.includes('manage_items'), false)
   assert.equal(prompt.includes('manage_notes'), false, 'manage_notes must not appear anywhere in a notes-less lane prompt')
   assert.equal(prompt.includes('manage_items'), false, 'manage_items must not appear anywhere in the prompt')
@@ -1478,4 +1495,86 @@ test('T-args: default values apply when optional args-v1 fields are absent (revi
   assert.deepEqual(plan.deferred, [])
   assert.deepEqual(plan.items[0].review.optionalReviewNotes, [])
   assert.equal(plan.items[0].review.declaredExceptions, '')
+})
+
+// =============================================================================
+// 4.0 port (item cac1bffa): seat tokens, serverRunId, retired tool names.
+// Oracles: task-scope D2 (token file hand-off), D4 (serverRunId replaces planDocSlug), D10 (review
+// lanes assigned like any schema seat; args gain optional serverRunId and per-stage tokenFile),
+// AC1/AC2/AC5. Each negative assertion names the fixture condition that would fail it.
+// =============================================================================
+
+const SERVER_RUN = '8f14e45f-ceea-4672-8a3e-5e8f4a9b7c10'
+const TOKEN_FILE = '/tmp/scratch/tokens/aaaaaaaa.reviewer.token'
+
+function tokenPlan() {
+  return planFrom((raw) => {
+    raw.serverRunId = SERVER_RUN
+    raw.items[0].stages[1].tokenFile = TOKEN_FILE
+  })
+}
+
+test('D10: a lane with a tokenFile gets a SEAT TOKEN part naming the file, the seatToken field and the rejection rule; a lane without one gets none', () => {
+  const plan = tokenPlan()
+  const item = plan.items[0]
+  const withToken = lanePrompt(plan, item, item.stages[1], {})
+  assert.ok(withToken.includes('SEAT TOKEN'), 'SEAT TOKEN part must be present when tokenFile is set')
+  assert.ok(withToken.includes(TOKEN_FILE), 'the part names the token file path')
+  assert.ok(withToken.includes('seatToken'), 'the part names the top-level seatToken field')
+  assert.ok(withToken.includes('The seat token is not accepted.'), 'AC5: the unauthenticated message is quoted')
+  assert.ok(withToken.includes('seat-token-rejected'), 'AC5: the stop reason is named')
+  // fixture condition: the simplify lane (stage 0) has no tokenFile in the same plan
+  const withoutToken = lanePrompt(plan, item, item.stages[0], {})
+  assert.equal(withoutToken.includes('SEAT TOKEN'), false)
+})
+
+test('D10: the plan without serverRunId or tokenFile renders no SEAT TOKEN part for any lane', () => {
+  const plan = planFrom(() => {})
+  const item = plan.items[0]
+  for (const stage of item.stages) {
+    assert.equal(lanePrompt(plan, item, stage, {}).includes('SEAT TOKEN'), false, `lane ${stage.lane}`)
+  }
+})
+
+test('S12 (review lane): the token file content never reaches the prompt - only its path does', () => {
+  const plan = tokenPlan()
+  const item = plan.items[0]
+  const prompt = lanePrompt(plan, item, item.stages[1], {})
+  assert.equal(/seatToken["']?\s*[:=]\s*["'][^"']+["']/.test(prompt), false, 'no seatToken: "<value>" assignment')
+})
+
+test('D4: the runReview result carries serverRunId and no planDocSlug', async () => {
+  const plan = tokenPlan()
+  const responder = async (label) => (label.startsWith('simplify:') ? simplifyEnvelope([]) : passEnvelope(['review-checklist', 'test-independence-audit']))
+  const { agent } = autoAgent(responder)
+  const result = await runReview(plan, { agent, parallel: fakeParallel, log: () => {} })
+  assert.equal(result.started, true)
+  assert.equal(result.serverRunId, SERVER_RUN)
+  assert.equal(Object.hasOwn(result, 'planDocSlug'), false)
+})
+
+test('AC2: no lane prompt names a retired 3.x tool, with or without a token', () => {
+  for (const plan of [tokenPlan(), planFrom(() => {})]) {
+    const item = plan.items[0]
+    for (const stage of item.stages) {
+      const prompt = lanePrompt(plan, item, stage, {})
+      for (const name of RETIRED_3X_TOOLS) {
+        const re = new RegExp('(^|[^A-Za-z0-9_])' + name + '([^A-Za-z0-9_]|$)')
+        assert.equal(re.test(prompt), false, `lane ${stage.lane} names retired tool ${name}`)
+      }
+    }
+  }
+})
+
+test('AC5: a lane prompt never lists run_paused among the retried codes and retries unavailable once', () => {
+  const { prompt } = promptFor(() => {})
+  const retried = prompt.split('\n').filter((l) => /^(ERRORS|CONFIG RETRY)/.test(l)).join('\n')
+  assert.ok(/retried:\s*unavailable,\s*once/i.test(retried), 'unavailable is the single retried code')
+  const neverIdx = retried.search(/never retried/i)
+  assert.ok(neverIdx !== -1, 'a never-retried list exists')
+  const afterNever = retried.slice(neverIdx)
+  for (const code of ['run_paused', 'note_owned_by_other', 'seat_forbidden', 'not_claim_holder', 'decision_closed', 'forbidden', 'not_found']) {
+    assert.ok(afterNever.includes(code), `${code} must be in the never-retried list`)
+  }
+  assert.equal(retried.slice(0, neverIdx).includes('run_paused'), false, 'fixture condition: a run_paused in the retried half would fail this')
 })

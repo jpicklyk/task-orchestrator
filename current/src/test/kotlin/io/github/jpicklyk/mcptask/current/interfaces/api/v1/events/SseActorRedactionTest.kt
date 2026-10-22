@@ -1,15 +1,17 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
+import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
@@ -22,7 +24,6 @@ import io.ktor.server.sse.SSE
 import io.ktor.server.testing.testApplication
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -67,22 +68,24 @@ class SseActorRedactionTest {
         private val FIXED_TIME: Instant = Instant.parse("2026-10-06T12:00:00Z")
 
         private fun entries(
-            readScope: ApiScope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+            readScope: AccessScope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
             readExpiresAt: Instant? = null,
         ): Map<HashBytes, BearerTokenStore.TokenEntry> {
             val read =
-                ApiPrincipal(
-                    tokenId = "sse-actor-read",
+                Principal(
+                    id = "sse-actor-read",
                     scope = readScope,
                     capabilities = setOf(ApiCapability.READ),
-                    authMode = ApiAuthMode.BEARER,
+                    kind = PrincipalKind.SERVICE,
+                    proofStatus = ProofStatus.ISSUED,
                 )
             val admin =
-                ApiPrincipal(
-                    tokenId = "sse-actor-admin",
-                    scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+                Principal(
+                    id = "sse-actor-admin",
+                    scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
                     capabilities = setOf(ApiCapability.READ, ApiCapability.ADMIN),
-                    authMode = ApiAuthMode.BEARER,
+                    kind = PrincipalKind.SERVICE,
+                    proofStatus = ProofStatus.ISSUED,
                 )
             return mapOf(
                 HashBytes(sha256(READ_TOKEN)) to BearerTokenStore.TokenEntry(read, readExpiresAt),
@@ -116,12 +119,10 @@ class SseActorRedactionTest {
         itemId: UUID,
         rootId: UUID?,
         actor: ActorClaim?,
-    ): (ApiEventBus) -> Unit =
+    ): suspend (ApiEventBus) -> Unit =
         { bus ->
-            bus.publish(
-                bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = itemId, modifiedAt = FIXED_TIME, actor = actor, rootId = rootId),
-                affectedRoots = rootId?.let { setOf(it) } ?: emptySet(),
-            )
+            // P8: a row always has a root; a null rootId means "the item is its own root".
+            bus.emit(ApiEventType.ITEM_UPDATED, itemId = itemId, rootId = rootId ?: itemId, actor = actor, at = FIXED_TIME)
         }
 
     /** Connects as the given principal and returns the first raw frame (replay or live) plus its raw text. */
@@ -129,12 +130,12 @@ class SseActorRedactionTest {
         admin: Boolean,
         redact: Boolean,
         live: Boolean,
-        readScope: ApiScope = ApiScope(rootIds = null, tagsInclude = emptySet()),
-        publish: (ApiEventBus) -> Unit,
+        readScope: AccessScope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
+        publish: suspend (ApiEventBus) -> Unit,
     ): Pair<JsonObject, String> {
         var out: Pair<JsonObject, String>? = null
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = InMemoryEventStore())
             if (!live) publish(bus)
             application { wire(bus, entries(readScope), redact) }
             val client = createClient { install(ClientSSE) }
@@ -143,10 +144,8 @@ class SseActorRedactionTest {
                     val pub =
                         if (live) {
                             launch {
-                                repeat(60) {
-                                    delay(150)
-                                    publish(bus)
-                                }
+                                bus.awaitSubscribers()
+                                publish(bus)
                             }
                         } else {
                             null
@@ -155,7 +154,7 @@ class SseActorRedactionTest {
                         urlString = "/events",
                         request = {
                             header(HttpHeaders.Authorization, "Bearer ${if (admin) ADMIN_TOKEN else READ_TOKEN}")
-                            if (!live) header("Last-Event-ID", "0")
+                            if (!live) header("Last-Event-ID", FROM_START)
                         },
                     ) {
                         val raw =
@@ -233,17 +232,17 @@ class SseActorRedactionTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S8a admin with redaction on sees the actor on live and replay`() = checkCell(admin = true, redact = true)
+    fun `S8a admin with redaction on sees the actor on live and replay`(): Unit = checkCell(admin = true, redact = true)
 
     @Test
-    fun `S8b admin with redaction off sees the actor on live and replay`() = checkCell(admin = true, redact = false)
+    fun `S8b admin with redaction off sees the actor on live and replay`(): Unit = checkCell(admin = true, redact = false)
 
     @Test
-    fun `S8c read-only principal with redaction on does not see the actor on live or replay but keeps rootId`() =
+    fun `S8c read-only principal with redaction on does not see the actor on live or replay but keeps rootId`(): Unit =
         checkCell(admin = false, redact = true)
 
     @Test
-    fun `S8d read-only principal with redaction off sees the actor on live and replay`() = checkCell(admin = false, redact = false)
+    fun `S8d read-only principal with redaction off sees the actor on live and replay`(): Unit = checkCell(admin = false, redact = false)
 
     @Test
     fun `S8e an actor without a parent has no parent key and an event without actor or rootId has neither key`() {
@@ -257,17 +256,19 @@ class SseActorRedactionTest {
         )
 
         val bare = fetchFrame(admin = false, redact = true, live = false, publish = publisher(UUID.randomUUID(), null, null))
+        // P8 expected-value change: every row carries a root (a root item uses its own id), so rootId is always
+        // present; an event without an actor still has no actor key.
         assertEquals(
-            setOf("id", "event", "itemId", "modifiedAt"),
+            setOf("id", "event", "itemId", "modifiedAt", "rootId"),
             bare.first.keys,
-            "an event with neither actor nor rootId keeps the pre-existing key set, got: ${bare.second}",
+            "an event without an actor has no actor key (rootId is always present since P8), got: ${bare.second}",
         )
     }
 
     @Test
     fun `S8f redaction is egress-only so a later admin connection still sees the actor`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = InMemoryEventStore())
             val itemId = UUID.randomUUID()
             val rootId = UUID.randomUUID()
             publisher(itemId, rootId, claim)(bus)
@@ -281,7 +282,7 @@ class SseActorRedactionTest {
                         urlString = "/events",
                         request = {
                             header(HttpHeaders.Authorization, "Bearer $token")
-                            header("Last-Event-ID", "0")
+                            header("Last-Event-ID", FROM_START)
                         },
                     ) {
                         val raw =
@@ -307,7 +308,7 @@ class SseActorRedactionTest {
     fun `S8g a root-scoped read-only principal gets rootId but not the actor when redaction is on`() {
         val itemId = UUID.randomUUID()
         val rootId = UUID.randomUUID()
-        val scope = ApiScope(rootIds = setOf(rootId), tagsInclude = emptySet())
+        val scope = AccessScope.principal(rootIds = setOf(rootId), tagsInclude = emptySet())
         val publish = publisher(itemId, rootId, claim)
         listOf(false, true).forEach { live ->
             val (frame, raw) = fetchFrame(admin = false, redact = true, live = live, readScope = scope, publish = publish)
@@ -323,20 +324,12 @@ class SseActorRedactionTest {
     @Test
     fun `S9a the replay-gap sync_lost sentinel carries neither actor nor rootId for admin and read-only alike`(): Unit =
         testApplication {
-            val bus = ApiEventBus(bufferSize = 3)
+            val bus = ApiEventBus(bufferSize = 3, source = InMemoryEventStore())
             val rootId = UUID.randomUUID()
             val published = mutableListOf<ApiEvent>()
             repeat(5) {
-                val e =
-                    bus.buildEvent(
-                        ApiEventType.ITEM_UPDATED,
-                        itemId = UUID.randomUUID(),
-                        modifiedAt = FIXED_TIME,
-                        actor = claim,
-                        rootId = rootId,
-                    )
+                val e = bus.emit(ApiEventType.ITEM_UPDATED, itemId = UUID.randomUUID(), rootId = rootId, actor = claim, at = FIXED_TIME)
                 published.add(e)
-                bus.publish(e, setOf(rootId))
             }
             application { wire(bus, entries(), redact = false) }
             val client = createClient { install(ClientSSE) }
@@ -370,7 +363,7 @@ class SseActorRedactionTest {
     @Test
     fun `S9b auth_expired carries neither actor nor rootId`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = InMemoryEventStore())
             application {
                 wire(bus, entries(readExpiresAt = Instant.now().plusMillis(1200)), redact = false, authCheckIntervalSeconds = 1)
             }

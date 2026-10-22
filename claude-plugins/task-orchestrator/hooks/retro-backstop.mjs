@@ -1,76 +1,49 @@
 #!/usr/bin/env node
-// Stop hook — backstop for retro-trigger.mjs. Fires at the end of every turn; if a prior
-// PostToolUse call saw an item reach terminal (LONE_TERMINAL) but no PARENT_COMPLETION ever
-// arrived to turn it into a nudge/dispatch, this hook escalates it once the turn ends, so a run
-// that finishes on a lone terminal item (no cascade, no complete_tree) still gets surfaced.
+// Stop hook — backstop for retro-trigger.mjs. Fires at the end of every turn.
 //
-// Always nudges, never dispatches, in ANY configured mode — it fires on the deferred
-// `sawTerminal` flag, which by construction is not a confirmed run boundary (see
-// retro-trigger.mjs's LONE_TERMINAL comment: "a single leaf finishing isn't necessarily a run
-// boundary"). Escalating that into a hard background dispatch would be the worst-case firing —
-// a single housekeeping item finishing could spawn a full retrospective agent.
+// With REST (an API URL and a project rootId): runs the same closed-run evaluation as the trigger, so
+// a run closed elsewhere (another session, a subagent, a tool the trigger never saw) still gets its
+// retrospective; a closed run is a confirmed boundary, so this may dispatch (after winning the
+// server-side `retro` mark) as well as nudge. Output is a `block` decision.
 //
-// When there is no identifiable root (pendingRoots empty), this emits a nudge with NO UUID
-// argument rather than falling back to the project anchor — a supplied root UUID is treated as
-// authoritative scope by /session-retrospective (see SKILL.md), so falling back to the whole
-// project root would force the most expensive possible scope for what may be a single
-// unrelated item. An unscoped nudge instead lets the skill's own fallback scan apply, which is
-// narrower (rootId-scoped, discards items older than 24h).
+// Without REST: if this session recorded a successful run close (retro-trigger.mjs) and has not been
+// nudged this way yet, block once with a nudge naming the recorded runs. Never marks, never dispatches,
+// at most once per session.
 //
-// Fail-open by design: any read/parse error, missing config, or unrecognized marker state
-// results in a silent `{}` on stdout and exit 0 — this hook must never block termination.
-//
-// Loop guard: `stop_hook_active === true` means Claude Code is already re-invoking Stop hooks
-// after a prior `block` decision from this same turn-end — always allow immediately. Every
-// blocking path also clears `sawTerminal` and stamps `handledAt`, so the very next Stop (whether
-// it arrives via stop_hook_active or a fresh turn) is guaranteed to fall through to silent exit.
+// Fail-open by design: any error results in a silent `{}` on stdout and exit 0 — this hook must never
+// block termination. Loop guard: `stop_hook_active === true` is always allowed immediately.
 
-import { readFileSync } from 'fs';
+import { readHookInput } from './lib/stdin.mjs';
+import { emitEmpty as writeEmpty, emitBlock as writeBlock } from './lib/emit.mjs';
 import {
   parseRetrospectiveConfig,
-  retroMarkerKey,
-  markerPath,
-  readMarker,
-  writeMarker,
+  restRootId,
+  readSessionState,
+  writeSessionState,
+  evaluateRuns,
+  directiveFor,
   buildNudge,
 } from './retro-lib.mjs';
 import { locateConfig } from './config-locator.mjs';
 import { isHeadlessIteration } from './execution-mode.mjs';
 
 function emitEmpty() {
-  process.stdout.write('{}');
+  writeEmpty();
   process.exit(0);
 }
 
 function emitBlock(text) {
-  process.stdout.write(JSON.stringify({ decision: 'block', reason: text }));
+  writeBlock(text);
   process.exit(0);
 }
 
 try {
-  let raw = '';
-  try {
-    raw = readFileSync(0, 'utf-8');
-  } catch {
-    emitEmpty();
-  }
+  const hookInput = readHookInput();
+  if (!hookInput) emitEmpty();
 
-  let hookInput;
-  try {
-    hookInput = JSON.parse(raw);
-  } catch {
-    emitEmpty();
-  }
-
-  // The task-orchestrator-mod plugin owns retrospective handling for this event (it forwards
-  // `to_mod_retro` on the event): step aside before any config or marker I/O.
-  if (hookInput?.to_mod_retro === true) emitEmpty();
-
+  // The task-orchestrator-mod plugin owns retrospective handling for this event: step aside first.
+  if (hookInput.to_mod_retro === true) emitEmpty();
   if (hookInput.stop_hook_active === true) emitEmpty();
-
-  // Headless ralph iteration: emit empty before any marker read/write — Stop backstops fire for
-  // the main agent turn, but a headless iteration's main turn should never surface an
-  // interactive-orchestrator nudge either.
   if (isHeadlessIteration()) emitEmpty();
 
   const sessionId = hookInput.session_id;
@@ -79,31 +52,21 @@ try {
   const config = parseRetrospectiveConfig(located.text);
   if (config.mode === 'off') emitEmpty();
 
-  const cooldownMs = config.cooldownMinutes * 60 * 1000;
+  const state = readSessionState(sessionId);
+  const rootId = restRootId(located);
 
-  const key = retroMarkerKey(located, sessionId);
-  const path = markerPath(key);
-  const marker = readMarker(path);
-  const now = Date.now();
+  if (rootId) {
+    const result = await evaluateRuns({ rootId, config, state });
+    const text = directiveFor(result, located);
+    if (result.nudge.length > 0) writeSessionState(sessionId, state);
+    if (text) emitBlock(text);
+    emitEmpty();
+  }
 
-  if (!marker.sawTerminal) emitEmpty();
-
-  if (marker.handledAt && (now - marker.handledAt <= cooldownMs)) emitEmpty();
-
-  // No project-anchor fallback here — see the header comment. An empty pendingRoots list
-  // renders as a bare `/session-retrospective` with no UUID argument (buildNudge in
-  // retro-lib.mjs handles the empty-list case cleanly).
-  const roots = (marker.pendingRoots && marker.pendingRoots.length) ? marker.pendingRoots : [];
-
-  writeMarker(path, {
-    ...marker,
-    handledAt: now,
-    sawTerminal: false,
-    pendingRoots: [],
-    terminalCount: 0,
-  });
-
-  emitBlock(buildNudge(roots));
+  if (!state.sawClose || state.backstopNudged) emitEmpty();
+  state.backstopNudged = true;
+  writeSessionState(sessionId, state);
+  emitBlock(buildNudge(state.closes));
 } catch {
   emitEmpty();
 }

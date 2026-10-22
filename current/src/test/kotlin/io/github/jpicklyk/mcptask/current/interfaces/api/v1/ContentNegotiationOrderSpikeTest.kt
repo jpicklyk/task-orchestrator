@@ -1,10 +1,11 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1
 
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.wellKnownRoutes
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
@@ -57,7 +58,7 @@ class ContentNegotiationOrderSpikeTest {
      * install(ContentNegotiation) { json(McpJson) } → routing { ... }
      */
     @Test
-    fun `ContentNegotiation with McpJson installed first serves REST JSON correctly`() =
+    fun `ContentNegotiation with McpJson installed first serves REST JSON correctly`(): Unit =
         testApplication {
             application {
                 install(ContentNegotiation) {
@@ -84,7 +85,7 @@ class ContentNegotiationOrderSpikeTest {
      * serialization — null fields are omitted, non-null fields are present.
      */
     @Test
-    fun `McpJson explicitNulls=false does not break REST JSON serialization`() =
+    fun `McpJson explicitNulls=false does not break REST JSON serialization`(): Unit =
         testApplication {
             application {
                 install(ContentNegotiation) {
@@ -109,7 +110,7 @@ class ContentNegotiationOrderSpikeTest {
      * Tests /api/v1/info with a pre-seeded principal in call attributes.
      */
     @Test
-    fun `serviceRoutes info endpoint serializes correctly under McpJson ContentNegotiation`() =
+    fun `serviceRoutes info endpoint serializes correctly under McpJson ContentNegotiation`(): Unit =
         testApplication {
             application {
                 install(ContentNegotiation) {
@@ -120,11 +121,12 @@ class ContentNegotiationOrderSpikeTest {
                     get("/api/v1/info") {
                         call.attributes.put(
                             ApiPrincipalKey,
-                            ApiPrincipal(
-                                tokenId = "test-token",
-                                scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+                            Principal(
+                                id = "test-token",
+                                scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
                                 capabilities = setOf(ApiCapability.READ),
-                                authMode = ApiAuthMode.BEARER,
+                                kind = PrincipalKind.SERVICE,
+                                proofStatus = ProofStatus.ISSUED,
                             ),
                         )
                         // Re-dispatch to the real route handler
@@ -135,7 +137,6 @@ class ContentNegotiationOrderSpikeTest {
                                 apiVersion = "v1",
                                 capabilities = listOf("read"),
                                 claimModeAvailable = true,
-                                actorAuthenticationEnabled = false,
                             ),
                         )
                     }
@@ -155,7 +156,7 @@ class ContentNegotiationOrderSpikeTest {
      * when ContentNegotiation is configured with McpJson.
      */
     @Test
-    fun `wellKnownRoutes returns correct JSON under McpJson ContentNegotiation`() =
+    fun `wellKnownRoutes returns correct JSON under McpJson ContentNegotiation`(): Unit =
         testApplication {
             application {
                 install(ContentNegotiation) {
@@ -178,7 +179,7 @@ class ContentNegotiationOrderSpikeTest {
      * Verifies CORS plugin installs without conflict when ContentNegotiation is already present.
      */
     @Test
-    fun `CORS and ContentNegotiation install without conflict`() =
+    fun `CORS and ContentNegotiation install without conflict`(): Unit =
         testApplication {
             application {
                 install(ContentNegotiation) {

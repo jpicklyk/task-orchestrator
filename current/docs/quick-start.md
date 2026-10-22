@@ -88,7 +88,14 @@ Restart Claude Code (close and reopen), then run:
 /mcp
 ```
 
-You should see `mcp-task-orchestrator` listed as connected, with tools including `manage_items`, `query_items`, `advance_item`, `claim_item`, `manage_notes`, `query_notes`, `manage_dependencies`, `query_dependencies`, `get_next_item`, `get_blocked_items`, `get_next_status`, `get_context`, `create_work_tree`, and `complete_tree`.
+You should see `mcp-task-orchestrator` listed as connected, with tools including `items_read`, `items_write`, `notes_read`, `notes_write`, `deps_read`, `deps_write`, `docs_read`, `docs_write`, `advance`, `config`, `runs_read` and `runs_write`.
+
+Two things to know before you read any example in this guide:
+
+- **Tool profiles.** The server builds one tool set per profile, and a client sees only the selects and ops of the profile it connected with. Over stdio the profile comes from `MCP_TOOL_PROFILE` and defaults to `orchestration` (everything except the director-only `report` tool); over HTTP the path picks it (`/mcp`, `/mcp/knowledge`, `/mcp/director`). The profile table is in the [API Reference](./api-reference.md#tool-profiles).
+- **`describe: true`.** Any tool answers `{"describe": true}` with its own contract: every select or op in your profile, each field with its type and description, and the error codes. Ask the tool when you are unsure of a field name.
+
+Every example below is the JSON request body of one tool call. A read tool takes a `select`, a write tool takes an `ops` array whose elements name an `op`, and every tool answers the same `{ok, data | error, meta}` envelope ([Calling the tools](./workflow-guide.md#calling-the-tools) in the workflow guide).
 
 If the server shows as disconnected, check that Docker is running and that the image pulled successfully:
 
@@ -135,7 +142,7 @@ Hooks run automatically — no invocation required:
 - **Plan mode** — after plan approval, prompts Claude to create MCP items so persistent tracking stays in sync with the conversation
 - **Subagent start** — passes task context into spawned subagents so they start with full awareness of the current item
 
-**Optional:** Enable actor authentication to require agents to identify themselves on every write operation — add an `actor_authentication` section with `enabled: true` to the workspace (or user-level) `.taskorchestrator/config.yaml`; the plugin hook reads it, the server does not. See [Enforcing Actor Attribution](./api-reference.md#enforcing-actor-attribution) in the API reference.
+**Identity:** a call's identity is the principal its transport established, never a field in the request. Over stdio, or HTTP without a credential mode, every caller is the one `local` principal; with `API_AUTH_MODE=bearer` or `jwks`, it is the credential's holder. There is no actor to configure. See [Identity Configuration](./fleet-deployment.md#identity-configuration) in the fleet deployment guide.
 
 ### Orchestration context
 
@@ -171,9 +178,9 @@ You describe what you want
         │                       Items, dependencies, notes — execution tracking
         ▼
   Implement                  ← Subagents work, each transitioning their MCP item
-        │                       advance_item(start) → work → advance_item(complete)
+        │                       advance transition: start → work → complete
         ▼
-  Health check               ← get_context() shows what completed and what didn't
+  Health check               ← items_read context shows what completed and what didn't
 ```
 
 The plan file and the MCP items are not duplicates — they serve different roles:
@@ -197,7 +204,7 @@ The easiest way to get started is to just tell Claude what you want to build.
 You: "I want to build user authentication with a database schema,
       API endpoints, and a login UI."
 
-Claude: → Calls create_work_tree to create a root item and three child items
+Claude: → Calls items_write create_tree to create a root item and four child items
         → Wires dependency edges so the UI and API must complete before integration tests
         → Shows the structure and which items are immediately actionable
 ```
@@ -207,10 +214,10 @@ Claude: → Calls create_work_tree to create a root item and three child items
 ```
 You: "What should I work on next?"
 
-Claude: → Calls get_next_item() to find the highest-priority unblocked item
+Claude: → Reads items_read next to find the highest-priority unblocked item
         → Reports: "Database schema is ready — no blockers, high priority"
         → Starts working on it, filling notes as it goes
-        → Calls advance_item(trigger="complete") when done
+        → Sends an advance transition with trigger "complete" when done
 ```
 
 **Checking overall status:**
@@ -218,7 +225,7 @@ Claude: → Calls get_next_item() to find the highest-priority unblocked item
 ```
 You: "Where do we stand on the authentication work?"
 
-Claude: → Calls get_context() for a health snapshot
+Claude: → Reads items_read context for a health snapshot
         → Reports: 2 items complete, 1 in progress, 1 blocked on the in-progress item
 ```
 
@@ -226,34 +233,71 @@ Claude: → Calls get_context() for a health snapshot
 
 The conversational examples above translate to these tool calls:
 
-```
-# Build a work tree with children and dependencies in one call
-create_work_tree(
-  root={title: "Authentication system", type: "feature", priority: "high"},
-  children=[
-    {ref: "schema", title: "Database schema"},
-    {ref: "api",    title: "Auth API endpoints"},
-    {ref: "ui",     title: "Login UI"},
-    {ref: "tests",  title: "Integration tests"}
-  ],
-  deps=[
-    {from: "api",   to: "tests"},
-    {from: "ui",    to: "tests"}
+Build a work tree with children and dependencies in one call (`items_write`). Every item names a `type` that your config declares; the example assumes `feature` and `task`:
+
+```json
+{
+  "ops": [
+    {
+      "op": "create_tree",
+      "root": { "title": "Authentication system", "type": "feature", "priority": "high" },
+      "children": [
+        { "ref": "schema", "title": "Database schema", "type": "task" },
+        { "ref": "api",    "title": "Auth API endpoints", "type": "task" },
+        { "ref": "ui",     "title": "Login UI", "type": "task" },
+        { "ref": "tests",  "title": "Integration tests", "type": "task" }
+      ],
+      "deps": [
+        { "from": "api", "to": "tests" },
+        { "from": "ui",  "to": "tests" }
+      ]
+    }
   ]
-)
+}
+```
 
-# Find the next thing to work on (highest-priority, dependency-unblocked)
-get_next_item()
+```json
+{
+  "ok": true,
+  "data": {
+    "results": [
+      { "ok": true, "id": "5b21c0de-91a4-4c3e-8d57-2f0a6b7e1c94", "version": 1,
+        "items": [ { "ref": "root", "id": "5b21c0de-91a4-4c3e-8d57-2f0a6b7e1c94", "depth": 0 },
+                   { "ref": "schema", "id": "3d7e91ab-5c0e-4f1a-9b2d-0a6e8c4d1f37", "depth": 1 } ],
+        "deps": [], "notes": [] }
+    ],
+    "summary": { "ok": 1, "failed": 0 }
+  },
+  "meta": { "reqId": "k7f3q9ab" }
+}
+```
 
-# Find the next high-priority quick win (complexity ≤ 3)
-get_next_item(priority="high", complexityMax=3)
+(Abridged: the real answer lists all five items and both dependencies, each with a full UUID. The compact views that later reads return show the 8-hex short id, `3d7e91ab`, and every id field accepts it.)
 
-# Transition an item through its lifecycle
-advance_item(transitions=[{itemId: "<uuid>", trigger: "start"}])
-advance_item(transitions=[{itemId: "<uuid>", trigger: "complete"}])
+Find the next thing to work on (highest-priority, dependency-unblocked), or the next high-priority quick win:
 
-# Health snapshot across all active work
-get_context()
+```json
+{ "select": "next" }
+```
+
+```json
+{ "select": "next", "complexityMax": 3 }
+```
+
+Transition an item through its lifecycle (`advance`):
+
+```json
+{ "ops": [ { "op": "transition", "itemId": "3d7e91ab", "trigger": "start" } ] }
+```
+
+```json
+{ "ops": [ { "op": "transition", "itemId": "3d7e91ab", "trigger": "complete" } ] }
+```
+
+Health snapshot across all active work:
+
+```json
+{ "select": "context" }
 ```
 
 See [api-reference.md](api-reference.md) for full parameter documentation on every tool.
@@ -282,7 +326,7 @@ You can also trigger the dashboard manually at any time:
 /task-orchestrator:work-summary
 ```
 
-This calls `get_context()` and `get_blocked_items()` and presents a structured view of active work, blockers, and recommended next actions — useful at the start of a session or after a long implementation run.
+This reads `items_read` `context` and `blocked` and presents a structured view of active work, blockers, and recommended next actions, useful at the start of a session or after a long implementation run.
 
 ---
 
@@ -292,33 +336,33 @@ The MCP server includes FTS5 full-text search backed by SQLite's FTS5 extension 
 
 **Find items by content:**
 
-```
-query_items(operation="search", query="OAuth token")
+```json
+{ "select": "search", "query": "OAuth token", "kinds": ["item"] }
 ```
 
-Returns ranked hits with ~32-token snippets from item titles and summaries. Multiple words are
+Returns ranked hits with ~32-token snippets from item titles, summaries and descriptions. Multiple words are
 treated as implicit AND. Pass plain terms — special characters are automatically escaped.
 
 **Search within a feature's subtree:**
 
-```
-query_items(operation="search", query="migration", scope={ancestorId="<feature-uuid>"})
+```json
+{ "select": "search", "query": "migration", "kinds": ["item"], "ancestorId": "5b21c0de" }
 ```
 
 **Search across all note bodies:**
 
-```
-query_notes(operation="search", query="rate limiting", limit=10)
+```json
+{ "select": "search", "query": "rate limiting", "kinds": ["note"], "limit": 10 }
 ```
 
 **Find what references an item (backlinks):**
 
-```
-query_dependencies(operation="backlinks", itemId="<uuid>")
+```json
+{ "select": "list", "item": "3d7e91ab", "direction": "incoming" }
 ```
 
-Returns all items that hold a dependency edge pointing at the given item — useful for impact
-analysis and tracing who depends on what.
+That is a `deps_read` call. It returns all edges that point at the given item. Useful for impact
+analysis and tracing who depends on what. For everything related to an item (edges, links, shared tags and similar text), use `items_read` `{"select": "related", "itemId": "3d7e91ab"}`.
 
 For the full FTS5 architecture, score interpretation, and `explain=true` usage, see
 [`search-and-discovery.md`](./search-and-discovery.md).
@@ -329,7 +373,7 @@ For the full FTS5 architecture, score interpretation, and `explain=true` usage, 
 
 > **Schemas vs notes:** Schemas are user-configured rules in `.taskorchestrator/config.yaml` — they define what documentation agents must provide at each workflow phase. Notes are the actual content agents write as they work on items. Schemas live in your project config; notes live in the MCP database. Schemas define the gates; agents fill the notes to pass them.
 
-Note schemas enforce per-phase documentation requirements. When an item's `type` or `tags` match a schema, `advance_item` gates progression until the required notes are filled.
+Note schemas enforce per-phase documentation requirements. When an item's `type` resolves to a schema, `advance` gates progression until the required notes are filled.
 
 Create `.taskorchestrator/config.yaml` in your project root:
 
@@ -351,7 +395,7 @@ work_item_schemas:
 
 > The legacy `note_schemas:` flat-list format is still accepted and fully backward-compatible. New configs should prefer `work_item_schemas:`.
 
-Items whose `type` is `task-implementation`, or that carry the `task-implementation` tag, will require an `acceptance-criteria` note before `advance_item(trigger="start")` advances them to work, and a `done-criteria` note before `advance_item(trigger="complete")` closes them.
+Items whose `type` is `task-implementation` will require an `acceptance-criteria` note before an `advance` `transition` with `trigger: "start"` advances them to work, and a `done-criteria` note before one with `trigger: "complete"` closes them. Tags never select a schema.
 
 The interactive way to build schemas is the `/task-orchestrator:manage-schemas` skill — it walks you through creating, viewing, editing, and validating schemas without editing YAML directly.
 
@@ -379,12 +423,7 @@ After adding or editing this file, reconnect the MCP server:
 > }
 > ```
 > Use an absolute host path. Claude Code's `.mcp.json` expands only environment variables (`${VAR}` and `${VAR:-default}`), so editor-style placeholders such as `${workspaceFolder}` are not substituted. Only the `.taskorchestrator/` folder is exposed — the server has no access to the rest of your project.
->
-> **Using JWKS path verification?** Also mount `.agentlair/` so the container can read your local JWKS file:
-> ```json
-> "-v", "/absolute/path/to/your/project/.agentlair:/project/.agentlair:ro",
-> ```
-> Add this line alongside the `.taskorchestrator` mount. The `.agentlair/` mount is only needed when `verifier.jwks_path` is configured. See [Actor Authentication & Verification](./api-reference.md#actor-authentication--verification) in the API reference for details including Docker network access options.
+
 
 ---
 
@@ -392,11 +431,11 @@ After adding or editing this file, reconnect the MCP server:
 
 | Concept | Description |
 |---------|-------------|
-| `WorkItem` | The core entity. Has a `role` (queue/work/review/terminal/blocked), `type` (e.g. `feature`, `task`, `bug`), `priority`, `tags`, `depth` (0 for a root, parent's depth + 1 otherwise — nesting is unbounded), optional `parentId`, and a `properties` map for custom metadata. |
+| `WorkItem` | The core entity. Has a `role` (queue/work/review/terminal/blocked), a required `type` (e.g. `feature`, `task`, `bug`; it must be declared in your config), `priority`, `tags`, `depth` (0 for a root, parent's depth + 1 otherwise — nesting is unbounded), optional `parentId`, and a `properties` map for custom metadata. |
 | `Note` | Key-value text attached to an item. Has a `role` indicating which workflow phase it belongs to. |
-| `Dependency` | Directed edge between items: `BLOCKS`, `IS_BLOCKED_BY`, or `RELATES_TO`. |
+| `Dependency` | Directed edge between items: `blocks` or `relates_to`. Name the blocker as `from`; the 3.x `is_blocked_by` alias is not accepted. |
 | Role progression | Items advance via triggers: `start` (queue→work, work→review), `complete` (queue/work/review→terminal — not from blocked; `resume` first), `block`/`hold` (queue/work/review→blocked), `resume` (blocked→previous), `cancel` (any non-terminal→terminal, including blocked). |
-| Note schema gating | When enabled, `advance_item` checks required notes exist and are non-empty before allowing phase transitions. Schema is resolved by `type` first, then tags, then the `default` schema. |
+| Note schema gating | When enabled, `advance` checks required notes exist and are non-empty before allowing phase transitions. Schema is resolved by `type` first, then the `default` schema; tags never select one. |
 
 ---
 
@@ -405,8 +444,8 @@ After adding or editing this file, reconnect the MCP server:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_PATH` | `data/current-tasks.db` | SQLite file path inside the container |
-| `USE_FLYWAY` | `true` | Apply database migrations on startup. `false` selects Direct mode for disposable dev/test databases only: it has no upgrade path, and Flyway mode refuses a Direct-created database. |
-| `FLYWAY_REPAIR` | `false` | Run Flyway repair (fix migration checksums) instead of migrate, then exit 0 without serving — the process never starts a transport or reports healthy. Ignored (with a WARN) if `USE_FLYWAY=false`. |
+| `SCHEMA_MODE` | `migrate` | `migrate` applies pending migrations on startup; `validate` runs no migrate and fails startup on a pending or future version; it is not read-only (it takes the lock file, may create an empty DB file on a missing path, and runs the FTS integrity check, which may rebuild). An invalid value fails startup even with `FLYWAY_REPAIR=true`. `USE_FLYWAY` is removed and ignored with a WARN. |
+| `FLYWAY_REPAIR` | `false` | Run Flyway repair (fix migration checksums) instead of migrate, then exit 0 without serving — the process never starts a transport or reports healthy. Takes precedence over a valid `SCHEMA_MODE`. |
 | `AGENT_CONFIG_DIR` | _(unset)_ | Parent directory of `.taskorchestrator/`; set when mounting a config folder into the container |
 | `LOG_LEVEL` | `INFO` | Verbosity: `DEBUG`, `INFO`, `WARN`, `ERROR` |
 | `LOG_FILE` | _(unset)_ | Opt-in log file path (e.g. `/app/data/logs/task-orchestrator.log`). Unset means no file logging. |
@@ -446,13 +485,23 @@ docker run --rm -p 127.0.0.1:3001:3001 \
   -e MCP_HTTP_PORT=3001 \
   -e AGENT_CONFIG_DIR=/project \
   -e API_ENABLED=false \
+  -e MCP_ALLOW_UNAUTHENTICATED=true \
   ghcr.io/jpicklyk/task-orchestrator:latest
 ```
+
+`MCP_ALLOW_UNAUTHENTICATED=true` is required here: with the REST API off there is no credential to check, so HTTP `/mcp` would be open to anyone who reaches the port. The server refuses to start in that state (startup failure `MCP_AUTH`) unless you opt in explicitly, and then serves every caller as the single `local` principal. Publishing on `127.0.0.1` (as above) is what keeps it private. For per-caller credentials instead, enable the REST API in `bearer` or `jwks` mode (Step 10); `/mcp` then uses the same credential.
 
 **Register the HTTP endpoint with Claude Code:**
 
 ```bash
 claude mcp add --transport http mcp-task-orchestrator http://localhost:3001/mcp
+```
+
+Against a server in a credential mode (Step 10), send the token as a header:
+
+```bash
+claude mcp add --transport http mcp-task-orchestrator http://localhost:3001/mcp \
+  --header "Authorization: Bearer YOUR_PLAINTEXT_TOKEN"
 ```
 
 Or add it to a project `.mcp.json`:
@@ -463,6 +512,20 @@ Or add it to a project `.mcp.json`:
     "mcp-task-orchestrator": {
       "type": "http",
       "url": "http://localhost:3001/mcp"
+    }
+  }
+}
+```
+
+With a credential mode, add the header to the entry (`.mcp.json` expands `${VAR}`, so keep the token in an environment variable rather than in the file):
+
+```json
+{
+  "mcpServers": {
+    "mcp-task-orchestrator": {
+      "type": "http",
+      "url": "http://localhost:3001/mcp",
+      "headers": { "Authorization": "Bearer ${TASK_ORCHESTRATOR_API_TOKEN}" }
     }
   }
 }
@@ -479,6 +542,7 @@ Restart Claude Code and run `/mcp` to confirm the connection and that the tools 
 | `MCP_TRANSPORT` | `stdio` | Set to `http` to serve the Streamable HTTP transport instead of stdio. |
 | `MCP_HTTP_PORT` | `3001` | Port the server listens on (inside the container for Docker). |
 | `MCP_HTTP_HOST` | `0.0.0.0` | Interface the server binds. Leave at `0.0.0.0` for Docker — the container is network-isolated, so control host exposure via the `-p` mapping (publish to `127.0.0.1` as shown above). For a direct, non-Docker JAR run, set `127.0.0.1` to bind loopback only. |
+| `MCP_ALLOW_UNAUTHENTICATED` | `false` | Required to start HTTP with `API_ENABLED=false`: it opts `/mcp` into serving every caller as the `local` principal, with no credential check. Without it that combination fails startup. Unneeded when the API is enabled (its auth mode decides). |
 | `API_ENABLED` | `false` | REST API off by default (MCP-only). Set `true` to opt into the REST API (Step 10), which then requires `API_AUTH_MODE`. |
 | `AGENT_CONFIG_DIR` | working dir | Directory containing `.taskorchestrator/config.yaml` (schema config). Set to the mounted project path. |
 | `MCP_ALLOWED_HOSTS` | *(empty)* | Comma-separated `Host` header allowlist (DNS-rebinding protection), **extending** the always-allowed loopback defaults (`localhost`, `127.0.0.1`, `[::1]`, any port). `host` matches any port, `host:port` matches that port only. Needed when you reach the server through a name other than loopback (a Docker Compose service name, `host.docker.internal`, a LAN hostname, a reverse-proxy `Host`). `*` disables the check entirely (not recommended). See [fleet-deployment.md](fleet-deployment.md) for the full behavior. |
@@ -487,17 +551,17 @@ Restart Claude Code and run `/mcp` to confirm the connection and that the tools 
 
 > **Schema config works identically over HTTP.** `.taskorchestrator/config.yaml` is loaded via `AGENT_CONFIG_DIR` regardless of transport — the `-v ...:/project/.taskorchestrator:ro` mount above gives the HTTP server the same schemas it would have over stdio. (An HTTP server resolves a single project's config; run one server per project.)
 
-The `docker compose --profile http up` service in `docker-compose.yml` is pre-configured this way. If you want the recommended REST-enabled, unauthenticated, loopback-only posture as copy-paste compose instead, use the additive `http-rest` profile (`docker compose --profile http-rest up`) — it layers `API_ENABLED=true`, `API_AUTH_MODE=none`, and `API_ALLOW_UNAUTHENTICATED=true` onto the same HTTP service without changing the `http` profile's REST-off default.
+The `docker compose --profile http up` service in `docker-compose.yml` is pre-configured this way, including `MCP_ALLOW_UNAUTHENTICATED=true`. If you want the recommended REST-enabled, unauthenticated, loopback-only posture as copy-paste compose instead, use the additive `http-rest` profile (`docker compose --profile http-rest up`) — it layers `API_ENABLED=true`, `API_AUTH_MODE=none`, and `API_ALLOW_UNAUTHENTICATED=true` onto the same HTTP service without changing the `http` profile's REST-off default.
 
 ### HTTP transport security
 
-> ⚠️ **SECURITY: `/mcp` over HTTP is UNAUTHENTICATED.** The Streamable HTTP transport has **no built-in authentication**. Anyone who can reach `MCP_HTTP_HOST:MCP_HTTP_PORT` gets **full read / write / delete** access to every MCP tool. Enabling the REST API (Step 10) does **not** protect `/mcp` — REST bearer/JWKS auth gates `/api/v1/*` only; `/mcp` stays open by design so MCP clients (which send no REST token) can still connect. The server logs a loud `SECURITY:` warning at startup whenever `MCP_TRANSPORT=http`. **Never expose this port to untrusted callers** — front it with an authenticating reverse proxy / mTLS, or keep it on a private network or loopback.
+> **How `/mcp` authenticates depends on the REST API.** With `API_ENABLED=true` and `API_AUTH_MODE=bearer` or `jwks`, `/mcp` requires the same `Authorization: Bearer` credential as `/api/v1` (a missing or bad one is `401`; the failure is the JSON error envelope). With the API off and `MCP_ALLOW_UNAUTHENTICATED=true`, or with `API_AUTH_MODE=none`, `/mcp` has **no authentication**: anyone who can reach `MCP_HTTP_HOST:MCP_HTTP_PORT` gets full read / write / delete access to every MCP tool, as the single `local` principal. The server logs a loud `SECURITY:` warning at startup in those local modes. **Never expose a local-mode port to untrusted callers** — keep it on loopback or a private network, or front it with an authenticating reverse proxy / mTLS. Over stdio there is no network exposure.
 
 The Streamable HTTP transport follows the [MCP transport security requirements](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#security-warning):
 
-- **Both `Host` and `Origin` are validated — DNS-rebinding protection.** A `Host` header allowlist guard runs first, ahead of every other plugin, and rejects any request whose `Host` isn't `localhost`/`127.0.0.1`/`[::1]` (any port) or listed in `MCP_ALLOWED_HOSTS` with `403 Forbidden`. This is what actually stops DNS rebinding: an attacker page that resolves a hostname to your loopback address can make the browser send a same-origin request, but it can't make the browser send an allowed `Host`. CORS then still rejects cross-origin browser requests with `403 Forbidden` on top of that. Non-browser MCP clients (Claude Code and other CLI agents) send no `Origin` and are unaffected by the CORS check, but their `Host` is still checked (a request with no `Host` header at all is allowed, since browsers always send one).
+- **The `Host` allowlist is the DNS-rebinding guard.** A `Host` header allowlist guard runs first, ahead of every other plugin, and rejects any request whose `Host` isn't `localhost`/`127.0.0.1`/`[::1]` (any port) or listed in `MCP_ALLOWED_HOSTS` with `403 Forbidden`. This is what actually stops DNS rebinding: an attacker page that resolves a hostname to your loopback address can make the browser send a same-origin request, but it can't make the browser send an allowed `Host`. `Origin`/CORS validation is only a browser defence on top: it rejects cross-origin browser requests with `403 Forbidden`, but it is neither rebinding protection nor authentication. Non-browser MCP clients (Claude Code and other CLI agents) send no `Origin` and are unaffected by the CORS check, but their `Host` is still checked (a request with no `Host` header at all is allowed, since browsers always send one).
 - **Bind to loopback when running locally.** For a direct (non-Docker) JAR run, set `MCP_HTTP_HOST=127.0.0.1` so the server binds loopback only. The default is `0.0.0.0` because Docker port-mapping requires the server to bind all interfaces *inside* the container — control host exposure via the `-p` mapping instead (the examples above publish as `127.0.0.1:3001:3001` so the port is reachable only from the local host). Use `-p 3001:3001` only when you intentionally need access from other hosts, and only behind a reverse proxy / mTLS.
-- **The `/mcp` endpoint is unauthenticated** (see the warning above). Keep it on a trusted network boundary, or front it with an authenticating reverse proxy, before exposing it to untrusted callers.
+- **Credentials, not network position, are the real boundary.** In a credential mode `/mcp` checks the bearer token and binds each MCP session to the principal that opened it. In a local mode (see the note above) the only protection is the network boundary, so keep it on loopback or behind an authenticating reverse proxy before exposing it to untrusted callers.
 
 ---
 
@@ -613,7 +677,7 @@ What the key flags do:
 - `-v "<host>/api-tokens.yaml:/run/secrets/api-tokens.yaml:ro"` — mounts your token file read-only where `API_TOKENS_PATH` points. The **left** side is the host path (`$(pwd)` / `${PWD}` expands to an absolute path for you); the **right** side is the in-container path.
 - `-e API_ENABLED=true -e API_AUTH_MODE=bearer` — turns the REST API on in bearer mode.
 - **Docker Desktop:** the folder holding `api-tokens.yaml` must be allowed under **Settings → Resources → File sharing** (your home/project directory is shared by default).
-- **Schema config (optional):** to also load note schemas from `.taskorchestrator/config.yaml`, add `-v "$(pwd)/.taskorchestrator:/project/.taskorchestrator:ro"` and `-e AGENT_CONFIG_DIR=/project` (as in Step 9). The REST API works without it (schema-free).
+- **Schema config (optional):** to also load note schemas from `.taskorchestrator/config.yaml`, add `-v "$(pwd)/.taskorchestrator:/project/.taskorchestrator:ro"` and `-e AGENT_CONFIG_DIR=/project` (as in Step 9). Reads work without it; a create needs a `type` your config declares, so mount it to try the create call in step 4.
 
 If the API is enabled but the token file is missing, empty, or malformed, the server **exits on startup** — check `docker logs task-orchestrator-http`.
 
@@ -626,24 +690,28 @@ If the API is enabled but the token file is missing, empty, or malformed, the se
 curl http://localhost:3001/api/v1/health
 
 # Read items — send your PLAINTEXT token from step 1 as the bearer
-curl -H "Authorization: Bearer YOUR_PLAINTEXT_TOKEN" \
-     http://localhost:3001/api/v1/items
-
-# Create an item (requires the write-items capability)
-curl -X POST http://localhost:3001/api/v1/items \
+curl -X POST http://localhost:3001/api/v1/ops/items_read \
   -H "Authorization: Bearer YOUR_PLAINTEXT_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"title": "New task from REST API", "priority": "high"}'
+  -d '{"select": "list", "limit": 5}'
+
+# Create an item (requires the write-items capability; use a type your config declares)
+curl -X POST http://localhost:3001/api/v1/ops/items_write \
+  -H "Authorization: Bearer YOUR_PLAINTEXT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"ops": [{"op": "create", "title": "New task from REST API", "type": "task-implementation", "priority": "high"}]}'
 ```
 
-Expected: `/api/v1/health` → `200`; the authenticated calls **without** the header → `401`; a `read`-only token on the POST → `403`.
+Every 4.0 tool is served the same way, at `POST /api/v1/ops/{tool}` with the tool's request body (see [api-rest.md](api-rest.md) section 20a); the old `GET /api/v1/items` and `POST /api/v1/items` routes are removed.
+
+Expected: `/api/v1/health` answers `200`; the two `ops` calls **without** the header answer `401`; with the token, the read and the create answer `200`; a `read`-only token on the create answers `207` (the call answers `partial_failure` and the element's error is `forbidden`).
 
 ### Notes & troubleshooting
 
 - **`401` on every authenticated call** almost always means the hash in `api-tokens.yaml` doesn't match your token — re-run step 1 (usually the trailing-newline gotcha).
-- **The `/mcp` endpoint stays open** even with the API enabled (MCP clients don't send the REST token). Keep the server on a trusted boundary — the `127.0.0.1` binding above does this.
+- **`/mcp` follows the API's mode.** In bearer mode `/mcp` requires the same token as `/api/v1` (send it as the `Authorization` header on the MCP registration, see Step 9); in unauthenticated mode it is open like the REST API, so keep the server on a trusted boundary — the `127.0.0.1` binding above does this.
 - **Rotating a token:** generate a new one (step 1), replace `token_sha256`, then restart the container (`docker restart task-orchestrator-http`). Tokens are read once at startup.
-- **Docker Compose alternative:** the `http` profile in `docker-compose.yml` runs an MCP-only HTTP server; to enable the REST API there in bearer mode, add the same `API_ENABLED`/`API_AUTH_MODE`/`API_TOKENS_PATH` env vars and the `api-tokens.yaml` mount to that service. For the unauthenticated posture instead, use the additive `http-rest` profile, which already ships `API_ENABLED=true`/`API_AUTH_MODE=none`/`API_ALLOW_UNAUTHENTICATED=true`.
+- **Docker Compose alternative:** the `http` profile in `docker-compose.yml` runs an MCP-only HTTP server (as the `local` principal, via `MCP_ALLOW_UNAUTHENTICATED=true`); to enable the REST API there in bearer mode, add the same `API_ENABLED`/`API_AUTH_MODE`/`API_TOKENS_PATH` env vars and the `api-tokens.yaml` mount to that service. For the unauthenticated posture instead, use the additive `http-rest` profile, which already ships `API_ENABLED=true`/`API_AUTH_MODE=none`/`API_ALLOW_UNAUTHENTICATED=true`.
 
 See [api-rest.md](api-rest.md) for full endpoint documentation, capabilities and scopes, JWKS mode, DTOs, merge-patch semantics, ETag/idempotency, SSE, and the complete env-var reference.
 
@@ -653,5 +721,6 @@ See [api-rest.md](api-rest.md) for full endpoint documentation, capabilities and
 
 - Run `/task-orchestrator:quick-start` for an interactive hands-on tutorial
 - [api-reference.md](api-reference.md) — full reference for every MCP tool, parameters, and response shapes
-- [workflow-guide.md](workflow-guide.md) — note schemas, phase gates, dependency patterns, and lifecycle examples
+- [workflow-guide.md](workflow-guide.md) - note schemas, phase gates, dependency patterns, and lifecycle examples; [runs, seats and decisions](workflow-guide.md#12-runs-seats-and-decisions) for budgeted multi-agent passes
+- [reporting.md](reporting.md) - the `report` tool: usage, gates, contention, waste and run rollups
 - [api-rest.md](api-rest.md) — REST API reference: endpoints, DTOs, SSE, auth

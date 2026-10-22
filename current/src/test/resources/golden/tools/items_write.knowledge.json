@@ -1,0 +1,138 @@
+{
+  "name": "items_write",
+  "inputSchema": {
+    "properties": {
+      "ops": {
+        "type": "array",
+        "description": "Write operations, one flat object per op, run in order. A field marked [ops: ...] applies only to the ops named.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "description": "The operation this element runs.",
+              "enum": [
+                "create",
+                "update",
+                "delete"
+              ]
+            },
+            "title": {
+              "type": "string",
+              "description": "Item title. [ops: create, update]"
+            },
+            "type": {
+              "type": "string",
+              "description": "Declared item type; required on create. [ops: create, update]"
+            },
+            "parentId": {
+              "type": "string",
+              "description": "Parent id; omit for a root. Update moves the item. [ops: create, update]"
+            },
+            "description": {
+              "type": "string",
+              "description": "Long description. [ops: create, update]"
+            },
+            "summary": {
+              "type": "string",
+              "description": "Short summary. [ops: create, update]"
+            },
+            "statusLabel": {
+              "type": "string",
+              "description": "Free-form status label. [ops: create, update]"
+            },
+            "priority": {
+              "type": "string",
+              "description": "Create defaults to medium. [ops: create, update]",
+              "enum": [
+                "high",
+                "medium",
+                "low"
+              ]
+            },
+            "complexity": {
+              "type": "integer",
+              "description": "1 to 10. [ops: create, update]"
+            },
+            "requiresVerification": {
+              "type": "boolean",
+              "description": "Completion needs verification. [ops: create, update]"
+            },
+            "metadata": {
+              "type": "string",
+              "description": "Free-form metadata text. [ops: create, update]"
+            },
+            "tags": {
+              "type": "array",
+              "description": "Lowercase, hyphenated. Update: [] clears. [ops: create, update]",
+              "items": {
+                "type": "string"
+              }
+            },
+            "traits": {
+              "type": "array",
+              "description": "Declared trait names. Update: [] clears. [ops: create, update]",
+              "items": {
+                "type": "string"
+              }
+            },
+            "properties": {
+              "type": "object",
+              "description": "Free-form JSON object without a traits key. [ops: create, update]"
+            },
+            "id": {
+              "type": "string",
+              "description": "Item UUID or 8+ hex prefix. [ops: update, delete]"
+            },
+            "expectedVersion": {
+              "type": "integer",
+              "description": "Fails version_conflict if the item is at another version. [ops: update, delete]"
+            },
+            "clear": {
+              "type": "array",
+              "description": "Update only: optional fields to set to null. [ops: update]",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "description",
+                  "statusLabel",
+                  "metadata",
+                  "complexity",
+                  "properties",
+                  "parentId"
+                ]
+              }
+            },
+            "recursive": {
+              "type": "boolean",
+              "description": "Delete the subtree; required when the item has children. [ops: delete]"
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "Optional client key (1-128 chars). Resending the same op with the same key returns the stored result."
+            }
+          },
+          "required": [
+            "op"
+          ]
+        }
+      },
+      "atomic": {
+        "type": "boolean",
+        "description": "true: the first failing op rolls back the whole batch. Default false: each op commits on its own."
+      },
+      "describe": {
+        "type": "boolean",
+        "description": "true: return the operations, their parameters and errors instead of running the tool."
+      }
+    },
+    "type": "object"
+  },
+  "description": "Create, update and delete work items or whole trees, one ops[] element each. Call with describe:true for each operation's parameters and errors.",
+  "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

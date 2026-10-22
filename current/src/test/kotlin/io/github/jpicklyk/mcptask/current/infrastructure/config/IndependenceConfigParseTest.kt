@@ -1,20 +1,23 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
-import io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushResult
-import io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushService
+import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.service.ConfigPushResult
+import io.github.jpicklyk.mcptask.current.application.service.ConfigService
 import io.github.jpicklyk.mcptask.current.domain.model.IndependenceMode
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
+import io.github.jpicklyk.mcptask.current.test.get
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
-import org.jetbrains.exposed.v1.jdbc.Database
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.constructor.SafeConstructor
@@ -33,7 +36,7 @@ import kotlin.test.assertTrue
  * ConfigDocumentParseTest's SafeConstructor-based style and note_limits precedent), plus per-root
  * wholesale layering (S12) via EffectiveConfigResolver (mirrors EffectiveConfigResolverTest's
  * FakePerRootConfigSource style) and the push-validation ignoredSections contract (mirrors
- * ProjectConfigPushServiceTest's real-H2 style).
+ * ConfigServiceTest's real-SQLite style).
  *
  * NEW-SURFACE: the independence: top-level section, ConfigDocument.independence,
  * GlobalConfigLookup.independencePolicy(), LayeredConfig.independencePolicy(), and
@@ -46,6 +49,10 @@ import kotlin.test.assertTrue
  * the wholesale-per-root-wins precedent this file exercises.)
  */
 class IndependenceConfigParseTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
     // ──────────────────────────────────────────────
     // Parse-level: YamlSchemaParser.parseRoot direct
     // ──────────────────────────────────────────────
@@ -145,12 +152,7 @@ class IndependenceConfigParseTest {
     // hand-built replica).
     // ──────────────────────────────────────────────
 
-    private fun buildDatabaseManager(): DatabaseManager {
-        val dbName = "indep_layering_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        DirectDatabaseSchemaManager().updateSchema()
-        return DatabaseManager(database)
-    }
+    private fun buildDatabaseManager(): DatabaseManager = sqliteDb.databaseManager
 
     private fun materializeGlobalConfig(
         tempDir: java.nio.file.Path,
@@ -166,36 +168,36 @@ class IndependenceConfigParseTest {
     private fun buildComposition(
         tempDir: java.nio.file.Path,
         globalConfig: String
-    ): io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult {
+    ): io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult {
         materializeGlobalConfig(tempDir, globalConfig)
         val appConfig = AppConfig.fromEnv { key -> if (key == "AGENT_CONFIG_DIR") tempDir.toString() else null }
-        return io.github.jpicklyk.mcptask.current.interfaces.mcp
-            .ServerComposition(appConfig = appConfig, databaseManager = buildDatabaseManager(), shutdownCoordinator = null)
+        return io.github.jpicklyk.mcptask.current.bootstrap
+            .ServerComposition(appConfig = appConfig, databaseManager = buildDatabaseManager(), shutdownCoordinator = ShutdownCoordinator())
             .build()
+            .also { runBlocking { it.dataStepRunner.run() } }
     }
 
     private fun createRoot(
-        composition: io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult,
+        composition: io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult,
         title: String
     ): UUID =
         runBlocking {
             composition.toolContext.repositoryProvider
                 .workItemRepository()
-                .create(WorkItem(title = title, type = "project", depth = 0))
-                .getOrNull()!!
+                .create(WorkItem(title = title, type = "project", depth = 0))!!
                 .id
         }
 
     private fun pushPerRoot(
-        composition: io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult,
+        composition: io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult,
         rootId: UUID,
         yaml: String
     ) {
         runBlocking {
             composition.toolContext.repositoryProvider
-                .projectConfigRepository()
+                .configStore()
                 .upsert(rootId, yaml)
-                .getOrNull() ?: error("fixture: per-root push failed for $rootId")
+                ?: error("fixture: per-root push failed for $rootId")
         }
     }
 
@@ -265,23 +267,18 @@ class IndependenceConfigParseTest {
     @Test
     fun `S12c pushing a per-root independence block is honored, never listed in ignoredSections`(): Unit =
         runBlocking {
-            val dbName = "indep_config_push_${System.nanoTime()}"
-            val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-            DirectDatabaseSchemaManager().updateSchema()
-            val databaseManager = DatabaseManager(database)
+            val databaseManager = sqliteDb.databaseManager
             val workItemRepository = SQLiteWorkItemRepository(databaseManager)
-            val projectConfigRepository = SQLiteProjectConfigRepository(databaseManager)
+            val projectConfigRepository = SqliteConfigStore(databaseManager)
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)
             every { repositoryProvider.workItemRepository() } returns workItemRepository
-            every { repositoryProvider.projectConfigRepository() } returns projectConfigRepository
-            val service = ProjectConfigPushService(repositoryProvider, YamlConfigDocumentParser)
-            val rootId = (workItemRepository.create(WorkItem(title = "Root", type = "project")) as Result.Success).data.id
+            every { repositoryProvider.configStore() } returns projectConfigRepository
+            val service = ConfigService(repositoryProvider, YamlConfigDocumentParser, sqliteDb.unitOfWork(), validator = ConfigValidator())
+            val rootId = workItemRepository.create(WorkItem(title = "Root", type = "project")).id
 
             val yaml = "independence:\n  mode: reject\nwork_item_schemas:\n  default:\n    notes: []\n"
             val result = service.push(rootId, yaml)
-            assertTrue(result is ProjectConfigPushResult.Success, "push result: $result")
-            val success = result as ProjectConfigPushResult.Success
-            assertFalse(success.ignoredSections.contains("independence"), "ignoredSections: ${success.ignoredSections}")
+            assertTrue(result is ConfigPushResult.Success, "push result: $result")
         }
 
     // ──────────────────────────────────────────────
@@ -289,25 +286,21 @@ class IndependenceConfigParseTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S12d a pushed independence block with an unknown sub-key still warns, naming the key`(): Unit =
+    fun `S12d a pushed independence block with an unknown sub-key is rejected at the key's path`(): Unit =
         runBlocking {
-            val dbName = "indep_config_push_warn_${System.nanoTime()}"
-            val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-            DirectDatabaseSchemaManager().updateSchema()
-            val databaseManager = DatabaseManager(database)
+            val databaseManager = sqliteDb.databaseManager
             val workItemRepository = SQLiteWorkItemRepository(databaseManager)
-            val projectConfigRepository = SQLiteProjectConfigRepository(databaseManager)
+            val projectConfigRepository = SqliteConfigStore(databaseManager)
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)
             every { repositoryProvider.workItemRepository() } returns workItemRepository
-            every { repositoryProvider.projectConfigRepository() } returns projectConfigRepository
-            val service = ProjectConfigPushService(repositoryProvider, YamlConfigDocumentParser)
-            val rootId = (workItemRepository.create(WorkItem(title = "Root", type = "project")) as Result.Success).data.id
+            every { repositoryProvider.configStore() } returns projectConfigRepository
+            val service = ConfigService(repositoryProvider, YamlConfigDocumentParser, sqliteDb.unitOfWork(), validator = ConfigValidator())
+            val rootId = workItemRepository.create(WorkItem(title = "Root", type = "project")).id
 
             val yaml = "independence:\n  mode: warn\n  colour: red\nwork_item_schemas:\n  default:\n    notes: []\n"
             val result = service.push(rootId, yaml)
-            assertTrue(result is ProjectConfigPushResult.Success, "push result: $result")
-            val success = result as ProjectConfigPushResult.Success
-            assertFalse(success.ignoredSections.contains("independence"), "the section itself is honored: ${success.ignoredSections}")
-            assertTrue(success.schemaWarnings.any { it.contains("colour") }, "schemaWarnings: ${success.schemaWarnings}")
+            assertTrue(result is ConfigPushResult.Invalid, "push result: $result")
+            val errors = (result as ConfigPushResult.Invalid).errors
+            assertTrue(errors.any { it.path == "/independence/colour" && it.reason.contains("colour") }, "errors: $errors")
         }
 }

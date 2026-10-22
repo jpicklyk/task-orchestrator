@@ -13,8 +13,8 @@ export const SERVER_SEGMENT_TOKEN = 'task-orchestrator';
  * Builds an anchored regex-mode matcher string that fires only when the tool's server segment
  * contains SERVER_SEGMENT_TOKEN, for any of the given bare tool names.
  *
- * @param {string[]} tools - bare tool names, e.g. ['advance_item', 'manage_notes']
- * @returns {string} matcher string, e.g. '^mcp__.*task-orchestrator.*__(advance_item|manage_notes)$'
+ * @param {string[]} tools - bare tool names, e.g. ['advance', 'notes_write']
+ * @returns {string} matcher string, e.g. '^mcp__.*task-orchestrator.*__(advance|notes_write)$'
  */
 export function orchestratorToolMatcher(tools) {
   if (!Array.isArray(tools) || tools.length === 0) {

@@ -1,26 +1,15 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
-import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.OutsideUnitPolicy
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.cors.configureCors
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventPublishingRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
-import io.ktor.client.request.post
-import io.ktor.client.request.put
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
@@ -32,6 +21,7 @@ import io.ktor.server.sse.SSE
 import io.ktor.server.testing.testApplication
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
 
 /**
@@ -47,18 +37,33 @@ import kotlin.test.assertEquals
  * installing the same route-scoped plugin onto a merged empty-path child node) which would
  * have failed real server startup but passed every per-route unit test. If the combined
  * surface fails to wire, the very first request below throws at application setup.
+ *
+ * The scenario runs twice: under the test fixture's [OutsideUnitPolicy.IMPLICIT] ([FullApiWiringSmokeTest])
+ * and under the production [OutsideUnitPolicy.FAIL] ([FullApiWiringSmokeFailPolicyTest]), so a route write
+ * made outside a unit of work fails CI instead of only failing in production.
  */
-class FullApiWiringSmokeTest {
+class FullApiWiringSmokeTest : FullApiWiringSmokeScenarios(OutsideUnitPolicy.IMPLICIT)
+
+/** [FullApiWiringSmokeScenarios] under the production [OutsideUnitPolicy.FAIL]. */
+class FullApiWiringSmokeFailPolicyTest : FullApiWiringSmokeScenarios(OutsideUnitPolicy.FAIL)
+
+abstract class FullApiWiringSmokeScenarios(
+    outsideUnitPolicy: OutsideUnitPolicy
+) {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod(outsideUnitPolicy)
+
     /** Mirrors CurrentMcpServer's production `/api/v1` registration (same plugins + route order). */
     private fun Application.configureFullApi(repo: DefaultRepositoryProvider) {
         install(ContentNegotiation) { json(McpJson) }
-        install(CORS) { configureCors() }
+        install(CORS) { configureCors(appConfig = AppConfig.fromEnv()) }
         install(SSE)
 
         val bus = ApiEventBus()
-        val decorated = EventPublishingRepositoryProvider(repo, bus)
+        // No store is decorated: every write service records its own events rows through the unit of work.
+        val decorated = repo
         val authConfig = makeWriteAuthConfig() // TEST_TOKEN=read, WRITE_TOKEN=all-write, ADMIN_TOKEN=admin
-        val tokenEntries = authConfig.tokens.mapValues { (_, p) -> BearerTokenStore.TokenEntry(p, expiresAt = null) }
+        val tokenEntries = authConfig.tokens
 
         routing {
             route("/api/v1") {
@@ -70,38 +75,17 @@ class FullApiWiringSmokeTest {
                     repositoryProvider = decorated,
                     serverName = "smoke",
                     serverVersion = "test",
-                    actorAuthEnabled = false,
                 )
                 // Phase 3 read
                 itemRoutes(decorated)
-                noteRoutes(decorated)
-                dependencyRoutes(decorated)
-                transitionRoutes(decorated)
-                searchRoutes(decorated)
-                // Phase 4 config
-                configRoutes(NoOpNoteSchemaService)
-                // Phase 5 write
-                itemWriteRoutes(
-                    decorated,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    IdempotencyCache(),
-                    ToolExecutionContext(
-                        decorated,
-                        NoOpNoteSchemaService,
-                        statusLabelService = YamlStatusLabelService(),
-                        perRootConfigService = PerRootConfigService(decorated.projectConfigRepository()),
-                    ).advanceServiceFactory(),
-                )
-                noteWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyCache())
-                dependencyWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED)
-                // Phase 1 (project-config-rest-endpoint): per-root config read/write/delete
-                projectConfigRoutes(decorated)
+                // Phase 4 config: only the published JSON Schema is a route (everything else is the `config` tool)
+                configSchemaRoute()
             }
             // Phase 6 SSE — registered OUTSIDE the ApiBearerAuth block (sibling /api/v1 route)
             // so the header-only ApiBearerAuth plugin does not intercept it; the SSE route does
             // its own inline pre-flight auth. Mirrors CurrentMcpServer production wiring.
             route("/api/v1") {
-                eventRoutes(bus, tokenEntries, allowQueryToken = false, authCheckIntervalSeconds = 60)
+                eventRoutes(bus, tokenEntries, allowQueryToken = false, authCheckIntervalSeconds = 60, redactAttribution = true)
             }
             wellKnownRoutes(serverName = "smoke", serverVersion = "test")
         }
@@ -110,7 +94,7 @@ class FullApiWiringSmokeTest {
     @Test
     fun `full api v1 surface boots and gates are active across the combined routing tree`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureFullApi(repo) }
 
             // Reaching ANY route proves the full surface wired without a DuplicatePluginException
@@ -125,38 +109,14 @@ class FullApiWiringSmokeTest {
             )
 
             // Read route: 401 without auth, 200 with a READ token — capability gate active
-            assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/items").status, "read requires auth")
-            assertEquals(
-                HttpStatusCode.OK,
-                client.get("/api/v1/items") { header("Authorization", "Bearer $TEST_TOKEN") }.status,
-                "READ token reads items",
-            )
+            assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/config/schema").status, "read requires auth")
 
             // Phase 4 config route reachable on the combined surface
             assertEquals(
                 HttpStatusCode.OK,
-                client.get("/api/v1/config") { header("Authorization", "Bearer $TEST_TOKEN") }.status,
-                "config reachable with READ",
+                client.get("/api/v1/config/schema") { header("Authorization", "Bearer $TEST_TOKEN") }.status,
+                "config schema reachable with READ",
             )
-
-            // Write route: READ-only token is forbidden (capability gate distinguishes read vs write
-            // even though both groups share the /api/v1 parent — the bug class this test guards against)
-            val forbidden =
-                client.post("/api/v1/items") {
-                    header("Authorization", "Bearer $TEST_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"title":"should-not-create"}""")
-                }
-            assertEquals(HttpStatusCode.Forbidden, forbidden.status, "READ token cannot write")
-
-            // Write route: WRITE token succeeds — write path is wired and granted
-            val created =
-                client.post("/api/v1/items") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"title":"smoke-created"}""")
-                }
-            assertEquals(HttpStatusCode.Created, created.status, "WRITE token creates item")
 
             // Phase 6: SSE events route — proving it is WIRED. A request with NO auth is rejected
             // by the pre-flight inline auth BEFORE any stream is opened, so .status completes.
@@ -169,34 +129,5 @@ class FullApiWiringSmokeTest {
                 client.get("/api/v1/events").status,
                 "events route is wired and its inline auth rejects unauthenticated requests",
             )
-
-            // Phase 1 (project-config-rest-endpoint): proves projectConfigRoutes wired without a
-            // requireCapability collision — it installs a SEPARATE READ group (GET) alongside a
-            // SEPARATE WRITE_CONFIG group (PUT/DELETE) on the same /roots/{rootId}/config path.
-            val configCreated =
-                client.post("/api/v1/items") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"title":"smoke-config-root"}""")
-                }
-            assertEquals(HttpStatusCode.Created, configCreated.status)
-            val rootId = Regex(""""id":"([0-9a-fA-F-]{36})"""").find(configCreated.bodyAsText())!!.groupValues[1]
-
-            // READ token can reach the GET route (capability gate wired); no config was ever
-            // pushed for this root, so the expected outcome is 404 — the route IS reachable.
-            assertEquals(
-                HttpStatusCode.NotFound,
-                client.get("/api/v1/roots/$rootId/config") { header("Authorization", "Bearer $TEST_TOKEN") }.status,
-                "GET config route reachable with READ token (404 = no config pushed, not a wiring failure)",
-            )
-
-            // WRITE_CONFIG token can PUT to the same path (separate capability group, same path).
-            val configPut =
-                client.put("/api/v1/roots/$rootId/config") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Text.Plain)
-                    setBody("work_item_schemas: {}")
-                }
-            assertEquals(HttpStatusCode.OK, configPut.status, "PUT config route reachable with WRITE_CONFIG token")
         }
 }

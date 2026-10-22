@@ -16,10 +16,12 @@
 **Reference**
 - [API Reference](api-reference.md)
 - [REST API Reference](api-rest.md)
+- [Config Reference](config-reference.md)
 - [Workflow Guide](workflow-guide.md)
 
 **Operations**
 - [Fleet Deployment](fleet-deployment.md)
+- [Reporting](reporting.md)
 
 **Project**
 - [GitHub Repository](https://github.com/jpicklyk/task-orchestrator)

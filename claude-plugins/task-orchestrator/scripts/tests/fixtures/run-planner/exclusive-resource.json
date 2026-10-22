@@ -58,7 +58,7 @@
       "resources": [{ "key": "scratch-db", "mode": "exclusive" }]
     }
   },
-  "noteActors": {},
+  "noteOwners": {},
   "parents": {},
   "profile": {
     "shell": "bash",

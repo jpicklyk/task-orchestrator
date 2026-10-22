@@ -1,0 +1,1 @@
+table|notes_fts_text|notes_fts_text|CREATE VIRTUAL TABLE notes_fts_text USING fts5( body, content='notes', content_rowid='rowid', tokenize='porter unicode61 remove_diacritics 2', prefix='2 3' )

@@ -1,57 +1,56 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLitePlanDocumentRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * Exercises [PlanDocumentService] against a real H2-backed [SQLitePlanDocumentRepository] and
- * [SQLiteWorkItemRepository] — mirrors [ProjectConfigPushServiceTest]'s DB-backed style. Validation
+ * Exercises [PlanDocumentService] against a real SQLite-backed [PlanDocumentStore] and
+ * [SQLiteWorkItemRepository] — mirrors [ConfigServiceTest]'s DB-backed style. Validation
  * (root existence, depth-0, size cap) depends on real WorkItem rows.
  */
 class PlanDocumentServiceTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var service: PlanDocumentService
     private lateinit var workItemRepository: SQLiteWorkItemRepository
-    private lateinit var planDocumentRepository: SQLitePlanDocumentRepository
+    private lateinit var planDocumentRepository: PlanDocumentStore
     private lateinit var rootId: UUID
 
     @BeforeEach
     fun setUp() =
         runBlocking {
-            val dbName = "test_${System.nanoTime()}"
-            val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-            val databaseManager = DatabaseManager(database)
-            DirectDatabaseSchemaManager().updateSchema()
-
-            workItemRepository = SQLiteWorkItemRepository(databaseManager)
-            planDocumentRepository = SQLitePlanDocumentRepository(databaseManager)
+            workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
+            planDocumentRepository = db.repositoryProvider().planDocumentRepository()
 
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)
             every { repositoryProvider.workItemRepository() } returns workItemRepository
             every { repositoryProvider.planDocumentRepository() } returns planDocumentRepository
+            every { repositoryProvider.documentStore() } returns db.repositoryProvider().documentStore()
+            every { repositoryProvider.linkStore() } returns db.repositoryProvider().linkStore()
 
-            service = PlanDocumentService(repositoryProvider)
+            service = PlanDocumentService(repositoryProvider, db.unitOfWork())
 
-            rootId = (workItemRepository.create(WorkItem(title = "Root", type = "project")) as Result.Success).data.id
+            rootId = workItemRepository.create(WorkItem(title = "Root", type = "project")).id
         }
 
     @Test
-    fun `stash succeeds for a valid depth-0 root`() =
+    fun `stash succeeds for a valid depth-0 root`(): Unit =
         runBlocking {
             val result = service.stash(rootId, "plan-a", "# Plan A\n")
             assertIs<PlanDocumentStashResult.Success>(result)
@@ -60,34 +59,34 @@ class PlanDocumentServiceTest {
         }
 
     @Test
-    fun `stash against an unknown root returns NotFound and stores nothing`() =
+    fun `stash against an unknown root returns NotFound and stores nothing`(): Unit =
         runBlocking {
             val unknownRoot = UUID.randomUUID()
             val result = service.stash(unknownRoot, "plan-a", "content")
             assertIs<PlanDocumentStashResult.NotFound>(result)
 
             val fetched = planDocumentRepository.get(unknownRoot, "plan-a")
-            assertEquals(null, (fetched as Result.Success).data)
+            assertEquals(null, fetched)
         }
 
     @Test
-    fun `stash against a non-depth-0 root is rejected and stores nothing`() =
+    fun `stash against a non-depth-0 root is rejected and stores nothing`(): Unit =
         runBlocking {
             val child =
                 (
-                    workItemRepository.create(WorkItem(title = "Child", parentId = rootId, depth = 1)) as Result.Success
-                ).data
+                    workItemRepository.create(WorkItem(title = "Child", parentId = rootId, depth = 1))!!
+                )
 
             val result = service.stash(child.id, "plan-a", "content")
             assertIs<PlanDocumentStashResult.NotDepthZero>(result)
             assertEquals(1, result.depth)
 
             val fetched = planDocumentRepository.get(child.id, "plan-a")
-            assertEquals(null, (fetched as Result.Success).data)
+            assertEquals(null, fetched)
         }
 
     @Test
-    fun `stash over the 64KB cap is rejected and stores nothing`() =
+    fun `stash over the 64KB cap is rejected and stores nothing`(): Unit =
         runBlocking {
             val oversized = "x".repeat(PlanDocumentService.MAX_BODY_BYTES + 1)
             val result = service.stash(rootId, "plan-a", oversized)
@@ -95,11 +94,11 @@ class PlanDocumentServiceTest {
             assertEquals(PlanDocumentService.MAX_BODY_BYTES, result.maxBytes)
 
             val fetched = planDocumentRepository.get(rootId, "plan-a")
-            assertEquals(null, (fetched as Result.Success).data)
+            assertEquals(null, fetched)
         }
 
     @Test
-    fun `stash exactly at the 64KB cap succeeds`() =
+    fun `stash exactly at the 64KB cap succeeds`(): Unit =
         runBlocking {
             val exact = "x".repeat(PlanDocumentService.MAX_BODY_BYTES)
             val result = service.stash(rootId, "plan-a", exact)
@@ -107,55 +106,55 @@ class PlanDocumentServiceTest {
         }
 
     @Test
-    fun `re-stashing a PENDING slug overwrites it in place`() =
+    fun `re-stashing a PENDING slug overwrites it in place`(): Unit =
         runBlocking {
             service.stash(rootId, "plan-a", "v1")
             val result = service.stash(rootId, "plan-a", "v2")
             assertIs<PlanDocumentStashResult.Success>(result)
             assertEquals("v2", result.document.body)
 
-            val summaries = (planDocumentRepository.list(rootId) as Result.Success).data
+            val summaries = planDocumentRepository.list(rootId)
             assertEquals(1, summaries.size)
         }
 
     @Test
-    fun `stashing against an ADOPTED slug is rejected with AdoptedConflict`() =
+    fun `stashing against an ADOPTED slug is rejected with AdoptedConflict`(): Unit =
         runBlocking {
             service.stash(rootId, "plan-a", "v1")
-            val adopter = (workItemRepository.create(WorkItem(title = "Adopter")) as Result.Success).data
+            val adopter = workItemRepository.create(WorkItem(title = "Adopter"))
             planDocumentRepository.markAdopted(rootId, "plan-a", adopter.id)
 
             val result = service.stash(rootId, "plan-a", "v2")
             assertIs<PlanDocumentStashResult.AdoptedConflict>(result)
             assertEquals(adopter.id, result.existing.adoptedByItemId)
 
-            val fetched = (planDocumentRepository.get(rootId, "plan-a") as Result.Success).data
+            val fetched = planDocumentRepository.get(rootId, "plan-a")
             assertEquals("v1", fetched?.body, "Rejected stash must not overwrite the adopted row")
         }
 
     @Test
-    fun `get returns the stashed document including its body`() =
+    fun `get returns the stashed document including its body`(): Unit =
         runBlocking {
             service.stash(rootId, "plan-a", "# Plan A\n")
             val result = service.get(rootId, "plan-a")
-            assertIs<Result.Success<*>>(result)
-            assertEquals("# Plan A\n", (result as Result.Success).data?.body)
+            assertNotNull(result)
+            assertEquals("# Plan A\n", result?.body)
         }
 
     @Test
-    fun `list omits body and reflects stashed documents`() =
+    fun `list omits body and reflects stashed documents`(): Unit =
         runBlocking {
             service.stash(rootId, "plan-a", "a")
             service.stash(rootId, "plan-b", "b")
 
             val result = service.list(rootId)
-            assertIs<Result.Success<*>>(result)
-            val slugs = (result as Result.Success).data.map { it.slug }
+            assertNotNull(result)
+            val slugs = result.map { it.slug }
             assertEquals(listOf("plan-a", "plan-b"), slugs)
         }
 
     @Test
-    fun `computeContentHash matches the hash stash actually stores`() =
+    fun `computeContentHash matches the hash stash actually stores`(): Unit =
         runBlocking {
             val body = "# Plan A\n"
             val computed = service.computeContentHash(body)
@@ -165,7 +164,8 @@ class PlanDocumentServiceTest {
         }
 
     @Test
-    fun `dual ingestion parity — REST-style stash and MCP bodyFromFile-style stash of identical bytes land identical content hashes`() =
+    @Suppress("ktlint:standard:max-line-length")
+    fun `dual ingestion parity — REST-style stash and MCP bodyFromFile-style stash of identical bytes land identical content hashes`(): Unit =
         runBlocking {
             // Simulates the two ingestion paths converging on the same PlanDocumentService.stash
             // call — REST PUT passes the raw request body; MCP bodyFromFile reads a file and

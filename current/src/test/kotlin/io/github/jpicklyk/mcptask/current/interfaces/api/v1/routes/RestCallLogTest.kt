@@ -1,0 +1,479 @@
+package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
+
+import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
+import io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult
+import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
+import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
+import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
+import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.MAX_JSON_WRITE_BODY_BYTES
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpAuthMode
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.github.jpicklyk.mcptask.current.test.CallLogRows
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.ktor.client.HttpClient
+import io.ktor.client.request.delete
+import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsBytes
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
+import io.ktor.serialization.kotlinx.json.json
+import io.ktor.server.application.Application
+import io.ktor.server.application.install
+import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.testing.testApplication
+import io.modelcontextprotocol.kotlin.sdk.server.Server
+import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
+import io.modelcontextprotocol.kotlin.sdk.types.Implementation
+import io.modelcontextprotocol.kotlin.sdk.types.McpJson
+import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
+import org.junit.jupiter.api.extension.RegisterExtension
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Path
+import java.util.UUID
+import java.util.concurrent.TimeUnit
+import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.hours
+
+/**
+ * Independent tests for item 8abb69e2 (P10): the REST surface of the call log through the REAL production wiring
+ * ([installRestApiRoutes] with its `callLog` parameter) over the real composition, bearer auth and event log.
+ * Scenarios S4, S10, S16, S19 of the frozen test-plan plus path-normalization probes.
+ *
+ * Oracles: plan section 3.8, the task-scope "Column sources" REST column and acceptance A1-A3 (frozen at queue phase).
+ * Response and request byte counts are recomputed from the bytes the client sent and received.
+ */
+@Timeout(value = 120, unit = TimeUnit.SECONDS)
+class RestCallLogTest {
+    @RegisterExtension
+    @JvmField
+    val db = SqliteTestDatabase.perMethod()
+
+    @TempDir
+    lateinit var dir: Path
+
+    private fun newWriter(composition: CompositionResult) =
+        CallLogWriter(composition.unitOfWork, SqliteCallLogStore(db.databaseManager), flushInterval = 1.hours)
+
+    private fun Application.configureApp(
+        composition: CompositionResult,
+        writer: CallLogWriter
+    ) {
+        val authConfig: ApiAuthConfig.Bearer = makeWriteAuthConfig()
+        install(ContentNegotiation) { json(McpJson) }
+        installRestApiRoutes(
+            apiConfig = authConfig,
+            eventBus = null,
+            effectiveProvider = composition.toolContext.repositoryProvider,
+            apiTokenEntries = authConfig.tokens,
+            allowQueryToken = false,
+            serverName = "p10-rest-call-log",
+            serverVersion = "test",
+            serverConfig = composition.serverConfig,
+            toolContext = composition.toolContext,
+            callLog = writer,
+            appConfig = AppConfig.fromEnv(),
+        )
+    }
+
+    private suspend fun HttpClient.getWith(
+        path: String,
+        token: String? = TEST_TOKEN,
+        extra: List<Pair<String, String>> = emptyList()
+    ): HttpResponse =
+        get("/api/v1$path") {
+            if (token != null) header(HttpHeaders.Authorization, "Bearer $token")
+            extra.forEach { (k, v) -> header(k, v) }
+        }
+
+    private fun callLogRows() = CallLogRows.read(db.jdbcUrl)
+
+    private fun ceilQuarter(bytes: Long): Long = (bytes + 3) / 4
+
+    private fun ids(json: Any?): List<String> = Json.parseToJsonElement(json as String).jsonArray.map { it.jsonPrimitive.content }
+
+    // ------------------------------------------------------------------ S4
+
+    @Test
+    fun `S4 a REST read carries X-Req-Id and writes one row with the REST columns`(): Unit =
+        testApplication {
+            val rig = EventLogRig.build(db.db, dir)
+            val writer = newWriter(rig.composition)
+            application { configureApp(rig.composition, writer) }
+            val item = rig.seed("S4 item")
+
+            val response = client.getWith("/items/${item.id}", extra = listOf("X-Request-Id" to "spoof123"))
+            assertEquals(HttpStatusCode.OK, response.status)
+            val reqId = assertNotNull(response.headers["X-Req-Id"], "X-Req-Id on a recorded response")
+            assertTrue(ReqId.isValid(reqId), reqId)
+            assertNotEquals("spoof123", reqId, "an inbound X-Request-Id is never the reqId")
+            val bodyBytes = response.bodyAsBytes().size.toLong()
+
+            writer.flushNow()
+            val row = callLogRows().single()
+            assertEquals(reqId, row["req_id"])
+            assertEquals("rest", row["surface"])
+            assertEquals("GET /api/v1/items/{id}", row["tool"])
+            assertEquals(listOf(item.id.toString()), ids(row["target_ids"]))
+            // GET /items/{id} is the items_read get since Q19, which records the version it read.
+            assertEquals(setOf(item.id.toString()), Json.parseToJsonElement(row["target_versions"] as String).jsonObject.keys)
+            assertNull(row["operation"])
+            assertEquals("api:$TEST_TOKEN_ID", row["principal_id"])
+            assertEquals("service", row["principal_kind"])
+            assertEquals("ok", row["outcome"])
+            assertNull(row["error_code"])
+            assertEquals(1L, row["attempts"])
+            assertEquals(0L, row["request_bytes"], "a bodyless GET")
+            assertEquals(bodyBytes, row["response_bytes"], "the UTF-8 length of the body the client received")
+            assertEquals(ceilQuarter(bodyBytes), row["response_tokens_est"])
+            assertEquals("bytes/4", row["token_method"])
+            assertEquals(0L, row["replayed"])
+            assertNull(row["session_id"], "REST has no MCP session")
+        }
+
+    // ------------------------------------------------------------------ S10
+
+    @Test
+    fun `S10 an unknown route records http_404`(): Unit =
+        testApplication {
+            val rig = EventLogRig.build(db.db, dir)
+            val writer = newWriter(rig.composition)
+            application { configureApp(rig.composition, writer) }
+
+            val unknown = client.getWith("/definitely-not-a-route")
+            assertEquals(HttpStatusCode.NotFound, unknown.status)
+
+            writer.flushNow()
+            val byTool = callLogRows().associateBy { it["tool"] }
+            val unknownRow = byTool.getValue("GET unmatched")
+            assertEquals("error", unknownRow["outcome"])
+            assertEquals("http_404", unknownRow["error_code"], "no typed body: http_<status>")
+            assertEquals(unknown.headers["X-Req-Id"], unknownRow["req_id"])
+        }
+
+    @Test
+    fun `path normalisation replaces UUID segments only and ignores the query string`(): Unit =
+        testApplication {
+            val rig = EventLogRig.build(db.db, dir)
+            val writer = newWriter(rig.composition)
+            application { configureApp(rig.composition, writer) }
+
+            val a = UUID.randomUUID()
+            val b = UUID.randomUUID()
+            val deep = client.getWith("/items/$a/zzz/$b")
+            val keyed = client.getWith("/items/$a/notes/my-key")
+            val listingResponse = client.getWith("/items?limit=5&includeChildren=true&title=x")
+            val schema = client.getWith("/items/$a/children")
+
+            writer.flushNow()
+            val byReq = callLogRows().associateBy { it["req_id"] }
+            // G1: no route resolves for /items/<id>/zzz/<id>, so the tool collapses to the first segment only.
+            val two = byReq.getValue(deep.headers["X-Req-Id"])
+            assertEquals("GET /api/v1/items", two["tool"])
+            assertEquals(listOf(a.toString(), b.toString()), ids(two["target_ids"]))
+            val keyedRow = byReq.getValue(keyed.headers["X-Req-Id"])
+            assertTrue(!(keyedRow["tool"] as String).contains("my-key"), "the raw key is never stored: ${keyedRow["tool"]}")
+            assertEquals("GET /api/v1/items/{id}/notes/{key}", keyedRow["tool"])
+            assertEquals(listOf(a.toString()), ids(keyedRow["target_ids"]), "a non-UUID segment is not a target")
+            val listing = byReq.getValue(listingResponse.headers["X-Req-Id"])
+            assertEquals("GET /api/v1/items", listing["tool"])
+            val shape = Json.parseToJsonElement(listing["request_shape"] as String).jsonObject
+            assertEquals(listOf("includeChildren", "limit"), shape.keys.toList())
+            assertNull(listing["target_ids"])
+            // G1: a matched multi-literal route keeps its declared template.
+            assertEquals("GET /api/v1/items/{id}/children", byReq.getValue(schema.headers["X-Req-Id"])["tool"])
+        }
+
+    @Test
+    fun `G1 a matched multi-literal route keeps its literal as the declared template`(): Unit =
+        testApplication {
+            val rig = EventLogRig.build(db.db, dir)
+            val writer = newWriter(rig.composition)
+            application { configureApp(rig.composition, writer) }
+            val id = UUID.randomUUID()
+            val matched = client.getWith("/items/$id/children")
+            val plain = client.getWith("/items/$id")
+            writer.flushNow()
+            val byReq = callLogRows().associateBy { it["req_id"] }
+            assertEquals("GET /api/v1/items/{id}/children", byReq.getValue(matched.headers["X-Req-Id"])["tool"])
+            assertEquals("GET /api/v1/items/{id}", byReq.getValue(plain.headers["X-Req-Id"])["tool"])
+        }
+
+    @Test
+    fun `G1 cardinality of unauthenticated junk calls is bounded by methods times served resources plus one`(): Unit =
+        testApplication {
+            val rig = EventLogRig.build(db.db, dir)
+            val writer = newWriter(rig.composition)
+            application { configureApp(rig.composition, writer) }
+
+            val random = kotlin.random.Random(20261009)
+            val chars = ('a'..'z') + ('0'..'9')
+
+            fun junk(): String = (0 until random.nextInt(3, 40)).map { chars[random.nextInt(chars.size)] }.joinToString("")
+            val resources =
+                listOf(
+                    "config",
+                    "dependencies",
+                    "events",
+                    "health",
+                    "info",
+                    "items",
+                    "notes",
+                    "resources",
+                    "roots",
+                    "search"
+                )
+            repeat(200) { n ->
+                // Eight segments never resolve a declared route; the first is a resource name or random junk.
+                val first = if (n % 3 == 0) resources[random.nextInt(resources.size)] else junk()
+                val path = "/" + (listOf(first) + (0 until 7).map { junk() }).joinToString("/")
+                if (n % 2 == 0) client.getWith(path, token = null) else client.post("/api/v1$path")
+            }
+            writer.flushNow()
+            val rows = callLogRows()
+            assertEquals(200, rows.size)
+            val tools = rows.map { it["tool"] as String }.toSet()
+            val methods = 2
+            assertTrue(
+                tools.size <= methods * (resources.size + 1),
+                "at most methods x (resources + 1) distinct tool values, got ${tools.size}: $tools"
+            )
+            assertTrue(tools.all { t -> t.endsWith(" unmatched") || resources.any { t.endsWith("/api/v1/$it") } }, "$tools")
+        }
+    // ------------------------------------------------------------------ S19
+
+    @Test
+    fun `S19 an unauthenticated call is a 401 that still gets X-Req-Id and an error row without a principal`(): Unit =
+        testApplication {
+            val rig = EventLogRig.build(db.db, dir)
+            val writer = newWriter(rig.composition)
+            application { configureApp(rig.composition, writer) }
+
+            val response = client.getWith("/items", token = null)
+            assertEquals(HttpStatusCode.Unauthorized, response.status)
+            val reqId = assertNotNull(response.headers["X-Req-Id"], "the 401 carries X-Req-Id")
+            assertTrue(ReqId.isValid(reqId))
+
+            writer.flushNow()
+            val row = callLogRows().single()
+            assertEquals(reqId, row["req_id"])
+            assertEquals("error", row["outcome"])
+            assertNull(row["principal_id"])
+            assertNull(row["principal_kind"])
+            assertNull(row["proof_status"])
+            val parsed = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+            assertEquals("unauthenticated", parsed["error"]!!.jsonObject["code"]!!.jsonPrimitive.content, "the 401 body is the envelope")
+            assertEquals("unauthenticated", row["error_code"], "the row records the envelope code (S16)")
+        }
+
+    @Test
+    fun `S16 Q32 the error_code of a 403 and a 413 row is the envelope code`(): Unit =
+        testApplication {
+            val rig = EventLogRig.build(db.db, dir)
+            val writer = newWriter(rig.composition)
+            application { configureApp(rig.composition, writer) }
+
+            // The test token does not grant admin, which the lease force-release requires.
+            val forbidden = client.delete("/api/v1/resources/leases/some-key") { header(HttpHeaders.Authorization, "Bearer $TEST_TOKEN") }
+            assertEquals(HttpStatusCode.Forbidden, forbidden.status, forbidden.bodyAsText())
+            val tooLarge =
+                client.post("/api/v1/ops/items_read") {
+                    header(HttpHeaders.Authorization, "Bearer $TEST_TOKEN")
+                    contentType(ContentType.Application.Json)
+                    setBody("{\"select\":\"list\",\"pad\":\"" + "x".repeat(MAX_JSON_WRITE_BODY_BYTES) + "\"}")
+                }
+            assertEquals(HttpStatusCode.PayloadTooLarge, tooLarge.status)
+
+            writer.flushNow()
+            val codes = callLogRows().associate { it["tool"] to it["error_code"] }
+            assertEquals("forbidden", codes["DELETE /api/v1/resources/leases/{key}"], "$codes")
+            assertEquals("payload_too_large", codes["POST /api/v1/ops/{tool}"], "$codes")
+        }
+
+    // ------------------------------------------------------------------ F1
+
+    @Test
+    fun `F1 a 401 on a long junk path never stores client text and no client-derived string exceeds 64 characters`(): Unit =
+        testApplication {
+            val rig = EventLogRig.build(db.db, dir)
+            val writer = newWriter(rig.composition)
+            application { configureApp(rig.composition, writer) }
+
+            val junk = "j".repeat(4000)
+            val manyFlags = (0 until 40).joinToString("&") { "flag${it.toString().padStart(2, '0')}=true" }
+            // Unauthenticated: the auth plugin answers 401 before any route resolves.
+            val outside = client.getWith("/$junk?$junk=true&$manyFlags&bad key=true", token = null)
+            assertEquals(HttpStatusCode.Unauthorized, outside.status)
+            val inside = client.getWith("/items/$junk", token = null)
+            assertEquals(HttpStatusCode.Unauthorized, inside.status)
+            val insideDeep = client.getWith("/items/$junk/$junk/x/y", token = null)
+            assertEquals(HttpStatusCode.Unauthorized, insideDeep.status)
+
+            writer.flushNow()
+            val rows = callLogRows()
+            assertEquals(3, rows.size)
+            for (row in rows) {
+                row.forEach { (column, value) ->
+                    if (value is String) {
+                        assertTrue(!value.contains("jjjjjjjj"), "$column stores client text: ${value.take(80)}")
+                        if (column !in setOf("tool", "request_shape", "target_ids", "target_versions")) {
+                            assertTrue(value.length <= 64, "$column is ${value.length} chars")
+                        }
+                    }
+                }
+                assertTrue((row["tool"] as String).length <= 128, "the tool is a bounded template: ${row["tool"]}")
+                val shape = row["request_shape"]?.let { Json.parseToJsonElement(it as String).jsonObject }
+                if (shape != null) {
+                    assertTrue(shape.size <= 16, "at most 16 request_shape keys: ${shape.keys}")
+                    assertEquals(shape.keys.sorted(), shape.keys.toList(), "sorted")
+                    assertTrue(shape.keys.all { Regex("^[A-Za-z0-9_.-]{1,64}$").matches(it) }, "conforming keys: ${shape.keys}")
+                }
+            }
+            val byReq = rows.associateBy { it["req_id"] }
+            assertEquals("GET unmatched", byReq.getValue(outside.headers["X-Req-Id"])["tool"], "junk in the first segment")
+            // G1: auth runs first but does not short-circuit, so routing still resolves and a 401 on a declared route records that route's template.
+            assertEquals("GET /api/v1/items/{id}", byReq.getValue(inside.headers["X-Req-Id"])["tool"])
+            assertEquals("GET /api/v1/items", byReq.getValue(insideDeep.headers["X-Req-Id"])["tool"], "no route: first segment only")
+        }
+    // ------------------------------------------------------------------ S16
+
+    @Test
+    fun `S16 the mcp endpoint writes one mcp row, and handshake, listing, well-known and the SSE path write none`(): Unit =
+        testApplication {
+            val rig = EventLogRig.build(db.db, dir)
+            val writer = newWriter(rig.composition)
+            val server =
+                Server(
+                    serverInfo = Implementation(name = "p10-http", version = "1.0.0"),
+                    options = ServerOptions(capabilities = ServerCapabilities(tools = ServerCapabilities.Tools(listChanged = true)))
+                )
+            McpOperationAdapter(buildToolDispatcher(rig.ctx), callLog = writer)
+                .register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
+            application {
+                installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv(), mcpAuth = McpAuthMode.Local)
+                val authConfig: ApiAuthConfig.Bearer = makeWriteAuthConfig()
+                installRestApiRoutes(
+                    apiConfig = authConfig,
+                    eventBus = null,
+                    effectiveProvider = rig.composition.toolContext.repositoryProvider,
+                    apiTokenEntries = authConfig.tokens,
+                    allowQueryToken = false,
+                    serverName = "p10-http",
+                    serverVersion = "test",
+                    serverConfig = rig.composition.serverConfig,
+                    toolContext = rig.composition.toolContext,
+                    callLog = writer,
+                    appConfig = AppConfig.fromEnv(),
+                )
+            }
+            val accept = "application/json, text/event-stream"
+
+            val init =
+                client.post("/mcp") {
+                    header(HttpHeaders.Accept, accept)
+                    contentType(ContentType.Application.Json)
+                    setBody(
+                        """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"t","version":"1.0"}}}"""
+                    )
+                }
+            val sessionId = assertNotNull(init.headers["mcp-session-id"])
+            client.post("/mcp") {
+                header(HttpHeaders.Accept, accept)
+                header("mcp-session-id", sessionId)
+                contentType(ContentType.Application.Json)
+                setBody("""{"jsonrpc":"2.0","method":"notifications/initialized"}""")
+            }
+            client.post("/mcp") {
+                header(HttpHeaders.Accept, accept)
+                header("mcp-session-id", sessionId)
+                contentType(ContentType.Application.Json)
+                setBody("""{"jsonrpc":"2.0","id":2,"method":"tools/list"}""")
+            }
+            // Q21 retired create_work_tree and Q23 query_rules; the root is seeded directly and the 4.0 config tool is called.
+            val root = rig.seed("s16")
+            val call =
+                client.post("/mcp") {
+                    header(HttpHeaders.Accept, accept)
+                    header("mcp-session-id", sessionId)
+                    contentType(ContentType.Application.Json)
+                    setBody(
+                        """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"config","arguments":{"ops":[{"op":"rules","rootId":"${root.id}"}]}}}"""
+                    )
+                }
+            val payload =
+                call
+                    .bodyAsText()
+                    .lineSequence()
+                    .firstOrNull { it.startsWith("data:") }
+                    ?.removePrefix("data:")
+                    ?.trim()
+                    ?: call.bodyAsText().trim()
+            val result = Json.parseToJsonElement(payload).jsonObject["result"]!!.jsonObject
+            val reqId =
+                result["_meta"]
+                    ?.jsonObject
+                    ?.get("reqId")
+                    ?.jsonPrimitive
+                    ?.content
+            assertTrue(ReqId.isValid(reqId), "the over-HTTP tool result carries _meta.reqId: $result")
+
+            client.get("/.well-known/oauth-protected-resource")
+            client.getWith("/events")
+
+            writer.flushNow()
+            val rows = callLogRows()
+            val mcp = rows.filter { it["surface"] == "mcp" }
+            assertEquals(1, mcp.size, "only the tools/call is an MCP call_log row: $rows")
+            assertEquals(reqId, mcp.single()["req_id"])
+            assertEquals("config", mcp.single()["tool"])
+            assertEquals(
+                0,
+                rows.count { it["surface"] == "rest" },
+                "the /mcp endpoint is not a REST call, and neither is SSE or well-known: $rows"
+            )
+        }
+
+    @Test
+    fun `S16 reads and the public health route are REST calls but the SSE stream is not`(): Unit =
+        testApplication {
+            val rig = EventLogRig.build(db.db, dir)
+            val writer = newWriter(rig.composition)
+            application { configureApp(rig.composition, writer) }
+            client.getWith("/events")
+            writer.flushNow()
+            assertEquals(0, callLogRows().size, "GET /api/v1/events is the SSE stream and is excluded")
+            client.getWith("/health", token = null)
+            client.getWith("/items")
+            writer.flushNow()
+            val tools = callLogRows().map { it["tool"] }.toSet()
+            assertEquals(
+                setOf<Any?>("GET /api/v1/health", "GET /api/v1/items"),
+                tools,
+                "every non-SSE /api/v1 request is recorded, reads included"
+            )
+        }
+}

@@ -24,7 +24,7 @@
   "schemas": {
     "ffffffff-6666-4666-8666-666666666666": { "status": "not-found" }
   },
-  "noteActors": {},
+  "noteOwners": {},
   "parents": {},
   "profile": {
     "shell": "bash",

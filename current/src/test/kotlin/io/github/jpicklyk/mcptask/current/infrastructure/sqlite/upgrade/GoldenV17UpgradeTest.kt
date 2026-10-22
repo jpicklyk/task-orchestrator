@@ -1,0 +1,362 @@
+package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade
+
+import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
+import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.BackupOutcome
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.FlywayDatabaseSchemaManager
+import io.github.jpicklyk.mcptask.current.test.get
+import io.github.jpicklyk.mcptask.current.test.transitionsOf
+import kotlinx.coroutines.runBlocking
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.io.File
+import java.security.MessageDigest
+import java.sql.DriverManager
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+/**
+ * S14-S16: the checked-in golden V17 database (a 3.16-format file built from synthetic literals, see
+ * [GoldenV17Generator]) is intact, upgrades through the bare chain AND through the production startup path with
+ * every seeded row readable via the repositories, and a copy that lost its Flyway history is baselined at 17.
+ */
+class GoldenV17UpgradeTest {
+    @TempDir
+    lateinit var dir: File
+
+    private val seeds = MigrationSeed.discover()
+
+    /** Seeds of migrations after V17 (the golden is at V17, so only later seeds' transforms apply). */
+    private val laterSeeds get() = seeds.filter { it.version > 17 }
+
+    /** Migration versions the golden still has to apply (none until a V18 exists). */
+    private val pendingVersions get() = UpgradeHarness.migrationVersions(dir).filter { it > 17 }
+
+    @Test
+    fun `S14 the golden file matches its manifest checksum, size budget and row counts`() {
+        val manifest = GoldenV17.manifest()
+        val golden = GoldenV17.copyTo(File(dir, "check.sqlite"))
+        val sha = MessageDigest.getInstance("SHA-256").digest(golden.readBytes()).joinToString("") { "%02x".format(it) }
+        assertEquals(manifest.getValue("sha256"), sha, "golden database changed without regenerating its manifest")
+        assertTrue(golden.length() <= 512 * 1024, "golden database is ${golden.length()} bytes; budget is 512 KiB")
+        assertEquals("17", manifest.getValue("schema_version"))
+        DriverManager.getConnection(UpgradeHarness.urlFor(golden)).use { conn ->
+            val tables = UpgradeHarness.userTables(conn)
+            assertEquals(8, tables.size, "golden must carry all 8 V17 tables, got $tables")
+            for (t in tables) {
+                val n =
+                    conn.createStatement().use { st ->
+                        st.executeQuery("SELECT count(*) FROM $t").use { rs ->
+                            rs.next()
+                            rs.getInt(1)
+                        }
+                    }
+                assertEquals(manifest.getValue("count.$t").toInt(), n, "row count of $t differs from the manifest")
+            }
+        }
+    }
+
+    @Test
+    fun `S15 the bare chain upgrades the golden database and preserves every row, FK and FTS index`() {
+        val golden = GoldenV17.copyTo(File(dir, "bare.sqlite"))
+        val url = UpgradeHarness.urlFor(golden)
+        val before = DriverManager.getConnection(url).use { UpgradeHarness.dump(it) }
+        val probe = UpgradeHarness.migrate(url)
+        val pending = pendingVersions
+        val failures =
+            DriverManager.getConnection(url).use { conn ->
+                // At V17 nothing is pending, so the probe cannot fire; the moment a V18+ migration exists the
+                // never-fired guard is switched on (a probe that did not fire then fails the check).
+                UpgradeHarness.checkUpgrade(conn, before, laterSeeds, probe.takeIf { pending.isNotEmpty() })
+            }
+        assertTrue(failures.isEmpty(), "golden upgrade failures:\n" + failures.joinToString("\n"))
+    }
+
+    private fun scalar(
+        conn: java.sql.Connection,
+        sql: String
+    ): Int =
+        conn.createStatement().use { st ->
+            st.executeQuery(sql).use { rs ->
+                rs.next()
+                rs.getInt(1)
+            }
+        }
+
+    @Test
+    fun `S15 real startup (initialize, updateSchema, cycle check, first-start compaction) upgrades the golden database`() {
+        val golden = GoldenV17.copyTo(File(dir, "prod.sqlite"))
+        val url = UpgradeHarness.urlFor(golden)
+        val before = DriverManager.getConnection(url).use { UpgradeHarness.dump(it) }
+        assertEquals(0, DriverManager.getConnection(url).use { scalar(it, "PRAGMA user_version") }, "the golden has never been compacted")
+        // The golden carries a rowid gap (the generator deletes a sacrificial first row), so rowids are not the row
+        // position. Observed: this SQLite's VACUUM keeps the gap (it does not renumber), so the rebuild is asserted
+        // directly instead: the FTS indexes are wiped in the copy first, and only a startup rebuild can restore them.
+        DriverManager.getConnection(url).use { conn ->
+            assertEquals(2, scalar(conn, "SELECT min(rowid) FROM work_items"), "golden work_items must start at rowid 2 (gap)")
+            assertEquals(2, scalar(conn, "SELECT min(rowid) FROM notes"), "golden notes must start at rowid 2 (gap)")
+            for (fts in listOf("work_items_fts_trigram", "work_items_fts_text", "notes_fts_trigram", "notes_fts_text")) {
+                conn.createStatement().use { it.execute("INSERT INTO $fts($fts) VALUES('delete-all')") }
+            }
+            assertEquals(
+                0,
+                scalar(
+                    conn,
+                    "SELECT count(*) FROM work_items_fts_text WHERE work_items_fts_text MATCH '${BaselineDataset.ITEM_FTS_TOKEN}'"
+                ),
+                "the wiped index must not match before startup"
+            )
+        }
+
+        // The exact startup order of CurrentMain: initialize, then updateSchema (Flyway + cycle check + the one-time
+        // compaction gated by DB_COMPACT_ON_UPGRADE, switched on explicitly here).
+        val manager =
+            DatabaseManager(appConfig = AppConfig.fromEnv { name -> if (name == "DB_COMPACT_ON_UPGRADE") "true" else null })
+        try {
+            assertTrue(manager.initialize(url), "initialize must accept the golden database")
+            assertTrue(manager.updateSchema(), "production updateSchema must accept the golden database")
+
+            DriverManager.getConnection(url).use { conn ->
+                assertEquals(
+                    1,
+                    scalar(conn, "PRAGMA user_version"),
+                    "the first start after the upgrade must run StartupCompaction (VACUUM + FTS rebuild) and record it"
+                )
+                val failures = UpgradeHarness.checkUpgrade(conn, before, laterSeeds, null)
+                assertTrue(failures.isEmpty(), "rows, FK or FTS failures after real startup:\n" + failures.joinToString("\n"))
+                // V34 (decision D'): every golden note is a pre-4.0 note, so none has an owner, and its 3.x actor id is untouched.
+                assertEquals(
+                    0,
+                    scalar(conn, "SELECT count(*) FROM notes WHERE owner_id IS NOT NULL"),
+                    "no pre-4.0 note may gain an owner through the upgrade"
+                )
+                val goldenActors = before.getValue("notes").values.associate { it.getValue("id") to it["actor_id"] }
+                val actorsAfter =
+                    conn.createStatement().use { st ->
+                        st.executeQuery("SELECT lower(hex(id)), actor_id FROM notes").use { rs ->
+                            buildMap<Any?, Any?> { while (rs.next()) put(rs.getString(1), rs.getString(2)) }
+                        }
+                    }
+                assertTrue(goldenActors.isNotEmpty(), "the golden carries notes")
+                assertEquals(goldenActors, actorsAfter, "every note keeps the actor_id it has in the golden file")
+                assertTrue(
+                    goldenActors.values.any { it != null },
+                    "fixture condition: at least one golden note has an actor id, so the actor comparison can fail"
+                )
+                assertEquals(
+                    0,
+                    scalar(conn, "SELECT count(*) FROM data_steps WHERE name LIKE '%owner%'"),
+                    "V34 has no data step: data_steps has no row naming an owner"
+                )
+                // The wiped external-content FTS tables key on implicit rowids (here offset by the gap). Prove the rebuilt
+                // indexes still point at the right rows: a MATCH must resolve, through the rowid, to the seeded titles.
+                val itemHits =
+                    scalar(
+                        conn,
+                        "SELECT count(*) FROM work_items WHERE rowid IN " +
+                            "(SELECT rowid FROM work_items_fts_text WHERE work_items_fts_text MATCH '${BaselineDataset.ITEM_FTS_TOKEN}') " +
+                            "AND title LIKE '%${BaselineDataset.ITEM_FTS_TOKEN}%'"
+                    )
+                assertEquals(1, itemHits, "work_items FTS must resolve the seeded token to its row after startup")
+                val noteHits =
+                    scalar(
+                        conn,
+                        "SELECT count(*) FROM notes WHERE rowid IN " +
+                            "(SELECT rowid FROM notes_fts_trigram WHERE notes_fts_trigram MATCH '${BaselineDataset.NOTE_FTS_TOKEN}') " +
+                            "AND body LIKE '%${BaselineDataset.NOTE_FTS_TOKEN}%'"
+                    )
+                assertEquals(1, noteHits, "notes FTS must resolve the seeded token to its row after startup")
+            }
+
+            val provider = DefaultRepositoryProvider(manager)
+            runBlocking {
+                for (name in BaselineDataset.ITEM_NAMES) {
+                    val r = provider.workItemRepository().getById(BaselineDataset.uuid(name))
+                    assertNotNull(r, "work item $name unreadable through the repository: $r")
+                }
+                val note = provider.noteRepository().getById(BaselineDataset.uuid("note:task1:task-scope"))
+                assertNotNull(note, "attributed note unreadable: $note")
+                val deps = provider.dependencyRepository().findByItemId(BaselineDataset.uuid("task1"))
+                assertTrue(deps.size >= 2, "task1 must have its BLOCKS and RELATES_TO edges, got ${deps.size}")
+                val transitions = provider.transitionsOf(BaselineDataset.uuid("task2"))
+                assertTrue(transitions.size == 2, "task2 transitions unreadable: $transitions")
+                val config = provider.configStore().head(ConfigScope.ROOT, BaselineDataset.uuid("root"))
+                assertTrue(config != null, "project_config unreadable: $config")
+                val plan = provider.planDocumentRepository().get(BaselineDataset.uuid("root"), "adopted-plan")
+                assertTrue(plan != null, "plan document unreadable: $plan")
+            }
+        } finally {
+            manager.shutdown()
+        }
+    }
+
+    @Test
+    fun `S14 regenerating the golden reproduces the committed file (a stale golden fails loudly)`() {
+        val manifest = GoldenV17.manifest()
+        val outDir = File(dir, "regenerated")
+        val regenerated = GoldenV17.generate(outDir)
+        val sha = MessageDigest.getInstance("SHA-256").digest(regenerated.readBytes()).joinToString("") { "%02x".format(it) }
+        assertEquals(
+            manifest.getValue("sha256"),
+            sha,
+            "the committed golden does not match what GoldenV17.generate() now produces from BaselineDataset and the V17 " +
+                "schema; regenerate it (REGENERATE_GOLDEN_V17=true, see GoldenV17Generator) and commit the new golden and manifest"
+        )
+    }
+
+    @Test
+    fun `S16 the golden database without flyway_schema_history is baselined at 17 and then migrated`() {
+        val golden = GoldenV17.copyTo(File(dir, "direct.sqlite"))
+        val url = UpgradeHarness.urlFor(golden)
+        DriverManager.getConnection(url).use { conn -> conn.createStatement().use { it.execute("DROP TABLE flyway_schema_history") } }
+        val before = DriverManager.getConnection(url).use { UpgradeHarness.dump(it) }
+
+        assertTrue(FlywayDatabaseSchemaManager(url).updateSchema(), "a V17-shaped database without history must be baselined, not refused")
+
+        DriverManager.getConnection(url).use { conn ->
+            val baselineVersion =
+                conn.createStatement().use { st ->
+                    st.executeQuery("SELECT version FROM flyway_schema_history WHERE type = 'BASELINE'").use { rs ->
+                        if (rs.next()) rs.getString(1) else null
+                    }
+                }
+            assertEquals("17", baselineVersion, "history must record a baseline at version 17")
+            val failures = UpgradeHarness.checkUpgrade(conn, before, laterSeeds, null)
+            assertTrue(failures.isEmpty(), "baselined upgrade failures:\n" + failures.joinToString("\n"))
+        }
+    }
+
+    @Test
+    fun `S2 production order takes a verified V17 bak before updateSchema migrates the live database`() {
+        val golden = GoldenV17.copyTo(File(dir, "backup.sqlite"))
+        val url = UpgradeHarness.urlFor(golden)
+        val latest = UpgradeHarness.migrationVersions(dir).max()
+        assertTrue(latest > 17, "fixture: this binary carries migrations after V17")
+
+        val manager = DatabaseManager(appConfig = AppConfig.fromEnv { null })
+        var bak: File? = null
+        try {
+            assertTrue(manager.initialize(url), "initialize must accept the golden database")
+            val outcome = manager.runPreUpgradeBackup()
+            assertTrue(outcome is BackupOutcome.Copied, "an unmigrated 3.x file is backed up before updateSchema, got $outcome")
+            bak = outcome.path
+            assertEquals(golden.parentFile.canonicalFile, bak.parentFile.canonicalFile, "the bak sits beside the database")
+            assertTrue(bak.name.startsWith("backup.sqlite.pre-4.0."), "bak name: ${bak.name}")
+            assertTrue(bak.name.endsWith(".bak"), "bak name: ${bak.name}")
+            assertTrue(manager.updateSchema(), "production updateSchema must accept the golden database")
+        } finally {
+            manager.shutdown()
+        }
+
+        fun maxVersion(file: File): Int =
+            DriverManager.getConnection(UpgradeHarness.urlFor(file)).use { conn ->
+                scalar(conn, "SELECT max(CAST(version AS INTEGER)) FROM flyway_schema_history WHERE success = 1 AND version IS NOT NULL")
+            }
+
+        val backup = assertNotNull(bak)
+        DriverManager.getConnection(UpgradeHarness.urlFor(backup)).use { conn ->
+            val rows =
+                conn.createStatement().use { st ->
+                    st.executeQuery("PRAGMA integrity_check").use { rs ->
+                        buildList { while (rs.next()) add(rs.getString(1)) }
+                    }
+                }
+            assertEquals(listOf("ok"), rows, "the bak passes PRAGMA integrity_check")
+        }
+        assertEquals(17, maxVersion(backup), "the bak is the pre-migration state")
+        assertEquals(latest, maxVersion(golden), "the live database was migrated to the latest version")
+    }
+    // ---------------------------------------------------------------------------------------------
+    // S17 (Q24, AC4) - the production steps pin every golden item; forItem agrees with the LEGACY resolution
+    // ---------------------------------------------------------------------------------------------
+
+    private val goldenItemCount = BaselineDataset.ITEM_NAMES.size
+
+    @Test
+    fun `S17 with a mounted server file and a per-root default every golden item is pinned and forItem resolves the LEGACY root default`() {
+        val url = migratedGolden(dir, "pins-default", PIN_ROOT_DEFAULT_YAML)
+        val (runDir, report, _) = bootProductionSteps(url, dir, "pins-default", PIN_SERVER_YAML)
+        assertTrue("pin-backfill" in report.applied, "the production plan applies pin-backfill: $report")
+        val server = assertNotNull(serverHeadId(url), "the mounted server file is imported as the server head")
+        val rootHead = assertNotNull(rootHeadId(url, "root"))
+        assertEquals(0, scalarInt(url, "SELECT COUNT(*) FROM work_items WHERE pinned_at IS NULL"), "every item is pinned")
+
+        val bases = resolveGoldenBases(url, runDir)
+
+        assertEquals(goldenItemCount, bases.size)
+        for (name in BaselineDataset.ITEM_NAMES) {
+            val base = bases.getValue(BaselineDataset.uuid(name))
+            assertEquals(server, base.pinServer, "$name: the server pin is the file-import version id")
+            assertEquals(rootHead, base.pinRoot, "$name: the root pin is the root head")
+            // LEGACY (the default schema_resolution): the per-root default shadows the server feature-task.
+            assertEquals("default", base.pinKey, "$name: pinned key")
+            assertEquals("root", base.pinLayer, "$name: pinned layer")
+            assertEquals("default", base.baseKey, "$name: forItem base key equals the LEGACY resolution")
+            assertEquals(ConfigSource.PER_ROOT, base.baseSource, "$name: forItem base layer equals the LEGACY resolution")
+            assertEquals(LifecycleMode.PERMANENT, base.baseLifecycle, "$name: the root default declares lifecycle: permanent")
+        }
+    }
+
+    @Test
+    fun `S17 a per-root document that declares the exact type is the LEGACY base schema of every golden item`() {
+        val url = migratedGolden(dir, "pins-exact", PIN_ROOT_EXACT_YAML)
+        val (runDir, _, _) = bootProductionSteps(url, dir, "pins-exact", PIN_SERVER_YAML)
+
+        val bases = resolveGoldenBases(url, runDir)
+
+        assertEquals(goldenItemCount, bases.size)
+        for (name in BaselineDataset.ITEM_NAMES) {
+            val base = bases.getValue(BaselineDataset.uuid(name))
+            assertEquals("feature-task", base.baseKey, "$name")
+            assertEquals(ConfigSource.PER_ROOT, base.baseSource, "$name")
+            assertEquals(LifecycleMode.PERMANENT, base.baseLifecycle, "$name")
+            assertEquals(base.pinKey, base.baseKey, "$name: the pin and the resolved base agree")
+        }
+    }
+
+    @Test
+    fun `S17 with no per-root config the server file decides and no root pin is taken`() {
+        val url = migratedGolden(dir, "pins-server-only", null)
+        val (runDir, _, _) = bootProductionSteps(url, dir, "pins-server-only", PIN_SERVER_YAML)
+        val server = assertNotNull(serverHeadId(url))
+        assertNull(rootHeadId(url, "root"), "fixture: the root has no per-root head")
+
+        val bases = resolveGoldenBases(url, runDir)
+
+        assertEquals(goldenItemCount, bases.size)
+        for (name in BaselineDataset.ITEM_NAMES) {
+            val base = bases.getValue(BaselineDataset.uuid(name))
+            assertEquals(server, base.pinServer, "$name")
+            assertNull(base.pinRoot, "$name: no root head, no root pin")
+            assertEquals("feature-task", base.baseKey, "$name")
+            assertEquals(ConfigSource.GLOBAL, base.baseSource, "$name")
+            assertEquals(LifecycleMode.MANUAL, base.baseLifecycle, "$name: the server feature-task declares lifecycle: manual")
+        }
+    }
+
+    @Test
+    fun `S17 with neither a server file nor a per-root config the golden items are pinned schema-free`() {
+        val url = migratedGolden(dir, "pins-none", null)
+        val (runDir, report, _) = bootProductionSteps(url, dir, "pins-none", null)
+        assertTrue("pin-backfill" in report.applied, "$report")
+        assertEquals(0, scalarInt(url, "SELECT COUNT(*) FROM work_items WHERE pinned_at IS NULL"), "pinned all the same")
+
+        val bases = resolveGoldenBases(url, runDir)
+
+        for (name in BaselineDataset.ITEM_NAMES) {
+            val base = bases.getValue(BaselineDataset.uuid(name))
+            assertNull(base.pinServer, "$name")
+            assertNull(base.pinRoot, "$name")
+            assertNull(base.pinKey, "$name")
+            assertNull(base.pinLayer, "$name")
+            assertNull(base.pinLifecycle, "$name")
+            assertNull(base.baseKey, "$name: a schema-free pin resolves no base schema")
+        }
+    }
+}

@@ -13,16 +13,14 @@ import kotlin.coroutines.coroutineContext
  * Per-request memo for [EffectiveConfigResolver]'s per-root layer reads.
  *
  * **Scope: one tool call.** Installed into the coroutine context by [withConfigSession] at the
- * call boundary ([io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter] and the
- * `advance_item`/`get_context`/`complete_tree`/`create_work_tree` tool `execute` bodies, plus the
- * REST gate and advance route handlers — one session per request) and torn down when that call
+ * call boundary (the tool dispatcher's run step, `ToolDispatcher`, which every transport goes through —
+ * one session per call) and torn down when that call
  * returns. A `CancellationException` from a read is never memoised: it is rethrown and the next
  * lookup for the same key reads fresh. It is NOT shared across separate calls, and NOT shared with
  * coroutines started outside this element's structured-concurrency subtree — notably, a plain
  * `kotlinx.coroutines.runBlocking { ... }` invoked from inside a session-wrapped `execute` does
  * NOT inherit the ambient [ConfigSession] (it defaults to `EmptyCoroutineContext`), so per-root
- * reads made from within such a block are unmemoised. See `implementation-notes` on `ce346f52`
- * for the two call sites (`AdvanceItemTool`, `CreateWorkTreeTool`) where this applies today.
+ * reads made from within such a block are unmemoised.
  *
  * Keyed by `(PerRootConfigSource instance identity, rootId)`, so multiple sources sharing one
  * session get independent entries. Stores `kotlin.Result<ConfigLayer?>` — success, null, AND
@@ -39,6 +37,14 @@ class ConfigSession : AbstractCoroutineContextElement(ConfigSession) {
 
     private val mutex = Mutex()
     private val memo = mutableMapOf<Pair<Any, UUID>, Result<ConfigLayer?>>()
+
+    /**
+     * Drops every memoised read of [rootId]'s per-root layer, so the next lookup in this session reads fresh. A write
+     * that appended a config version calls this so a later op of the same call sees the new head.
+     */
+    internal suspend fun evict(rootId: UUID) {
+        mutex.withLock { memo.keys.removeAll { it.second == rootId } }
+    }
 
     /**
      * Returns the memoised [ConfigLayer] for `(source, rootId)`, invoking [fetch] and storing its
@@ -80,4 +86,9 @@ suspend fun <T> withConfigSession(block: suspend () -> T): T {
     } else {
         withContext(ConfigSession()) { block() }
     }
+}
+
+/** Evicts [rootId] from the ambient [ConfigSession] memo, if one is installed (see [ConfigSession.evict]). */
+suspend fun evictConfigSession(rootId: UUID) {
+    coroutineContext[ConfigSession.Key]?.evict(rootId)
 }

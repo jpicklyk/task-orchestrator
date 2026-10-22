@@ -7,23 +7,26 @@ import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
-import io.github.jpicklyk.mcptask.current.infrastructure.config.CacheState
-import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksResult
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.config.NoOpStatusLabelService
+import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
+import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
+import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.CacheState
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksKeySetProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksResult
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEvent
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventType
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.FROM_START
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.emit
+import io.github.jpicklyk.mcptask.current.test.get
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -44,10 +47,10 @@ import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.withTimeout
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.security.Security
 import java.time.Instant
 import java.util.Date
@@ -67,6 +70,9 @@ import io.ktor.client.plugins.sse.SSE as ClientSSE
  * weakened by the wiring.
  */
 class McpJwksRestAuthTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     companion object {
         init {
             // RSA signing/verification needs no BouncyCastle, but match the sibling test's setup.
@@ -98,7 +104,6 @@ class McpJwksRestAuthTest {
         val provider = mockk<JwksKeySetProvider>()
         val result = JwksResult(JWKSet(listOf(rsaKey.toPublicJWK())), CacheState(fromStaleCache = false, ageSeconds = null))
         coEvery { provider.getKeySet() } returns result
-        coEvery { provider.getKeySetForIssuer(any()) } returns result
         every { provider.getResolvedIssuer() } returns null
         every { provider.close() } just Runs
         return provider
@@ -136,15 +141,7 @@ class McpJwksRestAuthTest {
                 ),
         )
 
-    private fun inMemoryProvider(): DefaultRepositoryProvider =
-        DefaultRepositoryProvider(
-            DatabaseManager(
-                Database.connect(
-                    "jdbc:h2:mem:jwksrest_${System.nanoTime()};DB_CLOSE_DELAY=-1",
-                    driver = "org.h2.Driver",
-                ),
-            ).also { DirectDatabaseSchemaManager().updateSchema() },
-        )
+    private fun inMemoryProvider(): DefaultRepositoryProvider = db.repositoryProvider()
 
     /**
      * Installs the production wiring with the API enabled in jwks mode. The [eventBus] is wired so
@@ -154,7 +151,7 @@ class McpJwksRestAuthTest {
         verifier: JwksApiVerifier,
         eventBus: ApiEventBus? = null,
     ) {
-        installMcpStreamableHttp(emptyServer())
+        installMcpStreamableHttp(emptyServer(), appConfig = AppConfig.fromEnv(), mcpAuth = McpAuthMode.Local)
         val repositoryProvider = inMemoryProvider()
         installRestApiRoutes(
             apiConfig = jwksConfig(),
@@ -164,18 +161,16 @@ class McpJwksRestAuthTest {
             allowQueryToken = false,
             serverName = "jwks-rest-test",
             serverVersion = "1.0.0",
-            actorAuthEnabled = false,
-            noteSchemaService = NoOpNoteSchemaService,
+            serverConfig = ServerConfigSource { null },
             toolContext =
                 ToolExecutionContext(
                     repositoryProvider,
-                    NoOpNoteSchemaService,
-                    statusLabelService = YamlStatusLabelService(),
-                    perRootConfigService = PerRootConfigService(repositoryProvider.projectConfigRepository()),
+                    statusLabelService = NoOpStatusLabelService,
+                    perRootConfigService = PerRootConfigService(repositoryProvider.configStore()),
+                    unitOfWork = db.unitOfWork()
                 ),
-            degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
-            idempotencyCache = IdempotencyCache(),
             jwksVerifier = verifier,
+            appConfig = AppConfig.fromEnv(),
         )
     }
 
@@ -184,12 +179,12 @@ class McpJwksRestAuthTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `valid JWT authorizes a REST request`() =
+    fun `valid JWT authorizes a REST request`(): Unit =
         testApplication {
             application { installJwksApp(verifier()) }
 
             val response =
-                client.get("/api/v1/items") {
+                client.get("/api/v1/resources/leases") {
                     header(HttpHeaders.Authorization, "Bearer ${signRs256()}")
                 }
             assertEquals(
@@ -200,20 +195,20 @@ class McpJwksRestAuthTest {
         }
 
     @Test
-    fun `missing token returns 401 in jwks mode`() =
+    fun `missing token returns 401 in jwks mode`(): Unit =
         testApplication {
             application { installJwksApp(verifier()) }
-            assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/items").status)
+            assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/resources/leases").status)
         }
 
     @Test
-    fun `JWT signed with disallowed algorithm returns 401`() =
+    fun `JWT signed with disallowed algorithm returns 401`(): Unit =
         testApplication {
             // Verifier only allows RS512; the token is RS256 → rejected by the allowlist check.
             application { installJwksApp(verifier(algorithms = listOf("RS512"))) }
 
             val response =
-                client.get("/api/v1/items") {
+                client.get("/api/v1/resources/leases") {
                     header(HttpHeaders.Authorization, "Bearer ${signRs256()}")
                 }
             assertEquals(
@@ -224,20 +219,20 @@ class McpJwksRestAuthTest {
         }
 
     @Test
-    fun `expired JWT returns 401`() =
+    fun `expired JWT returns 401`(): Unit =
         testApplication {
             application { installJwksApp(verifier()) }
 
             val expired = signRs256(buildClaims(expiry = Instant.now().minusSeconds(3600)))
             val response =
-                client.get("/api/v1/items") {
+                client.get("/api/v1/resources/leases") {
                     header(HttpHeaders.Authorization, "Bearer $expired")
                 }
             assertEquals(HttpStatusCode.Unauthorized, response.status, "An expired JWT must 401")
         }
 
     @Test
-    fun `mcp endpoint stays open in jwks mode`() =
+    fun `mcp endpoint stays open in jwks mode`(): Unit =
         testApplication {
             application { installJwksApp(verifier()) }
             // /mcp must remain reachable without any REST credential, even in jwks mode (the public-path
@@ -264,17 +259,17 @@ class McpJwksRestAuthTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `SSE missing token returns 401 in jwks mode`() =
+    fun `SSE missing token returns 401 in jwks mode`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application { installJwksApp(verifier(), eventBus = bus) }
             assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/events").status)
         }
 
     @Test
-    fun `SSE invalid JWT returns 401 in jwks mode`() =
+    fun `SSE invalid JWT returns 401 in jwks mode`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application { installJwksApp(verifier(), eventBus = bus) }
             val response =
                 client.get("/api/v1/events") {
@@ -286,12 +281,11 @@ class McpJwksRestAuthTest {
     @Test
     fun `SSE streams a replayed event to a JWT-authenticated client in jwks mode`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
 
             // Publish an event to the ring buffer BEFORE subscribing so replay can deliver it.
             val itemId = UUID.randomUUID()
-            val prePublished = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemId, modifiedAt = Instant.now())
-            bus.publish(prePublished, emptySet())
+            val prePublished = bus.emit(ApiEventType.ITEM_CREATED, itemId = itemId)
 
             application { installJwksApp(verifier(), eventBus = bus) }
 
@@ -304,7 +298,7 @@ class McpJwksRestAuthTest {
                     urlString = "/api/v1/events",
                     request = {
                         header(HttpHeaders.Authorization, "Bearer ${signRs256()}")
-                        header("Last-Event-ID", "0")
+                        header("Last-Event-ID", FROM_START)
                     },
                 ) {
                     incoming.take(1).toList().forEach { sse ->

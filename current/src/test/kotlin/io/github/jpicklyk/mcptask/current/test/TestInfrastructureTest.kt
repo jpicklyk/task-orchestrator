@@ -1,12 +1,11 @@
 package io.github.jpicklyk.mcptask.current.test
 
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
+import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
-import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.*
@@ -261,9 +260,6 @@ class TestInfrastructureTest {
         assertSame(mock.workItemRepo, mock.provider.workItemRepository())
         assertSame(mock.noteRepo, mock.provider.noteRepository())
         assertSame(mock.depRepo, mock.provider.dependencyRepository())
-        assertSame(mock.roleTransitionRepo, mock.provider.roleTransitionRepository())
-        assertSame(mock.workTreeExecutor, mock.provider.workTreeExecutor())
-        assertNull(mock.provider.database())
     }
 
     @Test
@@ -275,123 +271,27 @@ class TestInfrastructureTest {
     }
 
     @Test
-    fun `MockRepositoryProvider context with custom schema service`() {
-        val mock = MockRepositoryProvider()
-        val ctx = mock.context(TestNoteSchemaService.FEATURE_IMPLEMENTATION)
-        assertNotNull(ctx)
-        // Schema service should return entries for "feature-implementation" tag
-        val schema = ctx.noteSchemaService().getSchemaForTags(listOf("feature-implementation"))
-        assertNotNull(schema)
-        assertEquals(4, schema.size)
-    }
+    fun `MockRepositoryProvider context with custom config resolver`(): Unit =
+        runBlocking {
+            val mock = MockRepositoryProvider()
+            val notes =
+                listOf("requirements", "design", "implementation-notes", "review-checklist").map {
+                    NoteSchemaEntry(key = it, role = Role.QUEUE, required = true)
+                }
+            val ctx = mock.context(TestConfigResolver.forSchemas(mapOf("feature-implementation" to notes)))
+            assertNotNull(ctx)
+            // The resolver should return the schema declared for the "feature-implementation" type
+            val schema = ctx.resolveTypeSchema("feature-implementation", null)?.schema
+            assertNotNull(schema)
+            assertEquals(4, schema.notes.size)
+        }
 
     @Test
     fun `MockRepositoryProvider noteRepo default returns empty lists`(): Unit =
         runBlocking {
             val mock = MockRepositoryProvider()
             val result = mock.noteRepo.findByItemId(UUID.randomUUID())
-            assertIs<Result.Success<*>>(result)
-            assertTrue((result as Result.Success).data.isEmpty())
+            assertNotNull(result)
+            assertTrue(result.isEmpty())
         }
-
-    // ── TestNoteSchemaService ──
-
-    @Test
-    fun `FEATURE_IMPLEMENTATION returns correct schema for matching tag`() {
-        val schema = TestNoteSchemaService.FEATURE_IMPLEMENTATION.getSchemaForTags(listOf("feature-implementation"))
-        assertNotNull(schema)
-        assertEquals(4, schema.size)
-        val keys = schema.map { it.key }
-        assertTrue("requirements" in keys)
-        assertTrue("design" in keys)
-        assertTrue("implementation-notes" in keys)
-        assertTrue("review-checklist" in keys)
-    }
-
-    @Test
-    fun `FEATURE_IMPLEMENTATION has review phase`() {
-        assertTrue(TestNoteSchemaService.FEATURE_IMPLEMENTATION.hasReviewPhase(listOf("feature-implementation")))
-    }
-
-    @Test
-    fun `BUG_FIX returns correct schema for matching tag`() {
-        val schema = TestNoteSchemaService.BUG_FIX.getSchemaForTags(listOf("bug-fix"))
-        assertNotNull(schema)
-        assertEquals(2, schema.size)
-        val keys = schema.map { it.key }
-        assertTrue("root-cause" in keys)
-        assertTrue("fix-details" in keys)
-    }
-
-    @Test
-    fun `BUG_FIX has no review phase`() {
-        assertFalse(TestNoteSchemaService.BUG_FIX.hasReviewPhase(listOf("bug-fix")))
-    }
-
-    @Test
-    fun `NONE returns null for any tags`() {
-        assertNull(TestNoteSchemaService.NONE.getSchemaForTags(listOf("feature-implementation")))
-        assertNull(TestNoteSchemaService.NONE.getSchemaForTags(listOf("bug-fix")))
-        assertNull(TestNoteSchemaService.NONE.getSchemaForTags(emptyList()))
-    }
-
-    @Test
-    fun `schema service returns null for unrecognized tags`() {
-        assertNull(TestNoteSchemaService.FEATURE_IMPLEMENTATION.getSchemaForTags(listOf("unrelated-tag")))
-    }
-
-    // ── BaseRepositoryTest ──
-
-    @Nested
-    inner class BaseRepositoryTestValidation : BaseRepositoryTest() {
-        @Test
-        fun `can create and read back items`(): Unit =
-            runBlocking {
-                val item = createPersistedItem(title = "Persisted Item")
-                assertEquals("Persisted Item", item.title)
-                assertEquals(Role.QUEUE, item.role)
-
-                // Read back via repository
-                val result = repositoryProvider.workItemRepository().getById(item.id)
-                assertIs<Result.Success<*>>(result)
-                assertEquals("Persisted Item", (result as Result.Success).data.title)
-            }
-
-        @Test
-        fun `can create item with parent`(): Unit =
-            runBlocking {
-                val parent = createPersistedItem(title = "Parent")
-                val child = createPersistedItem(title = "Child", parentId = parent.id)
-                assertEquals(parent.id, child.parentId)
-                assertEquals(1, child.depth)
-            }
-
-        @Test
-        fun `can create and read back notes`(): Unit =
-            runBlocking {
-                val item = createPersistedItem(title = "Item with note")
-                val note = createPersistedNote(itemId = item.id, key = "design", role = "work", body = "Design doc")
-                assertEquals("design", note.key)
-                assertEquals("work", note.role)
-                assertEquals("Design doc", note.body)
-
-                val result = repositoryProvider.noteRepository().findByItemId(item.id)
-                assertIs<Result.Success<*>>(result)
-                assertEquals(1, (result as Result.Success).data.size)
-            }
-
-        @Test
-        fun `can create and read back dependencies`(): Unit =
-            runBlocking {
-                val item1 = createPersistedItem(title = "Item 1")
-                val item2 = createPersistedItem(title = "Item 2")
-                val dep = createPersistedDependency(fromItemId = item1.id, toItemId = item2.id)
-                assertEquals(item1.id, dep.fromItemId)
-                assertEquals(item2.id, dep.toItemId)
-                assertEquals(DependencyType.BLOCKS, dep.type)
-
-                val deps = repositoryProvider.dependencyRepository().findByItemId(item1.id)
-                assertEquals(1, deps.size)
-            }
-    }
 }

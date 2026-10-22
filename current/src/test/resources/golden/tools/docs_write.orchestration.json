@@ -1,0 +1,88 @@
+{
+  "name": "docs_write",
+  "inputSchema": {
+    "properties": {
+      "ops": {
+        "type": "array",
+        "description": "Write operations, one flat object per op, run in order. A field marked [ops: ...] applies only to the ops named.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "description": "The operation this element runs.",
+              "enum": [
+                "upsert",
+                "archive",
+                "unarchive",
+                "delete",
+                "attach",
+                "detach"
+              ]
+            },
+            "rootId": {
+              "type": "string",
+              "description": "Id of the depth-0 project root that owns the document: a full UUID or 8 to 32 hex characters."
+            },
+            "kind": {
+              "type": "string",
+              "description": "Document kind: plan, rule or page.",
+              "enum": [
+                "plan",
+                "rule",
+                "page"
+              ]
+            },
+            "slug": {
+              "type": "string",
+              "description": "Document slug, unique per (root, kind). On upsert: 1 to 200 characters, no leading or trailing whitespace, no control characters, none of [ ] #; a plan slug must not start with rule/."
+            },
+            "body": {
+              "type": "string",
+              "description": "Inline document text (may be empty). Exactly one of body and bodyFromFile is required. [ops: upsert]"
+            },
+            "bodyFromFile": {
+              "type": "string",
+              "description": "Server-side path whose text becomes the body (MCP only). Exactly one of body and bodyFromFile is required. Resolved strictly inside the agent config root: no absolute path, no '..', no symlink out of it; a regular UTF-8 file of at most 65536 bytes. [ops: upsert]"
+            },
+            "title": {
+              "type": "string",
+              "description": "Display title. Omit to keep the current title. [ops: upsert]"
+            },
+            "expectedVersion": {
+              "type": "integer",
+              "description": "Guard on the document's version: omit to write unconditionally, 0 to require that it does not exist, n to require that its current version is n. Anything else is version_conflict and nothing is written. [ops: upsert, archive, unarchive]"
+            },
+            "itemId": {
+              "type": "string",
+              "description": "Id of the work item: a full UUID or 8 to 32 hex characters of one. It must be under the document's root. [ops: attach, detach]"
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "Optional client key (1-128 chars). Resending the same op with the same key returns the stored result."
+            }
+          },
+          "required": [
+            "op"
+          ]
+        }
+      },
+      "atomic": {
+        "type": "boolean",
+        "description": "true: the first failing op rolls back the whole batch. Default false: each op commits on its own."
+      },
+      "describe": {
+        "type": "boolean",
+        "description": "true: return the operations, their parameters and errors instead of running the tool."
+      }
+    },
+    "type": "object"
+  },
+  "description": "Write the versioned documents (plans, rules, pages) of a project root, in batches: upsert, archive, unarchive, delete, attach and detach. Every op needs the write-docs capability. Call with describe:true for each operation's parameters and errors.",
+  "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

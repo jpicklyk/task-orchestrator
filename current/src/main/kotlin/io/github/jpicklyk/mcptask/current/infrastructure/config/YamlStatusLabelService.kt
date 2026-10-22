@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
-import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
-import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
+import io.github.jpicklyk.mcptask.current.application.config.NoOpStatusLabelService
+import io.github.jpicklyk.mcptask.current.application.config.StatusLabelService
 import org.slf4j.LoggerFactory
 import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.Yaml
@@ -15,10 +15,9 @@ import java.nio.file.Path
  * Reads status label mappings from `.taskorchestrator/config.yaml` under the `status_labels` section.
  *
  * Two constructors:
- *  - `YamlStatusLabelService(configPath)` (or its default): the ORIGINAL lenient, independent
+ *  - `YamlStatusLabelService(configPath)`: the ORIGINAL lenient, independent
  *    loader — its own SafeConstructor-based `Yaml`/`FileReader` read, swallowing any error into NoOp defaults. Kept
- *    unchanged for backward compatibility (existing tests, and the `ItemWriteRoutes.kt` default
- *    parameter) — a typealias could not preserve this constructor, which is why this class was NOT
+ *    unchanged for backward compatibility (existing tests and direct constructions) - a typealias could not preserve this constructor, which is why this class was NOT
  *    folded into a shared-document-only shape (see the C1 task-scope note's "Alternatives
  *    rejected").
  *  - `YamlStatusLabelService(globalConfig: GlobalConfigFile)`: reads `status_labels` from the ONE
@@ -44,7 +43,7 @@ class YamlStatusLabelService private constructor(
     private val configPath: Path?,
     private val globalConfig: GlobalConfigFile?,
 ) : StatusLabelService {
-    constructor(configPath: Path = YamlNoteSchemaService.resolveDefaultConfigPath()) : this(configPath, null)
+    constructor(configPath: Path) : this(configPath, null)
 
     constructor(globalConfig: GlobalConfigFile) : this(null, globalConfig)
 

@@ -11,8 +11,8 @@ import io.ktor.server.plugins.cors.CORSConfig
  * - `CORS_ALLOWED_ORIGINS` — comma-separated list of allowed origins (e.g. `https://app.example.com`).
  *   Empty / unset = no cross-origin requests allowed (all preflight returns 403).
  * - `CORS_ALLOWED_METHODS` — comma-separated HTTP methods. Default: GET, POST, PATCH, PUT, DELETE, OPTIONS.
- * - `CORS_ALLOWED_HEADERS` — comma-separated request headers. Default: Authorization, Content-Type, If-Match.
- * - `CORS_EXPOSE_HEADERS` — comma-separated response headers exposed to JS. Default: ETag, Last-Event-ID, Retry-After.
+ * - `CORS_ALLOWED_HEADERS` — comma-separated request headers. Default: Authorization, Content-Type, If-Match, X-Client-Host.
+ * - `CORS_EXPOSE_HEADERS` - comma-separated response headers exposed to JS. Default: ETag, Last-Event-ID, Retry-After, X-Req-Id.
  * - `CORS_MAX_AGE_SECONDS` — preflight cache duration in seconds. Default: 3600.
  *
  * Design decisions:
@@ -22,7 +22,7 @@ import io.ktor.server.plugins.cors.CORSConfig
  * - Origins are stripped of their scheme prefix (`https://`, `http://`) before being passed to
  *   [allowHost], which takes the host component and a `schemes` list separately.
  */
-fun CORSConfig.configureCors(appConfig: AppConfig = AppConfig.fromEnv()) {
+fun CORSConfig.configureCors(appConfig: AppConfig) {
     val rawOrigins = appConfig.corsAllowedOrigins
     val methods = appConfig.corsAllowedMethods
     val headers = appConfig.corsAllowedHeaders

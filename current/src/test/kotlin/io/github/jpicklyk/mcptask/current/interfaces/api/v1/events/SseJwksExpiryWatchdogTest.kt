@@ -7,11 +7,11 @@ import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
-import io.github.jpicklyk.mcptask.current.infrastructure.config.CacheState
-import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksResult
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.CacheState
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksKeySetProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksResult
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.get
@@ -88,7 +88,6 @@ class SseJwksExpiryWatchdogTest {
         val provider = mockk<JwksKeySetProvider>()
         val result = JwksResult(JWKSet(listOf(rsaKey.toPublicJWK())), CacheState(fromStaleCache = false, ageSeconds = null))
         coEvery { provider.getKeySet() } returns result
-        coEvery { provider.getKeySetForIssuer(any()) } returns result
         every { provider.getResolvedIssuer() } returns null
         every { provider.close() } just Runs
         return provider
@@ -145,6 +144,7 @@ class SseJwksExpiryWatchdogTest {
                         jwksVerifier = verifier(),
                         authCheckIntervalSeconds = 1,
                         authConfig = jwksConfig,
+                        redactAttribution = true
                     )
                 }
             }
@@ -172,7 +172,7 @@ class SseJwksExpiryWatchdogTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `exp-less JWT is rejected at jwks SSE connect with 401 invalid_token`() =
+    fun `exp-less JWT is rejected at jwks SSE connect with 401 invalid_token`(): Unit =
         testApplication {
             val bus = ApiEventBus()
             application {
@@ -185,6 +185,7 @@ class SseJwksExpiryWatchdogTest {
                         jwksVerifier = verifier(),
                         authCheckIntervalSeconds = 30,
                         authConfig = jwksConfig,
+                        redactAttribution = true
                     )
                 }
             }
@@ -206,7 +207,7 @@ class SseJwksExpiryWatchdogTest {
                 "Expected WWW-Authenticate to name invalid_token. Got: $wwwAuthenticate",
             )
             val body = response.bodyAsText()
-            assertTrue(body.contains("\"invalid_token\""), "Expected invalid_token error code in body. Got: $body")
+            assertTrue(body.contains("\"unauthenticated\""), "Expected the unauthenticated envelope code in body. Got: $body")
             assertTrue(
                 body.contains("Invalid or expired token"),
                 "Expected the exp-less outcome to share the same 401 body as any other verifyWithExpiry-null case. Got: $body",
@@ -233,6 +234,7 @@ class SseJwksExpiryWatchdogTest {
                         jwksVerifier = verifier(),
                         authCheckIntervalSeconds = 1,
                         authConfig = jwksConfig,
+                        redactAttribution = true
                     )
                 }
             }
@@ -248,7 +250,7 @@ class SseJwksExpiryWatchdogTest {
                     // distant exp is not spuriously closed by the watchdog: if it had been closed
                     // (with auth.expired), the connection would already be gone by the time the
                     // publish below happens, and the subsequent collect would not observe item.created.
-                    delay(2500)
+                    delay(2500) // settle-ok: deliberate watchdog wait, the scenario is time-based
                     bus.publish(
                         bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now()),
                         emptySet(),

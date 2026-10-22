@@ -69,6 +69,7 @@ dependencies {
     implementation(libs.exposed.dao)
     implementation(libs.exposed.jdbc)
     implementation(libs.exposed.java.time)
+    implementation(libs.hikaricp)
 
     // Flyway migration
     implementation(libs.flyway.core)
@@ -87,6 +88,11 @@ dependencies {
     // YAML parsing
     implementation(libs.snakeyaml)
 
+    // JSON Schema 2020-12 structural validation of config documents (infrastructure adapter only). The Jackson BOM
+    // pins its transitive Jackson artifacts to a patched release (see libs.versions.toml).
+    implementation(platform(libs.jackson.bom))
+    implementation(libs.json.schema.validator)
+
     // Ktor BOM — version-aligns all ktor-* artifacts with the SDK's transitive Ktor
     implementation(platform(libs.ktor.bom))
     // CIO engine — not provided transitively by the MCP SDK, must be declared explicitly
@@ -95,6 +101,8 @@ dependencies {
     implementation(libs.ktor.server.sse)
     // CORS plugin — env-driven origin allowlist for REST API cross-origin requests
     implementation(libs.ktor.server.cors)
+    // StatusPages — REST /api/v1 safety net: an uncaught exception becomes a 500 internal ErrorDto, never exception text
+    implementation(libs.ktor.server.status.pages)
     // ContentNegotiation — installs before mcpStreamableHttp so MCP SDK sees CN already present
     implementation(libs.ktor.server.content.negotiation)
     // kotlinx-serialization JSON adapter for Ktor ContentNegotiation
@@ -102,9 +110,9 @@ dependencies {
     // Ktor HTTP client — used by JwksKeySetProvider for JWKS URI and OIDC discovery fetching
     implementation(libs.ktor.client.cio)
 
-    // JWT / JWKS — used by JwksActorVerifier for JWT validation against JWKS key sets
+    // JWT / JWKS — used by JwtVerifier for JWT validation against JWKS key sets
     implementation(libs.nimbus.jose.jwt)
-    // Google Tink — required at runtime by nimbus Ed25519Verifier for EdDSA/Ed25519 JWT verification
+    // Google Tink — required at runtime by nimbus Ed25519Verifier; Tink serves EdDSA (Ed25519) verification on the API path (JwtVerifier)
     implementation(libs.google.tink)
 
     // Testing
@@ -117,6 +125,9 @@ dependencies {
 
     // Konsist — architecture layering test (LayeringTest.kt)
     testImplementation(libs.konsist)
+
+    // ASM - bytecode reader for the request-field consumption guard (RequestFieldConsumptionGuardTest.kt); test classpath only
+    testImplementation(libs.asm)
 
     // Compile-only access to KotlinLoggingConfiguration for KotlinLoggingBannerGuardTest.kt
     // (O5 drift guard). Does NOT change test-runtime resolution: kotlin-logging-jvm still reaches
@@ -132,15 +143,12 @@ dependencies {
     // Coroutines test support
     testImplementation(libs.kotlinx.coroutines.test)
 
-    // H2 in-memory database for testing
-    testImplementation("com.h2database:h2:2.2.224")
-
     // Bouncy Castle — provides OctetKeyPair raw key generation in tests
     testImplementation(libs.bouncycastle.provider)
 }
 
-tasks.test {
-    useJUnitPlatform()
+// Shared by `test` and `serialTest` (same JVM settings and task inputs).
+tasks.withType<Test>().configureEach {
     // Force the test JVM to UTC so Exposed's javatime.timestamp column and our DB-side
     // datetime('now') SQL agree on time-of-day interpretation. Production Docker containers
     // default to UTC; pinning the test JVM to UTC keeps test behaviour identical to production
@@ -151,19 +159,14 @@ tasks.test {
 
     // Gradle forks the test worker with a default 512 MB max heap regardless of how much
     // physical RAM is free. The suite spins up many concurrent Ktor `testApplication`
-    // instances plus H2 in-memory databases (notably the REST API route tests), whose peak
-    // resident footprint exceeds 512 MB and produced reproducible
-    // `OutOfMemoryError: Java heap space` worker crashes. Raise the cap to give the suite
-    // headroom; production runtime heap is unaffected (this is test-only).
-    maxHeapSize = "2g"
+    // instances over file-backed SQLite databases (notably the REST API route tests).
+    // HEAP_PLACEHOLDER
+    maxHeapSize = "1g"
 
-    // On CI (GitHub runners: 4 vCPU, 16 GB) split the suite across two test JVMs; each fork keeps
-    // its own 2 GB heap and its own static/system-property state, so isolation between test
-    // classes is unchanged. Local runs stay single-fork: agents often run several Gradle builds
-    // concurrently on one machine, and extra forks there would multiply heap use.
-    if (providers.environmentVariable("CI").isPresent) {
-        maxParallelForks = 2
-    }
+    // Run test classes in parallel worker JVMs. Each fork owns its own SQLite template and temp
+    // database files (SqliteTestDatabase), so forks share no database state; the heap cap above
+    // applies per fork.
+    maxParallelForks = 4
 
     // TierClassificationConsistencyTest reads the fragment + its consumers at runtime. Declare them
     // as task inputs so a markdown-only edit (with no Kotlin change) invalidates the cached test
@@ -196,6 +199,7 @@ tasks.test {
             rootProject.file("docker-compose.yml"),
             rootProject.file("server.json"),
             rootProject.file("smithery.yaml"),
+            rootProject.file("current/docs/fleet-deployment.md"),
         ).withPropertyName("distributionManifestInputs")
 
     // KotlinLoggingBannerGuardTest reads the `kotlinLogging` version pin directly out of the
@@ -207,8 +211,72 @@ tasks.test {
         .withPropertyName("kotlinLoggingCatalogInput")
 }
 
+tasks.test {
+    // Wall-clock- and CPU-sensitive tests carry @Tag("serial") and run in `serialTest`, alone in a
+    // single fork, so a neighbouring fork (or a test that deliberately pins every core) cannot
+    // starve them.
+    useJUnitPlatform { excludeTags("serial") }
+    finalizedBy("serialTest")
+}
+
+val serialTest by tasks.registering(Test::class) {
+    description = "Runs the @Tag(\"serial\") timing-sensitive tests in a single fork."
+    group = "verification"
+    val testTask = tasks.test.get()
+    testClassesDirs = testTask.testClassesDirs
+    classpath = testTask.classpath
+    useJUnitPlatform { includeTags("serial") }
+    maxParallelForks = 1
+    shouldRunAfter(testTask)
+    // A targeted `:current:test --tests X` run must not drag in the whole serial set.
+    // Target a serial test directly with `:current:serialTest --tests X`.
+    onlyIf {
+        testTask.filter.includePatterns.isEmpty() &&
+            (testTask.filter as org.gradle.api.internal.tasks.testing.filter.DefaultTestFilter).commandLineIncludePatterns.isEmpty()
+    }
+}
+
+// Rewrites the per-tool 4.0 schema goldens (src/test/resources/golden/tools/<tool>.<profile>.json) from the
+// ToolSpec registry and deletes stale ones. Run after any intentional tool-schema change, then commit the files.
+tasks.register<Test>("regenerateToolGoldens") {
+    description = "Regenerates the 4.0 tool schema goldens from the ToolSpec registry."
+    group = "verification"
+    val testTask = tasks.test.get()
+    testClassesDirs = testTask.testClassesDirs
+    classpath = testTask.classpath
+    useJUnitPlatform()
+    environment("REGENERATE_TOOL_GOLDENS", "true")
+    filter { includeTestsMatching("*ToolGoldenGenerator*") }
+    outputs.upToDateWhen { false }
+}
+
+// Rewrites the generated tool and error-catalog blocks of docs/api-reference.md from the ToolSpec registry.
+// Run after any intentional request-class, @Doc, error-set, profile or capability change, then commit the file.
+tasks.register<Test>("regenerateApiReference") {
+    description = "Regenerates the generated blocks of docs/api-reference.md from the ToolSpec registry."
+    group = "verification"
+    val testTask = tasks.test.get()
+    testClassesDirs = testTask.testClassesDirs
+    classpath = testTask.classpath
+    useJUnitPlatform()
+    environment("REGENERATE_API_REFERENCE", "true")
+    filter { includeTestsMatching("*ApiReferenceGenerator*") }
+    outputs.upToDateWhen { false }
+}
+
 kotlin {
     jvmToolchain(21)
+}
+
+// Store/claim writes are confined by compiler opt-in markers (WriteConfinement.kt, WriteConfinementTest).
+// ~185 tests call store writes directly, so TEST compilation opts in; main compilation never does.
+tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileTestKotlin") {
+    compilerOptions {
+        optIn.addAll(
+            "io.github.jpicklyk.mcptask.current.application.port.StoreWrite",
+            "io.github.jpicklyk.mcptask.current.application.port.ClaimWrite",
+        )
+    }
 }
 
 tasks.jar {

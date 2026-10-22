@@ -1,6 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
@@ -10,14 +15,10 @@ import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
+import io.github.jpicklyk.mcptask.current.test.advanceSeeded
+import io.github.jpicklyk.mcptask.current.test.testClaimService
+import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -25,7 +26,6 @@ import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -48,26 +48,22 @@ import kotlin.test.assertTrue
  */
 class AdvanceServiceStartCascadeGateTest {
     private lateinit var workItemRepo: WorkItemRepository
-    private lateinit var depRepo: DependencyRepository
-    private lateinit var roleTransitionRepo: RoleTransitionRepository
-    private lateinit var noteRepo: NoteRepository
-    private lateinit var leaseRepo: ResourceLeaseRepository
+    private lateinit var depRepo: DependencyStore
+    private lateinit var noteRepo: NoteStore
+    private lateinit var advanceStores: AdvanceMockStores
+    private lateinit var leaseRepo: LeaseStore
 
     @BeforeEach
     fun setUp() {
         workItemRepo = mockk()
         depRepo = mockk()
-        roleTransitionRepo = mockk()
         noteRepo = mockk()
         leaseRepo = mockk()
+        advanceStores = AdvanceMockStores(workItemRepo, depRepo, leaseRepo)
 
-        coEvery { workItemRepo.dbNow() } returns Instant.now()
-        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-        coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-            firstArg<suspend () -> Unit>().invoke()
-        }
-        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
-        coEvery { noteRepo.findByItemId(any()) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.clear(any()) } returns true
+        coEvery { workItemRepo.update(any()) } answers { firstArg() }
+        coEvery { noteRepo.findByItemId(any()) } returns emptyList()
         every { depRepo.findByToItemId(any()) } returns emptyList()
         every { depRepo.findByFromItemId(any()) } returns emptyList()
         coEvery { leaseRepo.acquireAll(any(), any(), any()) } returns LeaseAcquireResult.Success(emptyList())
@@ -125,19 +121,19 @@ class AdvanceServiceStartCascadeGateTest {
         schemasById: Map<UUID, WorkItemSchema?> = emptyMap(),
         requirementsByItem: Map<UUID, List<ResourceRequirement>> = emptyMap(),
         registry: Map<String, ResourceDefinition> = emptyMap(),
-        leaseRepository: ResourceLeaseRepository? = leaseRepo
+        leaseRepository: LeaseStore? = leaseRepo
     ): AdvanceService =
         AdvanceService(
             workItemRepository = workItemRepo,
-            roleTransitionRepository = roleTransitionRepo,
             dependencyRepository = depRepo,
             noteRepository = noteRepo,
-            statusLabelService = NoOpStatusLabelService,
             schemaResolver = { item -> schemasById[item.id] },
             resourceLeaseRepository = leaseRepository,
             resourceRequirementsResolver = { item -> requirementsByItem[item.id] ?: emptyList() },
             resourceRegistryResolver = { registry },
-            resourceLeasesEnforced = true
+            resourceLeasesEnforced = true,
+            unitOfWork = unscopedUnitOfWork(),
+            claimService = testClaimService(workItemRepo, leaseRepository, unscopedUnitOfWork())
         )
 
     // ──────────────────────────────────────────────
@@ -152,13 +148,20 @@ class AdvanceServiceStartCascadeGateTest {
             val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
             val schema = featureSchema()
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
-            coEvery { noteRepo.findByItemId(child.id) } returns Result.Success(listOf(filledNote(child.id)))
-            coEvery { noteRepo.findByItemId(parentId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(parentId) } returns parent
+            coEvery { noteRepo.findByItemId(child.id) } returns listOf(filledNote(child.id))
+            coEvery { noteRepo.findByItemId(parentId) } returns emptyList()
 
             val outcome =
                 serviceWith(schemasById = mapOf(child.id to schema, parentId to schema))
-                    .advance(child, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = true)
+                    .advanceSeeded(
+                        advanceStores,
+                        child,
+                        "start",
+                        null,
+                        null,
+                        null,
+                    )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.WORK, success.result.newRole, "the child's own advance must still succeed")
@@ -186,13 +189,20 @@ class AdvanceServiceStartCascadeGateTest {
             val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
             val schema = featureSchema()
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
-            coEvery { noteRepo.findByItemId(child.id) } returns Result.Success(listOf(filledNote(child.id)))
-            coEvery { noteRepo.findByItemId(parentId) } returns Result.Success(listOf(filledNote(parentId)))
+            coEvery { workItemRepo.getById(parentId) } returns parent
+            coEvery { noteRepo.findByItemId(child.id) } returns listOf(filledNote(child.id))
+            coEvery { noteRepo.findByItemId(parentId) } returns listOf(filledNote(parentId))
 
             val outcome =
                 serviceWith(schemasById = mapOf(child.id to schema, parentId to schema))
-                    .advance(child, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = true)
+                    .advanceSeeded(
+                        advanceStores,
+                        child,
+                        "start",
+                        null,
+                        null,
+                        null,
+                    )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             val cascade = success.result.cascadeEvents.single()
@@ -213,18 +223,17 @@ class AdvanceServiceStartCascadeGateTest {
             val parent = makeItem(id = parentId, role = Role.QUEUE, title = "Parent")
             val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+            coEvery { workItemRepo.getById(parentId) } returns parent
 
             // No entry in schemasById for either id => schemaResolver returns null for both.
             val outcome =
-                serviceWith().advance(
+                serviceWith().advanceSeeded(
+                    advanceStores,
                     child,
                     "start",
                     null,
                     null,
                     null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    enforceOwnership = true
                 )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
@@ -247,12 +256,19 @@ class AdvanceServiceStartCascadeGateTest {
             // Parent carries the full feature-implementation schema but ZERO notes are filled.
             val schema = featureSchema()
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
-            coEvery { noteRepo.findByItemId(parentId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(parentId) } returns parent
+            coEvery { noteRepo.findByItemId(parentId) } returns emptyList()
 
             val outcome =
                 serviceWith(schemasById = mapOf(parentId to schema))
-                    .advance(child, "reopen", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = true)
+                    .advanceSeeded(
+                        advanceStores,
+                        child,
+                        "reopen",
+                        null,
+                        null,
+                        null,
+                    )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.QUEUE, success.result.newRole)
@@ -276,15 +292,22 @@ class AdvanceServiceStartCascadeGateTest {
             val child = makeItem(role = Role.WORK, title = "Child", parentId = parentId)
             val schema = featureSchema()
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+            coEvery { workItemRepo.getById(parentId) } returns parent
             coEvery { workItemRepo.countChildrenByRole(parentId) } returns
-                Result.Success(mapOf(Role.TERMINAL to 1))
-            coEvery { noteRepo.findByItemId(parentId) } returns Result.Success(emptyList())
+                mapOf(Role.TERMINAL to 1)
+            coEvery { noteRepo.findByItemId(parentId) } returns emptyList()
 
             // Child itself is schema-free so its own gate trivially passes on "complete".
             val outcome =
                 serviceWith(schemasById = mapOf(parentId to schema))
-                    .advance(child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = true)
+                    .advanceSeeded(
+                        advanceStores,
+                        child,
+                        "complete",
+                        null,
+                        null,
+                        null,
+                    )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.TERMINAL, success.result.newRole)
@@ -317,13 +340,20 @@ class AdvanceServiceStartCascadeGateTest {
                         )
                 )
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+            coEvery { workItemRepo.getById(parentId) } returns parent
             // Required note filled, optional note absent entirely.
-            coEvery { noteRepo.findByItemId(parentId) } returns Result.Success(listOf(filledNote(parentId)))
+            coEvery { noteRepo.findByItemId(parentId) } returns listOf(filledNote(parentId))
 
             val outcome =
                 serviceWith(schemasById = mapOf(parentId to schema))
-                    .advance(child, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = true)
+                    .advanceSeeded(
+                        advanceStores,
+                        child,
+                        "start",
+                        null,
+                        null,
+                        null,
+                    )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             val cascade = success.result.cascadeEvents.single()
@@ -343,11 +373,18 @@ class AdvanceServiceStartCascadeGateTest {
             val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
             val schema = featureSchema()
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+            coEvery { workItemRepo.getById(parentId) } returns parent
 
             val outcome =
                 serviceWith(schemasById = mapOf(parentId to schema))
-                    .advance(child, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = true)
+                    .advanceSeeded(
+                        advanceStores,
+                        child,
+                        "start",
+                        null,
+                        null,
+                        null,
+                    )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertTrue(success.result.cascadeEvents.isEmpty(), "detectStartCascades must be empty when the parent is not QUEUE")
@@ -367,15 +404,22 @@ class AdvanceServiceStartCascadeGateTest {
             val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
             val schema = featureSchema()
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
-            coEvery { noteRepo.findByItemId(parentId) } returns Result.Success(listOf(filledNote(parentId)))
+            coEvery { workItemRepo.getById(parentId) } returns parent
+            coEvery { noteRepo.findByItemId(parentId) } returns listOf(filledNote(parentId))
             // Deliberately NO stub for grandparentId: if a recursion regression crept in and the
             // implementation tried to fetch/gate-check the grandparent, this test fails loudly
             // (MockK throws on an unstubbed call) rather than silently passing.
 
             val outcome =
                 serviceWith(schemasById = mapOf(parentId to schema))
-                    .advance(child, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = true)
+                    .advanceSeeded(
+                        advanceStores,
+                        child,
+                        "start",
+                        null,
+                        null,
+                        null,
+                    )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(1, success.result.cascadeEvents.size, "exactly ONE cascade event — the immediate parent only")
@@ -397,13 +441,20 @@ class AdvanceServiceStartCascadeGateTest {
             val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
             val schema = featureSchema()
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+            coEvery { workItemRepo.getById(parentId) } returns parent
             // The note row exists but its body is whitespace-only.
-            coEvery { noteRepo.findByItemId(parentId) } returns Result.Success(listOf(blankNote(parentId)))
+            coEvery { noteRepo.findByItemId(parentId) } returns listOf(blankNote(parentId))
 
             val outcome =
                 serviceWith(schemasById = mapOf(parentId to schema))
-                    .advance(child, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = true)
+                    .advanceSeeded(
+                        advanceStores,
+                        child,
+                        "start",
+                        null,
+                        null,
+                        null,
+                    )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             val cascade = success.result.cascadeEvents.single()
@@ -436,11 +487,18 @@ class AdvanceServiceStartCascadeGateTest {
             val child = makeItem(role = Role.WORK, title = "Child", parentId = parentId)
 
             coEvery { noteRepo.findByItemId(child.id) } returns
-                Result.Success(listOf(filledNote(child.id, key = "implementation-notes", role = Role.WORK)))
+                listOf(filledNote(child.id, key = "implementation-notes", role = Role.WORK))
 
             val outcome =
                 serviceWith(schemasById = mapOf(child.id to childSchema))
-                    .advance(child, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = true)
+                    .advanceSeeded(
+                        advanceStores,
+                        child,
+                        "start",
+                        null,
+                        null,
+                        null,
+                    )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.REVIEW, success.result.newRole)
@@ -460,14 +518,14 @@ class AdvanceServiceStartCascadeGateTest {
             val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
             val schema = featureSchema()
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
-            coEvery { noteRepo.findByItemId(parentId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(parentId) } returns parent
+            coEvery { noteRepo.findByItemId(parentId) } returns emptyList()
 
             val outcome =
                 serviceWith(
                     schemasById = mapOf(parentId to schema),
                     requirementsByItem = mapOf(parentId to listOf(exclusive("staging-db")))
-                ).advance(child, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = true)
+                ).advanceSeeded(advanceStores, child, "start", null, null, null)
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             val cascade = success.result.cascadeEvents.single()

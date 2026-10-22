@@ -1,0 +1,1 @@
+table|data_steps|data_steps|CREATE TABLE data_steps ( name TEXT NOT NULL PRIMARY KEY CHECK (length(name) BETWEEN 1 AND 64), applied_at TEXT NOT NULL CHECK (length(applied_at) = 23), rows_affected INTEGER NOT NULL CHECK (rows_affected >= 0), binary_version TEXT NOT NULL )

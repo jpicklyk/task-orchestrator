@@ -46,6 +46,18 @@ data class Dependency(
     }
 
     /**
+     * The storage form of this dependency. IS_BLOCKED_BY from a to b becomes BLOCKS from b to a, keeping the
+     * same id, unblockAt and createdAt; BLOCKS and RELATES_TO are returned unchanged. IS_BLOCKED_BY survives
+     * only as an input alias, so no IS_BLOCKED_BY row is ever stored.
+     */
+    fun normalized(): Dependency =
+        if (type == DependencyType.IS_BLOCKED_BY) {
+            copy(fromItemId = toItemId, toItemId = fromItemId, type = DependencyType.BLOCKS)
+        } else {
+            this
+        }
+
+    /**
      * This dependency oriented as (blocker, blocked), or null for RELATES_TO (no blocking
      * semantics). BLOCKS: [fromItemId] blocks [toItemId]. IS_BLOCKED_BY: [fromItemId] is blocked
      * by [toItemId], so the pair is swapped.
@@ -57,4 +69,12 @@ data class Dependency(
 
     /** The item blocked by the other side, or null for RELATES_TO. See [blockingEdge]. */
     fun blockedId(): UUID? = blockingEdge()?.second
+
+    companion object {
+        /**
+         * The `invalid_request` field reason of a BLOCKS edge with a lifecycle-free endpoint. Telemetry matches it to
+         * count lifecycle-free rejections (`call_log.lifecycle_free_rejections`), so the text is a contract.
+         */
+        const val LIFECYCLE_FREE_ENDPOINT_REASON = "a lifecycle-free item cannot be an endpoint of a BLOCKS dependency; use RELATES_TO"
+    }
 }

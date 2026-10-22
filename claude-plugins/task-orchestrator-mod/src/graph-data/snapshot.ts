@@ -1,8 +1,14 @@
-// Builds a graph snapshot of a work-item subtree with read-only TO calls. Never throws: a failed
-// call is recorded in `error` and the snapshot comes back partial.
+// Builds a graph snapshot of a work-item subtree with read-only TO calls (items_read, deps_read). Never
+// throws: a failed call is recorded in `error` (`<tool>: <code>: <message>`) and the snapshot comes back
+// partial.
+//
+// Every id in a snapshot is the item's 8-hex short id (D1): compact views (list, overview, ancestors, the
+// context item) only ever carry short ids, while deps_read, history and get carry full UUIDs, so each id is
+// normalized with shortId before it is used as a key. First-8 collisions are accepted (random v4 ids).
 import type { GateInfo, GraphEdge, GraphNode, GraphSnapshot, SeatProgress } from '../../types'
 import { readSection, scalar } from '../lib/yaml-lite.mjs'
 import { CONFIG_PATH } from '../shared/config.ts'
+import { shortId } from '../shared/to-client.ts'
 import type { GraphIo } from './io.ts'
 import { fetchLabels } from './labels.ts'
 
@@ -14,16 +20,25 @@ const FETCH_CEILING = 1000
 const LANES = 6
 /** Direct children of the project root the overview asks for in its one call. */
 const OVERVIEW_LIMIT = 100
+/** Edges asked for per deps_read page. */
+const DEPS_PAGE = 200
 /** A work/review item missing required notes with no role transition for this long reads as stalled. */
 export const STALL_MS = 30 * 60_000
-/** Most transitions one session-resume read returns; a full page may be cut, so it reports no stalls. */
+/** Most rows one health-context or history read returns; a full history page may be cut, so it reports no stalls. */
 export const TRANSITION_LIMIT = 200
 
 type Obj = Record<string, unknown>
 
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined)
+const sid = (v: unknown): string | undefined => {
+  const s = str(v)
+
+  return s === undefined ? undefined : shortId(s)
+}
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err))
+const itemsOf = (data: unknown): unknown[] => (isObj(data) && Array.isArray(data.items) ? data.items : [])
+const pageOf = (data: unknown): Obj => (isObj(data) && isObj(data.page) ? data.page : {})
 
 /** Runs `fn` over `items` with at most `limit` in flight. `fn` must not reject. */
 async function mapLimit<T>(items: readonly T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
@@ -34,7 +49,7 @@ async function mapLimit<T>(items: readonly T[], limit: number, fn: (item: T) => 
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane))
 }
 
-/** `project.rootId` from the project config, or null when there is none. */
+/** `project.rootId` from the project config (as written there), or null when there is none. */
 export async function readRootId(io: GraphIo): Promise<string | null> {
   try {
     const cfg = await io.readFile(CONFIG_PATH)
@@ -46,13 +61,14 @@ export async function readRootId(io: GraphIo): Promise<string | null> {
     return null
   }
 }
+
 function toNode(raw: unknown): GraphNode | null {
   if (!isObj(raw)) return null
-  const id = str(raw.id)
+  const id = sid(raw.id)
   if (id === undefined) return null
   const node: GraphNode = {
     id,
-    parentId: str(raw.parentId) ?? null,
+    parentId: sid(raw.parentId) ?? null,
     title: typeof raw.title === 'string' ? raw.title : id,
     role: str(raw.role) ?? 'queue',
     depth: typeof raw.depth === 'number' ? raw.depth : 0,
@@ -72,29 +88,30 @@ function toNode(raw: unknown): GraphNode | null {
   return node
 }
 
-/** The inclusive subtree of `scope`, paged; `total` is what the server says exists. */
+/** The inclusive subtree of `scope`, paged by cursor until `page.next` is absent or FETCH_CEILING items; `total` is `page.total`. */
 async function fetchSubtree(io: GraphIo, scope: string, errors: string[]): Promise<{ items: GraphNode[]; total: number }> {
   const items: GraphNode[] = []
-  let total = Infinity
-  for (let offset = 0; offset < Math.min(total, FETCH_CEILING); offset += PAGE_SIZE) {
-    let page: unknown
+  let total: number | undefined
+  let cursor: string | undefined
+  while (items.length < FETCH_CEILING) {
+    let data: unknown
     try {
-      page = await io.callTool('query_items', { operation: 'search', ancestorId: scope, limit: PAGE_SIZE, offset })
+      data = await io.callTool('items_read', { select: 'list', ancestorId: scope, limit: PAGE_SIZE, ...(cursor !== undefined ? { cursor } : {}) })
     } catch (err) {
       errors.push(message(err))
       break
     }
-    const rows = isObj(page) && Array.isArray(page.items) ? page.items : []
-    for (const row of rows) {
+    for (const row of itemsOf(data)) {
       const node = toNode(row)
       if (node) items.push(node)
     }
-    if (isObj(page) && typeof page.total === 'number') total = page.total
-    else total = items.length
-    if (rows.length === 0) break
+    const page = pageOf(data)
+    if (typeof page.total === 'number') total = page.total
+    cursor = str(page.next)
+    if (cursor === undefined) break
   }
 
-  return { items, total: Number.isFinite(total) ? total : items.length }
+  return { items, total: total ?? items.length }
 }
 
 /** Keeps the NODE_CAP shallowest nodes, in the order the server returned them. */
@@ -111,37 +128,51 @@ function capNodes(items: GraphNode[]): { nodes: GraphNode[]; truncated: boolean 
   return { nodes: items.filter(node => keep.has(node.id)), truncated: true }
 }
 
-function addEdges(raw: unknown, ids: ReadonlySet<string>, edges: Map<string, GraphEdge>, seenDeps: Set<string>, external: GraphSnapshot['external']): void {
-  const deps = isObj(raw) && Array.isArray(raw.dependencies) ? raw.dependencies : []
-  for (const dep of deps) {
+/**
+ * Folds one deps_read list page into `edges` (normalized so `from` blocks `to`), keeping only edges with
+ * at least one end in `ids`; ends outside `ids` are collected in `externalIds`.
+ */
+function addEdges(rows: readonly unknown[], ids: ReadonlySet<string>, edges: Map<string, GraphEdge>, seenDeps: Set<string>, externalIds: Set<string>): void {
+  for (const dep of rows) {
     if (!isObj(dep)) continue
     const depId = str(dep.id)
     if (depId !== undefined) {
       if (seenDeps.has(depId)) continue
       seenDeps.add(depId)
     }
-    const fromItemId = str(dep.fromItemId)
-    const toItemId = str(dep.toItemId)
-    if (fromItemId === undefined || toItemId === undefined) continue
-    if (!ids.has(fromItemId) && !ids.has(toItemId)) continue
+    const from = sid(dep.from)
+    const to = sid(dep.to)
+    if (from === undefined || to === undefined) continue
+    if (!ids.has(from) && !ids.has(to)) continue
+    for (const end of [from, to]) if (!ids.has(end)) externalIds.add(end)
 
-    for (const [id, info] of [[fromItemId, dep.fromItem], [toItemId, dep.toItem]] as const) {
-      if (ids.has(id) || external[id] || !isObj(info)) continue
-      external[id] = { title: typeof info.title === 'string' ? info.title : id, role: str(info.role) ?? 'queue' }
-    }
-
-    const kind = str(dep.type)
-    let edge: GraphEdge
-    if (kind === 'IS_BLOCKED_BY') edge = { from: toItemId, to: fromItemId, type: 'BLOCKS' }
-    else if (kind === 'RELATES_TO') edge = { from: fromItemId, to: toItemId, type: 'RELATES_TO' }
-    else edge = { from: fromItemId, to: toItemId, type: 'BLOCKS' }
-    const unblockAt = str(dep.effectiveUnblockRole)
+    const edge: GraphEdge = { from, to, type: str(dep.type) === 'relates_to' ? 'RELATES_TO' : 'BLOCKS' }
+    const unblockAt = str(dep.unblockAt)
     if (unblockAt !== undefined) edge.unblockAt = unblockAt
 
-    // The same relationship can arrive as BLOCKS from one end and IS_BLOCKED_BY from the other.
     const key = edge.type === 'RELATES_TO' ? `RELATES_TO|${[edge.from, edge.to].sort().join('|')}` : `BLOCKS|${edge.from}|${edge.to}`
     if (!edges.has(key)) edges.set(key, edge)
   }
+}
+
+/** Every edge touching `id`, following `page.next`. A failure ends the walk and is recorded. */
+async function fetchEdges(io: GraphIo, id: string, errors: string[]): Promise<unknown[]> {
+  const rows: unknown[] = []
+  let cursor: string | undefined
+  for (let pages = 0; pages < FETCH_CEILING / DEPS_PAGE; pages++) {
+    let data: unknown
+    try {
+      data = await io.callTool('deps_read', { select: 'list', item: id, direction: 'all', limit: DEPS_PAGE, ...(cursor !== undefined ? { cursor } : {}) })
+    } catch (err) {
+      errors.push(message(err))
+      break
+    }
+    rows.push(...itemsOf(data))
+    cursor = str(pageOf(data).next)
+    if (cursor === undefined) break
+  }
+
+  return rows
 }
 
 function toGate(raw: unknown, nodeRole: string): GateInfo | null {
@@ -183,24 +214,25 @@ function seatsOf(current: Obj[]): SeatProgress[] | null {
 }
 
 /**
- * The cheap project-root snapshot: ONE `query_items overview anchorId=<root>` call. The anchor's direct
+ * The cheap project-root snapshot: ONE `items_read` `overview` call anchored on the root. The anchor's direct
  * children come back with full-subtree role counts; there are no dependency, label or gate reads.
  */
 async function overviewSnapshot(io: GraphIo, result: GraphSnapshot, rootId: string): Promise<GraphSnapshot> {
   const out: GraphSnapshot = { ...result, overview: true }
+  const root = shortId(rootId)
   try {
-    const page = await io.callTool('query_items', { operation: 'overview', anchorId: rootId, limit: OVERVIEW_LIMIT })
-    const anchor = isObj(page) && isObj(page.anchor) ? page.anchor : {}
-    const rows = isObj(page) && Array.isArray(page.items) ? page.items : []
+    const data = await io.callTool('items_read', { select: 'overview', anchorId: rootId, limit: OVERVIEW_LIMIT })
+    const anchor = isObj(data) && isObj(data.anchor) ? data.anchor : {}
     const children: GraphNode[] = []
-    for (const row of rows) {
+    for (const row of itemsOf(data)) {
       const child = toNode(row)
-      if (child) children.push({ ...child, parentId: rootId, depth: 1 })
+      if (child) children.push({ ...child, parentId: root, depth: 1 })
     }
+    const title = typeof anchor.title === 'string' ? anchor.title : root
     // The overview does not report the anchor's own role; a project anchor is drawn as in progress.
-    out.nodes = [{ id: rootId, parentId: null, title: typeof anchor.title === 'string' ? anchor.title : rootId, role: 'work', depth: 0 }, ...children]
-    out.truncated = isObj(page) && page.truncated === true
-    out.trail = [{ id: rootId, title: typeof anchor.title === 'string' ? anchor.title : rootId }]
+    out.nodes = [{ id: root, parentId: null, title, role: 'work', depth: 0 }, ...children]
+    out.truncated = pageOf(data).truncated === true
+    out.trail = [{ id: root, title }]
   } catch (err) {
     out.error = message(err)
   }
@@ -209,31 +241,34 @@ async function overviewSnapshot(io: GraphIo, result: GraphSnapshot, rootId: stri
 }
 
 /**
- * Stalls from one `get_context` session-resume read (since now - STALL_MS): items of `ids` in work or
- * review that stalledItems lists (missing required notes) with no transition since. A full page of
- * transitions may be cut, so it gives no stalls. `dueAt`: when the earliest listed item that did move
- * recently would cross STALL_MS. A move already STALL_MS old counts as crossed (stalled), so the
- * re-snapshot timer never re-arms on an old transition. Bad input gives no stalls.
+ * Stalls from ONE health-mode `context` read (`data.stalled[]`: `{id, role, missing[]}`) and ONE `history`
+ * read since now - STALL_MS (`data.items[]`, newest first: `{itemId, occurredAt}`): items of `ids` (short
+ * ids) in work or review that the context lists as missing required notes with no transition since. A full
+ * page of history may be cut, so it gives no stalls. `dueAt`: when the earliest listed item that did move
+ * recently would cross STALL_MS. A move already STALL_MS old counts as crossed (stalled), so the re-snapshot
+ * timer never re-arms on an old transition. Bad input gives no stalls.
  */
-export function stallsOf(raw: unknown, ids: ReadonlySet<string>, now: number): { stalled: Record<string, string[]>; dueAt?: number } {
-  const listed = isObj(raw) && Array.isArray(raw.stalledItems) ? raw.stalledItems.filter(isObj) : []
-  const moves = isObj(raw) && Array.isArray(raw.recentTransitions) ? raw.recentTransitions.filter(isObj) : []
+export function stallsOf(context: unknown, history: unknown, ids: ReadonlySet<string>, now: number): { stalled: Record<string, string[]>; dueAt?: number } {
+  const listed = isObj(context) && Array.isArray(context.stalled) ? context.stalled.filter(isObj) : []
+  const moves = itemsOf(history).filter(isObj)
   if (moves.length >= TRANSITION_LIMIT) return { stalled: {} }
   const lastMove = new Map<string, number>()
   for (const t of moves) {
-    const id = str(t.itemId)
-    const at = typeof t.at === 'number' ? t.at : typeof t.at === 'string' ? Date.parse(t.at) : NaN
+    const id = sid(t.itemId)
+    const at = typeof t.occurredAt === 'number' ? t.occurredAt : typeof t.occurredAt === 'string' ? Date.parse(t.occurredAt) : NaN
     if (id === undefined) continue
     lastMove.set(id, Math.max(lastMove.get(id) ?? -Infinity, Number.isFinite(at) ? at : -Infinity))
   }
   const stalled: Record<string, string[]> = {}
   let dueAt: number | undefined
   for (const item of listed) {
-    const id = str(item.id)
+    const id = sid(item.id)
     if (id === undefined || !ids.has(id) || (item.role !== 'work' && item.role !== 'review')) continue
     const moved = lastMove.get(id)
     if (moved === undefined || (Number.isFinite(moved) && moved + STALL_MS <= now)) {
-      stalled[id] = Array.isArray(item.missingNotes) ? item.missingNotes.filter((k): k is string => typeof k === 'string') : []
+      stalled[id] = Array.isArray(item.missing)
+        ? item.missing.flatMap(k => (typeof k === 'string' ? [k] : isObj(k) && typeof k.key === 'string' ? [k.key] : []))
+        : []
     } else if (Number.isFinite(moved)) {
       dueAt = Math.min(dueAt ?? Infinity, moved + STALL_MS)
     }
@@ -242,23 +277,25 @@ export function stallsOf(raw: unknown, ids: ReadonlySet<string>, now: number): {
   return dueAt !== undefined ? { stalled, dueAt } : { stalled }
 }
 
-/** The breadcrumb from a `query_items get` with `includeAncestors`: ancestors root first, then the item. */
+/** The breadcrumb from an `items_read` `get` with `fields: ['ancestors']`: ancestors root first, then the item (short ids). */
 export function trailOf(raw: unknown, scope: string): { id: string; title: string }[] | undefined {
   if (!isObj(raw)) return undefined
   const ancestors = Array.isArray(raw.ancestors) ? raw.ancestors : []
   const trail: { id: string; title: string }[] = []
   for (const a of ancestors) {
-    if (isObj(a) && typeof a.id === 'string') trail.push({ id: a.id, title: typeof a.title === 'string' ? a.title : a.id.slice(0, 8) })
+    const id = isObj(a) ? sid(a.id) : undefined
+    if (id !== undefined) trail.push({ id, title: typeof (a as Obj).title === 'string' ? ((a as Obj).title as string) : id })
   }
-  trail.push({ id: scope, title: typeof raw.title === 'string' ? raw.title : scope.slice(0, 8) })
+  const self = shortId(scope)
+  trail.push({ id: self, title: typeof raw.title === 'string' ? raw.title : self })
 
   return trail
 }
 
 /**
- * The graph of `scopeId`'s subtree (null: the project root from config.yaml). Read-only: only
- * `query_items`, `query_dependencies` and `get_context` are ever called. The project root (null, or its own
- * id) gets the one-call overview instead of the subtree walk.
+ * The graph of `scopeId`'s subtree (null: the project root from config.yaml). Read-only: only `items_read`
+ * and `deps_read` are ever called. The project root (null, or its own id by short id) gets the one-call
+ * overview instead of the subtree walk.
  */
 export async function snapshot(io: GraphIo, scopeId: string | null): Promise<GraphSnapshot> {
   const errors: string[] = []
@@ -269,13 +306,14 @@ export async function snapshot(io: GraphIo, scopeId: string | null): Promise<Gra
   } catch {
     rootId = null
   }
-  const scope = scopeId ?? rootId
-  const result: GraphSnapshot = { scopeId: scope, rootId, nodes: [], edges: [], external: {}, gates: {}, takenAt, truncated: false }
-  if (scope === null) return { ...result, error: 'no project.rootId' }
-  if (rootId !== null && scope === rootId) return overviewSnapshot(io, result, rootId)
+  const scopeFull = scopeId ?? rootId
+  const scope = scopeFull === null ? null : shortId(scopeFull)
+  const result: GraphSnapshot = { scopeId: scope, rootId: rootId === null ? null : shortId(rootId), nodes: [], edges: [], external: {}, gates: {}, takenAt, truncated: false }
+  if (scope === null || scopeFull === null) return { ...result, error: 'no project.rootId' }
+  if (rootId !== null && scope === shortId(rootId)) return overviewSnapshot(io, result, rootId)
 
   try {
-    const { items, total } = await fetchSubtree(io, scope, errors)
+    const { items, total } = await fetchSubtree(io, scopeFull, errors)
     const capped = capNodes(items)
     // Truncated when the server holds more than the cap, even if paging stopped early.
     result.truncated = capped.truncated || total > NODE_CAP
@@ -284,38 +322,46 @@ export async function snapshot(io: GraphIo, scopeId: string | null): Promise<Gra
 
     // The breadcrumb: the scope's ancestors (root first) and the scope itself, in one read.
     try {
-      result.trail = trailOf(await io.callTool('query_items', { operation: 'get', itemId: scope, includeAncestors: true }), scope)
+      result.trail = trailOf(await io.callTool('items_read', { select: 'get', itemId: scopeFull, fields: ['ancestors'] }), scope)
     } catch {
       // no trail: the pane falls back to the plain header
     }
 
     const edges = new Map<string, GraphEdge>()
     const seenDeps = new Set<string>()
+    const externalIds = new Set<string>()
     await mapLimit(result.nodes, LANES, async node => {
-      try {
-        const raw = await io.callTool('query_dependencies', { operation: 'get', itemId: node.id, direction: 'all', includeItemInfo: true })
-        addEdges(raw, ids, edges, seenDeps, result.external)
-      } catch (err) {
-        errors.push(message(err))
-      }
+      addEdges(await fetchEdges(io, node.id, errors), ids, edges, seenDeps, externalIds)
     })
     result.edges = [...edges.values()]
+
+    // External edge ends: one get each (a failed read leaves no entry).
+    await mapLimit([...externalIds], LANES, async id => {
+      try {
+        const raw = await io.callTool('items_read', { select: 'get', itemId: id })
+        if (isObj(raw)) result.external[id] = { title: typeof raw.title === 'string' ? raw.title : id, role: str(raw.role) ?? 'queue' }
+      } catch {
+        // no entry: the edge end draws as unknown
+      }
+    })
+
     result.nodes = await fetchLabels(io, result.nodes, (ids, fn) => mapLimit(ids, LANES, fn))
 
     const active = result.nodes.filter(node => node.role === 'work' || node.role === 'review')
     await mapLimit(active, LANES, async node => {
       try {
-        const gate = toGate(await io.callTool('get_context', { itemId: node.id }), node.role)
+        const gate = toGate(await io.callTool('items_read', { select: 'context', itemId: node.id }), node.role)
         if (gate) result.gates[node.id] = gate
       } catch (err) {
         errors.push(message(err))
       }
     })
 
-    // Stalls: ONE session-resume read for the whole scope. A failure leaves `stalled` unset.
+    // Stalls: ONE health-context read for the scope plus ONE history read. A failure leaves `stalled` unset.
     try {
-      const raw = await io.callTool('get_context', { mode: 'session-resume', since: new Date(takenAt - STALL_MS).toISOString(), ancestorId: scope, limit: TRANSITION_LIMIT })
-      const st = stallsOf(raw, ids, takenAt)
+      const context = await io.callTool('items_read', { select: 'context', ancestorId: scopeFull, limit: TRANSITION_LIMIT })
+      const history = await io.callTool('items_read', { select: 'history', since: new Date(takenAt - STALL_MS).toISOString(), limit: TRANSITION_LIMIT })
+      const st = stallsOf(context, history, ids, takenAt)
       result.stalled = st.stalled
       if (st.dueAt !== undefined) result.stallDueAt = st.dueAt
     } catch (err) {

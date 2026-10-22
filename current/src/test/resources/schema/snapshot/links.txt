@@ -1,0 +1,4 @@
+index|idx_links_from|links|CREATE INDEX idx_links_from ON links(from_kind, from_id)
+index|idx_links_to|links|CREATE INDEX idx_links_to ON links(to_kind, to_id)
+index|idx_links_unique|links|CREATE UNIQUE INDEX idx_links_unique ON links(from_kind, from_id, to_kind, to_id, relation) WHERE to_id IS NOT NULL
+table|links|links|CREATE TABLE links ( id BLOB PRIMARY KEY DEFAULT (randomblob(16)), root_item_id BLOB NOT NULL REFERENCES work_items(id) ON DELETE CASCADE, from_kind TEXT NOT NULL, from_id BLOB NOT NULL, to_kind TEXT NOT NULL, to_id BLOB, to_ref TEXT, relation TEXT NOT NULL, anchor TEXT, created_at TIMESTAMP NOT NULL )

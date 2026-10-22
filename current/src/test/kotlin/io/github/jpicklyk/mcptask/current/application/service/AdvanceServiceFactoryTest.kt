@@ -4,18 +4,18 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
-import io.github.jpicklyk.mcptask.current.application.config.ServiceBackedGlobalLookup
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlWorkItemSchemaService
+import io.github.jpicklyk.mcptask.current.infrastructure.config.GlobalConfigFile
+import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
+import io.github.jpicklyk.mcptask.current.test.advanceSeeded
+import io.github.jpicklyk.mcptask.current.test.testClaimService
+import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -23,7 +23,6 @@ import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.nio.file.Files
-import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -32,7 +31,7 @@ import kotlin.test.assertIs
  * Independently authored against the frozen `task-scope`/`test-plan` notes on item `f2c50e6d` —
  * scenarios S1 and S2 map to this file per the test-plan's file list. Oracle for S1:
  * `task-scope`'s Part A `AdvanceServiceFactory.forItem` body, `statusLabelService =
- * configResolver.rootBoundStatusLabels(item.rootId, trigger)` — a rooted item must see the
+ * the per-root-then-global label lookup (now configResolver.labelFor(item.rootId, trigger, target))` — a rooted item must see the
  * PER-ROOT status label for the trigger, and a rootless item must fall through to the global
  * label, exactly as [io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolverTest]
  * already characterizes for `resolveStatusLabels`/Q11. Oracle for S2: the same body assigns
@@ -45,24 +44,19 @@ import kotlin.test.assertIs
  */
 class AdvanceServiceFactoryTest {
     private lateinit var workItemRepo: WorkItemRepository
-    private lateinit var roleTransitionRepo: RoleTransitionRepository
-    private lateinit var depRepo: DependencyRepository
-    private lateinit var noteRepo: NoteRepository
+    private lateinit var depRepo: DependencyStore
+    private lateinit var noteRepo: NoteStore
+    private lateinit var advanceStores: AdvanceMockStores
 
     @BeforeEach
     fun setUp() {
         workItemRepo = mockk()
-        roleTransitionRepo = mockk()
         depRepo = mockk()
         noteRepo = mockk()
+        advanceStores = AdvanceMockStores(workItemRepo, depRepo)
 
-        coEvery { workItemRepo.dbNow() } returns Instant.now()
-        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-        coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-            firstArg<suspend () -> Unit>().invoke()
-        }
-        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
-        coEvery { noteRepo.findByItemId(any()) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.update(any()) } answers { firstArg() }
+        coEvery { noteRepo.findByItemId(any()) } returns emptyList()
         every { depRepo.findByToItemId(any()) } returns emptyList()
         every { depRepo.findByFromItemId(any()) } returns emptyList()
     }
@@ -93,7 +87,7 @@ class AdvanceServiceFactoryTest {
     fun `S1 - forItem binds the resolved status label to the item's rootId, per-root over global`(): Unit =
         runBlocking {
             val globalPath = writeGlobalYaml("status_labels:\n  start: \"g-s\"\n")
-            val globalLookup = ServiceBackedGlobalLookup(YamlWorkItemSchemaService(globalPath), YamlStatusLabelService(globalPath))
+            val globalLookup = LayerBackedGlobalLookup(GlobalConfigFile(globalPath).layer())
 
             val prRoot = UUID.randomUUID()
             val prDoc = ConfigDocument(workItemSchemas = emptyMap(), traits = emptyMap(), statusLabels = mapOf("start" to "pr-s"))
@@ -106,32 +100,39 @@ class AdvanceServiceFactoryTest {
             val factory =
                 AdvanceServiceFactory(
                     workItemRepository = workItemRepo,
-                    roleTransitionRepository = roleTransitionRepo,
                     dependencyRepository = depRepo,
                     noteRepository = noteRepo,
                     resourceLeaseRepository = null,
                     configResolver = resolver,
                     resourceLeasesEnforced = { false },
+                    unitOfWork = unscopedUnitOfWork(),
+                    claimService = testClaimService(workItemRepo, null, unscopedUnitOfWork())
                 )
 
             val prItem = makeItem(role = Role.QUEUE, rootId = prRoot)
-            val prService = factory.forItem(prItem, "start")
+            val prService = factory.forItem(prItem)
             val prOutcome =
-                prService.advance(prItem, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = true)
+                prService.advanceSeeded(
+                    advanceStores,
+                    prItem,
+                    "start",
+                    null,
+                    null,
+                    null,
+                )
             val prSuccess = assertIs<AdvanceOutcome.Success>(prOutcome)
             assertEquals("pr-s", prSuccess.result.statusLabel, "a rooted item must see the per-root status label, not the global one")
 
             val rootlessItem = makeItem(role = Role.QUEUE, rootId = null)
-            val rootlessService = factory.forItem(rootlessItem, "start")
+            val rootlessService = factory.forItem(rootlessItem)
             val rootlessOutcome =
-                rootlessService.advance(
+                rootlessService.advanceSeeded(
+                    advanceStores,
                     rootlessItem,
                     "start",
                     null,
                     null,
                     null,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    enforceOwnership = true,
                 )
             val rootlessSuccess = assertIs<AdvanceOutcome.Success>(rootlessOutcome)
             assertEquals("g-s", rootlessSuccess.result.statusLabel, "a rootless item must fall through to the global status label")
@@ -145,12 +146,11 @@ class AdvanceServiceFactoryTest {
     fun `S2 - resourceLeasesEnforced is invoked once per forItem call, not memoized at construction`(): Unit =
         runBlocking {
             var calls = 0
-            val globalLookup = ServiceBackedGlobalLookup(NoOpNoteSchemaService, NoOpStatusLabelService)
+            val globalLookup = LayerBackedGlobalLookup(null)
             val resolver = EffectiveConfigResolver(globalLookup, null)
             val factory =
                 AdvanceServiceFactory(
                     workItemRepository = workItemRepo,
-                    roleTransitionRepository = roleTransitionRepo,
                     dependencyRepository = depRepo,
                     noteRepository = noteRepo,
                     resourceLeaseRepository = null,
@@ -159,11 +159,13 @@ class AdvanceServiceFactoryTest {
                         calls++
                         false
                     },
+                    unitOfWork = unscopedUnitOfWork(),
+                    claimService = testClaimService(workItemRepo, null, unscopedUnitOfWork())
                 )
             val item = makeItem(role = Role.QUEUE, rootId = null)
 
-            factory.forItem(item, "start")
-            factory.forItem(item, "start")
+            factory.forItem(item)
+            factory.forItem(item)
 
             assertEquals(2, calls, "resourceLeasesEnforced must be read fresh on every forItem call, not once at construction")
         }

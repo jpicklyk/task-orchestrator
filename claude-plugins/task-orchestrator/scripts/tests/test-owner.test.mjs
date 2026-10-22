@@ -1,3 +1,4 @@
+// Ported to 4.0 from main commit 576b25b2 (item cac1bffa, task-scope D11): the main test file, adapted only where AC names it (actor fields, planDocSlug -> serverRunId, ledger assignment, 4.0 file paths).
 // Coverage for item c5007c88: an item whose planner lists testFiles but has no test-author stage
 // gets an explicit test owner (stop with "no-test-owner" or a TESTS ARE YOURS handoff line),
 // identically in Method A (workflows/implement-wave.js runPlan) and Method B (run-exec-lib.mjs).

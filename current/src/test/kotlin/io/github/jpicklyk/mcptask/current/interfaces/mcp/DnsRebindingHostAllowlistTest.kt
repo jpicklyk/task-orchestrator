@@ -4,24 +4,24 @@ import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
+import io.github.jpicklyk.mcptask.current.application.api.Principal
+import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.config.NoOpStatusLabelService
+import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
+import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.get
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.HttpClient
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -42,17 +42,14 @@ import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.slf4j.LoggerFactory
 import java.util.UUID
 
@@ -76,6 +73,9 @@ import java.util.UUID
  * from the machine running them.
  */
 class DnsRebindingHostAllowlistTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private val rpc = Json { ignoreUnknownKeys = true }
 
     private val acceptBoth = "application/json, text/event-stream"
@@ -102,15 +102,7 @@ class DnsRebindingHostAllowlistTest {
                 ),
         )
 
-    private fun inMemoryProvider(): DefaultRepositoryProvider =
-        DefaultRepositoryProvider(
-            DatabaseManager(
-                Database.connect(
-                    "jdbc:h2:mem:dnsrebind_${System.nanoTime()};DB_CLOSE_DELAY=-1",
-                    driver = "org.h2.Driver",
-                ),
-            ).also { DirectDatabaseSchemaManager().updateSchema() },
-        )
+    private fun inMemoryProvider(): DefaultRepositoryProvider = db.repositoryProvider()
 
     /** An [AppConfig] built from an explicit env map -- never [System.getenv] -- for isolation. */
     private fun cfg(vararg env: Pair<String, String>): AppConfig = AppConfig.fromEnv(env = mapOf(*env)::get)
@@ -119,14 +111,15 @@ class DnsRebindingHostAllowlistTest {
 
     private fun bearerConfig(): Pair<ApiAuthConfig.Bearer, Map<HashBytes, BearerTokenStore.TokenEntry>> {
         val principal =
-            ApiPrincipal(
-                tokenId = "dns-rebind-bearer-principal",
-                scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+            Principal(
+                id = "dns-rebind-bearer-principal",
+                scope = AccessScope.principal(rootIds = null, tagsInclude = emptySet()),
                 capabilities = setOf(ApiCapability.READ),
-                authMode = ApiAuthMode.BEARER,
+                kind = PrincipalKind.SERVICE,
+                proofStatus = ProofStatus.ISSUED,
             )
         val key = HashBytes(ByteArray(32) { 0x11 })
-        return ApiAuthConfig.Bearer(tokens = mapOf(key to principal)) to
+        return ApiAuthConfig.Bearer(tokens = mapOf(key to BearerTokenStore.TokenEntry(principal, expiresAt = null))) to
             mapOf(key to BearerTokenStore.TokenEntry(principal, expiresAt = null))
     }
 
@@ -138,7 +131,7 @@ class DnsRebindingHostAllowlistTest {
         provider: DefaultRepositoryProvider = inMemoryProvider(),
         server: Server = emptyServer(),
     ) {
-        installMcpStreamableHttp(server, appConfig)
+        installMcpStreamableHttp(server, appConfig, mcpAuth = McpAuthMode.Local)
         installRestApiRoutes(
             apiConfig = apiConfig,
             eventBus = null,
@@ -147,17 +140,14 @@ class DnsRebindingHostAllowlistTest {
             allowQueryToken = false,
             serverName = "dns-rebinding-test",
             serverVersion = "1.0.0",
-            actorAuthEnabled = false,
-            noteSchemaService = NoOpNoteSchemaService,
+            serverConfig = ServerConfigSource { null },
             toolContext =
                 ToolExecutionContext(
                     provider,
-                    NoOpNoteSchemaService,
-                    statusLabelService = YamlStatusLabelService(),
-                    perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                    statusLabelService = NoOpStatusLabelService,
+                    perRootConfigService = PerRootConfigService(provider.configStore()),
+                    unitOfWork = db.unitOfWork()
                 ),
-            degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
-            idempotencyCache = IdempotencyCache(),
             appConfig = appConfig,
         )
     }
@@ -215,33 +205,36 @@ class DnsRebindingHostAllowlistTest {
     // Assertion helpers
     // ------------------------------------------------------------------
 
-    /** D-e: /mcp rejection is a JSON-RPC error envelope, code -32000, id absent or null. */
-    private fun assertJsonRpcHostRejection(
+    /**
+     * Q32: every rejection, `/mcp` included, is the 4.0 error envelope `forbidden` {scope: host, required: the fixed
+     * [HOST_REQUIRED] literal}, whose message names MCP_ALLOWED_HOSTS.
+     */
+    private fun assertHostEnvelope(
         response: HttpResponse,
         body: String,
     ) {
         assertEquals(HttpStatusCode.Forbidden, response.status, "rejected Host must be 403, body: $body")
         val json = rpc.parseToJsonElement(body).jsonObject
-        assertEquals("2.0", json["jsonrpc"]?.jsonPrimitive?.content, "jsonrpc must be \"2.0\": $body")
-        val error = json["error"]?.jsonObject
-        assertTrue(error != null, "expected a JSON-RPC error envelope, got: $body")
-        assertEquals(-32000, error!!["code"]?.jsonPrimitive?.int, "JSON-RPC error code must be -32000: $body")
+        assertEquals("false", json["ok"]?.jsonPrimitive?.content, "an error envelope: $body")
+        val error = json["error"]!!.jsonObject
+        assertEquals("forbidden", error["code"]?.jsonPrimitive?.content, "$body")
+        val detail = error["detail"]!!.jsonObject
+        assertEquals("host", detail["scope"]?.jsonPrimitive?.content, "$body")
+        assertEquals(HOST_REQUIRED, detail["required"]?.jsonPrimitive?.content, "required is the fixed literal, never the allowlist: $body")
         val message = error["message"]?.jsonPrimitive?.content.orEmpty()
         assertTrue(message.contains("MCP_ALLOWED_HOSTS"), "message must name MCP_ALLOWED_HOSTS: $message")
-        val idElement = json["id"]
-        assertTrue(idElement == null || idElement is JsonNull, "id must be absent or null, was: $idElement")
+        assertTrue(json["jsonrpc"] == null, "no JSON-RPC member any more: $body")
     }
 
-    /** D-e: every non-/mcp rejection is an [ErrorDto] with error == "host_not_allowed". */
+    private fun assertJsonRpcHostRejection(
+        response: HttpResponse,
+        body: String,
+    ) = assertHostEnvelope(response, body)
+
     private fun assertErrorDtoHostRejection(
         response: HttpResponse,
         body: String,
-    ) {
-        assertEquals(HttpStatusCode.Forbidden, response.status, "rejected Host must be 403, body: $body")
-        val err = rpc.decodeFromString<ErrorDto>(body)
-        assertEquals("host_not_allowed", err.error, "error code must be host_not_allowed: $body")
-        assertTrue(err.message.contains("MCP_ALLOWED_HOSTS"), "message must name MCP_ALLOWED_HOSTS: ${err.message}")
-    }
+    ) = assertHostEnvelope(response, body)
 
     /** D-e: neither rejection body ever echoes the rejected Host value back to the caller. */
     private fun assertNeverEchoesHost(
@@ -256,7 +249,7 @@ class DnsRebindingHostAllowlistTest {
     // ==================================================================
 
     @Test
-    fun `S1 loopback defaults accepted on any port and with no port`() =
+    fun `S1 loopback defaults accepted on any port and with no port`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             listOf("localhost:3001", "127.0.0.1:54321", "[::1]:3001", "localhost").forEach { host ->
@@ -266,7 +259,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `S2 hostname comparison is case-insensitive and tolerates one trailing dot`() =
+    fun `S2 hostname comparison is case-insensitive and tolerates one trailing dot`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             listOf("LOCALHOST:3001", "localhost.:3001").forEach { host ->
@@ -280,7 +273,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `S3 configured entries extend the loopback defaults, host-port entries match only that port`() =
+    fun `S3 configured entries extend the loopback defaults, host-port entries match only that port`(): Unit =
         testApplication {
             val appConfig = cfg("MCP_ALLOWED_HOSTS" to "tohost.lan, box.lan:8443")
             application { wire(appConfig = appConfig) }
@@ -305,22 +298,28 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `S4 loopback Host with same-origin Origin reaches the REST API`() =
+    fun `S4 loopback Host with same-origin Origin reaches the REST API`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
-            val response = client.apiCall(HttpMethod.Get, "/api/v1/items", host = "localhost:3001", origin = "http://localhost:3001")
+            val response =
+                client.apiCall(
+                    HttpMethod.Get,
+                    "/api/v1/resources/leases",
+                    host = "localhost:3001",
+                    origin = "http://localhost:3001"
+                )
             assertEquals(HttpStatusCode.OK, response.status, "S4: loopback Host + same-origin Origin must reach /api/v1")
         }
 
     @Test
-    fun `S5 CORS_ALLOWED_ORIGINS is independent of the Host allowlist`() =
+    fun `S5 CORS_ALLOWED_ORIGINS is independent of the Host allowlist`(): Unit =
         testApplication {
             val appConfig = cfg("CORS_ALLOWED_ORIGINS" to "https://dash.example.com")
             application { wire(appConfig = appConfig) }
             val response =
                 client.apiCall(
                     HttpMethod.Get,
-                    "/api/v1/items",
+                    "/api/v1/resources/leases",
                     host = "localhost:3001",
                     origin = "https://dash.example.com",
                 )
@@ -336,7 +335,7 @@ class DnsRebindingHostAllowlistTest {
     // ==================================================================
 
     @Test
-    fun `S6 rebinding shape is rejected on every mcp HTTP method with a JSON-RPC envelope and no session id`() =
+    fun `S6 rebinding shape is rejected on every mcp HTTP method with a JSON-RPC envelope and no session id`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
 
@@ -363,16 +362,16 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `S7 rebinding shape is rejected on every api v1 surface and never reaches the item store`() =
+    fun `S7 rebinding shape is rejected on every api v1 surface and never reaches the item store`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
-            val gatePath = "/api/v1/items/${UUID.randomUUID()}/gate"
+            val childrenPath = "/api/v1/items/${UUID.randomUUID()}/children"
             val marker = "dns-rebind-marker-${UUID.randomUUID()}"
 
             val getPaths =
                 listOf(
                     "/api/v1/items",
-                    gatePath,
+                    childrenPath,
                     "/api/v1/health",
                     "/api/v1/events",
                     "/.well-known/mcp-task-orchestrator.json",
@@ -396,7 +395,14 @@ class DnsRebindingHostAllowlistTest {
 
             // The rejected POST must never have reached the item store: a loopback read afterward
             // must not see anything carrying the marker the rejected request's body would have set.
-            val followUp = client.apiCall(HttpMethod.Get, "/api/v1/items", host = "localhost:3001", origin = "http://localhost:3001")
+            // The item list is items_read (select list) since Q19.
+            val followUp =
+                client.post("/api/v1/ops/items_read") {
+                    header(HttpHeaders.Host, "localhost:3001")
+                    header(HttpHeaders.Origin, "http://localhost:3001")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"select":"list"}""")
+                }
             assertEquals(HttpStatusCode.OK, followUp.status, "S7: loopback follow-up GET must succeed")
             assertTrue(
                 !followUp.bodyAsText().contains(marker),
@@ -405,7 +411,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `S8 foreign Host with no Origin at all is still rejected`() =
+    fun `S8 foreign Host with no Origin at all is still rejected`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             val mcp = client.postMcp(host = rebindHost)
@@ -416,7 +422,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `S9 loopback Host with a foreign Origin is rejected by the pre-existing CORS check`() =
+    fun `S9 loopback Host with a foreign Origin is rejected by the pre-existing CORS check`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             val response =
@@ -445,7 +451,7 @@ class DnsRebindingHostAllowlistTest {
     // request 10c is built to probe).
 
     @Test
-    fun `S10a Host allowlist wins precedence over CORS -- foreign Host plus a different foreign Origin gets our body`() =
+    fun `S10a Host allowlist wins precedence over CORS -- foreign Host plus a different foreign Origin gets our body`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             val precedence =
@@ -459,7 +465,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `S10b an OPTIONS CORS preflight from a foreign Host still gets our host_not_allowed body`() =
+    fun `S10b an OPTIONS CORS preflight from a foreign Host still gets our host_not_allowed body`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             val preflight =
@@ -474,7 +480,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `S10c bearer mode, foreign Host, no Authorization header -- 403 from the Host check, not 401 from auth`() =
+    fun `S10c bearer mode, foreign Host, no Authorization header -- 403 from the Host check, not 401 from auth`(): Unit =
         testApplication {
             val (bearerCfg, bearerEntries) = bearerConfig()
             application { wire(appConfig = defaultCfg(), apiConfig = bearerCfg, tokenEntries = bearerEntries) }
@@ -492,7 +498,7 @@ class DnsRebindingHostAllowlistTest {
     // ==================================================================
 
     @Test
-    fun `S11 lookalike hosts are rejected -- exact match only, no subdomain, no range, no IPv6 canonicalisation`() =
+    fun `S11 lookalike hosts are rejected -- exact match only, no subdomain, no range, no IPv6 canonicalisation`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             val lookalikes =
@@ -513,7 +519,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `S12 absent Host is allowed, blank or repeated Host is rejected`() =
+    fun `S12 absent Host is allowed, blank or repeated Host is rejected`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
 
@@ -535,7 +541,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `S13 MCP_ALLOWED_HOSTS equal to the wildcard disables the guard and WARNs at install`() =
+    fun `S13 MCP_ALLOWED_HOSTS equal to the wildcard disables the guard and WARNs at install`(): Unit =
         testApplication {
             val appConfig = cfg("MCP_ALLOWED_HOSTS" to "*")
             var warnLogs = emptyList<String>()
@@ -550,7 +556,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `S14 a malformed configured entry with a scheme is dropped, never widening the allowlist, with a WARN`() =
+    fun `S14 a malformed configured entry with a scheme is dropped, never widening the allowlist, with a WARN`(): Unit =
         testApplication {
             val appConfig = cfg("MCP_ALLOWED_HOSTS" to "http://tohost.lan")
             var warnLogs = emptyList<String>()
@@ -594,7 +600,7 @@ class DnsRebindingHostAllowlistTest {
     // ==================================================================
 
     @Test
-    fun `probe X-Forwarded-Host does not launder a foreign Host past the allowlist`() =
+    fun `probe X-Forwarded-Host does not launder a foreign Host past the allowlist`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             val response =
@@ -606,7 +612,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `probe percent-encoded lookalike host is rejected -- no decoding, exact string match only`() =
+    fun `probe percent-encoded lookalike host is rejected -- no decoding, exact string match only`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             val response = client.postMcp(host = "localhost%2eattacker.example")
@@ -614,7 +620,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `probe homoglyph host is rejected when the client will even send it`() =
+    fun `probe homoglyph host is rejected when the client will even send it`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             // Cyrillic 'о' (U+043E) in place of the Latin 'o' -- visually "localhost", not equal to it.
@@ -629,7 +635,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `probe a trailing dot on the request side matches a configured entry without one`() =
+    fun `probe a trailing dot on the request side matches a configured entry without one`(): Unit =
         testApplication {
             val appConfig = cfg("MCP_ALLOWED_HOSTS" to "tohost.lan")
             application { wire(appConfig = appConfig) }
@@ -638,7 +644,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `probe a bare trailing colon with zero port digits still matches a bare-host entry`() =
+    fun `probe a bare trailing colon with zero port digits still matches a bare-host entry`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             val response = client.postMcp(host = "localhost:")
@@ -646,7 +652,7 @@ class DnsRebindingHostAllowlistTest {
         }
 
     @Test
-    fun `probe a rejected rebinding request is rejected identically on repeat -- no caching bypass`() =
+    fun `probe a rejected rebinding request is rejected identically on repeat -- no caching bypass`(): Unit =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
             val first = client.postMcp(host = rebindHost, origin = rebindOrigin)

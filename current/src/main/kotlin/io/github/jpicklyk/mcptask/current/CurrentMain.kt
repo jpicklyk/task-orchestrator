@@ -1,19 +1,20 @@
 package io.github.jpicklyk.mcptask.current
 
 import io.github.jpicklyk.mcptask.current.application.BuildInfo
+import io.github.jpicklyk.mcptask.current.bootstrap.CurrentMcpServer
+import io.github.jpicklyk.mcptask.current.bootstrap.Failed
+import io.github.jpicklyk.mcptask.current.bootstrap.RepairCompleted
+import io.github.jpicklyk.mcptask.current.bootstrap.StartupFailedException
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JvmTimezone
 import io.github.jpicklyk.mcptask.current.infrastructure.logging.LogFileAppenderInstaller
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.SignalHandler
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.CurrentMcpServer
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.Failed
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.RepairCompleted
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.StartupFailedException
 import io.github.oshai.kotlinlogging.KotlinLoggingConfiguration
 import org.slf4j.LoggerFactory
 
 /**
- * Entry point for the Current (v3) MCP Task Orchestrator application.
+ * Entry point for the Current (4.0) MCP Task Orchestrator application.
  */
 fun main() {
     // Suppress kotlin-logging-jvm's own startup banner ("kotlin-logging: initializing... active
@@ -39,7 +40,7 @@ fun main() {
     val logger = LoggerFactory.getLogger("CurrentMain")
     val version = BuildInfo.version
 
-    logger.info("Starting Current (v3) MCP Task Orchestrator v$version")
+    logger.info("Starting Current (4.0) MCP Task Orchestrator v$version")
 
     // Log environment information for debugging
     logger.info("Java version: ${System.getProperty("java.version")}")
@@ -67,7 +68,7 @@ fun main() {
         )
 
         // Create and run the MCP server (blocks until server closes)
-        val mcpServer = CurrentMcpServer(version, coordinator)
+        val mcpServer = CurrentMcpServer(version, coordinator, AppConfig.fromEnv())
         val outcome = mcpServer.run()
         if (outcome is Failed) {
             // Don't use exitProcess(1) here either — throw and let the catch below rethrow, so the
@@ -80,7 +81,7 @@ fun main() {
 
         logger.info("Main function exiting normally")
     } catch (e: Exception) {
-        logger.error("Error in Current (v3) MCP Task Orchestrator", e)
+        logger.error("Error in Current (4.0) MCP Task Orchestrator", e)
         // Don't use exitProcess(1) — it bypasses shutdown hooks.
         // Throwing from main() will cause the JVM to exit with code 1.
         throw e

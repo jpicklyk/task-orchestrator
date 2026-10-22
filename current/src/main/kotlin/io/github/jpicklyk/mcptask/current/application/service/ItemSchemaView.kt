@@ -16,13 +16,14 @@ import kotlinx.serialization.json.buildJsonObject
 import java.util.UUID
 
 /**
- * The ONE builder behind BOTH `query_items`'s `schema` operation (MCP) and
- * `GET /api/v1/items/{id}/schema` (REST, A1c) — a shared REST route must reuse [buildItemSchemaJson]
+ * The ONE builder behind the `items_read` `select=schema` view (MCP and
+ * `POST /api/v1/ops/items_read`) - a surface that shows a schema must reuse [buildItemSchemaJson]
  * rather than replicate this shape, per A1 task-scope §6 AC3. Pure and JSON-in/JSON-out: no tool or
  * route framework types appear here, so REST can call it directly.
  *
- * Response shape (both entry points): `{ type, configFingerprint, configSource, notes: [...],
- * dispatch?, resources?, seats?, dispatchBySeat?, features }`. Every field beyond the pre-A1 set
+ * Response shape (both entry points): `{ type, configFingerprint, configSource, schemaVersion?, stale?, notes: [...],
+ * dispatch?, resources?, seats?, dispatchBySeat?, features }`. `schemaVersion` (and `stale: true` when stale) is present only
+ * for a pinned item (never for the type-only form); `configFingerprint` is then the PINNED layer's fingerprint. Every field beyond the pre-A1 set
  * (`seats`, `dispatchBySeat`, per-note `seat`/`independentOf`) is present only for a seat-aware
  * schema, EXCEPT `features`, which is always present (A1 task-scope §6, §9 "Alternatives" (f)).
  */
@@ -42,13 +43,14 @@ object ItemSchemaView {
         val dispatchByRole = resolver.resolveDispatchProfiles(item, schema)
         val resourcesList = resolver.resolveResourceRequirements(item)
         val dispatchBySeat = resolver.resolveDispatchBySeat(item, schema)
-        return buildSchemaJson(resolved, dispatchByRole, resourcesList, dispatchBySeat)
+        val pin = SchemaPinService(resolver).view(item)
+        return buildSchemaJson(resolved, dispatchByRole, resourcesList, dispatchBySeat, pin)
     }
 
     /**
      * Type-only counterpart to [buildItemSchemaJson]: no item, so dispatch/resources resolve from
      * [WorkItemSchema.defaultTraits] alone (no per-item trait merge, no per-item trait order). `null`
-     * when neither config layer defines [type] under [rootId]'s effective `schema_resolution` mode.
+     * when no config layer resolves [type] (its own schema or a `"default"`) under [rootId].
      */
     suspend fun buildTypeSchemaJson(
         type: String,
@@ -67,7 +69,8 @@ object ItemSchemaView {
         resolved: SchemaMatch,
         dispatchByRole: Map<Role, DispatchProfile>,
         resourcesList: List<ResourceRequirement>,
-        dispatchBySeat: Map<Role, Map<String, DispatchProfile>>
+        dispatchBySeat: Map<Role, Map<String, DispatchProfile>>,
+        pin: PinView? = null
     ): JsonObject {
         val (schema, source, fingerprint) = resolved
         val seatAware = schema.isSeatAware()
@@ -75,6 +78,8 @@ object ItemSchemaView {
             put("type", JsonPrimitive(schema.type))
             put("configFingerprint", fingerprint?.let { JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull)
             put("configSource", JsonPrimitive(if (source == ConfigSource.PER_ROOT) "per-root" else "global"))
+            pin?.let { put("schemaVersion", schemaVersionJson(it)) }
+            if (pin?.stale == true) put("stale", JsonPrimitive(true))
             put("notes", buildFullSchemaEntriesJson(schema.notes, seatAware))
             buildDispatchByRoleJson(dispatchByRole)?.let { put("dispatch", it) }
             buildResourcesJson(resourcesList)?.let { put("resources", it) }
@@ -85,4 +90,13 @@ object ItemSchemaView {
             put("features", JsonArray(ServerFeatures.ADVERTISED.map { JsonPrimitive(it) }))
         }
     }
+
+    /** `{server?, root?, key?, layer?}`: the pinned config version numbers and base schema, each omitted when null. */
+    private fun schemaVersionJson(pin: PinView): JsonObject =
+        buildJsonObject {
+            pin.serverVersion?.let { put("server", JsonPrimitive(it)) }
+            pin.rootVersion?.let { put("root", JsonPrimitive(it)) }
+            pin.key?.let { put("key", JsonPrimitive(it)) }
+            pin.layer?.let { put("layer", JsonPrimitive(it.wire)) }
+        }
 }

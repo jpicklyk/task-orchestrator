@@ -1,21 +1,26 @@
 package io.github.jpicklyk.mcptask.current.test
 
-import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
-import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
-import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
-import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
-import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.application.config.NoOpStatusLabelService
+import io.github.jpicklyk.mcptask.current.application.config.StatusLabelService
+import io.github.jpicklyk.mcptask.current.application.port.CallLogStore
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
+import io.github.jpicklyk.mcptask.current.application.port.DecisionRequestStore
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.DocumentStore
+import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
+import io.github.jpicklyk.mcptask.current.application.port.LinkStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
+import io.github.jpicklyk.mcptask.current.application.port.ReportQueries
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.RunSeatStore
+import io.github.jpicklyk.mcptask.current.application.port.RunStore
+import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
+import io.github.jpicklyk.mcptask.current.application.port.UsageDailyStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.mockk.*
-import java.time.Instant
 
 /**
  * Creates a fully-mocked RepositoryProvider with individual repository mocks accessible.
@@ -23,34 +28,74 @@ import java.time.Instant
  */
 class MockRepositoryProvider {
     val workItemRepo: WorkItemRepository = mockk()
-    val noteRepo: NoteRepository = mockk()
-    val depRepo: DependencyRepository = mockk()
-    val roleTransitionRepo: RoleTransitionRepository = mockk()
-    val workTreeExecutor: WorkTreeExecutor = mockk()
+    val noteRepo: NoteStore = mockk()
+    val depRepo: DependencyStore = mockk()
+    val projectConfigRepo: ConfigStore = mockk()
+    val planDocumentRepo: PlanDocumentStore = mockk()
+    val documentStore: DocumentStore = mockk()
+    val linkStore: LinkStore = mockk()
+    val resourceLeaseRepo: LeaseStore = mockk()
+    val idempotencyRepo = InMemoryIdempotencyStore()
+    val eventStore = InMemoryEventStore()
+    val callLogStore: CallLogStore = mockk()
+    val runStore: RunStore = mockk()
+    val runSeatStore: RunSeatStore = mockk()
+    val decisionRequestStore: DecisionRequestStore = mockk()
+    val reportQueries: ReportQueries = mockk()
+    val usageDailyStore: UsageDailyStore = mockk()
     val provider: RepositoryProvider = mockk()
+
+    /** Full-text search is its own port since 4.0 (no longer part of the work-item composite). */
+    val searchIndex: SearchIndex = mockk()
 
     init {
         every { provider.workItemRepository() } returns workItemRepo
         every { provider.noteRepository() } returns noteRepo
         every { provider.dependencyRepository() } returns depRepo
-        every { provider.roleTransitionRepository() } returns roleTransitionRepo
-        every { provider.database() } returns null
-        every { provider.workTreeExecutor() } returns workTreeExecutor
-        // Default: workItemRepo.dbNow() returns JVM time (suitable for tests not exercising clock skew)
-        coEvery { workItemRepo.dbNow() } returns Instant.now()
-        // Default: inTransaction delegates to its block directly — no real DB transaction in unit tests
-        coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-            firstArg<suspend () -> Unit>().invoke()
-        }
+        every { provider.configStore() } returns projectConfigRepo
+        every { provider.planDocumentRepository() } returns planDocumentRepo
+        every { provider.documentStore() } returns documentStore
+        every { provider.linkStore() } returns linkStore
+        every { provider.resourceLeaseRepository() } returns resourceLeaseRepo
+        every { provider.idempotencyStore() } returns idempotencyRepo
+        every { provider.eventStore() } returns eventStore
+        // The narrow work-item stores are the same mock as the composite (the interface defaults do the same).
+        every { provider.itemStore() } returns workItemRepo
+        every { provider.hierarchyStore() } returns workItemRepo
+        every { provider.claimStore() } returns workItemRepo
+        every { provider.searchIndex() } returns searchIndex
+        every { provider.callLogStore() } returns callLogStore
+        every { provider.runStore() } returns runStore
+        every { provider.runSeatStore() } returns runSeatStore
+        every { provider.decisionRequestStore() } returns decisionRequestStore
+        every { provider.reportQueries() } returns reportQueries
+        every { provider.usageDailyStore() } returns usageDailyStore
         // Default: noteRepo returns empty lists for any query
-        coEvery { noteRepo.findByItemId(any()) } returns Result.Success(emptyList())
-        coEvery { noteRepo.findByItemId(any(), any()) } returns Result.Success(emptyList())
+        coEvery { noteRepo.findByItemId(any()) } returns emptyList()
+        coEvery { noteRepo.findByItemId(any(), any()) } returns emptyList()
+        // P11: the advance and its previews read dependency rows through findByItemId, blocker roles through
+        // findByIds and lease contention through findActiveByKeys. Default them onto the suite's own
+        // per-direction / getById stubs (a test's later stub for the same call still wins).
+        AdvanceMockStores.stubDependencyUnion(depRepo)
+        coEvery { workItemRepo.findByIds(any()) } coAnswers {
+            firstArg<Set<java.util.UUID>>().mapNotNull { id -> runCatching { workItemRepo.getById(id) }.getOrNull() }
+        }
+        coEvery { resourceLeaseRepo.findActiveByKeys(any()) } returns emptyList()
+        // P14: ClaimService reads the item before a claim write, the agent's other claims, the roots of its event
+        // rows, and the lapsed lease rows. Defaults: nothing held, nothing lapsed, items are their own root.
+        coEvery { workItemRepo.getById(any()) } returns null
+        coEvery { workItemRepo.findHeldBy(any()) } returns emptyList()
+        coEvery { workItemRepo.findLapsedClaims() } returns emptyList()
+        coEvery { workItemRepo.findAncestorChains(any()) } returns emptyMap()
+        coEvery { resourceLeaseRepo.findLapsed(any(), any()) } returns emptyList()
+        coEvery { resourceLeaseRepo.deleteLapsed(any()) } returns 0
+        coEvery { resourceLeaseRepo.findActiveForItem(any()) } returns emptyList()
+        coEvery { resourceLeaseRepo.findAllActive() } returns emptyList()
     }
 
-    /** Build a ToolExecutionContext with optional schema, status label, and actor verifier services. */
+    /** Build a ToolExecutionContext with an optional config resolver (see [TestConfigResolver]), and status label services. */
     fun context(
-        noteSchemaService: NoteSchemaService = NoOpNoteSchemaService,
-        statusLabelService: StatusLabelService = NoOpStatusLabelService,
-        actorVerifier: ActorVerifier = NoOpActorVerifier
-    ): ToolExecutionContext = ToolExecutionContext(provider, noteSchemaService, statusLabelService, actorVerifier = actorVerifier)
+        configResolver: EffectiveConfigResolver = TestConfigResolver.resolver(),
+        statusLabelService: StatusLabelService = NoOpStatusLabelService
+    ): ToolExecutionContext = ToolExecutionContext(provider, statusLabelService, configResolver = configResolver)
 }

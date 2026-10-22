@@ -1,0 +1,215 @@
+{
+  "name": "items_read",
+  "inputSchema": {
+    "properties": {
+      "select": {
+        "type": "string",
+        "description": "Which read to run. A field marked [select: ...] applies only to the selects named.",
+        "enum": [
+          "get",
+          "list",
+          "schema",
+          "search",
+          "overview",
+          "related"
+        ]
+      },
+      "itemId": {
+        "type": "string",
+        "description": "Item id (UUID or 8-32 hex). get, schema: the item. search: only its own content. overview: list its children. related: the item to find relatives of. [select: get, schema, search, overview, related]"
+      },
+      "fields": {
+        "type": "array",
+        "description": "Extra members. get: createdAt, modifiedAt, roleChangedAt, ancestors. list: the same plus summary. schema: guidance. [select: get, list, schema]",
+        "items": {
+          "type": "string"
+        }
+      },
+      "ifVersion": {
+        "type": "integer",
+        "description": "Answer {unchanged: true, version} instead of the item when its version equals this value. [select: get]"
+      },
+      "parentId": {
+        "type": "string",
+        "description": "Only direct children of this item (UUID or 8-32 hex). [select: list]"
+      },
+      "ancestorId": {
+        "type": "string",
+        "description": "Only this item's subtree, itself included (UUID or 8-32 hex). [select: list, search]"
+      },
+      "depth": {
+        "type": "integer",
+        "description": "Only items at this depth (0 = roots). [select: list]"
+      },
+      "role": {
+        "type": "string",
+        "description": "Only items (search: content of items) in this role. [select: list, search]",
+        "enum": [
+          "queue",
+          "work",
+          "review",
+          "blocked",
+          "terminal"
+        ]
+      },
+      "priority": {
+        "type": "string",
+        "description": "Only items with this priority. [select: list]",
+        "enum": [
+          "high",
+          "medium",
+          "low"
+        ]
+      },
+      "tags": {
+        "type": "array",
+        "description": "Only items with at least one of these tags (case-insensitive). [select: list, search]",
+        "items": {
+          "type": "string"
+        }
+      },
+      "traits": {
+        "type": "array",
+        "description": "Only items with at least one of these traits (exact). [select: list, search]",
+        "items": {
+          "type": "string"
+        }
+      },
+      "type": {
+        "type": "string",
+        "description": "list: only items of this type. schema: the type whose schema to return. [select: list, schema]"
+      },
+      "claimStatus": {
+        "type": "string",
+        "description": "Only items in this claim state (expired: TTL elapsed). [select: list]",
+        "enum": [
+          "claimed",
+          "unclaimed",
+          "expired"
+        ]
+      },
+      "createdAfter": {
+        "type": "string",
+        "description": "Created at or after (ISO 8601). [select: list]",
+        "format": "date-time"
+      },
+      "createdBefore": {
+        "type": "string",
+        "description": "Created at or before (ISO 8601). [select: list]",
+        "format": "date-time"
+      },
+      "modifiedAfter": {
+        "type": "string",
+        "description": "Modified at or after (ISO 8601). [select: list]",
+        "format": "date-time"
+      },
+      "modifiedBefore": {
+        "type": "string",
+        "description": "Modified at or before (ISO 8601). [select: list]",
+        "format": "date-time"
+      },
+      "roleChangedAfter": {
+        "type": "string",
+        "description": "Role changed at or after (ISO 8601). [select: list]",
+        "format": "date-time"
+      },
+      "roleChangedBefore": {
+        "type": "string",
+        "description": "Role changed at or before (ISO 8601). [select: list]",
+        "format": "date-time"
+      },
+      "sort": {
+        "type": "string",
+        "description": "Sort field; default createdAt. [select: list]",
+        "enum": [
+          "title",
+          "priority",
+          "complexity",
+          "createdAt",
+          "modifiedAt"
+        ]
+      },
+      "order": {
+        "type": "string",
+        "description": "Sort direction; default desc. [select: list]",
+        "enum": [
+          "asc",
+          "desc"
+        ]
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Page size. list, overview: default 50, max 200. search: default 20, max 100. related: default 10, max 50. [select: list, search, overview, related]"
+      },
+      "cursor": {
+        "type": "string",
+        "description": "The page.next of the previous page; absent for the first page. [select: list, search, overview, related]"
+      },
+      "rootId": {
+        "type": "string",
+        "description": "With type: the project root whose config resolves it (UUID or 8-32 hex). [select: schema]"
+      },
+      "query": {
+        "type": "string",
+        "description": "Search terms, all must match; matched literally. [select: search]"
+      },
+      "kinds": {
+        "type": "array",
+        "description": "item (title, summary, description), note (bodies) and/or document (title, body); default every kind the filters apply to. role, tags and traits apply to item and note only: with any of them the default is item and note, and naming document too is invalid. [select: search]",
+        "items": {
+          "type": "string",
+          "enum": [
+            "item",
+            "note",
+            "document"
+          ]
+        }
+      },
+      "matchMode": {
+        "type": "string",
+        "description": "auto (default: both, fused), substring (terms of 3+ characters), text (stemmed). [select: search]",
+        "enum": [
+          "auto",
+          "substring",
+          "text"
+        ]
+      },
+      "snippet": {
+        "type": "boolean",
+        "description": "Add a highlighted snippet to each hit; default true. [select: search]"
+      },
+      "explain": {
+        "type": "boolean",
+        "description": "Add ranking detail to each hit (search: per-analyzer ranks; related: per-signal ranks); default false. [select: search, related]"
+      },
+      "anchorId": {
+        "type": "string",
+        "description": "List this item's children with subtree role counts (UUID or 8-32 hex). [select: overview]"
+      },
+      "excludeTerminal": {
+        "type": "boolean",
+        "description": "Drop terminal items without open work below; default false. [select: overview]"
+      },
+      "includeChildren": {
+        "type": "boolean",
+        "description": "Global only: add each item's children; default false. [select: overview]"
+      },
+      "acrossRoots": {
+        "type": "boolean",
+        "description": "Look beyond the item's own root (every signal); default false. The caller's scope still applies. [select: related]"
+      },
+      "describe": {
+        "type": "boolean",
+        "description": "true: return the operations, their parameters and errors instead of running the tool."
+      }
+    },
+    "type": "object"
+  },
+  "description": "Read work items. Selects: get (one item), list (a filtered page), schema (the note schema of a type or an item), search (full text over item, note and document content), overview (a hierarchy summary), related (items and documents related to an item by dependencies, links, shared tags and similar text). Call with describe:true for each operation's parameters and errors.",
+  "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

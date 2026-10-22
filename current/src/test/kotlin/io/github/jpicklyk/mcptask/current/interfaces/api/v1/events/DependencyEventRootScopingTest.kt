@@ -1,12 +1,16 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.service.ItemPatchCommand
+import io.github.jpicklyk.mcptask.current.application.service.ParentChange
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.buildH2RepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.inUnit
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -18,6 +22,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
 
@@ -31,9 +36,9 @@ import kotlin.time.Duration.Companion.seconds
  * cache-only `resolveRootsCached` (the interface was non-suspend), so a `dependency.added` /
  * `dependency.removed` event for an item whose root was never cached carried `rootsResolved =
  * false` and was withheld from every root-scoped SSE subscriber. The fix makes 8 of 10
- * [io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository] methods `suspend`
+ * [io.github.jpicklyk.mcptask.current.application.port.DependencyStore] methods `suspend`
  * and switches the decorator to the suspend `resolveRoots`, which does a real DB lookup
- * ([io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository.findAncestorChains])
+ * ([io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository.findAncestorChains])
  * on a cache miss instead of giving up.
  *
  * Oracles (frozen in test-plan note `558ec4a3-bce6-4234-b450-1dea9e51d218`, before this file was
@@ -59,45 +64,28 @@ import kotlin.time.Duration.Companion.seconds
  * clause (O2/O3), per the test-plan's declared substitute for this shape.
  *
  * Every subscriber-visible scenario waits on the public [ApiEventBus.subscriberCount] gate
- * (`awaitSubscriberCount`) rather than a fixed sleep: this is the exact counter `resolveRoots`
+ * (`awaitSubscribers`) rather than a fixed sleep: this is the exact counter `resolveRoots`
  * itself checks (subscriberCount()==0 short-circuits to emptySet — the diagnosis's "performance
  * guard", unchanged by this fix), so waiting on it is a real condition, not a guess at timing.
  */
 class DependencyEventRootScopingTest {
-    /**
-     * Polls the public [ApiEventBus.subscriberCount] until it reaches [expected], bounded by
-     * [timeoutMs]. Used instead of a fixed sleep: subscription registration timing is not
-     * observable from this test any other way, but the exact counter the fix's `resolveRoots`
-     * gates on is public and safe to poll.
-     */
-    private suspend fun awaitSubscriberCount(
-        bus: ApiEventBus,
-        expected: Int,
-        timeoutMs: Long = 2_000,
-    ) {
-        withTimeout(timeoutMs) {
-            while (bus.subscriberCount() < expected) {
-                delay(5)
-            }
-        }
-    }
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
 
     /** Root R (depth 0) plus two children A, B (depth 1), created with zero subscribers connected. */
     private suspend fun createRootAndChildren(
-        provider: EventPublishingRepositoryProvider,
+        provider: ToolExecutionContext,
         label: String,
     ): Triple<WorkItem, WorkItem, WorkItem> {
-        val root = provider.workItemRepository().create(WorkItem(title = "$label root", depth = 0)).getOrNull()!!
+        val root = provider.workItemRepository().create(WorkItem(title = "$label root", depth = 0))!!
         val itemA =
             provider
                 .workItemRepository()
-                .create(WorkItem(title = "$label A", parentId = root.id, depth = 1))
-                .getOrNull()!!
+                .create(WorkItem(title = "$label A", parentId = root.id, depth = 1))!!
         val itemB =
             provider
                 .workItemRepository()
-                .create(WorkItem(title = "$label B", parentId = root.id, depth = 1))
-                .getOrNull()!!
+                .create(WorkItem(title = "$label B", parentId = root.id, depth = 1))!!
         return Triple(root, itemA, itemB)
     }
 
@@ -108,9 +96,9 @@ class DependencyEventRootScopingTest {
     @Test
     fun `S1 - cold-cache dependency create reaches a root-scoped subscriber once connected`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
-            val provider = EventPublishingRepositoryProvider(delegate, bus)
+            val provider = eventWiredContext(db.databaseManager, delegate, bus)
 
             // No subscriber connected during these writes: the root cache stays cold for A/B.
             val (root, itemA, itemB) = createRootAndChildren(provider, "S1")
@@ -118,11 +106,14 @@ class DependencyEventRootScopingTest {
 
             val flowR = bus.subscribe("s1-sub-root", setOf(root.id), lastEventId = null)
             val received = async { withTimeout(5.seconds) { flowR.take(1).toList() } }
-            awaitSubscriberCount(bus, 1)
+            bus.awaitSubscribers(1)
 
-            provider.dependencyRepository().create(
-                Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS),
-            )
+            provider.dependencyCommandService
+                .create(
+                    listOf(Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS)),
+                    caller = null,
+                ).orThrow()
+                .single()
 
             val events = received.await()
             assertEquals(1, events.size, "root-scoped subscriber must receive the cold-cache dependency.added event")
@@ -138,23 +129,26 @@ class DependencyEventRootScopingTest {
     @Test
     fun `S2 - cold-cache dependency delete reaches a root-scoped subscriber once connected`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
-            val provider = EventPublishingRepositoryProvider(delegate, bus)
+            val provider = eventWiredContext(db.databaseManager, delegate, bus)
 
             val (root, itemA, itemB) = createRootAndChildren(provider, "S2")
             // Create the edge itself with zero subscribers too — its own add-event is irrelevant here.
             val dep =
-                provider.dependencyRepository().create(
-                    Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS),
-                )
+                provider.dependencyCommandService
+                    .create(
+                        listOf(Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS)),
+                        caller = null,
+                    ).orThrow()
+                    .single()
             assertEquals(0, bus.subscriberCount(), "precondition: still cold, no listener during setup")
 
             val flowR = bus.subscribe("s2-sub-root", setOf(root.id), lastEventId = null)
             val received = async { withTimeout(5.seconds) { flowR.take(1).toList() } }
-            awaitSubscriberCount(bus, 1)
+            bus.awaitSubscribers(1)
 
-            val deleted = provider.dependencyRepository().delete(dep.id)
+            val deleted = provider.dependencyCommandService.deleteById(dep.id, caller = null).orThrow()
             assertTrue(deleted, "delete of an existing dependency must report success")
 
             val events = received.await()
@@ -172,21 +166,24 @@ class DependencyEventRootScopingTest {
     @Test
     fun `S3 - cold-cache dependency create does not reach an out-of-scope subscriber`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
-            val provider = EventPublishingRepositoryProvider(delegate, bus)
+            val provider = eventWiredContext(db.databaseManager, delegate, bus)
 
             val (_, itemA, itemB) = createRootAndChildren(provider, "S3")
             val unrelatedRoot =
-                provider.workItemRepository().create(WorkItem(title = "S3 unrelated root", depth = 0)).getOrNull()!!
+                provider.workItemRepository().create(WorkItem(title = "S3 unrelated root", depth = 0))!!
 
             val flowS = bus.subscribe("s3-sub-unrelated", setOf(unrelatedRoot.id), lastEventId = null)
             val received = async { withTimeoutOrNull(1.seconds) { flowS.take(1).toList() } }
-            awaitSubscriberCount(bus, 1)
+            bus.awaitSubscribers(1)
 
-            provider.dependencyRepository().create(
-                Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS),
-            )
+            provider.dependencyCommandService
+                .create(
+                    listOf(Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS)),
+                    caller = null,
+                ).orThrow()
+                .single()
 
             assertNull(received.await(), "a subscriber scoped to an unrelated root must receive nothing")
             bus.unsubscribe("s3-sub-unrelated")
@@ -200,24 +197,27 @@ class DependencyEventRootScopingTest {
     @Test
     fun `S4 - dependency create inside a rolling-back transaction publishes nothing and persists nothing`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
-            val provider = EventPublishingRepositoryProvider(delegate, bus)
+            val provider = eventWiredContext(db.databaseManager, delegate, bus)
 
             val (_, itemA, itemB) = createRootAndChildren(provider, "S4")
 
             // Unrestricted subscriber: entitled to everything, so a leaked event would still show here.
             val flowAll = bus.subscribe("s4-sub-all", emptySet(), lastEventId = null)
             val received = async { withTimeoutOrNull(1.seconds) { flowAll.take(1).toList() } }
-            awaitSubscriberCount(bus, 1)
+            bus.awaitSubscribers(1)
 
             val depId = UUID.randomUUID()
             var caught: Throwable? = null
             try {
-                provider.workItemRepository().inTransaction {
-                    provider.dependencyRepository().create(
-                        Dependency(id = depId, fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS),
-                    )
+                provider.unitOfWork.inUnit {
+                    provider.dependencyCommandService
+                        .create(
+                            listOf(Dependency(id = depId, fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS)),
+                            caller = null,
+                        ).orThrow()
+                        .single()
                     throw IllegalStateException("boom")
                 }
             } catch (e: IllegalStateException) {
@@ -241,26 +241,29 @@ class DependencyEventRootScopingTest {
     @Test
     fun `S5 - dependency create inside a committing transaction is observed only after commit, in enqueue order`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
-            val provider = EventPublishingRepositoryProvider(delegate, bus)
+            val provider = eventWiredContext(db.databaseManager, delegate, bus)
 
             val (_, itemA, itemB) = createRootAndChildren(provider, "S5")
-            val baselineCount = bus.ringBufferSnapshot().size
+            val baselineCount = bus.projectedEvents().size
 
-            provider.workItemRepository().inTransaction {
-                provider.dependencyRepository().create(
-                    Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS),
-                )
+            provider.unitOfWork.inUnit {
+                provider.dependencyCommandService
+                    .create(
+                        listOf(Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS)),
+                        caller = null,
+                    ).orThrow()
+                    .single()
                 assertEquals(
                     baselineCount,
-                    bus.ringBufferSnapshot().size,
+                    bus.projectedEvents().size,
                     "the dependency event must not be visible before the enclosing transaction commits",
                 )
-                provider.workItemRepository().update(itemA.copy(title = "S5 A renamed"))
+                provider.itemCommandService.patch(renamed(itemA, "S5 A renamed"), caller = null).orThrow()
             }
 
-            val events = bus.ringBufferSnapshot().drop(baselineCount)
+            val events = bus.projectedEvents().drop(baselineCount)
             assertEquals(
                 2,
                 events.size,
@@ -278,18 +281,21 @@ class DependencyEventRootScopingTest {
     @Test
     fun `S6 - standalone dependency create, with no enclosing transaction, publishes synchronously`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
-            val provider = EventPublishingRepositoryProvider(delegate, bus)
+            val provider = eventWiredContext(db.databaseManager, delegate, bus)
 
             val (_, itemA, itemB) = createRootAndChildren(provider, "S6")
-            val baselineCount = bus.ringBufferSnapshot().size
+            val baselineCount = bus.projectedEvents().size
 
-            provider.dependencyRepository().create(
-                Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS),
-            )
+            provider.dependencyCommandService
+                .create(
+                    listOf(Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS)),
+                    caller = null,
+                ).orThrow()
+                .single()
 
-            val events = bus.ringBufferSnapshot().drop(baselineCount)
+            val events = bus.projectedEvents().drop(baselineCount)
             assertEquals(
                 1,
                 events.size,
@@ -307,27 +313,33 @@ class DependencyEventRootScopingTest {
     @Test
     fun `probe - duplicate edge is rejected and publishes no second event`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
-            val provider = EventPublishingRepositoryProvider(delegate, bus)
+            val provider = eventWiredContext(db.databaseManager, delegate, bus)
 
             val (_, itemA, itemB) = createRootAndChildren(provider, "ProbeA")
-            val baselineCount = bus.ringBufferSnapshot().size
+            val baselineCount = bus.projectedEvents().size
 
-            provider.dependencyRepository().create(
-                Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS),
-            )
-            assertEquals(1, bus.ringBufferSnapshot().drop(baselineCount).size, "first create publishes exactly one event")
+            provider.dependencyCommandService
+                .create(
+                    listOf(Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS)),
+                    caller = null,
+                ).orThrow()
+                .single()
+            assertEquals(1, bus.projectedEvents().drop(baselineCount).size, "first create publishes exactly one event")
 
             assertThrows<ValidationException> {
-                provider.dependencyRepository().create(
-                    Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS),
-                )
+                provider.dependencyCommandService
+                    .create(
+                        listOf(Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS)),
+                        caller = null,
+                    ).orThrow()
+                    .single()
             }
 
             assertEquals(
                 1,
-                bus.ringBufferSnapshot().drop(baselineCount).size,
+                bus.projectedEvents().drop(baselineCount).size,
                 "a rejected duplicate must not publish a second dependency.added event",
             )
         }
@@ -345,23 +357,29 @@ class DependencyEventRootScopingTest {
     @Test
     fun `probe - RELATES_TO dependency publishes an event despite skipping cycle detection`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
-            val provider = EventPublishingRepositoryProvider(delegate, bus)
+            val provider = eventWiredContext(db.databaseManager, delegate, bus)
 
             val (_, itemA, itemB) = createRootAndChildren(provider, "ProbeC")
-            val baselineCount = bus.ringBufferSnapshot().size
+            val baselineCount = bus.projectedEvents().size
 
             // A -> B and B -> A would be a rejected cycle for BLOCKS; RELATES_TO is exempt from
             // cycle detection, so both creates must succeed and both must publish.
-            provider.dependencyRepository().create(
-                Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.RELATES_TO),
-            )
-            provider.dependencyRepository().create(
-                Dependency(fromItemId = itemB.id, toItemId = itemA.id, type = DependencyType.RELATES_TO),
-            )
+            provider.dependencyCommandService
+                .create(
+                    listOf(Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.RELATES_TO)),
+                    caller = null,
+                ).orThrow()
+                .single()
+            provider.dependencyCommandService
+                .create(
+                    listOf(Dependency(fromItemId = itemB.id, toItemId = itemA.id, type = DependencyType.RELATES_TO)),
+                    caller = null,
+                ).orThrow()
+                .single()
 
-            val events = bus.ringBufferSnapshot().drop(baselineCount)
+            val events = bus.projectedEvents().drop(baselineCount)
             assertEquals(2, events.size, "both RELATES_TO creates must publish; neither is rejected as a cycle")
             assertTrue(events.all { it.event == ApiEventType.DEPENDENCY_ADDED })
         }
@@ -370,53 +388,56 @@ class DependencyEventRootScopingTest {
     @Test
     fun `probe - deleting an unknown dependency id returns false and publishes no event`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
-            val provider = EventPublishingRepositoryProvider(delegate, bus)
-            val baselineCount = bus.ringBufferSnapshot().size
+            val provider = eventWiredContext(db.databaseManager, delegate, bus)
+            val baselineCount = bus.projectedEvents().size
 
-            val result = provider.dependencyRepository().delete(UUID.randomUUID())
+            val result = provider.dependencyCommandService.deleteById(UUID.randomUUID(), caller = null).orThrow()
 
             assertFalse(result, "deleting an id that was never created must return false")
-            assertEquals(baselineCount, bus.ringBufferSnapshot().size, "no dependency.removed event for an unknown id")
+            assertEquals(baselineCount, bus.projectedEvents().size, "no dependency.removed event for an unknown id")
         }
 
     /** Probe (e): two creates in one transaction flush in enqueue order on commit. */
     @Test
     fun `probe - two dependency creates in one transaction flush in enqueue order on commit`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
-            val provider = EventPublishingRepositoryProvider(delegate, bus)
+            val provider = eventWiredContext(db.databaseManager, delegate, bus)
 
-            val root = provider.workItemRepository().create(WorkItem(title = "ProbeE root", depth = 0)).getOrNull()!!
+            val root = provider.workItemRepository().create(WorkItem(title = "ProbeE root", depth = 0))!!
             val itemA =
                 provider
                     .workItemRepository()
-                    .create(WorkItem(title = "ProbeE A", parentId = root.id, depth = 1))
-                    .getOrNull()!!
+                    .create(WorkItem(title = "ProbeE A", parentId = root.id, depth = 1))!!
             val itemB =
                 provider
                     .workItemRepository()
-                    .create(WorkItem(title = "ProbeE B", parentId = root.id, depth = 1))
-                    .getOrNull()!!
+                    .create(WorkItem(title = "ProbeE B", parentId = root.id, depth = 1))!!
             val itemC =
                 provider
                     .workItemRepository()
-                    .create(WorkItem(title = "ProbeE C", parentId = root.id, depth = 1))
-                    .getOrNull()!!
-            val baselineCount = bus.ringBufferSnapshot().size
+                    .create(WorkItem(title = "ProbeE C", parentId = root.id, depth = 1))!!
+            val baselineCount = bus.projectedEvents().size
 
-            provider.workItemRepository().inTransaction {
-                provider.dependencyRepository().create(
-                    Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS),
-                )
-                provider.dependencyRepository().create(
-                    Dependency(fromItemId = itemB.id, toItemId = itemC.id, type = DependencyType.BLOCKS),
-                )
+            provider.unitOfWork.inUnit {
+                provider.dependencyCommandService
+                    .create(
+                        listOf(Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS)),
+                        caller = null,
+                    ).orThrow()
+                    .single()
+                provider.dependencyCommandService
+                    .create(
+                        listOf(Dependency(fromItemId = itemB.id, toItemId = itemC.id, type = DependencyType.BLOCKS)),
+                        caller = null,
+                    ).orThrow()
+                    .single()
             }
 
-            val events = bus.ringBufferSnapshot().drop(baselineCount)
+            val events = bus.projectedEvents().drop(baselineCount)
             assertEquals(
                 2,
                 events.size,
@@ -427,3 +448,33 @@ class DependencyEventRootScopingTest {
             assertTrue(events[0].id < events[1].id, "commit-time ids preserve enqueue order")
         }
 }
+
+/** The value of a write-service [Outcome]; a rejection surfaces as the [ValidationException] the store used to throw. */
+private fun <T> Outcome<T>.orThrow(): T =
+    when (this) {
+        is Outcome.Ok -> value
+        is Outcome.Err -> throw ValidationException(error.message)
+    }
+
+/** A patch of [item] that changes only its title. */
+private fun renamed(
+    item: WorkItem,
+    title: String,
+): ItemPatchCommand =
+    ItemPatchCommand(
+        itemId = item.id,
+        expectedVersion = null,
+        parent = ParentChange.Keep,
+        title = title,
+        description = item.description,
+        summary = item.summary,
+        statusLabel = item.statusLabel,
+        priority = item.priority,
+        complexity = item.complexity,
+        requiresVerification = item.requiresVerification,
+        metadata = item.metadata,
+        tags = item.tags,
+        type = item.type,
+        properties = item.properties,
+        traits = item.traits,
+    )

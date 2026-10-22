@@ -33,8 +33,8 @@ optional extra.
 The reviewer is given an MCP item ID. Use MCP tools and codebase access to gather what
 you need — do not expect context to be pre-loaded for you.
 
-1. **Load the item's notes** — `query_notes(itemId=..., includeBody=true)` to retrieve
-   the planning note and `implementation-notes`. The planning note's key depends on the
+1. **Load the item's notes** — `notes_read` `list` (`itemId`) names them, and `notes_read` `get`
+   (`itemId`, `key`) returns the planning note and `implementation-notes`. The planning note's key depends on the
    item's schema: `feature-summary` (feature-implementation), `task-scope` (feature-task),
    or `diagnosis` (bug-fix).
 2. **Read the changed files** — use the implementation notes to identify which files were
@@ -42,8 +42,7 @@ you need — do not expect context to be pre-loaded for you.
 3. **Run the test suite** — execute the project's test command and capture the results.
    Do not assume tests pass because the implementation agent said they did.
 4. **For items carrying the `needs-test-author` trait** — load the trait's `test-plan`
-   and `test-manifest` notes via `query_notes(operation="list", itemId=...,
-   includeBody=true)`, which carries the test author's own commit SHA range field, and
+   and `test-manifest` notes with `notes_read` `get` (`itemId`, `key`), which carries the test author's own commit SHA range field, and
    obtain the orchestrator-provided per-child SHA table (Pre-SHA/Post-SHA/Test-Pre-SHA/
    Test-Post-SHA) plus any declared orchestrator fixture-repair commit SHAs from the review
    handoff, for cross-checking. A trait-bearing item with no `test-plan` note is a
@@ -165,9 +164,9 @@ other finding above it:
 - **Separation held.** Confirm the test files were *introduced* within the test author's
   commit range, not the implementer's — check `git log` over both ranges using the
   `test-manifest`'s commit SHA range field together with the orchestrator's per-child SHA
-  table. Record the result as `independent` when actor and commit-range separation both
+  table. Record the result as `independent` when seat and commit-range separation both
   hold, `independent-degraded (temporal-only)` when only ordering separates them (for
-  example a Direct-tier bug-fix run in single-actor mode), or `not-independent` when
+  example a Direct-tier bug-fix run in single-seat mode), or `not-independent` when
   separation did not hold. Any silent implementer edit to a test file after the author's
   range is a blocking issue, regardless of whether the edit looks benign — **except**
   orchestrator fixture-repair commits that were declared in the review handoff (listed
@@ -188,7 +187,7 @@ other finding above it:
   where the oracle source itself was uncertain — a second, closer look.
 - **Forbidden-pattern declaration is true.** Fetch the served rules
   `forbidden-test-patterns` and `test-assertion-vacuity`
-  (`query_rules(operation="get", rootId, key)`; fall back to the `test-author` skill's §7
+  (`docs_read` `get`, `kind` `rule`, `slug` the rule name; fall back to the `test-author` skill's §7
   if either is unserved) and read the test bodies behind the `test-manifest`'s
   forbidden-pattern declaration — do not take "none used" on faith. Every instance of a
   listed pattern (skip-guards on behavioral conditions, disjunctive escapes, not-null-only

@@ -1,5 +1,5 @@
-// Plan labels (properties.planLabel) for graph nodes. List mode does not carry properties, so each
-// label costs one read-only `query_items get`, cached per id (null: fetched, no label).
+// Plan labels (properties.planLabel) for graph nodes. A `list` page carries compact views without
+// properties, so each label costs one read-only `items_read` `get`, cached per id (null: fetched, no label).
 import type { GraphNode } from '../../types'
 import type { GraphIo } from './io.ts'
 
@@ -16,7 +16,7 @@ export function resetLabelState(): void {
   cache.clear()
 }
 
-/** The label in a `get` result's `properties` (a JSON string; an object is tolerated), or null. */
+/** The label in a `get` view's `properties` (an object; a JSON string is tolerated), or null. */
 export function parsePlanLabel(raw: unknown): string | null {
   const item = typeof raw === 'object' && raw !== null ? (raw as { properties?: unknown }) : {}
   let props: unknown = item.properties
@@ -44,7 +44,7 @@ export async function fetchLabels(
   const missing = nodes.filter(n => !cache.has(n.id)).map(n => n.id)
   await run(missing, async id => {
     try {
-      cache.set(id, parsePlanLabel(await io.callTool('query_items', { operation: 'get', itemId: id })))
+      cache.set(id, parsePlanLabel(await io.callTool('items_read', { select: 'get', itemId: id })))
     } catch {
       // not cached: the next snapshot retries
     }

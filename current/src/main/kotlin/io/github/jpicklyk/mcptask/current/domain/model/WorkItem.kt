@@ -9,30 +9,34 @@ data class WorkItem(
     val parentId: UUID? = null,
     /**
      * Denormalized id of this item's depth-0 ancestor (its own [id] when [depth] is 0).
-     * Maintained by the application layer: stamped on create (CreateItemHandler,
-     * ItemWriteRoutes POST /items, create_work_tree) and restamped on reparent, for the moved
-     * item and every descendant, in the same sweep as the depth cascade (ItemHierarchyValidator,
-     * and its call sites in UpdateItemHandler / ItemWriteRoutes PATCH).
+     * Maintained by the application layer: stamped on create (ItemCommandService, behind
+     * the `items_write` ops `create` and `create_tree`) and restamped on reparent,
+     * for the moved item and every descendant, in the same statement as the depth cascade
+     * (ItemCommandService via HierarchyStore.restampSubtree, behind the `items_write` op `update`).
      *
      * Every one of those write paths resolves this value (together with [depth]) from the
      * parent's CURRENT row via
-     * [io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository.resolveChildPlacement],
+     * [io.github.jpicklyk.mcptask.current.application.port.HierarchyStore.resolveChildPlacement],
      * called inside the same transaction as the write that stamps it — never from a parent read
      * taken in an earlier, separate transaction. See that method's KDoc for why (AR-19): a parent
      * reparented or deleted between an earlier read and a later write would otherwise leave this
      * field stamped with stale data.
      *
-     * Nullable and NOT validated against [depth] or [parentId] here — rows written before
-     * the root_id backfill migration (or in H2 test fixtures that construct [WorkItem]
-     * directly without going through the create/reparent paths) may legitimately have a
-     * null or stale value. Treat this as a best-effort denormalization for read-path scope
-     * filtering, not a structural invariant enforced at the domain layer.
+     * This is the authorization predicate: a scope admits an item only when its stamped `root_id` is a
+     * listed root (`ScopeGuard`, the search engine and the SSE stream all test exactly this), and an
+     * item with a null `root_id` is admitted by no root-restricted scope. It is stamped by the one
+     * writer (the create/reparent paths), not validated against [depth] or [parentId] at the domain
+     * layer; fixtures that construct [WorkItem] directly must stamp it themselves.
      */
     val rootId: UUID? = null,
     val title: String,
     val description: String? = null,
     val summary: String = "",
-    val role: Role = Role.QUEUE,
+    /**
+     * The item's lifecycle role; null for a lifecycle-free (NONE) item, stored as a NULL `role`
+     * column with `lifecycle = 'none'` (V26). No write path creates one yet (Q31b).
+     */
+    val role: Role? = Role.QUEUE,
     val statusLabel: String? = null,
     val previousRole: Role? = null,
     val priority: Priority = Priority.MEDIUM,
@@ -43,6 +47,12 @@ data class WorkItem(
     val tags: String? = null,
     val type: String? = null,
     val properties: String? = null,
+    /**
+     * The item's trait names, in the caller's order (the typed home of what 3.x kept under `properties.traits`;
+     * [properties] never carries traits). Persisted in `item_traits`. Declared-set validation is the command
+     * service's job; the domain checks only the shape of each name (see [violations]).
+     */
+    val traits: List<String> = emptyList(),
     val createdAt: Instant = Instant.now(),
     val modifiedAt: Instant = Instant.now(),
     val roleChangedAt: Instant = Instant.now(),
@@ -52,8 +62,8 @@ data class WorkItem(
     /** When the current claim was placed (refreshes on re-claim). Stored as UTC in SQLite. */
     val claimedAt: Instant? = null,
     /**
-     * TTL-based expiry for this claim. Computed DB-side via `datetime('now', '+N seconds')` to
-     * keep time semantics consistent. Agents inspecting rows directly should treat this as UTC.
+     * TTL-based expiry for this claim: the claim instant plus the TTL, computed in Kotlin from the bound
+     * clock and stored as canonical UTC text. An instant at or before "now" is expired (see [ClaimState]).
      */
     val claimExpiresAt: Instant? = null,
     /**
@@ -61,47 +71,85 @@ data class WorkItem(
      * agent; reset when a different agent takes over the item.
      */
     val originalClaimedAt: Instant? = null,
+    /**
+     * The seat assignment the claim is held under (R22): with [claimedBy] it is the claim holder pair. Null for a
+     * principal-level claim (or no claim); set only together with [claimedBy]. Never exposed on any wire view.
+     */
+    val claimAssignmentId: UUID? = null,
+    /**
+     * Why this item is BLOCKED (V37); null outside the blocked role and on a legacy blocked row (read through
+     * [effectiveBlockedReason], which folds that NULL to manual). Written only by the advance service.
+     */
+    val blockedReason: BlockedReason? = null,
+    /** The decision request id this item waits on; set with, and only with, [BlockedReason.AWAITING_DECISION]. */
+    val blockedRef: UUID? = null,
+    /**
+     * The config this item is pinned to (plan section 3.8); null for a row that was never pinned (it resolves at the
+     * config heads). Written only through the application's pin writer and the `pin-backfill` data step.
+     */
+    val pin: SchemaPin? = null,
+    /**
+     * Domain-invariant violations found when this item was rehydrated from storage (see [violations]);
+     * null for a valid item, whether built by application code or read from a valid row - both validate on
+     * construction. A stored row is never dropped for failing validation: the mapper returns it with its
+     * (non-empty) violations here, copies of it skip construction-time validation, and every write validates
+     * explicitly.
+     */
+    val diagnostics: List<String>? = null,
 ) {
     init {
-        validate()
+        // A row rehydrated from storage arrives with [diagnostics] set (possibly empty): the total row
+        // mapper must return every stored row, so it never throws here. Writes validate explicitly.
+        if (diagnostics == null) validate()
     }
 
+    /** Throws [ValidationException] for the first violation in [violations], if any. */
     fun validate() {
-        if (title.isBlank()) throw ValidationException("Title must not be blank")
-        if (title.length > 500) throw ValidationException("Title must not exceed 500 characters")
-        complexity?.let { if (it !in 1..10) throw ValidationException("complexity must be between 1 and 10 if provided") }
-        if (summary.length > 2000) throw ValidationException("Summary must not exceed 2000 characters")
-        if (depth < 0) throw ValidationException("Depth must be non-negative")
-        if (parentId == null && depth != 0) throw ValidationException("Root items must have depth 0")
-        if (parentId != null && depth < 1) throw ValidationException("Child items must have depth >= 1")
+        violations().firstOrNull()?.let { throw ValidationException(it) }
+    }
+
+    /** Every domain-invariant violation of this item, in check order; empty when valid. */
+    fun violations(): List<String> {
+        val out = mutableListOf<String>()
+        if (title.isBlank()) out += "Title must not be blank"
+        if (title.length > 500) out += "Title must not exceed 500 characters"
+        complexity?.let { if (it !in 1..10) out += "complexity must be between 1 and 10 if provided" }
+        if (summary.length > 2000) out += "Summary must not exceed 2000 characters"
+        if (depth < 0) out += "Depth must be non-negative"
+        if (parentId == null && depth != 0) out += "Root items must have depth 0"
+        if (parentId != null && depth < 1) out += "Child items must have depth >= 1"
         description?.let {
-            if (it.isBlank()) throw ValidationException("Description, if provided, must not be blank")
+            if (it.isBlank()) out += "Description, if provided, must not be blank"
         }
-        tags?.let { validateTags(it) }
+        tags?.let { out += tagViolations(it) }
+        out += traitViolations(traits)
 
         // --- Claim-field invariants ---
         claimedBy?.let {
-            if (it.isBlank()) throw ValidationException("claimedBy must not be blank when set")
-            if (it.length > 500) throw ValidationException("claimedBy must not exceed 500 characters")
+            if (it.isBlank()) out += "claimedBy must not be blank when set"
+            if (it.length > 500) out += "claimedBy must not exceed 500 characters"
         }
-        if (claimedAt != null && claimExpiresAt != null) {
-            if (claimedAt.isAfter(claimExpiresAt)) {
-                throw ValidationException("claimedAt must not be after claimExpiresAt")
-            }
-        }
-        if (originalClaimedAt != null && claimedAt != null) {
-            if (originalClaimedAt.isAfter(claimedAt)) {
-                throw ValidationException("originalClaimedAt must not be after claimedAt")
-            }
-        }
+        out += ClaimState.orderingViolations(claimedAt, claimExpiresAt, originalClaimedAt)
         // All-or-nothing coherence: all four claim fields must be null together or non-null together
         val claimFieldNullCount = listOf(claimedBy, claimedAt, claimExpiresAt, originalClaimedAt).count { it == null }
         if (claimFieldNullCount != 0 && claimFieldNullCount != 4) {
-            throw ValidationException(
-                "Claim fields (claimedBy, claimedAt, claimExpiresAt, originalClaimedAt) must all be set or all be null"
-            )
+            out += "Claim fields (claimedBy, claimedAt, claimExpiresAt, originalClaimedAt) must all be set or all be null"
         }
+        if (claimAssignmentId != null && claimedBy == null) out += "claimAssignmentId requires claimedBy"
+        pin?.let { out += it.violations() }
+        if (blockedReason != null && role != Role.BLOCKED) out += "blockedReason requires role blocked"
+        if (blockedRef != null && blockedReason != BlockedReason.AWAITING_DECISION) {
+            out += "blockedRef requires blockedReason awaiting_decision"
+        }
+        if (blockedReason == BlockedReason.AWAITING_DECISION && blockedRef == null) {
+            out += "blockedReason awaiting_decision requires blockedRef"
+        }
+        return out
     }
+
+    /** The blocked reason every read reports: the stored one, or manual for a legacy blocked row; null when not blocked. */
+    val effectiveBlockedReason: BlockedReason?
+        get() = if (role == Role.BLOCKED) BlockedReason.effective(blockedReason) else null
 
     /**
      * Create a new version with updated modifiedAt timestamp.
@@ -125,13 +173,30 @@ data class WorkItem(
     companion object {
         private val TAG_PATTERN = Regex("^[a-z0-9][a-z0-9-]*$")
 
-        private fun validateTags(tagString: String) {
-            val parsed = tagString.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-            parsed.forEach { tag ->
-                if (!TAG_PATTERN.matches(tag)) {
-                    throw ValidationException("Tag '$tag' is invalid. Tags must be lowercase alphanumeric with hyphens only.")
+        private const val MAX_TRAIT_LENGTH = 100
+
+        /** Shape of each trait name: non-blank, trimmed, no comma, at most 100 chars, no duplicate (case-sensitive). */
+        private fun traitViolations(names: List<String>): List<String> {
+            val out = mutableListOf<String>()
+            val seen = HashSet<String>()
+            for (name in names) {
+                when {
+                    name.isBlank() -> out += "Trait names must not be blank"
+                    name != name.trim() -> out += "Trait '$name' must not have leading or trailing whitespace"
+                    name.contains(',') -> out += "Trait '$name' must not contain a comma"
+                    name.length > MAX_TRAIT_LENGTH -> out += "Trait '${name.take(20)}...' must not exceed $MAX_TRAIT_LENGTH characters"
                 }
+                if (!seen.add(name)) out += "Trait '$name' is listed more than once"
             }
+            return out
         }
+
+        private fun tagViolations(tagString: String): List<String> =
+            tagString
+                .split(",")
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .filterNot { TAG_PATTERN.matches(it) }
+                .map { "Tag '$it' is invalid. Tags must be lowercase alphanumeric with hyphens only." }
     }
 }

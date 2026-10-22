@@ -1,14 +1,17 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
-import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
+import io.github.jpicklyk.mcptask.current.application.service.ItemSchemaView
+import io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult
+import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
+import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.test.get
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
+import io.github.jpicklyk.mcptask.current.test.upsert
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -17,8 +20,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -31,9 +34,9 @@ import kotlin.test.assertTrue
  * SF2 follow-up on item `79cd4f0c` (A1 review): S8 (trait-seats wholesale, dispatch-block wholesale,
  * base-schema-seats LEGACY vs LAYERED), S9 (a per-item trait cannot redefine a base seat), and S2(b)
  * (the task-scope section 2 YAML pushed as a PER-ROOT config, not just a global file) -- all exercised
- * through a REAL per-root push (`projectConfigRepository().upsert`) resolved by the REAL
+ * through a REAL per-root push (`configStore().upsert`) resolved by the REAL
  * [EffectiveConfigResolver] wired inside a REAL [ServerComposition.build], observed through the public
- * MCP tools ([QueryItemsTool] for type-based resolution, [GetContextTool] for item-based resolution) --
+ * MCP tools ([ItemSchemaView] for type-based resolution, [GetContextTool] for item-based resolution) --
  * per the Public-API rule (`LayeredConfigSeatTest`'s existing S8/S9 coverage calls `LayeredConfig`'s
  * `internal` merge functions directly with hand-built [ConfigLayer]s, which the independent review
  * flagged: SF2). `LayeredConfigSeatTest` is left in place per the dispatch's instruction; this file adds
@@ -52,12 +55,10 @@ import kotlin.test.assertTrue
  * resolver's public surface instead of `LayeredConfig`'s internals.
  */
 class SeatPerRootResolverTest {
-    private fun buildDatabaseManager(): DatabaseManager {
-        val dbName = "seat_per_root_resolver_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        DirectDatabaseSchemaManager().updateSchema()
-        return DatabaseManager(database)
-    }
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
+    private fun buildDatabaseManager(): DatabaseManager = db.databaseManager
 
     private fun materializeGlobalConfig(
         tempDir: Path,
@@ -74,7 +75,11 @@ class SeatPerRootResolverTest {
     ): CompositionResult {
         materializeGlobalConfig(tempDir, globalConfig)
         val appConfig = AppConfig.fromEnv { key -> if (key == "AGENT_CONFIG_DIR") tempDir.toString() else null }
-        return ServerComposition(appConfig = appConfig, databaseManager = buildDatabaseManager(), shutdownCoordinator = null).build()
+        return ServerComposition(
+            appConfig = appConfig,
+            databaseManager = buildDatabaseManager(),
+            shutdownCoordinator = ShutdownCoordinator()
+        ).build().also { runBlocking { it.dataStepRunner.run() } }
     }
 
     private fun createRoot(
@@ -84,8 +89,7 @@ class SeatPerRootResolverTest {
         runBlocking {
             composition.toolContext.repositoryProvider
                 .workItemRepository()
-                .create(WorkItem(title = title, type = "project", depth = 0))
-                .getOrNull()!!
+                .create(WorkItem(title = title, type = "project", depth = 0))!!
                 .id
         }
 
@@ -96,9 +100,9 @@ class SeatPerRootResolverTest {
     ) {
         runBlocking {
             composition.toolContext.repositoryProvider
-                .projectConfigRepository()
+                .configStore()
                 .upsert(rootId, yaml)
-                .getOrNull() ?: error("fixture: per-root push failed for $rootId")
+                ?: error("fixture: per-root push failed for $rootId")
         }
     }
 
@@ -107,7 +111,7 @@ class SeatPerRootResolverTest {
         rootId: UUID,
         type: String,
         role: Role = Role.WORK,
-        properties: String? = null,
+        traits: List<String> = emptyList(),
     ): WorkItem =
         runBlocking {
             composition.toolContext.repositoryProvider
@@ -120,9 +124,9 @@ class SeatPerRootResolverTest {
                         parentId = rootId,
                         rootId = rootId,
                         depth = 1,
-                        properties = properties,
+                        traits = traits,
                     ),
-                ).getOrNull()!!
+                )!!
         }
 
     private fun schemaByType(
@@ -130,16 +134,10 @@ class SeatPerRootResolverTest {
         type: String,
         rootId: UUID?,
     ): JsonObject {
-        val params =
-            buildJsonObject {
-                put("operation", JsonPrimitive("schema"))
-                put("type", JsonPrimitive(type))
-                if (rootId != null) put("rootId", JsonPrimitive(rootId.toString()))
-            }
-        val result = runBlocking { QueryItemsTool().execute(params, composition.toolContext) }
-        val obj = result as JsonObject
-        assertTrue(obj["success"]!!.jsonPrimitive.boolean, "expected query_items(schema) success: $obj")
-        return obj["data"] as JsonObject
+        // The type-schema builder items_read(select=schema) serves (query_items was removed in Q19).
+        val data = runBlocking { ItemSchemaView.buildTypeSchemaJson(type, rootId, composition.toolContext.configResolver) }
+        assertTrue(data != null, "expected a schema for type '$type'")
+        return data!!
     }
 
     private fun getContextData(
@@ -148,7 +146,7 @@ class SeatPerRootResolverTest {
     ): JsonObject {
         val result =
             runBlocking {
-                GetContextTool().execute(buildJsonObject { put("itemId", JsonPrimitive(itemId.toString())) }, composition.toolContext)
+                ItemContextProbe().execute(buildJsonObject { put("itemId", JsonPrimitive(itemId.toString())) }, composition.toolContext)
             }
         val obj = result as JsonObject
         assertTrue(obj["success"]!!.jsonPrimitive.boolean, "expected get_context success: $obj")
@@ -274,14 +272,13 @@ class SeatPerRootResolverTest {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // S8c (N2) -- base-schema seats follow the layer schema_resolution selects: LEGACY lets the
-    // per-root `default` schema shadow global's EXACT type match; `layered` lets global's exact match
-    // win instead. Same per-root fixture on both roots, ONLY schema_resolution differs, so a mutation
-    // that ignores the mode reddens (both roots would otherwise resolve identically).
+    // S8c (N2) -- base-schema seats follow the layer the one precedence rule selects: global's EXACT
+    // type match beats the per-root `default`, and the removed `schema_resolution` key changes nothing.
+    // A type neither layer names still falls to the per-root `default`.
     // ─────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `S8c base-schema seats follow schema_resolution -- LEGACY per-root default shadows global's exact type, layered lets it win (N2)`(
+    fun `S8c base-schema seats follow the one precedence rule -- global exact type beats a per-root default (N2)`(
         @TempDir tempDir: Path,
     ) {
         val globalConfig =
@@ -310,9 +307,13 @@ class SeatPerRootResolverTest {
         val legacySeats = seatNames(schemaByType(composition, "special-type", legacyRoot))
         val layeredSeats = seatNames(schemaByType(composition, "special-type", layeredRoot))
 
-        assertEquals(listOf("p1"), legacySeats, "N2/LEGACY: the per-root default schema must shadow global's exact-type match")
-        assertEquals(listOf("g1"), layeredSeats, "N2/layered: global's exact-type match must win over the per-root default")
-        assertFalse(legacySeats == layeredSeats, "toggling schema_resolution alone must change which layer's base schema is served")
+        assertEquals(listOf("g1"), legacySeats, "global's exact-type match must win over the per-root default")
+        assertEquals(listOf("g1"), layeredSeats, "the removed schema_resolution key must change nothing")
+        assertEquals(
+            listOf("p1"),
+            seatNames(schemaByType(composition, "other-type", legacyRoot)),
+            "a type no layer names falls to the per-root default"
+        )
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -345,7 +346,7 @@ class SeatPerRootResolverTest {
         val composition = buildComposition(tempDir, "work_item_schemas: {}\n")
         val root = createRoot(composition, "S9 root")
         pushPerRoot(composition, root, perRootYaml)
-        val item = createChild(composition, root, "bug-fix", role = Role.WORK, properties = """{"traits":["t1"]}""")
+        val item = createChild(composition, root, "bug-fix", role = Role.WORK, traits = listOf("t1"))
 
         val data = getContextData(composition, item.id)
         val seats = data["seats"]!!.jsonArray.map { it.jsonObject }

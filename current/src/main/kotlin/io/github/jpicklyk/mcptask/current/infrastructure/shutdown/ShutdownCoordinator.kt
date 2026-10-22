@@ -44,8 +44,9 @@ class ShutdownCoordinator {
     private var shutdownStarted = false
 
     /**
-     * Register a named cleanup action. Actions execute in registration order
-     * during shutdown. May be called at any time, including concurrently with
+     * Register a named cleanup action. Actions execute in REVERSE registration
+     * order (LIFO) during shutdown, so a resource registered first (the database) is
+     * released last, after everything registered later that depends on it. May be called at any time, including concurrently with
      * or after [initiateShutdown]: if the drain has already started, the
      * action runs immediately on the calling thread instead of being enqueued
      * — it is never silently dropped.
@@ -86,7 +87,7 @@ class ShutdownCoordinator {
         val actionsSnapshot =
             synchronized(lock) {
                 shutdownStarted = true
-                cleanupActions.toList()
+                cleanupActions.toList().asReversed()
             }
 
         try {

@@ -1,9 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
-import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.infrastructure.config.GlobalConfigFile
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlWorkItemSchemaService
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -17,7 +15,7 @@ import kotlin.test.assertEquals
  * scenario S9. Oracle: the declarations' stated outcome for `EffectiveConfigResolver.availableTraits`
  * — `(perRootTraits + global.traitNames()).distinct()` — combined with the declared
  * `LayerBackedGlobalLookup.traitNames()` = `document.traits.keys.toList()` (YAML document key
- * order) and `ServiceBackedGlobalLookup.traitNames()` = `noteSchemaService.getAvailableTraits()`.
+ * order) and `LayerBackedGlobalLookup.traitNames()` = the global document's trait keys.
  * `distinct()` keeps the FIRST occurrence, so a trait present in both layers must appear once, at
  * its PER-ROOT position. This is an ORDER-SENSITIVE assertion (`List` equality), per the dispatch
  * contract's explicit instruction that S9 must never use `toSet()`.
@@ -66,11 +64,11 @@ class AvailableTraitsOrderTest {
     private val expectedOrder = listOf("pr-b", "alpha", "pr-a", "zeta", "mid")
 
     @Test
-    fun `S9 - availableTraits orders per-root keys first then global, deduped, over ServiceBackedGlobalLookup`(): Unit =
+    fun `S9 - availableTraits orders per-root keys first then global, deduped, over LayerBackedGlobalLookup`(): Unit =
         runBlocking {
             val path = writeGlobalYaml()
             val rootId = UUID.randomUUID()
-            val global = ServiceBackedGlobalLookup(YamlWorkItemSchemaService(path), NoOpStatusLabelService)
+            val global = LayerBackedGlobalLookup(GlobalConfigFile(path).layer())
             val resolver = EffectiveConfigResolver(global, perRootSource())
 
             assertEquals(listOf("zeta", "alpha", "mid"), global.traitNames(), "sanity: global YAML document key order")

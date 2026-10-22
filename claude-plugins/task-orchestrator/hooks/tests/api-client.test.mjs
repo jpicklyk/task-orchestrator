@@ -11,7 +11,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname, sep } from 'node:path';
-import { apiBaseUrl, authHeader, fetchWithTimeout, isLoopbackApiUrl } from '../api-client.mjs';
+import { apiBaseUrl, authHeader, fetchWithTimeout, isLoopbackApiUrl } from '../lib/api-client.mjs';
 import { userClientPath } from '../config-locator.mjs';
 
 function withEnv(callerVars, fn) {
@@ -472,7 +472,7 @@ test('75f0e354 probe: a finished fetch with a long timeout does not keep the pro
   });
   try {
     const { port } = server.address();
-    const moduleUrl = new URL('../api-client.mjs', import.meta.url).href;
+    const moduleUrl = new URL('../lib/api-client.mjs', import.meta.url).href;
     const code =
       `import { fetchWithTimeout } from ${JSON.stringify(moduleUrl)};` +
       `const r = await fetchWithTimeout(process.argv[1], {}, 10000); await r.text();`;

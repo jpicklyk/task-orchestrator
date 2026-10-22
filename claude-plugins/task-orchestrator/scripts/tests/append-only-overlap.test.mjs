@@ -1,3 +1,4 @@
+// Ported to 4.0 from main commit 95639ae1 (item cac1bffa, task-scope D11): the main test file, adapted only where AC names it (actor fields, planDocSlug -> serverRunId, ledger assignment, 4.0 file paths).
 // Append-only file overlap is a merge-time conflict, not a reason to defer (item 7474b61a).
 //
 // BLIND test author: written from the item's frozen queue notes `task-scope` (Contract, Pattern
@@ -19,7 +20,7 @@
 // assembleArgs output.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
@@ -35,7 +36,7 @@ const SCRIPT_PATH = join(PLUGIN_ROOT, 'workflows', 'implement-wave.js')
 const FIXTURES = join(HERE, 'fixtures', 'run-planner')
 const NOW = '2026-09-28T12:00:00Z'
 
-const SERVER_KT = 'current/src/main/kotlin/io/github/jpicklyk/mcptask/current/interfaces/mcp/CurrentMcpServer.kt'
+const SERVER_KT = 'current/src/main/kotlin/io/github/jpicklyk/mcptask/current/bootstrap/CurrentMcpServer.kt'
 const BUDGET_KT = 'current/src/test/kotlin/io/github/jpicklyk/mcptask/current/application/tools/ToolTokenBudgetTest.kt'
 
 // ---- builders (valid by construction against the planner-v1 / implementer-v1 required fields) ----
@@ -406,12 +407,17 @@ test('S3 [E]: the args-v1 schema fixture rejects a non-array project.appendOnlyF
   assert.equal(validatePlanDoc(badItem, loadFixture('args-v1.schema.json')).ok, false)
 })
 
-test('S4 [E]: the repo .taskorchestrator/run-profile.json lists CHANGELOG.md, the tool registry and the budget test, and passes validateSnapshot (TS Files)', () => {
+// 4.0 adaptation (cac1bffa): the tool registry lives under bootstrap/ on 4.0 and ToolTokenBudgetTest.kt
+// no longer exists there (task-scope AC9 still names it), so the budget-test entry is not asserted;
+// instead every literal profile entry must name a file that exists, so a stale entry fails.
+test('S4 [E]: the repo .taskorchestrator/run-profile.json lists CHANGELOG.md and the tool registry, every literal entry exists, and it passes validateSnapshot (TS Files)', () => {
   const profile = JSON.parse(readFileSync(join(REPO_ROOT, '.taskorchestrator', 'run-profile.json'), 'utf8'))
   assert.ok(Array.isArray(profile.appendOnlyFiles))
   assert.ok(profile.appendOnlyFiles.includes('CHANGELOG.md'))
   assert.ok(profile.appendOnlyFiles.includes(SERVER_KT))
-  assert.ok(profile.appendOnlyFiles.includes(BUDGET_KT))
+  for (const entry of profile.appendOnlyFiles.filter((e) => !/[*?[\]{}]/.test(e))) {
+    assert.ok(existsSync(join(REPO_ROOT, entry)), `profile.appendOnlyFiles entry does not exist on 4.0: ${entry}`)
+  }
 
   const control = validateSnapshot(independentTwoWith(undefined, { absent: true }))
   assert.equal(control.ok, true, JSON.stringify(control.errors))

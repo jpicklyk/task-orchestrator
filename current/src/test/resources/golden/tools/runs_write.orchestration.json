@@ -1,0 +1,207 @@
+{
+  "name": "runs_write",
+  "inputSchema": {
+    "properties": {
+      "ops": {
+        "type": "array",
+        "description": "Write operations, one flat object per op, run in order. A field marked [ops: ...] applies only to the ops named.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "description": "The operation this element runs.",
+              "enum": [
+                "open",
+                "update",
+                "close",
+                "assign",
+                "end_seat",
+                "raise"
+              ]
+            },
+            "rootId": {
+              "type": "string",
+              "description": "The root item the run belongs to. Item id: a UUID or a hex prefix of 8 to 32 characters. [ops: open, raise]"
+            },
+            "items": {
+              "type": "array",
+              "description": "Member items, at most 500. Each is an item of the root that has a lifecycle and is in no other open run. [ops: open]",
+              "items": {
+                "type": "string"
+              }
+            },
+            "scopeId": {
+              "type": "string",
+              "description": "An item the run is scoped to. Item id: a UUID or a hex prefix of 8 to 32 characters. [ops: open]"
+            },
+            "label": {
+              "type": "string",
+              "description": "A short label, at most 64 characters. [ops: open]"
+            },
+            "title": {
+              "type": "string",
+              "description": "A title, at most 200 characters. [ops: open]"
+            },
+            "budget": {
+              "type": "object",
+              "description": "Run budget: tokens, costUsd, attemptsPerSeat, maxActiveSeats; absent means no cap. On open it may not exceed a configured ceiling; on update a field can only be lowered or newly set. [ops: open, update]",
+              "properties": {
+                "tokens": {
+                  "type": "integer",
+                  "description": "Token limit."
+                },
+                "costUsd": {
+                  "type": "number",
+                  "description": "Cost limit in US dollars, a decimal such as 12.5."
+                },
+                "attemptsPerSeat": {
+                  "type": "integer",
+                  "description": "Most attempts one seat may take."
+                },
+                "maxActiveSeats": {
+                  "type": "integer",
+                  "description": "Most seats active at once."
+                }
+              }
+            },
+            "stallAfterSeconds": {
+              "type": "integer",
+              "description": "Seconds without a coordinator sign of life before the run reads as stalled. Default from config. [ops: open]"
+            },
+            "hints": {
+              "type": "object",
+              "description": "Short structured coordinator hints, string to string. On update they replace the stored hints. [ops: open, update, assign]",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "runId": {
+              "type": "string",
+              "description": "Run id: a UUID or a hex prefix of 8 to 32 characters. [ops: update, close, assign, raise]"
+            },
+            "addItems": {
+              "type": "array",
+              "description": "Items to add to the run. Item id: a UUID or a hex prefix of 8 to 32 characters. [ops: update]",
+              "items": {
+                "type": "string"
+              }
+            },
+            "removeItems": {
+              "type": "array",
+              "description": "Items to remove from the run. Item id: a UUID or a hex prefix of 8 to 32 characters. [ops: update]",
+              "items": {
+                "type": "string"
+              }
+            },
+            "expectedVersion": {
+              "type": "integer",
+              "description": "Fails with version_conflict unless the run is at this version. [ops: update]"
+            },
+            "reason": {
+              "type": "string",
+              "description": "Why the run ends: completed, cancelled, failed or abandoned. completed is refused while a seat is active. [ops: close]",
+              "enum": [
+                "completed",
+                "cancelled",
+                "failed",
+                "abandoned"
+              ]
+            },
+            "itemId": {
+              "type": "string",
+              "description": "Item id: a UUID or a hex prefix of 8 to 32 characters. [ops: assign, raise]"
+            },
+            "seat": {
+              "type": "string",
+              "description": "A seat of the item's schema (implementer or planner when it has none). Returns a seat token; re-assigning supersedes. [ops: assign]"
+            },
+            "outcome": {
+              "type": "string",
+              "description": "How the calling seat ended. [ops: end_seat]",
+              "enum": [
+                "done",
+                "failed",
+                "abandoned"
+              ]
+            },
+            "summary": {
+              "type": "string",
+              "description": "Closing summary, at most 500 characters. [ops: end_seat]"
+            },
+            "links": {
+              "type": "array",
+              "description": "Up to 10 {kind, ref} pointers; kind is item, note, doc, commit or url. [ops: end_seat, raise]",
+              "items": {
+                "type": "object"
+              }
+            },
+            "class": {
+              "type": "string",
+              "description": "Decision class (for example question or deviation); it decides who may answer. [ops: raise]"
+            },
+            "question": {
+              "type": "string",
+              "description": "The question, at most 500 characters. [ops: raise]"
+            },
+            "options": {
+              "type": "array",
+              "description": "1 to 8 choices, each {key, label, consequence}. [ops: raise]",
+              "items": {
+                "type": "object"
+              }
+            },
+            "recommended": {
+              "type": "string",
+              "description": "Key of the recommended option. [ops: raise]"
+            },
+            "context": {
+              "type": "string",
+              "description": "Background for the answerer, at most 1000 characters. [ops: raise]"
+            },
+            "dedupeKey": {
+              "type": "string",
+              "description": "Re-raising the same key returns the open or answered decision instead of a new one. [ops: raise]"
+            },
+            "severity": {
+              "type": "string",
+              "description": "Class default. [ops: raise]",
+              "enum": [
+                "high",
+                "normal",
+                "low"
+              ]
+            },
+            "block": {
+              "type": "boolean",
+              "description": "true: also block itemId as awaiting_decision in the same unit. [ops: raise]"
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "Optional client key (1-128 chars). Resending the same op with the same key returns the stored result."
+            }
+          },
+          "required": [
+            "op"
+          ]
+        }
+      },
+      "atomic": {
+        "type": "boolean",
+        "description": "true: the first failing op rolls back the whole batch. Default false: each op commits on its own."
+      },
+      "describe": {
+        "type": "boolean",
+        "description": "true: return the operations, their parameters and errors instead of running the tool."
+      }
+    },
+    "type": "object"
+  },
+  "description": "Open, update, close, pause, resume and mark runs; assign and end seats; raise, ack, answer and withdraw decisions. Each op needs the runs capability (ack, answer: decide) and a root in scope. close: coordinator, director or a human; update, assign: coordinator token; end_seat: the seat's own token; pause and resume: director or human only; mark: REST only. Result: the run (close adds snapshot, mark adds marked) or the decision. Call with describe:true for each operation's parameters and errors.",
+  "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

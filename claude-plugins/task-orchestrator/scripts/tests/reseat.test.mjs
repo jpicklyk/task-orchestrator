@@ -1,3 +1,4 @@
+// Ported to 4.0 from main commit 7dfbb2da (item cac1bffa, task-scope D11): the main test file, adapted only where AC names it (actor fields, planDocSlug -> serverRunId, ledger assignment, 4.0 file paths).
 // Coverage for `run-planner reseat` (item 4bd560d0): the pure lib reseat() in run-exec-lib.mjs, the
 // CLI subcommand routed from run-planner.mjs, the fix-cycle model in verify(), and the ledger read by
 // provenance(). Scenario ids S1-S16 match the item's frozen `test-plan` note; S17-S18 and the probes
@@ -143,26 +144,26 @@ function cliBase(planPath, resultPath, seat, extra = []) {
 
 // ── S1: implementer-a1 prompt ───────────────────────────────────────────────────────────────────
 
-test('S1: reseat implementer-a1 renders an in-phase fix-cycle prompt with the -a1 seat, actor and trailer, no ENTRY block', () => {
+test('S1: reseat implementer-a1 renders an in-phase fix-cycle prompt with the -a1 seat and trailer, no actor, no ENTRY block', () => {
   const { doc } = makeDoc()
   const out = callReseat(realCore(), doc, makeResult(doc), SHORT, 'implementer-a1', { pre: C2 })
   assert.equal(out.ok, true, JSON.stringify(out))
   assert.equal(out.seat, 'implementer-a1')
   assert.equal(out.baseSeat, 'implementer')
   assert.equal(out.cycle, 1)
-  assert.ok(JSON.stringify(out.actor).includes(`implementer-a1:${SHORT}:${RUN_ID}`), JSON.stringify(out.actor))
+  assert.equal(Object.hasOwn(out, 'actor'), false, 'the 4.0 reseat result carries no actor (AC1)')
   const p = out.prompt
   assert.ok(p.includes(`SEAT: implementer-a1 for item item-${SHORT}`), 'seat line')
-  assert.ok(p.includes(`"id":"implementer-a1:${SHORT}:${RUN_ID}"`), 'actor id in the ACTOR line')
+  assert.equal(/\bactor\b/i.test(p), false, 'no actor word anywhere in the prompt (AC1): ' + (p.match(/.{0,60}\bactor\b.{0,60}/i) || [''])[0])
+  assert.equal(p.includes('ACTOR:'), false, 'no ACTOR line')
   assert.ok(p.includes('-m "Seat: implementer-a1"'), 'commit trailer')
   assert.ok(p.includes('with trailer "Seat: implementer-a1"'), 'RERUN CHECK trailer')
-  assert.ok(p.includes(`actor implementer-a1:${SHORT}:${RUN_ID}`), 'RERUN CHECK actor')
   assert.ok(
     p.includes('FIX CYCLE A1: work only section "## Amendment A1" of the item\'s planning note and the blocking findings it cites.'),
     'fix-cycle line'
   )
   assert.equal(p.includes('ENTRY:'), false, 'no ENTRY block for an out-of-run in-phase seat')
-  assert.equal(p.includes('ENTRY REPORT'), false)
+  // 4.0: the shared ERRORS part mentions "ENTRY REPORT" for every seat, so only the ENTRY: block and the entry-seat rule are asserted absent
   assert.ok(p.includes('protocol.in-phase-seat'), 'non-entering seat rule')
   assert.equal(p.includes('protocol.entry-seat'), false)
   assert.ok(p.includes('HANDOFF from planner:') && p.includes('mainFiles: src/x.js'), 'outs come from the result item outputs')
@@ -831,4 +832,27 @@ test('A1-d (CLI): an unreadable --plan exits 2 with the plan-specific message', 
   const res = runCli(cliBase(planPath, resultPath, 'implementer-a1', ['--pre', C2]))
   assert.equal(res.status, 2, `exit ${res.status}, stdout ${res.stdout}, stderr ${res.stderr}`)
   assert.equal(JSON.parse(res.stderr).detail, `--plan ${planPath} could not be read or parsed as a plan`)
+})
+
+// ── 4.0 twist (task-scope D11): --assignment <id> is recorded in the ledger row ─────────────────
+
+const ASSIGNMENT = '8f14e45f-ceea-4672-8a3e-5e8f4a9b7c10'
+
+test('D11 (CLI): reseat --assignment <id> records the id in the ledger row; without the flag the row holds no such id', () => {
+  const { doc } = makeDoc()
+  const dir = mkdtempSync(join(tmpdir(), 'reseat-asg-'))
+  const planPath = writeJson(dir, 'plan.json', doc)
+  const resultPath = writeJson(dir, 'result.json', makeResult(doc))
+
+  const withFlag = runCli(cliBase(planPath, resultPath, 'implementer-a1', ['--pre', C2, '--assignment', ASSIGNMENT]))
+  assert.equal(withFlag.status, 0, withFlag.stderr)
+  const row = JSON.parse(withFlag.stdout).result.items[0].reseats[0]
+  assert.ok(Object.values(row).includes(ASSIGNMENT), `ledger row must carry the assignment id: ${JSON.stringify(row)}`)
+  assert.equal(row.seat, 'implementer-a1')
+  assert.equal(row.pre, C2)
+
+  const without = runCli(cliBase(planPath, resultPath, 'implementer-a1', ['--pre', C2]))
+  assert.equal(without.status, 0, without.stderr)
+  const bare = JSON.parse(without.stdout).result.items[0].reseats[0]
+  assert.equal(Object.values(bare).includes(ASSIGNMENT), false, 'fixture condition: the id appears only when passed')
 })

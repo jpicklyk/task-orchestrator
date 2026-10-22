@@ -5,6 +5,24 @@ export const meta = {
   phases: [{ title: 'Queue' }, { title: 'Work' }],
 }
 // @core-begin
+// @generated:tool-names-begin (scripts/gen-call-shapes.mjs; do not edit, run it to refresh)
+const TOOL_NAMES = Object.freeze({
+  ADVANCE: 'advance',
+  CONFIG: 'config',
+  DEPS_READ: 'deps_read',
+  DEPS_WRITE: 'deps_write',
+  DOCS_READ: 'docs_read',
+  DOCS_WRITE: 'docs_write',
+  ITEMS_READ: 'items_read',
+  ITEMS_WRITE: 'items_write',
+  NOTES_READ: 'notes_read',
+  NOTES_WRITE: 'notes_write',
+  REPORT: 'report',
+  RUNS_READ: 'runs_read',
+  RUNS_WRITE: 'runs_write',
+})
+// @generated:tool-names-end
+const MCP_TOOL_PREFIX = 'mcp__mcp-task-orchestrator__'
 const ENVELOPE_VERSION = 'envelope-v1'
 
 /** Output schema catalog, keyed by output-schema id (versioned seat contracts, never item types). */
@@ -279,6 +297,23 @@ function normalizeArgs(raw) {
   if (parsed.project && parsed.project.appendOnlyFiles !== undefined &&
       (!Array.isArray(parsed.project.appendOnlyFiles) || parsed.project.appendOnlyFiles.some((e) => typeof e !== 'string'))) {
     return { ok: false, reason: 'invalid args: bad appendOnlyFiles' }
+  }
+  // altitudeSafe is optional: true scrubs the result to counts and pointers (altitudeSafeResult),
+  // so a director session that makes the Workflow call never receives seat prose.
+  if ('altitudeSafe' in parsed && parsed.altitudeSafe !== undefined && typeof parsed.altitudeSafe !== 'boolean') {
+    return { ok: false, reason: 'invalid args: bad altitudeSafe' }
+  }
+  // serverRunId is optional (set by run-planner bind-run once runs_write open answered): the server
+  // run UUID. Seats of a bound run read their seat token from a file under project.scratchDir.
+  if (parsed.serverRunId !== undefined && parsed.serverRunId !== null) {
+    if (typeof parsed.serverRunId !== 'string' ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(parsed.serverRunId)) {
+      return { ok: false, reason: 'invalid args: bad serverRunId' }
+    }
+    const pj = parsed.project
+    if (!pj || typeof pj !== 'object' || typeof pj.scratchDir !== 'string' || pj.scratchDir === '') {
+      return { ok: false, reason: 'invalid args: serverRunId requires project.scratchDir' }
+    }
   }
   if (!Array.isArray(parsed.items) || parsed.items.length < 1) {
     return { ok: false, reason: 'invalid args: items must be a non-empty array' }
@@ -672,12 +707,18 @@ function envelopeSchema(outputId, extra = {}, opts = {}) {
       notes: {
         type: 'array',
         items: {
-          type: 'object', required: ['key', 'actor'],
+          type: 'object', required: ['key'],
           properties: {
-            key: { type: 'string' }, actor: { type: 'string' },
+            key: { type: 'string' }, seat: { type: 'string' },
             chars: { type: 'integer' }, warning: { type: 'string' },
           },
         },
+      },
+      seatEnded: { type: 'boolean' },
+      decisionId: { type: 'string' },
+      paused: {
+        type: 'object',
+        properties: { decisionId: { type: 'string' } },
       },
       commits: {
         type: 'object', required: ['pre', 'post'],
@@ -713,14 +754,17 @@ function mapEntry(env, entryMode = 'seat') {
   if (entry.errorCode === 'gate_blocked' && entry.previousRole === 'work') {
     return { status: 'done', reason: 'alreadyInPhase' }
   }
-  if (entry.errorCode === 'dependency_blocked' || (Array.isArray(entry.blockers) && entry.blockers.length > 0)) {
+  if (entry.errorCode === 'dependency_unmet' || (Array.isArray(entry.blockers) && entry.blockers.length > 0)) {
     return { status: 'deferred', reason: `blocked by ${(entry.blockers || []).join(',')}` }
   }
   if (entry.errorCode === 'resource_unavailable') {
     return { status: 'deferred', reason: `resource ${(entry.contendedResources || []).join(',')}` }
   }
-  if (entry.errorCode === 'config_unavailable') {
+  if (entry.errorCode === 'unavailable') {
     return { status: 'deferred', reason: 'config-unavailable' }
+  }
+  if (entry.errorCode === 'unauthenticated') {
+    return { status: 'stopped', reason: 'seat-token-rejected' }
   }
   if (entry.errorCode === 'gate_blocked' && entry.previousRole === 'queue') {
     return { status: 'stopped', reason: `queue gap ${(entry.missingNotes || []).join(',')}` }
@@ -807,6 +851,58 @@ function mapStageResult(stage, env, entryMode = 'seat', item) {
 }
 
 /**
+ * stripTokens(value, knownTokens = []) -> structurally equal copy of value with (a) every
+ * property named exactly seatToken or coordinatorToken removed at any depth, and (b) every
+ * occurrence of each known token (longest first) replaced by '[redacted-token]' in string
+ * values and object keys; every key, including __proto__, is copied as an own data property.
+ * Non-string/empty tokens are ignored; input is never mutated.
+ * Method A can only strip by key (no token value is knowable inside the Workflow sandbox).
+ */
+function stripTokens(value, knownTokens = []) {
+  const REDACTED = '[redacted-token]'
+  const tokens = (Array.isArray(knownTokens) ? knownTokens : [])
+    .filter((t) => typeof t === 'string' && t.length > 0)
+    .sort((a, b) => b.length - a.length)
+  // Single left-to-right scan, longest token first at each position, so a shorter token never
+  // matches inside the redaction literal left by a longer one.
+  const redact = (str) => {
+    if (tokens.length === 0) return str
+    let out = ''
+    let i = 0
+    while (i < str.length) {
+      const hit = tokens.find((t) => str.startsWith(t, i))
+      if (hit) {
+        out += REDACTED
+        i += hit.length
+      } else {
+        out += str[i]
+        i += 1
+      }
+    }
+    return out
+  }
+  const walk = (v) => {
+    if (typeof v === 'string') return redact(v)
+    if (Array.isArray(v)) return v.map(walk)
+    if (v && typeof v === 'object') {
+      const out = {}
+      for (const k of Object.keys(v)) {
+        if (k === 'seatToken' || k === 'coordinatorToken') continue
+        Object.defineProperty(out, redact(k), {
+          value: walk(v[k]),
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        })
+      }
+      return out
+    }
+    return v
+  }
+  return walk(value)
+}
+
+/**
  * scanDeclarations(text) -> {text, stripped:string[]}
  * Splits text into lines and removes every line containing a behaviour word as a
  * whole word (case-insensitive): returns, throws, falls back, catches, calls, if,
@@ -838,9 +934,18 @@ function scanDeclarations(text) {
   return { text: kept.join('\n'), stripped }
 }
 
-/** seatActor(stage, item, plan) -> {id, kind:'subagent', parent:'workflow:'+runId} */
-function seatActor(stage, item, plan) {
-  return { id: `${stage.seat}:${item.short}:${plan.runId}`, kind: 'subagent', parent: `workflow:${plan.runId}` }
+/**
+ * seatTokenFile(plan, item, stage) -> string | null
+ * The file a seat of a bound server run reads its seat token from:
+ * <project.scratchDir>/tokens/<short>.<seat>.token. null when the plan is not bound to a server run
+ * (no serverRunId), when the stage is an inserted (non-schema) stage, which runs token-less, or when
+ * no scratchDir is set. Only the path is ever rendered; the token itself never enters the plan.
+ */
+function seatTokenFile(plan, item, stage) {
+  if (!plan || !plan.serverRunId || !stage || stage.inserted) return null
+  const dir = plan.project && plan.project.scratchDir
+  if (typeof dir !== 'string' || dir === '') return null
+  return `${normalizePath(dir).replace(/\/+$/, '')}/tokens/${item.short}.${stage.seat}.token`
 }
 
 function isReadOnlyStage(stage) {
@@ -866,28 +971,39 @@ function promptScope(plan, item) {
   return lines.join('\n')
 }
 
-/** Part 3: tool selection. Pre-entered mode never advances, so advance_item is withheld. */
-function promptTools(plan, stage) {
-  const names = [
-    'mcp__mcp-task-orchestrator__query_items',
-    'mcp__mcp-task-orchestrator__query_notes',
-    'mcp__mcp-task-orchestrator__query_dependencies',
-    'mcp__mcp-task-orchestrator__get_context',
-    'mcp__mcp-task-orchestrator__query_rules',
-  ]
-  if (!isReadOnlyStage(stage)) names.push('mcp__mcp-task-orchestrator__manage_notes')
-  if (stage.enters && plan.entryMode !== 'pre-entered') names.push('mcp__mcp-task-orchestrator__advance_item')
-  return `TOOLS: load with ToolSearch select:${names.join(',')}`
+/**
+ * Part 3: tool selection. Pre-entered mode never advances, so advance is withheld; runs_write is
+ * named only for a seat that holds a seat token (end_seat, raise).
+ */
+function promptTools(plan, item, stage) {
+  const names = [TOOL_NAMES.ITEMS_READ, TOOL_NAMES.NOTES_READ, TOOL_NAMES.DEPS_READ, TOOL_NAMES.CONFIG]
+  if (!isReadOnlyStage(stage)) names.push(TOOL_NAMES.NOTES_WRITE)
+  if (stage.enters && plan.entryMode !== 'pre-entered') names.push(TOOL_NAMES.ADVANCE)
+  if (seatTokenFile(plan, item, stage)) names.push(TOOL_NAMES.RUNS_WRITE)
+  return `TOOLS: load with ToolSearch select:${names.map((n) => MCP_TOOL_PREFIX + n).join(',')}`
 }
 
-/** Part 4: actor. */
-function promptActor(stage, item, plan) {
-  const actor = seatActor(stage, item, plan)
-  return (
-    `ACTOR: ${JSON.stringify(actor)} — place this actor inside every notes[]/transitions[] ` +
-    'element you write (enforce-actor-attribution.mjs checks per element; phase-guard-record.mjs ' +
-    'filters on parent starting with "workflow:").'
-  )
+/**
+ * Part 4: seat token. Names the token FILE, never the token: the seat reads it itself. Omitted when
+ * the plan is not bound to a server run.
+ */
+function promptSeatToken(plan, item, stage) {
+  if (!plan.serverRunId) return ''
+  const file = seatTokenFile(plan, item, stage)
+  if (!file) {
+    return (
+      `SEAT TOKEN: none. Run ${plan.serverRunId}: this stage is not a schema seat, so it runs without a seat token. ` +
+      'Read only: never write a note, never transition, never call runs_write.'
+    )
+  }
+  return [
+    `SEAT TOKEN: run ${plan.serverRunId}. Your seat token is the single line in the file ${file}. Read that file with your ` +
+      'file tool, trim the line, and pass it as the top-level seatToken field of every task-orchestrator call you make, reads included.',
+    'Never print, quote, echo, log or commit the token or the file content, and never copy it into a note, a commit message, ' +
+      'a file or your final message. Refer to it only as "the seat token".',
+    'A call refused unauthenticated ("The seat token is not accepted.") means this seat was superseded or ended: stop at once, ' +
+      'write nothing more, and return status "stopped", reason "seat-token-rejected".',
+  ].join('\n')
 }
 
 /** Part 5: owned notes / excluded reads. */
@@ -896,8 +1012,8 @@ function promptOwnedNotes(stage, item) {
   const excluded = (stage.readsExclude || []).join(', ') || 'none'
   let out =
     `NOTES: you own [${owned}]. The phase's other required notes belong to other seats — ` +
-    `do not fill them. Excluded from your reads: [${excluded}]. Always pass keys= on every ` +
-    'query_notes call.'
+    `do not fill them. Excluded from your reads: [${excluded}]. Always pass keys:[...] on every ` +
+    'notes_read list call.'
   const optional = (stage.optionalNotes || []).filter((k) => (stage.notes || []).includes(k))
   if (optional.length) {
     out += ` Optional among yours: [${optional.join(', ')}] — fill only with real content, never a placeholder.`
@@ -924,8 +1040,8 @@ function promptCarryIns(stage, item) {
       : 'a "## Carry-in dispositions" section of your own queue note'
     const rows = keys.map((k) => `  ${k}: in scope (AC n) | deferred to <item-id> | rejected because <reason>`).join('\n')
     return (
-      'CARRY-INS: this item has carry-in notes. Read every one with query_notes(operation:"list", ' +
-      `itemId:"${item.id}", keys:[${quoted(keys)}], includeBody:true) before you plan. ` +
+      'CARRY-INS: this item has carry-in notes. Read each body before you plan with ' +
+      `notes_read(select:"get", itemId:"${item.id}", key:"<key>"), one get per key in keys:[${quoted(keys)}] (a list returns no bodies). ` +
       `Then record exactly one disposition row per key in ${target}, choosing one alternative per row, ` +
       'and end the record with the count line:\n' +
       rows +
@@ -935,8 +1051,8 @@ function promptCarryIns(stage, item) {
   if (stage.output === 'implementer-v1' && late.length) {
     return (
       'LATE CARRY-INS: these carry-in notes were written after planning and have no planner disposition: ' +
-      `[${late.join(', ')}]. Before writing code, read each with query_notes(operation:"list", ` +
-      `itemId:"${item.id}", keys:[${quoted(late)}], includeBody:true). ` +
+      `[${late.join(', ')}]. Before writing code, read each body with ` +
+      `notes_read(select:"get", itemId:"${item.id}", key:"<key>"), one get per key in keys:[${quoted(late)}] (a list returns no bodies). ` +
       'The orchestrator records the disposition for each in its orchestrator-carry-in-dispositions note; a key ' +
       'marked "in scope" binds you the same way task-scope does, and a conflict with it goes under Deviations requested.'
     )
@@ -960,9 +1076,9 @@ function promptRules(plan, stage) {
   }
   const skillKeys = Array.isArray(stage.skills) ? stage.skills : []
   const lines = [
-    `RULES: fetch each key below via query_rules(operation:"get", rootId:"${plan.rootId}", key:<key>) and follow the returned body over anything paraphrased here.`,
+    `RULES: fetch each key below via config(ops:[{op:"rules", rootId:"${plan.rootId}", key:<key>}]) and follow the returned body over anything paraphrased here.`,
     `Keys: ${keys.join(', ')}.`,
-    `RESOURCE_NOT_FOUND for a key falls back to this stage's skills entry of the same name${skillKeys.length ? ` (${skillKeys.join(', ')})` : ''}.`,
+    `A not_found result for a key falls back to this stage's skills entry of the same name${skillKeys.length ? ` (${skillKeys.join(', ')})` : ''}.`,
     `A missing PROTOCOL key (${protocolKey}) is fatal: status stopped, reason "rule ${protocolKey} unavailable".`,
     'Record every key you fetched, with its rulesVersion, under the envelope\'s rulesFetched.',
   ]
@@ -973,11 +1089,11 @@ function promptRules(plan, stage) {
 function promptDriftPin(item, stage) {
   if (item.schemaFree || isReadOnlyStage(stage)) return ''
   const lines = [
-    `DRIFT PIN: before your first write, call query_items(operation:"schema", itemId:"${item.id}").`,
+    `DRIFT PIN: before your first write, call items_read(select:"schema", itemId:"${item.id}").`,
     `Its configFingerprint must equal ${item.configFingerprint}.`,
   ]
   if (item.itemTraits !== undefined) {
-    lines.push(`get(itemId) -> properties.traits must equal ${JSON.stringify(item.itemTraits)}.`)
+    lines.push(`items_read(select:"get", itemId) -> traits (the item's top-level traits array) must equal ${JSON.stringify(item.itemTraits)}.`)
   } else {
     lines.push(`For reference, traits: ${JSON.stringify(item.traits || [])}.`)
   }
@@ -985,19 +1101,48 @@ function promptDriftPin(item, stage) {
   return lines.join('\n')
 }
 
-/** Part 8: config-unavailable retry, constant. */
+/** Part 8: per-element results, constant. */
+function promptResults() {
+  return (
+    'RESULTS: a write tool answers data.results[i], one entry per ops[] element; read each element\'s own ok and ' +
+    'data.results[i].error (code, detail, fix). A call-level partial_failure only means "an element failed, look per ' +
+    'element": it carries no detail. The exception is an atomic batch (atomic: true): it answers only the failing ' +
+    'element\'s own error with error.index, and nothing was written.'
+  )
+}
+
+/** Part 9: config-unavailable retry, constant. */
 function promptConfigRetry() {
   return (
-    'CONFIG RETRY: on a config_unavailable failure, retry once after one intervening read call ' +
+    'CONFIG RETRY: on an unavailable failure (kind shedding), retry once after one intervening read call ' +
     '— no sleep. A second failure returns status "deferred", reason "config-unavailable".'
   )
 }
 
-/** Part 9: inline note bodies, constant. */
+/** Part 10: error vocabulary and retry classes, constant. */
+function promptErrors() {
+  return [
+    'ERRORS: branch on the error code (per element, see RESULTS), never on message text.',
+    'Retried: unavailable, once (CONFIG RETRY). Every other code here is never retried.',
+    'run_paused {pauseReason, pauseDecisionId}: the run is paused on a budget, attempt-cap or manual pause. Never retry it; ' +
+      'a director or a human answers the decision. Write nothing more and return status "stopped", reason "run_paused", ' +
+      'decisionId = detail.pauseDecisionId when present. A withdrawn pause decision leaves the run paused until it closes.',
+    'A successful result carrying paused:{decisionId}: your call landed and the run then paused. Make no further write; ' +
+      'return status "stopped", reason "run_paused", with paused:{decisionId} in the envelope.',
+    'run_at_capacity {active, max}: transient and coordinator-only (assign at maxActiveSeats); the coordinator backs off until a seat ends.',
+    'Permanent, never retried: note_owned_by_other {ownerSeat} (the key belongs to another seat), seat_forbidden, ' +
+      'not_claim_holder, decision_closed {decisionId, status}, forbidden (detail.required names who may), not_found ' +
+      '(detail.kind seat or decision included), invalid_transition. Stop and put the code in reason. At ENTRY, follow the ' +
+      'ENTRY REPORT instead (gate_blocked, dependency_unmet and resource_unavailable are reported there, not retried).',
+    'A blocked item allows only resume and cancel, and answering a decision never resumes it: never resume or cancel an item yourself.',
+  ].join('\n')
+}
+
+/** Part 11: inline note bodies, constant. */
 function promptInlineBodies() {
   return (
-    'NOTE BODIES: pass body inline on every manage_notes upsert. Never use bodyFromFile. ' +
-    're-trim and re-upsert if any upsert response carries a warning.'
+    'NOTE BODIES: pass body inline on every notes_write upsert (ops:[{op:"upsert", itemId, key, role, body}]). ' +
+    'Never use bodyFromFile. Re-trim and re-upsert if a result element carries a warning.'
   )
 }
 
@@ -1184,16 +1329,17 @@ function handoff(stage, outs, roots, item) {
   return lines.join('\n')
 }
 
-/** Part 13: rerun-safe check + entry protocol. */
-function promptRerunAndEntry(plan, item, stage, actor) {
+/** Part 15: rerun-safe check + entry protocol. */
+function promptRerunAndEntry(plan, item, stage) {
   if (!stage.writes && !stage.enters) return ''
   const lines = []
+  const tokenFile = seatTokenFile(plan, item, stage)
   if (stage.writes) {
     lines.push(
       `RERUN CHECK: before doing any work, run git -C ${item.worktree} log --format=%H%x09%s%x09%b ${plan.baseSha}..HEAD ` +
         `and look for a commit subject containing "[${item.short}]" with trailer "Seat: ${stage.seat}". If found, your ` +
-        `own notes are already filled under actor ${actor.id} (verify via query_notes with includeBody:false) — stop, ` +
-        'do not redo the work.'
+        'own notes are already filled (verify with notes_read(select:"list", itemId, keys:[<your keys>]), which returns no ' +
+        `bodies) — ${tokenFile ? 'end your seat (END SEAT, outcome done) and ' : ''}stop, do not redo the work.`
     )
     lines.push(
       'INTERRUPTED-ATTEMPT CHECK: if your own commit is absent but the worktree has uncommitted changes in files you may own, ' +
@@ -1208,30 +1354,68 @@ function promptRerunAndEntry(plan, item, stage, actor) {
     )
   }
   if (stage.enters) {
-    lines.push('ENTRY: call get_context(itemId) first.')
+    lines.push(`ENTRY: call items_read(select:"context", itemId:"${item.id}") first and read item.role.`)
     if (plan.entryMode === 'pre-entered') {
-      lines.push('entryMode is pre-entered: verify role is already "work" and never call advance_item.')
+      lines.push('entryMode is pre-entered: the coordinator already moved this item to work. Verify role is "work" and never call advance.')
       lines.push(
         'ENTRY REPORT (required): role "work" -> entry {"applied":false,"alreadyInPhase":true}; ' +
           'else entry {"applied":false,"alreadyInPhase":false} and status "stopped".',
       )
     } else {
       lines.push('role "work" -> do not advance; report entry.alreadyInPhase.')
-      lines.push('role "queue" -> call advance_item(transitions:[{itemId, trigger:"start", actor}]) exactly once.')
-      lines.push('Rerun-safe entry: never call start from work — only from queue.')
       lines.push(
-        'ENTRY REPORT (required): copy the advance_item result into entry (applied, newRole, previousRole, errorCode, ' +
-          'contendedResources; missingNotes as key strings; blockers as fromItemId strings; retried true only after a ' +
-          'config_unavailable retry). Role "work": entry {"applied":false,"alreadyInPhase":true}.',
+        `role "queue" -> call advance(ops:[{op:"transition", itemId:"${item.id}", trigger:"start"}]) exactly once` +
+          `${tokenFile ? ', with your seat token' : ''}.`
+      )
+      lines.push('Rerun-safe entry: never send start from work — only from queue.')
+      lines.push(
+        'ENTRY REPORT (required): read data.results[0]. ok -> entry {applied:true, newRole, previousRole, unblockedItems: ' +
+          'unblocked[].itemId}. An error element -> entry {applied:false, errorCode: error.code, previousRole: ' +
+          'error.detail.role (gate_blocked) or the role context showed, missingNotes: error.detail.missing[].key, blockers: ' +
+          'error.detail.blockers[].id, contendedResources: from error.detail.resources[].name}; retried true only after an ' +
+          'unavailable retry. gate_blocked with detail.role "work" means already in phase. Role "work" at context: entry ' +
+          '{"applied":false,"alreadyInPhase":true}.',
       )
     }
   }
   return lines.join('\n')
 }
 
-/** Part 14: return contract. */
+/** Part 16: deviation protocol, writing seats only. */
+function promptDeviation(plan, item, stage) {
+  if (!stage.writes) return ''
+  const head =
+    'DEVIATION: when a queue note (task-scope, specification, diagnosis) or a fix-decisions note is wrong, impossible or ' +
+    'costlier than an alternative, implement only what the conflict does not touch, never the alternative, and record the ' +
+    'conflict under a "## Deviations requested" heading in your own work note (the decision, why it fails, your proposed ' +
+    'alternative, evidence with file:line).'
+  if (!seatTokenFile(plan, item, stage)) {
+    return `${head} Then return status "stopped", reason "awaiting_decision"; the orchestrator raises the decision.`
+  }
+  return [
+    head,
+    `Then raise it with your seat token: runs_write(ops:[{op:"raise", class:"deviation", block:true, dedupeKey:"${item.short}:${stage.seat}:dev-<n>", ` +
+      `question, options:[{key, label, consequence}], recommended, itemId:"${item.id}"}]) where n counts your raises on this item from 1.`,
+    'Return status "stopped", reason "awaiting_decision", decisionId = the raised decision\'s id. A stall is never a reason to raise.',
+  ].join('\n')
+}
+
+/** Part 17: end the seat, token holders only. */
+function promptEndSeat(plan, item, stage) {
+  if (!seatTokenFile(plan, item, stage)) return ''
+  return (
+    'END SEAT: as your last task-orchestrator call, after your commit and notes, end your seat with your seat token: ' +
+    'runs_write(ops:[{op:"end_seat", outcome, summary}]); outcome "done" for status done, "failed" for stopped, ' +
+    '"abandoned" for deferred; summary at most 500 characters and never the token. Set seatEnded: true in the envelope ' +
+    'when it succeeded (false when it failed). The token stops working after it.'
+  )
+}
+
+/** Part 18: return contract. */
 function promptReturn(stage, item) {
-  const lines = [`RETURN: return the structured envelope (${stage.output}); notes are the report.`]
+  const lines = [
+    `RETURN: return the structured envelope (${stage.output}); notes are the report. Each notes[] entry is {key, chars?, warning?}.`,
+  ]
   if (stage.output === 'planner-v1') {
     lines.push('Emit StructuredOutput exactly once, as your final action; a second call replaces the first.')
     if (item && item.stages.some((s) => s.output === 'test-author-v1')) {
@@ -1266,12 +1450,11 @@ function reKeyOutsByOutputId(item, outsBySeat) {
 
 /**
  * seatPrompt(plan, item, stage, outs) -> string
- * Joins the 14 non-empty prompt parts (§5.3) with "\n\n"; each part is a pure
- * function of plan/item/stage/outs. No rule text lives here — rules are fetched by
- * key at runtime via query_rules (part 6).
+ * Joins the non-empty prompt parts (§5.3) with "\n\n"; each part is a pure function of
+ * plan/item/stage/outs. No rule text lives here — rules are fetched by key at runtime via the
+ * config tool's rules op (part 6). No seat token is ever inlined: part 4 names its file.
  */
 function seatPrompt(plan, item, stage, outs) {
-  const actor = seatActor(stage, item, plan)
   const outsByOutput = reKeyOutsByOutputId(item, outs || {})
   if (
     stage.output === 'test-author-v1' &&
@@ -1285,18 +1468,22 @@ function seatPrompt(plan, item, stage, outs) {
   const parts = [
     promptSeatLine(plan, item, stage),
     promptScope(plan, item),
-    promptTools(plan, stage),
-    promptActor(stage, item, plan),
+    promptTools(plan, item, stage),
+    promptSeatToken(plan, item, stage),
     promptOwnedNotes(stage, item),
     promptCarryIns(stage, item),
     promptRules(plan, stage),
     promptDriftPin(item, stage),
+    promptResults(),
     promptConfigRetry(),
+    promptErrors(),
     promptInlineBodies(),
     promptCommitForm(item, stage),
     promptVerify(plan, item, stage, outsByOutput),
     handoff(stage, outsByOutput, itemRoots(plan, item), item),
-    promptRerunAndEntry(plan, item, stage, actor),
+    promptRerunAndEntry(plan, item, stage),
+    promptDeviation(plan, item, stage),
+    promptEndSeat(plan, item, stage),
     promptReturn(stage, item),
   ]
   return parts.filter((p) => p && p.length > 0).join('\n\n')
@@ -1368,6 +1555,7 @@ async function callSeat(plan, item, stage, outs, deps) {
       }
     }
   }
+  env = stripTokens(env)
   return { env, modelReported: env ? env.modelReported : '', agentTypeUsed, agentTypeFallback }
 }
 
@@ -1465,7 +1653,7 @@ async function runItem(plan, item, deps) {
 }
 
 /**
- * runPlan(plan, deps) -> {contract, started:true, runId, planDocSlug, items, refused, deferred}
+ * runPlan(plan, deps) -> {contract, started:true, runId, serverRunId, items, refused, deferred}
  * deps = {agent, parallel, log, phase?, milestones?, locks?}. Runs preflight, releases
  * refused items' milestones, and starts one task per runnable item inside one parallel().
  */
@@ -1480,14 +1668,98 @@ async function runPlan(plan, deps) {
   const runDeps = { agent: deps.agent, milestones, locks, log: deps.log }
   const thunks = pf.runnable.map((item) => () => runItem(plan, item, runDeps))
   const results = await deps.parallel(thunks)
-  return {
+  const full = {
     contract: 'implement-wave/result-v1',
     started: true,
     runId: plan.runId,
-    planDocSlug: plan.planDocSlug,
+    serverRunId: plan.serverRunId || null,
     items: results,
     refused: pf.refused,
     deferred: plan.deferred || [],
+  }
+  return plan.altitudeSafe === true ? altitudeSafeResult(full) : full
+}
+
+const SAFE_REASON_MAX = 120
+const SAFE_RED_PROOF_MAX = 200
+const SAFE_OUTPUT_LISTS = [
+  'mainFiles', 'docFiles', 'testFiles', 'declarationModules',
+  'mainFilesChanged', 'docFilesChanged', 'testFilesChanged',
+]
+
+function safeText(v, max) {
+  return typeof v === 'string' ? v.slice(0, max) : ''
+}
+
+function safeOutput(out) {
+  if (!out || typeof out !== 'object' || Array.isArray(out)) return null
+  const kept = {}
+  for (const k of SAFE_OUTPUT_LISTS) {
+    if (Array.isArray(out[k])) kept[k] = out[k].filter((v) => typeof v === 'string')
+  }
+  if (Array.isArray(out.existingTestEdits)) {
+    kept.existingTestEdits = out.existingTestEdits
+      .filter((e) => e && typeof e === 'object' && typeof e.file === 'string')
+      .map((e) => ({ file: e.file }))
+  }
+  if ('proceed' in out) kept.proceed = out.proceed
+  if (typeof out.redProofShape === 'string') kept.redProofShape = out.redProofShape.slice(0, SAFE_RED_PROOF_MAX)
+  return kept
+}
+
+function safeStage(st) {
+  const s = st || {}
+  const commits = s.commits && typeof s.commits === 'object' ? s.commits : {}
+  return {
+    seat: s.seat,
+    status: s.status,
+    reason: safeText(s.reason, SAFE_REASON_MAX),
+    modelReported: typeof s.modelReported === 'string' ? s.modelReported : '',
+    agentTypeUsed: typeof s.agentTypeUsed === 'string' ? s.agentTypeUsed : null,
+    agentTypeFallback: !!s.agentTypeFallback,
+    commits: { pre: typeof commits.pre === 'string' ? commits.pre : '', post: typeof commits.post === 'string' ? commits.post : '' },
+    files: Array.isArray(s.files) ? s.files.filter((f) => typeof f === 'string') : [],
+    notes: Array.isArray(s.notes)
+      ? s.notes.filter((n) => n && typeof n === 'object').map((n) => ({ key: n.key, actor: n.actor, chars: n.chars }))
+      : [],
+  }
+}
+
+function safeEntry(e) {
+  const x = e || {}
+  return { id: x.id, short: x.short, reason: safeText(x.reason, SAFE_REASON_MAX) }
+}
+
+/**
+ * altitudeSafeResult(full) -> result-v1 scrubbed to counts and pointers, plus `rollup`.
+ * Keeps the item skeleton post-run verify and end-seats read (items[].stages, items[].outputs.<seat>
+ * file lists) and drops every prose field (decisions, corrections, edits, deviations, publicSurface).
+ * Reasons are cut to 120 characters; the full prose lives in the seats' notes.
+ */
+function altitudeSafeResult(full) {
+  const items = (full.items || []).map((it) => {
+    const item = { id: it.id, short: it.short, status: it.status }
+    if (it.schemaFree) item.schemaFree = true
+    item.reason = safeText(it.reason, SAFE_REASON_MAX)
+    item.stages = (it.stages || []).map(safeStage)
+    const outputs = {}
+    for (const [seat, out] of Object.entries(it.outputs || {})) outputs[seat] = safeOutput(out)
+    item.outputs = outputs
+    return item
+  })
+  const refused = (full.refused || []).map(safeEntry)
+  const deferred = (full.deferred || []).map(safeEntry)
+  const count = (status) => items.filter((it) => it.status === status).length
+  return {
+    contract: 'implement-wave/result-v1',
+    started: true,
+    altitudeSafe: true,
+    runId: full.runId,
+    serverRunId: full.serverRunId || null,
+    rollup: { items: items.length, done: count('done'), stopped: count('stopped'), deferred: count('deferred'), refused: refused.length },
+    items,
+    refused,
+    deferred,
   }
 }
 // @core-end

@@ -1,8 +1,13 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
+import io.github.jpicklyk.mcptask.current.bootstrap.CurrentMcpServer
+import io.github.jpicklyk.mcptask.current.bootstrap.Failed
+import io.github.jpicklyk.mcptask.current.bootstrap.Reason
+import io.github.jpicklyk.mcptask.current.bootstrap.Started
+import io.github.jpicklyk.mcptask.current.bootstrap.StartupFailedException
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.mockk.every
 import io.mockk.mockkConstructor
 import io.mockk.unmockkAll
@@ -68,6 +73,7 @@ class TransportStartFailureTest {
             mapOf(
                 "DATABASE_PATH" to dbPath,
                 "MCP_TRANSPORT" to transport,
+                "MCP_ALLOW_UNAUTHENTICATED" to "true",
                 "MCP_HTTP_HOST" to "127.0.0.1",
                 "MCP_HTTP_PORT" to httpPort.toString(),
                 "READINESS_FILE" to readinessFile.toString()
@@ -84,7 +90,7 @@ class TransportStartFailureTest {
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = appConfigFor(tempDir, "http"),
                 onBeforeTransportStart = { throw IllegalStateException("bind boom") }
             )
@@ -104,7 +110,7 @@ class TransportStartFailureTest {
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = appConfigFor(tempDir, "stdio"),
                 onBeforeTransportStart = { throw IllegalStateException("bind boom") }
             )
@@ -128,7 +134,7 @@ class TransportStartFailureTest {
         val httpServer =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = appConfigFor(tempDir, "http", readinessFile),
                 onBeforeTransportStart = { throw IllegalStateException("bind boom") }
             )
@@ -141,7 +147,7 @@ class TransportStartFailureTest {
         val stdioServer =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = appConfigFor(tempDir, "stdio", readinessFile),
                 onBeforeTransportStart = { throw IllegalStateException("bind boom") }
             )
@@ -165,7 +171,7 @@ class TransportStartFailureTest {
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = appConfigFor(tempDir, "http", readinessFile),
                 onBeforeTransportStart = { throw IllegalStateException("bind boom") }
             )
@@ -205,7 +211,7 @@ class TransportStartFailureTest {
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = appConfigFor(tempDir, "http")
             )
 
@@ -227,7 +233,7 @@ class TransportStartFailureTest {
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = appConfigFor(tempDir, "http")
             )
 
@@ -245,7 +251,7 @@ class TransportStartFailureTest {
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = appConfigFor(tempDir, "sse")
             )
 
@@ -274,7 +280,7 @@ class TransportStartFailureTest {
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = appConfigFor(tempDir, "http")
             )
 
@@ -292,7 +298,7 @@ class TransportStartFailureTest {
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = appConfigFor(tempDir, "http"),
                 onBeforeTransportStart = { throw IllegalStateException(null as String?) }
             )
@@ -314,7 +320,7 @@ class TransportStartFailureTest {
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = appConfigFor(tempDir, "http"),
                 onBeforeTransportStart = { throw CancellationException("cancelled") }
             )
@@ -332,7 +338,7 @@ class TransportStartFailureTest {
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = appConfigFor(tempDir, "http"),
                 onBeforeTransportStart = { throw Error("fatal") }
             )
@@ -392,7 +398,7 @@ class TransportStartFailureTest {
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = appConfigFor(tempDir, "HTTP"),
                 onBeforeTransportStart = { transport ->
                     observed = transport

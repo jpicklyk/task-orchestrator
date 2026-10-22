@@ -1,64 +1,41 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult
+import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition
+import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.WRITE_TOKEN
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeWriteAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findByFilters
+import io.github.jpicklyk.mcptask.current.test.createTreeOp
+import io.github.jpicklyk.mcptask.current.test.errorAt
+import io.github.jpicklyk.mcptask.current.test.itemsWrite
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
-import io.ktor.client.request.header
 import io.ktor.client.request.put
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.server.testing.testApplication
-import io.modelcontextprotocol.kotlin.sdk.client.Client
-import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
-import io.modelcontextprotocol.kotlin.sdk.server.Server
-import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
-import io.modelcontextprotocol.kotlin.sdk.testing.ChannelTransport
-import io.modelcontextprotocol.kotlin.sdk.types.ClientCapabilities
-import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
-import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -66,30 +43,21 @@ import kotlin.test.assertTrue
  * Independently authored (blind test author) against the frozen `task-scope-addendum` note on
  * item `840e700a` (A3) -- S11 (par D "BUDGET": `PlanDocumentService.stash` rejects `rule/`-slug
  * bodies over `RuleService.MAX_RULE_BODY_BYTES` == 16384 UTF-8 bytes; multibyte counted as bytes;
- * non-rule slugs keep the existing 64 KiB cap) and S12 (par E "D1": `CreateWorkTreeTool`'s
- * `docRef.slug` guard rejects any `rule/`-prefixed slug -- zero items created, the referenced
- * document stays PENDING and re-stashable).
+ * non-rule slugs keep the existing 64 KiB cap) and S12 (par E "D1": the `docRef.slug` guard of
+ * `items_write` `create_tree` (formerly `create_work_tree`) rejects any `rule/`-prefixed slug -- zero
+ * items created, the referenced document stays PENDING and re-stashable).
  *
  * Harness (contract "Public-API rule" / "Harness rule"): the `PlanDocumentService` leg calls the
- * public service directly (it has no route/tool wrapper of its own to prefer); the MCP/REST legs
- * of S11 run `ManagePlanDocumentsTool.execute` / the REST `PUT .../plans/{slug}` route through a
- * REAL [ServerComposition.build] + REAL [installRestApiRoutes] (mirrors
- * [io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.PlanDocumentRoutesTest]'s "over the
- * size cap returns 413" pattern, adapted to the rule/ boundary); S12 drives the REAL
- * [CreateWorkTreeTool] (`validateParams` for the guard itself, `execute` against a real H2-backed
- * `ToolExecutionContext` to confirm zero items created and the document's PENDING status
- * survives), mirroring [io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeToolIntegrationTest]'s
- * docRef-failure-is-atomic pattern.
+ * public service directly; S12 drives the REAL `items_write` dispatcher over the composition's
+ * `ToolExecutionContext` to confirm the guard, zero items created and the document's PENDING status.
  */
 class RuleBudgetStashTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     // --- Shared composition wiring (own copy) ---
 
-    private fun buildDatabaseManager(): DatabaseManager {
-        val dbName = "rule_budget_stash_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        DirectDatabaseSchemaManager().updateSchema()
-        return DatabaseManager(database)
-    }
+    private fun buildDatabaseManager(): DatabaseManager = db.databaseManager
 
     private fun materializeEmptyGlobalConfig(tempDir: Path) {
         val configDir = tempDir.resolve(".taskorchestrator")
@@ -100,15 +68,17 @@ class RuleBudgetStashTest {
     private fun buildComposition(tempDir: Path): CompositionResult {
         materializeEmptyGlobalConfig(tempDir)
         val appConfig = AppConfig.fromEnv { key -> if (key == "AGENT_CONFIG_DIR") tempDir.toString() else null }
-        return ServerComposition(appConfig = appConfig, databaseManager = buildDatabaseManager(), shutdownCoordinator = null).build()
+        return ServerComposition(
+            appConfig = appConfig,
+            databaseManager = buildDatabaseManager(),
+            shutdownCoordinator = ShutdownCoordinator()
+        ).build()
     }
 
     private fun tokenEntriesFor(
         authConfig: ApiAuthConfig,
-    ): Map<io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes, BearerTokenStore.TokenEntry> =
-        (authConfig as? ApiAuthConfig.Bearer)?.tokens?.mapValues { (_, principal) ->
-            BearerTokenStore.TokenEntry(principal, expiresAt = null)
-        } ?: emptyMap()
+    ): Map<io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes, BearerTokenStore.TokenEntry> =
+        (authConfig as? ApiAuthConfig.Bearer)?.tokens ?: emptyMap()
 
     private fun Application.configureProductionApp(
         composition: CompositionResult,
@@ -123,11 +93,9 @@ class RuleBudgetStashTest {
             allowQueryToken = false,
             serverName = "rule-budget-stash-test",
             serverVersion = "test",
-            actorAuthEnabled = composition.actorAuthEnabled,
-            noteSchemaService = composition.noteSchemaService,
+            serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
-            degradedModePolicy = composition.degradedModePolicy,
-            idempotencyCache = composition.idempotencyCache,
+            appConfig = AppConfig.fromEnv(),
         )
     }
 
@@ -142,14 +110,14 @@ class RuleBudgetStashTest {
         @TempDir tempDir: Path,
     ) {
         val composition = buildComposition(tempDir)
-        val service = PlanDocumentService(composition.toolContext.repositoryProvider)
+        val service = PlanDocumentService(composition.toolContext.repositoryProvider, db.unitOfWork())
         val root =
             runBlocking {
                 composition.toolContext.repositoryProvider
                     .workItemRepository()
                     .create(
                         WorkItem(title = "S11 Root", depth = 0)
-                    ).getOrNull()!!
+                    )!!
             }
 
         val atLimit = runBlocking { service.stash(root.id, "rule/budget-at-limit", "x".repeat(16384)) }
@@ -167,14 +135,14 @@ class RuleBudgetStashTest {
         @TempDir tempDir: Path,
     ) {
         val composition = buildComposition(tempDir)
-        val service = PlanDocumentService(composition.toolContext.repositoryProvider)
+        val service = PlanDocumentService(composition.toolContext.repositoryProvider, db.unitOfWork())
         val root =
             runBlocking {
                 composition.toolContext.repositoryProvider
                     .workItemRepository()
                     .create(
                         WorkItem(title = "S11 Multibyte Root", depth = 0)
-                    ).getOrNull()!!
+                    )!!
             }
 
         // U+00E9 (e-acute) is 2 bytes in UTF-8: 8192 chars == 16384 bytes, exactly at the boundary.
@@ -199,14 +167,14 @@ class RuleBudgetStashTest {
         @TempDir tempDir: Path,
     ) {
         val composition = buildComposition(tempDir)
-        val service = PlanDocumentService(composition.toolContext.repositoryProvider)
+        val service = PlanDocumentService(composition.toolContext.repositoryProvider, db.unitOfWork())
         val root =
             runBlocking {
                 composition.toolContext.repositoryProvider
                     .workItemRepository()
                     .create(
                         WorkItem(title = "S11 Non-Rule Root", depth = 0)
-                    ).getOrNull()!!
+                    )!!
             }
 
         val body = "x".repeat(20000)
@@ -217,176 +185,77 @@ class RuleBudgetStashTest {
         )
     }
 
-    @Test
-    fun `S11 MCP - manage_plan_documents stash for a rule slug over 16384 bytes returns VALIDATION_ERROR naming 16384`(
-        @TempDir tempDir: Path,
-    ) {
-        val composition = buildComposition(tempDir)
-        val root =
-            runBlocking {
-                composition.toolContext.repositoryProvider
-                    .workItemRepository()
-                    .create(
-                        WorkItem(title = "S11 MCP Root", depth = 0)
-                    ).getOrNull()!!
-            }
-        val result =
-            runBlocking {
-                ManagePlanDocumentsTool().execute(
-                    params(
-                        "operation" to JsonPrimitive("stash"),
-                        "rootId" to JsonPrimitive(root.id.toString()),
-                        "slug" to JsonPrimitive("rule/mcp-over-limit"),
-                        "body" to JsonPrimitive("x".repeat(16385)),
-                    ),
-                    composition.toolContext,
-                )
-            } as JsonObject
-        assertFalse(result["success"]!!.jsonPrimitive.boolean, "expected failure: $result")
-        val error = result["error"] as JsonObject
-        assertEquals(
-            io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes.VALIDATION_ERROR,
-            error["code"]!!.jsonPrimitive.content,
-        )
-        assertTrue(error["message"]!!.jsonPrimitive.content.contains("16384"), "message must name the 16384-byte limit: $error")
-    }
+    // =========================================================================================
+    // S12 -- D1: items_write create_tree docRef.slug rule/x is rejected; zero items, doc stays pending
+    // =========================================================================================
 
     @Test
-    fun `S11 REST - PUT roots rootId plans rule slug over 16384 bytes returns 413 payload_too_large`(
+    fun `S12 create_tree rejects a docRef slug that starts with rule slash`(
         @TempDir tempDir: Path,
     ): Unit =
-        testApplication {
+        runBlocking {
             val composition = buildComposition(tempDir)
-            val root =
-                runBlocking {
-                    composition.toolContext.repositoryProvider
-                        .workItemRepository()
-                        .create(
-                            WorkItem(title = "S11 REST Root", depth = 0)
-                        ).getOrNull()!!
-                }
-            application { configureProductionApp(composition, makeWriteAuthConfig()) }
-
-            val response =
-                client.put("/api/v1/roots/${root.id}/plans/rule%2Frest-over-limit") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Text.Plain)
-                    setBody("x".repeat(16385))
-                }
-            assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
-            assertTrue(response.bodyAsText().contains("payload_too_large"), "body: ${response.bodyAsText()}")
-
-            // Sanity: the same body, one byte shorter, at a DIFFERENT rule slug succeeds.
-            val okResponse =
-                client.put("/api/v1/roots/${root.id}/plans/rule%2Frest-at-limit") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Text.Plain)
-                    setBody("x".repeat(16384))
-                }
-            assertEquals(HttpStatusCode.OK, okResponse.status, "16384 bytes must succeed: ${okResponse.bodyAsText()}")
-        }
-
-    // =========================================================================================
-    // S12 -- D1: create_work_tree docRef.slug rule/x is rejected; zero items, doc stays pending
-    // =========================================================================================
-
-    @Test
-    fun `S12 CreateWorkTreeTool validateParams rejects a docRef slug that starts with rule slash`() {
-        val ex =
-            assertFailsWith<ToolValidationException> {
-                CreateWorkTreeTool().validateParams(
-                    params(
-                        "root" to buildJsonObject { put("title", JsonPrimitive("Root")) },
+            val result =
+                composition.toolContext.itemsWrite(
+                    createTreeOp(
+                        "root" to
+                            buildJsonObject {
+                                put("type", JsonPrimitive("test-item"))
+                                put("title", JsonPrimitive("Root"))
+                            },
                         "docRef" to buildJsonObject { put("slug", JsonPrimitive("rule/some-rule-key")) },
                     ),
                 )
-            }
-        assertTrue(ex.message?.contains("rule/") == true, "exception should mention the rule/ guard: ${ex.message}")
-    }
+            val error = result.errorAt(0)
+            assertEquals("invalid_request", error["code"]?.jsonPrimitive?.content, "the rule/ guard is an invalid_request: $error")
+            assertTrue(error.toString().contains("/ops/0/docRef/slug"), "the violation names docRef.slug: $error")
+        }
 
     /**
-     * Arbitration ruling (orchestrator, 2026-09-28): the ONLY production entry point for
-     * `create_work_tree` is the MCP adapter, which runs `validateParams()` BEFORE `execute()` for
-     * every tool call -- there is no REST path for `create_work_tree`. A bare `execute()` call
-     * skips that validation phase and does not represent production, so this scenario is driven
-     * through the REAL [McpToolAdapter] -- mirrors
-     * [io.github.jpicklyk.mcptask.current.interfaces.mcp.QueryRulesConfigUnavailableTest]'s own
-     * real [Server]/[Client] pair over [ChannelTransport.createLinkedPair]. Same oracle as before:
-     * the call fails, zero items are created, and the rule/ document stays PENDING and
-     * re-stashable.
+     * The guard runs before any read or write of the tree: the element fails, zero items are created, and the rule/ document
+     * stays PENDING and re-stashable (the oracle of the retired `create_work_tree` scenario, now over `items_write`).
      */
     @Test
-    fun `S12 create_work_tree via MCP adapter rejects docRef rule slash x, zero items, doc stays PENDING and re-stashable`(
+    fun `S12 create_tree rejects docRef rule slash x, zero items, doc stays PENDING and re-stashable`(
         @TempDir tempDir: Path,
     ): Unit =
         runBlocking {
             val composition = buildComposition(tempDir)
             val repo = composition.toolContext.repositoryProvider
-            val root = repo.workItemRepository().create(WorkItem(title = "S12 MCP Root", depth = 0)).getOrNull()!!
+            val root = repo.workItemRepository().create(WorkItem(title = "S12 MCP Root", depth = 0))!!
             repo.planDocumentRepository().stash(root.id, "rule/x", "A rule document, not a feature plan.")
 
-            val server =
-                Server(
-                    serverInfo = Implementation(name = "test-server", version = "1.0.0"),
-                    options = ServerOptions(capabilities = ServerCapabilities(tools = ServerCapabilities.Tools(listChanged = true))),
+            val result =
+                composition.toolContext.itemsWrite(
+                    createTreeOp(
+                        "root" to
+                            buildJsonObject {
+                                put("title", JsonPrimitive("Feature via rule doc"))
+                                put("type", JsonPrimitive("test-item"))
+                            },
+                        "parentId" to JsonPrimitive(root.id.toString()),
+                        "docRef" to buildJsonObject { put("slug", JsonPrimitive("rule/x")) },
+                    ),
                 )
-            val adapter = McpToolAdapter()
-            adapter.registerToolWithServer(server, CreateWorkTreeTool(), composition.toolContext)
-            val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()
-            val client =
-                Client(
-                    clientInfo = Implementation(name = "test-client", version = "1.0.0"),
-                    options = ClientOptions(capabilities = ClientCapabilities()),
-                )
-            server.createSession(serverTransport)
-            client.connect(clientTransport)
+            val error = result.errorAt(0)
+            assertEquals("invalid_request", error["code"]?.jsonPrimitive?.content, "review follow-up: assert the REASON: $error")
+            assertTrue(error.toString().contains("/ops/0/docRef/slug"), "the validation reason must name the docRef.slug guard: $error")
 
-            try {
-                val result =
-                    client.callTool(
-                        name = "create_work_tree",
-                        arguments =
-                            mapOf(
-                                "root" to mapOf("title" to "Feature via rule doc"),
-                                "parentId" to root.id.toString(),
-                                "docRef" to mapOf("slug" to "rule/x"),
-                            ),
-                    )
-                assertEquals(true, result.isError, "the adapter's pre-execute validateParams() must reject this call: $result")
-                val structured =
-                    result.structuredContent
-                        ?: error("error response must carry structuredContent: $result")
-                val errorObj =
-                    structured["error"]?.jsonObject
-                        ?: error("structuredContent must contain the error object: $structured")
-                assertEquals(
-                    io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes.VALIDATION_ERROR,
-                    errorObj["code"]?.jsonPrimitive?.content,
-                    "review follow-up: assert the REASON, not just isError",
-                )
-                assertTrue(
-                    errorObj["message"]?.jsonPrimitive?.content?.contains("rule/") == true,
-                    "the validation reason must name the rule/ guard: $errorObj",
-                )
+            val itemsResult = repo.workItemRepository().findByFilters(parentId = root.id, limit = 100)
+            val titles = itemsResult.items.map { it.title }
+            assertTrue("Feature via rule doc" !in titles, "zero items must be created when docRef.slug is rule/-prefixed; got: $titles")
 
-                val itemsResult = repo.workItemRepository().findByFilters(parentId = root.id, limit = 100)
-                val titles = (itemsResult as Result.Success).data.items.map { it.title }
-                assertTrue("Feature via rule doc" !in titles, "zero items must be created when docRef.slug is rule/-prefixed; got: $titles")
+            val doc = (repo.planDocumentRepository().get(root.id, "rule/x")!!)
+            assertNotNull(doc, "the rule document must still exist")
+            assertEquals(
+                PlanDocumentStatus.PENDING,
+                doc.status,
+                "the document must remain PENDING (not adopted) after the rejected docRef"
+            )
 
-                val doc = (repo.planDocumentRepository().get(root.id, "rule/x") as Result.Success).data
-                assertNotNull(doc, "the rule document must still exist")
-                assertEquals(
-                    PlanDocumentStatus.PENDING,
-                    doc.status,
-                    "the document must remain PENDING (not adopted) after the rejected docRef"
-                )
-
-                // Re-stashable: pushing a new body to the same slug must still succeed.
-                val reStash = repo.planDocumentRepository().stash(root.id, "rule/x", "Updated rule body after the rejected docRef.")
-                assertTrue(reStash is Result.Success, "the document must remain re-stashable: $reStash")
-            } finally {
-                closeInMemoryPair(client, server)
-            }
+            // Re-stashable: pushing a new body to the same slug must still succeed.
+            val reStash = repo.planDocumentRepository().stash(root.id, "rule/x", "Updated rule body after the rejected docRef.")
+            assertNotNull(reStash, "the document must remain re-stashable: $reStash")
         }
 
     // =========================================================================================
@@ -394,7 +263,7 @@ class RuleBudgetStashTest {
     // that fails with a repository error OTHER than not-found must yield RepositoryError from
     // RuleService.get / RuleService.list -- NOT RootNotFound. Tested through the public RuleService
     // (constructor takes domain repositories -- a WorkItemRepository double returning
-    // Result.Error(RepositoryError.DatabaseError(...)) is fault injection at a declared
+    // throw IllegalStateException(...) is fault injection at a declared
     // constructor seam, not a hand-built internal replica).
     // =========================================================================================
 
@@ -405,7 +274,7 @@ class RuleBudgetStashTest {
         val composition = buildComposition(tempDir)
         val repo = composition.toolContext.repositoryProvider
         val root =
-            runBlocking { repo.workItemRepository().create(WorkItem(title = "RuleService RepoError Root", depth = 0)).getOrNull()!! }
+            runBlocking { repo.workItemRepository().create(WorkItem(title = "RuleService RepoError Root", depth = 0))!! }
         runBlocking { repo.planDocumentRepository().stash(root.id, "rule/x", "body") }
         val unknownId = UUID.randomUUID()
 
@@ -437,9 +306,9 @@ private class RuleBudgetFailingWorkItemRepository(
     private val delegate: WorkItemRepository,
     private val failingId: UUID,
 ) : WorkItemRepository by delegate {
-    override suspend fun getById(id: UUID): Result<WorkItem> =
+    override suspend fun getById(id: UUID): WorkItem? =
         if (id == failingId) {
-            Result.Error(RepositoryError.DatabaseError("Simulated getById failure for $id"))
+            throw IllegalStateException("Simulated getById failure for $id")
         } else {
             delegate.getById(id)
         }

@@ -183,7 +183,7 @@ class MarkdownSectionSplitterTest {
     }
 
     @Test
-    fun `slice supports heading levels beyond h2 h3`() {
+    fun `slice supports heading levels beyond level two and three`() {
         val body =
             """
             #### Deep Heading
