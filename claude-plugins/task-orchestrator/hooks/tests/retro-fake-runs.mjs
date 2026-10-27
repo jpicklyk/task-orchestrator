@@ -9,6 +9,7 @@
 // Oracle for the envelopes: current/docs/api-reference.md (runs_read list / frontier, runs_write
 // close / mark, "Response envelope", "List data") and current/docs/api-rest.md section 20a.
 
+import './hermetic-claude-config.mjs';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';

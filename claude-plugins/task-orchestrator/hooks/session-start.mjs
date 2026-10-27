@@ -10,14 +10,14 @@
 import { readFileSync, statSync } from 'fs';
 import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { homedir } from 'os';
 import { createHash } from 'crypto';
 import { isOrchestratorServerKey, SERVER_SEGMENT_TOKEN } from './registration.mjs';
 import { locateConfig, userConfigPath } from './config-locator.mjs';
 import { readSection } from './yaml-lite.mjs';
 import { readHookInput } from './lib/stdin.mjs';
 import { suppressionReason } from './execution-mode.mjs';
-import { apiBaseUrl } from './lib/api-client.mjs';
+import { apiBaseUrl, apiBaseUrlInfo } from './lib/api-client.mjs';
+import { collectOrchestratorRegistrations, preferredHttpRegistration } from './lib/mcp-registrations.mjs';
 import { emit } from './lib/emit.mjs';
 import { sharedMarkerPath, createMarkerOnce } from './lib/markers.mjs';
 import { checkServer } from './lib/server-compat.mjs';
@@ -119,7 +119,29 @@ function buildConfigSyncNotice(state, registrations) {
   if (!registrations.some((r) => typeof r.url === 'string' && /^https?:\/\//i.test(r.url))) return null;
   return `## Config Sync
 
-Config-sync cannot push this config because no REST API URL resolves. Set \`TASK_ORCHESTRATOR_API_URL\` or run \`/task-orchestrator:init${state === 'user' ? ' --user' : ''}\` (writes \`client.json\`).`;
+Config-sync cannot push this config: the MCP server is registered over http(s) but no REST API URL resolves from it (the registration url carries credentials, is a non-loopback \`.mcp.json\` url, or uses an unresolved \`\${VAR}\`). Register the MCP server over HTTP at a usable URL, set \`TASK_ORCHESTRATOR_API_URL\`, or run \`/task-orchestrator:init${state === 'user' ? ' --user' : ''}\` (writes \`client.json\`).`;
+}
+
+function normOrigin(origin) {
+  try {
+    const u = new URL(origin); // WHATWG parse lowercases the host and drops default ports
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return origin;
+  }
+}
+
+const SOURCE_LABEL = { env: 'TASK_ORCHESTRATOR_API_URL', 'project-client': 'project client.json', 'user-client': 'user client.json' };
+
+// One line when the hooks' REST base comes from env or a client.json but the MCP server is
+// registered over http at a different origin: hooks and tools would be talking to different servers.
+function buildMismatchWarning() {
+  const info = apiBaseUrlInfo({ cwd: process.cwd(), env: process.env });
+  if (!info || !SOURCE_LABEL[info.source]) return null;
+  const reg = preferredHttpRegistration({ cwd: process.cwd(), env: process.env });
+  if (!reg) return null;
+  if (normOrigin(info.url) === normOrigin(reg.origin)) return null;
+  return `Task Orchestrator: hooks call the REST API at ${info.url} (${SOURCE_LABEL[info.source]}) but MCP server ${reg.key} is registered at ${reg.origin} (${reg.source}) - hooks and tools are talking to different servers.`;
 }
 
 function isExistingFile(p) {
@@ -153,110 +175,6 @@ function buildWatchPaths(loc) {
 // Strictly diagnostic: every read/parse failure is swallowed and the section
 // is simply omitted. No network calls. Runs in every mode.
 // ─────────────────────────────────────────────────────────────────────────
-
-function readJsonFile(path) {
-  try {
-    return JSON.parse(readFileSync(path, 'utf-8'));
-  } catch {
-    return null;
-  }
-}
-
-// Walk up from cwd looking for a project-level .mcp.json .
-function findProjectMcpConfig() {
-  let dir = process.cwd();
-  const root = resolve(dir, '/');
-  while (dir !== root) {
-    const candidate = resolve(dir, '.mcp.json');
-    const parsed = readJsonFile(candidate);
-    if (parsed) return parsed;
-    dir = resolve(dir, '..');
-  }
-  return null;
-}
-
-// Locate the user-level Claude Code settings file. CLAUDE_CONFIG_DIR relocates the config
-// directory that normally lives at ~/.claude — when set, .claude.json is read from there instead
-// of the home directory.
-function findUserClaudeConfig() {
-  const base = process.env.CLAUDE_CONFIG_DIR || homedir();
-  return readJsonFile(resolve(base, '.claude.json'));
-}
-
-// True when a string looks like a container image / package reference containing the token in an
-// owner/name[:tag] shape (e.g. `ghcr.io/jpicklyk/task-orchestrator:latest`, `jpicklyk/task-orchestrator`)
-// rather than a filesystem path. Filesystem-path shapes (drive letters, leading `/` segments, `./`
-// or `../` prefixes, backslashes) are explicitly excluded so an unrelated server whose path happens
-// to mention the project folder name (e.g. a filesystem MCP server pointed at this repo's checkout)
-// is never mistaken for an orchestrator registration.
-function looksLikeImageRef(value) {
-  if (typeof value !== 'string' || !value.includes(SERVER_SEGMENT_TOKEN)) return false;
-  if (/^[A-Za-z]:[\\/]/.test(value)) return false; // drive letter, e.g. D:/ or D:\
-  if (value.startsWith('/')) return false; // absolute POSIX path
-  if (value.startsWith('./') || value.startsWith('../')) return false; // relative path
-  if (value.includes('\\')) return false; // any backslash path separator
-  return value.includes('/'); // owner/name[:tag] shape requires a slash
-}
-
-// True when the registration entry mentions the orchestrator by `url`, `command`, or an image-like
-// arg value — independent of its own key. Deliberately narrower than a blanket JSON.stringify scan:
-// a filesystem-path arg (e.g. a filesystem MCP server pointed at a checkout named `task-orchestrator`)
-// must NOT count, or every such unrelated registration gets falsely flagged every session.
-function entryMentionsOrchestrator(entry) {
-  if (!entry || typeof entry !== 'object') return false;
-  try {
-    if (typeof entry.url === 'string' && entry.url.includes(SERVER_SEGMENT_TOKEN)) return true;
-    if (typeof entry.command === 'string' && entry.command.includes(SERVER_SEGMENT_TOKEN)) return true;
-    if (Array.isArray(entry.args)) {
-      for (const arg of entry.args) {
-        if (looksLikeImageRef(arg)) return true;
-      }
-    }
-    return false;
-  } catch {
-    return false;
-  }
-}
-
-// Collects { key, source, url } for every mcpServers entry across the discoverable registration
-// surfaces that "is an orchestrator registration" (key or entry body mentions the token).
-function collectOrchestratorRegistrations() {
-  const found = [];
-
-  function scan(mcpServers, source) {
-    if (!mcpServers || typeof mcpServers !== 'object') return;
-    for (const [key, entry] of Object.entries(mcpServers)) {
-      const isOrchestrator = isOrchestratorServerKey(key) || entryMentionsOrchestrator(entry);
-      if (isOrchestrator) found.push({ key, source, url: entry && typeof entry.url === 'string' ? entry.url : null });
-    }
-  }
-
-  const projectConfig = findProjectMcpConfig();
-  if (projectConfig) scan(projectConfig.mcpServers, '.mcp.json');
-
-  const userConfig = findUserClaudeConfig();
-  if (userConfig) {
-    scan(userConfig.mcpServers, '~/.claude.json');
-    if (userConfig.projects && typeof userConfig.projects === 'object') {
-      let dir = process.cwd();
-      const root = resolve(dir, '/');
-      while (dir !== root) {
-        // ~/.claude.json `projects` keys have been observed in BOTH the native form and a
-        // forward-slash form on Windows (e.g. `D:\Projects\task-orchestrator` and
-        // `D:/Projects/task-orchestrator`) — try both so the lookup doesn't silently miss one.
-        const altDir = dir.replace(/\\/g, '/');
-        const keysToTry = altDir === dir ? [dir] : [dir, altDir];
-        for (const key of keysToTry) {
-          const project = userConfig.projects[key];
-          if (project) scan(project.mcpServers, `~/.claude.json (projects[${key}])`);
-        }
-        dir = resolve(dir, '..');
-      }
-    }
-  }
-
-  return found;
-}
 
 function buildRegistrationCheckSection(registrations) {
   const offending = registrations.filter((r) => !isOrchestratorServerKey(r.key));
@@ -376,7 +294,7 @@ if (!suppressed) {
 // Diagnostics: always computed, each fail-open.
 let registrations = [];
 try {
-  registrations = collectOrchestratorRegistrations();
+  registrations = collectOrchestratorRegistrations({ cwd: process.cwd(), env: process.env });
 } catch {
   // Fail-open: registrations are purely diagnostic.
 }
@@ -403,6 +321,14 @@ if (parts.length > 0) output.hookSpecificOutput.additionalContext = parts.join('
 try {
   const hint = buildSetupHint(location, state, registrations);
   if (hint) output.systemMessage = hint;
+} catch {
+  // Fail-open.
+}
+
+// Hooks/MCP endpoint mismatch: one line, fail-open.
+try {
+  const mismatch = buildMismatchWarning();
+  if (mismatch) output.systemMessage = output.systemMessage ? output.systemMessage + '\n' + mismatch : mismatch;
 } catch {
   // Fail-open.
 }

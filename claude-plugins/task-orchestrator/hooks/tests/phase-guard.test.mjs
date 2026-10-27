@@ -14,6 +14,7 @@
 // directly via writePhaseGuardMarker/phaseGuardMarkerPath rather than going through the record
 // hook.
 
+import './hermetic-claude-config.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -179,7 +180,7 @@ const gateErr = (status, code, kind = 'permanent') => ({
 });
 
 const INERT_PHASE_GUARD =
-  'task-orchestrator: phase-guard.mjs is inert: no REST API URL resolves (set TASK_ORCHESTRATOR_API_URL or client.json apiUrl); in 4.0 schema facts and gate state come from the server.';
+  'task-orchestrator: phase-guard.mjs is inert: no REST API URL resolves (register the MCP server over http(s), set TASK_ORCHESTRATOR_API_URL, or write a client.json apiUrl); in 4.0 schema facts and gate state come from the server.';
 
 // ── S4: block on missing required notes (string-key shape) ──────────────────────────────────
 

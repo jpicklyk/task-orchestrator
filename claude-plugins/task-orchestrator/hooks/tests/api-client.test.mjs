@@ -4,7 +4,7 @@
 // or a promise this test awaits directly, in-process — no subprocess spawning needed, since
 // nothing reads stdin or touches disk state.
 
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
@@ -13,6 +13,18 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname, sep } from 'node:path';
 import { apiBaseUrl, authHeader, fetchWithTimeout, isLoopbackApiUrl } from '../lib/api-client.mjs';
 import { userClientPath } from '../config-locator.mjs';
+
+// Hermetic registration lookup (bc3e3c99): apiBaseUrl now falls back to the orchestrator MCP registration, so
+// no real ~/.claude.json (CLAUDE_CONFIG_DIR) or ancestor .mcp.json (cwd) may be visible to this file.
+// Module-level on purpose: the process is per test file.
+const ISOLATED_CWD = mkdtempSync(join(tmpdir(), 'toapi-iso-'));
+process.env.CLAUDE_CONFIG_DIR = join(ISOLATED_CWD, 'claude-config');
+const ORIGINAL_CWD = process.cwd();
+process.chdir(ISOLATED_CWD);
+after(() => {
+  process.chdir(ORIGINAL_CWD);
+  rmSync(ISOLATED_CWD, { recursive: true, force: true });
+});
 
 function withEnv(callerVars, fn) {
   // 4e15b651 DE1: hermetic defaults under the caller's vars (caller's keys win) - with cwd equal to
@@ -781,7 +793,9 @@ test('4e15b651 S12: an explicit env object decides all three sources, not proces
   try {
     writeUserClient(fx, JSON.stringify({ apiUrl: USER_URL }));
     writeProjectClient(fx, JSON.stringify({ apiUrl: 'http://127.0.0.1:4121' }));
-    const base = { TASK_ORCHESTRATOR_HOME: fx.H, TASK_ORCHESTRATOR_CEILING: fx.T };
+    // CLAUDE_CONFIG_DIR -> fx.H (no .claude.json there): an explicit env without it falls back to
+    // os.homedir(), where a real user-scope MCP registration would outrank the user client.json.
+    const base = { TASK_ORCHESTRATOR_HOME: fx.H, TASK_ORCHESTRATOR_CEILING: fx.T, CLAUDE_CONFIG_DIR: fx.H };
     withEnv(
       { TASK_ORCHESTRATOR_API_URL: 'http://proc.example:4122', TASK_ORCHESTRATOR_HOME: procHome, TASK_ORCHESTRATOR_CEILING: fx.T },
       () => {
@@ -1222,7 +1236,9 @@ test('4e15b651 S38: the env URL and the user-level file keep a path prefix, quer
 test('4e15b651 S39: the env URL is not trimmed - leading and trailing spaces are kept, only trailing slashes are stripped', () => {
   const fx = fixtureF();
   try {
-    const base = { TASK_ORCHESTRATOR_HOME: fx.H, TASK_ORCHESTRATOR_CEILING: fx.T };
+    // CLAUDE_CONFIG_DIR -> fx.H (no .claude.json there): an explicit env without it falls back to
+    // os.homedir(), where a real user-scope MCP registration would outrank the user client.json.
+    const base = { TASK_ORCHESTRATOR_HOME: fx.H, TASK_ORCHESTRATOR_CEILING: fx.T, CLAUDE_CONFIG_DIR: fx.H };
     assert.equal(apiBaseUrl({ cwd: fx.cwd, env: { ...base, TASK_ORCHESTRATOR_API_URL: '  http://env.example:4350  ' } }), '  http://env.example:4350  ');
     assert.equal(apiBaseUrl({ cwd: fx.cwd, env: { ...base, TASK_ORCHESTRATOR_API_URL: ' http://env.example:4351/' } }), ' http://env.example:4351');
   } finally {

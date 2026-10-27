@@ -13,6 +13,7 @@
 //   orchestration-context.test.mjs, session-start.test.mjs, plan-hooks.test.mjs and
 //   dispatch-model-guard.test.mjs. The captures were reviewed against task-scope AC4-AC6 when recorded.
 
+import './hermetic-claude-config.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

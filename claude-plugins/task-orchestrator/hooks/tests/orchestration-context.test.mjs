@@ -15,6 +15,7 @@
 //     to-call block and every block passes checkToCall against the tool catalog; each variant < 9000 chars.
 //   - tool names and arg shapes: hooks/lib/tool-catalog.json and current/docs/api-reference.md.
 
+import './hermetic-claude-config.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

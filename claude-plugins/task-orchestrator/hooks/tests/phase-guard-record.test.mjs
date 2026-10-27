@@ -12,6 +12,7 @@
 // This hook does no network I/O (it only reads stdin and writes a local state file), so spawnSync
 // is safe here -- no in-process stub server needs the event loop back.
 
+import './hermetic-claude-config.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

@@ -7,7 +7,11 @@
 //                                `apiUrl` in client.json beside the located project config, then (linked
 //                                worktree) in the main checkout's .taskorchestrator/client.json (bare loopback
 //                                origins only — no path, query or fragment; first usable wins), then in <home>/.taskorchestrator/client.json (home =
-//                                TASK_ORCHESTRATOR_HOME else os.homedir()) when unset/empty.
+//                                TASK_ORCHESTRATOR_HOME else os.homedir()) when unset/empty. Between the project and
+//                                user client.json steps the origin of the orchestrator's http(s) MCP registration
+//                                (local ~/.claude.json project entry > .mcp.json > user ~/.claude.json; a
+//                                .mcp.json origin must be loopback) is used, so the MCP endpoint is the one
+//                                place to change the server; see lib/mcp-registrations.mjs.
 //   TASK_ORCHESTRATOR_API_TOKEN  bearer token. Capability requirements are per-op (config-sync needs
 //                                read + write-config + write-docs, plan-capture write-docs, the phase
 //                                guard read) — this module has no opinion on which. Optional: an
@@ -18,6 +22,7 @@
 import { readFileSync } from 'fs';
 import { parseToolResult } from './envelope.mjs';
 import { userClientPath, projectClientCandidates } from '../config-locator.mjs';
+import { preferredHttpRegistration } from './mcp-registrations.mjs';
 
 const DEFAULT_TIMEOUT_MS = 2000;
 
@@ -59,34 +64,48 @@ export function isLoopbackApiUrl(base) {
 }
 
 /**
- * Base URL with trailing slash(es) stripped. Order: non-empty TASK_ORCHESTRATOR_API_URL; `apiUrl` in
- * the project-level client.json files from projectClientCandidates (beside the located project config,
- * then the main checkout's for a linked worktree; each honoured only when isLoopbackApiUrl, else the
- * next is tried; a bare origin only, no path, query or fragment — a repo file must not redirect the
- * token to a remote host or shape the request target); `apiUrl` in the
- * user-level client.json. `null` when none yields a value — callers treat `null` as "no REST API
- * configured, no-op". Never throws. The token is env-only; client.json is never read for a token.
+ * Base URL plus where it came from: `{url, source}` or null. Order: non-empty TASK_ORCHESTRATOR_API_URL
+ * (source `env`); `apiUrl` in the project-level client.json files from projectClientCandidates (beside
+ * the located project config, then the main checkout's for a linked worktree; each honoured only when
+ * isLoopbackApiUrl, else the next is tried; a bare origin only -- a repo file must not redirect the
+ * token to a remote host or shape the request target; source `project-client`); the origin of the
+ * orchestrator MCP registration (source `mcp:<key>@<scope>`; local > project > user scope; a project
+ * `.mcp.json` origin must be loopback, the user-owned scopes may be remote); `apiUrl` in the
+ * user-level client.json (source `user-client`). Never throws.
  */
-export function apiBaseUrl({ cwd = process.cwd(), env = process.env } = {}) {
+export function apiBaseUrlInfo({ cwd = process.cwd(), env = process.env } = {}) {
   const raw = env.TASK_ORCHESTRATOR_API_URL;
-  if (raw) return raw.replace(/\/+$/, '');
+  if (raw) return { url: raw.replace(/\/+$/, ''), source: 'env' };
   try {
     for (const projectPath of projectClientCandidates({ cwd, env })) {
       try {
         const url = readApiUrl(projectPath);
-        if (url && isLoopbackApiUrl(url)) return url;
+        if (url && isLoopbackApiUrl(url)) return { url, source: 'project-client' };
       } catch {
         // try the next candidate
       }
     }
   } catch {
+    // fall through
+  }
+  try {
+    const reg = preferredHttpRegistration({ cwd, env, isAllowed: isLoopbackApiUrl });
+    if (reg) return { url: reg.origin, source: `mcp:${reg.key}@${reg.scope}` };
+  } catch {
     // fall through to the user-level file
   }
   try {
-    return readApiUrl(userClientPath(env));
+    const url = readApiUrl(userClientPath(env));
+    return url ? { url, source: 'user-client' } : null;
   } catch {
     return null;
   }
+}
+
+/** Base URL with trailing slash(es) stripped, or `null` ("no REST API configured, callers no-op"). See apiBaseUrlInfo. Never throws. The token is env-only. */
+export function apiBaseUrl(opts = {}) {
+  const info = apiBaseUrlInfo(opts);
+  return info ? info.url : null;
 }
 
 /** `{Authorization: 'Bearer <token>'}` when TASK_ORCHESTRATOR_API_TOKEN is set, else `{}`. */

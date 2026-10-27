@@ -1,3 +1,4 @@
+import './hermetic-claude-config.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -462,9 +463,11 @@ const COMPLIANT_STDIO = {
     'mcp-task-orchestrator': { command: 'docker', args: ['run', 'ghcr.io/jpicklyk/task-orchestrator:latest'] },
   },
 };
+// An http registration that yields NO REST base: the URL carries credentials, which apiBaseUrl rejects
+// (bc3e3c99). A plain http registration now resolves, which is the point of that change and is covered below.
 const HTTP_REG = {
   mcpServers: {
-    'mcp-task-orchestrator': { type: 'http', url: 'http://host/task-orchestrator/mcp' },
+    'mcp-task-orchestrator': { type: 'http', url: 'http://user:pw@host/task-orchestrator/mcp' },
   },
 };
 const parse = (res) => {
@@ -771,12 +774,12 @@ const t6User = (p) => 'Task Orchestrator config at ' + p + ' has no project.root
 const T7_PROJECT = [
   '## Config Sync',
   '',
-  'Config-sync cannot push this config because no REST API URL resolves. Set `TASK_ORCHESTRATOR_API_URL` or run `/task-orchestrator:init` (writes `client.json`).',
+  'Config-sync cannot push this config: the MCP server is registered over http(s) but no REST API URL resolves from it (the registration url carries credentials, is a non-loopback `.mcp.json` url, or uses an unresolved `${VAR}`). Register the MCP server over HTTP at a usable URL, set `TASK_ORCHESTRATOR_API_URL`, or run `/task-orchestrator:init` (writes `client.json`).',
 ].join('\n');
 const T7_USER = [
   '## Config Sync',
   '',
-  'Config-sync cannot push this config because no REST API URL resolves. Set `TASK_ORCHESTRATOR_API_URL` or run `/task-orchestrator:init --user` (writes `client.json`).',
+  'Config-sync cannot push this config: the MCP server is registered over http(s) but no REST API URL resolves from it (the registration url carries credentials, is a non-loopback `.mcp.json` url, or uses an unresolved `${VAR}`). Register the MCP server over HTTP at a usable URL, set `TASK_ORCHESTRATOR_API_URL`, or run `/task-orchestrator:init --user` (writes `client.json`).',
 ].join('\n');
 
 const cfgPath = (base) => join(base, '.taskorchestrator', 'config.yaml');
@@ -1587,6 +1590,86 @@ test('S7 the notice sits next to normal guidance in an unsuppressed session (gui
     assertGuidance(blocks[0]);
     assert.ok(blocks.some((b) => b.startsWith('## Project Scope')));
     assert.equal(blocks.filter((b) => b.startsWith('## Config Shape')).length, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+// -------------------------------------------------------------------------
+// bc3e3c99: hooks/MCP endpoint mismatch warning (AC7).
+// -------------------------------------------------------------------------
+
+const mismatchReg = (url) => ({ mcpServers: { 'mcp-task-orchestrator': { type: 'http', url } } });
+const msgOf = (res) => parse(res).systemMessage ?? '';
+
+test('AC7: env URL differs from the http registration -> one warning line naming both', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeProjectMcpJson(dir, mismatchReg('http://localhost:3003/mcp'));
+    const msg = msgOf(runHook(dir, { env: { TASK_ORCHESTRATOR_API_URL: 'http://localhost:3001' } }));
+    assert.ok(msg.includes('hooks call the REST API at http://localhost:3001 (TASK_ORCHESTRATOR_API_URL)'), msg);
+    assert.ok(msg.includes('mcp-task-orchestrator is registered at http://localhost:3003 (.mcp.json)'), msg);
+    assert.ok(msg.includes('talking to different servers'), msg);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('AC7: matching origins (case and default port normalised), no registration, or stdio -> no warning', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeProjectMcpJson(dir, mismatchReg('http://LOCALHOST:80/mcp'));
+    assert.ok(!msgOf(runHook(dir, { env: { TASK_ORCHESTRATOR_API_URL: 'http://localhost' } })).includes('different servers'));
+    writeProjectMcpJson(dir, mismatchReg('http://localhost:3003/mcp'));
+    assert.ok(!msgOf(runHook(dir)).includes('different servers'), 'no env, the registration itself resolves');
+    writeProjectMcpJson(dir, { mcpServers: { 'mcp-task-orchestrator': { command: 'docker', args: ['run', 'x'] } } });
+    assert.ok(!msgOf(runHook(dir, { env: { TASK_ORCHESTRATOR_API_URL: 'http://localhost:3001' } })).includes('different servers'));
+    rmSync(join(dir, '.mcp.json'), { force: true });
+    assert.ok(!msgOf(runHook(dir, { env: { TASK_ORCHESTRATOR_API_URL: 'http://localhost:3001' } })).includes('different servers'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('AC7: a project client.json source differing from the registration -> warning names project client.json', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'project:\n  rootId: 11111111-2222-3333-4444-555555555555\n');
+    writeFileSync(join(dir, '.taskorchestrator', 'client.json'), JSON.stringify({ apiUrl: 'http://localhost:3001' }));
+    writeProjectMcpJson(dir, mismatchReg('http://localhost:3003/mcp'));
+    // The registration sits below the project client.json in precedence, so the client.json is the source.
+    const msg = msgOf(runHook(dir));
+    assert.ok(msg.includes('hooks call the REST API at http://localhost:3001 (project client.json)'), msg);
+    assert.ok(msg.includes('registered at http://localhost:3003 (.mcp.json)'), msg);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('AC7: a user client.json source differing from an unusable (remote .mcp.json) registration -> warning names user client.json', () => {
+  const dir = tmpConfigDir();
+  const toHome = trackedTmp('to-session-start-userclient-');
+  try {
+    mkdirSync(join(toHome, '.taskorchestrator'), { recursive: true });
+    writeFileSync(join(toHome, '.taskorchestrator', 'client.json'), JSON.stringify({ apiUrl: 'http://other.example:1' }));
+    writeProjectMcpJson(dir, mismatchReg('https://remote.example/mcp'));
+    const msg = msgOf(runHook(dir, { toHome }));
+    assert.ok(msg.includes('hooks call the REST API at http://other.example:1 (user client.json)'), msg);
+    assert.ok(msg.includes('registered at https://remote.example (.mcp.json)'), msg);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('AC7 fail-open: unparseable .mcp.json and ~/.claude.json -> no warning, exit 0, valid output', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeFileSync(join(dir, '.mcp.json'), '{ not json', 'utf-8');
+    writeFileSync(join(dir, '.claude.json'), '[[[', 'utf-8');
+    const res = runHook(dir, { env: { TASK_ORCHESTRATOR_API_URL: 'http://localhost:3001' } });
+    assert.equal(res.status, 0, res.stderr);
+    const out = parse(res);
+    assert.ok(out.hookSpecificOutput);
+    assert.ok(!(out.systemMessage ?? '').includes('different servers'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

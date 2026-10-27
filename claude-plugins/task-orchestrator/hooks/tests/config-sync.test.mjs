@@ -9,6 +9,7 @@
 // Hermeticity recipe: every spawn pins TASK_ORCHESTRATOR_HOME to its OWN empty temp dir, drops inherited
 // AGENT_CONFIG_DIR / API URL / token, and runs with cwd = a fixture dir (never the repo).
 
+import './hermetic-claude-config.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync, spawn } from 'node:child_process';
@@ -1836,4 +1837,21 @@ test('S17 (AC8): no file under the plugin names hooks/api-client.mjs or imports 
     const text = readFileSync(join(HOOKS_SRC, f), 'utf8');
     assert.match(text, /from\s*['"]\.\/lib\/api-client\.mjs['"]/, `${f} imports ./lib/api-client.mjs`);
   }
+});
+
+// ---- bc3e3c99: the skip line names the HTTP status and base URL for transport-shaped failures ------------------
+
+test('AC8: a get answered with a non-envelope 404 -> "bad_body (HTTP 404 from <base>)"', async () => {
+  const { dir } = makeProject('root-ac8');
+  await withStub({ override: (call) => (call.tool === 'config' ? { status: 404, raw: '{"error":"Not Found"}' } : undefined) }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(lineOf(res).includes(`config sync skipped - bad_body (HTTP 404 from ${stub.url})`), lineOf(res));
+  });
+});
+
+test('AC8: an unreachable API -> reason plus the base URL, no status', async () => {
+  const { dir } = makeProject('root-ac8b');
+  const res = await runHook(dir, UNREACHABLE_API_URL);
+  assert.ok(lineOf(res).includes(`from ${UNREACHABLE_API_URL})`), lineOf(res));
 });

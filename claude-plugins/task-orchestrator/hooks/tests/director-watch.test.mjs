@@ -4,6 +4,7 @@
 // exactly "open" only, each id once per session; a retrospective directive needs a closed, unmarked run
 // when the REST path is not available. In-process tests use synthetic session ids and a temp state file;
 // the one subprocess test redirects TEMP so no real marker path is touched.
+import './hermetic-claude-config.mjs';
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'

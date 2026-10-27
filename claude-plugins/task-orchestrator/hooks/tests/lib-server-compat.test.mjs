@@ -5,6 +5,7 @@
 // The well-known document shape is api-rest.md:870-886. Session-start is driven as a subprocess
 // against a node:http fake.
 
+import './hermetic-claude-config.mjs';
 import { test, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';

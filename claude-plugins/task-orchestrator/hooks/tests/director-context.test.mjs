@@ -1,6 +1,7 @@
 // Tests for hooks/director-context.mjs (item 8aee9676, S11 / AC8). Oracle: task-scope Build 2 and Amendment A1
 // context-hook oracle. The hook runs as a subprocess against a synthetic temp root.
 
+import './hermetic-claude-config.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

@@ -14,6 +14,7 @@
 // S6 (assign faults), S7 (token hygiene), S11 (usage), S13 (preflight). S4/S5 live in
 // ralph-idle-backoff.test.mjs, S8/S10 in ralph-lib.test.mjs and ralph-prompts-render.test.mjs.
 
+import '../../hooks/tests/hermetic-claude-config.mjs';
 import { test, after, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn, execFileSync } from 'node:child_process'

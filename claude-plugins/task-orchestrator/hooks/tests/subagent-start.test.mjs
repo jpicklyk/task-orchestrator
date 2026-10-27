@@ -7,6 +7,7 @@
 // derive the expected error-code groups from lib/tool-catalog.json and lib/tool-names.mjs
 // ERROR_KINDS (generated artifacts), never from the hook output.
 
+import './hermetic-claude-config.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

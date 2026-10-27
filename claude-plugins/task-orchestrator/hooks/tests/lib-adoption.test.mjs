@@ -4,6 +4,7 @@
 // CHANGELOG [4.0.0] ### Plugin bullet) and decision D3 (session-start imports server-compat; per AC2 of 0bbdc4cc also the envelope readers dispatch-hint and phase-guard-record).
 // Source scans read hook files as text; they do not execute them.
 
+import './hermetic-claude-config.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, mkdtempSync, rmSync, existsSync } from 'node:fs';

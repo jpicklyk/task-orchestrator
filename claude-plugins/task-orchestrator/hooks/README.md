@@ -30,6 +30,8 @@ item's `items_read` `schema` view per op. The attribution hook is removed. With 
 URL, `phase-guard` and `skill-enforcement` emit one `systemMessage` per session saying so (gate state and schema
 facts come from the server) and then stay silent; `phase-guard-record` is always silent.
 
+The REST base URL resolves in this order: `TASK_ORCHESTRATOR_API_URL`, a project-level `client.json` (loopback only), the origin of the orchestrator's http(s) MCP registration (local `~/.claude.json` project entry, then `.mcp.json` - loopback only - then user `~/.claude.json`; `lib/mcp-registrations.mjs`), then the user-level `client.json`. `session-start` adds one warning line when the env var or a `client.json` points at a different origin than the registration.
+
 ## Mode gating
 
 Plugin keys live under `extensions.claude-code` in `.taskorchestrator/config.yaml` (for example

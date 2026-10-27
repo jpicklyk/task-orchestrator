@@ -16,6 +16,7 @@
 // POST /api/v1/ops/items_read, markers seeded directly). spawnSync would block the stub event
 // loop and produce a false green, so it is not used.
 
+import './hermetic-claude-config.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
