@@ -3,6 +3,7 @@
 // director-guard tests. Oracles: task-scope AC7 (git log patch flags, git branch listing flags only, file
 // tools denied like Read, the hooks-config matcher string). The subprocess test redirects TEMP so no real
 // marker path is touched.
+import './hermetic-claude-config.mjs';
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'

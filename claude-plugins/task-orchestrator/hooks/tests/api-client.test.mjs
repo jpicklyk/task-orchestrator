@@ -4,7 +4,7 @@
 // or a promise this test awaits directly, in-process — no subprocess spawning needed, since
 // nothing reads stdin or touches disk state.
 
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
@@ -19,7 +19,12 @@ import { userClientPath } from '../config-locator.mjs';
 // Module-level on purpose: the process is per test file.
 const ISOLATED_CWD = mkdtempSync(join(tmpdir(), 'toapi-iso-'));
 process.env.CLAUDE_CONFIG_DIR = join(ISOLATED_CWD, 'claude-config');
+const ORIGINAL_CWD = process.cwd();
 process.chdir(ISOLATED_CWD);
+after(() => {
+  process.chdir(ORIGINAL_CWD);
+  rmSync(ISOLATED_CWD, { recursive: true, force: true });
+});
 
 function withEnv(callerVars, fn) {
   // 4e15b651 DE1: hermetic defaults under the caller's vars (caller's keys win) - with cwd equal to

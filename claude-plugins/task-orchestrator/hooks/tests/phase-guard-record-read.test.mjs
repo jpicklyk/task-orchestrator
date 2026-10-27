@@ -19,6 +19,7 @@
 // record hook does no network I/O (spawnSync is safe); the guard hook fetches a stub gate over HTTP
 // and so runs through async spawn (spawnSync would starve the stub server's event loop).
 
+import './hermetic-claude-config.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync, spawn } from 'node:child_process';

@@ -2,6 +2,7 @@
 // Build 1 and AC1-AC7 plus the test-plan; the hook is only ever run as a subprocess against a synthetic
 // temp root, so no real marker path is touched.
 
+import './hermetic-claude-config.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

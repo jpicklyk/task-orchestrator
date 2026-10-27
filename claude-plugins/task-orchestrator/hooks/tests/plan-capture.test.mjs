@@ -6,6 +6,7 @@
 // Hermeticity recipe (Ruling 2): every spawn pins TASK_ORCHESTRATOR_HOME to its OWN empty temp dir, drops
 // inherited config/API env, and runs with cwd = a fixture dir (never the repo).
 
+import './hermetic-claude-config.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';

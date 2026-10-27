@@ -5,6 +5,7 @@
 // bare RETIRED_3X_TOOLS name); gating and deny shape are otherwise unchanged - in particular a director
 // session is still guarded (it must pass `model` too).
 
+import './hermetic-claude-config.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

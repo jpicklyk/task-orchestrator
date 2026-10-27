@@ -122,7 +122,7 @@ async function fetchGate(itemId) {
 }
 
 export const INERT_MESSAGE =
-  'task-orchestrator: phase-guard.mjs is inert: no REST API URL resolves (set TASK_ORCHESTRATOR_API_URL or client.json apiUrl); in 4.0 schema facts and gate state come from the server.';
+  'task-orchestrator: phase-guard.mjs is inert: no REST API URL resolves (register the MCP server over http(s), set TASK_ORCHESTRATOR_API_URL, or write a client.json apiUrl); in 4.0 schema facts and gate state come from the server.';
 
 /** Renders one A2 violation as `key (constraint)`, e.g. `test-manifest (same_actor)` — never an
  * actor id, proof, or claim (the context view's `violations` array is already actor-free). */

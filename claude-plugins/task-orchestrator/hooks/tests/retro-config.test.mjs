@@ -3,7 +3,7 @@
 // declarations' doc comments (dispatchAncestorId: only a project-scope config contributes its
 // rootId).
 
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -15,7 +15,12 @@ import * as lib from '../retro-lib.mjs';
 // Module-level on purpose: the process is per test file.
 const ISOLATED_CWD = mkdtempSync(join(tmpdir(), 'toretro-iso-'));
 process.env.CLAUDE_CONFIG_DIR = join(ISOLATED_CWD, 'claude-config');
+const ORIGINAL_CWD = process.cwd();
 process.chdir(ISOLATED_CWD);
+after(() => {
+  process.chdir(ORIGINAL_CWD);
+  rmSync(ISOLATED_CWD, { recursive: true, force: true });
+});
 
 const { parseRetrospectiveConfig, parseRetrospectiveMode, dispatchAncestorId, restRootId, buildNudge, buildDispatch } = lib;
 

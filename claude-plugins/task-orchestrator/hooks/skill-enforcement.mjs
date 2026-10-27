@@ -28,7 +28,7 @@ import { sessionMarkerPath, readMarker, writeMarker, createMarkerOnce } from './
 const FACTS_TIMEOUT_MS = 1500;
 const ITEM_ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{8,32})$/i;
 export const INERT_MESSAGE =
-  'task-orchestrator: skill-enforcement.mjs is inert: no REST API URL resolves (set TASK_ORCHESTRATOR_API_URL or client.json apiUrl); in 4.0 schema facts and gate state come from the server.';
+  'task-orchestrator: skill-enforcement.mjs is inert: no REST API URL resolves (register the MCP server over http(s), set TASK_ORCHESTRATOR_API_URL, or write a client.json apiUrl); in 4.0 schema facts and gate state come from the server.';
 
 function isPlain(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);

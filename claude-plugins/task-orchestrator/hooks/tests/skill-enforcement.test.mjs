@@ -19,6 +19,7 @@
 // Isolation: every spawn gets its own TEMP/TMP/TMPDIR (so the per-session markers never touch the
 // real os.tmpdir()), a pinned empty TASK_ORCHESTRATOR_HOME, and cwd = a fixture dir.
 
+import './hermetic-claude-config.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -34,7 +35,7 @@ const TOOL = 'mcp__mcp-task-orchestrator__notes_write';
 const ROOT_ID = '11111111-1111-1111-1111-111111111111';
 const BOOTSTRAP = `project:\n  rootId: ${ROOT_ID}\n`;
 const INERT_SE =
-  'task-orchestrator: skill-enforcement.mjs is inert: no REST API URL resolves (set TASK_ORCHESTRATOR_API_URL or client.json apiUrl); in 4.0 schema facts and gate state come from the server.';
+  'task-orchestrator: skill-enforcement.mjs is inert: no REST API URL resolves (register the MCP server over http(s), set TASK_ORCHESTRATOR_API_URL, or write a client.json apiUrl); in 4.0 schema facts and gate state come from the server.';
 
 const U1 = 'aaaaaaaa-1111-2222-3333-444444444401';
 const U2 = 'bbbbbbbb-1111-2222-3333-444444444402';

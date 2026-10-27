@@ -18,7 +18,12 @@ import { callOp, wellKnown } from '../lib/api-client.mjs';
 // Module-level on purpose: the process is per test file.
 const ISOLATED_CWD = mkdtempSync(join(tmpdir(), 'tolib-iso-'));
 process.env.CLAUDE_CONFIG_DIR = join(ISOLATED_CWD, 'claude-config');
+const ORIGINAL_CWD = process.cwd();
 process.chdir(ISOLATED_CWD);
+after(() => {
+  process.chdir(ORIGINAL_CWD);
+  rmSync(ISOLATED_CWD, { recursive: true, force: true });
+});
 
 const trackedDirs = [];
 after(() => {

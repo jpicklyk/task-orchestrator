@@ -119,7 +119,7 @@ function buildConfigSyncNotice(state, registrations) {
   if (!registrations.some((r) => typeof r.url === 'string' && /^https?:\/\//i.test(r.url))) return null;
   return `## Config Sync
 
-Config-sync cannot push this config because no REST API URL resolves. Set \`TASK_ORCHESTRATOR_API_URL\` or run \`/task-orchestrator:init${state === 'user' ? ' --user' : ''}\` (writes \`client.json\`).`;
+Config-sync cannot push this config: the MCP server is registered over http(s) but no REST API URL resolves from it (the registration url carries credentials, is a non-loopback \`.mcp.json\` url, or uses an unresolved \`\${VAR}\`). Register the MCP server over HTTP at a usable URL, set \`TASK_ORCHESTRATOR_API_URL\`, or run \`/task-orchestrator:init${state === 'user' ? ' --user' : ''}\` (writes \`client.json\`).`;
 }
 
 function normOrigin(origin) {

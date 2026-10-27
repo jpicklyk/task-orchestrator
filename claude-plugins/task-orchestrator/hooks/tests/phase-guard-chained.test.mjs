@@ -15,6 +15,7 @@
 // Oracle: b15ac560 task-scope AC1 (gate_blocked records nothing) and 0bbdc4cc AC4 (gate = res.data
 // of the items_read context call, block sentence unchanged).
 
+import './hermetic-claude-config.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync, spawn } from 'node:child_process';

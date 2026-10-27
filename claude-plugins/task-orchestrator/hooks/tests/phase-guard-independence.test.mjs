@@ -26,6 +26,7 @@
 // extended locally with an optional `violations` array and an explicit `canAdvance` override, since
 // the upstream helper's `canAdvance` defaults to `false` and has no violations parameter at all.
 
+import './hermetic-claude-config.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
