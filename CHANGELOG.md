@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A parent entering work is no longer labelled `done`.** A start cascade (a child started, so its parent moved from queue to work) and a reopen cascade (a child was reopened under a terminal parent) used the `cascade` status label, whose default is `done`. They now use the `start` label (default `in-progress`) and the `reopen` label (default none); the `cascade` label applies only to the cascade that completes a parent. Existing items keep their stored label until their next transition: an item still in `work` with label `done` can be corrected with `items_write` `update` (`statusLabel`, or `clear: ["statusLabel"]`).
 - **config-sync names the failure.** A skipped sync for an unparseable response, a network error or a timeout now reports the HTTP status and the URL it called (for example `bad_body (HTTP 404 from http://localhost:3001)`), instead of a bare `bad_body`.
 
 ## [4.0.0] - 2026-10-17
