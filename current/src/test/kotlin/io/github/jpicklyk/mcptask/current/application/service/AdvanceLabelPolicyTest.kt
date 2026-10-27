@@ -219,6 +219,60 @@ class AdvanceLabelPolicyTest {
         }
 
     @Test
+    fun `a start cascade labels the parent with the start label, not the terminal cascade label`(
+        @TempDir dir: Path,
+    ): Unit =
+        runBlocking {
+            // Bug f328cceb: a child start cascaded its parent queue -> work under the "cascade" key, so the working
+            // parent carried the terminal "done" label.
+            val d = driver(dir, P11_LABELS_YAML)
+            val parent = d.item("parent", Role.QUEUE)
+            val child = d.item("child", Role.QUEUE, parent = parent)
+
+            val r = d.advance(child, "start")
+
+            assertEquals(true, r.flag("ok"), "$r")
+            val cascade = r.arr("cascades").single().jsonObject
+            assertEquals(parent.id.toString(), cascade.text("itemId"), "$cascade")
+            assertEquals(true, cascade.flag("applied"), "$cascade")
+            assertEquals(Role.WORK, d.reload(parent).role)
+            assertEquals("p11-start-label", d.reload(parent).statusLabel, "a parent entering work is labelled as started")
+        }
+
+    @Test
+    fun `a start cascade uses the default in-progress label when nothing is configured`(
+        @TempDir dir: Path,
+    ): Unit =
+        runBlocking {
+            val d = driver(dir, P11_BASE_YAML)
+            val parent = d.item("parent", Role.QUEUE)
+            val child = d.item("child", Role.QUEUE, parent = parent)
+
+            assertEquals(true, d.advance(child, "start").flag("ok"))
+
+            assertEquals(Role.WORK, d.reload(parent).role)
+            assertEquals("in-progress", d.reload(parent).statusLabel, "documented default for start, never the terminal 'done'")
+        }
+
+    @Test
+    fun `a reopen cascade clears the parent's terminal label`(
+        @TempDir dir: Path,
+    ): Unit =
+        runBlocking {
+            val d = driver(dir, P11_LABELS_YAML)
+            val parent = d.item("parent", Role.TERMINAL, statusLabel = "p11-cascade-label")
+            val child = d.item("child", Role.TERMINAL, parent = parent, statusLabel = "p11-complete-label")
+
+            val r = d.advance(child, "reopen")
+
+            assertEquals(true, r.flag("ok"), "$r")
+            val cascade = r.arr("cascades").single().jsonObject
+            assertEquals(true, cascade.flag("applied"), "$cascade")
+            assertEquals(Role.WORK, d.reload(parent).role)
+            assertNull(d.reload(parent).statusLabel, "a reopened parent takes the reopen label (none configured), not 'done'")
+        }
+
+    @Test
     fun `S5 resume and reopen leave no label when none is configured for them`(
         @TempDir dir: Path,
     ): Unit =
