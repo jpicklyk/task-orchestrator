@@ -1169,7 +1169,7 @@ test("S22: probeFrom returns pluginVersion and pluginRoot verbatim", () => {
 });
 
 test("S22 (CLI): probe subcommand exits 0 and emits phase0Hooks/allow fields", () => {
-    const res = runCli(["probe", "--plugin-root", HERE]);
+    const res = runCli(["probe", "--plugin-root", HERE, "--no-server-check"]);
     assert.equal(res.status, 0, res.stderr);
     const parsed = JSON.parse(res.stdout);
     assert.ok("phase0Hooks" in parsed);

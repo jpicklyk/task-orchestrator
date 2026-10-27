@@ -793,7 +793,9 @@ test('4e15b651 S12: an explicit env object decides all three sources, not proces
   try {
     writeUserClient(fx, JSON.stringify({ apiUrl: USER_URL }));
     writeProjectClient(fx, JSON.stringify({ apiUrl: 'http://127.0.0.1:4121' }));
-    const base = { TASK_ORCHESTRATOR_HOME: fx.H, TASK_ORCHESTRATOR_CEILING: fx.T };
+    // CLAUDE_CONFIG_DIR -> fx.H (no .claude.json there): an explicit env without it falls back to
+    // os.homedir(), where a real user-scope MCP registration would outrank the user client.json.
+    const base = { TASK_ORCHESTRATOR_HOME: fx.H, TASK_ORCHESTRATOR_CEILING: fx.T, CLAUDE_CONFIG_DIR: fx.H };
     withEnv(
       { TASK_ORCHESTRATOR_API_URL: 'http://proc.example:4122', TASK_ORCHESTRATOR_HOME: procHome, TASK_ORCHESTRATOR_CEILING: fx.T },
       () => {
@@ -1234,7 +1236,9 @@ test('4e15b651 S38: the env URL and the user-level file keep a path prefix, quer
 test('4e15b651 S39: the env URL is not trimmed - leading and trailing spaces are kept, only trailing slashes are stripped', () => {
   const fx = fixtureF();
   try {
-    const base = { TASK_ORCHESTRATOR_HOME: fx.H, TASK_ORCHESTRATOR_CEILING: fx.T };
+    // CLAUDE_CONFIG_DIR -> fx.H (no .claude.json there): an explicit env without it falls back to
+    // os.homedir(), where a real user-scope MCP registration would outrank the user client.json.
+    const base = { TASK_ORCHESTRATOR_HOME: fx.H, TASK_ORCHESTRATOR_CEILING: fx.T, CLAUDE_CONFIG_DIR: fx.H };
     assert.equal(apiBaseUrl({ cwd: fx.cwd, env: { ...base, TASK_ORCHESTRATOR_API_URL: '  http://env.example:4350  ' } }), '  http://env.example:4350  ');
     assert.equal(apiBaseUrl({ cwd: fx.cwd, env: { ...base, TASK_ORCHESTRATOR_API_URL: ' http://env.example:4351/' } }), ' http://env.example:4351');
   } finally {

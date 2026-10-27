@@ -188,7 +188,7 @@ No REST, no port, no config-sync — say so.
    Add `TASK_ORCHESTRATOR_API_TOKEN=<token>` only when the REST API requires authentication (bearer or jwks mode). **Omitting this env var, with no
    `client.json` supplying a URL and no usable http(s) MCP registration to derive one from, is the single most common way config-sync silently no-ops** (`config-sync.mjs` returns early when `apiBaseUrl()` in
    `hooks/lib/api-client.mjs` finds no URL) —
-   always render it, never treat it as optional polish.
+   in that case always render it, never treat it as optional polish.
 
 4. **The director entry (optional).** `/task-orchestrator:init` registers it by default; render it here
    when the user asks for it or runs this skill alone. A second entry, `mcp-task-orchestrator-director`
