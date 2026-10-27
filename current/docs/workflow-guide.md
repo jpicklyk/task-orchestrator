@@ -593,7 +593,7 @@ Status labels are human-readable strings automatically set on WorkItems during r
 
 ### Label Precedence
 
-1. **Config-driven label**: one rule for every applied transition: the `status_labels` entry for the trigger (per-root config, then the global config, then the defaults above). A `start` that lands in `terminal` uses the `complete` label; cascades use the `cascade` label. A configured `cancel` label takes effect (there is no hardcoded override).
+1. **Config-driven label**: one rule for every applied transition: the `status_labels` entry for the trigger (per-root config, then the global config, then the defaults above). A `start` that lands in `terminal` uses the `complete` label; the cascade that completes a parent uses the `cascade` label, while a cascade that moves a parent into `work` (a child started, or a child was reopened) uses the `start` or `reopen` label. A configured `cancel` label takes effect (there is no hardcoded override).
 2. **No label configured**: when the resolved label is null, a transition into `blocked` keeps the item's current label; any other transition clears it.
 
 ### Customizing Labels

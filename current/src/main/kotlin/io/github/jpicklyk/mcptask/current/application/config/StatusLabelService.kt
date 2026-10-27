@@ -12,7 +12,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
  * - complete -> "done"
  * - block -> "blocked"
  * - cancel -> "cancelled"
- * - cascade -> "done"
+ * - cascade -> "done" (the terminal cascade only; start and reopen cascades use the start and reopen labels)
  * - resume, hold, reopen -> null (no label override)
  *
  * The key a transition looks up is [statusLabelKey]; the label is then applied by the advance
@@ -28,16 +28,20 @@ interface StatusLabelService {
 }
 
 /**
- * The `status_labels` key a transition looks up: `"cascade"` for every cascade; `"complete"` for a
- * `start` whose target is TERMINAL (a start that actually completes the item, bug 100da214); else the
- * trigger's wire name.
+ * The `status_labels` key a transition looks up: `"cascade"` for the terminal cascade
+ * ([Trigger.Cascade.Complete]); `"start"` and `"reopen"` for the start and reopen cascades, which move
+ * a parent into WORK the way those user triggers would (bug f328cceb: they used `"cascade"` and
+ * stamped the terminal `done` label on a working parent); `"complete"` for a `start` whose target is
+ * TERMINAL (a start that actually completes the item, bug 100da214); else the trigger's wire name.
  */
 fun statusLabelKey(
     trigger: Trigger,
     target: Role
 ): String =
     when {
-        trigger is Trigger.Cascade -> Trigger.Cascade.WIRE
+        trigger is Trigger.Cascade.Complete -> Trigger.Cascade.WIRE
+        trigger == Trigger.Cascade.Start -> Trigger.User.START.wire
+        trigger == Trigger.Cascade.Reopen -> Trigger.User.REOPEN.wire
         trigger == Trigger.User.START && target == Role.TERMINAL -> Trigger.User.COMPLETE.wire
         else -> trigger.wire
     }

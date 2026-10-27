@@ -288,8 +288,8 @@ class EffectiveConfigResolver private constructor(
     /**
      * The ONE label policy for an applied transition: the status label for [trigger] entering [target]
      * under [rootId] (per-root `status_labels` key, else global, else the built-in defaults). The key is
-     * [statusLabelKey]: `"cascade"` for any cascade, `"complete"` for a `start` into TERMINAL, else the
-     * trigger's wire name. One per-root read per call.
+     * [statusLabelKey]: `"cascade"` for the terminal cascade, `"start"`/`"reopen"` for the start and reopen
+     * cascades, `"complete"` for a `start` into TERMINAL, else the trigger's wire name. One per-root read per call.
      */
     suspend fun labelFor(
         rootId: UUID?,
