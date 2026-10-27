@@ -273,6 +273,50 @@ class AdvanceLabelPolicyTest {
         }
 
     @Test
+    fun `a reopen cascade stamps a configured reopen label on the parent`(
+        @TempDir dir: Path,
+    ): Unit =
+        runBlocking {
+            // The null case above cannot tell the reopen key from any other unconfigured key; a configured reopen label
+            // pins the key itself.
+            val d = driver(dir, P11_LABELS_YAML + "  reopen: p11-reopen-label\n")
+            val parent = d.item("parent", Role.TERMINAL, statusLabel = "p11-cascade-label")
+            val child = d.item("child", Role.TERMINAL, parent = parent, statusLabel = "p11-complete-label")
+
+            val r = d.advance(child, "reopen")
+
+            assertEquals(true, r.flag("ok"), "$r")
+            assertEquals("p11-reopen-label", r.text("statusLabel"), "the reopened child takes the reopen label: $r")
+            val cascade = r.arr("cascades").single().jsonObject
+            assertEquals(parent.id.toString(), cascade.text("itemId"), "$cascade")
+            assertEquals(true, cascade.flag("applied"), "$cascade")
+            assertEquals(Role.WORK, d.reload(parent).role)
+            assertEquals("p11-reopen-label", d.reload(parent).statusLabel, "the reopen cascade looks up the reopen key")
+        }
+
+    @Test
+    fun `a terminal cascade that began with a cancel stamps the cascade label on the parent`(
+        @TempDir dir: Path,
+    ): Unit =
+        runBlocking {
+            // Cascade.Complete(cancelOrigin = true): the parent completes because its last child was cancelled. It is
+            // still the terminal cascade, so it uses the cascade label, not the cancel label of the child.
+            val d = driver(dir, P11_LABELS_YAML)
+            val parent = d.item("parent", Role.WORK)
+            val child = d.item("child", Role.WORK, parent = parent)
+
+            val r = d.advance(child, "cancel")
+
+            assertEquals(true, r.flag("ok"), "$r")
+            assertEquals("p11-cancel-label", r.text("statusLabel"), "$r")
+            val cascade = r.arr("cascades").single().jsonObject
+            assertEquals(parent.id.toString(), cascade.text("itemId"), "$cascade")
+            assertEquals(true, cascade.flag("applied"), "$cascade")
+            assertEquals(Role.TERMINAL, d.reload(parent).role)
+            assertEquals("p11-cascade-label", d.reload(parent).statusLabel, "a cancel-origin cascade is still the terminal cascade")
+        }
+
+    @Test
     fun `S5 resume and reopen leave no label when none is configured for them`(
         @TempDir dir: Path,
     ): Unit =
