@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Plugin hooks find the REST API from the MCP server registration.** When neither `TASK_ORCHESTRATOR_API_URL` nor a project-level `client.json` sets a URL, the hooks and the `ralph`/`run-wave` scripts now use the origin of the `task-orchestrator` MCP server registered over http(s) (`~/.claude.json` project entry, then `.mcp.json`, then `~/.claude.json` user entry, matching Claude Code's own precedence), before the user-level `client.json`. The MCP endpoint is now the one place to change the server, including a dynamically assigned port. A `.mcp.json` registration is used only when its origin is loopback; a URL with credentials or an unresolved `${VAR}` is ignored.
+- **`session-start` warns when hooks and tools target different servers**: one line when the REST URL from the env var or a `client.json` differs from the MCP registration's origin.
+
+### Fixed
+
+- **config-sync names the failure.** A skipped sync for an unparseable response, a network error or a timeout now reports the HTTP status and the URL it called (for example `bad_body (HTTP 404 from http://localhost:3001)`), instead of a bare `bad_body`.
+
 ## [4.0.0] - 2026-10-17
 
 ### Upgrading from 3.x
