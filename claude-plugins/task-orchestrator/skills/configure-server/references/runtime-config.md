@@ -26,7 +26,7 @@ one-tap default:
 -e MCP_TRANSPORT=http -e API_ENABLED=true -e API_AUTH_MODE=none -e API_ALLOW_UNAUTHENTICATED=true -p 127.0.0.1:3001:3001
 ```
 
-Plus, on the client side (required — see "Loopback footgun" and "config-sync" below):
+Plus, on the client side (optional when the MCP server is registered over http(s), since the hooks derive the REST base from that registration; required otherwise - see "Loopback footgun" and "config-sync" below):
 
 ```
 TASK_ORCHESTRATOR_API_URL=http://localhost:3001
@@ -163,7 +163,7 @@ TASK_ORCHESTRATOR_API_URL=http://localhost:3001
 TASK_ORCHESTRATOR_API_TOKEN=<token>   # bearer mode only; omit entirely for unauthenticated mode
 ```
 
-Verified in `config-sync.mjs` (the `TASK_ORCHESTRATOR_API_URL` guard in `main()`): the hook no-ops, with no error and no log, when no API URL resolves. The order is `TASK_ORCHESTRATOR_API_URL`, then `apiUrl` in a project-level `client.json` beside the located config, or in the main checkout for a linked worktree (honoured only as a bare loopback origin: host `localhost`, `127.0.0.0/8` or `[::1]`, with no path, query or fragment), then `apiUrl` in the user-level `client.json` (unrestricted). There is no visible symptom other than
+Verified in `config-sync.mjs` (the `TASK_ORCHESTRATOR_API_URL` guard in `main()`): the hook no-ops, with no error and no log, when no API URL resolves. The order is `TASK_ORCHESTRATOR_API_URL`, then `apiUrl` in a project-level `client.json` beside the located config, or in the main checkout for a linked worktree (honoured only as a bare loopback origin: host `localhost`, `127.0.0.0/8` or `[::1]`, with no path, query or fragment), then the origin of the orchestrator's http(s) MCP registration (local `~/.claude.json` project entry, then `.mcp.json` - loopback only - then user `~/.claude.json`), then `apiUrl` in the user-level `client.json` (unrestricted). The env var is therefore optional when the MCP server is registered over http(s). There is no visible symptom other than
 per-project config never showing up server-side. **Always render this env var alongside the HTTP+REST
 docker run command** — it is easy to forget because it's set outside the container, not inside it.
 

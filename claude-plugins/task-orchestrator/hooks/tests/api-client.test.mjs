@@ -14,6 +14,13 @@ import { join, resolve, dirname, sep } from 'node:path';
 import { apiBaseUrl, authHeader, fetchWithTimeout, isLoopbackApiUrl } from '../lib/api-client.mjs';
 import { userClientPath } from '../config-locator.mjs';
 
+// Hermetic registration lookup (bc3e3c99): apiBaseUrl now falls back to the orchestrator MCP registration, so
+// no real ~/.claude.json (CLAUDE_CONFIG_DIR) or ancestor .mcp.json (cwd) may be visible to this file.
+// Module-level on purpose: the process is per test file.
+const ISOLATED_CWD = mkdtempSync(join(tmpdir(), 'toapi-iso-'));
+process.env.CLAUDE_CONFIG_DIR = join(ISOLATED_CWD, 'claude-config');
+process.chdir(ISOLATED_CWD);
+
 function withEnv(callerVars, fn) {
   // 4e15b651 DE1: hermetic defaults under the caller's vars (caller's keys win) - with cwd equal to
   // the ceiling the locator examines nothing, so a repo-level client.json cannot leak into any case.

@@ -10,6 +10,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as lib from '../retro-lib.mjs';
 
+// Hermetic registration lookup (bc3e3c99): apiBaseUrl now falls back to the orchestrator MCP registration, so
+// no real ~/.claude.json (CLAUDE_CONFIG_DIR) or ancestor .mcp.json (cwd) may be visible to this file.
+// Module-level on purpose: the process is per test file.
+const ISOLATED_CWD = mkdtempSync(join(tmpdir(), 'toretro-iso-'));
+process.env.CLAUDE_CONFIG_DIR = join(ISOLATED_CWD, 'claude-config');
+process.chdir(ISOLATED_CWD);
+
 const { parseRetrospectiveConfig, parseRetrospectiveMode, dispatchAncestorId, restRootId, buildNudge, buildDispatch } = lib;
 
 const NL = String.fromCharCode(10);

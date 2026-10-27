@@ -13,6 +13,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { callOp, wellKnown } from '../lib/api-client.mjs';
 
+// Hermetic registration lookup (bc3e3c99): apiBaseUrl now falls back to the orchestrator MCP registration, so
+// no real ~/.claude.json (CLAUDE_CONFIG_DIR) or ancestor .mcp.json (cwd) may be visible to this file.
+// Module-level on purpose: the process is per test file.
+const ISOLATED_CWD = mkdtempSync(join(tmpdir(), 'tolib-iso-'));
+process.env.CLAUDE_CONFIG_DIR = join(ISOLATED_CWD, 'claude-config');
+process.chdir(ISOLATED_CWD);
+
 const trackedDirs = [];
 after(() => {
   for (const d of trackedDirs) rmSync(d, { recursive: true, force: true });

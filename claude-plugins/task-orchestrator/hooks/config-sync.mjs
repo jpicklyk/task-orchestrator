@@ -364,6 +364,19 @@ function failedReason(out, capability) {
 }
 
 /**
+ * Skip-line reason for a failed config get: `failedReason`, plus the HTTP status (when present) and the
+ * base URL for the transport-shaped failures (bad_body, network, timeout), e.g.
+ * `bad_body (HTTP 404 from http://localhost:3001)`, so a wrong server is visible from the line itself.
+ */
+function skipReason(out, res, capability) {
+  const base = failedReason(out, capability);
+  if (out.code !== 'client_error' || !['bad_body', 'network', 'timeout'].includes(out.reason)) return base;
+  const status = res && Number.isInteger(res.httpStatus) ? `HTTP ${res.httpStatus} ` : '';
+  const url = apiBaseUrl();
+  return url ? `${base} (${status}from ${url})` : base;
+}
+
+/**
  * Lists every rule document of the root (docs_read list kind rule, following page.next). Resolves
  * `{serverVersions: Map<key, contentHash>, docVersions: Map<key, version>, unusable}` or
  * `{deferred: true}` / `{failed: outcome}`. An ok answer whose items are not a list, or a later
@@ -548,7 +561,7 @@ async function main() {
     emit(`Task Orchestrator: root ${rootId} not found on this server.`, isFileChanged);
     return;
   } else {
-    emit(`Task Orchestrator: config sync skipped - ${failedReason(got, 'read')}.`, isFileChanged);
+    emit(`Task Orchestrator: config sync skipped - ${skipReason(got, getRes, 'read')}.`, isFileChanged);
     return;
   }
 

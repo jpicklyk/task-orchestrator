@@ -183,7 +183,7 @@ No REST, no port, no config-sync — say so.
    TASK_ORCHESTRATOR_API_URL=http://localhost:3001
    ```
 
-   A persistent alternative to this env var is a `client.json` (`apiUrl` only, never a token), written after checking `/api/v1/health`. The API URL resolves in this order: the env var, then a project-level `client.json` beside the located config (or in the main checkout for a linked worktree), then the user-level `client.json`. Project-mode `/task-orchestrator:init` writes the project-level file, but only for a loopback server reached at a bare origin (the hooks ignore a project-level URL on any other host, or with a path, query or fragment); `/task-orchestrator:init --user` writes the user-level file, which is unrestricted, so a non-loopback server needs that or the env var. The token still comes from the environment only.
+   This env var is now optional when the MCP server is registered over http(s) (`.mcp.json` or `~/.claude.json`): the hooks derive the REST base from that registration's origin, so the MCP endpoint is the one place to change the server (a dynamically assigned port included). `session-start` warns when the env var or a `client.json` points at a different server than the registration. A persistent alternative to this env var is a `client.json` (`apiUrl` only, never a token), written after checking `/api/v1/health`. The API URL resolves in this order: the env var, then a project-level `client.json` beside the located config (or in the main checkout for a linked worktree), then the origin of the http(s) MCP registration (a `.mcp.json` origin must be loopback), then the user-level `client.json`. Project-mode `/task-orchestrator:init` writes the project-level file, but only for a loopback server reached at a bare origin (the hooks ignore a project-level URL on any other host, or with a path, query or fragment); `/task-orchestrator:init --user` writes the user-level file, which is unrestricted, so a non-loopback server needs that or the env var. The token still comes from the environment only.
 
    Add `TASK_ORCHESTRATOR_API_TOKEN=<token>` only when the REST API requires authentication (bearer or jwks mode). **Omitting this env var, with no
    `client.json` supplying a URL either, is the single most common way config-sync silently no-ops** (`config-sync.mjs` returns early when `apiBaseUrl()` in
@@ -234,7 +234,7 @@ Next: run `/task-orchestrator:init` in each project (or `/task-orchestrator:init
 
 New infrastructure features — `config-sync`, SSE events, the `plan-capture` hook, the SubagentStop
 completion guard (`phase-guard.mjs` + `phase-guard-record.mjs`) — are **HTTP-only**, with a graceful
-no-op on STDIO. Each checks for its own REST env var (`TASK_ORCHESTRATOR_API_URL`, etc.) and silently
+no-op on STDIO. Each resolves its REST base URL (`TASK_ORCHESTRATOR_API_URL`, a `client.json`, or the http(s) MCP registration) and silently
 skips when absent, rather than failing. STDIO remains fully supported for MCP tool calls themselves —
 it is positioned as the **local/evaluation mode**: no persistent daemon, no REST surface, and
 consequently none of these convenience features. When recommending a setup for ongoing project work

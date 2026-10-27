@@ -145,7 +145,7 @@ Read a failure from `data.results[0].error`; the call-level `error` is only `par
 
 ### P5b - Project-level `client.json`
 
-So the config-sync and other hooks can reach the REST API without an environment variable. The API URL resolves in this order: `TASK_ORCHESTRATOR_API_URL`, then `apiUrl` in a `client.json` beside the located project config (and, in a linked worktree, the one in the main checkout), then `apiUrl` in the user-level `client.json`; if none resolves the hooks do nothing.
+So the config-sync and other hooks can reach the REST API without an environment variable. The API URL resolves in this order: `TASK_ORCHESTRATOR_API_URL`, then `apiUrl` in a `client.json` beside the located project config (and, in a linked worktree, the one in the main checkout), then the origin of the orchestrator's http(s) MCP registration (local `~/.claude.json` project entry, then `.mcp.json`, then user `~/.claude.json`; a `.mcp.json` origin must be loopback), then `apiUrl` in the user-level `client.json`; if none resolves the hooks do nothing.
 
 1. Run `apiBaseUrl()` (and, below, `isLoopbackApiUrl()`) from `<plugin root>/hooks/lib/api-client.mjs` with a one-liner like Step 0:
    ```bash
@@ -247,7 +247,7 @@ Then run Rule seeding.
 
 The plugin ships these rules in `<plugin root>/bundled-rules/`: `protocol.entry-seat`, `protocol.in-phase-seat`, `protocol.read-only-agent`, `commit-discipline`, `review-scoping`, plus a `manifest.json` mapping each key to the list of hashes ever shipped, current one last. Config-sync's policy per key: absent on the server -> push; a known older hash -> overwrite; any other hash -> never touched.
 
-**REST path** (an API URL resolves: `TASK_ORCHESTRATOR_API_URL`, or a `client.json`, project-level or user-level). Run the hook by hand with stdin closed so it behaves as SessionStart:
+**REST path** (an API URL resolves: `TASK_ORCHESTRATOR_API_URL`, a `client.json`, project-level or user-level, or an http(s) MCP registration). Run the hook by hand with stdin closed so it behaves as SessionStart:
 
 ```bash
 node "<plugin root>/hooks/config-sync.mjs" < /dev/null

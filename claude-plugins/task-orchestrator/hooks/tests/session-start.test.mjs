@@ -462,9 +462,11 @@ const COMPLIANT_STDIO = {
     'mcp-task-orchestrator': { command: 'docker', args: ['run', 'ghcr.io/jpicklyk/task-orchestrator:latest'] },
   },
 };
+// An http registration that yields NO REST base: the URL carries credentials, which apiBaseUrl rejects
+// (bc3e3c99). A plain http registration now resolves, which is the point of that change and is covered below.
 const HTTP_REG = {
   mcpServers: {
-    'mcp-task-orchestrator': { type: 'http', url: 'http://host/task-orchestrator/mcp' },
+    'mcp-task-orchestrator': { type: 'http', url: 'http://user:pw@host/task-orchestrator/mcp' },
   },
 };
 const parse = (res) => {
@@ -1587,6 +1589,41 @@ test('S7 the notice sits next to normal guidance in an unsuppressed session (gui
     assertGuidance(blocks[0]);
     assert.ok(blocks.some((b) => b.startsWith('## Project Scope')));
     assert.equal(blocks.filter((b) => b.startsWith('## Config Shape')).length, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+// -------------------------------------------------------------------------
+// bc3e3c99: hooks/MCP endpoint mismatch warning (AC7).
+// -------------------------------------------------------------------------
+
+const mismatchReg = (url) => ({ mcpServers: { 'mcp-task-orchestrator': { type: 'http', url } } });
+const msgOf = (res) => parse(res).systemMessage ?? '';
+
+test('AC7: env URL differs from the http registration -> one warning line naming both', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeProjectMcpJson(dir, mismatchReg('http://localhost:3003/mcp'));
+    const msg = msgOf(runHook(dir, { env: { TASK_ORCHESTRATOR_API_URL: 'http://localhost:3001' } }));
+    assert.ok(msg.includes('hooks call the REST API at http://localhost:3001 (TASK_ORCHESTRATOR_API_URL)'), msg);
+    assert.ok(msg.includes('mcp-task-orchestrator is registered at http://localhost:3003 (.mcp.json)'), msg);
+    assert.ok(msg.includes('talking to different servers'), msg);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('AC7: matching origins (case and default port normalised), no registration, or stdio -> no warning', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeProjectMcpJson(dir, mismatchReg('http://LOCALHOST:80/mcp'));
+    assert.ok(!msgOf(runHook(dir, { env: { TASK_ORCHESTRATOR_API_URL: 'http://localhost' } })).includes('different servers'));
+    writeProjectMcpJson(dir, mismatchReg('http://localhost:3003/mcp'));
+    assert.ok(!msgOf(runHook(dir)).includes('different servers'), 'no env, the registration itself resolves');
+    writeProjectMcpJson(dir, { mcpServers: { 'mcp-task-orchestrator': { command: 'docker', args: ['run', 'x'] } } });
+    assert.ok(!msgOf(runHook(dir, { env: { TASK_ORCHESTRATOR_API_URL: 'http://localhost:3001' } })).includes('different servers'));
+    rmSync(join(dir, '.mcp.json'), { force: true });
+    assert.ok(!msgOf(runHook(dir, { env: { TASK_ORCHESTRATOR_API_URL: 'http://localhost:3001' } })).includes('different servers'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
