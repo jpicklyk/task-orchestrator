@@ -121,11 +121,12 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
   <div class="grid2">
     <pre>work_item_schemas:
   bug-fix:
-    default_traits: [delegated, needs-test-author, session-tracked]
+    default_traits: [delegated, session-tracked, needs-test-author]
     seats:
       - { name: planner,      phase: queue }
       - { name: implementer,  phase: work, enters: true,
           transitions: [block, hold, resume] }
+      - { name: orchestrator, phase: work, after: [implementer] }
       - { name: reviewer,     phase: review }
     notes:
       - { key: implementation-notes, role: work,
@@ -149,8 +150,6 @@ traits:
           implementer: { model: sonnet }
           test-author: { agent: null, model: sonnet }
   session-tracked:
-    seats:
-      - { name: orchestrator, phase: work, after: [implementer] }
     notes:
       - { key: session-tracking, role: work, required: true,
           seat: orchestrator }</pre>
@@ -158,7 +157,7 @@ traits:
       <thead><tr><th>Field</th><th>Meaning</th><th>Server's part</th></tr></thead>
       <tbody>
         <tr><td><code>name</code>, <code>phase</code></td><td>A named role in queue, work or review. The name means nothing to the server, with two exceptions: <code>orchestrator</code> is the seat whose note keys a run's coordinator token writes, and <code>unowned</code> is reserved.</td><td>Validates and serves</td></tr>
-        <tr><td><code>enters</code></td><td>This seat makes the transition into the phase. Inside a run, it is the only seat that may <code>start</code> the item.</td><td>Allows one per phase</td></tr>
+        <tr><td><code>enters</code></td><td>This seat makes the transition into the phase. Inside a run, it is the only schema seat that may <code>start</code> the item (the run's coordinator token may too).</td><td>Allows one per phase</td></tr>
         <tr><td><code>transitions</code></td><td>The triggers other than <code>start</code> that a token for this seat may send. The default is <code>block</code> and <code>hold</code>. <code>start</code> is governed by <code>enters</code> and is never listed.</td><td>Refuses the rest as <code>seat_forbidden</code>, inside a run</td></tr>
         <tr><td><code>after</code></td><td>Seats whose work this one follows.</td><td>Serves as a hint</td></tr>
         <tr><td><code>reads_exclude</code></td><td>Note keys this seat should not read. Keeps a test author blind to the implementation.</td><td>Serves as a hint</td></tr>
@@ -280,7 +279,7 @@ traits:
     planner:{phase:'queue',enters:false,after:[],ex:[],notes:['diagnosis','test-plan'],src:'the bug-fix schema',d:{model:'opus'}},
     implementer:{phase:'work',enters:true,after:[],ex:[],notes:['implementation-notes'],src:'the bug-fix schema',d:{agent:'task-orchestrator:implementer',model:'sonnet'}},
     'test-author':{phase:'work',enters:false,after:['implementer'],ex:['implementation-notes','session-tracking'],notes:['test-manifest'],src:'the needs-test-author trait',d:{model:'sonnet'},why:'The phase agent is cleared for this seat, so the test author is not the implementer agent.'},
-    orchestrator:{phase:'work',enters:false,after:['implementer'],ex:[],notes:['session-tracking'],src:'the session-tracked trait',d:{},why:'The phase agent is cleared. This seat is the main session and is never dispatched.'},
+    orchestrator:{phase:'work',enters:false,after:['implementer'],ex:[],notes:['session-tracking'],src:'the bug-fix schema (its note comes from the session-tracked trait)',d:{},why:'The phase agent is cleared. This seat is the main session and is never dispatched.'},
     reviewer:{phase:'review',enters:false,after:[],ex:[],notes:['review-checklist','test-independence-audit'],src:'the bug-fix schema',d:{agent:'task-orchestrator:reviewer',effort:'high',model:'opus'}}
   };
   var OVER={complex:{implementer:{model:'opus'}},stakes:{planner:{model:'fable'},reviewer:{model:'fable'}}};

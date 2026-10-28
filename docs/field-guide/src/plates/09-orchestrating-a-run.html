@@ -147,7 +147,7 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
     <div class="rule"><h3>What post-run checks</h3><p class="small">In order: end any seat still active, verify that each commit exists and stays inside the files its seat owns, audit that the required notes are filled, write the orchestrator's own notes, advance in one batch, hand off to review, close the run. Who wrote a note is not audited, because the server enforces each seat's lane. Items that fail are left out of the batch advance.</p></div>
     <div class="rule"><h3>Five agents, four seats</h3><p class="small">The planner verifies the plan against source and cannot edit files. The implementer builds. The test author writes tests without opening the production files. The reviewer reports findings and never advances the item. The fifth, the director, runs the board and never code (plate 8, Runs and Decisions).</p></div>
   </div>
-  <p class="sub small">The run is recorded in the parent's <code>session-tracking</code> note as a pointer line, <code>run-wave: &lt;runId&gt; run=&lt;uuid8&gt;</code>, which is how a later session finds it to resume. A seat that finds the plan wrong raises a deviation decision with <code>block: true</code> and stops. An answer never resumes the item: the coordinator does (plate 8, Runs and Decisions).</p>
+  <p class="sub small">The run is recorded in the parent's <code>session-tracking</code> note (the single item's, in a one-item run) as a pointer line, <code>run-wave: &lt;runId&gt; run=&lt;uuid8&gt; parent=&lt;state&gt;</code>, which is how a later session finds it to resume. A seat that finds the plan wrong raises a deviation decision with <code>block: true</code> and stops. An answer never resumes the item: the coordinator does (plate 8, Runs and Decisions).</p>
 </section>
 
 <section>
@@ -165,7 +165,7 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
       </tbody>
     </table></div>
     <div style="display:grid;gap:16px;align-content:start">
-      <div class="rule"><h3>Where rule text comes from</h3><p class="small">A rule is a document of kind <code>rule</code> under the project root. The config-sync hook pushes your <code>.taskorchestrator/rules/*.md</code>, and the plugin's five bundled rules at session start only. It needs a REST URL and a token that may write documents. Without them, <code>/task-orchestrator:init</code> seeds the bundled rules. A workspace key wins over a bundled one.</p></div>
+      <div class="rule"><h3>Where rule text comes from</h3><p class="small">A rule is a document of kind <code>rule</code> under the project root. The config-sync hook pushes your <code>.taskorchestrator/rules/*.md</code>, and the plugin's five bundled rules at session start only. It needs a REST URL, plus a token that may write documents when the server requires one. Without them, <code>/task-orchestrator:init</code> seeds the bundled rules. A workspace key wins over a bundled one.</p></div>
       <div class="rule"><h3>Safe updates</h3><p class="small">A manifest governs them. A bundled rule overwrites the server copy only when that copy matches a version the plugin shipped before. A copy someone customized is left alone and reported.</p></div>
       <pre>config(op="rules", rootId, key="commit-discipline")
 config(op="rules", itemId, noteKey="test-manifest")
