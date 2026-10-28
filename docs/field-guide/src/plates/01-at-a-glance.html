@@ -52,7 +52,7 @@
     </figure>
     <figure class="panel">
       <h3>In the server</h3>
-      <svg class="d" viewBox="0 0 500 200" role="img" aria-label="The agent calls advance. A gate inside the server checks required notes, dependencies and leases. It returns an error naming the missing note, or passes the transition and records the actor.">
+      <svg class="d" viewBox="0 0 500 200" role="img" aria-label="The agent calls advance. A gate inside the server checks claim ownership, seat, the transition table, dependencies, required notes and resource leases in that order. It returns an error naming the missing note, or passes the transition and records the actor.">
         <rect x="16" y="70" width="100" height="56" rx="4" class="bx"/>
         <text x="66" y="103" text-anchor="middle" class="b">Agent</text>
         <line x1="116" y1="86" x2="216" y2="86" class="l" marker-end="url(#ah)"/>
@@ -68,32 +68,33 @@
         <rect x="396" y="70" width="96" height="56" rx="4" class="bx"/>
         <text x="444" y="94" text-anchor="middle" class="b">Work item</text>
         <text x="444" y="112" text-anchor="middle" class="m mu">queue → work</text>
-        <text x="250" y="166" text-anchor="middle" class="s mu">Every transition goes through the same call, and each one records who made it.</text>
+        <text x="250" y="160" text-anchor="middle" class="s">ownership → seat → table → dependency → notes → lease</text>
+        <text x="250" y="180" text-anchor="middle" class="s mu">One call, one gate order. Each transition records who made it.</text>
       </svg>
-      <figcaption>The rule is structure. An agent that skips the note gets an error that names it, fills it, and tries again.</figcaption>
+      <figcaption>The rule is structure. An agent that skips the note gets an error that names it, fills it, and tries again. The order above is for a trigger an agent sends. A cascade runs three more gates (warrant, hold, review-pending), and the service fences it on claim and seat separately.</figcaption>
     </figure>
   </div>
 </section>
 
 <section>
   <h2>One gate, seen from the agent</h2>
-  <p class="sub">A new session with no memory of yesterday picks up an item and runs into the gate.</p>
+  <p class="sub">A new session with no memory of yesterday picks up an item and runs into the gate. Write calls take an <code>ops</code> list, and each element answers in <code>data.results[]</code>.</p>
   <ol class="xchg">
     <li><span class="n">1</span>
       <div class="call">items_read(select="context")</div>
       <div class="resp">2 items in work, 1 blocked, 1 stalled (missing implementation-notes)</div>
       <div class="why">One call recovers the current state: active, blocked and stalled items and claim counts, with ancestor chains on request. A second read, <code>select="history"</code>, lists recent transitions.</div></li>
     <li><span class="n">2</span>
-      <div class="call">advance(op="transition", itemId="a3f2c91e", trigger="start")</div>
-      <div class="resp err">gate_blocked: missing note requirements (queue)</div>
-      <div class="why">The item's schema requires a <code>requirements</code> note before work starts.</div></li>
+      <div class="call">advance(ops=[{op:"transition", itemId:"a3f2c91e", trigger:"start"}])</div>
+      <div class="resp err">results[0].error: gate_blocked (permanent). "Item a3f2c91e-... is missing 1 required notes." detail.missing: requirements (queue)</div>
+      <div class="why">The item's schema requires a <code>requirements</code> note before work starts. The error names it in <code>detail.missing</code>.</div></li>
     <li><span class="n">3</span>
-      <div class="call">notes_write(op="upsert", itemId="a3f2c91e", key="requirements", role="queue", body="Validate email format…")</div>
-      <div class="resp ok">Upserted. Note version 1.</div>
+      <div class="call">notes_write(ops=[{op:"upsert", itemId:"a3f2c91e", key:"requirements", role:"queue", body:"Validate email format..."}])</div>
+      <div class="resp ok">results[0]: note created, version 1.</div>
       <div class="why">The agent writes the note the error named.</div></li>
     <li><span class="n">4</span>
-      <div class="call">advance(op="transition", itemId="a3f2c91e", trigger="start")</div>
-      <div class="resp ok">queue → work. Principal recorded.</div>
+      <div class="call">advance(ops=[{op:"transition", itemId:"a3f2c91e", trigger:"start"}])</div>
+      <div class="resp ok">results[0]: queue → work, statusLabel in-progress. Principal recorded.</div>
       <div class="why">Same call, now it passes. Nothing was rebuilt from conversation history.</div></li>
   </ol>
 </section>
@@ -104,20 +105,24 @@
     <div class="rule"><h3>A work item graph</h3><p class="small">Everything is a WorkItem. Items nest to any depth and connect with typed dependency edges.</p><p class="tools">items_write (create_tree, complete_tree) · items_read</p></div>
     <div class="rule"><h3>Phase gates</h3><p class="small">Schemas declare which notes must exist at each phase. Transitions fail until they do.</p><p class="tools">advance · items_read (context) · notes_write</p></div>
     <div class="rule"><h3>Dependency ordering</h3><p class="small">A blocked item cannot start until its blocker reaches the agreed phase. Finishing a blocker reports what it unblocked.</p><p class="tools">deps_write · items_read (blocked)</p></div>
-    <div class="rule"><h3>Actor attribution</h3><p class="small">Transitions and notes record who made them: the principal of the credential the caller presented, or the single local principal for stdio and unauthenticated modes. A caller cannot name itself.</p><p class="tools">principal: api:&lt;id&gt; | local</p></div>
+    <div class="rule"><h3>Identity and attribution</h3><p class="small">Transitions and notes record who made them: the principal of the credential the caller presented, or the single local principal for stdio and unauthenticated modes. A caller cannot name itself.</p><p class="tools">principal: api:&lt;id&gt; | local</p></div>
+    <div class="rule"><h3>Claims</h3><p class="small">A caller can hold a time-limited claim on an item. While the claim is live, a transition from any other caller is refused. This fence is always on.</p><p class="tools">advance (claim, release, heartbeat)</p></div>
+    <div class="rule"><h3>Runs and decisions</h3><p class="small">A run groups items for a coordinator and hands each seat its own token. A seat that needs a ruling raises a decision, and a human or director answers it.</p><p class="tools">runs_read · runs_write</p></div>
+    <div class="rule"><h3>Documents</h3><p class="small">Longer text lives in documents anchored to a project root and attached to items, apart from the short notes the gates read.</p><p class="tools">docs_read · docs_write</p></div>
+    <div class="rule"><h3>Versioned config</h3><p class="small">Schemas, traits and status labels are stored per project in the database with a version history. Push, validate, roll back or reset them without a restart.</p><p class="tools">config</p></div>
     <div class="rule"><h3>Session continuity</h3><p class="small">A fresh session reads active, blocked and stalled items in one response instead of replaying a conversation.</p><p class="tools">items_read (context, next)</p></div>
     <div class="rule"><h3>Scoped, searchable notes</h3><p class="small">Notes are keyed by phase. Agents read only the note they need, or search items and notes by keyword.</p><p class="tools">notes_read · items_read (search)</p></div>
   </div>
-  <p class="sub small">The server owns these guardrails and nothing else. It has no opinion on how agents plan or write code, and every enforcement layer is opt-in through a YAML file.</p>
+  <p class="sub small">The server owns these guardrails and nothing else. It has no opinion on how agents plan or write code. Claim fencing, note ownership and the required item <code>type</code> are always on. Note schemas, traits, lifecycle modes and run seats are the layers you opt into through config. The tools come in three profiles: orchestration (the default), knowledge and director.</p>
 </section>
 
 <section>
   <h2>Adopt it one tier at a time</h2>
   <p class="sub">Each tier builds on the one before. Note schemas (tier 3) can be added at any point.</p>
   <ol class="ladder">
-    <li><h3>Bare MCP</h3><span class="who">Any MCP client</span><span class="small" style="grid-column:2/-1">The full tool surface, a persistent SQLite store and the role-based workflow.</span></li>
+    <li><h3>Bare MCP</h3><span class="who">Any MCP client</span><span class="small" style="grid-column:2/-1">The tools of one profile (a stdio server serves one, HTTP serves all three), a persistent SQLite store and the role-based workflow.</span></li>
     <li><h3>CLAUDE.md-driven</h3><span class="who">Claude Code users</span><span class="small" style="grid-column:2/-1">Consistent agent behaviour from project instructions.</span></li>
-    <li><h3>Note schemas</h3><span class="who">Anyone who wants gates</span><span class="small" style="grid-column:2/-1">Required documentation per phase, enforced on every transition.</span></li>
+    <li><h3>Note schemas</h3><span class="who">Anyone who wants gates</span><span class="small" style="grid-column:2/-1">Required documentation per phase, checked when an item starts or completes, and by cascades.</span></li>
     <li><h3>Plugin: skills and hooks</h3><span class="who">Claude Code with the plugin</span><span class="small" style="grid-column:2/-1">Plan-mode integration, sub-agent protocols and per-project config sync.</span></li>
     <li><h3>Orchestration mode</h3><span class="who">Power users</span><span class="small" style="grid-column:2/-1">Claude plans, delegates to sub-agents and tracks progress as an orchestrator.</span></li>
     <li><h3>Self-improving workflow</h3><span class="who">Teams tuning their process</span><span class="small" style="grid-column:2/-1">Observations and retrospectives feed proposals that change the schemas.</span></li>

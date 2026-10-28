@@ -11,18 +11,19 @@
 .d .dot{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
 .pat{display:grid;gap:8px;align-content:start}
 .pat pre{font-size:12px}
+select{font:400 13px/1.3 var(--mono);padding:5px 8px;border:1.5px solid var(--ink);background:var(--surface);color:var(--ink);border-radius:4px;max-width:100%}
 </style>
 <!--DEFS-->
 <div class="wrap">
 <header class="plate-head">
   <p class="series"><span>MCP Task Orchestrator · Field guide</span><span>Plate 3 of 5</span></p>
   <h1>A work breakdown the server keeps in order</h1>
-  <p class="lede">Items nest inside parents and block one another through dependency edges. The server refuses to start an item whose blockers are unfinished, and it moves parents on its own when their children move.</p>
+  <p class="lede">Items nest inside parents and block one another through dependency edges. The server refuses to start an item whose blockers are unfinished, and it moves parents on its own, when the rules allow, as their children move.</p>
 </header>
 
 <section>
   <h2>Run a feature through the graph</h2>
-  <p class="sub">Click an item to advance it: queue to work, work to terminal, terminal back to queue with reopen. Thick arrows are <code>blocks</code> edges. The frame is the parent.</p>
+  <p class="sub">Click an item to advance it: queue to work, work to terminal, terminal back to queue with reopen. Thick arrows are <code>blocks</code> edges. The frame is the parent. Pick a gate problem to see a cascade get stopped, or press <code>complete_tree</code> to see each item answer on its own.</p>
   <div class="grid2" style="grid-template-columns:minmax(0,1fr)">
     <figure>
       <div class="panel scroll">
@@ -60,45 +61,48 @@
         <h3>Server says</h3>
         <div class="btns"><button type="button" id="ctree">complete_tree</button><button type="button" id="reset">Reset</button></div>
       </div>
+      <label class="small" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-block:8px">Gate problem <select id="pmode"><option value="ok">none</option><option value="review">the parent is in review</option><option value="notes">the parent lacks a work-phase note</option><option value="child">Database schema lacks a work-phase note</option></select></label>
       <div id="log" class="log" role="log" aria-live="polite" style="height:200px"></div>
     </div>
   </div>
 </section>
 
 <section>
-  <h2>Three cascades happen without a call</h2>
+  <h2>Parents move without a call</h2>
   <div class="grid3">
-    <div class="rule"><h3>Start cascade</h3><p class="small">When a child enters work, a parent still in queue moves to work. One level up only, and skipped if the parent's own gate is not satisfied.</p></div>
-    <div class="rule"><h3>Terminal cascade</h3><p class="small">When the last child reaches terminal, the parent reaches terminal too, and the check repeats up the ancestor chain.</p></div>
+    <div class="rule"><h3>Start cascade</h3><p class="small">When a child enters work, by <code>start</code> or by <code>resume</code>, a parent still in queue moves to work. One level up only, and only if the parent's own gates pass.</p></div>
+    <div class="rule"><h3>Terminal cascade</h3><p class="small">When a child reaches terminal, the parent reaches terminal too, but only if it has at least one child and every child is terminal. The check repeats up the ancestor chain. A parent in review is never completed this way: a reviewer's explicit advance moves it, and the cascade is reported as <code>review-pending</code>.</p></div>
     <div class="rule"><h3>Reopen cascade</h3><p class="small">Reopening a child under a terminal parent sends that parent back to work. One level up only.</p></div>
+    <div class="rule"><h3>Reparent and delete</h3><p class="small">Moving a child to another parent, or deleting it, re-evaluates its old parent with the same terminal check. The <code>items_write</code> result reports it.</p></div>
   </div>
-  <p class="sub small">Each cascade is listed in the <code>cascades</code> of the result and recorded as a system-made transition (<code>origin: cascade</code> in the history), attributed to the principal whose write set it off. A schema's <code>lifecycle</code> tunes the terminal cascade: <code>AUTO</code> (default) cascades, <code>MANUAL</code> waits for an explicit completion, <code>PERMANENT</code> never auto-terminates.</p>
+  <p class="sub small">Each applied cascade is listed in the <code>cascades</code> of the result and recorded as a system-made transition (<code>origin: cascade</code> in the history), attributed to the principal whose write set it off. A cascade that a gate stops is listed too, with <code>applied: false</code> and its reason: a blocked parent, an unmet blocker, a missing note, another caller's claim or seat, or review-pending. It never fails the call that set it off. A schema's <code>lifecycle</code> decides whether any cascade runs: <code>auto</code> (default) cascades, <code>manual</code> and <code>permanent</code> suppress all of them and report nothing, and <code>none</code> gives items no role at all. A parent with lifecycle <code>auto</code> that is already terminal refuses new children: creating or moving a child under it fails <code>invalid_transition</code>.</p>
 </section>
 
 <section>
   <h2>Build the whole tree in one call</h2>
   <div class="grid2">
-    <pre>items_write(op="create_tree",
-  root={ "title": "User Authentication", "type": "feature" },
-  children=[
+    <pre>items_write(ops=[{
+  "op": "create_tree",
+  "root": { "title": "User Authentication", "type": "feature" },
+  "children": [
     { "ref": "schema", "title": "Database schema", "type": "task" },
     { "ref": "api",    "title": "Login API", "type": "task" },
     { "ref": "tokens", "title": "Session tokens", "type": "task" },
     { "ref": "tests",  "title": "Integration tests", "type": "task" }
   ],
-  deps=[
+  "deps": [
     { "from": "schema", "to": "api" },
     { "from": "schema", "to": "tokens" },
     { "from": "api",    "to": "tests" },
     { "from": "tokens", "to": "tests" }
   ]
-)</pre>
+}])</pre>
     <div style="display:grid;gap:12px;align-content:start">
-      <p>The hierarchy and its edges are created atomically, so agents never work against a half-built plan. <code>items_write</code> <code>complete_tree</code> is the mirror image: it completes a root and its descendants in topological order.</p>
+      <p>The hierarchy and its edges are created atomically, so agents never work against a half-built plan. <code>items_write</code> <code>complete_tree</code> is the mirror image, but it is not all-or-nothing. It applies one trigger (<code>complete</code> by default, or <code>cancel</code>) to each descendant in blocking order, then to the root last (<code>includeRoot</code>, default true). Every item answers for itself: <code>applied</code>, <code>skipped</code> (<code>already_terminal</code>, or <code>upstream_failed</code> with <code>blockedBy</code>) or <code>failed</code> with its own error. A rejection never rolls back the items that applied, and descendants with lifecycle <code>none</code> are left out.</p>
       <div class="tscroll"><table>
         <thead><tr><th>Edge type</th><th>Meaning</th></tr></thead>
         <tbody>
-          <tr><td><code>blocks</code></td><td>The target cannot start until the source reaches the threshold. The default. The blocker is always the <code>from</code> end.</td></tr>
+          <tr><td><code>blocks</code></td><td>The target cannot start, complete, or resume into work or review until the source reaches the threshold; the call fails <code>dependency_unmet</code> and lists the <code>detail.blockers</code>. The default. The blocker is always the <code>from</code> end.</td></tr>
           <tr><td><code>relates_to</code></td><td>A link with no ordering constraint.</td></tr>
         </tbody>
       </table></div>
@@ -117,8 +121,8 @@
         <circle cx="190" cy="50" r="16" class="dot"/><text x="190" y="55" text-anchor="middle" class="b">C</text>
       </svg>
       <h3>linear</h3>
-      <pre>deps_write op="linear"
-ids=[A, B, C]</pre>
+      <pre>deps_write(ops=[{op:"linear",
+  ids:[A, B, C]}])</pre>
     </figure>
     <figure class="pat">
       <svg class="d" viewBox="0 0 220 100" role="img" aria-label="Fan-out pattern: A blocks B, C and D.">
@@ -129,8 +133,8 @@ ids=[A, B, C]</pre>
         <circle cx="190" cy="82" r="16" class="dot"/><text x="190" y="87" text-anchor="middle" class="b">D</text>
       </svg>
       <h3>fan-out</h3>
-      <pre>deps_write op="fan_out"
-from=A, toIds=[B, C, D]</pre>
+      <pre>deps_write(ops=[{op:"fan_out",
+  from:A, toIds:[B, C, D]}])</pre>
     </figure>
     <figure class="pat">
       <svg class="d" viewBox="0 0 220 100" role="img" aria-label="Fan-in pattern: A and B both block C.">
@@ -140,20 +144,20 @@ from=A, toIds=[B, C, D]</pre>
         <circle cx="190" cy="50" r="16" class="dot"/><text x="190" y="55" text-anchor="middle" class="b">C</text>
       </svg>
       <h3>fan-in</h3>
-      <pre>deps_write op="fan_in"
-fromIds=[A, B], to=C</pre>
+      <pre>deps_write(ops=[{op:"fan_in",
+  fromIds:[A, B], to:C}])</pre>
     </figure>
   </div>
   <div class="tscroll"><table>
     <thead><tr><th><code>unblockAt</code></th><th>The edge is satisfied when the blocker reaches</th></tr></thead>
     <tbody>
-      <tr><td><span class="chip queue">queue</span></td><td>any role, so immediately</td></tr>
+      <tr><td><span class="chip queue">queue</span></td><td>any role except blocked, so almost immediately</td></tr>
       <tr><td><span class="chip work">work</span></td><td>work, review or terminal</td></tr>
       <tr><td><span class="chip review">review</span></td><td>review or terminal</td></tr>
       <tr><td><span class="chip terminal">terminal</span></td><td>terminal (the default)</td></tr>
     </tbody>
   </table></div>
-  <p class="sub small">An earlier threshold lets downstream work begin while the blocker is still in review, for example building against an API whose shape is settled.</p>
+  <p class="sub small">An earlier threshold lets downstream work begin while the blocker is still in review, for example building against an API whose shape is settled. A blocker that is itself <code>blocked</code> never satisfies an edge, whatever its threshold.</p>
 </section>
 
 <!--NAV-->
@@ -163,28 +167,40 @@ fromIds=[A, B], to=C</pre>
   var N={schema:{t:'Database schema',deps:[]},api:{t:'Login API',deps:['schema']},tokens:{t:'Session tokens',deps:['schema']},tests:{t:'Integration tests',deps:['api','tokens']}};
   var ORDER=['schema','api','tokens','tests'],PARENT='User Authentication',role,parent;
   function $(id){return document.getElementById(id);}
+  function mode(){return $('pmode').value;}
   function log(cls,txt){var d=document.createElement('div');d.className=cls;d.textContent=txt;var l=$('log');l.appendChild(d);l.scrollTop=l.scrollHeight;}
   function waiting(id){return N[id].deps.filter(function(d){return role[d]!=='terminal';});}
   function allDone(){return ORDER.every(function(k){return role[k]==='terminal';});}
+  function call(t,trigger){return 'advance(ops=[{op:"transition", itemId:"'+t+'", trigger:"'+trigger+'"}])';}
+  function noteErr(t){return 'results[0].error gate_blocked (permanent): Item '+t+' is missing 1 required notes. detail.missing: implementation-notes (work)';}
+  // The terminal cascade onto the parent: the result text, or null when nothing is reported.
+  function cascadeUp(){
+    if(!allDone()||parent==='terminal'||parent==='review')return null;
+    if(mode()==='review'){parent='review';return {cls:'sys',txt:'cascade not applied: '+PARENT+' is in review (applied: false, reason: review-pending). Only an explicit advance moves it.'};}
+    if(mode()==='notes')return {cls:'sys',txt:'cascade not applied: '+PARENT+' (applied: false, blocked: gate, missing: implementation-notes)'};
+    var from=parent;parent='terminal';
+    return {cls:'sys',txt:'cascades: '+PARENT+' '+from+' → terminal'};
+  }
   function finish(id){
     role[id]='terminal';
     var un=ORDER.filter(function(k){return N[k].deps.indexOf(id)>-1&&role[k]==='queue'&&waiting(k).length===0;});
     if(un.length)log('sys','unblocked: '+un.map(function(k){return N[k].t;}).join(', '));
-    if(allDone()&&parent!=='terminal'){log('sys','cascades: '+PARENT+' '+parent+' → terminal');parent='terminal';}
+    var c=cascadeUp();if(c)log(c.cls,c.txt);
   }
   function click(id){
     var r=role[id],t=N[id].t,w;
     if(r==='queue'){
-      log('call','advance(op="transition", itemId="'+t+'", trigger="start")');
+      log('call',call(t,'start'));
       w=waiting(id);
-      if(w.length){log('err','✗ blocked by: '+w.map(function(k){return N[k].t;}).join(', '));return;}
+      if(w.length){log('err','✗ results[0].error dependency_unmet (permanent): Item '+t+' has '+w.length+' unsatisfied blocking dependencies. detail.blockers: '+w.map(function(k){return N[k].t+' ('+role[k]+')';}).join(', '));return;}
       role[id]='work';log('ok','✓ queue → work');
       if(parent==='queue'){parent='work';log('sys','cascades: '+PARENT+' queue → work');}
     }else if(r==='work'){
-      log('call','advance(op="transition", itemId="'+t+'", trigger="complete")');
+      log('call',call(t,'complete'));
+      if(id==='schema'&&mode()==='child'){log('err','✗ '+noteErr(t));return;}
       log('ok','✓ work → terminal');finish(id);
     }else{
-      log('call','advance(op="transition", itemId="'+t+'", trigger="reopen")');
+      log('call',call(t,'reopen'));
       role[id]='queue';log('ok','✓ terminal → queue');
       if(parent==='terminal'){parent='work';log('sys','cascades: '+PARENT+' terminal → work');}
     }
@@ -207,19 +223,32 @@ fromIds=[A, B], to=C</pre>
     $('log').textContent='';
     click('tests');click('schema');
   }
+  function completeTree(){
+    log('call','items_write(ops=[{op:"complete_tree", rootId:"'+PARENT+'"}])');
+    var cnt={applied:0,skipped:0,failed:0},cause={};
+    ORDER.forEach(function(k){
+      var t=N[k].t,by=[],c;
+      if(role[k]==='terminal'){cnt.skipped++;log('sys',t+': skipped, reason already_terminal');return;}
+      N[k].deps.forEach(function(d){(cause[d]||[]).forEach(function(x){if(by.indexOf(x)<0)by.push(x);});});
+      if(by.length){cause[k]=by;cnt.skipped++;log('sys',t+': skipped, reason upstream_failed, blockedBy '+by.map(function(x){return N[x].t;}).join(', '));return;}
+      if(k==='schema'&&mode()==='child'){cause[k]=[k];cnt.failed++;log('err',t+': failed, '+noteErr(t));return;}
+      cnt.applied++;
+      log('ok',t+': applied, '+role[k]+' → terminal');role[k]='terminal';
+      c=cascadeUp();if(c)log(c.cls,'  '+c.txt);
+    });
+    if(parent==='terminal'){cnt.skipped++;log('sys',PARENT+': skipped, reason already_terminal (the cascade got there first)');}
+    else if(mode()==='notes'){cnt.failed++;log('err',PARENT+': failed, '+noteErr(PARENT));}
+    else{cnt.applied++;log('ok',PARENT+': applied, '+parent+' → terminal');parent='terminal';}
+    log('sys','summary: total '+(cnt.applied+cnt.skipped+cnt.failed)+', applied '+cnt.applied+', skipped '+cnt.skipped+', failed '+cnt.failed+'. Nothing was rolled back.');
+    render();
+  }
   ORDER.forEach(function(id){
     var g=$('g-'+id);
     g.addEventListener('click',function(){click(id);});
     g.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();click(id);}});
   });
-  $('ctree').addEventListener('click',function(){
-    log('call','items_write(op="complete_tree", rootId="'+PARENT+'")');
-    var did=ORDER.filter(function(k){return role[k]!=='terminal';});
-    if(!did.length&&parent==='terminal'){log('ok','✓ nothing left to complete');return;}
-    did.forEach(function(k){role[k]='terminal';});
-    log('ok','✓ completed in topological order: '+did.map(function(k){return N[k].t;}).concat([PARENT]).join(' → '));
-    parent='terminal';render();
-  });
+  $('ctree').addEventListener('click',completeTree);
+  $('pmode').addEventListener('change',function(){log('sys','gate problem: '+$('pmode').options[$('pmode').selectedIndex].text);});
   $('reset').addEventListener('click',reset);
   reset();
 })();
