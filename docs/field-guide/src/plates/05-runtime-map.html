@@ -16,7 +16,7 @@
 <header class="plate-head">
   <p class="series"><span>MCP Task Orchestrator · Field guide</span><span>Plate 5 of 5</span></p>
   <h1>Where it runs and who talks to it</h1>
-  <p class="lede">One Docker image, one SQLite file. It runs as a throwaway container per session or as a persistent local server shared by every project, and one tool dispatcher answers both the MCP tools and the REST API, so the same gate logic and the same response envelope serve both.</p>
+  <p class="lede">One Docker image, one SQLite file. It runs as a throwaway container per session or as a persistent local server shared by every project, and one tool dispatcher answers the MCP tools and the REST tool route, so the same gate logic and the same response envelope serve both.</p>
 </header>
 
 <section>
@@ -52,7 +52,7 @@
         <text x="864" y="309" text-anchor="end" class="s mu">WorkItem · Note · Dependency · roles · transition policy</text>
       </svg>
     </div>
-    <figcaption>Each layer may depend only on the layers below it, and an architecture test fails the build on a new violation. The application layer is split into sub-packages (<code>api</code>, <code>service</code>, <code>read</code>, <code>run</code>, <code>knowledge</code>, <code>config</code>, <code>support</code>, <code>telemetry</code>, <code>port</code>) that a second test keeps free of cycles. A separate <code>bootstrap</code> package wires everything once at startup and nothing imports it. The REST route <code>POST /api/v1/ops/{tool}</code> runs the same tool dispatcher as MCP, so a call to advance an item gets the same answer on either interface.</figcaption>
+    <figcaption>Each layer may depend only on the layers below it, and an architecture test fails the build on a new violation. The application layer is split into sub-packages (<code>api</code>, <code>service</code>, <code>read</code>, <code>run</code>, <code>knowledge</code>, <code>config</code>, <code>support</code>, <code>telemetry</code>, <code>port</code>, plus top-level <code>decision</code>, <code>report</code> and <code>upgrade</code>) that a second test keeps free of cycles. A separate <code>bootstrap</code> package wires everything once at startup and no layer imports it. The REST route <code>POST /api/v1/ops/{tool}</code> runs the same tool dispatcher as MCP, so a call to advance an item gets the same answer on either interface.</figcaption>
   </figure>
 </section>
 
@@ -109,8 +109,8 @@
     </figure>
   </div>
   <div class="grid3">
-    <div class="rule"><h3>Three tool profiles</h3><p class="small">Over HTTP the server mounts <code>/mcp</code> (orchestration), <code>/mcp/knowledge</code> (a smaller read and write set) and <code>/mcp/director</code> (read tools, run control and decisions, no read that returns a note or document body). Over stdio one profile is served, picked by <code>MCP_TOOL_PROFILE</code>. Any other value fails startup.</p></div>
-    <div class="rule"><h3>Auth follows the REST setting</h3><p class="small">With <code>API_AUTH_MODE=bearer</code> or <code>jwks</code>, every <code>/mcp*</code> path requires the credential. HTTP with <code>API_ENABLED=false</code> needs <code>MCP_ALLOW_UNAUTHENTICATED=true</code> or startup fails. A director credential reaches only the director path.</p></div>
+    <div class="rule"><h3>Tool profiles</h3><p class="small">Over HTTP the server mounts <code>/mcp</code> (orchestration), <code>/mcp/knowledge</code> (a smaller read and write set) and <code>/mcp/director</code> (read tools, run control and decisions, no read that returns a note or document body). Over stdio one profile is served, picked by <code>MCP_TOOL_PROFILE</code>. Any other value fails startup.</p></div>
+    <div class="rule"><h3>Auth follows the REST setting</h3><p class="small">With <code>API_ENABLED=true</code> and <code>API_AUTH_MODE=bearer</code> or <code>jwks</code>, every <code>/mcp*</code> path requires the credential. HTTP with <code>API_ENABLED=false</code> needs <code>MCP_ALLOW_UNAUTHENTICATED=true</code> or startup fails. A director credential reaches only the director path.</p></div>
     <div class="rule"><h3>Startup is gated</h3><p class="small">Flyway is the only schema path (<code>SCHEMA_MODE</code> is <code>migrate</code> or <code>validate</code>), under a <code>&lt;db&gt;.migrate.lock</code> file lock, then data steps such as <code>server-config-import</code> run. The readiness marker at <code>READINESS_FILE</code> is written only after all of that and the transport bind. Depth is in fleet-deployment.md.</p></div>
   </div>
 </section>
@@ -153,7 +153,8 @@
       <tr><td>Get the config JSON Schema</td><td><code>GET /config/schema</code></td></tr>
       <tr><td>Inspect or release leases, and read their history</td><td><code>GET /resources/leases</code> · <code>DELETE /resources/leases/{key}</code> · <code>GET /resources/leases/history</code></td></tr>
       <tr><td>Follow changes live</td><td><code>GET /events</code></td></tr>
-      <tr><td>Server info and liveness (health needs no auth)</td><td><code>GET /info</code> · <code>GET /health</code> · <code>GET /.well-known/mcp-task-orchestrator.json</code></td></tr>
+      <tr><td>Server info and liveness (health needs no auth)</td><td><code>GET /info</code> · <code>GET /health</code></td></tr>
+      <tr><td>Discover the server (mounted at the root, outside /api/v1)</td><td><code>GET /.well-known/mcp-task-orchestrator.json</code></td></tr>
     </tbody>
   </table></div>
 
@@ -180,8 +181,8 @@
   </figure>
 
   <div class="grid3">
-    <div class="rule"><h3>Writes are guarded</h3><p class="small">A write passes <code>expectedVersion</code>, so a stale client gets a 409 <code>version_conflict</code> and cannot overwrite. Each element of <code>ops[]</code> may carry an <code>idempotencyKey</code>, kept for 24 hours per principal, tool and key, so a retry replays its first result. An <code>Idempotency-Key</code> header is a 400 <code>invalid_request</code>.</p></div>
-    <div class="rule"><h3>Errors say what to do</h3><p class="small">Every answer is <code>{ ok, data | error, meta: { reqId } }</code>, and an error is <code>{ code, kind, message, detail?, fix? }</code>. A failed gate is 409 <code>gate_blocked</code> with the missing notes. A failed element of a non-atomic batch answers 207 <code>partial_failure</code>, with its own code in <code>data.results[0]</code>. The <code>reqId</code> also correlates a call across logs and reports.</p></div>
+    <div class="rule"><h3>Writes are guarded</h3><p class="small">A write may pass <code>expectedVersion</code>, so a stale client gets a 409 <code>version_conflict</code> and cannot overwrite. Each element of <code>ops[]</code> may carry an <code>idempotencyKey</code>, kept for 24 hours per principal, tool and key, so a retry replays its first result. An <code>Idempotency-Key</code> header is a 400 <code>invalid_request</code>.</p></div>
+    <div class="rule"><h3>Errors say what to do</h3><p class="small">Every tool answer is <code>{ ok, data | error, meta: { reqId } }</code>, and an error is <code>{ code, kind, message, detail?, fix? }</code>. A failed gate is 409 <code>gate_blocked</code> with the missing notes. A failed element of a non-atomic batch answers 207 <code>partial_failure</code>, with its own code in its <code>data.results[i]</code> element. The <code>reqId</code> also keys the call log and the server log lines for that call.</p></div>
     <div class="rule"><h3>Where REST differs from MCP</h3><p class="small">The caller is always the credential's principal, on REST and on <code>/mcp</code> alike, and an <code>actor</code> in the body is refused as <code>unknown_parameter</code>. A REST advance is bound by claim ownership and by leases, as on MCP. Lease administration and the event stream exist only here. <code>report</code> (usage, gates, contention, waste and rollup aggregates over server telemetry) is served at <code>POST /ops/report</code> and, over MCP, only on the director profile.</p></div>
   </div>
 </section>
@@ -279,7 +280,7 @@
   <div class="grid3">
     <div class="rule"><h3>Four answers to a claim</h3><p class="small"><code>claimed: true</code>; a <code>claim_held</code> error (pick another item); a select with no match (<code>claimed: false</code>, no <code>reason</code>: stop or wait); and a select with a <code>reason</code> (<code>claim_held</code> or <code>dependency_unmet</code>: matches exist but none can be claimed now, retry after <code>retryAfterMs</code>). A claim belongs to one principal and assignment, and taking a new claim releases the caller's other claims (one at a time). Each element may carry an <code>idempotencyKey</code>.</p></div>
     <div class="rule"><h3>Claims clean up after themselves</h3><p class="small">Any transition into terminal clears the claim, and a reopened item starts unclaimed. A crashed agent's claim simply expires. Nothing has to clear it: a background sweep only records the expiry event.</p></div>
-    <div class="rule"><h3>Who holds it stays private</h3><p class="small">Lists and searches show only whether an item is claimed. The holder's identity appears in one place: the <code>claimDetail</code> of <code>items_read</code> <code>context</code> for that item, with a verification of the form <code>{ proofStatus, ... }</code>.</p></div>
+    <div class="rule"><h3>Who holds it stays private</h3><p class="small">Lists and searches show only whether an item is claimed. The holder's identity appears in one place: the <code>claimDetail</code> of <code>items_read</code> <code>context</code> for that item.</p></div>
   </div>
 </section>
 
@@ -335,7 +336,7 @@ API_JWKS_ALGORITHMS=EdDSA,RS256</pre>
     <div class="rule"><h3>Old identity settings stop startup</h3><p class="small">No request carries an actor or a proof any more. A leftover <code>actor_authentication:</code> or <code>auditing:</code> block in the server config, or a set <code>DEGRADED_MODE_POLICY</code> variable, fails startup rather than being ignored.</p></div>
   </div>
   <div class="grid3">
-    <div class="rule"><h3>JWKS stays fail-closed</h3><p class="small"><code>API_JWKS_MAX_STALE_SECONDS</code> is how old a cached key set may be and still be served after a failed refresh (default the larger of an hour and the cache TTL). Past it, requests get 503 <code>unavailable</code>. <code>API_JWKS_URL</code> must be <code>https</code> and resolve only to public addresses, so a private or Docker-network host is refused.</p></div>
+    <div class="rule"><h3>JWKS stays fail-closed</h3><p class="small"><code>API_JWKS_MAX_STALE_SECONDS</code> is how old a cached key set may be and still be served after a failed refresh (default the larger of an hour and the cache TTL). Past it, requests get 503 <code>unavailable</code>. <code>API_JWKS_URL</code> must be <code>https</code> and resolve only to public addresses, so a private or Docker-network host is refused. Loopback over plain <code>http</code> is allowed only with <code>API_JWKS_ALLOW_INSECURE_URL=true</code>.</p></div>
     <div class="rule"><h3>Reports read telemetry</h3><p class="small">The <code>report</code> tool aggregates the server's own call log and events into usage, gates, contention, waste and rollup views, for a director or a dashboard.</p></div>
     <div class="rule"><h3>Old data ages out</h3><p class="small">A pruner trims tables on a schedule: <code>RETENTION_EVENTS_DAYS</code> (180), <code>RETENTION_AUDIT_EVENTS_DAYS</code> (0), <code>RETENTION_LEASE_HISTORY_DAYS</code> (365) and <code>RETENTION_CALL_LOG_DAYS</code> (90). A value of 0 keeps that data forever. Details are in fleet-deployment.md.</p></div>
   </div>
