@@ -107,7 +107,7 @@ Keys vary per schema; take them from `schema[]`, never from assumption.
 
 **Reviewer and other non-entry seats:** a reviewer is dispatched into an item already in review. It must NOT call `start` (from review that lands terminal). It reads `items_read` `context`, fills the review notes, reports the verdict and returns. Test authors, extractors and read-only seats never call `advance`.
 
-**Invariant:** agents own only their phase entry; the orchestrator owns every other transition.
+**Invariant:** only an entry seat moves its item, and only into its own phase; the orchestrator owns every other transition.
 
 ### Pre-dispatch recipe: a seat at a parent
 

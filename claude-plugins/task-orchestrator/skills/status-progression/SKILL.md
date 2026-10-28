@@ -93,7 +93,7 @@ Omit a line when its field is empty.
 
 ## Blocked items
 
-`block` and `hold` take an optional `reason`: `awaiting_decision`, `dependency`, `resource` or `manual` (default). `decisionId` is allowed only with `awaiting_decision`, where it must name an open decision on that item:
+`block` and `hold` take an optional `reason`: `awaiting_decision`, `dependency`, `resource` or `manual` (default). `reason: awaiting_decision` requires a `decisionId` naming an open or acknowledged decision on that item; a `decisionId` with any other reason, or `reason`/`decisionId` on a trigger other than `block`/`hold`, is `invalid_request`:
 
 ```to-call
 {"tool": "advance", "op": "transition", "args": {"itemId": "4b7d0e19", "trigger": "block", "reason": "awaiting_decision", "decisionId": "7c9e6679"}}
@@ -103,11 +103,11 @@ Omit a line when its field is empty.
 - `items_read` `blocked` lists blocked items: each entry has `blockType` (`explicit` or `dependency`) and `blockers[]` (`threshold`, `satisfied`); an explicit entry also has `reason`, and an `awaiting_decision` entry adds `decisionId` and `resumable` (true once the decision is answered, withdrawn or missing).
 - **Answering a decision never resumes the item.** Read the answer, then send `resume` yourself. `resume` clears the reason.
 - Decisions are listed on the item in `context` `decisions[]`; `runs_read` `decisions` is director-only.
-- Errors to recognize (on `data.results[0].error`): `decision_closed` (`detail.decisionId`, `detail.status`: the decision is already answered or withdrawn, so it cannot be waited on or acted on again); `invalid_transition` with `detail.fromRole: none` (a lifecycle-free item takes no trigger).
+- Errors to recognize (on `data.results[0].error`): `invalid_request` with `detail.fields[].field` `/decisionId` (required with `awaiting_decision`, names no decision, belongs to another item, or is already answered or withdrawn). `decision_closed` is a `runs_write` `ack`/`answer`/`withdraw` error (director profile), never an `advance` error; `invalid_transition` with `detail.fromRole: none` (a lifecycle-free item takes no trigger).
 
 ## Troubleshooting
 
-**`gate_blocked`.** `data.results[0].error.detail.missing[]` lists the notes. Fill them (Step 3) and retry.
+**`gate_blocked`.** `data.results[0].error.detail.missing[]` lists the notes. Fill them (Step 3) and retry. An empty `missing[]` with `detail.violations` is an independence block; filling notes does not clear it.
 
 **Blocked by a dependency (`dependency_unmet`).** Find the blockers; advance them first, then this item appears in their `unblocked`:
 

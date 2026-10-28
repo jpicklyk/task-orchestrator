@@ -55,7 +55,7 @@ Process-global types such as `agent-observation` resolve from the server config 
 {"tool": "config", "op": "effective", "args": {"rootId": "9f3a1c22"}}
 ```
 
-`data.types` lists the declared types and `data.traits` the declared traits (`rootId` omitted reads the server config alone). When types are declared, a create with any other type fails `schema_violation` and `data.results[i].error.detail.availableTypes` lists the valid ones; a blank type always fails. A type with a schema activates gates; one without is schema-free.
+`data.results[0].types` lists the declared type keys and `data.results[0].traits[].name` the declared traits (each trait is an object `{name, notes, dispatch?, resources?}`; `rootId` omitted reads the server config alone). When types are declared, a create with any other type fails `schema_violation` and `data.results[i].error.detail.availableTypes` lists the valid ones; a blank type always fails. A type with a schema activates gates; one without is schema-free.
 
 Match the context to a declared type (a bug to the bug type, a feature to the feature type, and so on). With no confident match use the `default` type when it is listed; otherwise ask via `AskUserQuestion` with the declared types as options. When the config declares no types at all, any non-blank type is accepted and the item is schema-free.
 

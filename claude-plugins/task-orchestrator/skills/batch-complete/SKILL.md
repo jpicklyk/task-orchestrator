@@ -66,7 +66,7 @@ Skip this if `cancel` was chosen: it bypasses note gates (not claim ownership). 
 ```
 Some items have unfilled required notes and will fail the gate. What now?
   1. Fill the notes first, then return here
-  2. Use cancel - bypasses note gates, marks items cancelled
+  2. Use cancel - bypasses note gates, marks items cancelled (an `auto` parent closed by the cascade keeps the cascade label)
   3. Proceed anyway - gated items fail, the rest complete
 ```
 
@@ -140,6 +140,6 @@ A parent without `recursive: true` fails `invalid_request`. The answer's `delete
 
 **Close a completed feature.** Preview shows 3 queue items and 1 terminal; no active items, all notes filled. `complete_tree` with `rootId` and `trigger: complete` answers `summary {total: 5, applied: 4, skipped: 1, failed: 0}` (the terminal child is `already_terminal`; the root completes last).
 
-**Cancel an abandoned workstream.** "Cancel the Legacy API Migration feature." The preview shows active work; the user picks cancel. `complete_tree` with `trigger: cancel` moves every item to terminal with `statusLabel: cancelled`, with no note gates enforced.
+**Cancel an abandoned workstream.** "Cancel the Legacy API Migration feature." The preview shows active work; the user picks cancel. `complete_tree` with `trigger: cancel` moves every item to terminal with `statusLabel: cancelled`, with no note gates enforced. Items cancelled directly get `statusLabel: cancelled`; an `auto` parent whose last child is cancelled is closed by the terminal cascade in the same call and keeps the cascade label (`done` by default), then reports `skipped` / `already_terminal`. That includes the root unless its lifecycle is `manual` or `permanent`; `includeRoot: false` does not prevent it, it only leaves the root out of processing. Read the parents' labels before reporting the workstream as cancelled.
 
 **Mixed result.** `complete` over an auth feature applies 3 items, fails `Implement login` (`gate_blocked`, missing `implementation-notes`) and skips its dependent test item as `upstream_failed`. Fill the note, rerun, and the two remaining items are processed.

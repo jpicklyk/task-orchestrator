@@ -1536,6 +1536,30 @@ test('S7 both top-level sections -> a single Config Shape heading that names bot
   assert.match(blocks[0], /ignored/i);
 });
 
+test('S7 actor_attribution: alone -> one line naming it, saying delete, not move', () => {
+  const blocks = shapeFor(PROJ + 'actor_attribution:\n  mode: strict\n');
+  assert.equal(blocks.length, 1);
+  const body = shapeBody(blocks[0]);
+  assert.equal(body.length, 1);
+  assert.match(body[0], /actor_attribution/);
+  assert.match(body[0], /ignored/i);
+  assert.match(body[0], /reject/i);
+  assert.match(body[0], /delete/i);
+  assert.doesNotMatch(body[0], /extensions\.claude-code/);
+});
+
+test('S7 orchestration + actor_attribution -> one line naming both, move and delete, rejected by the server', () => {
+  const blocks = shapeFor(PROJ + 'orchestration:\n  mode: off\nactor_attribution:\n  mode: strict\n');
+  assert.equal(blocks.length, 1);
+  const body = shapeBody(blocks[0]);
+  assert.equal(body.length, 1);
+  assert.match(body[0], /orchestration/);
+  assert.match(body[0], /actor_attribution/);
+  assert.match(body[0], /reject/i);
+  assert.match(body[0], /move/i);
+  assert.match(body[0], /delete/i);
+});
+
 test('S7 keys already under extensions.claude-code -> no Config Shape section', () => {
   const nested = PROJ + 'extensions:\n  claude-code:\n    orchestration:\n      mode: off\n    retrospective:\n      mode: nudge\n';
   assert.equal(shapeFor(nested).length, 0);

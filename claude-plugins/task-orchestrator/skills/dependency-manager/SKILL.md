@@ -135,7 +135,7 @@ x "Build REST endpoints" cannot start because:
   Blocker 2: Write OpenAPI spec (queue) must reach terminal
 ```
 
-Not every "cannot start" is a dependency. A `resource_unavailable` failure (transient) on `start` means a shared resource the item's traits declare is held by another item; the item stays in its role and no edge exists. If no incoming edge explains the symptom, look at `context` `contended` and `resourceLeases` and treat it as contention, not a dependency problem.
+Not every "cannot start" is a dependency. A `resource_unavailable` failure (transient) on `start` means a shared resource the item's traits declare is held by another item; the item stays in its role and no edge exists. If no incoming edge explains the symptom, look at `context` `gateStatus.contended` and `resourceLeases` and treat it as contention, not a dependency problem.
 
 Then point to the fix: `/status-progression` on the blocker, or fill its missing notes with `notes_write`.
 
