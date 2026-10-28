@@ -105,7 +105,7 @@ the security fix and the silent-exit fix, the two whose defects mattered most.
 The plan author assigns these labels, not the test author: the test author is blind to the
 implementation by design (§4) and therefore cannot tell which surfaces are new. Where a dispatch
 contract's planning seat returns a `red-proof-shape` field, it carries this same labelling plus the
-item's red-proof budget (section 5), set before the author is dispatched. The shape actually obtained is recorded in `test-manifest` (section 10).
+item's red-proof budget (served `test-author` rule, section 5), set before the author is dispatched. The shape actually obtained is recorded in `test-manifest` (section 10).
 
 ---
 
@@ -460,7 +460,7 @@ Fill every field — an omitted field reads as "not done," not as "not applicabl
 - **Invariants respected** — for each fixture, the domain invariant it satisfies by construction
   (§7 Fixture invariants): the `validate()` clause and the derivation used. Record any invariant
   that forced an escalation rather than a fixture.
-- **Red-proof shape obtained** - for every `NEW-SURFACE` scenario the item's budget (section 5) covers,
+- **Red-proof shape obtained** - for every `NEW-SURFACE` scenario the item's budget (served `test-author` rule, section 5) covers,
   which shape was actually obtained: `behavioral-red (narrowest revert: <what was reverted>)`, or
   `compile-red only — substitute verification: <what the reviewer does instead>`. Where the revert
   is orchestrator-run rather than author-run, record `red evidence: orchestrator-run` together with

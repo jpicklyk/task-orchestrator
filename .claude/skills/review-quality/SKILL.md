@@ -17,7 +17,7 @@ unnecessary complexity accumulates. The review is where these failure modes get 
 
 **Critical separation of concerns:** The reviewer must not be the same agent that wrote
 the code or the tests. An agent reviewing its own work will rationalize rather than
-evaluate. The reviewer reads, runs, and reports — it never fixes. If issues are found,
+evaluate. The reviewer reads and reports — it never fixes. If issues are found,
 they go back to the implementation agent for resolution.
 
 This is the same principle the `needs-test-author` trait applies one step earlier, to

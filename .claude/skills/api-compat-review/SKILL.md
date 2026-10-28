@@ -11,7 +11,7 @@ Assess API changes by surface. There is ONE tool surface, served over MCP and ov
 ## Step 1: Classify the Change
 
 Determine which surface(s) the change touches:
-- **Tool surface (MCP and REST ops)** - request-class `@Doc` fields under `application/api/`, the `ToolSpec`s registered in `buildToolSpecs()` (`interfaces/shared/tools/ToolRegistry.kt`), the goldens under `current/src/test/resources/golden/tools/`, the generated blocks of `api-reference.md`, and `call-shapes.md`
+- **Tool surface (MCP and REST ops)** - request-class `@Doc` fields (under `application/api/<area>/`, in `application/report/ReportRequests.kt`, or in the `items_*`/`config` op file), the `ToolSpec`s registered in `buildToolSpecs()` (`interfaces/shared/tools/ToolRegistry.kt`), the goldens under `current/src/test/resources/golden/tools/`, the generated blocks of `api-reference.md`, and `call-shapes.md`
 - **REST-only surface** - `interfaces/api/v1/routes/`, `interfaces/api/v1/dto/Dtos.kt`, `current/docs/api/openapi.yaml`, SSE and leases
 
 A single change (e.g., a domain model field rename) can touch both surfaces independently — assess each.
