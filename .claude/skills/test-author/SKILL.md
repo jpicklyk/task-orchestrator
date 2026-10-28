@@ -199,8 +199,8 @@ preview, an editor, or any shell command whose output includes file content. The
 the file, not to the intent: "I only wanted the signature" does not make the call permitted,
 because the tool decides what comes back, not you.
 
-Banned for the same reason: `git diff`, `git show`, `git log -p` and any other view of the
-implementer's changes on this branch.
+Banned for the same reason: every `git diff`, `git show` and `git log -p` form except
+`git diff --name-only`, and any other view of the implementer's changes on this branch.
 
 `src/test` stays fully readable. Existing tests, fixtures and harnesses are how you match the
 codebase's conventions — reading them is expected, not merely tolerated.
@@ -405,7 +405,7 @@ and §4 exist to close off.
 was ambiguous, what the plan said, what would need to be true for each candidate resolution.
 Escalation goes to the orchestrator (Parallel/Delegated tier) or the user (Direct tier) — never
 resolved unilaterally by the same agent that hit the ambiguity. The one carve-out: an ambiguity
-resolvable from public non-`src/main` evidence (the tool's parameterSchema, `src/test` harnesses,
+resolvable from public non-`src/main` evidence (the tool's `describe: true` schema, see `call-shapes.md`, `src/test` harnesses,
 docs) may be self-resolved when the arbitration record states the evidence used; the reviewer
 verifies it.
 

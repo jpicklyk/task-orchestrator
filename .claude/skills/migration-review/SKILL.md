@@ -55,8 +55,8 @@ Migrations live in `current/src/main/resources/db/migration/sqlite/`. A migratio
 1. Run on Flyway's connection, which has `foreign_keys = OFF` and `busy_timeout` set (do not rely on cascades; re-check child rows after).
 2. Create the new table, then `INSERT INTO new_t(rowid, c1, ...) SELECT rowid, c1, ... FROM t` to PRESERVE rowids (without the explicit column list the rowid lands in the first declared column): external-content FTS5 tables join on `rowid`.
 3. Drop the old table, rename the new one, recreate its indexes.
-4. Recreate every trigger the dropped table owned, since dropping a table drops its triggers: for `work_items`, 6 FTS sync triggers (`work_items_fts_trigram_ai/_ad/_au`, `work_items_fts_text_ai/_ad/_au`) plus 2 cycle triggers (`work_items_cycle_check`, `work_items_cycle_check_update`); for `notes`, 6 FTS sync triggers (`notes_fts_trigram_ai/_ad/_au`, `notes_fts_text_ai/_ad/_au`). The `_au` triggers use their V8 form (restricted to the indexed columns).
-5. `INSERT INTO <fts>(<fts>) VALUES('rebuild')` for all 4 FTS tables.
+4. Recreate every trigger the dropped table owned, since dropping a table drops its triggers. There are six FTS tables (`work_items`, `notes` and `documents`, each in a trigram and a text form; `StartupIntegrity` FTS_BACKING). For `work_items`, 6 FTS sync triggers (`work_items_fts_trigram_ai/_ad/_au`, `work_items_fts_text_ai/_ad/_au`) plus 2 cycle triggers (`work_items_cycle_check`, `work_items_cycle_check_update`); for `notes`, 6 FTS sync triggers (`notes_fts_trigram_ai/_ad/_au`, `notes_fts_text_ai/_ad/_au`); for `documents`, 6 FTS sync triggers (`documents_fts_trigram_ai/_ad/_au`, `documents_fts_text_ai/_ad/_au`, V24). The `_au` triggers use their V8 form (restricted to the indexed columns).
+5. `INSERT INTO <fts>(<fts>) VALUES('rebuild')` for the two FTS tables (trigram and text) of the recreated table only.
 Startup then verifies the trigger/FTS inventory and runs the FTS `integrity-check`, so a missed trigger fails startup. Never use `VACUUM` in a migration: it can renumber rowids.
 
 ## Step 5: Rollback Considerations

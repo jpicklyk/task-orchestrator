@@ -13,7 +13,7 @@ Evaluate performance impact of changes. This project is a Kotlin MCP server with
 Identify which hot paths the change touches:
 - [ ] **Per-request paths** — MCP tool execution (every tool call hits this). New work here adds latency to every request.
 - [ ] **Per-item loops** — operations that iterate over items (search, overview, stalled-item detection). N+1 patterns here scale poorly.
-- [ ] **Startup path** — server initialization, database schema creation, config loading. Affects container startup time.
+- [ ] **Startup path** — server initialization, Flyway migrate, data steps, the FTS integrity check, server-config import. Affects container startup time.
 - [ ] **Background operations** — cascade detection, dependency resolution. Runs inline, not async.
 
 ## Step 2: Database Query Patterns

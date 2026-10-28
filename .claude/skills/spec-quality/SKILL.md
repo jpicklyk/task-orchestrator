@@ -89,10 +89,11 @@ plan, treat that as evidence that prose rules cannot carry this load and add a m
 **Semantic claims carry a file:line.** Any sentence that states nullability, redaction,
 ownership, or an honest limit (what a guard does NOT cover) cites the `file:line` that
 establishes it. This holds for spec notes and for everything written from them — a CHANGELOG
-bullet, an API doc line, a hook or KDoc header comment. Worked case (2026-09-29, #384): the spec
-and a hook header said note attribution is shown only when the caller is ADMIN and the flag is
-false; the code redacts only when `redactNoteAttribution && !isAdmin`
-(`AttributionRedactor.kt:53`), so it is shown when ADMIN OR the flag is false. The error
+bullet, an API doc line, a hook or KDoc header comment. Historical worked case (2026-09-29, #384,
+a 3.x file that no longer exists): the spec and a hook header said note attribution is shown only
+when the caller is ADMIN and the flag is false; the code redacted only when
+`redactNoteAttribution && !isAdmin`, so it was shown when ADMIN OR the flag was false. The 4.0
+rule lives at `interfaces/api/v1/ops/OpsAccess.kt:22` (`attributionVisible = !redactNoteAttribution || ADMIN`). The error
 survived from spec to header because the sentence was written from intent and no line was
 opened. For a NEW-SURFACE claim with no code yet, cite the spec decision that fixes the
 behavior and mark the claim for the reviewer to confirm in the diff. Prose that is not a

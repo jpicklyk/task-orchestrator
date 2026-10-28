@@ -11,9 +11,9 @@ to hide.
 
 ## ToolExecutionContext Coupling
 
-`ToolExecutionContext` is constructed in `CurrentMcpServer.kt` and passed to every
-tool. Adding a new service dependency means updating both the context class and
-the server construction site. If your change introduces a new service that tools
+`ToolExecutionContext` is constructed exactly once, in `ServerComposition.build()`
+(`bootstrap/ServerComposition.kt`), and passed to every tool. Adding a new service
+dependency means updating both the context class and that construction site. If your change introduces a new service that tools
 need, this is part of the blast radius.
 
 ## Flyway Is the Only Schema Path
@@ -38,16 +38,18 @@ for all test files that instantiate the affected model.
 
 ## MCP Tool Registration
 
-New tools must extend `BaseToolDefinition` and be registered in
-`CurrentMcpServer.kt::createTools()`. The tool count is not hardcoded anywhere —
-but forgetting registration means the tool exists in code but is invisible to clients.
+A tool is a `ToolSpec` registered in `buildToolSpecs()`
+(`interfaces/shared/tools/ToolRegistry.kt`); see the `add-component` skill. The tool
+count is not hardcoded anywhere - but forgetting registration means the tool exists
+in code but is invisible to clients.
 
 ## Exposed ORM Patterns
 
 The project uses Exposed ORM with SQLite. Key patterns to be aware of:
-- All database operations must run inside `transaction {}` blocks
-- Repository methods that are called from suspend contexts need appropriate coroutine
-  handling
+- Repository code opens no transaction itself. It goes through `readTx` / `writeTx`
+  (`infrastructure/sqlite/repository/TransactionHelper.kt`), which join the ambient unit
+  of work or run an implicit one, and which handle suspend callers. Only `TransactionHelper`
+  and `UnitRunner` open Exposed transactions (`TransactionOpenerTest`).
 - Repository and route tests run on a real, file-backed SQLite database (the `SqliteTestDatabase`
   fixture), so SQL behaves as in production, including FTS5, triggers and foreign keys
 

@@ -93,7 +93,7 @@ Rules for each bullet:
 - Name the tool or feature affected (e.g., `items_read`, `advance`)
 - Describe the **benefit to the user**, not the implementation detail
 - Do not mention internal class names, Kotlin types, or file paths
-- Example: `Added \`includeAncestors\` to \`items_read\` — eliminates parent-walk call chains for breadcrumb context`
+- Example: `Added \`fields: ["ancestors"]\` on \`items_read\` \`get\` — eliminates parent-walk call chains for breadcrumb context`
 
 ### 4d. Detect plugin content changes
 

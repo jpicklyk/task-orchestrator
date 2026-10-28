@@ -39,8 +39,9 @@ you need — do not expect context to be pre-loaded for you.
    or `diagnosis` (bug-fix).
 2. **Read the changed files** — use the implementation notes to identify which files were
    modified, then read them directly. Review the actual code, not just summaries.
-3. **Run the test suite** — execute the project's test command and capture the results.
-   Do not assume tests pass because the implementation agent said they did.
+3. **Read the recorded build state** - per Area 1, take the count, breakdown and SHA the
+   orchestrator recorded. Do not run the suite, and do not assume tests pass because the
+   implementation agent said they did.
 4. **For items carrying the `needs-test-author` trait** — load the trait's `test-plan`
    and `test-manifest` notes with `notes_read` `get` (`itemId`, `key`), which carries the test author's own commit SHA range field, and
    obtain the orchestrator-provided per-child SHA table (Pre-SHA/Post-SHA/Test-Pre-SHA/
@@ -187,7 +188,7 @@ other finding above it:
   where the oracle source itself was uncertain — a second, closer look.
 - **Forbidden-pattern declaration is true.** Fetch the served rules
   `forbidden-test-patterns` and `test-assertion-vacuity`
-  (`docs_read` `get`, `kind` `rule`, `slug` the rule name; fall back to the `test-author` skill's §7
+  (`docs_read` `get`, `rootId` the item's root, `kind` `rule`, `slug` the rule name; fall back to the `test-author` skill's §7
   if either is unserved) and read the test bodies behind the `test-manifest`'s
   forbidden-pattern declaration — do not take "none used" on faith. Every instance of a
   listed pattern (skip-guards on behavioral conditions, disjunctive escapes, not-null-only
