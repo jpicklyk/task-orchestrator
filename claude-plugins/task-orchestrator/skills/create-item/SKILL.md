@@ -39,13 +39,13 @@ Create-item never creates a project root. After `init` has run, restart this ski
 | Bug, error, crash | Bugs | bug, error, crash, broken, failure, exception |
 | Feature, enhancement | Features | feature, add, implement, support, capability |
 | Tech debt, refactor | Tech Debt | refactor, cleanup, debt, migrate, restructure |
-| Observation, friction | Observations | slow, optimize, latency, friction, gap |
+| Observation, friction | agent-observation, a standalone root (no parent) | slow, optimize, latency, friction, gap |
 | Follow-up, reminder | Action Items | todo, follow up, remind, track |
 | Unclear | best match; ask if unsure | |
 
-Use the matching category as `parentId`. If it is missing, create it first with `items_write` `create` and a declared type (Step 4; `container` when the config lists it), then use its id. With only a personal root known, use it as the parent.
+Use the matching category as `parentId`, except an observation, which takes no `parentId`. If it is missing, create it first with `items_write` `create` and a declared type (Step 4; `container` when the config lists it), then use its id. With only a personal root known, use it as the parent.
 
-Process-global types such as `agent-observation` resolve from the server config wherever they sit (4.0 rule: per-root type, server type, per-root `default`, server `default`; see [Schema pins](../../../../current/docs/config-reference.md#schema-pins)), so an observation anchors under Observations like any other item.
+Process-global types such as `agent-observation` resolve from the server config wherever they sit (4.0 rule: per-root type, server type, per-root `default`, server `default`; see [Schema pins](../../../../current/docs/config-reference.md#schema-pins)), so an observation is created as a standalone depth-0 item of type `agent-observation` with no `parentId`, in line with [adopt-project-scope](../adopt-project-scope/SKILL.md). Existing items under an old Observations container stay where they are.
 
 ## Step 4 - Pick the type and traits
 
@@ -131,7 +131,7 @@ An alternate entry for materializing findings from a `task-orchestrator:audit` r
 3. **Edits.** The user may flip `materialize`, reclassify a row (bug, tech-debt, agent-observation) or drop it. Apply nothing without an explicit edit.
 4. **Container.** Resolve ONE category container with Steps 2-3 and have the user confirm it. Non-observation rows go under a single audit container created beneath it.
 5. **Priority and type.** Priority is already mapped; do not re-derive it. Use a row's own `type`; for rows without one, pick from `config effective` `types` (Step 4).
-6. **Materialize** only after explicit confirmation: one `create_tree` for the audit container plus its children under the category container (split a larger proposal across calls; later calls attach with `root.id`). `agent-observation` rows are not part of this tree: create them as separate `items_write` `create` elements tagged `agent-observation` under the Observations container.
+6. **Materialize** only after explicit confirmation: one `create_tree` for the audit container plus its children under the category container (split a larger proposal across calls; later calls attach with `root.id`). `agent-observation` rows are not part of this tree: create them as separate `items_write` `create` elements tagged `agent-observation` and no `parentId`.
 7. **Notes.** None pre-filled from the proposal; queue notes are filled later in normal planning.
 8. **Report** with Step 7's format, one line per created item.
 
