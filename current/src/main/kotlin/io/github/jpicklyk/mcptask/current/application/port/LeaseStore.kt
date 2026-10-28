@@ -53,10 +53,11 @@ sealed class LeaseReleaseResult {
  *
  * ## "Active" is a lazy, read-time notion
  *
- * There is no background expiry sweep. A lease row with `expires_at <= now` (the bound unit instant) is treated as
+ * A lease row with `expires_at <= now` (the bound unit instant) is treated as
  * ABSENT by every read path here (`findActive*`) and as FREE (stealable) by [acquireAll]'s
- * per-key holder-count check. Expired rows are simply overwritten in place on the next acquire for
- * that key (or left as harmless stale rows until then) — callers never observe an expired lease
+ * per-key holder-count check. Expired rows are overwritten in place on the next acquire for
+ * that key, or removed by the hourly expiry sweep (also run once at startup; the infrastructure
+ * `ExpirySweeper`) — callers never observe an expired lease
  * through this interface.
  *
  * ## Isolation from claims
