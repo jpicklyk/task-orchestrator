@@ -271,7 +271,7 @@ coordinator token, once, in confirmed past tense, copying the implementer's Fric
 `session-tracking`; seats never write them.
 
 Take every limit and target from the item's RESOLVED schema (`items_read` `schema`,
-`itemId`, `fields: ["guidance"]`  -  each entry's `maxLength` and guidance text), not from this table and not
+`itemId`, `fields: ["guidance"]` - each entry's `maxLength` and guidance text), not from this table and not
 from memory. Where this table names a number, it is a convenience copy — the schema wins on conflict.
 
 `note_limits.mode` is `warn` unless the effective config (per-root or global) sets `reject`. Under `warn` an over-limit note is

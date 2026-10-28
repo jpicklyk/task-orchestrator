@@ -248,7 +248,7 @@ carries `needs-test-author` (temporal-only degraded mode, Step 1), `test-plan` i
 queue-phase note and must be filled before this advance — see the seat-timing rule below.
 
 **Delegated tier:** Fill queue-phase notes per schema. Use `items_read` `context`
-and `items_read` `schema` with `fields: ["guidance"]` to see the expected notes and their guidance text (`guidanceKey` is the key of the first missing required note). Pre-plan-workflow is optional  -  use
+and `items_read` `schema` with `fields: ["guidance"]` to see the expected notes and their guidance text (`guidanceKey` is the key of the first missing required note). Pre-plan-workflow is optional - use
 only if scope needs exploration. Post-plan-workflow only if child items need
 materialization. Advance: `advance` `transition` with `trigger: "start"`.
 
@@ -259,7 +259,7 @@ materialization. Advance: `advance` `transition` with `trigger: "start"`.
    The `pre-plan-workflow` and `post-plan-workflow` hooks fire automatically on
    plan mode entry and exit, handling context gathering and materialization.
 2. During planning, follow the guidance text for each required note (read it with
-   `items_read` `schema`, `fields: ["guidance"]`)  -  this will reference the spec-quality skill where applicable.
+   `items_read` `schema`, `fields: ["guidance"]`) - this will reference the spec-quality skill where applicable.
 3. After plan approval and post-plan materialization, advance the item:
    `advance` `transition` with `trigger: "start"`
 
@@ -785,7 +785,7 @@ the working branch for Direct/Delegated):
    never an implementer (the dispatch contract's **Docs** slot). `/prepare-release` Step 8c folds
    these bullets into the release section.
 5. Fill all work-phase notes following their guidance text (`items_read` `schema`,
-   `fields: ["guidance"]`)  -  focus on context
+   `fields: ["guidance"]`) - focus on context
    that downstream agents need to know
 6. **Live-owed check (proposal `8ecc28f1`)** - before the work-exit `advance`, read the
    item's `session-tracking` note for its `**Live-owed**:` line (spec-quality, "State matrix").
@@ -891,7 +891,7 @@ orchestrator's verdict handling is the downstream filter, not your own judgment.
 
 **If using Direct or Delegated tier** (single working branch on the main directory),
 the review agent reads from the working branch and runs no gradle itself (see item 4
-below)  -  no worktree-specific scoping needed.
+below) - no worktree-specific scoping needed.
 
 The review agent:
 1. Reads the review-quality skill
@@ -1071,16 +1071,17 @@ For Parallel-tier features with a shared feature worktree:
 1. For children whose schema/trait declares a review phase (e.g. `needs-task-review`),
    confirm `review-checklist` is filled. Children without one advance work→terminal
    directly — there is nothing to confirm.
-2. `advance` `transition` with `trigger: "start"` on the child (`itemId` the child's id). One
-   `start` moves one phase: work->review (then `start` again after the review) or work->terminal,
-   as the child's schema dictates.
+2. Advance the child to terminal only if it is not already terminal (Step 4c item 7 already
+   advanced each child out of work; a review-less child is terminal by now, so skip it). A child
+   sitting in review takes one `advance` `transition` with `trigger: "start"` (`itemId` the
+   child's id) to reach terminal, and only after its review passes.
 3. **Do NOT push. Do NOT create a PR.** The work is committed to `feat/<feature-slug>`
    inside the shared worktree; that's the integration point.
 
 **When all children reach terminal**, the parent feature is ready to finalize:
 
 1. Fill the parent's `implementation-notes` and `session-tracking` notes (aggregating
-   across children  -  distributed-tracking pattern works as today; under the coordinator token
+   across children - distributed-tracking pattern works as today; under the coordinator token
    while the parent is a member of an open run; written once, in confirmed past tense).
 2. Run final verification from the feature worktree (incremental; this and Step 4c's run are
    the only whole-suite runs in the wave):
@@ -1089,14 +1090,17 @@ For Parallel-tier features with a shared feature worktree:
    ./gradlew -p <feature-worktree-path> :current:ktlintCheck
    ```
 3. Advance the parent to review. The orchestrator never authors the parent's `review-checklist`,
-   whatever the child count. Run the feature review of `run-wave` `post-run.md` Step 7b: one
-   independent `task-orchestrator:reviewer` (explicit `model`) over
+   whatever the child count. With 2+ children, run the feature review of `run-wave`
+   `post-run.md` Step 7b: one independent `task-orchestrator:reviewer` (explicit `model`) over
    `git -C <feature-worktree-path> diff <base>...HEAD`, handed each child's `review-checklist`
    if any; the reviewer fills the parent's `review-checklist`, and the orchestrator records one
    line per finding in the parent's `orchestrator-confirmation` (`fixed <sha|PR> | follow-up
-   <item-id> | accepted: <reason>`, ending `N of N disposed`). With one child it is still one
-   independent reviewer over the feature range. See Step 5's consolidated-reviewer paragraph,
-   which never fills the parent note.
+   <item-id> | accepted: <reason>`, ending `N of N disposed`). With exactly one child, Step 7b
+   does not apply (it covers 2+ children only), but the rule is the same: the parent review is
+   still done by an independent `task-orchestrator:reviewer` (explicit `model`) over the feature
+   range, never by the orchestrator, handed the child's `review-checklist` if any, and the
+   dispositions go in the parent's `orchestrator-confirmation`. See Step 5's
+   consolidated-reviewer paragraph, which never fills the parent note.
 4. **CHANGELOG check and Docs line** - as the Direct/Delegated tier's step 2: the bullet the
    orchestrator or docs seat wrote before review (Step 4c), or `Changelog: none (<why>)` in the PR
    body; the Docs line and the `CHANGELOG.md` requirement are built from
@@ -1150,11 +1154,11 @@ For Parallel-tier features with a shared feature worktree:
    whole-suite run per survivor, results recorded once on the parent's `red-proof-results` note.
    A real gap becomes a carry-in on the next item touching that seam or one test-only follow-up
    item, never a reopen. Background; it gates nothing.
-10. Retrospective  -  the plugin's retrospective hook fires on a successful `runs_write` `close`
+10. Retrospective - the plugin's retrospective hook fires on a successful `runs_write` `close`
    (or the Stop backstop for a closed run without the `retro` mark), never on a terminal
    transition. In `dispatch` mode (`extensions.claude-code.retrospective.mode` in
    `.taskorchestrator/config.yaml`) it directs a background `/session-retrospective`
-   automatically  -  follow its directive; in `nudge` mode, or for work finished outside a run
+   automatically - follow its directive; in `nudge` mode, or for work finished outside a run
    (no hook), run `/session-retrospective` by hand.
 
 ### Why one PR at parent finalization, not per child

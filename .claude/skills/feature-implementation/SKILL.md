@@ -100,9 +100,9 @@ implementation subagents with each child item UUID.
 
 Each subagent must:
 - Call `advance` `transition` with `trigger: "start"` on their item to enter work phase (only the entry seat does; a hand-dispatch outside a run carries no seat token)
-- Fill work-phase notes following the JIT progression loop (the subagent-start hook
-  provides the first missing note's `guidanceKey` and `skillPointer`; read guidance text with
-  `items_read` `schema`, `fields: ["guidance"]`)
+- Fill its own work-phase notes (`implementation-notes`) following the JIT progression loop
+  (`items_read` `context` returns the first missing note's `guidanceKey` and `skillPointer`;
+  read guidance text with `items_read` `schema`, `fields: ["guidance"]`)
 - Return to the orchestrator — do NOT call `advance` again. The orchestrator
   handles all further transitions.
 
