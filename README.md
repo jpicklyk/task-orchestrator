@@ -282,7 +282,7 @@ Search can be scoped to a subtree and filtered by role, tag, or priority, or run
 
 An optional HTTP layer (`API_ENABLED=true`) serves every tool over one RPC route (`POST /api/v1/ops/{tool}`), plus item and note resource GETs, lease admin, service meta and real-time SSE events, to dashboards, CI systems, and operators. It supports static bearer tokens, JWKS JWT auth, and the unauthenticated loopback mode shown in the Quick Start. It also powers `config-sync`, so one server can serve many projects with per-project schemas. See the [REST API Reference](current/docs/api-rest.md).
 
-Illustrated: [Runtime Map](https://jpicklyk.github.io/task-orchestrator/field-guide/runtime-map.html) covers the server's layers, both deployment shapes, the REST API, claims and actor identity.
+Illustrated: [Runtime Map](https://jpicklyk.github.io/task-orchestrator/field-guide/runtime-map.html) covers the server's layers, tool profiles, both deployment shapes, the REST API, claims and caller identity.
 
 ### Design Philosophy
 
@@ -319,7 +319,7 @@ The MCP server works without the plugin. The plugin makes it seamless with Claud
 /plugin install task-orchestrator-mod@task-orchestrator-marketplace
 ```
 
-Illustrated: [Orchestrating a Run](https://jpicklyk.github.io/task-orchestrator/field-guide/orchestrating-a-run.html) follows one feature from request to finished items. [Improvement Loop](https://jpicklyk.github.io/task-orchestrator/field-guide/improvement-loop.html) shows how friction noticed during work becomes a reviewed config change.
+Illustrated: [Runs and Decisions](https://jpicklyk.github.io/task-orchestrator/field-guide/runs-and-decisions.html) steps through a server run, its seat tokens, run limits and decisions. [Orchestrating a Run](https://jpicklyk.github.io/task-orchestrator/field-guide/orchestrating-a-run.html) follows one feature from request to finished items. [Improvement Loop](https://jpicklyk.github.io/task-orchestrator/field-guide/improvement-loop.html) shows how friction noticed during work becomes a reviewed config change.
 
 ---
 
