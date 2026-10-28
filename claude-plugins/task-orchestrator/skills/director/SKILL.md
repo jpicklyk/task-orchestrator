@@ -188,7 +188,9 @@ Withdraw a decision the run no longer needs (for example the user cancelled that
 ```
 
 Withdraw succeeds only for a decision this principal raised without a seat, or under the coordinator
-token of the decision's run. Nobody can withdraw a server-raised run-budget or attempt-cap decision.
+token of the decision's run. On stdio or an unauthenticated local-mode server every caller is the one
+`local` principal, so there "this principal raised" covers every decision raised without a seat.
+Nobody can withdraw a server-raised run-budget or attempt-cap decision.
 For a seat's decision, `SendMessage` the run's coordinator to withdraw it, or answer it.
 `decision_closed` means someone already answered or withdrew it: refresh the board.
 
