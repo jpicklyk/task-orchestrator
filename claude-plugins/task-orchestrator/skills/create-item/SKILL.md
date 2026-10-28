@@ -1,6 +1,6 @@
 ---
 name: create-item
-description: "Creates an MCP work item from conversation context, anchored in the right container with a declared type and its queue notes pre-filled; use when the conversation surfaces a bug, feature idea, tech debt or observation worth tracking, or the user says: track this, log this bug, create a task for, or add this to the backlog."
+description: "Creates an MCP work item from conversation context, anchored in the right container (an observation is a standalone root) with a declared type and its queue notes pre-filled; use when the conversation surfaces a bug, feature idea, tech debt or observation worth tracking, or the user says: track this, log this bug, create a task for, or add this to the backlog."
 argument-hint: "[optional: brief description of what to create]"
 ---
 
@@ -81,7 +81,7 @@ Dedup first (a tree's root only; children inherit): one unscoped search. It stay
 
 Show close matches as one FYI line (role and short id each). The user decides; never auto-link, auto-skip or auto-cancel.
 
-Single item (bug, observation, standalone task):
+Single item (bug, standalone task; an observation is the same call without `parentId`, tagged `agent-observation` plus one kind tag):
 
 ```to-call
 {"tool": "items_write", "op": "create", "args": {"title": "Retry on 503", "type": "bug-fix", "priority": "high", "summary": "Client gives up on the first 503.", "tags": ["backend"], "parentId": "9f3a1c22"}}
@@ -115,7 +115,7 @@ If the conversation is too thin for a real body, leave the note empty rather tha
 
 ```
 Created: <title> (<short-id>)
-  Path: <container path, e.g. Features>
+  Path: <container path, e.g. Features, or "standalone root" for an observation>
   Tags: <tags or none>   Traits: <traits or none>
   Notes pre-filled: <keys or none>
 ```
@@ -131,7 +131,7 @@ An alternate entry for materializing findings from a `task-orchestrator:audit` r
 3. **Edits.** The user may flip `materialize`, reclassify a row (bug, tech-debt, agent-observation) or drop it. Apply nothing without an explicit edit.
 4. **Container.** Resolve ONE category container with Steps 2-3 and have the user confirm it. Non-observation rows go under a single audit container created beneath it.
 5. **Priority and type.** Priority is already mapped; do not re-derive it. Use a row's own `type`; for rows without one, pick from `config effective` `types` (Step 4).
-6. **Materialize** only after explicit confirmation: one `create_tree` for the audit container plus its children under the category container (split a larger proposal across calls; later calls attach with `root.id`). `agent-observation` rows are not part of this tree: create them as separate `items_write` `create` elements tagged `agent-observation` and no `parentId`.
+6. **Materialize** only after explicit confirmation: one `create_tree` for the audit container plus its children under the category container (split a larger proposal across calls; later calls attach with `root.id`). `agent-observation` rows are not part of this tree: create them as separate `items_write` `create` elements tagged `agent-observation` plus exactly one kind tag, and no `parentId`.
 7. **Notes.** None pre-filled from the proposal; queue notes are filled later in normal planning.
 8. **Report** with Step 7's format, one line per created item.
 
