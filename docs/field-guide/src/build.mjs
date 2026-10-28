@@ -23,8 +23,9 @@ const plates = [
   { file: '05-runtime-map.html', site: 'runtime-map.html', artifact: 'to-runtime-map', name: 'Runtime Map', blurb: 'Architecture, deployment and fleets' },
   { file: '06-seats.html', site: 'seats.html', artifact: 'to-seats', name: 'Seats', blurb: 'Who does what inside a phase' },
   { file: '07-finding-work.html', site: 'finding-work.html', artifact: 'to-finding-work', name: 'Finding Work', blurb: 'The read calls and how the next item is chosen' },
-  { file: '08-orchestrating-a-run.html', site: 'orchestrating-a-run.html', artifact: 'to-orchestrating-run', name: 'Orchestrating a Run', blurb: 'From a request to finished items' },
-  { file: '09-improvement-loop.html', site: 'improvement-loop.html', artifact: 'to-improvement-loop', name: 'Improvement Loop', blurb: 'From friction to an adopted change' },
+  { file: '08-runs-and-decisions.html', site: 'runs-and-decisions.html', artifact: 'to-runs-decisions', name: 'Runs and Decisions', blurb: 'Seat tokens, run limits and decisions' },
+  { file: '09-orchestrating-a-run.html', site: 'orchestrating-a-run.html', artifact: 'to-orchestrating-run', name: 'Orchestrating a Run', blurb: 'From a request to finished items' },
+  { file: '10-improvement-loop.html', site: 'improvement-loop.html', artifact: 'to-improvement-loop', name: 'Improvement Loop', blurb: 'From friction to an adopted change' },
 ];
 
 const artifactUrls = existsSync(join(src, 'artifact-urls.json')) ? JSON.parse(read('artifact-urls.json')) : {};
@@ -49,7 +50,7 @@ plates.forEach((p, i) => {
     .replace('<!--FONTS-->', () => fonts)
     .replace('/*SHARED*/', () => shared)
     .replace('<!--NAV-->', () => nav)
-    .replace(/Plate (\d) of \d<\/span>/, (m, n) => 'Plate ' + n + ' of ' + plates.length + '</span>');
+    .replace(/Plate \d+ of \d+<\/span>/, () => 'Plate ' + (i + 1) + ' of ' + plates.length + '</span>');
 
   if (target === 'site') {
     const cut = page.indexOf('<!--DEFS-->');

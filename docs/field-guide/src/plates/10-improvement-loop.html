@@ -18,7 +18,7 @@
 <!--DEFS-->
 <div class="wrap">
 <header class="plate-head">
-  <p class="series"><span>MCP Task Orchestrator · Field guide</span><span>Plate 9 of 9</span></p>
+  <p class="series"><span>MCP Task Orchestrator &middot; Field guide</span><span>Plate 10 of 10</span></p>
   <h1>A process that proposes its own fixes</h1>
   <p class="lede">Friction noticed during work becomes a tracked item. Friction that recurs becomes a trend. A trend seen twice becomes a concrete proposal to change the config, and a person decides whether to adopt it.</p>
 </header>
@@ -27,7 +27,7 @@
   <h2>The loop</h2>
   <figure>
     <div class="panel scroll">
-      <svg class="d" viewBox="0 0 900 286" role="img" aria-label="A cycle of six stages. A run finishes. A retrospective scores it. Findings are matched to trends. A trend seen in two sessions graduates to a proposal. A person reviews the proposal. An accepted proposal changes the config, which gates the next run.">
+      <svg class="d" viewBox="0 0 900 286" role="img" aria-label="A cycle of six stages. A run finishes. A retrospective scores it. Findings are matched to trends. A trend seen in two sessions graduates to a proposal. A person reviews the proposal. An accepted proposal changes the config. New items use it; items already in flight keep their pinned schema until they are repinned.">
         <rect x="20" y="30" width="200" height="70" rx="4" class="r-work"/>
         <text x="120" y="60" text-anchor="middle" class="hd">A run finishes</text>
         <text x="120" y="82" text-anchor="middle" class="s">items reach terminal</text>
@@ -57,23 +57,24 @@
         <text x="120" y="220" text-anchor="middle" class="hd">Config changes</text>
         <text x="120" y="242" text-anchor="middle" class="s">edited and pushed per project</text>
         <line x1="120" y1="190" x2="120" y2="104" class="l" marker-end="url(#ah)"/>
-        <text x="130" y="150" class="s mu">gates the next run</text>
+        <text x="130" y="150" class="s mu">applies to new items</text>
       </svg>
     </div>
-    <figcaption>Every stage is an ordinary work item with its own schema and gates, so the loop is tracked, attributed and resumable like any other work. Nothing changes the config without the human step.</figcaption>
+    <figcaption>Every stage is an ordinary work item with its own schema and gates, so the loop is tracked, attributed and resumable like any other work. Nothing changes the config without the human step. An adopted change applies to new items; an item already in flight keeps the schema it was pinned to until <code>items_write</code> <code>repin</code>.</figcaption>
   </figure>
 </section>
 
 <section>
   <h2>What starts a retrospective</h2>
-  <p>A plugin hook watches <code>advance</code> and <code>items_write</code> <code>complete_tree</code>. A run counts as finished when a parent reaches terminal by cascade, or a <code>complete_tree</code> op completes at least one item. What happens next is set by <code>retrospective.mode</code> in the project config.</p>
+  <p>A retrospective is owed for each closed run that is not yet marked <code>retro</code>. The <code>retro-trigger</code> hook watches <code>runs_write</code> and acts only on a successful close. At the end of every turn <code>retro-backstop</code> checks again, so a run closed by another session is found too, when the hook can reach REST with a project <code>rootId</code>. That pass looks back 24 hours and checks at most 5 runs. What happens next is set by <code>extensions.claude-code.retrospective.mode</code> in the project config.</p>
   <div class="grid3">
     <div class="rule"><h3><code>nudge</code>, the default</h3><p class="small">The session is told a retrospective is suggested and given the command to run. The user decides.</p></div>
-    <div class="rule"><h3><code>dispatch</code></h3><p class="small">Once at least <code>dispatchThreshold</code> items (default 3) have reached terminal, the orchestrator launches one background retrospective agent at the next pause in the run. Smaller runs still get a nudge.</p></div>
+    <div class="rule"><h3><code>dispatch</code></h3><p class="small">When at least <code>dispatchThreshold</code> of the run's items (default 3) reached terminal, the hook tries to mark the run, and the session that wins the mark is told to launch one background retrospective agent. A session that loses the race stays silent. Smaller runs still get a nudge, and so does a run whose mark failed. A director session is always treated as dispatch unless the mode is <code>off</code>: a run that would only be nudged is named in its dispatch directive instead.</p></div>
     <div class="rule"><h3><code>off</code></h3><p class="small">Nothing is emitted. Retrospectives run only when someone invokes <code>/task-orchestrator:session-retrospective</code>.</p></div>
   </div>
-  <p class="sub small">A single item finishing on its own does not trigger straight away. It is recorded, and a hook at the end of the turn nudges once. After a retrospective runs, a cooldown (default 30 minutes) stops repeat prompts for the same work.</p>
-</section>
+  <p class="sub small">The dedupe is server-side: <code>runs_write</code> <code>mark</code> with key <code>retro</code>, first write wins, so two sessions never both dispatch. The mark is REST only. There is no cooldown. Without REST or a project <code>rootId</code> the hook only records the close, and the end-of-turn backstop nudges once. Work done outside a run has no trigger, so run the skill by hand. The settings are read only from <code>extensions.claude-code.retrospective</code>; a top-level <code>retrospective:</code> block is not read.</p>
+  <p class="sub small">By hand, <code>--run &lt;runId&gt;</code> scopes the analysis to one run. <code>--deep</code> hands the trend matching to the <code>retro-analysis</code> workflow, in the main session only; the skill still performs every write.</p>
+  </section>
 
 <section>
   <h2>What the retrospective reads and scores</h2>
@@ -95,14 +96,15 @@
          restate the plan instead of checking it
 summary: Reviewers copy acceptance criteria without
          evidence. Sessions: 2. Last seen: 2026-09-30.
-tags:    retrospective-trend,note-quality
+type:    retrospective-trend
+tags:    ["retrospective-trend", "note-quality"]
 
 notes:   evidence-2026-09-24-4c1e   (work)
          evidence-2026-09-30-b07a   (work)</pre>
     <div style="display:grid;gap:16px;align-content:start">
       <div class="rule"><h3>Matched by key</h3><p class="small">The short key in the title is the trend's identity. A new finding is matched to an existing key first, then by search when the match is uncertain.</p></div>
       <div class="rule"><h3>Recurrence adds evidence</h3><p class="small">Each session that sees the finding again adds one evidence note and increments the count. The summary is rewritten to stay short.</p></div>
-      <div class="rule"><h3>Two sessions make a proposal</h3><p class="small">A trend at <code>Sessions: 2</code> or more graduates. Trend items are never started or completed. They are cancelled when archived.</p></div>
+      <div class="rule"><h3>Two sessions make a proposal</h3><p class="small">A trend at <code>Sessions: 2</code> or more graduates. Trend items are never started or completed. They are cancelled when archived. Evidence notes are added as needed, not required by the schema.</p></div>
     </div>
   </div>
   <p class="sub small">The example values are illustrative. The format is the skill's own.</p>
@@ -152,11 +154,13 @@ notes:   evidence-2026-09-24-4c1e   (work)
         <tr><td><code>agent-observation</code></td><td><span class="chip queue">queue</span> observation-detail · <span class="chip work">work</span> resolution (optional)</td></tr>
         <tr><td><code>session-retrospective</code></td><td><span class="chip queue">queue</span> session-metrics, workflow-evaluation, improvement-signals · <span class="chip work">work</span> actions-taken</td></tr>
         <tr><td><code>improvement-proposal</code></td><td><span class="chip queue">queue</span> proposal · <span class="chip work">work</span> adoption-decision · <span class="chip review">review</span> outcome-verification</td></tr>
-        <tr><td><code>container</code></td><td>Manual lifecycle, so a container never closes when its children do.</td></tr>
+        <tr><td><code>retrospective-trend</code></td><td>Automatic lifecycle, no required notes. Evidence notes are added as the finding recurs.</td></tr>
+        <tr><td><code>container</code></td><td>Manual lifecycle, so a container never closes when its children do. An optional <span class="chip queue">queue</span> container-summary.</td></tr>
+        <tr><td><code>project</code></td><td>Permanent lifecycle, no notes. The root that per-project config hangs from.</td></tr>
       </tbody>
     </table></div>
   </div>
-  <p class="sub small">These four schemas are this project's global config: the floor every project sharing the server inherits. That is how the loop works across repositories with no per-project setup.</p>
+  <p class="sub small">These six schemas are the process-schema floor: the server config every project sharing the server inherits, imported into the database on every boot. An item gets its schema from its <code>type</code>; tags only filter. That is how the loop works across repositories with no per-project setup.</p>
 </section>
 
 <!--NAV-->
@@ -165,9 +169,9 @@ notes:   evidence-2026-09-24-4c1e   (work)
 (function(){
   var scope='project',dec='accept';
   var OUT={
-    'project:accept':{end:'review',steps:['The proposal\'s YAML is applied to the project\'s .taskorchestrator/config.yaml and validated.','The config is pushed to the server for this project. It takes effect without a restart.','The adoption-decision note records what was accepted and when.','The item advances to review and waits there.'],note:'It stays in review until a later retrospective fills outcome-verification with a verdict: effective, ineffective or inconclusive. The source trend is archived.'},
+    'project:accept':{end:'review',steps:['The proposal\'s YAML is applied to the project\'s .taskorchestrator/config.yaml.','config validate checks the full file text, then config get reads the head version.','config push sends the file with that version as expectedVersion, so a concurrent change is refused rather than overwritten.','The adoption-decision note records what was accepted and when.','The item advances to review and waits there.'],note:'New items use the pushed config; items in flight keep their pinned schema until repinned. The item stays in review until a later retrospective fills outcome-verification with a verdict: effective, ineffective or inconclusive. Once the change is applied, the source trend is cancelled with the summary archived: addressed via proposal.'},
     'global:accept':{end:'review',steps:['A GitHub issue is filed or linked, if GitHub feedback is enabled and the gh CLI is signed in.','The adoption-decision note records the acceptance and the issue link.','A maintainer of the repository keeps the item in review until the change ships and is verified.'],note:'Someone without write access hands the proposal upstream instead: both remaining notes are written and the item completes. The trend stays active on the maintainer path.'},
-    'project:reject':{end:'terminal',steps:['The adoption-decision note records the rejection and the reason.','The item is cancelled. No outcome-verification is needed.','The source trend is marked so it does not graduate again.'],note:'The reasoning stays on the item, so the same idea is not re-proposed blind.'},
+    'project:reject':{end:'terminal',steps:['The adoption-decision note records the rejection and the reason.','The item is cancelled. No outcome-verification is needed.','One line is appended to the source trend\'s summary: rejected, do not re-graduate.'],note:'The reasoning stays on the item, so the same idea is not re-proposed blind.'},
     'project:defer':{end:'queue',steps:['The adoption-decision note records what would make this worth revisiting.','The item is not advanced.'],note:'It stays in queue and shows up as deferred on the next review. The trend stays active and keeps counting.'}
   };
   OUT['global:reject']=OUT['project:reject'];OUT['global:defer']=OUT['project:defer'];

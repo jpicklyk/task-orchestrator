@@ -65,8 +65,9 @@ Delete the block. Caller authentication is configured with `API_AUTH_MODE` and t
 ### Note entry `shared`
 
 A note entry in `work_item_schemas.<type>.notes` (or a trait's `notes`) may set `shared: true` (default `false`). A note
-is owned by the principal whose write created it, and another principal's `upsert` or `delete` of an owned note is
-`note_owned_by_other`; `shared: true` exempts that key from ownership, so any principal that may write notes can write
+is owned by the (principal, seat) pair whose write created it, and an `upsert` or `delete` of an owned note by any other
+pair (another principal, or the same principal under another seat) is `note_owned_by_other`; `shared: true` exempts that
+key from ownership, so any principal that may write notes can write
 it. Use it for notes several seats legitimately co-author. See [`notes_write`](api-reference.md#notes_write).
 
 ### Seat transitions

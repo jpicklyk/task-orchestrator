@@ -166,7 +166,7 @@ The preferred format uses `work_item_schemas:`, which supports a `lifecycle:` fi
 # Preferred format
 work_item_schemas:
   <schema-key>:
-    lifecycle: <AUTO|MANUAL|PERMANENT>   # optional, default: AUTO
+    lifecycle: <auto|manual|permanent|none>   # optional, default: auto
     notes:
       - key: <note-key>
         role: <queue|work|review>
@@ -588,7 +588,7 @@ Status labels are human-readable strings automatically set on WorkItems during r
 | `block`    | `"blocked"`      | Item is paused due to a dependency or hold.     |
 | `cancel`   | `"cancelled"`    | Item was explicitly cancelled.                  |
 | `cascade`  | `"done"`         | Item auto-completed via cascade from children.  |
-| `resume`   | *(null)*         | Preserves the label from before the block.      |
+| `resume`   | *(null)*         | Clears the label (a configured `resume` label is applied). |
 | `reopen`   | *(null/cleared)* | Clears the label when reopening a terminal item.|
 
 ### Label Precedence
@@ -661,7 +661,7 @@ By default a dependency is satisfied when the blocking item reaches `terminal`. 
 
 | Value      | Satisfied When Blocker Reaches |
 |------------|-------------------------------|
-| `queue`    | Any role (immediately)         |
+| `queue`    | Any role except `blocked` (immediately) |
 | `work`     | `work`, `review`, or `terminal`|
 | `review`   | `review` or `terminal`         |
 | `terminal` | `terminal` (default)           |

@@ -109,6 +109,7 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
 <style>
 .merge{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:16px;align-items:center}
 .merge .src{display:grid;gap:10px}
+.merge>*,.merge .src>div{min-width:0}
 .merge .arrow{font:600 34px/1 var(--display);color:var(--muted)}
 @media (max-width:760px){.merge{grid-template-columns:minmax(0,1fr)}.merge .arrow{transform:rotate(90deg);justify-self:center}}
 .tag{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
@@ -124,8 +125,6 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
 .order .h{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);align-self:center}
 .cell{border:1.5px solid var(--line);border-radius:4px;padding:10px 12px;display:flex;gap:10px;align-items:center;background:var(--surface);min-width:0}
 .cell .num{font:700 30px/1 var(--display);color:var(--work);min-width:1.2ch}
-.cell.never{opacity:.45;border-style:dashed}
-.cell.never .num{color:var(--muted)}
 .cell .what{font-size:13.5px}
 .d .gatebar{fill:var(--gate)}
 .d .m10{font-family:var(--mono);font-size:10.5px}
@@ -143,9 +142,9 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
 
 <div class="wrap">
 <header class="plate-head">
-  <p class="series"><span>MCP Task Orchestrator · Field guide</span><span>Plate 4 of 9</span></p>
+  <p class="series"><span>MCP Task Orchestrator · Field guide</span><span>Plate 4 of 10</span></p>
   <h1>The rules are YAML, and they compose</h1>
-  <p class="lede">A schema says which notes an item type must carry at each phase. Traits add cross-cutting requirements to any type. Both live in <code>.taskorchestrator/config.yaml</code>, so changing the process never means changing code or prompts.</p>
+  <p class="lede">A schema says which notes an item type must carry at each phase. Traits add cross-cutting requirements to any type. Both are written as YAML, but the server runs on stored, versioned copies of that YAML in its database, never on the file itself. Changing the process never means changing code or prompts.</p>
 </header>
 
 <section>
@@ -153,9 +152,10 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
   <div class="merge">
     <div class="src">
       <div><p class="tag">The item</p><pre>type: feature-task
-traits: needs-migration-review</pre></div>
+traits: [needs-migration-review]</pre></div>
       <div><p class="tag">Its schema</p><pre>work_item_schemas:
   feature-task:
+    lifecycle: auto
     default_traits: [needs-security-review]
     notes:
       - { key: requirements, role: queue, required: true }
@@ -184,10 +184,11 @@ traits: needs-migration-review</pre></div>
       </div>
     </div>
   </div>
-  <div class="grid3">
-    <div class="rule"><h3>Type first, then tags, then default</h3><p class="small">The item's <code>type</code> selects a schema. With no type match, its first matching tag does. Failing both, the <code>default</code> schema applies. With no default, the item advances freely.</p></div>
-    <div class="rule"><h3>Default traits, then per-item traits</h3><p class="small">A schema's <code>default_traits</code> apply to every item of the type. Traits set on a single item layer on after. The first trait to declare a key keeps it.</p></div>
-    <div class="rule"><h3>Traits add, they never relax</h3><p class="small">A trait note whose key already exists in the base schema is dropped. A trait cannot make a required note optional or move it to another phase.</p></div>
+  <div class="grid2">
+    <div class="rule"><h3>Four steps pick the schema</h3><p class="small">An item's schema is its per-root schema for the type, then the server's schema for the type, then the per-root <code>default</code>, then the server <code>default</code>. Tags never select a schema. A null type uses only the two <code>default</code> steps, and with nothing found the item is schema-free and advances freely. Creating an item always requires a type. When the config declares types, one it does not declare fails <code>schema_violation</code> with <code>detail.availableTypes</code>; when it declares none, any type is accepted.</p></div>
+    <div class="rule"><h3>Per-item traits, then default traits</h3><p class="small">Traits resolve in one order everywhere: the item's own traits first, then the schema's <code>default_traits</code>, duplicates dropped with the first position kept. When two declarations share a note key, the content comes from the first declaration (base schema before traits) and <code>required</code> is true if any declaration marks it.</p></div>
+    <div class="rule"><h3>Traits add, they never relax</h3><p class="small">A trait cannot make a required note optional, because <code>required</code> is OR-merged. A trait also cannot change the role of a note the base schema already declares.</p></div>
+    <div class="rule"><h3>A per-root trait replaces the server's whole</h3><p class="small">When a project's <code>traits:</code> map contains a trait name, every dimension of that trait comes from the project entry: notes, seats, resources and both dispatch shapes. A dimension it leaves out is empty, never inherited from the server's trait of that name.</p></div>
   </div>
 </section>
 
@@ -199,15 +200,15 @@ traits: needs-migration-review</pre></div>
   - key: migration-assessment
     role: queue
     required: true</pre></div>
-    <div class="rule"><h3>Guidance</h3><p class="small">How to write the note. Handed to the agent at the moment it is about to fill it.</p><pre>guidance: "Cover table
+    <div class="rule"><h3>Guidance</h3><p class="small">How to write the note. <code>advance</code> and <code>items_read</code> <code>context</code> return a <code>guidanceKey</code>; the text itself comes from <code>items_read</code> <code>schema</code> with <code>fields: ["guidance"]</code>.</p><pre>guidance: "Cover table
   recreation and data
   migration strategy."</pre></div>
     <div class="rule"><h3>Skill routing</h3><p class="small">Names a skill to run first, so the note follows a defined evaluation framework.</p><pre>skill: "migration-review"</pre></div>
-    <div class="rule"><h3>Resources</h3><p class="small">Shared resources the item needs. An exclusive one is leased when the item enters work, and a second item's start is rejected until it frees.</p><pre>resources:
+    <div class="rule"><h3>Resources</h3><p class="small">Shared resources the item needs. An exclusive one is leased when the item enters work, and a second item's start is rejected until it frees. Every key, advisory ones too, must be in the server's resource registry.</p><pre>resources:
   - staging-db
   - key: deploy-token
     mode: advisory</pre></div>
-    <div class="rule"><h3>Dispatch</h3><p class="small">Which agent, model and effort should pick up each phase. Returned to the orchestrator with the transition.</p><pre>dispatch:
+    <div class="rule"><h3>Dispatch</h3><p class="small">Which agent, model and effort should pick up each phase. Returned to the orchestrator with the transition. Per-seat overrides resolve first-in-trait-order, except that a seat-only trait whose override sets <code>model</code> and neither sets nor clears <code>agent</code> wins its seat whatever the order (config-reference, Seat dispatch precedence).</p><pre>dispatch:
   review:
     agent: reviewer
     effort: high</pre></div>
@@ -219,7 +220,7 @@ traits: needs-migration-review</pre></div>
 
 <section>
   <h2>Keeping notes short</h2>
-  <p>A note is what the next agent reads in place of the whole conversation, so its value depends on staying small. A schema can cap each note, and the server can warn or refuse when a body runs over.</p>
+  <p>A note is what the next agent reads in place of the whole conversation, so its value depends on staying small. A schema can cap each note, and the server can warn or refuse when a body runs over. Whatever the schema says, a body over 65536 UTF-8 bytes is refused as <code>payload_too_large</code>.</p>
   <div class="grid2">
     <pre>note_limits:
   mode: reject            # warn (default) | reject
@@ -233,8 +234,9 @@ work_item_schemas:
         maxLength: 6000   # characters</pre>
     <div style="display:grid;gap:16px;align-content:start">
       <div class="rule"><h3>A cap per note</h3><p class="small"><code>maxLength</code> is a backstop on one note. Guidance text usually names a much smaller target.</p></div>
-      <div class="rule"><h3>Warn or reject</h3><p class="small">In <code>warn</code> mode an over-long note is stored with a warning on the result. In <code>reject</code> mode that note fails with <code>NOTE_BODY_TOO_LONG</code> and the rest of the batch is still written. A project can set its own mode.</p></div>
-      <div class="rule"><h3>Long artifacts go by file</h3><p class="small">For test output, diffs and logs, an agent passes <code>bodyFromFile</code> and the server reads the file itself. The text never passes through the model's context.</p></div>
+      <div class="rule"><h3>Warn or reject</h3><p class="small">In <code>warn</code> mode an over-long note is stored with a warning on the result. In <code>reject</code> mode that note fails with <code>note_too_long</code> and the rest of the batch is still written. A project can set its own mode.</p></div>
+      <div class="rule"><h3>Long artifacts go by file</h3><p class="small">For test output, diffs and logs, an agent passes <code>bodyFromFile</code> and the server reads the file itself, so the text never passes through the model's context. The path is relative and must stay inside the agent config root (no <code>..</code>, no symlink out), and the file must be regular UTF-8 of at most 65536 bytes. CRLF becomes LF.</p></div>
+      <div class="rule"><h3>Shared notes</h3><p class="small">A note is owned by the (principal, seat) whose write created it, and a write from another principal, or from the same principal under another seat, is <code>note_owned_by_other</code>. A note entry with <code>shared: true</code> is exempt, for notes several seats legitimately co-author.</p></div>
     </div>
   </div>
 </section>
@@ -244,7 +246,7 @@ work_item_schemas:
   <p>A phase is often more than one agent's job. A schema or trait can name the seats inside each phase: which seat enters the phase, which seat owns each required note, and in what order they work.</p>
   <figure>
     <div class="panel scroll">
-      <svg class="d" viewBox="0 0 900 318" role="img" aria-label="Seats for a bug-fix item. In queue, the planner owns the diagnosis and test-plan notes. In work, the implementer enters the phase and owns implementation-notes, a test-author seat added by a trait works after it and owns test-manifest, and the orchestrator owns session-tracking. In review, the reviewer owns review-checklist and test-independence-audit. A dashed bracket marks that test-manifest must be written by a different actor than the implementer.">
+      <svg class="d" viewBox="0 0 900 318" role="img" aria-label="Seats for a bug-fix item. In queue, the planner owns the diagnosis and test-plan notes. In work, the implementer enters the phase and owns implementation-notes, a test-author seat added by a trait works after it and owns test-manifest, and the orchestrator owns session-tracking. In review, the reviewer owns review-checklist and test-independence-audit. A dashed bracket marks that test-manifest must be written by a different principal and seat identity than the implementer's.">
         <text x="100" y="28" text-anchor="middle" class="hd c-queue">queue</text>
         <text x="440" y="28" text-anchor="middle" class="hd c-work">work</text>
         <text x="790" y="28" text-anchor="middle" class="hd c-review">review</text>
@@ -258,7 +260,7 @@ work_item_schemas:
         <text x="34" y="130" class="m10">diagnosis</text>
         <text x="34" y="148" class="m10">test-plan</text>
         <path d="M314,84 V72 H566 V84" class="k-blocked dash"/>
-        <text x="440" y="60" text-anchor="middle" class="s c-blocked">independent_of: a different actor must write test-manifest</text>
+        <text x="440" y="60" text-anchor="middle" class="s c-blocked">independent_of: a different (principal, seat) writes test-manifest</text>
         <rect x="224" y="84" width="180" height="80" rx="4" class="r-work"/>
         <text x="236" y="106" class="b">implementer</text>
         <text x="236" y="124" class="s c-work">enters the phase</text>
@@ -286,7 +288,7 @@ work_item_schemas:
     </div>
     <figcaption>Each box is a seat with the notes it owns. The seat layout is this project's own <code>bug-fix</code> schema with the <code>needs-test-author</code> trait. The <code>independent_of</code> bracket follows the reference example in the config documentation.</figcaption>
   </figure>
-  <p>The server serves seats to the orchestrator as signals, reports missing notes grouped by the seat that owns them, and can check that an <code>independent_of</code> note was written by a different actor. Plate 6 covers seats in full.</p>
+  <p>The server serves seats to the orchestrator as signals, reports missing notes grouped by the seat that owns them, and can check that an <code>independent_of</code> note was written by a different (principal, seat) identity than the latest write of the named seat. Plate 6 covers seats in full.</p>
   <p class="sub small">A config with no <code>seats</code> anywhere behaves exactly as before. Seats are optional at every level.</p>
 </section>
 
@@ -307,7 +309,7 @@ work_item_schemas:
         <line x1="90" y1="125" x2="620" y2="125" class="lm"/>
         <rect x="326" y="110" width="8" height="30" class="c-blocked"/>
         <text x="330" y="102" text-anchor="middle" class="m c-gate">start</text>
-        <text x="344" y="146" class="s c-blocked">rejected: resource_unavailable, retry after 30 s</text>
+        <text x="344" y="146" class="s c-blocked">rejected: resource_unavailable, retryAfterMs set</text>
         <text x="620" y="102" text-anchor="middle" class="m c-gate">start</text>
         <rect x="620" y="110" width="250" height="30" rx="3" class="r-work"/>
         <text x="745" y="130" text-anchor="middle" class="s">in work · holds the lease</text>
@@ -315,14 +317,18 @@ work_item_schemas:
         <text x="872" y="198" text-anchor="end" class="s mu">time</text>
       </svg>
     </div>
-    <figcaption>The rejection is transient, not a gate failure: Item B's notes are fine. The agent should work on something else and try again later. The response names the contended key and never says who holds it.</figcaption>
+    <figcaption>The rejection is transient, not a gate failure: Item B's notes are fine. The agent should work on something else and try again later. The response names the contended key and never says who holds it. <code>retryAfterMs</code> is the time until the soonest contending lease expires, not a fixed delay.</figcaption>
   </figure>
   <div class="grid2">
-    <pre>resources:                  # optional registry
+    <pre># server file only: the registry
+resources:
   staging-db:
     description: "Shared staging database"
     defaultTtlSeconds: 1800
+  deploy-token:
+    description: "Deploy credential"
 
+# server file or per-root push
 traits:
   needs-staging:
     resources:
@@ -331,13 +337,13 @@ traits:
         mode: advisory      # recorded, never locked</pre>
     <div style="display:grid;gap:16px;align-content:start">
       <div class="rule"><h3>Exclusive or advisory</h3><p class="small"><code>exclusive</code> admits one item at a time. <code>advisory</code> takes no lock and only records that the item used the resource. Reserve exclusive for things that cannot be shared. A credential several agents can use at once should be advisory.</p></div>
-      <div class="rule"><h3>Held for the whole work phase</h3><p class="small">Taken on <code>start</code> or <code>resume</code> into work. Released on any exit: complete, cancel, block or reopen. It expires after an hour by default (24 hours at most) and cannot be renewed. Nothing sweeps an expired lease. The next contender simply gets it.</p></div>
+      <div class="rule"><h3>Held for the whole work phase</h3><p class="small">Taken on <code>start</code> or <code>resume</code> into work. Released on any exit from work: start (to review, or to terminal when there is no review phase), complete, block, hold or cancel. It expires after an hour by default (24 hours at most). There is no renew call, though the same holder acquiring again refreshes it. An hourly sweep, plus one at start, clears expired leases, and a contender can take an expired one in any case.</p></div>
     </div>
   </div>
   <div class="grid3">
     <div class="rule"><h3>Task-level items only</h3><p class="small">Put exclusive resources on leaf task types. A feature container can sit in work for days and would hold the lock the whole time.</p></div>
-    <div class="rule"><h3>One namespace per server</h3><p class="small">Keys are server-wide, so on a clash the global registry entry beats a project's. This is the one place the global layer wins. Prefix keys per project to avoid accidents.</p></div>
-    <div class="rule"><h3>Operator controls</h3><p class="small">The REST API lists active leases and their history, and an admin can force-release one. <code>RESOURCE_LEASES_ENFORCED=false</code> switches acquisition off.</p></div>
+    <div class="rule"><h3>The registry is server-only</h3><p class="small">One registry per server: a per-root push that carries <code>resources:</code> is rejected, and every key a trait names must be registered. Keys are server-wide, so prefix them per project to avoid accidents.</p></div>
+    <div class="rule"><h3>Operator controls</h3><p class="small">The REST API lists active leases and their history, and an admin can force-release one. <code>RESOURCE_LEASES_ENFORCED=false</code> skips the lease gate and acquisition on every advance (releases still run). The server reads it only at startup, so changing it needs a restart.</p></div>
   </div>
   <p class="sub small">There is no queue and no fairness: whoever retries first after release gets the lease. A lease is checked on entry to work only. It is a coordination aid for cooperating agents.</p>
 </section>
@@ -346,7 +352,7 @@ traits:
   <h2>One server, many projects, two layers</h2>
   <figure>
     <div class="panel scroll">
-      <svg class="d" viewBox="0 0 900 300" role="img" aria-label="Each project's config.yaml is pushed by the config-sync hook into a per-root store in the server's database, which hot-reloads. A single global config file is mounted and read once at startup. The schema resolver picks the per-root layer by the item's rootId and falls back to the global layer.">
+      <svg class="d" viewBox="0 0 900 300" role="img" aria-label="Each project's config.yaml is pushed by the config-sync hook as a config push into that root's head in the server's database, which hot-reloads. The server config file is imported at every boot as a file-import version and becomes the SERVER head. The schema resolver takes the per-root head by the item's rootId for steps 1 and 3 and the SERVER head for steps 2 and 4, in that step order, and never consults tags.">
         <rect x="336" y="10" width="554" height="280" rx="6" class="fr"/>
         <text x="352" y="32" class="s mu">Task Orchestrator server</text>
         <rect x="10" y="74" width="250" height="40" rx="4" class="bx"/>
@@ -355,54 +361,110 @@ traits:
         <text x="24" y="147" class="m">project-b / config.yaml</text>
         <line x1="260" y1="94" x2="356" y2="94" class="l" marker-end="url(#ah)"/>
         <line x1="260" y1="142" x2="356" y2="142" class="l" marker-end="url(#ah)"/>
-        <text x="308" y="86" text-anchor="middle" class="s mu">config-sync</text>
+        <text x="308" y="76" text-anchor="middle" class="s mu">config push</text>
+        <text x="308" y="88" text-anchor="middle" class="s mu">(config-sync)</text>
         <rect x="360" y="44" width="210" height="150" rx="4" class="bx"/>
-        <text x="374" y="66" class="b">Per-root config (database)</text>
+        <text x="374" y="66" class="b">Root heads (database)</text>
         <rect x="372" y="76" width="186" height="36" rx="3" class="bx2"/>
-        <text x="384" y="99" class="m">root A · schemas, traits</text>
+        <text x="384" y="99" class="m">root A · config head</text>
         <rect x="372" y="124" width="186" height="36" rx="3" class="bx2"/>
-        <text x="384" y="147" class="m">root B · schemas, traits</text>
+        <text x="384" y="147" class="m">root B · config head</text>
         <text x="374" y="182" class="s mu">hot-reloads, no restart</text>
         <rect x="10" y="226" width="250" height="44" rx="4" class="bx"/>
-        <text x="24" y="246" class="m">global config.yaml</text>
+        <text x="24" y="246" class="m">server config.yaml</text>
         <text x="24" y="262" class="s mu">located by AGENT_CONFIG_DIR</text>
         <line x1="260" y1="248" x2="356" y2="248" class="l" marker-end="url(#ah)"/>
-        <text x="308" y="240" text-anchor="middle" class="s mu">mounted</text>
+        <text x="308" y="240" text-anchor="middle" class="s mu">boot import</text>
+        <text x="308" y="264" text-anchor="middle" class="s mu">every start</text>
         <rect x="360" y="222" width="210" height="52" rx="4" class="bx"/>
-        <text x="374" y="244" class="b">Global layer</text>
-        <text x="374" y="262" class="s mu">the floor · read once at startup</text>
+        <text x="374" y="244" class="b">SERVER head</text>
+        <text x="374" y="262" class="s mu">file-import version, stored</text>
         <line x1="570" y1="120" x2="656" y2="150" class="l" marker-end="url(#ah)"/>
-        <text x="614" y="122" text-anchor="middle" class="s mu">project rules</text>
+        <text x="614" y="122" text-anchor="middle" class="s mu">steps 1 and 3</text>
         <line x1="570" y1="248" x2="656" y2="192" class="l dash" marker-end="url(#ah)"/>
-        <text x="622" y="244" class="s mu">fallback</text>
+        <text x="622" y="244" class="s mu">steps 2 and 4</text>
         <rect x="660" y="120" width="214" height="96" rx="4" class="r-gate"/>
         <text x="767" y="148" text-anchor="middle" class="hd">Schema resolver</text>
         <text x="767" y="170" text-anchor="middle" class="s">picks a project by item.rootId</text>
-        <text x="767" y="188" text-anchor="middle" class="s">then type, tag, default</text>
+        <text x="767" y="188" text-anchor="middle" class="s">four steps, no tags</text>
       </svg>
     </div>
-    <figcaption>The workspace file is the source of truth. The plugin's <code>config-sync</code> hook pushes it at session start and whenever it changes, and the server rejects a push from a stale checkout. A solo developer gets this too: one persistent server serves every repository with its own rules.</figcaption>
+    <figcaption>The server file is imported by the <code>server-config-import</code> step at every boot, and a new <code>file-import</code> version is appended only when its fingerprint changed. The workspace file is the source of truth for a project: the plugin's <code>config-sync</code> hook pushes it at session start and whenever it changes, and a push of older content than the head, such as from a stale checkout, is <code>version_conflict</code>. A solo developer gets this too: one persistent server serves every repository with its own rules.</figcaption>
   </figure>
 
   <div class="panel">
-    <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center">
-      <h3>Lookup order for an item's type, by <code>schema_resolution</code> mode</h3>
-      <div class="btns" id="modes" role="group" aria-label="schema_resolution mode">
-        <button type="button" data-m="legacy" aria-pressed="true">legacy</button>
-        <button type="button" data-m="layered" aria-pressed="false">layered</button>
-        <button type="button" data-m="isolated" aria-pressed="false">isolated</button>
-      </div>
-    </div>
+    <h3>Lookup order for an item's type</h3>
     <div class="order">
       <span></span><span class="h">Exact match on type</span><span class="h">The layer's default schema</span>
       <span class="h">Per-root</span>
-      <div class="cell" id="c-pe"><span class="num"></span><span class="what">Project schema named for the type</span></div>
-      <div class="cell" id="c-pd"><span class="num"></span><span class="what">Project <code>default</code></span></div>
-      <span class="h">Global</span>
-      <div class="cell" id="c-ge"><span class="num"></span><span class="what">Global schema named for the type</span></div>
-      <div class="cell" id="c-gd"><span class="num"></span><span class="what">Global <code>default</code></span></div>
+      <div class="cell"><span class="num">1</span><span class="what">Project schema named for the type</span></div>
+      <div class="cell"><span class="num">3</span><span class="what">Project <code>default</code></span></div>
+      <span class="h">Server</span>
+      <div class="cell"><span class="num">2</span><span class="what">Server schema named for the type</span></div>
+      <div class="cell"><span class="num">4</span><span class="what">Server <code>default</code></span></div>
     </div>
-    <p class="small sub" id="modeNote"></p>
+    <p class="small sub">An exact match in either layer is tried before either default, so a server schema named for the type beats a project <code>default</code>. An item with no type skips steps 1 and 2. Nothing found means schema-free.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Config versions and schema pins</h2>
+  <p>Every config is an append-only list of immutable versions, one list for the server and one per project root. An item records the versions it started under, so a later push cannot change the gate it already faces. That record is its pin.</p>
+  <div class="grid2">
+    <div>
+      <pre>{"ops": [
+  {"op": "validate", "rootId": "&lt;root&gt;",
+   "configYaml": "&lt;yaml&gt;"},
+  {"op": "push", "rootId": "&lt;root&gt;",
+   "configYaml": "&lt;yaml&gt;", "expectedVersion": 4}
+]}
+
+// one data.results[i] per ops[] element, in order
+{"ok": true, "data": {"results": [
+  {"ok": true, "rootId": "&lt;root&gt;", "valid": true,
+   "errors": [], "warnings": [],
+   "diff": {"types": {"added": [], "removed": [],
+                      "changed": ["bug-fix"]}, ...},
+   "affectedInFlight": {"count": 2, "sample": [
+     {"itemId": "...", "changedNotes": ["diagnosis"]}]}},
+  {"ok": true, "rootId": "...", "version": 5,
+   "fingerprint": "...", "appended": true,
+   "createdAt": "..."}
+], "summary": {"ok": 2, "failed": 0}},
+ "meta": {"reqId": "..."}}</pre>
+    </div>
+    <div style="display:grid;gap:16px;align-content:start">
+      <div class="rule"><h3>Eight ops on one tool</h3><p class="small"><code>get</code>, <code>history</code>, <code>push</code>, <code>validate</code>, <code>rollback</code>, <code>reset</code>, <code>effective</code> and <code>rules</code>. <code>reset</code> appends an empty version so the root falls back to the server config.</p></div>
+      <div class="rule"><h3>Look before you push</h3><p class="small"><code>validate</code> writes nothing. It returns the errors, a diff against the head and <code>affectedInFlight</code>: how many in-flight items would resolve a different gate if repinned, with a sample of the first 20.</p></div>
+      <div class="rule"><h3>Compare-and-set</h3><p class="small">A wrong <code>expectedVersion</code> is <code>version_conflict</code>, and so is re-pushing older content. <code>force</code> skips only the rootId and older-content guards, never validation or <code>expectedVersion</code>.</p></div>
+    </div>
+  </div>
+
+  <h3 style="margin-top:28px">When an item is pinned</h3>
+  <div class="tscroll"><table>
+    <thead><tr><th>Reason</th><th>Pin point</th></tr></thead>
+    <tbody>
+      <tr><td><code>create</code></td><td>The item is created.</td></tr>
+      <tr><td><code>type_change</code></td><td>An update changes the item's type.</td></tr>
+      <tr><td><code>reparent</code></td><td>An update moves the item under another root, and every descendant that moves with it.</td></tr>
+      <tr><td><code>trait_change</code></td><td>An update changes the item's traits.</td></tr>
+      <tr><td><code>reopen</code></td><td>A transition leaves terminal. The gate of that transition still runs under the old pin.</td></tr>
+      <tr><td><code>repin</code></td><td><code>items_write</code> <code>repin</code> is called and the recomputed pin differs from the stored one.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="grid3" style="margin-top:20px">
+    <div class="rule"><h3>What a pin governs</h3><p class="small">Notes and gates, trait merge, seats, dispatch and resource requirements come from the pinned versions. Status labels, <code>note_limits</code>, <code>independence</code>, the resource registry and the declared type and trait lists always follow the heads.</p></div>
+    <div class="rule"><h3>Stale pins show</h3><p class="small"><code>items_read</code> renders the pin as <code>schemaVersion</code> and adds <code>stale: true</code> when either pinned version is no longer the head of its scope. An unpinned item resolves at the heads.</p></div>
+    <div class="rule"><h3>Repin to catch up</h3><p class="small"><code>items_write</code> <code>repin</code> moves the pin to the heads. A note key the pinned schema lacks but the head schema requires cannot be written until then: <code>schema_pinned_conflict</code>.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>Lifecycle modes, and where plugin settings go</h2>
+  <div class="grid2">
+    <div class="rule"><h3><code>lifecycle</code> on a schema</h3><p class="small">Lowercase, one of four. <code>auto</code> (the default): a parent cascades to terminal when all its children are terminal. <code>manual</code>: every parent cascade is suppressed (start, terminal and reopen), so the parent is moved explicitly. <code>permanent</code>: never auto-terminates and never auto-reopens, and suppresses the same cascades.</p></div>
+    <div class="rule"><h3><code>none</code> means no phases at all</h3><p class="small">A lifecycle-free item has no role. Its schema may declare notes but none required, and no seats. No trigger applies to it, it cannot be claimed, and it cannot be an endpoint of a <code>blocks</code> edge. It suits pages of knowledge or reference material.</p></div>
+    <div class="rule"><h3><code>extensions.claude-code</code></h3><p class="small">Plugin settings live under <code>extensions.&lt;tool&gt;</code>. The server stores the namespace and never reads it. The old top-level <code>orchestration</code> and <code>retrospective</code> sections are rejected in a new push; move them under <code>extensions.claude-code</code>.</p></div>
   </div>
 </section>
 
@@ -414,31 +476,11 @@ traits:
 <a class="item" href="runtime-map.html"><span class="n">PLATE 5</span><span class="t">Runtime Map</span><span class="small sub">Architecture, deployment and fleets</span></a>
 <a class="item" href="seats.html"><span class="n">PLATE 6</span><span class="t">Seats</span><span class="small sub">Who does what inside a phase</span></a>
 <a class="item" href="finding-work.html"><span class="n">PLATE 7</span><span class="t">Finding Work</span><span class="small sub">The read calls and how the next item is chosen</span></a>
-<a class="item" href="orchestrating-a-run.html"><span class="n">PLATE 8</span><span class="t">Orchestrating a Run</span><span class="small sub">From a request to finished items</span></a>
-<a class="item" href="improvement-loop.html"><span class="n">PLATE 9</span><span class="t">Improvement Loop</span><span class="small sub">From friction to an adopted change</span></a>
+<a class="item" href="runs-and-decisions.html"><span class="n">PLATE 8</span><span class="t">Runs and Decisions</span><span class="small sub">Seat tokens, run limits and decisions</span></a>
+<a class="item" href="orchestrating-a-run.html"><span class="n">PLATE 9</span><span class="t">Orchestrating a Run</span><span class="small sub">From a request to finished items</span></a>
+<a class="item" href="improvement-loop.html"><span class="n">PLATE 10</span><span class="t">Improvement Loop</span><span class="small sub">From friction to an adopted change</span></a>
 </nav>
 <p class="foot"><span>MCP Task Orchestrator field guide. MIT licensed, open source.</span><a href="https://github.com/jpicklyk/task-orchestrator">github.com/jpicklyk/task-orchestrator</a></p></footer>
 </div>
-<script>
-(function(){
-  var MODES={
-    legacy:{o:{pe:1,pd:2,ge:3,gd:4},n:'The default when the key is absent. The project layer runs to completion first, so a project default beats a global exact match. A pushed project config is treated as the project\'s full self-description.'},
-    layered:{o:{pe:1,ge:2,pd:3,gd:4},n:'Exact matches in both layers are tried before either default, so a global schema named for the type beats a project default.'},
-    isolated:{o:{pe:1,pd:2,ge:0,gd:0},n:'Only the project layer is consulted. Use it for a project that should not inherit the global floor at all.'}
-  };
-  function set(m){
-    var c=MODES[m];
-    ['pe','pd','ge','gd'].forEach(function(k){
-      var el=document.getElementById('c-'+k),n=c.o[k];
-      el.classList.toggle('never',!n);
-      el.querySelector('.num').textContent=n?n:'–';
-    });
-    document.getElementById('modeNote').textContent=c.n;
-    Array.prototype.forEach.call(document.querySelectorAll('#modes button'),function(b){b.setAttribute('aria-pressed',b.getAttribute('data-m')===m?'true':'false');});
-  }
-  document.getElementById('modes').addEventListener('click',function(e){var m=e.target.getAttribute&&e.target.getAttribute('data-m');if(m)set(m);});
-  set('legacy');
-})();
-</script>
 </body>
 </html>
