@@ -34,9 +34,9 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
 <!--DEFS-->
 <div class="wrap">
 <header class="plate-head">
-  <p class="series"><span>MCP Task Orchestrator · Field guide</span><span>Plate 6 of 6</span></p>
+  <p class="series"><span>MCP Task Orchestrator · Field guide</span><span>Plate 6 of 10</span></p>
   <h1>Who does what inside a phase</h1>
-  <p class="lede">A phase is often several jobs: plan, build, test, record. Seats name those jobs in config. The orchestrator learns which agent to send, the gate reports missing notes by owner, and the server can check that the tests and the code were written by different actors.</p>
+  <p class="lede">A phase is often several jobs: plan, build, test, record. Seats name those jobs in config. The orchestrator learns which agent to send, the gate reports missing notes by owner, and the server can check that the tests and the code were written by different (principal, seat) pairs.</p>
 </header>
 
 <section>
@@ -121,11 +121,11 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
   <div class="grid2">
     <pre>work_item_schemas:
   bug-fix:
-    default_traits: [delegated, needs-test-author]
+    default_traits: [delegated, needs-test-author, session-tracked]
     seats:
       - { name: planner,      phase: queue }
-      - { name: implementer,  phase: work, enters: true }
-      - { name: orchestrator, phase: work, after: [implementer] }
+      - { name: implementer,  phase: work, enters: true,
+          transitions: [block, hold, resume] }
       - { name: reviewer,     phase: review }
     notes:
       - { key: implementation-notes, role: work,
@@ -147,20 +147,28 @@ traits:
         agent: task-orchestrator:implementer
         seats:
           implementer: { model: sonnet }
-          test-author: { agent: null, model: sonnet }</pre>
+          test-author: { agent: null, model: sonnet }
+  session-tracked:
+    seats:
+      - { name: orchestrator, phase: work, after: [implementer] }
+    notes:
+      - { key: session-tracking, role: work, required: true,
+          seat: orchestrator }</pre>
     <div class="tscroll"><table>
       <thead><tr><th>Field</th><th>Meaning</th><th>Server's part</th></tr></thead>
       <tbody>
-        <tr><td><code>name</code>, <code>phase</code></td><td>A named role in queue, work or review. The name means nothing to the server.</td><td>Validates and serves</td></tr>
-        <tr><td><code>enters</code></td><td>This seat makes the transition into the phase.</td><td>Allows one per phase</td></tr>
+        <tr><td><code>name</code>, <code>phase</code></td><td>A named role in queue, work or review. The name means nothing to the server, with two exceptions: <code>orchestrator</code> is the seat whose note keys a run's coordinator token writes, and <code>unowned</code> is reserved.</td><td>Validates and serves</td></tr>
+        <tr><td><code>enters</code></td><td>This seat makes the transition into the phase. Inside a run, it is the only seat that may <code>start</code> the item.</td><td>Allows one per phase</td></tr>
+        <tr><td><code>transitions</code></td><td>The triggers other than <code>start</code> that a token for this seat may send. The default is <code>block</code> and <code>hold</code>. <code>start</code> is governed by <code>enters</code> and is never listed.</td><td>Refuses the rest as <code>seat_forbidden</code>, inside a run</td></tr>
         <tr><td><code>after</code></td><td>Seats whose work this one follows.</td><td>Serves as a hint</td></tr>
         <tr><td><code>reads_exclude</code></td><td>Note keys this seat should not read. Keeps a test author blind to the implementation.</td><td>Serves as a hint</td></tr>
-        <tr><td>note <code>seat</code></td><td>The seat that owns a note.</td><td>Groups missing notes by owner</td></tr>
+        <tr><td>note <code>seat</code></td><td>The seat that owns a note.</td><td>Groups missing notes by owner, and inside a run refuses other seats' writes</td></tr>
         <tr><td>note <code>independent_of</code></td><td>Seats whose author must differ from this note's author.</td><td>Checks at the gate</td></tr>
         <tr><td><code>dispatch.&lt;phase&gt;.seats</code></td><td>Agent, model and effort for one seat. <code>null</code> clears a field inherited from the phase.</td><td>Resolves and serves</td></tr>
       </tbody>
     </table></div>
   </div>
+  <p>Inside a run that is not closed, on an item whose pinned schema declares seats, the server enforces these: a refused trigger is <code>seat_forbidden</code>, and a write to another seat's note is <code>note_owned_by_other</code>. Outside a run they stay signals for the orchestrator. The mechanics are on plate 8, Runs and Decisions.</p>
   <p class="sub small">The YAML is abridged from this project's config, and its <code>independent_of</code> line follows the reference example in the config documentation. A config with no <code>seats</code> anywhere is unaffected: every seat field is left out of every response.</p>
 </section>
 
@@ -169,35 +177,41 @@ traits:
   <div class="grid2">
     <div style="display:grid;gap:8px;align-content:start">
       <h3>Without seats</h3>
-      <pre>"missingNotes": [
-  { "key": "implementation-notes", … },
-  { "key": "test-manifest", … },
-  { "key": "session-tracking", … }
-]</pre>
-      <p class="small sub">A flat list. The orchestrator has to know, from somewhere outside the config, whose job each note is.</p>
+      <pre>"gateStatus": {
+  "canAdvance": false,
+  "missing": [
+    "implementation-notes",
+    "test-manifest",
+    "session-tracking"
+  ]
+}</pre>
+      <p class="small sub">A flat list of keys. The orchestrator has to know, from somewhere outside the config, whose job each note is.</p>
     </div>
     <div style="display:grid;gap:8px;align-content:start">
       <h3>With seats</h3>
-      <pre>"missingNotes": [ … ],
-"missingBySeat": {
-  "implementer":  ["implementation-notes"],
-  "test-author":  ["test-manifest"],
-  "orchestrator": ["session-tracking"]
+      <pre>"gateStatus": {
+  "canAdvance": false,
+  "missing": [ ... ],
+  "missingBySeat": {
+    "implementer":  ["implementation-notes"],
+    "test-author":  ["test-manifest"],
+    "orchestrator": ["session-tracking"]
+  }
 }</pre>
-      <p class="small sub">The same failure, routed. A required note that no seat owns is listed under <code>unowned</code>, last.</p>
+      <p class="small sub">The same failure, routed. A required note that no seat owns is listed under <code>unowned</code>, last. A refused <code>advance</code> says the same in <code>gate_blocked</code>, whose <code>detail.missing</code> is a list of <code>{key, role, seat?}</code>.</p>
     </div>
   </div>
 </section>
 
 <section>
   <h2>Independence is the one thing the server checks</h2>
-  <p>When a note declares <code>independent_of</code>, the gate compares the actor who wrote it with the actors who wrote the named seat's notes. Here the implementer's note was written by <code>impl-agent-1</code>, and <code>test-manifest</code> declares <code>independent_of: [implementer]</code>.</p>
+  <p>When a note declares <code>independent_of</code>, the gate compares who wrote it with who wrote the named seat's notes. Who is a pair: the principal of the credential, and the seat of the note's latest write (null for a write made without a seat token). Here the implementer's note was written by <code>(local, implementer)</code>, and <code>test-manifest</code> declares <code>independent_of: [implementer]</code>.</p>
   <div class="grid2">
     <div class="panel">
       <label class="ctl" for="ind-who"><span>Who wrote test-manifest</span>
         <select id="ind-who">
-          <option value="other">test-agent-7, a different actor</option>
-          <option value="same" selected>impl-agent-1, the same actor</option>
+          <option value="other">(local, test-author), a different pair</option>
+          <option value="same" selected>(local, implementer), the same pair</option>
           <option value="none">No actor recorded on the note</option>
         </select></label>
       <div class="ctl"><span>independence.mode</span>
@@ -206,7 +220,7 @@ traits:
           <button type="button" data-m="warn" aria-pressed="false">warn</button>
           <button type="button" data-m="reject" aria-pressed="true">reject</button>
         </div></div>
-      <label class="opt"><input type="checkbox" id="ind-waive"> <span>The note's first line is <code>independence: temporal-only</code>, and it was written after the implementer's note</span></label>
+      <label class="opt"><input type="checkbox" id="ind-waive"> <span>The note's first line is <code>independence: temporal-only</code>, and it was created after every matching note</span></label>
     </div>
     <div id="ind-out" class="verdict" aria-live="polite">
       <div class="head" id="ind-head"></div>
@@ -215,24 +229,24 @@ traits:
     </div>
   </div>
   <div class="grid3">
-    <div class="rule"><h3>Credential identity, not a claim</h3><p class="small">The actor is the principal of the credential that wrote the note, never a string the caller sent. Separate seats need separate credentials: stdio and unauthenticated sessions all share the one <code>local</code> principal. <code>require_verified: true</code> additionally demands a cryptographically verified JWT credential.</p></div>
-    <div class="rule"><h3>Last writer wins</h3><p class="small">Re-upserting a note replaces its actor. No history is kept, so the plugin's orchestrator never rewrites a note a seat owns.</p></div>
+    <div class="rule"><h3>Credential identity, not a claim</h3><p class="small">The principal is the one of the credential that wrote the note, never a string the caller sent. Seat tokens separate the seats of one principal: stdio and unauthenticated sessions all share the <code>local</code> principal, and outside a run every write there is <code>(local, no seat)</code>. With <code>require_verified: true</code> only a cryptographic proof counts. A server-issued token is unverified.</p></div>
+    <div class="rule"><h3>A note has an owner</h3><p class="small">The owner is the (principal, seat) whose write created the note. An upsert or delete from another pair is <code>note_owned_by_other</code>, naming <code>ownerSeat</code>. A note entry with <code>shared: true</code> is exempt, and only an admin takeover moves an owner.</p></div>
     <div class="rule"><h3>The waiver is self-service</h3><p class="small">Whoever writes the note can add the waiver line. Treat <code>reject</code> as a discipline aid for cooperating agents. It is not a security control.</p></div>
   </div>
 </section>
 
 <section>
   <h2>A bug fix, seat by seat</h2>
-  <p class="sub">How the Claude Code plugin's four agent definitions (planner, implementer, test author, reviewer) and the main session take these seats.</p>
+  <p class="sub">How four of the Claude Code plugin's five agent definitions (planner, implementer, test author, reviewer) and the main session take these seats. The fifth, the director, takes no seat.</p>
   <ol class="steps">
     <li class="q"><span class="who">planner · queue</span><span class="do">Writes <code>diagnosis</code> and <code>test-plan</code>. The expected results for the tests are fixed before any code exists.</span></li>
-    <li class="w"><span class="who">implementer · enters work</span><span class="do">Calls <code>advance</code> (<code>transition</code>, <code>start</code>). The queue gate checks the planner's notes. Then it writes the fix and its note.</span></li>
+    <li class="w"><span class="who">implementer · enters work</span><span class="do">Reads <code>items_read</code> <code>context</code> first and sends <code>advance</code> (<code>transition</code>, <code>start</code>) only when the role is queue. The queue gate checks the planner's notes. Then it writes the fix and its note.</span></li>
     <li class="w"><span class="who">test-author · work</span><span class="do">Writes tests from the test plan without reading the implementer's note. Fills <code>test-manifest</code>.</span></li>
     <li class="w"><span class="who">orchestrator · work</span><span class="do">Fills <code>session-tracking</code> and advances the item. The work gate checks all three seats' notes.</span></li>
     <li class="r"><span class="who">reviewer · review</span><span class="do">Fills <code>review-checklist</code> and <code>test-independence-audit</code>.</span></li>
     <li class="t"><span class="who">orchestrator</span><span class="do">Advances the item to terminal. The review gate checks the reviewer's notes.</span></li>
   </ol>
-  <p class="small sub">Only the entry seat calls <code>advance</code>. Every other seat fills its own notes and returns, and the orchestrator owns each later transition. For several items at once, the <code>run-wave</code> skill builds these stages from each item's seats.</p>
+  <p class="small sub">Only the entry seat calls <code>advance</code>. Every other seat fills its own notes and returns, and the orchestrator owns each later transition. For several items at once, the <code>run-wave</code> skill builds these stages from each item's seats. It opens a server run, assigns each seat a token, each seat ends itself with <code>end_seat</code>, and the coordinator closes the run (plate 8, Runs and Decisions).</p>
 </section>
 
 <section>
@@ -240,18 +254,19 @@ traits:
   <div class="grid2">
     <div style="display:grid;gap:16px;align-content:start">
       <div class="rule"><h3>Traits add seats, they never redefine one</h3><p class="small">A trait seat whose name already exists on the schema is dropped with a warning. Across traits, the first to declare a name keeps it.</p></div>
-      <div class="rule"><h3>Dispatch resolves the other way round</h3><p class="small">For a seat's agent, model and effort, per-item traits are read before default traits. That is how one item can raise its implementer to a stronger model, as the trait toggles above show.</p></div>
+      <div class="rule"><h3>Dispatch follows the same trait order</h3><p class="small">Per-item traits come first, then <code>default_traits</code>, and the first declaration wins. One exception: a seat-only trait whose override sets <code>model</code> and neither sets nor clears <code>agent</code> wins that phase and seat whatever the order. That is how <code>complex-implementation</code> and <code>high-stakes</code> raise models, as the toggles above show.</p></div>
       <div class="rule"><h3>A late second entry seat is demoted</h3><p class="small">If merging traits at resolve time yields two entry seats in one phase, the first keeps the role and the later one is served with <code>enters: false</code>.</p></div>
     </div>
     <div class="tscroll"><table>
       <thead><tr><th>In one config document</th><th>Result</th></tr></thead>
       <tbody>
-        <tr><td>Two seats with <code>enters: true</code> in the same phase</td><td rowspan="4">The load fails. A global config stops server startup. A per-project push is rejected and nothing is stored.</td></tr>
+        <tr><td>Two seats with <code>enters: true</code> in the same phase</td><td rowspan="5">The load fails. A push is rejected <code>config_invalid</code> and nothing is stored. The boot import of the server file fails startup.</td></tr>
         <tr><td>Two seats with the same name</td></tr>
         <tr><td>A seat named <code>unowned</code></td></tr>
         <tr><td>A cycle in <code>after</code></td></tr>
+        <tr><td>A seat with <code>enters: true</code> whose <code>transitions</code> lists <code>complete</code> or <code>cancel</code></td></tr>
         <tr><td>A required note with no seat, in a schema that has seats</td><td>A warning. The note is served under <code>unowned</code>.</td></tr>
-        <tr><td>A malformed seat entry or dispatch override</td><td>A warning. That entry is skipped.</td></tr>
+        <tr><td>A malformed seat entry or dispatch override</td><td>An error at a push and at the boot import. Only a stored version being read again skips the entry, with a warning.</td></tr>
       </tbody>
     </table></div>
   </div>
@@ -265,7 +280,7 @@ traits:
     planner:{phase:'queue',enters:false,after:[],ex:[],notes:['diagnosis','test-plan'],src:'the bug-fix schema',d:{model:'opus'}},
     implementer:{phase:'work',enters:true,after:[],ex:[],notes:['implementation-notes'],src:'the bug-fix schema',d:{agent:'task-orchestrator:implementer',model:'sonnet'}},
     'test-author':{phase:'work',enters:false,after:['implementer'],ex:['implementation-notes','session-tracking'],notes:['test-manifest'],src:'the needs-test-author trait',d:{model:'sonnet'},why:'The phase agent is cleared for this seat, so the test author is not the implementer agent.'},
-    orchestrator:{phase:'work',enters:false,after:['implementer'],ex:[],notes:['session-tracking'],src:'the bug-fix schema',d:{},why:'The phase agent is cleared. This seat is the main session and is never dispatched.'},
+    orchestrator:{phase:'work',enters:false,after:['implementer'],ex:[],notes:['session-tracking'],src:'the session-tracked trait',d:{},why:'The phase agent is cleared. This seat is the main session and is never dispatched.'},
     reviewer:{phase:'review',enters:false,after:[],ex:[],notes:['review-checklist','test-independence-audit'],src:'the bug-fix schema',d:{agent:'task-orchestrator:reviewer',effort:'high',model:'opus'}}
   };
   var OVER={complex:{implementer:{model:'opus'}},stakes:{planner:{model:'fable'},reviewer:{model:'fable'}}};
@@ -314,14 +329,14 @@ traits:
   function verdict(){
     var who=$('ind-who').value,waive=$('ind-waive').checked,out=$('ind-out'),cls,head,text,json;
     if(mode==='off'){cls='pass';head='Transition passes';text='The check is never evaluated. No violations field appears on any response.';json='(no violations field)';}
-    else if(who==='other'){cls='pass';head='Transition passes';text='The two notes carry different actor ids, so there is nothing to report.';json='"violations": []';}
+    else if(who==='other'){cls='pass';head='Transition passes';text='The two notes carry different (principal, seat) pairs, so there is nothing to report.';json='"violations": []';}
     else{
       var kind=who==='same'?'same_actor':'missing_actor';
       var waived=who==='same'&&waive;
       json='"violations": [\n  { "key": "test-manifest", "seat": "test-author",\n    "constraint": "'+kind+'"'+(who==='same'?', "conflictingSeat": "implementer"':'')+(waived?',\n    "waived": true':'')+' }\n]';
-      if(waived){cls='warn';head='Passes, finding waived';text='The same actor wrote both notes, but the declaring note attests it was written afterwards. A waived finding never blocks, in any mode.';}
-      else if(mode==='warn'){cls='warn';head='Passes with a finding';text=(who==='same'?'The same actor wrote both notes.':'A note with no actor is never assumed independent.')+' In warn mode the finding is reported and the transition still applies.';}
-      else{cls='block';head='Transition blocked';text=(who==='same'?'The same actor wrote both notes.':'A note with no actor is never assumed independent'+(waive?', and the waiver does not cover a missing actor.':'.'))+' In reject mode the item cannot advance until '+(who==='same'?'a different actor writes the note.':'the note carries an actor that differs from the implementer.');}
+      if(waived){cls='warn';head='Passes, finding waived';text='The same pair wrote both notes, but the declaring note attests it was written afterwards. A waived finding never blocks, in any mode.';}
+      else if(mode==='warn'){cls='warn';head='Passes with a finding';text=(who==='same'?'The same pair wrote both notes.':'A note with no actor is never assumed independent.')+' In warn mode the finding is reported and the transition still applies.';}
+      else{cls='block';head='Transition blocked';text=(who==='same'?'The same pair wrote both notes.':'A note with no actor is never assumed independent'+(waive?', and the waiver does not cover a missing actor.':'.'))+' In reject mode the item cannot advance until '+(who==='same'?'a different pair writes the note.':'the note carries an actor and a pair that differs from the implementer.');}
     }
     out.className='verdict '+cls;$('ind-head').textContent=head;$('ind-text').textContent=text;$('ind-json').textContent=json;
     Array.prototype.forEach.call(document.querySelectorAll('#ind-mode button'),function(b){b.setAttribute('aria-pressed',b.getAttribute('data-m')===mode?'true':'false');});
