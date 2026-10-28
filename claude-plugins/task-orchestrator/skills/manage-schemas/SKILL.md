@@ -117,7 +117,7 @@ In addition to the checks in `references/validate-workflow.md`, flag any `skill:
 exactly one of `review`, `plan`, `run`, or `init` as a probable built-in-skill collision (warning,
 not an error) — these bare names resolve to a Claude Code built-in (e.g. `review` is the
 GitHub-PR review skill) rather than a project's intended framework skill. Suggest the likely
-intended framework skill name (e.g. `security-review` instead of `review`) and cite the exact-name
+intended framework skill name (a specific name such as `code-review-checklist` instead of the bare `review`) and cite the exact-name
 rule in `references/config-format.md` → "`skill` — exact-name rule".
 
 For detailed workflow, see `references/validate-workflow.md` in this skill folder.

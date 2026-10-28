@@ -77,6 +77,8 @@ Read which types the **server layer** declares, so process items can be told apa
 {"tool": "config", "op": "effective", "args": {}}
 ```
 
+If `data.results[0].types` is empty, the server declares no types: an undeclared type is rejected only when the declared set is non-empty, so the `project` anchor create in Step 4 would succeed schema-free and the anchor would carry no schema. Point the user to `/task-orchestrator:configure-server` to mount the process-schema floor now, before the plan is confirmed; continue only if they choose to adopt without it.
+
 Classify **every depth-0 root** into exactly one bucket:
 
 | Bucket | Rule | Action |
@@ -124,7 +126,7 @@ Execution will create a "<name>" project anchor and re-parent 2 tree(s) under it
 
 Perform in this order. Record pre-execution counts first (used by Step 5): the depth-0 root count, the MOVE count, and the KEEP-GLOBAL count from Step 2.
 
-**(a) Create the project anchor** — skip if attaching to an existing anchor (Step 1b). The global floor declares `project`; if the create fails (call-level `partial_failure`) with `data.results[0].error.code` `schema_violation` and its `detail.availableTypes` lacks `project` (the server declares no types, so point the user to `/task-orchestrator:configure-server` to mount the process-schema floor), follow the fallback in `/task-orchestrator:init` (offer `container` or adding `project` to the server file; never pick a type silently):
+**(a) Create the project anchor** — skip if attaching to an existing anchor (Step 1b). The global floor declares `project`; if the create fails (call-level `partial_failure`) with `data.results[0].error.code` `schema_violation` and its `detail.availableTypes` lacks `project` (the server declares types, but not this one), follow the fallback in `/task-orchestrator:init` (offer `container` or adding `project` to the server file; never pick a type silently):
 
 ```to-call
 {"tool": "items_write", "op": "create", "args": {"title": "<project name>", "type": "project", "summary": "Project anchor — subtree scope for <project name>", "priority": "low"}}

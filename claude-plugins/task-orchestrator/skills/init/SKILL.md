@@ -94,13 +94,21 @@ Drop any item tagged `personal-root` from the results.
 - **No matches** -> census the depth-0 roots with `items_read` `overview`. If roots exist other than the global containers (Session Retrospectives, Improvement Proposals, Retrospective Trends, `agent-observation` items, `type=project` items), the database already holds unscoped work. Offer via `AskUserQuestion`: hand off to `/task-orchestrator:adopt-project-scope` (it creates the anchor, re-parents the work and writes the config; init then resumes at Rule seeding), create a fresh anchor and leave those roots alone, or abort.
 - **Nothing but global containers** -> create a fresh anchor.
 
+Before the create, check that the server declares types at all. An undeclared type is rejected only when the declared set is non-empty; with no types declared the create succeeds schema-free, so the missing process-schema floor would go unnoticed. Read the server layer (`config` `effective` with no `rootId`; skip the check with a note if the `config` tool is not served):
+
+```to-call
+{"tool": "config", "op": "effective", "args": {}}
+```
+
+If `data.results[0].types` is empty, tell the user the server has no process-schema floor mounted and point them to `/task-orchestrator:configure-server` before going on; create the anchor only if they choose to continue without it (it then has no `project` schema).
+
 Name: from `$ARGUMENTS`, else the main checkout's directory name; confirm with the user. Create it at depth 0. A create takes `type` (see [`items_write` create](../_generated/call-shapes.md#items_write-create)); the global floor declares `project`:
 
 ```to-call
 {"tool": "items_write", "op": "create", "args": {"title": "<name>", "type": "project", "priority": "low"}}
 ```
 
-**`schema_violation` on `project`.** When the create fails (call-level `partial_failure`) with `data.results[0].error.code` `schema_violation` and its `detail.availableTypes` does not contain `project` (a custom or older server file), say so and show the list. If the server declares no types at all, point the user to `/task-orchestrator:configure-server` to mount the process-schema floor; init does not declare a `project` schema itself. Offer, via `AskUserQuestion`, either `container` (if listed) or adding `project: {lifecycle: permanent, notes: []}` under `work_item_schemas` in the server file (it is imported at boot, so a restart is needed; for stdio a reconnect starts a new process). Never pick a type silently.
+**`schema_violation` on `project`.** When the create fails (call-level `partial_failure`) with `data.results[0].error.code` `schema_violation` and its `detail.availableTypes` does not contain `project` (a custom or older server file), say so and show the list; init does not declare a `project` schema itself. Offer, via `AskUserQuestion`, either `container` (if listed) or adding `project: {lifecycle: permanent, notes: []}` under `work_item_schemas` in the server file (it is imported at boot, so a restart is needed; for stdio a reconnect starts a new process). Never pick a type silently.
 
 ### P4 - Write the `project:` block
 
