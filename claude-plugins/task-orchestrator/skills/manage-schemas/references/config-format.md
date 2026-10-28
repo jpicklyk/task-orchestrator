@@ -41,8 +41,8 @@ work_item_schemas:
         role: queue            # Phase: "queue", "work", or "review"
         required: true         # true = blocks the advance gate | false = shown but not enforced
         description: "..."     # Short label - read with items_read select schema, not in expectedNotes
-        guidance: "..."        # Optional - read with items_read select schema; advance and items_read context return guidanceKey (a reference)
-        skill: "review-quality" # Optional - skill to invoke when filling this note (shown as skillPointer)
+        guidance: "..."        # Optional - read with items_read select schema and fields ["guidance"]; advance and items_read context return guidanceKey (a reference)
+        skill: "security-review" # Optional - example value; a skill to invoke when filling this note (shown as skillPointer)
         maxLength: 4000         # Optional - max body length (chars); enforced on every note write per note_limits.mode
 
 traits:
@@ -60,12 +60,19 @@ traits:
       - key: github-deploy-token  # long form: explicit mode + ttlSeconds
         mode: advisory
         ttlSeconds: 1800
+```
 
+The `resources:` registry lives in the **server file**, not in the project config above; every trait resource key, advisory ones included, must be registered there:
+
+```yaml
+# server file (.taskorchestrator/config.yaml mounted on the server)
 resources:                      # Optional registry, SERVER FILE ONLY - describes keys, does not declare usage
   staging-db:
     description: "Single shared staging database - only one migration/test run at a time"
     defaultTtlSeconds: 3600
     maxHolders: 1                # values > 1 are rejected ("not yet supported")
+  github-deploy-token:
+    description: "Deploy token; advisory, recorded in the audit trail only"
 ```
 
 The other top-level keys (`note_limits`, `status_labels`, `independence`, `runs`, `decision_classes`, `project`, `extensions`) are described in "Key ownership" in [config-reference.md](../../../../../current/docs/config-reference.md#key-ownership). The legacy `note_schemas` form (a type name mapped to its notes, auto lifecycle) is still accepted but cannot share a document with `work_item_schemas`; write `work_item_schemas`.
@@ -91,7 +98,7 @@ The other top-level keys (`note_limits`, `status_labels`, `independence`, `runs`
 | `role` | yes | string | `queue`, `work`, or `review` only. A missing or invalid role rejects a push |
 | `required` | no | boolean | Parser defaults to `false` if omitted - **always set explicitly**, since a note you meant to gate on silently becomes optional otherwise. `true` = blocks gate, `false` = shown but not enforced. A `lifecycle: none` schema's notes may not set `true` |
 | `description` | no | string | Parser defaults to `""` if omitted (recommended in practice). Keep under 80 chars - quick label; read with `items_read` `schema`, not in `expectedNotes` |
-| `guidance` | no | string | Project-specific authoring instructions - read with `items_read` `schema`; `advance` and `items_read` `context` return `guidanceKey` (a reference) |
+| `guidance` | no | string | Project-specific authoring instructions - read with `items_read` `schema` and `fields: ["guidance"]`; `advance` and `items_read` `context` return `guidanceKey` (a reference) |
 | `skill` | no | string | Reusable evaluation framework - shown as `skillPointer` in `items_read` `context` |
 | `maxLength` | no | integer | Max note body length (chars), at least 1. Enforced on every note write path (`notes_write` `upsert`, including `body` and `bodyFromFile`, and the notes of `items_write` `create_tree`) per top-level `note_limits.mode` |
 | `seat` | no | string | Owning seat; see "Seats" |
@@ -120,7 +127,7 @@ note gets filled - the Skill tool resolves strictly (no fuzzy matching, unlike a
 slash command):
 
 - **Plugin-shipped skills** (this plugin's `claude-plugins/task-orchestrator/skills/`) are
-  **qualified**: `task-orchestrator:session-retrospective`, `task-orchestrator:review-quality`, etc.
+  **qualified**: `task-orchestrator:session-retrospective`, `task-orchestrator:work-summary`, etc.
 - **Project-level skills** (`.claude/skills/`) and **Claude Code built-in skills** are **bare**:
   `review-quality`, `security-review`, `plan`, `review`, etc.
 
@@ -273,8 +280,8 @@ traits:
 ## Resources (Trait Dimension)
 
 A trait can declare `resources:` - a list of shared-resource requirements enforced by the server as
-a **gate at WORK entry** (`advance` `transition` with `start` from queue, and `resume` from
-blocked - both re-enter WORK). This is independent of the note-requirement dimension: a trait can
+a **gate at WORK entry**: any transition whose target role is `work` (`start` from queue, `resume`
+of an item blocked from work, and the start/reopen cascades). This is independent of the note-requirement dimension: a trait can
 carry notes, resources, both, or neither.
 
 ### Declaration forms

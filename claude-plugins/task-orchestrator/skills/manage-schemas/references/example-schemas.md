@@ -1,6 +1,6 @@
 # Example Schemas
 
-Real schemas from the MCP Task Orchestrator project — use as reference when designing new schemas.
+Real schemas from the MCP Task Orchestrator project — use as reference when designing new schemas. The `spec-quality` and `review-quality` skill pointers below are this repo's project-level skills, not plugin-shipped; keep a `skill:` only for a skill your workspace has.
 
 ## `feature-implementation` (queue + work + review)
 
@@ -101,7 +101,7 @@ Set `type: container` on root containers so they match this schema instead of `d
 
 ## `agent-observation` — process-global schema (global floor, not per-project)
 
-Unlike the schemas above, this one is **not** defined in a project's own `.taskorchestrator/config.yaml`. It's delivered by the shared server's **global** config (`deploy/global-config/.taskorchestrator/config.yaml`), which carries only process/self-improvement schemas — `agent-observation`, `session-retrospective`, `improvement-proposal`, and `container` — plus `project`, the type `/task-orchestrator:init` creates anchor roots with, so every project sharing the server gets them for free without redeclaring them. See "Global vs Per-Project Config" in `config-format.md`. `agent-observation` items are always standalone depth-0 roots, never children of a container.
+Unlike the schemas above, this one is **not** defined in a project's own `.taskorchestrator/config.yaml`. It's delivered by the shared server's **global** config (`deploy/global-config/.taskorchestrator/config.yaml`), which carries only process/self-improvement schemas — `agent-observation`, `session-retrospective`, `improvement-proposal`, `retrospective-trend`, and `container` — plus `project`, the type `/task-orchestrator:init` creates anchor roots with, so every project sharing the server gets them for free without redeclaring them. See "Global vs Per-Project Config" in `config-format.md`. `agent-observation` items are always standalone depth-0 roots, never children of a container.
 
 ```yaml
   agent-observation:
@@ -249,11 +249,20 @@ traits:
       - key: deploy-credential    # advisory — recorded in consumedCredentials, never locks
         mode: advisory
 
+```
+
+The `resources:` registry lives in the server file, not in the project config; register every
+trait resource key there, advisory ones included:
+
+```yaml
+# server file
 resources:
   staging-db:
     description: "Shared staging database — exclusive during deploy verification"
     defaultTtlSeconds: 3600
     maxHolders: 1
+  deploy-credential:
+    description: "Deploy credential; advisory, audit trail only"
 ```
 
 Apply `needs-staging-deploy` on a **leaf task type** (e.g. `deploy-task`), never on a feature

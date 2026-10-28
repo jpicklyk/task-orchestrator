@@ -40,6 +40,16 @@ traits:
         mode: advisory          # audit trail without serializing incident work
 ```
 
+The trait's resource key must be registered in the server file (advisory keys included), not
+in the project config above:
+
+```yaml
+# server file
+resources:
+  prod-change-credential:
+    description: "Production change credential; advisory, audit trail only"
+```
+
 **Rationale to present:** the review phase here is not code review — it's "the incident is not
 closed until the postmortem exists." Advisory resources give the credential audit trail without
 locking. Map priority to severity so `items_read` `next` surfaces the hottest incident.

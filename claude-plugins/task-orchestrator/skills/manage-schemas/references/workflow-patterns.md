@@ -141,7 +141,7 @@ traits:
         role: work
         required: false
         description: "Model, isolation, rationale, outcome per dispatch — orchestrator-filled after the subagent returns."
-  needs-staging-slot:           # exclusive lease — leaf task types only
+  needs-staging-slot:           # exclusive lease — leaf task types only; resource keys must be in the server resources: registry
     resources:
       - key: staging-env
         mode: exclusive
