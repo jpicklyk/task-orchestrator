@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **config-sync names the failure.** A skipped sync for an unparseable response, a network error or a timeout now reports the HTTP status and the URL it called (for example `bad_body (HTTP 404 from http://localhost:3001)`), instead of a bare `bad_body`.
 - **The session-start config-shape notice covers a leftover `actor_attribution` section.** It now flags a top-level `actor_attribution` section (delete it) and says the server rejects a push carrying these 3.x keys.
 
+### Plugin
+
+- **A director session always gets the retrospective dispatch directive.** `director-watch`, `retro-trigger` and `retro-backstop` treat a session in director mode as `retrospective.mode: dispatch` (`off` still sends nothing), and a run that would be nudged is named in the dispatch directive instead, so the director never runs `/session-retrospective` in its own context.
+- **The director skill matches the director tool profile.** Blocked work is read with `items_read` `blocked` (per-item reason and blockers) rather than `overview` counts; the tool budget names `runs_write` `pause`, `resume` and `close` and when each applies; `forbidden` is told apart by `error.detail.scope`; the frontier's seats are `inFlight`; decision options come from the single `decision` read; tier 3 is decided by asking or by a background `claude --version`.
+
 ## [4.0.0] - 2026-10-17
 
 ### Upgrading from 3.x

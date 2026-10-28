@@ -422,6 +422,13 @@ export async function withFixture(opts, fn) {
   }
 }
 
+/** Writes the director-mode marker for `sessionId` inside the sandbox's TEMP (what director-guard writes). */
+export function markDirector(sbx, sessionId) {
+  const dir = join(sbx.tmp, 'task-orchestrator', String(sessionId).replace(/[^a-zA-Z0-9-]/g, '_'));
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'director.json'), '{}');
+}
+
 /** A run fixture with a closed run's usual shape: `terminal` terminal members out of `members`. */
 export function runFixture(n, opts = {}) {
   const { terminal = 3, members = terminal } = opts;

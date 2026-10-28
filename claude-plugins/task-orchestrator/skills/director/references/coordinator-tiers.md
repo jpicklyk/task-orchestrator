@@ -48,7 +48,7 @@ snapshot reads note bodies. So the work splits:
    keeps the coordinator token and returns only `{runId, serverRunId, args}`.
 2. The director calls `Workflow` with those `args`. `args.altitudeSafe: true` makes implement-wave
    return the altitude-safe result: `rollup` counts, item and stage statuses, commit SHAs, file
-   lists and note keys, with every reason cut to 120 characters `redProofShape` cut to 200, and no other seat prose.
+   lists and note keys, with every reason cut to 120 characters and `redProofShape` cut to 200, and no other seat prose.
 3. On the task notification, the director sends that coordinator a `SendMessage` to run post-run
    (Step 0 saves and verifies the safe result the same way as a full one; the prose is in the seats'
    notes).

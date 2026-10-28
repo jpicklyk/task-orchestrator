@@ -22,10 +22,13 @@ import {
   writeSessionState,
   evaluateRuns,
   directiveFor,
+  directorConfig,
+  dispatchAncestorId,
+  buildDispatch,
   buildNudge,
 } from './retro-lib.mjs';
 import { locateConfig } from './config-locator.mjs';
-import { isHeadlessIteration } from './execution-mode.mjs';
+import { isDirectorSession, isHeadlessIteration } from './execution-mode.mjs';
 
 function emitEmpty() {
   writeEmpty();
@@ -49,7 +52,10 @@ try {
   const sessionId = hookInput.session_id;
 
   const located = locateConfig();
-  const config = parseRetrospectiveConfig(located.text);
+  // A director session is always treated as dispatch mode (directorConfig).
+  const director = isDirectorSession(hookInput);
+  const parsedConfig = parseRetrospectiveConfig(located.text);
+  const config = director ? directorConfig(parsedConfig) : parsedConfig;
   if (config.mode === 'off') emitEmpty();
 
   const state = readSessionState(sessionId);
@@ -57,7 +63,7 @@ try {
 
   if (rootId) {
     const result = await evaluateRuns({ rootId, config, state });
-    const text = directiveFor(result, located);
+    const text = directiveFor(result, located, { director });
     if (result.nudge.length > 0) writeSessionState(sessionId, state);
     if (text) emitBlock(text);
     emitEmpty();
@@ -66,7 +72,7 @@ try {
   if (!state.sawClose || state.backstopNudged) emitEmpty();
   state.backstopNudged = true;
   writeSessionState(sessionId, state);
-  emitBlock(buildNudge(state.closes));
+  emitBlock(director ? buildDispatch(state.closes, dispatchAncestorId(located)) : buildNudge(state.closes));
 } catch {
   emitEmpty();
 }

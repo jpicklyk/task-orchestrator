@@ -56,14 +56,14 @@ the hook has no check for that column; "non-injecting" means it adds no context.
 | `skill-enforcement.mjs` | Not gated | Not gated | Not read | Not gated |
 | `dispatch-model-guard.mjs` | `{}` | Not gated (guards the dispatch) | `off` gives `{}`; `schema` changes the deny reason | Not gated (still guarded) |
 | `dispatch-hint.mjs` | `{}` | `{}` | `off` gives `{}`; `schema` changes the model token | Not gated |
-| `retro-trigger.mjs` | `{}` | Records the close for the main session; no nudge | Not read (`extensions.claude-code.retrospective.mode` `off` gives `{}`) | Not gated |
+| `retro-trigger.mjs` | `{}` | Records the close for the main session; no nudge | Not read (`extensions.claude-code.retrospective.mode` `off` gives `{}`) | Always dispatch mode: `nudge` acts as `dispatch` and a would-be nudge is dispatched |
 | `phase-guard-record.mjs` | `{}` | Acts only inside a subagent (`agent_id` set); run seats are not recorded; a context read is recorded only for an `implementer` or `reviewer` agent | Not read | Not gated |
 | `phase-guard.mjs` | `{}` | `workflow-subagent` gives `{}`; seat checks follow `agent_type` | Not read | Not gated |
 | `subagent-start.mjs` | Exits silently | Acts only on phase-owner `agent_type` (not `workflow-subagent`); non-injecting otherwise | Not read | Not gated |
-| `retro-backstop.mjs` | `{}` | Not gated | Not read (`extensions.claude-code.retrospective.mode` `off` gives `{}`) | Not gated |
+| `retro-backstop.mjs` | `{}` | Not gated | Not read (`extensions.claude-code.retrospective.mode` `off` gives `{}`) | Always dispatch mode, as retro-trigger |
 | `director-guard.mjs` | `{}` (no marker write, no denial) | `{}` (exempt; no marker write) | Not read | Writes the marker on a director `Skill` call (`off` removes it); under the marker denies `Read`/`Edit`/`Write`/`Grep`/`Glob`/`NotebookEdit`, `Bash` outside the allow-list (`git log`, `git status` and `git branch` take only the flags on their listing flag allow-list, so none prints a patch, a diff or file contents) and foreground `Agent`; fails closed |
 | `director-context.mjs` | `{}` | `{}` | Not read | Re-injects the altitude rule after compaction (SessionStart `compact`); `{}` without the marker |
-| `director-watch.mjs` | `{}` | `{}` | Not read (`extensions.claude-code.retrospective.mode` `off` gives no retrospective directive) | Acts only under the marker (PostToolUse on `runs_read`): a `decisions` result with a new `open` decision gives one `Decision waiting:` directive to call PushNotification once; a `get` result for a `closed`, unmarked run gives the retrospective nudge or dispatch once per run, and is silent when the REST path is configured (retro-trigger owns it then); `{}` without the marker |
+| `director-watch.mjs` | `{}` | `{}` | Not read (`extensions.claude-code.retrospective.mode` `off` gives no retrospective directive) | Acts only under the marker (PostToolUse on `runs_read`): a `decisions` result with a new `open` decision gives one `Decision waiting:` directive to call PushNotification once; a `get` result for a `closed`, unmarked run gives the retrospective dispatch once per run (a director session is always treated as dispatch mode), and is silent when the REST path is configured (retro-trigger owns it then); `{}` without the marker |
 
 Every row was re-derived from the hook sources at the P10/P12/P13 merge. A change that alters a hook's gating
 updates that hook's row in the same PR.

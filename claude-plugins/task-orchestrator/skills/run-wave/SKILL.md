@@ -68,7 +68,7 @@ exception is an atomic batch (`atomic: true`): it answers only the failing eleme
 | Answer | What to do |
 |---|---|
 | a success carrying `paused: {decisionId}` | the call landed and the run is now paused: stop assigning and launching, surface the decision to the user |
-| `run_paused {pauseReason, pauseDecisionId}` | never retry. The run pauses on a `run-budget` or `attempt-cap` decision (or a manual pause); a director or a human answers it (`answer{option: "extend", amount}` adds `amount` in the breached dimension, whole tokens or US dollars; other options stop or skip). A coordinator token cannot answer. A withdrawn pause decision leaves the run paused until it closes |
+| `run_paused {pauseReason, pauseDecisionId}` | never retry. The run pauses on a `run-budget` or `attempt-cap` decision, or on a manual pause. A director or a human answers a budget or attempts decision (`answer{option: "extend", amount}` adds `amount` in the breached dimension, whole tokens or US dollars; other options stop or skip); it cannot be withdrawn, so answering it or closing the run is the only way out. A manual pause has no decision: a director or a human `resume`s it. A coordinator token can neither answer nor resume |
 | `run_at_capacity {active, max}` | transient: back off until a seat ends (`maxActiveSeats`), then re-send the same `assign`; no decision to answer |
 | `unavailable` (kind shedding) | retry once after `retryAfterMs` |
 | `unauthenticated` "The seat token is not accepted." | the token is unknown, ended, superseded or the run closed: a seat stops (`seat-token-rejected`); a lost coordinator token means close and re-open |
