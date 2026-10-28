@@ -36,7 +36,7 @@ Read the resolved config, not the file:
 {"tool": "config", "op": "effective", "args": {"rootId": "9f3a1c22"}}
 ```
 
-`data.types` lists the declared types, `data.schemas` their notes per phase (required queue notes must exist before work starts; required work notes are captured during implementation), and `data.traits` the declared traits. Each type key is what an item sets as `type`; a create must pass a declared `type`. If the config tool is unavailable, read `.taskorchestrator/config.yaml` as an offline fallback (types are the keys under `work_item_schemas:`). With no declared schemas, items are schema-free and nothing is gated.
+`config` is an ops tool, so the answer is `data.results[0]`: `types` lists the declared types, `schemas` their notes per phase (required queue notes must exist before work starts; required work notes are captured during implementation), and `traits` the declared traits, each an object with a `name`. Each type key is what an item sets as `type`; a create must pass a declared `type`. If the config tool is unavailable, read `.taskorchestrator/config.yaml` as an offline fallback (types are the keys under `work_item_schemas:`). With no declared schemas, items are schema-free and nothing is gated.
 
 Use the result to inform the plan. Each planned task should:
 

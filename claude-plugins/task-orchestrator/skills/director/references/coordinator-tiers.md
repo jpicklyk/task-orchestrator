@@ -21,6 +21,10 @@ The director probes its own tool list with the same rule, once per entry, withou
 | 3 | The `claude` CLI on the host | A headless `claude -p` process started by a background agent | `claude -p <prompt> --allowedTools Workflow --max-budget-usd <X> [--model <M>]`, never `--bare` |
 | 4 | Nothing above | None: the run executes inline | `inline: true` with the altitude warning |
 
+Tiers 1 and 2 need a director entered through the `/task-orchestrator:director` skill in a normal
+session. The hardened `claude --agent director` entry (`agents/director.md`) has neither `Workflow`
+nor `start_session`, so it probes tier 3 or 4.
+
 ## Tier 1: desktop session
 
 `start_session` takes `model`, `effort` and `permission_mode`. Set the output style after the

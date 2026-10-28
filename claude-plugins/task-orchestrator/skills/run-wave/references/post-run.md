@@ -202,8 +202,17 @@ was never written is **not** `missing` and does not fail the item. In a seat-les
 
 ## Step 3 — Orchestrator notes
 
-Two notes, written by you with `notes_write` `upsert` (body inline, no token: these are the front
-door's own notes about the run, filled after Steps 1–2 have concrete results to report):
+Two notes, written by you with `notes_write` `upsert` (body inline) under the coordinator token
+(top-level `seatToken`): the coordinator token may write the `orchestrator`-seat keys of run members,
+and a token-less write to such a key is refused. They are the front door's own notes about the run,
+filled after Steps 1–2 have concrete results to report. A note created under the coordinator token is
+owned by that pair, so write it once in confirmed past tense; re-edit it only under a coordinator
+token of a run open over the item, or by a human. On `note_owned_by_other`: with no
+`detail.ownerSeat` the note was created token-less earlier, so re-send once without the token; with
+`detail.ownerSeat` present leave it and report it. Never `takeover`.
+If one of the item's plan stages lists `session-tracking` in `stages[].notes` (a seat-less schema: the
+implicit implementer owns it), skip `session-tracking` for that item and record its outcome in the
+run report instead.
 
 1. **`session-tracking`** — outcome per item, files touched, deviations from the plan, and
    Friction (the declarations-scan hit count from Method B step 4, any Step 0 fallback taken in
@@ -244,10 +253,9 @@ After the call, save its answer to `<scratchpad>/run-wave/<runId>/advance.json` 
 gateBlocked, reviewPending, gateMissing}` (item ids):
 
 - `unblocked` — these feed Step 9 of the main skill (they join the next frontier automatically).
-- `seatBlocked` — a cascade into a parent stopped `blocked: seat`: the parent is a member of a run
-  that is not closed and the write's caller could not send that trigger to it. Re-send the parent's
-  transition yourself under the coordinator token (`start` when the cascade's `targetRole` was work
-  from queue, `complete` when it was terminal), and report what it answered.
+- `seatBlocked` — a cascade into a parent stopped `blocked: seat`: the parent is a member of
+  ANOTHER run that is not closed, and your coordinator token does not cover it. Do not re-send; report
+  it. That run's coordinator or a human advances the parent.
 - `gateBlocked` — a cascade stopped at a parent missing required notes (`gateMissing[<id>]`): tell
   the user which ancestor and which notes; it is not a silent no-op.
 - `reviewPending` — a terminal cascade into a parent in review is always suppressed: the parent
@@ -369,8 +377,9 @@ fix-cycle `<seat>-a<n>`, amendment planner) is recorded by re-running
 `node "<helper>" provenance ... --item <short> --extra-seats <seat>:<model>:<tokens>,...` — with the
 same flags as Step 3, including `--usage` under Method A (omitting it on the run's first item
 replaces the recorded run total with `tokens=unknown`) — and
-re-upserting that item's `delegation-metadata` (orchestrator-owned) with the
-two-line output (grammar line, then `extra-seats=...`). The list is cumulative: each re-run passes
+re-upserting that item's `delegation-metadata` (orchestrator-owned) under the coordinator token of
+the run holding the item (the still-open run, or the fix-cycle run before it closes; with no open run the
+write is refused, so report it) with the two-line output (grammar line, then `extra-seats=...`). The list is cumulative: each re-run passes
 every out-of-run seat so far. Take tokens from the Agent result's usage; use `unknown` if not
 reported. Seats recorded by `reseat` are read from the `reseats` ledger in `--result`, listed first,
 so `--extra-seats` is only needed for seats `reseat` never saw (re-review, or an amendment planner on an item with no planner stage); a seat
