@@ -658,7 +658,9 @@ triage agents `{select: "next", role: "blocked"}`; fleet health `{select: "next"
 
 **`blocked`.** The blocked items the caller may see: role `blocked` (`blockType: "explicit"`) and queue, work and
 review items with at least one unsatisfied blocking dependency (`blockType: "dependency"`); never terminal. Order:
-`blocked` first, then queue, work, review, then id. Each entry is the compact view plus `blockType` and `blockers`,
+`blocked` first, then queue, work, review, then id. An explicit entry carries `reason` (`awaiting_decision`,
+`dependency`, `resource` or `manual`), `decisionId` when the block names one, and, for `awaiting_decision` only,
+`resumable` (true once that decision is no longer pending). Each entry is the compact view plus `blockType` and `blockers`,
 EVERY blocking dependency into the item (satisfied ones too) ordered by blocker id: `[{id, title?, role?, threshold,
 satisfied}]` (`id` a full UUID, `threshold` the role the blocker must reach, `satisfied` whether it has). `limit`
 1 to 200, default 50. `fields`: `summary`, `ancestors`.

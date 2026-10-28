@@ -294,6 +294,8 @@ The plan id (`r-…`) names the scratch directory and the run's label; the serve
 | 3 | The `claude` CLI | A headless `claude -p --allowedTools Workflow --max-budget-usd <X>` process (never `--bare`) |
 | 4 | Nothing above | None: the run executes inline, with an altitude warning |
 
+Tiers 1 and 2 need a director entered through the `/task-orchestrator:director` skill in a normal session. The hardened `claude --agent director` entry (`agents/director.md`) has neither `Workflow` nor `start_session`, so it probes tier 3 or 4.
+
 An altitude-safe `implement-wave` result carries counts, statuses, commit SHAs, file lists and note keys, with reasons cut to 120 characters. Details: `skills/director/references/coordinator-tiers.md`.
 
 ### ralph on runs
