@@ -109,6 +109,7 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
 <style>
 .merge{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:16px;align-items:center}
 .merge .src{display:grid;gap:10px}
+.merge>*,.merge .src>div{min-width:0}
 .merge .arrow{font:600 34px/1 var(--display);color:var(--muted)}
 @media (max-width:760px){.merge{grid-template-columns:minmax(0,1fr)}.merge .arrow{transform:rotate(90deg);justify-self:center}}
 .tag{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
