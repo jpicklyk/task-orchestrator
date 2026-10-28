@@ -1082,7 +1082,9 @@ For Parallel-tier features with a shared feature worktree:
 
 1. Fill the parent's `implementation-notes` and `session-tracking` notes (aggregating
    across children - distributed-tracking pattern works as today; under the coordinator token
-   while the parent is a member of an open run; written once, in confirmed past tense).
+   while the parent is a member of an open run; final content written once, in confirmed past tense;
+   the run-wave pointer line and the cumulative `delegation-metadata` re-upsert are the only re-edits,
+   each under the coordinator token of an open run).
 2. Run final verification from the feature worktree (incremental; this and Step 4c's run are
    the only whole-suite runs in the wave):
    ```bash
@@ -1146,7 +1148,7 @@ For Parallel-tier features with a shared feature worktree:
    git worktree remove <feature-worktree-path>
    git branch -D feat/<feature-slug>
    ```
-8. Advance the parent feature to terminal (with 2+ children, only after `N of N disposed`).
+8. Advance the parent feature to terminal (only after `N of N disposed`).
 9. **Wave-boundary red-proofs.** Now that the feature PR has merged, run every child's
    decision-point budget mutations in ONE batch (`run-wave` `post-run.md` Step 7a): a scratch
    worktree at the merged `main` SHA, each mutation applied with `references/patch-anchored.py`

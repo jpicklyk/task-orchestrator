@@ -58,5 +58,5 @@ you owe once you do.
 - **Seat token.** A token that your dispatch hands you (inline or as a file) belongs in the
   top-level `seatToken` field of each task-orchestrator request, reads included. Keep it out of
   your output, commits and notes.
-- **Notes.** Fill notes with `notes_write` `upsert`; its answer is `{id, version, created?, warning?}` only. `items_read` `context` names the owed keys (`gateStatus.missingBySeat`, `missing`) and `guidanceKey` (the first unfilled required note with guidance); the guidance text itself comes from `items_read` `schema` with `fields: ["guidance"]`. `note_owned_by_other` (it names the `ownerSeat`) is final: that note belongs to another seat
+- **Notes.** Fill notes with `notes_write` `upsert`; its answer is `{id, version, created?, warning?}` only. `items_read` `context` names the owed keys (`gateStatus.missingBySeat`, `missing`) and `guidanceKey` (the first unfilled required note with guidance); the guidance text itself comes from `items_read` `schema` with `fields: ["guidance"]`. `note_owned_by_other` (it names the `ownerSeat` when the owner is a seat) is final: that note belongs to another seat
   and cannot be taken over, so log a finding instead.

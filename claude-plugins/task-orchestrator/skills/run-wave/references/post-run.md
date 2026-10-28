@@ -206,8 +206,9 @@ Two notes, written by you with `notes_write` `upsert` (body inline) under the co
 (top-level `seatToken`): the coordinator token may write the `orchestrator`-seat keys of run members,
 and a token-less write to such a key is refused. They are the front door's own notes about the run,
 filled after Steps 1–2 have concrete results to report. A note created under the coordinator token is
-owned by that pair, so write it once in confirmed past tense; re-edit it only under a coordinator
-token of a run open over the item. Inside an open run a human credential may also write it; once the run
+owned by that pair, so write its final content once, in confirmed past tense; the run-wave pointer line and the cumulative
+`delegation-metadata` re-upsert are the only re-edits, each under the coordinator token of an open run
+over the item. Inside an open run a human credential may also write it; once the run
 is closed, a different (principal, seat) pair needs an admin takeover. On `note_owned_by_other`: with no
 `detail.ownerSeat` the note was created token-less earlier, so re-send once without the token; with
 `detail.ownerSeat` present leave it and report it. Never `takeover`.
@@ -483,7 +484,8 @@ background and go on to `SKILL.md` Step 9; the next wave's planners do not wait 
 Applies to a parent with 2 or more children whose resolved schema has a review phase (this repo:
 `feature-implementation`), once EVERY child is terminal. Shared mode: before the feature PR is
 pushed, so before Step 7a. Per-item mode: after the last child's PR has merged; it does not wait
-on Step 7a. Not covered: a parent with one child (that child's review covers the range) and a
+on Step 7a. Not covered here: a parent with one child (the project workflow's finalization decides how its
+independent parent review runs; this repo: `/implement` Step 6) and a
 parent whose schema has no review phase (it cascades to terminal when its last child completes and
 its required notes are filled).
 

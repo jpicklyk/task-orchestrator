@@ -11,11 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Plugin hooks find the REST API from the MCP server registration.** When neither `TASK_ORCHESTRATOR_API_URL` nor a project-level `client.json` sets a URL, the hooks and the `ralph`/`run-wave` scripts now use the origin of the `task-orchestrator` MCP server registered over http(s) (`~/.claude.json` project entry, then `.mcp.json`, then `~/.claude.json` user entry, matching Claude Code's own precedence), before the user-level `client.json`. The MCP endpoint is now the one place to change the server, including a dynamically assigned port. A `.mcp.json` registration is used only when its origin is loopback; a URL with credentials or an unresolved `${VAR}` is ignored.
 - **`session-start` warns when hooks and tools target different servers**: one line when the REST URL from the env var or a `client.json` differs from the MCP registration's origin.
+- **Plugin skills, agents, bundled protocol rules and hook-injected text are corrected for the 4.0 tool surface.** Call shapes, response fields (for example where the guidance text comes from), and seat, run and coordinator-token semantics now match the server, and the retrospective trigger is run-based and read from the `extensions.claude-code` config key. `run-wave`'s `--claim` mode is removed: a claim cannot pass between seats.
 
 ### Fixed
 
 - **A parent entering work is no longer labelled `done`.** A start cascade (a child started, so its parent moved from queue to work) and a reopen cascade (a child was reopened under a terminal parent) used the `cascade` status label, whose default is `done`. They now use the `start` label (default `in-progress`) and the `reopen` label (default none); the `cascade` label applies only to the cascade that completes a parent. Existing items keep their stored label until their next transition: an item still in `work` with label `done` can be corrected with `items_write` `update` (`statusLabel`, or `clear: ["statusLabel"]`).
 - **config-sync names the failure.** A skipped sync for an unparseable response, a network error or a timeout now reports the HTTP status and the URL it called (for example `bad_body (HTTP 404 from http://localhost:3001)`), instead of a bare `bad_body`.
+- **The session-start config-shape notice covers a leftover `actor_attribution` section.** It now flags a top-level `actor_attribution` section (delete it) and says the server rejects a push carrying these 3.x keys.
 
 ## [4.0.0] - 2026-10-17
 
