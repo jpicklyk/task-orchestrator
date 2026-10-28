@@ -187,10 +187,10 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
     <li><div class="what"><h3>Enter plan mode</h3><span class="by">hook on EnterPlanMode → pre-plan-workflow</span></div><span class="then">Reads existing items and the schemas' required notes, so the plan covers what the gates will ask for.</span><span class="holds">Nothing new. Creating items before approval is forbidden.</span></li>
     <li><div class="what"><h3>Approve the plan</h3><span class="by">hook on ExitPlanMode → plan-capture</span></div><span class="then">Stores the approved plan text on the server. Skipped silently when no REST API is configured.</span><span class="holds">A plan document under the project root.</span></li>
     <li><div class="what"><h3>Materialize</h3><span class="by">post-plan-workflow</span></div><span class="then">Creates the work tree, wires dependency edges and fills the queue notes.</span><span class="holds">Every item, edge and queue note, before any code is written.</span></li>
-    <li><div class="what"><h3>Dispatch</h3><span class="by">run-wave, or hand dispatch</span></div><span class="then">Sends agents to items. Each entering agent calls <code>advance</code> (<code>transition</code>, <code>start</code>) once, fills its notes and returns.</span><span class="holds">Items in work, with actors on every transition and note.</span></li>
-    <li><div class="what"><h3>Verify and advance</h3><span class="by">orchestrator</span></div><span class="then">Checks the commits, audits the actors, writes its own tracking notes, then advances the items in one batch.</span><span class="holds">Items in review, or terminal when the schema has no review notes.</span></li>
-    <li><div class="what"><h3>Review</h3><span class="by">reviewer agent</span></div><span class="then">Verifies the work against the plan and fills the review notes. The orchestrator completes the items.</span><span class="holds">Terminal items. The parent completes by cascade.</span></li>
-    <li><div class="what"><h3>Retrospective</h3><span class="by">hook on advance</span></div><span class="then">A finished run triggers a nudge or a background retrospective. Plate 9 follows it from there.</span><span class="holds">A retrospective item.</span></li>
+    <li><div class="what"><h3>Dispatch</h3><span class="by">run-wave, or hand dispatch</span></div><span class="then">Sends agents to items. Each entering agent reads <code>items_read</code> <code>context</code> first, sends <code>advance</code> (<code>transition</code>, <code>start</code>) once and only from the role just before its phase, carries its seat token, fills its own notes and returns.</span><span class="holds">Items in work, with each seat's notes.</span></li>
+    <li><div class="what"><h3>Verify and advance</h3><span class="by">orchestrator</span></div><span class="then">Checks the commits, audits that the required notes are filled, writes its own tracking notes, then advances the items in one batch.</span><span class="holds">Items in review, or terminal when the schema has no review notes.</span></li>
+    <li><div class="what"><h3>Review</h3><span class="by">reviewer agent</span></div><span class="then">Verifies the work against the plan and fills the review notes. The orchestrator completes the items.</span><span class="holds">Terminal items. An <code>auto</code> parent completes by cascade, but never from review.</span></li>
+    <li><div class="what"><h3>Retrospective</h3><span class="by">hook on <code>runs_write</code> <code>close</code>, then the Stop backstop</span></div><span class="then">A closed run triggers a nudge or a background retrospective. Plate 10 follows it from there.</span><span class="holds">A retrospective item.</span></li>
   </ol>
   <p class="sub small">Columns: the step, what drives it, what happens, and what the server holds afterwards.</p>
 </section>
@@ -252,16 +252,17 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
         <rect x="740" y="62" width="150" height="64" rx="4" class="r-gate"/>
         <text x="815" y="88" text-anchor="middle" class="hd">Post-run</text>
         <text x="815" y="108" text-anchor="middle" class="s">verify, then advance</text>
-        <text x="10" y="204" class="s mu">Both methods execute the same plan. Run state is saved as plan documents under run/&lt;runId&gt;, so an interrupted run can resume.</text>
+        <text x="10" y="204" class="s mu">Both methods execute the same plan. The server run is the state (runs_read), so an interrupted run can resume.</text>
       </svg>
     </div>
-    <figcaption>The plan comes from each item's resolved schema: its seats decide which agents run, in what order, on which model. Method B takes over when the Workflow tool is missing or the server does not serve seats.</figcaption>
+    <figcaption>The plan comes from each item's resolved schema: its seats decide which agents run, in what order, on which model. Method B takes over only when the Workflow tool is missing. A server that serves no seats or no rules stops both methods.</figcaption>
   </figure>
   <div class="grid3">
     <div class="rule"><h3>When the plan routes here</h3><p class="small">After materializing, the plugin hands off to <code>run-wave</code> only if at least two leaf items are unblocked, a project root resolves, their queue notes are filled, and the three protocol rules are served. Otherwise it dispatches by hand and says which condition failed.</p></div>
-    <div class="rule"><h3>What post-run checks</h3><p class="small">That each commit exists and stays inside the files its seat owns, that every note carries the actor of the seat that should have written it, and that the orchestrator's own notes are filled. Items that fail are left out of the batch advance.</p></div>
-    <div class="rule"><h3>Four agents, four jobs</h3><p class="small">The planner verifies the plan against source and cannot edit files. The implementer builds. The test author writes tests without opening the production files. The reviewer reports findings and never advances the item.</p></div>
+    <div class="rule"><h3>What post-run checks</h3><p class="small">In order: end any seat still active, verify that each commit exists and stays inside the files its seat owns, audit that the required notes are filled, write the orchestrator's own notes, advance in one batch, hand off to review, close the run. Who wrote a note is not audited, because the server enforces each seat's lane. Items that fail are left out of the batch advance.</p></div>
+    <div class="rule"><h3>Five agents, four seats</h3><p class="small">The planner verifies the plan against source and cannot edit files. The implementer builds. The test author writes tests without opening the production files. The reviewer reports findings and never advances the item. The fifth, the director, runs the board and never code (plate 8, Runs and Decisions).</p></div>
   </div>
+  <p class="sub small">The run is recorded in the parent's <code>session-tracking</code> note (the single item's, in a one-item run) as a pointer line, <code>run-wave: &lt;runId&gt; run=&lt;uuid8&gt; parent=&lt;state&gt;</code>, which is how a later session finds it to resume. A seat that finds the plan wrong raises a deviation decision with <code>block: true</code> and stops. An answer never resumes the item: the coordinator does (plate 8, Runs and Decisions).</p>
 </section>
 
 <section>
@@ -279,8 +280,8 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
       </tbody>
     </table></div>
     <div style="display:grid;gap:16px;align-content:start">
-      <div class="rule"><h3>Where rule text comes from</h3><p class="small">Your own rules live in <code>.taskorchestrator/rules/&lt;key&gt;.md</code>. The plugin ships the five on the left. Both are synced to the server at session start, and a workspace file with the same key wins.</p></div>
-      <div class="rule"><h3>Safe updates</h3><p class="small">A bundled rule overwrites the server copy only when that copy matches a version the plugin shipped before. A copy someone customized is left alone and reported.</p></div>
+      <div class="rule"><h3>Where rule text comes from</h3><p class="small">A rule is a document of kind <code>rule</code> under the project root. The config-sync hook pushes your <code>.taskorchestrator/rules/*.md</code>, and the plugin's five bundled rules at session start only. It needs a REST URL, plus a token that may write documents when the server requires one. Without them, <code>/task-orchestrator:init</code> seeds the bundled rules. A workspace key wins over a bundled one.</p></div>
+      <div class="rule"><h3>Safe updates</h3><p class="small">A manifest governs them. A bundled rule overwrites the server copy only when that copy matches a version the plugin shipped before. A copy someone customized is left alone and reported.</p></div>
       <pre>config(op="rules", rootId, key="commit-discipline")
 config(op="rules", itemId, noteKey="test-manifest")
 config(op="rules", rootId)</pre>
@@ -293,15 +294,16 @@ config(op="rules", rootId)</pre>
   <div class="tscroll"><table>
     <thead><tr><th></th><th><code>run-wave</code></th><th><code>ralph</code></th></tr></thead>
     <tbody>
-      <tr><td>Where it runs</td><td>In your interactive session</td><td>A detached script that starts a fresh headless Claude process and worktree per item</td></tr>
-      <tr><td>How work is chosen</td><td>A frontier of ready items under a feature</td><td>Each iteration claims one item from the queue with the <code>claim</code> op of <code>advance</code></td></tr>
+      <tr><td>Where it runs</td><td>In your interactive session</td><td>A detached script that starts a fresh headless Claude process and worktree per item. It needs the REST API and exits 64 without it.</td></tr>
+      <tr><td>How work is chosen</td><td>A frontier of ready items under a feature</td><td>Each iteration selects the oldest ready item with <code>items_read</code> <code>next</code>, assigns it an implementer seat and claims it under that seat's token</td></tr>
+      <tr><td>The server run</td><td>Opened for the wave and closed by the coordinator</td><td>One run per loop. Each seat ends by outcome, and the driver closes the run.</td></tr>
       <tr><td>Planning</td><td>A run plan of seat stages</td><td>None. The claimed item's schema is the contract.</td></tr>
       <tr><td>Agents</td><td>One per seat, dispatched by the orchestrator</td><td>No sub-agents. One process does the item.</td></tr>
       <tr><td>How it stops</td><td>The frontier is done, or a human checkpoint</td><td>The queue is empty, or a limit trips</td></tr>
     </tbody>
   </table></div>
   <div class="grid3">
-    <div class="rule"><h3>Ralph's limits</h3><p class="small">Defaults: 10 iterations, 5 US dollars per iteration, a 30-minute claim. The loop stops after 3 gate failures in a row, 2 errors in a row or 3 idle results.</p></div>
+    <div class="rule"><h3>Ralph's limits</h3><p class="small">Defaults: 10 iterations, 5 US dollars per iteration, a 45-minute iteration timeout, a 30-minute claim. The loop stops after 3 gate failures in a row, 2 errors in a row or 3 idle results. The run has no budget unless <code>--run-budget-tokens</code>, <code>--run-budget-usd</code> or <code>--max-attempts</code> is passed.</p></div>
     <div class="rule"><h3>Each iteration reports</h3><p class="small">One outcome line: <code>terminal</code>, <code>gate-blocked</code>, <code>error</code>, <code>skip</code>, <code>idle</code> or <code>no-item</code>. The loop reads it to decide whether to continue.</p></div>
     <div class="rule"><h3>Run it on work you trust</h3><p class="small">Iterations run with permission prompts bypassed, each in its own temporary worktree. The budget and the claim expiry are the hard stops.</p></div>
   </div>
@@ -309,6 +311,7 @@ config(op="rules", rootId)</pre>
 
 <section>
   <h2>What else ships in the plugin</h2>
+  <p class="sub small">The mode lives under <code>extensions.claude-code.orchestration</code>. A top-level <code>orchestration</code> block is rejected by a push. The orchestration context stays silent in subagents, director sessions, headless ralph iterations, when no config is located, and in mode <code>off</code>. The director's own hooks are on plate 8.</p>
   <div class="grid2">
     <div class="tscroll"><table>
       <thead><tr><th>Channel</th><th>Behaviour</th></tr></thead>
@@ -316,9 +319,13 @@ config(op="rules", rootId)</pre>
         <tr><td>Orchestration context</td><td>A session-start hook delivers the orchestration core, including after a compact. Plans, delegates, tracks and reports.</td></tr>
         <tr><td>Orchestrate skill</td><td>On-demand tier table, delegation table and phase-owner dispatch rules.</td></tr>
         <tr><td>Ralph iteration prompt</td><td>The terse single-item rules each headless iteration runs under, appended to its system prompt.</td></tr>
-        <tr><td><code>orchestration.mode: workflow</code></td><td>The default. Tier-aware, with a model policy. Small fixes are done inline.</td></tr>
-        <tr><td><code>orchestration.mode: schema</code></td><td>No tiers and no model policy. The item's schema alone sets the process.</td></tr>
-        <tr><td><code>orchestration.mode: off</code></td><td>The orchestration hooks stay silent.</td></tr>
+        <tr><td><code>extensions.claude-code.orchestration.mode: workflow</code></td><td>The default. Tier-aware, with a model policy. Small fixes are done inline.</td></tr>
+        <tr><td><code>extensions.claude-code.orchestration.mode: schema</code></td><td>No tiers and no model policy. The item's schema alone sets the process.</td></tr>
+        <tr><td><code>extensions.claude-code.orchestration.mode: off</code></td><td>The orchestration hooks stay silent.</td></tr>
+        <tr><td>Dispatch model guard</td><td>Denies an <code>Agent</code> dispatch that carries no <code>model</code>, because the shipped agents inherit the caller's model.</td></tr>
+        <tr><td>Dispatch hint</td><td>After an <code>advance</code> lands in work or review, tells the dispatcher the item's agent, model and effort.</td></tr>
+        <tr><td>Phase guard</td><td>Records the items a subagent entered. When it tries to stop with required notes missing, sends it back with the keys named.</td></tr>
+        <tr><td>Subagent start</td><td>Injects the agent-owned-phase protocol into a phase-owner agent.</td></tr>
       </tbody>
     </table></div>
     <div class="tscroll"><table>

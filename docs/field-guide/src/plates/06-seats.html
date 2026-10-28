@@ -124,8 +124,7 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
     default_traits: [delegated, session-tracked, needs-test-author]
     seats:
       - { name: planner,      phase: queue }
-      - { name: implementer,  phase: work, enters: true,
-          transitions: [block, hold, resume] }
+      - { name: implementer,  phase: work, enters: true }
       - { name: orchestrator, phase: work, after: [implementer] }
       - { name: reviewer,     phase: review }
     notes:

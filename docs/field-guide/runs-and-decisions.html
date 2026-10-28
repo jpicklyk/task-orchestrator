@@ -107,6 +107,28 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
 @media (prefers-reduced-motion:no-preference){.d rect,.d path,.d line{transition:fill .2s,stroke .2s,opacity .2s}}
 </style>
 <style>
+.ctl{display:grid;gap:6px}
+.ctl>span{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.ctls{display:flex;flex-wrap:wrap;gap:16px 24px;align-items:end}
+select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--ink);border-radius:4px;background:var(--surface);color:var(--ink);max-width:100%}
+.tl{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,120px),1fr));gap:8px}
+.tl li{border-top:4px solid var(--line);padding-top:6px;display:grid;gap:2px;align-content:start;color:var(--muted)}
+.tl li .no{font:500 11px/1.3 var(--mono);letter-spacing:.08em}
+.tl li .nm{font:600 20px/1 var(--display);text-transform:uppercase}
+.tl li.done{border-color:var(--terminal);color:var(--ink)}
+.tl li.cur{border-color:var(--work);color:var(--ink)}
+.tl li.cur .nm{color:var(--work)}
+.state{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:12px}
+.state>div{border:1px solid var(--line);border-radius:4px;padding:10px 12px;display:grid;gap:6px;align-content:start;background:var(--surface)}
+.state .k{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.say{font-size:14px;max-width:none}
+.verdict{border-left:5px solid var(--line);padding:10px 14px;background:var(--sunk);border-radius:0 4px 4px 0;display:grid;gap:6px}
+.verdict.pass{border-color:var(--terminal)} .verdict.block{border-color:var(--blocked)}
+.verdict .head{font:600 24px/1 var(--display);text-transform:uppercase}
+.verdict.pass .head{color:var(--terminal)} .verdict.block .head{color:var(--blocked)}
+.cred td:first-child{font-weight:600;min-width:9rem}
+.cred td:nth-child(2){min-width:13rem}
+.lim td:first-child{font-weight:600;min-width:9rem}
 </style>
 </head>
 <body>
@@ -123,8 +145,156 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
 <header class="plate-head">
   <p class="series"><span>MCP Task Orchestrator · Field guide</span><span>Plate 8 of 10</span></p>
   <h1>Runs and decisions</h1>
-  <p class="lede">Placeholder. This plate is being written.</p>
+  <p class="lede">A run is a bounded pass over a set of items. It lets the server, not the prompt, hold three lines: which agent may touch which item, how much a pass may spend, and when a person has to weigh in. Everything in the earlier plates works without one.</p>
 </header>
+
+<section>
+  <h2>The life of a run</h2>
+  <p class="sub">Step through one run. The panel shows the state of the run, its two kinds of token, and one item after each call.</p>
+  <div class="panel">
+    <ol class="tl" id="tl"></ol>
+    <div class="btns">
+      <button type="button" id="prev">Back</button>
+      <button type="button" id="next">Next call</button>
+      <button type="button" id="reset">Start over</button>
+    </div>
+    <p class="say" id="say" aria-live="polite"></p>
+    <pre id="call"></pre>
+    <div class="state">
+      <div><span class="k">Run</span><span id="s-run"></span></div>
+      <div><span class="k">Coordinator token</span><span id="s-coord"></span></div>
+      <div><span class="k">Seat token</span><span id="s-seat"></span></div>
+      <div><span class="k">Member item</span><span id="s-item"></span></div>
+    </div>
+  </div>
+  <div class="grid3">
+    <div class="rule"><h3>Open</h3><p class="small"><code>runs_write</code> <code>open</code> takes a root and up to 500 of its items. An item can sit in only one run that is not closed. The answer carries <code>coordinatorToken</code> once. Who holds it is the coordinator.</p></div>
+    <div class="rule"><h3>Assign</h3><p class="small">Only the coordinator can <code>assign</code>. It returns a seat token for one item and one seat, shown once. Assigning the seat again kills the old token and counts another attempt.</p></div>
+    <div class="rule"><h3>Close</h3><p class="small">The coordinator, the director profile or a human can <code>close</code>, with <code>completed</code>, <code>cancelled</code>, <code>failed</code> or <code>abandoned</code>. <code>completed</code> is refused while a seat is active. <code>budget_exhausted</code> belongs to the server.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>Who holds which credential</h2>
+  <div class="tscroll"><table class="cred">
+    <thead><tr><th>Credential</th><th>How it is passed</th><th>What it can do</th></tr></thead>
+    <tbody>
+      <tr><td>Coordinator token</td><td>Top-level <code>seatToken</code> next to <code>ops</code></td><td><code>update</code> (add or remove items, lower the budget), <code>assign</code>, <code>close</code>, and the note keys of the seat named <code>orchestrator</code>.</td></tr>
+      <tr><td>Seat token</td><td>Top-level <code>seatToken</code> on every call the seat makes, reads included</td><td>Act on its own item and seat only. <code>end_seat</code> with its own token. The coordinator token is refused there.</td></tr>
+      <tr><td>Director profile</td><td>A separate MCP connection, no token</td><td><code>open</code>, <code>close</code>, <code>pause</code>, <code>resume</code>, <code>ack</code>, <code>answer</code>, <code>withdraw</code> (only a decision it raised itself). Nothing else.</td></tr>
+      <tr><td>Human credential</td><td>A human credential and no seat token, over REST or the director profile</td><td>Everything a director can. With a real credential proof it also answers the classes that only a human may. <code>mark</code> is REST only.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="grid3">
+    <div class="rule"><h3>Shown once</h3><p class="small">A token is never stored in readable form or replayed. A keyed retry of <code>open</code> or <code>assign</code> answers <code>tokenRedacted: true</code>. Lose a seat token and you assign the seat again. Lose the coordinator token and you close the run and open another.</p></div>
+    <div class="rule"><h3>Flat refusal</h3><p class="small">A token that is unknown, ended, superseded, or presented by a different principal is <code>unauthenticated</code> with no detail. Closing a run ends every token it issued.</p></div>
+    <div class="rule"><h3>Holders are pairs</h3><p class="small">Notes are owned by (principal, seat); claims are held by (principal, assignment), so a re-assigned seat does not inherit them. Two agents that share the one <code>local</code> principal on stdio are still separate holders when their seats differ.</p></div>
+  </div>
+  <pre>{"seatToken": "&lt;seatToken&gt;",
+ "ops": [{"op": "transition", "itemId": "a1b2c3d4", "trigger": "start"}]}</pre>
+</section>
+
+<section>
+  <h2>What the server enforces inside a run</h2>
+  <p class="sub">Only on a member of a run that is not closed, and only when the item's pinned schema declares seats. Outside a run, seats stay a signal for the orchestrator and nothing is refused.</p>
+  <div class="grid3">
+    <div class="rule"><h3>Transitions</h3><p class="small">A seat marked <code>enters</code> may <code>start</code> its item, and only into its own phase. Any other trigger must be listed in the calling seat's own <code>transitions:</code>. The default is <code>block</code> and <code>hold</code>. A refusal is <code>seat_forbidden</code> and applies nothing.</p></div>
+    <div class="rule"><h3>Notes</h3><p class="small">A seat writes the note keys its seat owns, plus keys no seat owns. A note belongs to (principal, seat), so another seat gets <code>note_owned_by_other</code> even from the same principal. The coordinator writes only the <code>orchestrator</code> seat's keys.</p></div>
+    <div class="rule"><h3>Cascades</h3><p class="small">A cascade is a write. When a child's change would move a member parent, it is applied only if the caller could have sent that trigger to the parent directly. Otherwise it is suppressed and reported as <code>blocked: seat</code>.</p></div>
+  </div>
+  <p class="sub small">A human credential without a token is exempt. On stdio the caller is the <code>local</code> principal, which counts as an agent, so it is not exempt.</p>
+</section>
+
+<section>
+  <h2>Liveness and limits</h2>
+  <div class="tscroll"><table class="lim">
+    <thead><tr><th>Concern</th><th>Rule</th><th>What happens</th></tr></thead>
+    <tbody>
+      <tr><td>Stalled</td><td>Quiet for longer than <code>stallAfterSeconds</code>. Config key <code>runs.stall_after</code>, default 600, pinned when the run opens.</td><td>A view only. Nothing is ended or released. Only a call under the token to a tool that takes <code>ops</code> counts as a sign of life; a <code>select</code> read never does. A long seat sends an <code>advance</code> <code>heartbeat</code>.</td></tr>
+      <tr><td>Frontier</td><td><code>runs_read</code> <code>select="frontier"</code></td><td>The members that are <code>ready</code>, the seats <code>inFlight</code> with their stalled flag, and the <code>waiting</code> members with a reason (<code>manual</code> or <code>dependency</code>).</td></tr>
+      <tr><td>Budget</td><td>Optional <code>tokens</code> and <code>costUsd</code> on the run</td><td>The next <code>heartbeat</code>, <code>assign</code>, <code>end_seat</code>, <code>transition</code> or <code>raise</code> under a token after a crossing pauses the run (<code>pauseReason: budget</code>) and the server raises a <code>run-budget</code> decision. Answer <code>extend</code> with an <code>amount</code>, or <code>stop</code>.</td></tr>
+      <tr><td>Attempts</td><td><code>attemptsPerSeat</code></td><td>An <code>assign</code> past the cap is <code>run_paused</code>, the run pauses (<code>attempts</code>) and an <code>attempt-cap</code> decision is raised. Answer <code>allow_one</code>, <code>skip_item</code> or <code>stop</code>.</td></tr>
+      <tr><td>Concurrency</td><td><code>maxActiveSeats</code></td><td>An extra <code>assign</code> is a transient <code>run_at_capacity</code>. No decision. Retry when a seat ends.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="grid2">
+    <div class="rule"><h3>Ceilings, not defaults</h3><p class="small">Budgets are opt-in: no budget means no cap. The <code>runs.budgets.*</code> keys in config (<code>tokens</code>, <code>cost_usd</code>, <code>attempts_per_seat</code>, <code>max_active_seats</code>) are ceilings an operator sets. A run may only choose a value at or under them, and <code>update</code> can only lower a field or set one that was absent.</p></div>
+    <div class="rule"><h3>A limit pause has one way out</h3><p class="small">Nobody can <code>resume</code> a pause for a budget or attempts. Only the answer clears it (a <code>stop</code> answer closes the run), or a <code>close</code> ends the run. While it is paused, a <code>start</code> under any of its tokens is refused <code>run_paused</code>. A manual pause refuses no <code>start</code>, so seats in flight can finish; <code>assign</code> and <code>update</code> are refused <code>run_paused</code> under any pause. Only a director or a human can <code>resume</code> a manual pause.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>Decisions: a question with options</h2>
+  <p class="sub">A seat or the coordinator raises a decision when it needs a person. The class decides who may answer it. Pick a class and a caller to see the server's answer.</p>
+  <div class="panel">
+    <div class="ctls">
+      <label class="ctl" for="cls"><span>class</span>
+        <select id="cls">
+          <option value="run-budget">run-budget (server raised)</option>
+          <option value="attempt-cap">attempt-cap (server raised)</option>
+          <option value="deviation" selected>deviation</option>
+          <option value="question">question</option>
+          <option value="release-gate">release-gate (your class, human-only)</option>
+        </select></label>
+      <label class="ctl" for="who"><span>caller</span>
+        <select id="who">
+          <option value="human">A human credential</option>
+          <option value="director" selected>The director profile</option>
+          <option value="agent">Any other caller</option>
+        </select></label>
+      <label class="ctl" for="act"><span>operation</span>
+        <select id="act"><option value="answer">answer</option><option value="withdraw">withdraw</option></select></label>
+    </div>
+    <div class="verdict" id="vd"></div>
+  </div>
+  <div class="tscroll"><table>
+    <thead><tr><th>Built-in class</th><th>Answerers</th><th>Severity</th><th>Overdue after</th><th>Options</th></tr></thead>
+    <tbody>
+      <tr><td><code>run-budget</code></td><td>director or human</td><td>high</td><td>never</td><td><code>extend</code> (with an amount), <code>stop</code></td></tr>
+      <tr><td><code>attempt-cap</code></td><td>director or human</td><td>high</td><td>never</td><td><code>allow_one</code>, <code>skip_item</code>, <code>stop</code></td></tr>
+      <tr><td><code>deviation</code></td><td>director or human</td><td>normal</td><td>14400 seconds</td><td>whatever the raiser lists</td></tr>
+      <tr><td><code>question</code></td><td>any actor</td><td>low</td><td>never</td><td>free text allowed</td></tr>
+    </tbody>
+  </table></div>
+  <pre>{"seatToken": "&lt;seatToken&gt;",
+ "ops": [{"op": "raise", "class": "deviation", "dedupeKey": "api-shape-1", "block": true,
+          "question": "The spec says X but the code does Y. Which wins?",
+          "options": [{"key": "spec", "label": "Follow the spec"}, {"key": "code", "label": "Keep the code"}],
+          "recommended": "spec"}]}</pre>
+  <div class="grid3">
+    <div class="rule"><h3>Raise</h3><p class="small">Under the orchestration profile. The same <code>dedupeKey</code> returns the existing decision instead of a second one. <code>block: true</code> raises and blocks the item as <code>awaiting_decision</code> in one step.</p></div>
+    <div class="rule"><h3>Answers are final</h3><p class="small">A second <code>ack</code>, <code>answer</code> or <code>withdraw</code> on a closed decision is <code>decision_closed</code>. Expiry only makes a decision read one step more urgent. The server takes no other action.</p></div>
+    <div class="rule"><h3>The item stays blocked</h3><p class="small">An answer never resumes the item. The coordinator reads the answer and resumes it. The decisions the server raises for a limit cannot be withdrawn, and closing the run leaves them open, counted in <code>snapshot.openDecisions</code>.</p></div>
+  </div>
+  <p class="sub small">On a single-developer stdio server every caller is the one <code>local</code> agent, so a human-only class cannot be answered there. Start a second stdio entry with <code>MCP_TOOL_PROFILE=director</code> to answer the built-in classes.</p>
+</section>
+
+<section>
+  <h2>Director mode</h2>
+  <p class="sub">The director runs the board and never the code. It sees runs and decisions, and it hands every read of a file or a note to someone else.</p>
+  <div class="grid2">
+    <div class="panel">
+      <h3>The connection</h3>
+      <p class="small">The director profile (<code>/mcp/director</code>, or <code>MCP_TOOL_PROFILE=director</code> on stdio) serves a short list: <code>items_read</code> (<code>get</code>, <code>list</code>, <code>overview</code>, <code>blocked</code>), <code>deps_read</code>, <code>report</code>, <code>runs_read</code> (<code>get</code>, <code>list</code>, <code>frontier</code>, <code>decisions</code>, <code>decision</code>) and <code>runs_write</code> (<code>open</code>, <code>close</code>, <code>pause</code>, <code>resume</code>, <code>ack</code>, <code>answer</code>, <code>withdraw</code>). No read on it can return a note, document or transition-summary body.</p>
+      <p class="small"><code>/task-orchestrator:init</code> registers it as the entry <code>mcp-task-orchestrator-director</code>. <code>/task-orchestrator:director</code> shows the board; <code>/task-orchestrator:director off</code> leaves the mode.</p>
+    </div>
+    <div class="panel">
+      <h3>The altitude rule</h3>
+      <p class="small">While the mode is on, a guard hook denies file reads and edits, foreground agent dispatch, and any shell command outside a short read-only list. The only bodies the director reads are one decision request and one run rollup. A denied call is delegated to a background agent or sent to a coordinator, not retried another way.</p>
+    </div>
+  </div>
+  <div class="tscroll"><table>
+    <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><code>director-guard</code></td><td>Writes a per-session marker when the skill is invoked and enforces the altitude rule under it. Subagents and headless iterations are exempt. It fails closed.</td></tr>
+      <tr><td><code>director-context</code></td><td>Re-states the rule after a compaction, so a long session keeps it.</td></tr>
+      <tr><td><code>director-watch</code></td><td>After a <code>runs_read</code>, tells the director to push one notification naming all the new open decision ids, each pushed once, and to start the retrospective once for a closed run that is not yet marked (silent under REST).</td></tr>
+      <tr><td><code>agents/director.md</code></td><td>A hardened entry for <code>claude --agent director</code>. Its tool list holds the five director tools and no file or shell access, so the rule is enforced by what is missing.</td></tr>
+    </tbody>
+  </table></div>
+  <p class="sub small">The director never runs a wave itself. A coordinator does, on one of four tiers that depend on what the session can launch; the tiers are in the skill's <a href="https://github.com/jpicklyk/task-orchestrator/blob/main/claude-plugins/task-orchestrator/skills/director/references/coordinator-tiers.md">coordinator tiers</a> reference.</p>
+</section>
+
 <footer style="display:grid;gap:14px"><nav class="series-nav" aria-label="Field guide plates">
 <a class="item" href="index.html"><span class="n">PLATE 1</span><span class="t">At a Glance</span><span class="small sub">What it is and why the rule lives in the server</span></a>
 <a class="item" href="phase-gates.html"><span class="n">PLATE 2</span><span class="t">Phase Gates</span><span class="small sub">Roles, triggers and a gate you can try</span></a>
@@ -139,5 +309,83 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
 </nav>
 <p class="foot"><span>MCP Task Orchestrator field guide. MIT licensed, open source.</span><a href="https://github.com/jpicklyk/task-orchestrator">github.com/jpicklyk/task-orchestrator</a></p></footer>
 </div>
+<script>
+(function(){
+  function $(id){return document.getElementById(id);}
+  var STEPS=[
+    {nm:'open',say:'An orchestrator opens a run over two items of one root. The answer carries the coordinator token once.',
+     call:'{"ops": [{"op": "open", "rootId": "1be2db5e", "items": ["a1b2c3d4", "e5f6a7b8"],\n          "budget": {"attemptsPerSeat": 3, "maxActiveSeats": 4}}]}',
+     run:'open',coord:'live, shown once',seat:'none yet',item:'a1b2c3d4: queue'},
+    {nm:'assign',say:'The coordinator assigns the implementer seat of one item. The seat token is bound to that item, that seat and the principal of the coordinator, so only agents sharing that principal can use it.',
+     call:'{"seatToken": "<coordinatorToken>",\n "ops": [{"op": "assign", "runId": "7c0f3a91", "itemId": "a1b2c3d4", "seat": "implementer"}]}',
+     run:'open, 1 seat active',coord:'live',seat:'live, attempt 1, shown once',item:'a1b2c3d4: queue'},
+    {nm:'start',say:'The seat enters its phase. An enters seat may start only into its own phase.',
+     call:'{"seatToken": "<seatToken>",\n "ops": [{"op": "transition", "itemId": "a1b2c3d4", "trigger": "start"}]}',
+     run:'open, 1 seat active',coord:'live',seat:'live',item:'a1b2c3d4: work'},
+    {nm:'raise',say:'The spec and the code disagree. The seat raises a deviation with block true. The item waits; the run stays open.',
+     call:'{"seatToken": "<seatToken>",\n "ops": [{"op": "raise", "class": "deviation", "dedupeKey": "api-shape-1", "block": true, "question": "...", "options": [...]}]}',
+     run:'open, 1 decision pending',coord:'live',seat:'live',item:'a1b2c3d4: blocked, awaiting_decision'},
+    {nm:'answer',say:'A director answers on its own connection. The answer is final. It does not resume the item: the coordinator reads it and resumes.',
+     call:'{"ops": [{"op": "answer", "decisionId": "3f2a9c1e", "option": "spec", "rationale": "Spec is the contract."}]}\nthen, with the coordinator token: advance transition, trigger "resume"',
+     run:'open',coord:'live',seat:'live',item:'a1b2c3d4: work again'},
+    {nm:'end seat',say:'The seat finishes and ends its own assignment. Only its own token can do this. The token stops working and its claims are released.',
+     call:'{"seatToken": "<seatToken>",\n "ops": [{"op": "end_seat", "outcome": "done", "summary": "Plate written."}]}',
+     run:'open, no seat active',coord:'live',seat:'ended',item:'a1b2c3d4: work'},
+    {nm:'close',say:'With no seat active, the run closes as completed. Closing ends every token of the run. Any pending decision stays open and is counted in the snapshot.',
+     call:'{"seatToken": "<coordinatorToken>",\n "ops": [{"op": "close", "runId": "7c0f3a91", "reason": "completed"}]}',
+     run:'closed, completed',coord:'ended',seat:'ended',item:'a1b2c3d4: work'}
+  ];
+  var cur=0;
+  function paint(){
+    var tl=$('tl');tl.textContent='';
+    STEPS.forEach(function(s,i){
+      var li=document.createElement('li');
+      li.className=i<cur?'done':(i===cur?'cur':'');
+      if(i===cur)li.setAttribute('aria-current','step');
+      var a=document.createElement('span');a.className='no';a.textContent=String(i+1);
+      var b=document.createElement('span');b.className='nm';b.textContent=s.nm;
+      li.appendChild(a);li.appendChild(b);tl.appendChild(li);
+    });
+    var s=STEPS[cur];
+    $('say').textContent=s.say;$('call').textContent=s.call;
+    $('s-run').textContent=s.run;$('s-coord').textContent=s.coord;$('s-seat').textContent=s.seat;$('s-item').textContent=s.item;
+    $('prev').disabled=cur===0;$('next').disabled=cur===STEPS.length-1;
+  }
+  $('next').addEventListener('click',function(){if(cur<STEPS.length-1){cur++;paint();}});
+  $('prev').addEventListener('click',function(){if(cur>0){cur--;paint();}});
+  $('reset').addEventListener('click',function(){cur=0;paint();});
+  paint();
+
+  var ANS={'run-budget':'director-or-human','attempt-cap':'director-or-human','deviation':'director-or-human','question':'any-actor','release-gate':'human-only'};
+  var SERVER={'run-budget':1,'attempt-cap':1};
+  function verdict(){
+    var c=$('cls').value,w=$('who').value,a=$('act').value,v=$('vd');
+    var ok,head,msg;
+    if(a==='withdraw'){
+      if(SERVER[c]){ok=false;msg='A decision the server raised for a limit cannot be withdrawn by anyone. It stays pending until answered. Closing the run is the other way out of the pause.';}
+      else{ok=false;msg='Only the raiser (the same principal and seat) or the coordinator token of the decision\'s run may withdraw. This caller is neither, unless it is the raiser. Class "'+c+'" does not change that.';}
+      head=ok?'Allowed':'Refused';
+    }else{
+      var need=ANS[c];
+      if(w==='human'){ok=true;msg='A human credential with real proof and no seat token answers every class.';}
+      else if(w==='director'){
+        if(need==='human-only'){ok=false;msg='The class is human-only. The director profile cannot answer it: forbidden, scope principal_kind, required human.';}
+        else{ok=true;msg='The director profile without a seat token may answer the '+need+' class.';}
+      }else{
+        if(need==='any-actor'){ok=true;msg='The class is any-actor. Note that answer is a director-profile op on MCP; a call with a seat token on the director profile, or any caller over REST, can reach it.';}
+        else{ok=false;msg='The class is '+need+'. An ordinary agent, or a call carrying a seat token, is forbidden.';}
+      }
+      head=ok?'Answer accepted':'forbidden';
+    }
+    v.className='verdict '+(ok?'pass':'block');
+    v.textContent='';
+    var h=document.createElement('span');h.className='head';h.textContent=head;
+    var p=document.createElement('span');p.className='small';p.textContent=msg;
+    v.appendChild(h);v.appendChild(p);
+  }
+  ['cls','who','act'].forEach(function(id){$(id).addEventListener('change',verdict);});
+  verdict();
+})();
+</script>
 </body>
 </html>

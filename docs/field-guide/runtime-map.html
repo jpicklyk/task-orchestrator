@@ -131,7 +131,7 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
 <header class="plate-head">
   <p class="series"><span>MCP Task Orchestrator · Field guide</span><span>Plate 5 of 10</span></p>
   <h1>Where it runs and who talks to it</h1>
-  <p class="lede">One Docker image, one SQLite file. It runs as a throwaway container per session or as a persistent local server shared by every project, and the same gate logic answers both the MCP tools and the REST API.</p>
+  <p class="lede">One Docker image, one SQLite file. It runs as a throwaway container per session or as a persistent local server shared by every project, and one tool dispatcher answers the MCP tools and the REST tool route, so the same gate logic and the same response envelope serve both.</p>
 </header>
 
 <section>
@@ -152,22 +152,22 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
         <text x="762" y="90" class="s mu">REST + SSE</text>
         <rect x="20" y="120" width="560" height="44" rx="4" class="band"/>
         <text x="36" y="147" class="b">Interfaces · MCP tools</text>
-        <text x="564" y="147" text-anchor="end" class="s mu">items, notes, dependencies, workflow, config</text>
+        <text x="564" y="147" text-anchor="end" class="s mu">items, notes, deps, advance, docs, config, runs</text>
         <rect x="600" y="120" width="280" height="44" rx="4" class="band"/>
         <text x="616" y="147" class="b">Interfaces · REST API</text>
-        <text x="864" y="147" text-anchor="end" class="s mu">optional</text>
+        <text x="864" y="147" text-anchor="end" class="s mu">optional · POST /ops/{tool}</text>
         <rect x="20" y="174" width="860" height="44" rx="4" class="band"/>
         <text x="36" y="201" class="b">Infrastructure</text>
         <text x="864" y="201" text-anchor="end" class="s mu">SQLite + FTS5 · Exposed ORM · Flyway migrations · YAML config · JWKS</text>
         <rect x="20" y="228" width="860" height="44" rx="4" class="r-gate"/>
         <text x="36" y="255" class="b">Application</text>
-        <text x="864" y="255" text-anchor="end" class="s">gate checks, cascades, schema and trait resolution, claims</text>
+        <text x="864" y="255" text-anchor="end" class="s">gates, cascades, config resolution, claims, runs</text>
         <rect x="20" y="282" width="860" height="44" rx="4" class="band"/>
         <text x="36" y="309" class="b">Domain</text>
-        <text x="864" y="309" text-anchor="end" class="s mu">WorkItem · Note · Dependency · roles · dispatch profiles</text>
+        <text x="864" y="309" text-anchor="end" class="s mu">WorkItem · Note · Dependency · roles · transition policy</text>
       </svg>
     </div>
-    <figcaption>Each layer may depend only on the layers below it, and an architecture test fails the build on a new violation. The gate logic sits in the application layer and is built in one place, so an MCP call and a REST call to advance an item get the same answer.</figcaption>
+    <figcaption>Each layer may depend only on the layers below it, and an architecture test fails the build on a new violation. The application layer is split into sub-packages (<code>api</code>, <code>service</code>, <code>read</code>, <code>run</code>, <code>knowledge</code>, <code>config</code>, <code>support</code>, <code>telemetry</code>, <code>port</code>, plus top-level <code>decision</code>, <code>report</code> and <code>upgrade</code>) that a second test keeps free of cycles. A separate <code>bootstrap</code> package wires everything once at startup and no layer imports it. The REST route <code>POST /api/v1/ops/{tool}</code> runs the same tool dispatcher as MCP, so a call to advance an item gets the same answer on either interface.</figcaption>
   </figure>
 </section>
 
@@ -220,14 +220,19 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
         <text x="14" y="192" class="s mu">project's config.yaml on start.</text>
         <text x="14" y="220" class="s c-blocked">Unauthenticated mode is for loopback only.</text>
       </svg>
-      <figcaption>One server for every repository, each with its own schemas, reloaded without a restart. Bearer tokens or JWKS protect the REST API on shared hosts. The <code>/mcp</code> endpoint itself is never authenticated, so keep it on loopback or behind your own network controls.</figcaption>
+      <figcaption>One server for every repository, each with its own schemas, reloaded without a restart. Under a bearer or JWKS credential mode, every <code>/mcp</code> path needs the same <code>Authorization: Bearer</code> credential as the REST API. Without one, the server serves only the local principal, so keep it on loopback or behind your own network controls.</figcaption>
     </figure>
+  </div>
+  <div class="grid3">
+    <div class="rule"><h3>Tool profiles</h3><p class="small">Over HTTP the server mounts <code>/mcp</code> (orchestration), <code>/mcp/knowledge</code> (a smaller read and write set) and <code>/mcp/director</code> (read tools, run control and decisions, no read that returns a note or document body). Over stdio one profile is served, picked by <code>MCP_TOOL_PROFILE</code>. Any other value fails startup.</p></div>
+    <div class="rule"><h3>Auth follows the REST setting</h3><p class="small">With <code>API_ENABLED=true</code> and <code>API_AUTH_MODE=bearer</code> or <code>jwks</code>, every <code>/mcp*</code> path requires the credential. HTTP with <code>API_ENABLED=false</code> needs <code>MCP_ALLOW_UNAUTHENTICATED=true</code> or startup fails. A director credential reaches only the director path.</p></div>
+    <div class="rule"><h3>Startup is gated</h3><p class="small">Flyway is the only schema path (<code>SCHEMA_MODE</code> is <code>migrate</code> or <code>validate</code>), under a <code>&lt;db&gt;.migrate.lock</code> file lock, then data steps such as <code>server-config-import</code> run. The readiness marker at <code>READINESS_FILE</code> is written only after all of that and the transport bind. Depth is in fleet-deployment.md.</p></div>
   </div>
 </section>
 
 <section>
   <h2>The REST API, for everything that is not an agent</h2>
-  <p>Dashboards, CI jobs and the plugin's own hooks use HTTP under <code>/api/v1</code>, switched on with <code>API_ENABLED=true</code>. An advance over REST runs the same gate logic as the MCP tool.</p>
+  <p>Dashboards, CI jobs and the plugin's own hooks use HTTP under <code>/api/v1</code>, switched on with <code>API_ENABLED=true</code>. Every tool is reachable as <code>POST /api/v1/ops/{tool}</code>, so an advance over REST is the same call, with the same gate logic, as over MCP.</p>
   <div class="grid2">
     <div class="tscroll"><table>
       <thead><tr><th>Auth mode</th><th>How a caller proves itself</th></tr></thead>
@@ -240,11 +245,14 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
     <div class="tscroll"><table>
       <thead><tr><th>Capability</th><th>Allows</th></tr></thead>
       <tbody>
-        <tr><td><code>read</code></td><td>Every GET, and the event stream</td></tr>
+        <tr><td><code>read</code></td><td>Every GET, the event stream, and the read tools</td></tr>
         <tr><td><code>write-items</code>, <code>write-notes</code></td><td>Creating, editing and deleting items and notes</td></tr>
         <tr><td><code>advance</code></td><td>Role transitions</td></tr>
         <tr><td><code>manage-dependencies</code></td><td>Adding and removing edges</td></tr>
-        <tr><td><code>write-config</code></td><td>Pushing per-project config, plans and rules</td></tr>
+        <tr><td><code>write-config</code></td><td>The <code>config</code> ops push, rollback and reset (not <code>docs_write</code>)</td></tr>
+        <tr><td><code>write-docs</code></td><td>Every <code>docs_write</code> op, plans and rules included</td></tr>
+        <tr><td><code>runs</code></td><td>Every <code>runs_write</code> op except <code>ack</code> and <code>answer</code></td></tr>
+        <tr><td><code>decide</code></td><td>Answering decisions: <code>ack</code> and <code>answer</code></td></tr>
         <tr><td><code>admin</code></td><td>All of the above, plus attribution fields and lease overrides</td></tr>
       </tbody>
     </table></div>
@@ -254,15 +262,14 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
   <div class="tscroll"><table>
     <thead><tr><th>To do this</th><th>Route under /api/v1</th></tr></thead>
     <tbody>
-      <tr><td>Read or change items</td><td><code>GET /items/{id}</code> · <code>POST /items</code> · <code>PATCH /items/{id}</code></td></tr>
-      <tr><td>Write a note</td><td><code>PUT /items/{id}/notes/{key}</code></td></tr>
-      <tr><td>Move an item, or ask what blocks it</td><td><code>POST /items/{id}/advance</code> · <code>GET /items/{id}/gate</code></td></tr>
-      <tr><td>Search</td><td><code>GET /search</code> · <code>GET /notes/search</code></td></tr>
-      <tr><td>Push or inspect project config</td><td><code>PUT /roots/{rootId}/config</code> · <code>GET /roots/{rootId}/config/effective</code></td></tr>
-      <tr><td>Audit who did what</td><td><code>GET /transitions?since=…</code></td></tr>
-      <tr><td>Inspect or release leases</td><td><code>GET /resources/leases</code> · <code>DELETE /resources/leases/{key}</code></td></tr>
-      <tr><td>Check liveness, with no auth</td><td><code>GET /health</code></td></tr>
+      <tr><td>Call any tool: read, write, advance, config, runs, reports</td><td><code>POST /ops/{tool}</code>, with <code>select</code> or <code>ops[]</code> in the body</td></tr>
+      <tr><td>Call a director-profile tool</td><td><code>POST /ops/director/{tool}</code></td></tr>
+      <tr><td>Fetch an item, or its children and notes</td><td><code>GET /items/{id}</code> · <code>GET /items/{id}/children</code> · <code>GET /items/{id}/notes[/{key}]</code></td></tr>
+      <tr><td>Get the config JSON Schema</td><td><code>GET /config/schema</code></td></tr>
+      <tr><td>Inspect or release leases, and read their history</td><td><code>GET /resources/leases</code> · <code>DELETE /resources/leases/{key}</code> · <code>GET /resources/leases/history</code></td></tr>
       <tr><td>Follow changes live</td><td><code>GET /events</code></td></tr>
+      <tr><td>Server info and liveness (health needs no auth)</td><td><code>GET /info</code> · <code>GET /health</code></td></tr>
+      <tr><td>Discover the server (mounted at the root, outside /api/v1)</td><td><code>GET /.well-known/mcp-task-orchestrator.json</code></td></tr>
     </tbody>
   </table></div>
 
@@ -276,22 +283,22 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
         <line x1="120" y1="74" x2="636" y2="74" class="l" marker-end="url(#ah)"/>
         <text x="380" y="66" text-anchor="middle" class="m">GET /api/v1/events?types=item.advanced,note.upserted</text>
         <line x1="640" y1="106" x2="124" y2="106" class="k-work" marker-end="url(#ahw)"/>
-        <text x="380" y="98" text-anchor="middle" class="s c-work">an event for each matching change, each with an id</text>
+        <text x="380" y="98" text-anchor="middle" class="s c-work">an event for each matching change, each with a durable id</text>
         <text x="380" y="134" text-anchor="middle" class="s c-blocked">connection drops</text>
         <line x1="120" y1="162" x2="636" y2="162" class="l" marker-end="url(#ah)"/>
-        <text x="380" y="154" text-anchor="middle" class="m">reconnect with Last-Event-ID: 4812</text>
+        <text x="380" y="154" text-anchor="middle" class="m">reconnect with Last-Event-ID: &lt;last id&gt;</text>
         <line x1="640" y1="194" x2="124" y2="194" class="k-work" marker-end="url(#ahw)"/>
-        <text x="380" y="186" text-anchor="middle" class="s c-work">the missed events, replayed from a buffer</text>
-        <text x="380" y="226" text-anchor="middle" class="s mu">If the buffer no longer holds them, the first event is sync.lost and the client refetches.</text>
+        <text x="380" y="186" text-anchor="middle" class="s c-work">the missed events, replayed from the events table</text>
+        <text x="380" y="226" text-anchor="middle" class="s mu">If the cursor cannot be satisfied, the first event is sync.lost and the client refetches.</text>
       </svg>
     </div>
-    <figcaption>Event types: <code>item.created</code>, <code>item.updated</code>, <code>item.deleted</code>, <code>item.advanced</code>, <code>note.upserted</code>, <code>note.deleted</code>, <code>dependency.added</code>, <code>dependency.removed</code>, <code>scope.entered</code>, <code>scope.left</code>. Two control events always arrive: <code>sync.lost</code> and <code>auth.expired</code>.</figcaption>
+    <figcaption>Event ids are the durable <code>seq</code> of the events table (above 10^12), so a resume replays from the table, not from memory. Event types: <code>item.created</code>, <code>item.updated</code>, <code>item.deleted</code>, <code>item.advanced</code>, <code>note.upserted</code>, <code>note.deleted</code>, <code>note.ownership_transferred</code>, <code>dependency.added</code>, <code>dependency.removed</code>, <code>scope.entered</code>, <code>scope.left</code>, <code>run.opened</code>, <code>run.updated</code>, <code>run.paused</code>, <code>run.resumed</code>, <code>run.ended</code>, <code>run.marked</code>, <code>seat.ended</code>, <code>decision.raised</code>, <code>decision.acknowledged</code>, <code>decision.answered</code> and <code>decision.withdrawn</code>. Two control events always arrive, whatever the type filter: <code>sync.lost</code> and <code>auth.expired</code>.</figcaption>
   </figure>
 
   <div class="grid3">
-    <div class="rule"><h3>Writes are guarded</h3><p class="small">Editing an item requires <code>If-Match</code> with its current ETag, so a stale client gets a 412 and cannot overwrite. Edits are JSON merge-patch. An <code>Idempotency-Key</code> makes a retried write replay its first result.</p></div>
-    <div class="rule"><h3>Errors say what to do</h3><p class="small">Every error is <code>{ error, message, details }</code>. A failed gate is 422 <code>gate_blocked</code> with the missing notes. A contended lease is 409 <code>resource_unavailable</code> with a <code>Retry-After</code> header.</p></div>
-    <div class="rule"><h3>Where REST differs from MCP</h3><p class="small">The caller is always the credential's principal, on REST and on <code>/mcp</code> alike, and an <code>actor</code> in the body is refused as <code>unknown_parameter</code>. A REST advance is bound by claim ownership and by leases, as on MCP. Lease administration and the event stream exist only here.</p></div>
+    <div class="rule"><h3>Writes are guarded</h3><p class="small">A write may pass <code>expectedVersion</code>, so a stale client gets a 409 <code>version_conflict</code> and cannot overwrite. Each element of <code>ops[]</code> may carry an <code>idempotencyKey</code>, kept for 24 hours per principal, tool and key, so a retry replays its first result. An <code>Idempotency-Key</code> header is a 400 <code>invalid_request</code>.</p></div>
+    <div class="rule"><h3>Errors say what to do</h3><p class="small">Every tool answer is <code>{ ok, data | error, meta: { reqId } }</code>, and an error is <code>{ code, kind, message, detail?, fix? }</code>. A failed gate is 409 <code>gate_blocked</code> with the missing notes. A failed element of a non-atomic batch answers 207 <code>partial_failure</code>, with its own code in its <code>data.results[i]</code> element. The <code>reqId</code> also keys the call log and the server log lines for that call.</p></div>
+    <div class="rule"><h3>Where REST differs from MCP</h3><p class="small">The caller is always the credential's principal, on REST and on <code>/mcp</code> alike, and an <code>actor</code> in the body is refused as <code>unknown_parameter</code>. A REST advance is bound by claim ownership and by leases, as on MCP. Lease administration and the event stream exist only here. <code>report</code> (usage, gates, contention, waste and rollup aggregates over server telemetry) is served at <code>POST /ops/report</code> and, over MCP, only on the director profile.</p></div>
   </div>
 </section>
 
@@ -303,15 +310,18 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
     <li><span class="ev">EnterPlanMode</span><span class="do">Reads existing items and schema gates first, so the plan covers what the gates will ask for.</span></li>
     <li><span class="ev">ExitPlanMode</span><span class="do">Turns the approved plan into items, dependency edges and queue notes before any code is written.</span></li>
     <li><span class="ev">SubagentStart</span><span class="do">Hands an implementer or reviewer its protocol: enter your phase, fill its notes, return.</span></li>
-    <li><span class="ev">advance</span><span class="do">Records which phase a sub-agent entered. Can trigger a retrospective.</span></li>
+    <li><span class="ev">advance</span><span class="do">Records which phase a sub-agent entered, and hints the dispatch profile (agent, model, effort) for the next one.</span></li>
     <li><span class="ev">SubagentStop</span><span class="do">Sends a sub-agent back if the phase it entered still has required notes missing.</span></li>
   </ol>
   <div class="tscroll"><table>
-    <thead><tr><th>Three more hooks</th><th>What each does</th></tr></thead>
+    <thead><tr><th>More hooks</th><th>What each does</th></tr></thead>
     <tbody>
       <tr><td>Before a note is written</td><td>If the note's schema names a skill and the body looks thin, suggests running that skill first. Advisory only.</td></tr>
+      <tr><td>Before an agent is dispatched</td><td>Denies a dispatch that names no <code>model</code>, because the shipped agents would silently inherit the caller's.</td></tr>
       <tr><td>When <code>config.yaml</code> changes</td><td>Re-syncs the project config to the server mid-session.</td></tr>
-      <tr><td>When a turn ends</td><td>Nudges a retrospective if an item finished on its own and nothing else prompted one.</td></tr>
+      <tr><td>After a plan is approved</td><td>Stores the plan as a plan document over REST, so items are materialized from it.</td></tr>
+      <tr><td>When a run closes, or a turn ends</td><td>Dispatches or nudges a retrospective for a closed run that has not had one.</td></tr>
+      <tr><td>In a director session</td><td>Keeps the session at altitude (no file reads or foreground work), re-asserts that after a compaction, and pushes a notice when a decision is waiting.</td></tr>
     </tbody>
   </table></div>
   <div class="tscroll"><table>
@@ -324,7 +334,7 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
       <tr><td>Improve the process</td><td><code>session-retrospective</code> · <code>review-proposals</code></td></tr>
     </tbody>
   </table></div>
-  <p class="small sub">Also shipped: agent definitions for implementer, reviewer, planner and test author, the orchestrate skill and four workflow scripts. Plate 8 covers how they run a feature.</p>
+  <p class="small sub">Also shipped: agent definitions for implementer, reviewer, planner, test author and director, the orchestrate and director skills, and workflow scripts for audit, wave implementation, retrospective analysis and wave review. Plate 9 covers how they run a feature.</p>
   <p class="small sub">When a schema declares seats (plate 4), <code>run-wave</code> reads them to build each item's stages and picks the agent and model for each seat. The stop guard is seat-aware too: it only sends a sub-agent back for notes its own seat owns.</p>
 </section>
 
@@ -383,7 +393,7 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
 <section>
   <h2>Claims in practice</h2>
   <div class="grid3">
-    <div class="rule"><h3>Four answers to a claim</h3><p class="small"><code>claimed: true</code>; a <code>claim_held</code> error (pick another item); a select with no match (<code>claimed: false</code>, no <code>reason</code>: stop or wait); and a select with a <code>reason</code> (<code>claim_held</code> or <code>dependency_unmet</code>: matches exist but none can be claimed now, retry after <code>retryAfterMs</code>). An actor holds one claim at a time, and each element may carry an <code>idempotencyKey</code>.</p></div>
+    <div class="rule"><h3>Four answers to a claim</h3><p class="small"><code>claimed: true</code>; a <code>claim_held</code> error (pick another item); a select with no match (<code>claimed: false</code>, no <code>reason</code>: stop or wait); and a select with a <code>reason</code> (<code>claim_held</code> or <code>dependency_unmet</code>: matches exist but none can be claimed now, retry after <code>retryAfterMs</code>). A claim belongs to one principal and assignment, and taking a new claim releases the caller's other claims (one at a time). Each element may carry an <code>idempotencyKey</code>.</p></div>
     <div class="rule"><h3>Claims clean up after themselves</h3><p class="small">Any transition into terminal clears the claim, and a reopened item starts unclaimed. A crashed agent's claim simply expires. Nothing has to clear it: a background sweep only records the expiry event.</p></div>
     <div class="rule"><h3>Who holds it stays private</h3><p class="small">Lists and searches show only whether an item is claimed. The holder's identity appears in one place: the <code>claimDetail</code> of <code>items_read</code> <code>context</code> for that item.</p></div>
   </div>
@@ -438,7 +448,12 @@ API_JWKS_ALGORITHMS=EdDSA,RS256</pre>
   <div class="grid3">
     <div class="rule"><h3>Local is one principal</h3><p class="small">Every stdio or local-mode session is the same <code>local</code> caller, so they share claims and note ownership and never contend. Telling agents apart takes a credential or a run seat token for each.</p></div>
     <div class="rule"><h3>Sessions stick to a caller</h3><p class="small">An MCP session is bound to the principal that opened it, and another principal on that session gets a 401. A director credential reaches only the director endpoint. A wrong token is the JSON error envelope, not a JSON-RPC error.</p></div>
-    <div class="rule"><h3>Old identity settings do nothing</h3><p class="small">No request carries an actor or a proof any more, so nothing authenticates or attributes a call by identity. The <code>actor_authentication</code> block is removed: a leftover block now stops the server from starting, and the info page (<code>/api/v1/info</code>) no longer reports it.</p></div>
+    <div class="rule"><h3>Old identity settings stop startup</h3><p class="small">No request carries an actor or a proof any more. A leftover <code>actor_authentication:</code> or <code>auditing:</code> block in the server config, or a set <code>DEGRADED_MODE_POLICY</code> variable, fails startup rather than being ignored.</p></div>
+  </div>
+  <div class="grid3">
+    <div class="rule"><h3>JWKS stays fail-closed</h3><p class="small"><code>API_JWKS_MAX_STALE_SECONDS</code> is how old a cached key set may be and still be served after a failed refresh (default the larger of an hour and the cache TTL). Past it, requests get 503 <code>unavailable</code>. <code>API_JWKS_URL</code> must be <code>https</code> and resolve only to public addresses, so a private or Docker-network host is refused. Loopback over plain <code>http</code> is allowed only with <code>API_JWKS_ALLOW_INSECURE_URL=true</code>.</p></div>
+    <div class="rule"><h3>Reports read telemetry</h3><p class="small">The <code>report</code> tool aggregates the server's own call log and events into usage, gates, contention, waste and rollup views, for a director or a dashboard.</p></div>
+    <div class="rule"><h3>Old data ages out</h3><p class="small">A pruner trims tables on a schedule: <code>RETENTION_EVENTS_DAYS</code> (180), <code>RETENTION_AUDIT_EVENTS_DAYS</code> (0), <code>RETENTION_LEASE_HISTORY_DAYS</code> (365) and <code>RETENTION_CALL_LOG_DAYS</code> (90). A value of 0 keeps that data forever. Details are in fleet-deployment.md.</p></div>
   </div>
 </section>
 
@@ -447,7 +462,7 @@ API_JWKS_ALGORITHMS=EdDSA,RS256</pre>
   <div class="modes3">
     <div class="rule"><h3>Orchestration</h3><p class="small">Always on. Transitions, gates, dependencies and cascades work with no further setup.</p></div>
     <div class="rule"><h3>Claims</h3><p class="small">Opt-in. Agents take time-limited ownership of an item with the <code>claim</code> op of <code>advance</code>. The server then fences the item to its holder: a transition, note write, item update or dependency write by anyone else is <code>not_claim_holder</code>.</p></div>
-    <div class="rule"><h3>Credentials</h3><p class="small">Opt-in and separate from claims. With a bearer or JWKS mode, REST and <code>/mcp</code> both require a credential, so attribution is proven and no longer shared.</p></div>
+    <div class="rule"><h3>Credentials</h3><p class="small">Opt-in and separate from claims. With a bearer or JWKS mode, REST and every <code>/mcp*</code> path require a credential, so attribution is proven and no longer shared. Without one, HTTP with the REST API off must opt in with <code>MCP_ALLOW_UNAUTHENTICATED=true</code>.</p></div>
   </div>
 </section>
 
