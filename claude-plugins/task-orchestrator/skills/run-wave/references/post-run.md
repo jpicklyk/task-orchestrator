@@ -207,7 +207,8 @@ Two notes, written by you with `notes_write` `upsert` (body inline) under the co
 and a token-less write to such a key is refused. They are the front door's own notes about the run,
 filled after Steps 1–2 have concrete results to report. A note created under the coordinator token is
 owned by that pair, so write it once in confirmed past tense; re-edit it only under a coordinator
-token of a run open over the item, or by a human. On `note_owned_by_other`: with no
+token of a run open over the item. Inside an open run a human credential may also write it; once the run
+is closed, a different (principal, seat) pair needs an admin takeover. On `note_owned_by_other`: with no
 `detail.ownerSeat` the note was created token-less earlier, so re-send once without the token; with
 `detail.ownerSeat` present leave it and report it. Never `takeover`.
 If one of the item's plan stages lists `session-tracking` in `stages[].notes` (a seat-less schema: the

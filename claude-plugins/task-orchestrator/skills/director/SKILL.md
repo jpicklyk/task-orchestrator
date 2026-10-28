@@ -77,9 +77,9 @@ HTTP, or `MCP_TOOL_PROFILE=director` on stdio). That profile has no note-body re
 server enforces the rule for MCP even when the hook cannot see the call.
 
 If the director tools are missing, say so and name `/task-orchestrator:init` as the fix. Until
-then, only `runs_read` `list`/`get`/`frontier` and `items_read` work on the orchestration
-connection. `runs_read` `decisions`/`decision`, `runs_write` `ack`/`answer`/`withdraw` and `report`
-are director-profile only, so decisions cannot be shown or answered until `/task-orchestrator:init`.
+then the director-only members are unavailable on the orchestration connection: `runs_read`
+`decisions`/`decision`, `runs_write` `pause`/`resume`/`ack`/`answer`/`withdraw` and the `report`
+tool. Decisions cannot be shown or answered until `/task-orchestrator:init`.
 Still never call `notes_read`.
 
 ## Dashboard
