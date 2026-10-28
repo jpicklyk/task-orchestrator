@@ -50,7 +50,7 @@ plates.forEach((p, i) => {
     .replace('<!--FONTS-->', () => fonts)
     .replace('/*SHARED*/', () => shared)
     .replace('<!--NAV-->', () => nav)
-    .replace(/Plate (\d+) of \d+<\/span>/, (m, n) => 'Plate ' + n + ' of ' + plates.length + '</span>');
+    .replace(/Plate \d+ of \d+<\/span>/, () => 'Plate ' + (i + 1) + ' of ' + plates.length + '</span>');
 
   if (target === 'site') {
     const cut = page.indexOf('<!--DEFS-->');
