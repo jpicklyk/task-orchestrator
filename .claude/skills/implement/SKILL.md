@@ -248,7 +248,7 @@ carries `needs-test-author` (temporal-only degraded mode, Step 1), `test-plan` i
 queue-phase note and must be filled before this advance — see the seat-timing rule below.
 
 **Delegated tier:** Fill queue-phase notes per schema. Use `items_read` `context`
-and `items_read` `schema` to see the expected notes and their `guidanceKey`. Pre-plan-workflow is optional — use
+and `items_read` `schema` with `fields: ["guidance"]` to see the expected notes and their guidance text (`guidanceKey` is the key of the first missing required note). Pre-plan-workflow is optional  -  use
 only if scope needs exploration. Post-plan-workflow only if child items need
 materialization. Advance: `advance` `transition` with `trigger: "start"`.
 
@@ -258,8 +258,8 @@ materialization. Advance: `advance` `transition` with `trigger: "start"`.
 1. Tell the user the item is ready for planning and ask them to enter plan mode.
    The `pre-plan-workflow` and `post-plan-workflow` hooks fire automatically on
    plan mode entry and exit, handling context gathering and materialization.
-2. During planning, follow the `guidanceKey` guidance for each required note — this
-   will reference the spec-quality skill where applicable.
+2. During planning, follow the guidance text for each required note (read it with
+   `items_read` `schema`, `fields: ["guidance"]`)  -  this will reference the spec-quality skill where applicable.
 3. After plan approval and post-plan materialization, advance the item:
    `advance` `transition` with `trigger: "start"`
 
@@ -267,7 +267,8 @@ materialization. Advance: `advance` `transition` with `trigger: "start"`.
 1. Read and follow the `pre-plan-workflow` skill — gather existing MCP state,
    check schema requirements, and understand the definition floor.
 2. Research the codebase — explore relevant files, understand current state.
-3. Fill all queue-phase notes following the `guidanceKey` guidance for each. The
+3. Fill all queue-phase notes following the guidance text for each (`items_read` `schema`,
+   `fields: ["guidance"]`). The
    spec-quality framework applies regardless of mode.
 4. Read and follow the `post-plan-workflow` skill — materialize child items
    if the plan calls for them.
@@ -438,11 +439,12 @@ dispatch. No `/simplify` pass. **Exception — a Direct-tier `bug-fix` carrying
 (test-plan frozen at queue → regression test observed red → fix → green) instead of
 implementing first. Fill the `session-tracking` note (required by both
 `quick-fix` and `default` schemas) with a brief summary of what changed and test
-results. Advance to review:
+results. Advance (`start`): to review, or to terminal when the schema has no review phase
+(`quick-fix`); Step 5 reads `newRole`:
 `advance` `transition` with `trigger: "start"`.
 
 **Delegated and Parallel tiers:** Use `items_read` `schema` (`itemId`) to see the work-phase
-notes and their `guidance`. Fill each required note following its
+notes, with `fields: ["guidance"]` to read their guidance text. Fill each required note following its
 guidance. Follow `/task-orchestrator:orchestrate` (model table, return
 formats, UUID inclusion). The key decisions at this step are:
 
@@ -510,7 +512,7 @@ the Commit discipline slot is the only safe form (#301).
 
 **File-edit overlap discipline:** Parallel agents in a shared worktree must operate on
 non-overlapping files. The orchestrator scopes each agent's prompt to a specific file list
-(per MEMORY.md §"Parallel File-Edit Delegation"). When inherent overlap exists, under run-wave declare the file in both scopes (`Shared file, lock-serialized: <path> (with <other short>)`) and add no BLOCKS edge; a hand-dispatch still dispatches sequentially, without an edge.
+(the dispatch contract's File ownership slot carries the rule). When inherent overlap exists, under run-wave declare the file in both scopes (`Shared file, lock-serialized: <path> (with <other short>)`) and add no BLOCKS edge; a hand-dispatch still dispatches sequentially, without an edge.
 
 **Contract-change sweep discipline.** When a child task tightens a contract — making a
 parameter required, adding `validate()` invariants, narrowing a sealed-class arm, or
@@ -782,7 +784,8 @@ the working branch for Direct/Delegated):
    orchestrator or docs seat writes it once, after the implementation wave and before review —
    never an implementer (the dispatch contract's **Docs** slot). `/prepare-release` Step 8c folds
    these bullets into the release section.
-5. Fill all work-phase notes following their `guidanceKey` guidance — focus on context
+5. Fill all work-phase notes following their guidance text (`items_read` `schema`,
+   `fields: ["guidance"]`)  -  focus on context
    that downstream agents need to know
 6. **Live-owed check (proposal `8ecc28f1`)** - before the work-exit `advance`, read the
    item's `session-tracking` note for its `**Live-owed**:` line (spec-quality, "State matrix").
@@ -821,7 +824,9 @@ tests pass. If the review-phase note has a `skillPointer` (visible in the `advan
 result or via `items_read` `context`), invoke that skill for the evaluation framework before
 filling the review note. Write the review note, then advance to terminal:
 `advance` `transition` with `trigger: "start"`. No separate review agent —
-the overhead exceeds the risk for 1-2 file changes with known fixes.
+the overhead exceeds the risk for 1-2 file changes with known fixes. This inline,
+orchestrator-written review note applies only to items outside any run: Direct tier never runs
+under a run, and on a run member a seat-owned review key belongs to the reviewer seat.
 
 **Delegated and Parallel tiers:** Dispatch a **separate** review agent. The agent
 that implemented the code must not review its own work.
@@ -885,21 +890,20 @@ orchestrator's verdict handling is the downstream filter, not your own judgment.
 ```
 
 **If using Direct or Delegated tier** (single working branch on the main directory),
-the review agent reads from the working branch and runs tests itself per the
-existing template — no worktree-specific scoping needed.
+the review agent reads from the working branch and runs no gradle itself (see item 4
+below)  -  no worktree-specific scoping needed.
 
 The review agent:
 1. Reads the review-quality skill
 2. Uses `items_read` `context` and `notes_read` `list` (`itemId`) to load the item's notes and review-phase requirements
 3. Reads the changed files — on Parallel tier, the owned-file diff above; on Direct/Delegated
    tier, the working branch
-4. Runs gradle per the contract's "Who runs gradle" statement (Compile self-check slot): in a
-   Parallel wave the reviewer runs none, because the orchestrator already verified the wave and
-   recorded the build state in the Review scoping slot — for that tier this supersedes
-   `review-quality` Area 1's "run the test suite first", whose recorded numbers the reviewer
-   takes from that slot instead. On Direct/Delegated tier there is no
-   contract and no orchestrator-run wave verification, so the reviewer runs the test suite AND
-   the linter itself (Step 4's "Verification commands") — a PR with failing lint will not merge.
+4. Runs no gradle on any tier. In a Parallel wave the orchestrator already verified the wave and
+   recorded the build state in the Review scoping slot. On Direct tier the orchestrator reviews
+   inline after its own run. On Delegated tier the orchestrator runs `:current:test` and
+   `:current:ktlintCheck` (Step 4's "Verification commands" - a PR with failing lint will not
+   merge) and records count, result and SHA in its own `session-tracking` before dispatching the
+   reviewer, which takes those numbers from there per `review-quality` Area 1.
 5. Evaluates plan alignment, test quality, and simplification
 6. **On items carrying `needs-test-author`, additionally:**
    - **Two-range ownership check:** confirm the impl-range/author-range disjointness recorded
@@ -926,7 +930,8 @@ The review agent:
    On a Direct-tier temporal-only item where every applicable check (temporal checks,
    arbitration-record, `assumeTrue`/`@Disabled` scan) passes, the verdict is
    `independent-degraded (temporal-only)` — never plain `independent`, matching `test-author` §11.
-7. Fills the review-phase notes per `guidanceKey` guidance with a verdict
+7. Fills the review-phase notes per their guidance text (`items_read` `schema`,
+   `fields: ["guidance"]`) with a verdict
 
 **Handling the verdict:**
 
@@ -1033,11 +1038,15 @@ After review passes:
    git branch -D <branch-name>
    ```
 
-6. Advance the item to terminal:
+6. Advance the item to terminal only if it is not already terminal (review-less items reached
+   terminal in Step 4/5; a Direct-tier item with a review reached it in Step 5); otherwise skip:
    ```to-call
    {"tool":"advance","op":"transition","args":{"itemId":"4b7d0e19","trigger":"start"}}
    ```
-7. After the item reaches terminal, follow the retrospective hook's directive if one fires (see `retrospective.mode`).
+7. The retrospective hook fires on a successful `runs_write` `close` (or the Stop backstop for a
+   closed run without the `retro` mark), never on a terminal transition; its mode key is
+   `extensions.claude-code.retrospective.mode`. Work finished outside a run gets no hook: run
+   `/session-retrospective` by hand.
 8. **Wave-boundary red-proofs** (for a single Direct/Delegated item, the "wave" is the item).
    Only the bug-fix revert ran before merge. The item's decision-point budget mutations (the
    planner's `red-proof-shape`, test-author rule section 5) run NOW, after the merge, off the
@@ -1062,28 +1071,32 @@ For Parallel-tier features with a shared feature worktree:
 1. For children whose schema/trait declares a review phase (e.g. `needs-task-review`),
    confirm `review-checklist` is filled. Children without one advance work→terminal
    directly — there is nothing to confirm.
-2. `advance` `transition` with `trigger: "start"` on the child (`itemId` the child's id) to move work→review→terminal
-   (or work→terminal directly) as the child's schema dictates.
+2. `advance` `transition` with `trigger: "start"` on the child (`itemId` the child's id). One
+   `start` moves one phase: work->review (then `start` again after the review) or work->terminal,
+   as the child's schema dictates.
 3. **Do NOT push. Do NOT create a PR.** The work is committed to `feat/<feature-slug>`
    inside the shared worktree; that's the integration point.
 
 **When all children reach terminal**, the parent feature is ready to finalize:
 
 1. Fill the parent's `implementation-notes` and `session-tracking` notes (aggregating
-   across children — distributed-tracking pattern works as today).
+   across children  -  distributed-tracking pattern works as today; under the coordinator token
+   while the parent is a member of an open run; written once, in confirmed past tense).
 2. Run final verification from the feature worktree (incremental; this and Step 4c's run are
    the only whole-suite runs in the wave):
    ```bash
    ./gradlew -p <feature-worktree-path> :current:test
    ./gradlew -p <feature-worktree-path> :current:ktlintCheck
    ```
-3. Advance the parent to review. With 2 or more children, run the feature review of `run-wave`
-   `post-run.md` Step 7b: one independent `task-orchestrator:reviewer` (explicit `model`) over
-   `git -C <feature-worktree-path> diff <base>...HEAD`, handed each child's `review-checklist`;
-   the reviewer fills the parent's `review-checklist`, and the orchestrator records one line per
-   finding in the parent's `orchestrator-confirmation` (`fixed <sha|PR> | follow-up <item-id> |
-   accepted: <reason>`, ending `N of N disposed`). With one child, fill `review-checklist`
-   (orchestrator-authored, summarizing the child's review) as before.
+3. Advance the parent to review. The orchestrator never authors the parent's `review-checklist`,
+   whatever the child count. Run the feature review of `run-wave` `post-run.md` Step 7b: one
+   independent `task-orchestrator:reviewer` (explicit `model`) over
+   `git -C <feature-worktree-path> diff <base>...HEAD`, handed each child's `review-checklist`
+   if any; the reviewer fills the parent's `review-checklist`, and the orchestrator records one
+   line per finding in the parent's `orchestrator-confirmation` (`fixed <sha|PR> | follow-up
+   <item-id> | accepted: <reason>`, ending `N of N disposed`). With one child it is still one
+   independent reviewer over the feature range. See Step 5's consolidated-reviewer paragraph,
+   which never fills the parent note.
 4. **CHANGELOG check and Docs line** - as the Direct/Delegated tier's step 2: the bullet the
    orchestrator or docs seat wrote before review (Step 4c), or `Changelog: none (<why>)` in the PR
    body; the Docs line and the `CHANGELOG.md` requirement are built from
@@ -1137,10 +1150,12 @@ For Parallel-tier features with a shared feature worktree:
    whole-suite run per survivor, results recorded once on the parent's `red-proof-results` note.
    A real gap becomes a carry-in on the next item touching that seam or one test-only follow-up
    item, never a reopen. Background; it gates nothing.
-10. Retrospective — the plugin's retrospective hook fires on the parent's terminal transition.
-   In `dispatch` mode (see `retrospective.mode` in `.taskorchestrator/config.yaml`) it directs
-   a background `/session-retrospective` automatically — follow its directive; in `nudge` mode,
-   or if no directive arrives, suggest running it manually.
+10. Retrospective  -  the plugin's retrospective hook fires on a successful `runs_write` `close`
+   (or the Stop backstop for a closed run without the `retro` mark), never on a terminal
+   transition. In `dispatch` mode (`extensions.claude-code.retrospective.mode` in
+   `.taskorchestrator/config.yaml`) it directs a background `/session-retrospective`
+   automatically  -  follow its directive; in `nudge` mode, or for work finished outside a run
+   (no hook), run `/session-retrospective` by hand.
 
 ### Why one PR at parent finalization, not per child
 

@@ -73,7 +73,7 @@ Feature worktree: `<absolute path, e.g. D:\Projects\task-orchestrator\.claude\wo
 Write root: `<the feature worktree path above>` — every Write/Edit path starts with it. Main-checkout
 paths are off-limits (this contract and `plans/` are read-only inputs). Before your first commit, run
 `git -C <write root> status --short` AND `git -C <main-checkout> status --short` and report both in
-`session-tracking`; the main checkout must show nothing you wrote. File-edit method, only when
+`implementation-notes`; the main checkout must show nothing you wrote. File-edit method, only when
 Edit/Write is refused (the session-worktree guard): `.claude/skills/implement/references/patch-anchored.py`
 with a JSON edit spec, run with `DRY=1` first — its anchors follow the File ownership slot's
 exact-text-anchor rule. Never `sed -i`, and never build a path from an f-string or string
@@ -154,7 +154,7 @@ Run ONCE, via the lock helper, before committing:
   `<invocation> > "<scratchpad>\<name>.log" 2>&1; EXIT=$?` then read the log file.
 - `EXIT=0` → commit.
 - `EXIT≠0` and EVERY error names a file outside your owned list → record the foreign file(s) and
-  the error text under **Friction** in `session-tracking`, commit anyway, and return. Do **not**
+  the error text under **Friction** in `implementation-notes`, commit anyway, and return. Do **not**
   retry: the file belongs to another agent mid-flight and will change under you.
 - `EXIT≠0` with at least one error in a file you own → fix and re-run, **max 3 invocations
   total**. Still red on your own files: commit nothing, report the error verbatim, return.
@@ -225,8 +225,9 @@ harness: <fully-qualified src/test helper fn + file:line | NONE + the exact plug
 runtime call order: <MCP: the pinned sentence below | REST: the route's check order from the frozen error table>
 ```
 
-`readsExclude` keys (the queue-phase keys the author's `notes_read` calls are restricted to):
-`["task-scope","diagnosis","test-plan"]`.
+`keys=` allow-list for the author's `notes_read` calls (the queue-phase keys it may read):
+`["task-scope","diagnosis","test-plan"]`. The seat's `readsExclude` is the opposite list
+(`implementation-notes`, `session-tracking`).
 
 Seat token (test author): `<token file path from the dispatch, or "none (hand-dispatch outside a run)">`. A dispatch-issued token goes in the top-level `seatToken` of EVERY call this seat makes, reads included; it is never printed, committed, copied into a prompt or written to a note. A call answered `unauthenticated` means the seat was superseded or ended: halt and write nothing more. A hand-dispatch outside a run carries none.
 
@@ -260,13 +261,17 @@ Generated from the run plan (`stages[].notes` + `orchestratorNotes`).
 
 | Seat | Note keys it fills | maxLength |
 |---|---|---|
-| Implementer | `implementation-notes`, `session-tracking` | `<3000 / 2000>` |
+| Implementer | `implementation-notes` | `<3000>` |
 | Test author | `test-manifest` | `<3000>` |
 | Reviewer | `review-checklist`, `test-independence-audit` | `<1500 / …>` |
-| Orchestrator | `delegation-metadata` | `<…>` |
+| Orchestrator | `delegation-metadata`, `session-tracking` | `<... / 2000>` |
+
+On a run member the orchestrator writes `delegation-metadata` and `session-tracking` under the
+coordinator token, once, in confirmed past tense, copying the implementer's Friction lines into
+`session-tracking`; seats never write them.
 
 Take every limit and target from the item's RESOLVED schema (`items_read` `schema`,
-`itemId` — each entry's `maxLength` and guidance), not from this table and not
+`itemId`, `fields: ["guidance"]`  -  each entry's `maxLength` and guidance text), not from this table and not
 from memory. Where this table names a number, it is a convenience copy — the schema wins on conflict.
 
 `note_limits.mode` is `warn` unless the effective config (per-root or global) sets `reject`. Under `warn` an over-limit note is

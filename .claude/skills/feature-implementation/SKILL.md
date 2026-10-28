@@ -90,8 +90,10 @@ Confirm `newRole: "work"` in `data.results[0]` before dispatching implementation
 
 ### 2a. Materialize any child items
 
-If the feature has sub-tasks, create them now using `items_write` `create_tree` with the feature UUID
-as `parentId` and the `feature-task` type. Each child fills a `task-scope` queue note (the
+If the feature has sub-tasks, create them now using `items_write` `create_tree` in attach mode
+(`root: {id: <feature UUID>}` plus `children[]` of type `feature-task`), or one `items_write`
+`create` per child with `parentId` = the feature. Never pass the feature as the `create_tree`
+`parentId`. Each child fills a `task-scope` queue note (the
 full spec-quality disciplines — alternatives, non-goals, blast radius, risk flags, test
 strategy — apply there, not in the feature-level `feature-summary`). Dispatch
 implementation subagents with each child item UUID.
@@ -99,7 +101,8 @@ implementation subagents with each child item UUID.
 Each subagent must:
 - Call `advance` `transition` with `trigger: "start"` on their item to enter work phase (only the entry seat does; a hand-dispatch outside a run carries no seat token)
 - Fill work-phase notes following the JIT progression loop (the subagent-start hook
-  provides guidance via `guidanceKey` and `skillPointer`)
+  provides the first missing note's `guidanceKey` and `skillPointer`; read guidance text with
+  `items_read` `schema`, `fields: ["guidance"]`)
 - Return to the orchestrator — do NOT call `advance` again. The orchestrator
   handles all further transitions.
 
@@ -145,27 +148,24 @@ Confirm `newRole: "review"` in `data.results[0]`.
 
 ## Phase 3 — Review: Verify, Deploy, and Close
 
-**Goal:** Fill the required `review-checklist` note (per the review-quality skill), deploy
+**Goal:** Get the required `review-checklist` note filled by an independent reviewer, deploy
 and verify in the running MCP server, then close the item.
 
-### 3a. Fill `review-checklist`
+### 3a. Dispatch one independent reviewer that fills `review-checklist`
 
-Follow the `review-quality` skill's framework — plan alignment against `feature-summary`
-and each child's `task-scope`, test quality, and (if `/simplify` ran) test coverage of its
-changes.
-
-```to-call
-{"tool":"notes_write","op":"upsert","args":{"itemId":"4b7d0e19","key":"review-checklist","role":"review","body":"<content>"}}
-```
-
-**What to write:** A feature-level verdict aggregating across children — reference each
-child's own review-checklist if the `needs-task-review` trait produced one. See the
-review-quality skill for the full findings format and verdict types (Pass / Fail —
-blocking issues / Pass with observations).
+The orchestrator does not write `review-checklist`. Dispatch one independent
+`task-orchestrator:reviewer` (explicit `model`) over the feature range, handed each child's
+own `review-checklist` if the `needs-task-review` trait produced one. The reviewer follows
+the `review-quality` skill's framework - plan alignment against `feature-summary` and each
+child's `task-scope`, test quality, and (if `/simplify` ran) test coverage of its changes -
+and fills the feature's `review-checklist` with a feature-level verdict aggregating across
+children (see review-quality for the findings format and verdict types: Pass / Fail -
+blocking issues / Pass with observations). Record the orchestrator's dispositions in
+`orchestrator-confirmation`.
 
 ### 3b. Deploy to Docker (if needed)
 
-Run `/deploy_to_docker --current` to rebuild the image with the new code.
+Run `/deploy_to_docker` (Reuse/Reconfigure chooser) or `/deploy_to_docker --reuse` to rebuild the image with the new code.
 Reconnect MCP after deploy: `/mcp`.
 
 ### 3c. Smoke test the change
