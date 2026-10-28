@@ -1,6 +1,6 @@
 # Field guide
 
-Nine illustrated, partly interactive pages that teach MCP Task Orchestrator to an outside reader.
+Ten illustrated, partly interactive pages that teach MCP Task Orchestrator to an outside reader.
 Start at [index.html](index.html).
 
 | Plate | Page | Covers |
@@ -9,11 +9,12 @@ Start at [index.html](index.html).
 | 2 | [phase-gates.html](phase-gates.html) | Roles, triggers, a gate simulator, status labels, error handling |
 | 3 | [work-graph.html](work-graph.html) | Hierarchy, dependencies and cascades |
 | 4 | [schemas-and-traits.html](schemas-and-traits.html) | Schema and trait resolution, note limits, resource leases, config layers |
-| 5 | [runtime-map.html](runtime-map.html) | Server layers, deployment, REST API, plugin, claims, identity |
+| 5 | [runtime-map.html](runtime-map.html) | Server layers, tool profiles, deployment, REST API, plugin, claims, identity |
 | 6 | [seats.html](seats.html) | Seats inside a phase and the independence check |
 | 7 | [finding-work.html](finding-work.html) | The read calls, next-item ranking, project scope |
-| 8 | [orchestrating-a-run.html](orchestrating-a-run.html) | Tiers, the plan pipeline, run-wave, rules, ralph |
-| 9 | [improvement-loop.html](improvement-loop.html) | Observations, retrospectives, trends, proposals |
+| 8 | [runs-and-decisions.html](runs-and-decisions.html) | Server runs, seat tokens, run limits, decisions, director mode |
+| 9 | [orchestrating-a-run.html](orchestrating-a-run.html) | Tiers, the plan pipeline, run-wave, rules, ralph |
+| 10 | [improvement-loop.html](improvement-loop.html) | Observations, retrospectives, trends, proposals |
 
 ## Editing
 
