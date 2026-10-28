@@ -23,10 +23,11 @@ import {
   writeSessionState,
   evaluateRuns,
   directiveFor,
+  directorConfig,
   debugCapture,
 } from './retro-lib.mjs';
 import { locateConfig } from './config-locator.mjs';
-import { isHeadlessIteration, isSubagentInvocation } from './execution-mode.mjs';
+import { isDirectorSession, isHeadlessIteration, isSubagentInvocation } from './execution-mode.mjs';
 
 const MAX_RECORDED = 50;
 
@@ -72,7 +73,10 @@ try {
   if (!/(^|__)runs_write$/.test(toolName)) emitEmpty();
 
   const located = locateConfig();
-  const config = parseRetrospectiveConfig(located.text);
+  // A director session is always treated as dispatch mode (directorConfig).
+  const director = isDirectorSession(hookInput);
+  const parsedConfig = parseRetrospectiveConfig(located.text);
+  const config = director ? directorConfig(parsedConfig) : parsedConfig;
   if (config.mode === 'off') emitEmpty();
 
   const closes = successfulCloses(hookInput.tool_input, hookInput.tool_response);
@@ -92,7 +96,7 @@ try {
   }
 
   const result = await evaluateRuns({ rootId, config, state });
-  const text = directiveFor(result, located);
+  const text = directiveFor(result, located, { director });
   if (result.nudge.length > 0) writeSessionState(sessionId, state);
   if (text) emitContext(text);
   emitEmpty();

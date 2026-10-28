@@ -8,7 +8,9 @@
 //    a decision but fires nothing, so this is the only push. Pushed ids are kept in the state file.
 // 2. Run-ended retrospective. A `runs_read` `get` result (the run view) for a run whose status is
 //    `closed` (idle or paused is not done) and that carries no `retro` mark yields the
-//    retrospective nudge or dispatch directive from retro-lib, once per run per session. When the
+//    retrospective dispatch directive from retro-lib, once per run per session: a director session
+//    is always treated as dispatch mode (`nudge` included; `off` stays silent), because the director
+//    must never run a retrospective in its own context. When the
 //    REST path is configured (restRootId non-null) retro-trigger / retro-backstop own the mark and
 //    the dispatch, so this hook stays silent.
 //
@@ -23,7 +25,7 @@ import { parseToolResult } from './lib/envelope.mjs';
 import { sessionMarkerPath, readMarker, writeMarker } from './lib/markers.mjs';
 import { isDirectorSession, isHeadlessIteration, isSubagentInvocation } from './execution-mode.mjs';
 import { locateConfig } from './config-locator.mjs';
-import { parseRetrospectiveConfig, restRootId, dispatchAncestorId, buildNudge, buildDispatch } from './retro-lib.mjs';
+import { parseRetrospectiveConfig, restRootId, dispatchAncestorId, buildDispatch } from './retro-lib.mjs';
 
 /** Per-session marker name of the watch state `{pushed: decisionId[], retro: runId[]}`. */
 export const WATCH_STATE_NAME = 'director-watch';
@@ -81,10 +83,8 @@ function runEndedOutput(data, toolInput, state, statePath, opts) {
   if (rest !== null && rest !== undefined) return {};
   if (state.retro.includes(runId)) return {};
   const mode = typeof opts.retroMode === 'string' ? opts.retroMode : parseRetrospectiveConfig(locate().text).mode;
-  let text;
-  if (mode === 'nudge') text = buildNudge([runId]);
-  else if (mode === 'dispatch') text = buildDispatch([runId], dispatchAncestorId(locate()));
-  else return {};
+  if (mode !== 'nudge' && mode !== 'dispatch') return {};
+  const text = buildDispatch([runId], dispatchAncestorId(locate()));
   state.retro.push(runId);
   writeState(statePath, state);
   return contextOutput('PostToolUse', text);

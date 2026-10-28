@@ -27,6 +27,7 @@ import {
   wrapResponse,
   runHook,
   makeSandbox,
+  markDirector,
 } from './retro-fake-runs.mjs';
 
 const sid = (p) => `${p}-${randomUUID()}`;
@@ -547,4 +548,39 @@ test('AC2: hooks-config.json registers retro-trigger on the runs_write matcher o
   };
   walk(cfgJson);
   assert.deepEqual(found, ['^mcp__.*task-orchestrator.*__runs_write$']);
+});
+
+// ---- director session: always dispatch mode -----------------------------------------------------
+
+test('director: mode nudge in a director session dispatches and marks a run at the threshold', async () => {
+  await withFixture({ config: cfg('nudge', 3), runs: [runFixture(1, { terminal: 3 })] }, async ({ sbx, trigger, fake }) => {
+    const session = sid('dir-nudge');
+    markDirector(sbx, session);
+    const text = contextOf(await trigger(closePayload(session, rid(1))));
+    assert.ok(text?.includes(DISPATCH), text);
+    assert.ok(!text.includes(NUDGE), text);
+    assert.equal(fake.marks.length, 1);
+  });
+});
+
+test('director: a below-threshold run is dispatched, never nudged; the same input without the marker nudges', async () => {
+  await withFixture({ config: cfg('dispatch', 3), runs: [runFixture(1, { terminal: 1 })] }, async ({ sbx, trigger }) => {
+    const session = sid('dir-low');
+    markDirector(sbx, session);
+    const text = contextOf(await trigger(closePayload(session, rid(1))));
+    assert.ok(text?.includes(DISPATCH) && text.includes(`--run ${rid(1)}`), text);
+    assert.ok(!text.includes(NUDGE), text);
+  });
+  await withFixture({ config: cfg('dispatch', 3), runs: [runFixture(1, { terminal: 1 })] }, async ({ trigger }) => {
+    const text = contextOf(await trigger(closePayload(sid('dir-ctl'), rid(1))));
+    assert.ok(text?.includes(NUDGE), text);
+  });
+});
+
+test('director: mode off stays off in a director session', async () => {
+  await withFixture({ config: cfg('off'), runs: [runFixture(1, { terminal: 3 })] }, async ({ sbx, trigger, fake }) => {
+    const session = sid('dir-off');
+    markDirector(sbx, session);
+    assertSilent(await trigger(closePayload(session, rid(1))), fake);
+  });
 });

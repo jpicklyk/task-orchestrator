@@ -52,7 +52,7 @@ test('S12 O3: to-call blocks parse, use the director profile and validate', () =
     assert.deepEqual(checkToCall(b.value, CATALOG), [], 'block at line ' + b.line + ' catalog check');
     pairs.add(b.value.tool + ' ' + (b.value.select || b.value.op));
   }
-  for (const p of ['runs_read list', 'runs_read frontier', 'runs_read decisions', 'report rollup', 'items_read overview', 'runs_write answer', 'runs_write withdraw']) {
+  for (const p of ['runs_read list', 'runs_read frontier', 'runs_read decisions', 'report rollup', 'items_read blocked', 'items_read overview', 'runs_write answer', 'runs_write withdraw']) {
     assert.ok(pairs.has(p), 'missing to-call block: ' + p);
   }
   const list = blocks.find((b) => b.value.tool === 'runs_read' && b.value.select === 'list');
@@ -61,7 +61,8 @@ test('S12 O3: to-call blocks parse, use the director profile and validate', () =
 });
 
 test('S12 O4: dashboard content', () => {
-  has(SKILL, 'blockedByReason');
+  has(SKILL, 'blockType');
+  has(SKILL, 'blockers[]');
   has(SKILL, 'decisions');
   has(SKILL, 'status filter');
 });

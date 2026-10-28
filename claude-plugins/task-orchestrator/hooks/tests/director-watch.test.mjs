@@ -219,11 +219,12 @@ test('S12: when the REST path is available (rest set) the hook yields {} for a c
   assert.ok(ctxOf(await run(input, {}, opts({ rest: null }))).includes('run-1'), 'control: with rest null the same input dispatches')
 })
 
-test('S12: retro mode off yields {}; nudge mode emits the suggestion text instead of a dispatch', async () => {
+test('S12: retro mode off yields {}; nudge mode is treated as dispatch in a director session', async () => {
   const input = () => getInput(sid('s12mode'), 'run-1', { status: 'closed', marks: {} })
   assert.deepEqual(await run(input(), {}, opts({ retroMode: 'off' })), {})
   const nudge = ctxOf(await run(input(), {}, opts({ retroMode: 'nudge' })))
-  assert.ok(nudge.includes('Retrospective suggested'), nudge)
+  assert.ok(nudge.includes('Retrospective dispatch'), nudge)
+  assert.ok(!nudge.includes('Retrospective suggested'), nudge)
   assert.ok(nudge.includes('run-1'), nudge)
   const dispatch = ctxOf(await run(input(), {}, opts({ retroMode: 'dispatch' })))
   assert.ok(!dispatch.includes('Retrospective suggested'), dispatch)

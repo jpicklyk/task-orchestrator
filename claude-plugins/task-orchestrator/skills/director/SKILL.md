@@ -28,7 +28,7 @@ Calling the skill again while in director mode refreshes the marker and the dash
   denied.
 - Never read a note body, with two exceptions: a decision request (`runs_read` `decision`) and a
   run rollup (`report` `rollup`).
-- `Bash` runs only `git status`, `git log`, `git branch`, `gh pr view`, `gh pr list` and
+- `Bash` (absent from the hardened entry's tool list) runs only `git status`, `git log`, `git branch`, `gh pr view`, `gh pr list` and
   `docker ps`, one command per segment, with no redirection (`<`, `>`), no substitution (backtick,
   `$`), no braces, globs or backslashes, and nothing chained after a command outside that list.
   `git log`, `git status` and `git branch` take only listing flags (a flag allow-list): `git log`
@@ -54,9 +54,9 @@ This is the whole tool budget of a director session:
 | Tool | Use |
 |------|-----|
 | `runs_read` | Runs, frontier, decisions, one decision request |
-| `runs_write` | `answer` and `ack` on decisions; `withdraw` only a decision this principal raised without a seat |
+| `runs_write` | `answer` and `ack` on decisions; `withdraw` only a decision this principal raised without a seat; `pause`, `resume` and `close` on a run (below) |
 | `report` | `rollup` per run; `usage`, `gates`, `contention`, `waste` on request |
-| `items_read` | `overview` of the project, for blocked work |
+| `items_read` | `blocked` under the project root, for blocked work; `overview` for counts |
 | `deps_read` | Dependency `list` / `graph` when a blocker needs explaining |
 | `Agent` | Background only (`run_in_background: true`), with `model` set |
 | `SendMessage`, `ListAgents` | Talk to coordinators and other sessions |
@@ -64,7 +64,13 @@ This is the whole tool budget of a director session:
 | `PushNotification` | Tell the user a decision is waiting when they are away |
 
 The five MCP tools come from the director connection. Anything else (notes, items writes,
-`advance`, config) is a coordinator's job.
+`advance`, config, and `runs_write` `open`) is a coordinator's job.
+
+Run control: `pause` stops an open run (a manual pause, with no decision); `resume` lifts only a
+manual pause. A run paused on a `run-budget` or `attempt-cap` decision is lifted only by answering
+that decision (`extend`, `allow_one`, `skip_item`) or by `close`; `resume` on it answers
+`invalid_run_state`. `close` ends a run whatever its pause; a `completed` close is refused while a
+seat is still active, and a close leaves open decisions open (its result lists `openDecisions`).
 
 ## Connection check
 
@@ -73,8 +79,10 @@ the orchestration one. Its tools appear as `mcp__mcp-task-orchestrator-director_
 on. Confirm they are in your tool list; do not edit `.mcp.json` from here.
 
 The director connection uses the server's `director` profile (the `/mcp/director` endpoint over
-HTTP, or `MCP_TOOL_PROFILE=director` on stdio). That profile has no note-body read at all, so the
-server enforces the rule for MCP even when the hook cannot see the call.
+HTTP, or `MCP_TOOL_PROFILE=director` on stdio). That profile has no note-body read at all, so on
+that connection the server enforces the rule. In a normal session the orchestration connection
+stays registered, and nothing enforces the rule there: the guard sees no MCP call. Use the hardened
+entry (below) when enforcement matters.
 
 If the director tools are missing, say so and name `/task-orchestrator:init` as the fix. Until
 then the director-only members are unavailable on the orchestration connection: `runs_read`
@@ -95,14 +103,17 @@ Run these in order and render one compact board. Every call below uses the direc
 No open run: say so in one line, show the decision list (step 3 without `runId`) and the blocked
 work (step 5), and stop.
 
-2. For each open run, its frontier (ready, running and waiting seats):
+2. For each open run, its frontier: `ready` and `waiting` items, and the `inFlight` seats (each
+with `stalled`):
 
 ```to-call
 {"tool": "runs_read", "select": "frontier", "args": {"runId": "7c41e0a2"}, "profile": "director"}
 ```
 
 3. Decisions per run. The select has no status filter: keep the summaries whose `status` is `open` or `acknowledged`
-and drop the others yourself. `overdue: true` narrows to the late ones.
+and drop the others yourself. `overdue: true` narrows to the late ones. A summary carries `class`,
+`effectiveSeverity`, `overdue` and the `question` (cut to 120 characters), never the options: those
+come from the `decision` read when you answer.
 
 ```to-call
 {"tool": "runs_read", "select": "decisions", "args": {"runId": "7c41e0a2", "limit": 50}, "profile": "director"}
@@ -114,8 +125,15 @@ and drop the others yourself. `overdue: true` narrows to the late ones.
 {"tool": "report", "select": "rollup", "args": {"runId": "7c41e0a2"}, "profile": "director"}
 ```
 
-5. Blocked work under the project root. Read each blocked item's `blockedByReason`; do not open
-the item's notes:
+5. Blocked work under the project root. Each entry carries `blockType`, `reason`, `decisionId`,
+`resumable` and `blockers[]` (`id`, `title`, `role`, `satisfied`); do not open the item's notes:
+
+```to-call
+{"tool": "items_read", "select": "blocked", "args": {"ancestorId": "ce064d2c"}, "profile": "director"}
+```
+
+For per-subtree counts only, `items_read` `overview` gives `blockedByReason`: a count of BLOCKED
+descendants per reason (for example `{dependency: 1}`), never a per-item reason or blocker id:
 
 ```to-call
 {"tool": "items_read", "select": "overview", "args": {"anchorId": "ce064d2c", "excludeTerminal": true}, "profile": "director"}
@@ -126,10 +144,10 @@ Render, most urgent first:
 ```
 ## Director board
 Decisions waiting: 2 (1 overdue)
-  [d-3f2a] run 7c41 "Approve schema change?" options: approve | reject   OVERDUE
-  [d-91bc] run 7c41 "Pick retry strategy"     options: a | b
+  [d-3f2a] run 7c41 gate high    "Approve schema change?"   OVERDUE
+  [d-91bc] run 7c41 deviation low "Pick retry strategy"
 Runs: 1 open
-  7c41 "W8 plugin"  ready 3  running 2  waiting 1   spend 1.2M tok   stalled 0
+  7c41 "W8 plugin"  ready 3  inFlight 2  waiting 1   spend 1.2M tok   stalled 0
 Blocked: 1
   8aee "Director skill" blocked by dependency 4440ff65
 Coordinator tier: 2 (Workflow)
@@ -154,8 +172,14 @@ user's rationale:
 ```
 
 `text` carries a free-form answer and `amount` a numeric one, when the decision asks for them.
-Answering needs the `decide` capability on the director credential; `forbidden` means it is
-missing, and a `human-only` decision needs a credential of kind `human`. Say which, and stop.
+On `forbidden`, read `error.detail.scope` and `required`, say which, and stop:
+
+- `scope: "capability"`, `required: "decide"`: the director credential lacks the `decide`
+  capability.
+- `scope: "principal_kind"`, `required: "human"`: a `human-only` decision; it needs a credential
+  of kind `human`.
+- `scope: "principal_kind"`, `required: "director,human"`: the call did not arrive through the
+  director profile without a seat token (wrong connection, or a `seatToken` on the call).
 
 Withdraw a decision the run no longer needs (for example the user cancelled that work):
 
@@ -170,8 +194,10 @@ For a seat's decision, `SendMessage` the run's coordinator to withdraw it, or an
 
 ## Coordinator tier
 
-Probe once per entry, by looking at your own tool list (no calls), and state the result as one
-board line. The tier says where coordinators run; it does not launch one.
+Probe once per entry and state the result as one board line. The tier says where coordinators
+run; it does not launch one. Tiers 1 and 2 show in your own tool list (no calls). Tier 3 needs the
+`claude` CLI on the host, which no tool list shows: ask the user, or dispatch one background agent
+to run `claude --version` and report. The hardened entry has no shell, so that is its only way.
 
 | Tier | Present | Meaning |
 |------|---------|---------|
@@ -202,8 +228,10 @@ after idle), read the run that woke you:
 and the run's decisions (Dashboard step 3). Do not decide on your own whether to push or run a
 retrospective: the plugin's `director-watch` hook reads those results and tells you. A
 `Decision waiting:` directive means call `PushNotification` once for the ids it names; a
-retrospective directive (only for a `closed` run, since an idle run is not done) means nudge or
-dispatch exactly as it says. Each fires once per decision or run per session.
+retrospective directive (only for a `closed` run, since an idle run is not done) is always the
+dispatch form in a director session, whatever `retrospective.mode` says (`off` still sends none):
+dispatch the one background agent it names. Never run `/session-retrospective` in this session;
+it reads note bodies. Each fires once per decision or run per session.
 
 ## Hardened entry
 

@@ -17,6 +17,7 @@ import {
   listTree,
   runHook,
   makeSandbox,
+  markDirector,
 } from './retro-fake-runs.mjs';
 
 const sid = (p) => `${p}-${randomUUID()}`;
@@ -294,3 +295,22 @@ for (const failure of ['http500', 'badjson', 'hang']) {
     });
   });
 }
+
+// ---- director session: always dispatch mode -----------------------------------------------------
+
+test('director: no API URL, a recorded close blocks with the dispatch directive, not the nudge', async () => {
+  await withFixture({ config: cfg('nudge'), runs: [] }, async ({ sbx, trigger, stop }) => {
+    const session = sid('dir-norest');
+    markDirector(sbx, session);
+    await trigger(closePayload(session, rid(1)), { apiUrl: undefined });
+    assertBlock(await stop(stopPayload(session), { apiUrl: undefined }), [DISPATCH, `--run ${rid(1)}`], [NUDGE]);
+  });
+});
+
+test('director: REST path, a below-threshold run blocks with the dispatch directive', async () => {
+  await withFixture({ config: cfg('dispatch', 3), runs: [runFixture(1, { terminal: 1 })] }, async ({ sbx, stop }) => {
+    const session = sid('dir-rest');
+    markDirector(sbx, session);
+    assertBlock(await stop(stopPayload(session)), [DISPATCH, `--run ${rid(1)}`], [NUDGE]);
+  });
+});

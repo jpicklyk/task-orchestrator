@@ -201,8 +201,23 @@ export async function evaluateRuns({ rootId, config, state }) {
   return out;
 }
 
-/** Directive text for an evaluateRuns result, or null when nothing is eligible. */
-export function directiveFor(result, located) {
+/**
+ * A director session never runs a retrospective in its own context (its altitude rule forbids note-body
+ * reads), so it is always treated as dispatch mode: `nudge` becomes `dispatch`; `off` stays off.
+ */
+export function directorConfig(config) {
+  return config.mode === 'nudge' ? { ...config, mode: 'dispatch' } : config;
+}
+
+/**
+ * Directive text for an evaluateRuns result, or null when nothing is eligible. With `director`, every
+ * eligible run (won or nudged) is named in one dispatch directive and nothing is nudged.
+ */
+export function directiveFor(result, located, { director = false } = {}) {
+  if (director) {
+    const runs = [...result.won, ...result.nudge];
+    return runs.length > 0 ? buildDispatch(runs, dispatchAncestorId(located)) : null;
+  }
   if (result.won.length > 0) return buildDispatch(result.won, dispatchAncestorId(located));
   if (result.nudge.length > 0) return buildNudge(result.nudge);
   return null;
