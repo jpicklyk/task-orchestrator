@@ -280,8 +280,27 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
     </div>
     <div class="panel">
       <h3>The altitude rule</h3>
-      <p class="small">While the mode is on, a guard hook denies file reads and edits, foreground agent dispatch, and any shell command outside a short read-only list. The only bodies the director reads are one decision request and one run rollup. A denied call is delegated to a background agent or sent to a coordinator, not retried another way.</p>
+      <p class="small">While the mode is on, a guard hook denies file reads and edits, foreground agent dispatch, and any shell command outside a short read-only list. The only bodies the director may read are one decision request and one run rollup. A denied call is delegated to a background agent or sent to a coordinator, not retried another way.</p>
+      <p class="small">The guard sees no MCP call. The director connection enforces the rule on the server, because it has no note-body read at all. In a normal session the orchestration connection stays registered, and nothing stops a note read there. Use the hardened entry when enforcement matters.</p>
     </div>
+  </div>
+  <h3>The board</h3>
+  <p class="sub small">The skill reads, in order: the open runs (<code>runs_read</code> <code>list</code>), then for each run its <code>frontier</code>, its <code>decisions</code> and its <code>report</code> <code>rollup</code>, then the blocked work under the project root (<code>items_read</code> <code>blocked</code>). The <code>decisions</code> select has no status filter, so the director keeps the <code>open</code> and <code>acknowledged</code> ones itself. A summary carries the effective severity (one step higher once overdue), the question cut to 120 characters, and never the options; the <code>decision</code> read brings those when the director answers. The board shows the most urgent first, then the director asks which decision to take.</p>
+  <pre>## Director board
+Decisions waiting: 2 (1 overdue)
+  [d-3f2a] run 7c41 deviation high
+           "Keep the old API shape?"  OVERDUE
+  [d-91bc] run 7c41 question low
+           "Pick a retry strategy"
+Runs: 1 open
+  7c41 "W8 plugin"  ready 3  inFlight 2
+       waiting 1  spend 1.2M tok  stalled 0
+Blocked: 1
+  8aee blocked by dependency 4440ff65
+Coordinator tier: 2 (Workflow)</pre>
+  <div class="grid2">
+    <div class="rule"><h3>Answering</h3><p class="small">The director shows the question and its options and asks the user; it never answers for them unless told how to answer that class. A <code>forbidden</code> answer names the cause in <code>detail.scope</code> and <code>required</code>: <code>capability</code> and <code>decide</code> (the credential lacks the capability), <code>principal_kind</code> and <code>human</code> (a human-only class), or <code>principal_kind</code> and <code>director,human</code> (the call did not come through the director profile without a seat token).</p></div>
+    <div class="rule"><h3>Waking up</h3><p class="small">On a coordinator's message, a task notification or the user's return, the director reads that run and its decisions. It does not decide by itself when to notify or start a retrospective: the <code>director-watch</code> hook tells it, once per decision or run.</p></div>
   </div>
   <div class="tscroll"><table>
     <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
@@ -289,10 +308,21 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
       <tr><td><code>director-guard</code></td><td>Writes a per-session marker when the skill is invoked and enforces the altitude rule under it. Subagents and headless iterations are exempt. It fails closed.</td></tr>
       <tr><td><code>director-context</code></td><td>Re-states the rule after a compaction, so a long session keeps it.</td></tr>
       <tr><td><code>director-watch</code></td><td>After a <code>runs_read</code>, tells the director to push one notification naming all the new open decision ids, each pushed once, and to start the retrospective once for a closed run that is not yet marked (silent under REST).</td></tr>
-      <tr><td><code>agents/director.md</code></td><td>A hardened entry for <code>claude --agent director</code>. Its tool list holds the five director tools and no file or shell access, so the rule is enforced by what is missing.</td></tr>
+      <tr><td><code>agents/director.md</code></td><td>A hardened entry for <code>claude --agent director</code>. Its tool list holds the five director tools and no file or shell access, so the rule is enforced by what is missing. It has neither <code>Workflow</code> nor <code>start_session</code>, so it reaches only tiers 3 and 4 below.</td></tr>
     </tbody>
   </table></div>
-  <p class="sub small">The director never runs a wave itself. A coordinator does, on one of four tiers that depend on what the session can launch; the tiers are in the skill's <a href="https://github.com/jpicklyk/task-orchestrator/blob/main/claude-plugins/task-orchestrator/skills/director/references/coordinator-tiers.md">coordinator tiers</a> reference.</p>
+  <h3>Coordinator tiers</h3>
+  <p class="sub small">The director never runs a wave itself. A coordinator plans the run, makes or receives its seat calls, runs post-run and reports a short summary. Where the coordinator lives depends on what the session can launch. The director probes once per entry and shows the tier as one board line. Tiers 1 and 2 show in its own tool list; for tier 3 it asks the user, or has a background agent run <code>claude --version</code>.</p>
+  <div class="tscroll"><table>
+    <thead><tr><th>Tier</th><th>Needs</th><th>Where the coordinator runs</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>start_session</code> and <code>SendMessage</code></td><td>A separate desktop session, reached with <code>SendMessage</code>. Cross-session inbound messages must be set to accept, or a report can be lost.</td></tr>
+      <tr><td>2</td><td><code>Workflow</code></td><td>A background coordinator agent plans the run (run-wave Steps 0 to 5a, altitude-safe) and keeps the coordinator token. The director makes the one <code>implement-wave</code> call, whose result holds counts, statuses, SHAs, file lists and note keys, with reasons cut short and no other seat prose, then messages the coordinator to run post-run.</td></tr>
+      <tr><td>3</td><td>The <code>claude</code> CLI on the host</td><td>A headless <code>claude -p</code> process that a background agent starts with <code>--allowedTools Workflow</code> and <code>--max-budget-usd</code>, the only configured hard stop. Never <code>--bare</code>, which cannot receive messages.</td></tr>
+      <tr><td>4</td><td>None of these</td><td>No coordinator. The run executes in the director session, which breaks the altitude rule, and the director warns once.</td></tr>
+    </tbody>
+  </table></div>
+  <p class="sub small">Tiers 1 and 2 need the skill entered in a normal session. A run of one or two items skips the coordinator layer at any tier and goes to one background agent. Tier 2 makes one call per run, so decisions land between runs. The launch details are in the skill's <a href="https://github.com/jpicklyk/task-orchestrator/blob/main/claude-plugins/task-orchestrator/skills/director/references/coordinator-tiers.md">coordinator tiers</a> reference.</p>
 </section>
 
 <footer style="display:grid;gap:14px"><nav class="series-nav" aria-label="Field guide plates">
