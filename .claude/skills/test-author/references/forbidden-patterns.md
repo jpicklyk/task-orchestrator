@@ -9,6 +9,8 @@ looks like this, not just recognizing the pattern's name.
 All examples are Kotlin/JUnit5, matching this codebase's test conventions
 (`current/src/test/kotlin/...`).
 
+The tool classes and shapes in these examples are illustrative 3.x idioms and do not compile in 4.0; use the declarations block for the real signatures.
+
 ---
 
 ## 1. `assumeTrue` on Non-Platform Conditions

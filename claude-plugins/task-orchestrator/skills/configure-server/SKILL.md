@@ -42,7 +42,7 @@ AskUserQuestion(questions: [{
 ```
 
 **Recommended default** → skip straight to Step 5 (Render — HTTP) with: REST = unauthenticated,
-config mount = none, debug = off. **Customize** → Step 2.
+config mount = process-schema floor, debug = off. **Customize** → Step 2.
 
 Why this is the default: it is the majority deployment shape for a single developer who wants
 `config-sync` (per-project config that hot-reloads without a restart) to just work across every
@@ -103,13 +103,19 @@ AskUserQuestion(questions: [{
 
 ```
 AskUserQuestion(questions: [{
-  question: "Mount this project's config as the server's global/fallback config?", header: "Config mount", multiSelect: false,
+  question: "Mount the process-schema floor as the server's global config?", header: "Config mount", multiSelect: false,
   options: [
-    { label: "This project (fallback)", description: "Mount ./.taskorchestrator read-only as AGENT_CONFIG_DIR — good for a single-project server." },
-    { label: "None (multi-project)", description: "No mount. Per-project config flows in via config-sync into the DB per root — good for one server shared across projects." }
+    { label: "Process-schema floor (Recommended)", description: "Mount the floor config read-only as AGENT_CONFIG_DIR: the shared process schemas (project anchor, observations, retrospectives, proposals, containers). Per-project config still flows in via config-sync per root." },
+    { label: "None", description: "No mount. Warning: with no server config a depth-0 create (and any root with no config of its own) accepts every type schema-free, so a project anchor can auto-complete and retrospective/proposal items have no required notes." }
   ]
 }])
 ```
+
+Do not offer to mount a project's own `.taskorchestrator` as a fallback: a mounted file that carries
+`project.rootId` is imported into that root, not the server scope, and fails startup when the
+database lacks that root. Project config reaches the server through config-sync, never the mount.
+
+The floor directory (`<FLOOR_DIR>`) is resolved in Step 5 (it is needed on every path that mounts the floor, including the recommended default).
 
 Then ask Yes/No for debug logging (`LOG_LEVEL=DEBUG` + `DATABASE_SHOW_SQL=true`).
 
@@ -118,6 +124,20 @@ Then ask Yes/No for debug logging (`LOG_LEVEL=DEBUG` + `DATABASE_SHOW_SQL=true`)
 ## Step 5 — Render
 
 Look up the exact fragments in `references/runtime-config.md` — do not improvise env values.
+
+**Resolve `<FLOOR_DIR>` first** whenever the floor is mounted (the recommended default, a Step 4 "Process-schema floor" answer, or STDIO). It is `<checkout>/deploy/global-config/.taskorchestrator` in a source
+checkout. Otherwise it is a host directory the user downloads the file into (the image bakes no
+config); render the command for them, for example:
+
+```
+mkdir -p <FLOOR_DIR> && curl -fsSL -o <FLOOR_DIR>/config.yaml https://raw.githubusercontent.com/jpicklyk/task-orchestrator/main/deploy/global-config/.taskorchestrator/config.yaml
+```
+
+On Windows (PowerShell):
+
+```
+New-Item -ItemType Directory -Force <FLOOR_DIR>; Invoke-WebRequest -Uri https://raw.githubusercontent.com/jpicklyk/task-orchestrator/main/deploy/global-config/.taskorchestrator/config.yaml -OutFile <FLOOR_DIR>/config.yaml
+```
 
 ### STDIO
 
@@ -134,7 +154,7 @@ Render the `.mcp.json` **args array** shape (see reference doc, "`.mcp.json` sha
 }
 ```
 
-Add the config-mount fragment (as `args` entries, not env flags) if the user wants a project mount.
+Add the floor config-mount fragment (as `args` entries, not env flags: `"-v", "<FLOOR_DIR>:/project/.taskorchestrator:ro", "-e", "AGENT_CONFIG_DIR=/project"`) by default (Step 4's config-mount question is HTTP only and is not asked here); leave it out only if the user asks for no mount.
 No REST, no port, no config-sync — say so.
 
 ### HTTP — three coordinated pieces (all required, this is the default path now)
@@ -145,13 +165,14 @@ No REST, no port, no config-sync — say so.
    ```
    docker run -d --name mcp-task-orchestrator-http --restart unless-stopped \
      -v mcp-task-data:/app/data \
+     -v "<FLOOR_DIR>:/project/.taskorchestrator:ro" -e AGENT_CONFIG_DIR=/project \
      -e MCP_TRANSPORT=http -e API_ENABLED=true -e API_AUTH_MODE=none -e API_ALLOW_UNAUTHENTICATED=true \
      -p 127.0.0.1:3001:3001 \
      ghcr.io/jpicklyk/task-orchestrator:latest
    ```
 
-   (Substitute the REST-off or bearer fragment, and add the config-mount / debug fragments, per the
-   user's Step 3-4 answers.) On Windows, run this via **PowerShell** with `${PWD}` for volume paths —
+   (Substitute the REST-off or bearer fragment per the user's Step 3 answer, drop the config-mount
+   line (`-v "<FLOOR_DIR>..."` and `-e AGENT_CONFIG_DIR`) when the user chose None in Step 4, and add the debug fragment when they chose it.) On Windows, run this via **PowerShell** with `${PWD}` for volume paths —
    see "Windows / MSYS path caveat" in the reference doc.
 
 2. **The `.mcp.json` HTTP entry** (NOT an args array):

@@ -15,4 +15,4 @@ Config: <DIR>/.taskorchestrator/config.yaml
 
 ## Config Shape
 
-The top-level `orchestration:` and `retrospective:` sections are ignored in <DIR>/.taskorchestrator/config.yaml: move them under `extensions.claude-code`.
+The top-level `orchestration:` and `retrospective:` sections are ignored by the plugin and rejected by the server, so config-sync cannot push <DIR>/.taskorchestrator/config.yaml: move `orchestration:` and `retrospective:` under `extensions.claude-code`.

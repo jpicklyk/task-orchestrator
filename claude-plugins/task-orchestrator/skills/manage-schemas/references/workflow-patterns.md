@@ -141,6 +141,7 @@ traits:
         role: work
         required: false
         description: "Model, isolation, rationale, outcome per dispatch — orchestrator-filled after the subagent returns."
+  # Both traits below declare resources: every resource key must be in the server resources: registry.
   needs-staging-slot:           # exclusive lease — leaf task types only
     resources:
       - key: staging-env

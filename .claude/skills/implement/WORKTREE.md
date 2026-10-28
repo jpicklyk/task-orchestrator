@@ -59,7 +59,7 @@ Agent(
 )
 ```
 
-See `SKILL.md:529-539`, "When dispatching an item's phase owner" — the full model/agent
+See SKILL.md Step 4, the paragraph beginning "When dispatching an item's phase owner" - the full model/agent
 resolution order this line follows.
 
 **Parallel dispatch:** when children touch non-overlapping files, dispatch in parallel
@@ -157,10 +157,12 @@ Step 5 of `/implement` for the agent template.
 When all children reach terminal:
 
 1. Final test + ktlint pass on the feature worktree.
-2. Fill parent feature's notes (implementation-notes, session-tracking). With 2+ children the
-   feature reviewer fills `review-checklist` (`run-wave` `post-run.md` Step 7b) and the
-   orchestrator records the dispositions in `orchestrator-confirmation`; with one child the
-   orchestrator fills `review-checklist`.
+2. Fill parent feature's notes (implementation-notes, session-tracking). The orchestrator never
+   authors the parent `review-checklist`, whatever the child count: one independent
+   `task-orchestrator:reviewer` (explicit `model`) over the feature range fills it (with 2+
+   children per `run-wave` `post-run.md` Step 7b; with one child Step 7b does not apply, so
+   `/implement` Step 6 states the rule, handing the reviewer that child's `review-checklist` if
+   any) and the orchestrator records the dispositions in `orchestrator-confirmation`.
 3. Confirm the `CHANGELOG.md` `[Unreleased]` bullet written before review exists, or that the PR
    body states `Changelog: none (<why>)` (`/implement` Step 4c and Step 6).
 4. Push `<FEATURE_BRANCH>` and open one PR.

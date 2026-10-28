@@ -42,7 +42,7 @@ If no UUID, create the item:
 Note the UUID, then read the schema decoration for it (a create does not return `expectedNotes`):
 
 ```to-call
-{"tool": "items_read", "select": "schema", "args": {"itemId": "<uuid>"}}
+{"tool": "items_read", "select": "schema", "args": {"itemId": "<uuid>", "fields": ["guidance"]}}
 ```
 
 Confirm with `items_read` `context` that `item.role` is `queue` (the schema view has no role), then continue to Phase 1.

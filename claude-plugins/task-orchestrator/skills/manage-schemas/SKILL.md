@@ -96,7 +96,7 @@ See `references/config-format.md` → "Dispatch (Trait Dimension)".
 
 Read current config, display the target schema, ask what to change (add note, remove note, toggle required, change description/guidance/skill, change lifecycle mode, add/remove default_traits, rename key), apply changes, write back.
 
-When adding or editing a note, offer the `skill` field: "Should this note have a skill framework? If so, provide the skill name (e.g., `review-quality`, or a Claude Code built-in like `security-review`). The skill will be invoked before the agent fills the note."
+When adding or editing a note, offer the `skill` field: "Should this note have a skill framework? If so, provide the skill name (e.g., `security-review`, or a skill that exists in this workspace). The skill will be invoked before the agent fills the note."
 
 If the target schema is not found in config.yaml, inform the user and offer to CREATE instead.
 
@@ -117,7 +117,7 @@ In addition to the checks in `references/validate-workflow.md`, flag any `skill:
 exactly one of `review`, `plan`, `run`, or `init` as a probable built-in-skill collision (warning,
 not an error) — these bare names resolve to a Claude Code built-in (e.g. `review` is the
 GitHub-PR review skill) rather than a project's intended framework skill. Suggest the likely
-intended framework skill name (e.g. `review-quality` instead of `review`) and cite the exact-name
+intended framework skill name (a specific name such as `code-review-checklist` instead of the bare `review`) and cite the exact-name
 rule in `references/config-format.md` → "`skill` — exact-name rule".
 
 For detailed workflow, see `references/validate-workflow.md` in this skill folder.

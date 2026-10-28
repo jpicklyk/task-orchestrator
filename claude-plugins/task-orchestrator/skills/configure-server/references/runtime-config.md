@@ -23,7 +23,7 @@ Localhost + HTTP + REST enabled + no auth. This is the tuple `/configure-server`
 one-tap default:
 
 ```
--e MCP_TRANSPORT=http -e API_ENABLED=true -e API_AUTH_MODE=none -e API_ALLOW_UNAUTHENTICATED=true -p 127.0.0.1:3001:3001
+-e MCP_TRANSPORT=http -e API_ENABLED=true -e API_AUTH_MODE=none -e API_ALLOW_UNAUTHENTICATED=true -p 127.0.0.1:3001:3001 -v "<FLOOR_DIR>:/project/.taskorchestrator:ro" -e AGENT_CONFIG_DIR=/project
 ```
 
 Plus, on the client side (optional when the MCP server is registered over http(s), since the hooks derive the REST base from that registration; required otherwise - see "Loopback footgun" and "config-sync" below):
@@ -45,8 +45,8 @@ TASK_ORCHESTRATOR_API_URL=http://localhost:3001
 | REST off | `-e API_ENABLED=false -e MCP_ALLOW_UNAUTHENTICATED=true` (HTTP only; without the opt-in the server refuses to start) |
 | REST unauthenticated (recommended) | `-e API_ENABLED=true -e API_AUTH_MODE=none -e API_ALLOW_UNAUTHENTICATED=true` |
 | REST bearer | `-e API_ENABLED=true -e API_AUTH_MODE=bearer -e API_TOKENS_PATH=/run/secrets/api-tokens.yaml -v <TOKENS_HOST_PATH>:/run/secrets/api-tokens.yaml:ro` |
-| Config mount = global floor (recommended) | `-v "<pwd>/deploy/global-config/.taskorchestrator:/project/.taskorchestrator:ro" -e AGENT_CONFIG_DIR=/project` |
-| Config mount = none (multi-project via config-sync) | *(omit)* |
+| Config mount = process-schema floor (recommended) | `-v "<FLOOR_DIR>:/project/.taskorchestrator:ro" -e AGENT_CONFIG_DIR=/project`. `<FLOOR_DIR>` is `<checkout>/deploy/global-config/.taskorchestrator` in a source checkout, otherwise a host directory holding `config.yaml` downloaded from `deploy/global-config/.taskorchestrator/config.yaml` in the GitHub repo (the image bakes no config) |
+| Config mount = none | *(omit)*. With no server config a depth-0 create, and any root with no config of its own, accepts every type schema-free (lifecycle auto); items under a config-synced root are still type-checked against that root's declared types. So a `project` anchor can auto-complete and retrospective/proposal items have no required notes. Never mount a project file carrying `project.rootId` as a fallback: it imports into that root, not the server scope, and fails startup when the DB lacks that root |
 | Debug on | `-e LOG_LEVEL=DEBUG -e DATABASE_SHOW_SQL=true` |
 | Log to file (opt-in) | `-e LOG_FILE=/app/data/logs/task-orchestrator.log` (JSON on stderr always; this also writes the same JSON lines to that file, on the existing `/app/data` volume) |
 | Port publish (loopback only) | `-p 127.0.0.1:3001:3001` |

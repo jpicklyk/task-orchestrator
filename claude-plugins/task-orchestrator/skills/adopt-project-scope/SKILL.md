@@ -57,9 +57,7 @@ Drop any result tagged `personal-root`: a personal root is not a project anchor 
 
 ### 1c — Config-push capability (tolerant)
 
-The `config` tool (orchestration profile) pushes the config in EXECUTE step (d). Do not probe it destructively here — just remember to attempt the push there and, if the tool is not served (a knowledge-profile connection) or fails with `data.results[0].error.code` `forbidden` (the credential lacks `write-config`), skip it with a note rather than failing the whole adoption. The local `config.yaml` write (step c) is the source of truth; the server push is a convenience sync.
-
-A 4.x server recomputes descendant depths when a subtree is re-parented, so no capability probe is needed. A 3.x server before PR #219/#220 does not (bug `99a3e642`); if the server may predate 4.0, upgrade it before adopting.
+The `config` tool (orchestration profile) pushes the config in EXECUTE step (c). Do not probe it destructively here — just remember to attempt the push there and, if the tool is not served (a knowledge-profile connection) or fails with `data.results[0].error.code` `forbidden` (the credential lacks `write-config`), skip it with a note rather than failing the whole adoption. The local `config.yaml` write (step b) is the source of truth; the server push is a convenience sync.
 
 ---
 
@@ -79,11 +77,13 @@ Read which types the **server layer** declares, so process items can be told apa
 {"tool": "config", "op": "effective", "args": {}}
 ```
 
+If `data.results[0].types` is empty, the server declares no types: an undeclared type is rejected only when the declared set is non-empty, so the `project` anchor create in Step 4 would succeed schema-free and the anchor would carry no schema. Point the user to `/task-orchestrator:configure-server` to mount the process-schema floor now, before the plan is confirmed; continue only if they choose to adopt without it.
+
 Classify **every depth-0 root** into exactly one bucket:
 
 | Bucket | Rule | Action |
 |--------|------|--------|
-| **KEEP-GLOBAL** | The root's `type` is declared by the server layer (from the `effective` call above) and is not `container` or `project` — e.g. `agent-observation` items, which are standalone depth-0 roots; OR a `container` root titled `Session Retrospectives` or `Improvement Proposals`; OR a depth-0 `type=project` item tagged `personal-root` (never MOVE it). | Stays at depth 0. |
+| **KEEP-GLOBAL** | The root's `type` is declared by the server layer (from the `effective` call above) and is not `container` or `project` — e.g. `agent-observation` items, which are standalone depth-0 roots; OR a `container` root titled `Session Retrospectives`, `Improvement Proposals` or `Retrospective Trends`; OR a depth-0 `type=project` item tagged `personal-root` (never MOVE it). | Stays at depth 0. |
 | **MOVE** | Any work container or work tree (a root with work/queue/review children), and any standalone work item. Everything that is real project work. | Re-parented under the new anchor. |
 | **CLEANUP-CANDIDATE** | Evident test artifacts: titles containing `probe`, `smoke`, `depth-test`, `zzprobe`; or tags matching `mtest-*`. | **Flagged only** — never moved, never deleted. Recommend `/batch-complete`. |
 
@@ -126,7 +126,7 @@ Execution will create a "<name>" project anchor and re-parent 2 tree(s) under it
 
 Perform in this order. Record pre-execution counts first (used by Step 5): the depth-0 root count, the MOVE count, and the KEEP-GLOBAL count from Step 2.
 
-**(a) Create the project anchor** — skip if attaching to an existing anchor (Step 1b). The global floor declares `project`; if the create fails (call-level `partial_failure`) with `data.results[0].error.code` `schema_violation` and its `detail.availableTypes` lacks `project`, follow the fallback in `/task-orchestrator:init` (offer `container` or adding `project` to the server file; never pick a type silently):
+**(a) Create the project anchor** — skip if attaching to an existing anchor (Step 1b). The global floor declares `project`; if the create fails (call-level `partial_failure`) with `data.results[0].error.code` `schema_violation` and its `detail.availableTypes` lacks `project` (the server declares types, but not this one), follow the fallback in `/task-orchestrator:init` (offer `container` or adding `project` to the server file; never pick a type silently):
 
 ```to-call
 {"tool": "items_write", "op": "create", "args": {"title": "<project name>", "type": "project", "summary": "Project anchor — subtree scope for <project name>", "priority": "low"}}
@@ -134,15 +134,7 @@ Perform in this order. Record pre-execution counts first (used by Step 5): the d
 
 Capture the new UUID as `ANCHOR_ID`.
 
-**(b) Batch re-parent the MOVE roots** — one `items_write` call whose `ops` array holds one `update` per root (never a sequential call per root). The example shows one element; repeat it for each MOVE root in the same call:
-
-```to-call
-{"tool": "items_write", "op": "update", "args": {"id": "<move-root-1>", "parentId": "<ANCHOR_ID>"}}
-```
-
-A 4.x server recomputes each moved subtree's descendant depths and `root_id`. Each moved tree is also repinned against the anchor's config head (the `reparent` pin point; see [Schema pins](../../../../current/docs/config-reference.md#schema-pins)), so a tree whose items resolve a schema of a different lifecycle class under the anchor's config fails that element with `invalid_transition` and nothing is written for it. The call commits element by element: read the per-element results, report any failure by root, and leave that root for the user to decide.
-
-**(c) Write the `project:` block into `config.yaml`** at the main checkout root (the parent of `git rev-parse --path-format=absolute --git-common-dir`, so it is correct from a linked worktree; refuse a home directory, as `/task-orchestrator:init` does) — read-modify-write, preserving ALL existing content:
+**(b) Write the `project:` block into `config.yaml`** at the main checkout root (the parent of `git rev-parse --path-format=absolute --git-common-dir`, so it is correct from a linked worktree; refuse a home directory, as `/task-orchestrator:init` does) — read-modify-write, preserving ALL existing content:
 
 - Read the current `<main>/.taskorchestrator/config.yaml` text (create the file with just the block if it does not exist).
 - Insert this top-level block (surgical insert/append — do NOT regenerate or reformat the rest of the file; leave `work_item_schemas:`, `traits:`, `extensions:`, comments, and formatting byte-for-byte intact):
@@ -153,7 +145,7 @@ A 4.x server recomputes each moved subtree's descendant depths and `root_id`. Ea
   ```
 - If a `project:` key somehow already exists (it should not — Step 1a would have aborted), update its `rootId`/`name` in place rather than adding a duplicate key.
 
-**(d) Validate, then push the config server-side** (tolerant — see 1c). Use the file text with CRLF replaced by LF as `configYaml`. A root with no config fails `config` `get` with `data.results[0].error.code` `not_found`, which means "no head" (then omit `expectedVersion`):
+**(c) Validate, then push the config server-side** (tolerant — see 1c). Use the file text with CRLF replaced by LF as `configYaml`. A root with no config fails `config` `get` with `data.results[0].error.code` `not_found`, which means "no head" (then omit `expectedVersion`):
 
 ```to-call
 {"tool": "config", "op": "get", "args": {"rootId": "<ANCHOR_ID>"}}
@@ -170,6 +162,16 @@ A 4.x server recomputes each moved subtree's descendant depths and `root_id`. Ea
 - `validate` reports a problem as `valid: false` with `errors[{path, reason}]`; show them and skip the push (the local file is saved). Relay `warnings`.
 - Read failures from `data.results[0].error` (call-level `partial_failure`): `config_invalid` on the push: show `detail.errors[{path, reason}]`; nothing was stored. `version_conflict`: read the head again and ask before retrying.
 - If the `config` tool is not available or the call is `forbidden`, skip this step and note: "Config saved locally only — the server push was not possible; the local config.yaml is authoritative."
+
+**(d) Batch re-parent the MOVE roots** — one `items_write` call whose `ops` array holds one `update` per root (never a sequential call per root). The example shows one element; repeat it for each MOVE root in the same call:
+
+```to-call
+{"tool": "items_write", "op": "update", "args": {"id": "<move-root-1>", "parentId": "<ANCHOR_ID>"}}
+```
+
+A 4.x server recomputes each moved subtree's descendant depths and `root_id`. Each moved tree is also repinned against the anchor's config head, which is why the config is pushed before this step (the `reparent` pin point; see [Schema pins](../../../../current/docs/config-reference.md#schema-pins)), so a tree whose items resolve a schema of a different lifecycle class under the anchor's config fails that element with `invalid_transition` and nothing is written for it. The call commits element by element: read the per-element results, report any failure by root, and leave that root for the user to decide.
+
+If the push in step (c) was skipped, tell the user that the moved trees are pinned to the server's config, and that after a later push they should run `validate` and offer `repin` per `affectedInFlight`.
 
 ---
 

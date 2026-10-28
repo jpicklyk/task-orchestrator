@@ -24,7 +24,7 @@ ownership.
 ## claude:
 
 - Never call `advance` at all as a non-entry seat -- not even once to enter. Call `items_read` with
-  `select` `context` for your item to get guidance instead.
+  `select` `context` for your item instead. `items_read` `context` names the owed keys (`gateStatus.missingBySeat`, `missing`) and `guidanceKey` (the first unfilled required note with guidance); the guidance text itself comes from `items_read` `schema` with `fields: ["guidance"]`.
 - A token that your dispatch hands you (inline or as a file) belongs in the top-level `seatToken`
   field of each task-orchestrator request, reads included. Keep it out of your output, commits and
   notes. The server answering `unauthenticated` means your seat is no longer valid: halt.

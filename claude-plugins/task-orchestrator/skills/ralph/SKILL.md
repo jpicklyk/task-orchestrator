@@ -208,6 +208,7 @@ The iteration agent emits `RALPH_OUTCOME: {...}` as its final message, with an o
 | `duplicate` | permanent | driver | `skip` | update addItems found the item in another open run. Skip-listed for the rest of the loop. | skip |
 | `gate_blocked` | permanent | iteration | `gate-blocked` | advance transition reported missing required notes the iteration cannot fill. Emit gate-blocked with code. | gate |
 | `seat_forbidden` | permanent | iteration | `gate-blocked` | The item's schema does not let the implementer seat make this move. Emit gate-blocked with code; a coordinator or human advances it. | gate |
+| `note_owned_by_other` | permanent | iteration | `gate-blocked` | A note this seat may not write belongs to another seat. Never take it over. Emit gate-blocked with code and the note key in reason; that seat or a human fills it. | gate |
 | `not_claim_holder` | permanent | iteration | `error` | A write was refused because the call does not hold the claim (claim lapsed, or the call went out without the seat token). Emit error with code. | error |
 | `unauthenticated` | permanent | iteration | `error` | The seat token was refused: the iteration must reach the server as the same principal as the driver. Emit error with code. On a driver call with the coordinator token the loop exits 2. | error |
 | `run_paused` | permanent | driver | `error` | The run paused (budget, attempt cap or manual). Never retried: the driver ends the seat and closes the run cancelled; a director or human answers the pause decision. | exit |
@@ -370,6 +371,14 @@ Solution: Check who is working what with `items_read(select="list", role="work")
 **Note: Ralph workers skip sub-items of in-progress features (ancestor-claim filtering)**
 
 `items_read next` leaves out a candidate under an ancestor claimed by another agent, so a Ralph drain never picks the child tasks of a feature an orchestrator holds - the correct and desired behavior. There is no depth-0 filter; to drain only top-level items, tag or type them distinctly (for example `tag=top-level`) and filter on that.
+
+---
+
+**Problem: iterations end `gate-blocked` with code `note_owned_by_other`**
+
+Cause: the item's schema is seat-aware and a required note belongs to another seat (planner, reviewer, test-author or orchestrator). The implementer seat token cannot write it, and takeover is never allowed.
+
+Solution: have that seat or a human fill the note, or drain only items whose schema leaves every note to the implementer.
 
 ---
 

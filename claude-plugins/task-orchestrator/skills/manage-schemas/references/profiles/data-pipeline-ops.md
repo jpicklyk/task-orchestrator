@@ -3,13 +3,22 @@
 **Recommend when:** recurring pipeline/ETL runs; a shared resource (warehouse, cluster, staging
 slot) tolerates only one heavy job at a time; bad data propagating silently is the concern.
 
+Server file (the `resources:` registry belongs to the server config; every trait resource key,
+advisory ones included, must be registered here):
+
 ```yaml
 resources:
   analytics-warehouse:
     description: "Shared warehouse — one heavy transform/backfill at a time"
     defaultTtlSeconds: 7200
     maxHolders: 1
+  prod-read-credential:
+    description: "Production read credential; advisory, audit trail only"
+```
 
+Project config (pushed per-root):
+
+```yaml
 work_item_schemas:
   pipeline-run:
     lifecycle: auto

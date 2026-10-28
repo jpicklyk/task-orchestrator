@@ -23,7 +23,7 @@ Read the seat token file with your file tool and trim it. Pass the value as the 
 items_read(select: "context", itemId: "${item_id}", seatToken: <token>)
 ```
 
-The context shows the item's role, its resolved schema (expected notes per phase, with guidance and seats), gate status, and blockers. If the item is already terminal, emit `skip` with code `invalid_transition` and stop.
+The context shows the item's role, its resolved schema (expected notes per phase, keys and seats only, no guidance), gate status, and blockers. If the item is already terminal, emit `skip` with code `invalid_transition` and stop.
 
 ---
 
@@ -35,12 +35,13 @@ Invoke `/schema-workflow` with the item ID:
 /schema-workflow ${item_id}
 ```
 
-The skill reads the item's schema at runtime and drives note fills (`notes_write`) and phase moves (`advance` op `transition`) until the item reaches terminal. Every one of those calls carries your `seatToken`. Your job inside that flow:
+The skill reads the item's schema at runtime (guidance text via `items_read` `schema` with `fields: ["guidance"]`) and drives note fills (`notes_write`) and phase moves (`advance` op `transition`) until the item reaches terminal. Every one of those calls carries your `seatToken`. Your job inside that flow:
 
 - **Author note content** per each note's `guidance` field. The guidance is authoritative - follow it.
 - **Do the actual work** the notes describe. Could be code changes, research, configuration edits, anything. The schema decides what; you execute.
 - **Run any verification** the spec note calls for (tests, linters, etc.).
-- **Bug-fix items may carry the `needs-test-author` notes** (when the project's bug-fix schema includes that trait - check the expected notes) - if so, fill `test-plan` before advancing to work, write the regression test red-first, and record verdict `independent-degraded (temporal-only)` in the `test-independence-audit` note.
+- **On a seat-aware schema** your seat token writes only keys with no seat or `seat: implementer`. Planner, reviewer, test-author and orchestrator keys answer `note_owned_by_other`: never take them over; emit `gate-blocked` with that code and the key in `reason`.
+- **On a seat-less schema, bug-fix items may carry the `needs-test-author` notes** (when the project's bug-fix schema includes that trait - check the expected notes) - if so, fill `test-plan` before advancing to work, write the regression test red-first, and record verdict `independent-degraded (temporal-only)` in the `test-independence-audit` note.
 
 When a call fails, branch on its `error.code` using the outcome table below, and put that code in your `RALPH_OUTCOME` as `code` (with `retryAfterMs` when the error carries one). In particular:
 
@@ -95,6 +96,7 @@ Rows marked `by: driver` are observed by the loop driver, not by you; they are l
 | `duplicate` | permanent | driver | `skip` | update addItems found the item in another open run. Skip-listed for the rest of the loop. | skip |
 | `gate_blocked` | permanent | iteration | `gate-blocked` | advance transition reported missing required notes the iteration cannot fill. Emit gate-blocked with code. | gate |
 | `seat_forbidden` | permanent | iteration | `gate-blocked` | The item's schema does not let the implementer seat make this move. Emit gate-blocked with code; a coordinator or human advances it. | gate |
+| `note_owned_by_other` | permanent | iteration | `gate-blocked` | A note this seat may not write belongs to another seat. Never take it over. Emit gate-blocked with code and the note key in reason; that seat or a human fills it. | gate |
 | `not_claim_holder` | permanent | iteration | `error` | A write was refused because the call does not hold the claim (claim lapsed, or the call went out without the seat token). Emit error with code. | error |
 | `unauthenticated` | permanent | iteration | `error` | The seat token was refused: the iteration must reach the server as the same principal as the driver. Emit error with code. On a driver call with the coordinator token the loop exits 2. | error |
 | `run_paused` | permanent | driver | `error` | The run paused (budget, attempt cap or manual). Never retried: the driver ends the seat and closes the run cancelled; a director or human answers the pause decision. | exit |

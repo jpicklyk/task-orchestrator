@@ -47,11 +47,17 @@ Check the orchestration context for stale references:
 - [ ] `hooks/orchestration-context.mjs` — any references to changed tools, fields, or workflows in the injected core (both the `workflow` and `schema` variants)
 - [ ] `skills/orchestrate/SKILL.md` — tier table, delegation table, and phase-owner dispatch rules
 
-## Step 5: Plugin Caching
+## Step 5: Generated Artifacts and Contracts
 
-- [ ] Are hook scripts changed? If yes, `/plugin marketplace remove` + re-add required (content cached)
-- [ ] Are skill files changed? `/reload-plugins` sufficient (read at invocation)
-- [ ] Is the orchestration-context hook content changed? Needs a session restart (or the forced cache refresh in `claude-plugins/CLAUDE.md`), not `/reload-plugins`; the `orchestrate` skill is read at invocation
+- [ ] Regenerate call shapes: `node claude-plugins/task-orchestrator/scripts/gen-call-shapes.mjs` (CI runs it with `--check`)
+- [ ] Re-render the ralph prompts and the tier-classification fragments: `node claude-plugins/task-orchestrator/scripts/render-ralph-prompts.mjs --check` and `node claude-plugins/task-orchestrator/_fragments/generate.mjs` (`TierClassificationConsistencyTest` fails on drift)
+- [ ] Contract tests pass: `claude-plugins/task-orchestrator/hooks/tests/contract-*.test.mjs`, and the `to-call` blocks in skills still match the tool shapes
+- [ ] Other plugin consumers of the changed behavior: `agents/*.md`, `workflows/`, `bundled-rules/`, `.taskorchestrator/rules/`
+
+## Step 6: Plugin Caching
+
+- [ ] Is any plugin file changed (skills, hooks, workflows, agents)? The cache is version-keyed and re-extracts lazily, so a plain marketplace update does not pick it up: run the forced refresh in `claude-plugins/CLAUDE.md` (rm -rf the cache, then marketplace update)
+- [ ] Is the orchestration-context hook content changed? It also needs a session restart; the `orchestrate` skill is read at invocation
 
 ## Output
 

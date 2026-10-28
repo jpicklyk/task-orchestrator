@@ -54,7 +54,7 @@ This is the whole tool budget of a director session:
 | Tool | Use |
 |------|-----|
 | `runs_read` | Runs, frontier, decisions, one decision request |
-| `runs_write` | `answer`, `withdraw` (and `ack`) on decisions |
+| `runs_write` | `answer` and `ack` on decisions; `withdraw` only a decision this principal raised without a seat |
 | `report` | `rollup` per run; `usage`, `gates`, `contention`, `waste` on request |
 | `items_read` | `overview` of the project, for blocked work |
 | `deps_read` | Dependency `list` / `graph` when a blocker needs explaining |
@@ -77,8 +77,10 @@ HTTP, or `MCP_TOOL_PROFILE=director` on stdio). That profile has no note-body re
 server enforces the rule for MCP even when the hook cannot see the call.
 
 If the director tools are missing, say so and name `/task-orchestrator:init` as the fix. Until
-then, make the same `runs_read` and `items_read` calls on the orchestration connection, skip the
-rollup (`report` exists only in the director profile), and still never call `notes_read`.
+then the director-only members are unavailable on the orchestration connection: `runs_read`
+`decisions`/`decision`, `runs_write` `pause`/`resume`/`ack`/`answer`/`withdraw` and the `report`
+tool. Decisions cannot be shown or answered until `/task-orchestrator:init`.
+Still never call `notes_read`.
 
 ## Dashboard
 
@@ -99,8 +101,8 @@ work (step 5), and stop.
 {"tool": "runs_read", "select": "frontier", "args": {"runId": "7c41e0a2"}, "profile": "director"}
 ```
 
-3. Decisions per run. The select has no status filter: keep the summaries whose `status` is open
-and drop answered, withdrawn and closed ones yourself. `overdue: true` narrows to the late ones.
+3. Decisions per run. The select has no status filter: keep the summaries whose `status` is `open` or `acknowledged`
+and drop the others yourself. `overdue: true` narrows to the late ones.
 
 ```to-call
 {"tool": "runs_read", "select": "decisions", "args": {"runId": "7c41e0a2", "limit": 50}, "profile": "director"}
@@ -161,6 +163,9 @@ Withdraw a decision the run no longer needs (for example the user cancelled that
 {"tool": "runs_write", "op": "withdraw", "args": {"decisionId": "3f2a9c1e"}, "profile": "director"}
 ```
 
+Withdraw succeeds only for a decision this principal raised without a seat, or under the coordinator
+token of the decision's run. Nobody can withdraw a server-raised run-budget or attempt-cap decision.
+For a seat's decision, `SendMessage` the run's coordinator to withdraw it, or answer it.
 `decision_closed` means someone already answered or withdrew it: refresh the board.
 
 ## Coordinator tier
@@ -170,8 +175,8 @@ board line. The tier says where coordinators run; it does not launch one.
 
 | Tier | Present | Meaning |
 |------|---------|---------|
-| 1 | Desktop session tools (start a session, list sessions) and `ListAgents` showing other sessions | Coordinators run as separate sessions; reach them with `SendMessage` |
-| 2 | The `Workflow` tool | A run executes as a background workflow; this session only watches and answers |
+| 1 | Desktop session tools (start a session, list sessions) and `ListAgents` showing other sessions (not in the hardened entry) | Coordinators run as separate sessions; reach them with `SendMessage` |
+| 2 | The `Workflow` tool (not in the hardened entry) | A run executes as a background workflow; this session only watches and answers |
 | 3 | Neither, but `claude -p` is available on the host | Coordinators run as headless `claude -p` processes started by a background agent |
 | 4 | None of the above | No separate coordinator: every read and edit goes through background `Agent` dispatches from this session |
 
@@ -203,5 +208,5 @@ dispatch exactly as it says. Each fires once per decision or run per session.
 ## Hardened entry
 
 `claude --agent director` starts a session whose tool list is already limited to the director
-budget (the plugin's `agents/director.md`). It still invokes this skill first, so the marker and
+budget (the plugin's `agents/director.md`), which has neither `Workflow` nor `start_session`: it probes tier 3 or 4. Tiers 1-2 need a director entered via the `/task-orchestrator:director` skill in a normal session. It still invokes this skill first, so the marker and
 the guard apply too.

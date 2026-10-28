@@ -105,7 +105,7 @@ the security fix and the silent-exit fix, the two whose defects mattered most.
 The plan author assigns these labels, not the test author: the test author is blind to the
 implementation by design (§4) and therefore cannot tell which surfaces are new. Where a dispatch
 contract's planning seat returns a `red-proof-shape` field, it carries this same labelling plus the
-item's red-proof budget (section 5), set before the author is dispatched. The shape actually obtained is recorded in `test-manifest` (section 10).
+item's red-proof budget (served `test-author` rule, section 5), set before the author is dispatched. The shape actually obtained is recorded in `test-manifest` (section 10).
 
 ---
 
@@ -199,8 +199,8 @@ preview, an editor, or any shell command whose output includes file content. The
 the file, not to the intent: "I only wanted the signature" does not make the call permitted,
 because the tool decides what comes back, not you.
 
-Banned for the same reason: `git diff`, `git show`, `git log -p` and any other view of the
-implementer's changes on this branch.
+Banned for the same reason: every `git diff`, `git show` and `git log -p` form except
+`git diff --name-only`, and any other view of the implementer's changes on this branch.
 
 `src/test` stays fully readable. Existing tests, fixtures and harnesses are how you match the
 codebase's conventions — reading them is expected, not merely tolerated.
@@ -405,7 +405,7 @@ and §4 exist to close off.
 was ambiguous, what the plan said, what would need to be true for each candidate resolution.
 Escalation goes to the orchestrator (Parallel/Delegated tier) or the user (Direct tier) — never
 resolved unilaterally by the same agent that hit the ambiguity. The one carve-out: an ambiguity
-resolvable from public non-`src/main` evidence (the tool's parameterSchema, `src/test` harnesses,
+resolvable from public non-`src/main` evidence (the tool's `describe: true` schema, see `call-shapes.md`, `src/test` harnesses,
 docs) may be self-resolved when the arbitration record states the evidence used; the reviewer
 verifies it.
 
@@ -460,7 +460,7 @@ Fill every field — an omitted field reads as "not done," not as "not applicabl
 - **Invariants respected** — for each fixture, the domain invariant it satisfies by construction
   (§7 Fixture invariants): the `validate()` clause and the derivation used. Record any invariant
   that forced an escalation rather than a fixture.
-- **Red-proof shape obtained** - for every `NEW-SURFACE` scenario the item's budget (section 5) covers,
+- **Red-proof shape obtained** - for every `NEW-SURFACE` scenario the item's budget (served `test-author` rule, section 5) covers,
   which shape was actually obtained: `behavioral-red (narrowest revert: <what was reverted>)`, or
   `compile-red only — substitute verification: <what the reviewer does instead>`. Where the revert
   is orchestrator-run rather than author-run, record `red evidence: orchestrator-run` together with

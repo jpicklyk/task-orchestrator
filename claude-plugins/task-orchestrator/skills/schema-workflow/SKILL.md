@@ -74,7 +74,7 @@ Read `data.results[0]`:
 
 A failed transition is `ok: false` with call-level `partial_failure`; the reason is `data.results[0].error.code`:
 
-- `gate_blocked`: `data.results[0].error.detail.missing[]` names the notes still unfilled. Fill them (Step 2) and retry; no need to re-read first. For an independence block `missing` is empty and `detail.violations` (inside that same error) explains.
+- `gate_blocked`: `data.results[0].error.detail.missing[]` names the notes still unfilled. Fill them (Step 2) and retry; no need to re-read first. Also read `detail.violations[].gate` in that same error: `missing` and `violations` may both be present, and a review-pending or independence violation is not cleared by filling notes.
 - `resource_unavailable` (`data.results[0].error.kind: transient`): not a note gate. Another item holds a resource this item's traits declare. Do not fill notes and do not spin-retry; report `data.results[0].error.detail.resources[]` and `data.results[0].error.retryAfterMs` and see `/status-progression`.
 - `dependency_unmet`: a blocker is unfinished; diagnose with `/dependency-manager`.
 - `not_claim_holder`: someone else holds the claim; only the holder can transition.
@@ -107,7 +107,7 @@ Keys vary per schema; take them from `schema[]`, never from assumption.
 
 **Reviewer and other non-entry seats:** a reviewer is dispatched into an item already in review. It must NOT call `start` (from review that lands terminal). It reads `items_read` `context`, fills the review notes, reports the verdict and returns. Test authors, extractors and read-only seats never call `advance`.
 
-**Invariant:** agents own only their phase entry; the orchestrator owns every other transition.
+**Invariant:** only an entry seat moves its item, and only into its own phase; the orchestrator owns every other transition.
 
 ### Pre-dispatch recipe: a seat at a parent
 

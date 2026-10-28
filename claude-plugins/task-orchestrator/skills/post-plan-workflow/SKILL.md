@@ -95,10 +95,10 @@ Do not use `AskUserQuestion` between phases.
 
 After all agents return:
 
-1. List items still in work (agents that failed to transition) and diagnose them with `/status-progression`:
+1. List items still in `queue` (agents that failed leave their items there; the `role: "work"` list is what you review and advance next) and diagnose them with `/status-progression`:
 
 ```to-call
-{"tool": "items_read", "select": "list", "args": {"ancestorId": "4b7d0e19", "role": "work"}}
+{"tool": "items_read", "select": "list", "args": {"ancestorId": "4b7d0e19", "role": "queue"}}
 ```
 
 2. Run the health check to see what completed, stalled or is blocked: `items_read` `context` with the same `ancestorId`.

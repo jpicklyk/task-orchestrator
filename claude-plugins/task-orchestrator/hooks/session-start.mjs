@@ -262,16 +262,27 @@ function buildFreshnessWarning() {
 The checked-out plugin version (\`${devVersion}\`) differs from the currently loaded plugin cache (\`${runningVersion}\`). Refresh the plugin cache — see \`claude-plugins/CLAUDE.md\` → "Plugin Discovery and Cache Refresh".`;
 }
 
-// Config-shape diagnostic: 3.x top-level `orchestration:` / `retrospective:` sections are ignored by
-// 4.0 (the plugin keys live under `extensions.claude-code`). One line naming what was found.
+// Config-shape diagnostic: 3.x top-level `orchestration:` / `retrospective:` / the removed 3.x attribution
+// sections are ignored by the plugin and rejected by the server (config-sync validates, then pushes the
+// whole file). The first two move under `extensions.claude-code`; the attribution section is deleted.
+// One line naming what was found.
+// The retired key is spelled literally here because this is a diagnostic for the removed key, not live use of
+// it (see current/docs/config-reference.md, the 3.x top-level keys section). actor-removal.test.mjs exempts
+// exactly this declaration line in this file and bans the literal everywhere else in hooks/*.mjs.
+const RETIRED_SECTION = 'actor_attribution';
+
 function buildConfigShapeNotice(loc) {
   if (typeof loc.text !== 'string' || !loc.text) return null;
-  const found = ['orchestration', 'retrospective'].filter((name) => readSection(loc.text, name) !== null);
+  const found = ['orchestration', 'retrospective', RETIRED_SECTION].filter((name) => readSection(loc.text, name) !== null);
   if (found.length === 0) return null;
   const names = found.map((n) => `\`${n}:\``).join(' and ');
+  const movable = found.filter((n) => n !== RETIRED_SECTION).map((n) => `\`${n}:\``).join(' and ');
+  const actions = [];
+  if (movable) actions.push(`move ${movable} under \`extensions.claude-code\``);
+  if (found.includes(RETIRED_SECTION)) actions.push(`delete \`${RETIRED_SECTION}:\``);
   return `## Config Shape
 
-The top-level ${names} ${found.length > 1 ? 'sections are' : 'section is'} ignored in ${loc.path}: move ${found.length > 1 ? 'them' : 'it'} under \`extensions.claude-code\`.`;
+The top-level ${names} ${found.length > 1 ? 'sections are' : 'section is'} ignored by the plugin and rejected by the server, so config-sync cannot push ${loc.path}: ${actions.join(' and ')}.`;
 }
 
 const hookInput = readHookInput();

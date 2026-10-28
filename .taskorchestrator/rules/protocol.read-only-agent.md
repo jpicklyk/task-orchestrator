@@ -18,7 +18,7 @@ fix, or transition anything.
 
 ## claude:
 
-- Go straight to `items_read` with `select` `context` for your item to get guidance -- never call
+- Go straight to `items_read` with `select` `context` for your item -- `items_read` `context` names the owed keys (`gateStatus.missingBySeat`, `missing`) and `guidanceKey` (the first unfilled required note with guidance); the guidance text itself comes from `items_read` `schema` with `fields: ["guidance"]`. Never call
   `advance`, not even once, and never call `runs_write`: a read-only agent does not raise.
 - A token that your dispatch hands you (inline or as a file) belongs in the top-level `seatToken`
   field of each task-orchestrator request, reads included. Keep it out of your output, commits and

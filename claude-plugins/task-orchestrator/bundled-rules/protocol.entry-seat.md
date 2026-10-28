@@ -14,7 +14,7 @@ you owe once you do.
 3. **Read the response.** Every transition failure carries a distinct error code. Branch on which
    code you received; never assume success just because no error text was echoed back.
 4. **Already in phase.** Ask for the item's current context/guidance before you request the transition. If it shows the item already in your phase, do not request it -- proceed with the work using that context.
-5. **A contended shared resource** (a transient "unavailable" failure) is not the same as
+5. **A contended shared resource** (a transient `resource_unavailable` failure) is not the same as
    already-in-phase and must not be retried. Stop immediately, report which resource is contended,
    and wait -- do not proceed as though you had entered the phase.
 6. **Any other failure** (item not found, ambiguous id, dependency unmet, gate blocked, invalid
@@ -31,8 +31,7 @@ you owe once you do.
   phase (queue, for a seat that enters the work phase). A `start` moves an item forward from queue,
   work and review (work to review or terminal, review to terminal), so a second `start` can
   advance the item past your phase instead of failing. Already in your phase is therefore read
-  from the role, never probed by sending `start` again. In that case take the guidance from the
-  context and begin the work.
+  from the role, never probed by sending `start` again. In that case begin the work. `items_read` `context` names the owed keys (`gateStatus.missingBySeat`, `missing`) and `guidanceKey` (the first unfilled required note with guidance); the guidance text itself comes from `items_read` `schema` with `fields: ["guidance"]`.
 - **Send it once.** `advance` `transition` with `trigger` `start`, one element, never repeated:
 
 ```to-call
@@ -59,6 +58,5 @@ you owe once you do.
 - **Seat token.** A token that your dispatch hands you (inline or as a file) belongs in the
   top-level `seatToken` field of each task-orchestrator request, reads included. Keep it out of
   your output, commits and notes.
-- **Notes.** Fill notes with `notes_write` `upsert`; each response returns the next note's
-  guidance. `note_owned_by_other` (it names the `ownerSeat`) is final: that note belongs to another seat
+- **Notes.** Fill notes with `notes_write` `upsert`; its answer is `{id, version, created?, warning?}` only. `items_read` `context` names the owed keys (`gateStatus.missingBySeat`, `missing`) and `guidanceKey` (the first unfilled required note with guidance); the guidance text itself comes from `items_read` `schema` with `fields: ["guidance"]`. `note_owned_by_other` (it names the `ownerSeat` when the owner is a seat) is final: that note belongs to another seat
   and cannot be taken over, so log a finding instead.

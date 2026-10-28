@@ -318,10 +318,11 @@ test('66a5bc0c S1: exactly one paragraph opens with the read-the-role-first lite
   assert.match(para, /select:\s*"context"/);
 });
 
-test('66a5bc0c S2: that paragraph names queue (before a work phase) and work (before a review phase) in backticks', () => {
+test('66a5bc0c S2: that paragraph names queue (before a work phase) and says a review-phase seat never sends start', () => {
   const para = readFirstParagraph(protocolText());
   assert.ok(para.includes('`queue`'), 'the role before a work-phase seat: `queue`');
-  assert.ok(para.includes('`work`'), 'the role before a review-phase seat: `work`');
+  assert.ok(para.includes('A review-phase seat never sends `start`'), 'a review-phase seat never sends start');
+  assert.ok(!para.includes('`work` for a review-phase seat'), 'the old review-phase clause is gone');
 });
 
 test('66a5bc0c S3: that paragraph says why: a second `start` moves the item past your phase', () => {
@@ -383,7 +384,7 @@ test('66a5bc0c S8: the rest of the protocol holds: codes named, gate_blocked out
 
 test('66a5bc0c P1: the read-the-role-first paragraph is one paragraph holding every S2-S5 phrase (a blank line inside would split it)', () => {
   const para = readFirstParagraph(protocolText());
-  for (const phrase of ['items_read', '`queue`', '`work`', 'a second `start`', 'past your phase', 'already shows your phase', 'do not send `start`', 'any other role']) {
+  for (const phrase of ['items_read', '`queue`', 'never sends `start`', 'a second `start`', 'past your phase', 'already shows your phase', 'do not send `start`', 'any other role']) {
     assert.ok(para.includes(phrase), `missing from the one paragraph: ${phrase}`);
   }
 });

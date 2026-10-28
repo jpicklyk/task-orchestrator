@@ -116,7 +116,6 @@ work_item_schemas:
         role: queue
         required: true
         description: "Lean feature-level summary — goal, findings-to-tasks mapping, dependency edges, non-goals pointer."
-        skill: "spec-quality"
         guidance: "Keep this lean — target under 2k chars. Cover: goal (2-3 sentences), a findings→tasks table mapping research/brainstorm findings to child task-scope items, dependency edges between those tasks, and a pointer to non-goals. Full spec-quality depth (alternatives, blast radius, risk flags, test strategy) belongs in each child's task-scope note, not here."
       - key: implementation-notes
         role: work
@@ -132,7 +131,6 @@ work_item_schemas:
         role: review
         required: true
         description: "Quality gate — plan alignment, test quality, simplification, verdict."
-        skill: "review-quality"
         guidance: "Verify: (1) what was built aligns with the feature-summary and each child's task-scope, (2) tests cover the test strategy — not strawman tests, (3) no unnecessary complexity in changed files. End with a verdict."
 ```
 
@@ -143,13 +141,11 @@ Show this schema to the user:
 ```yaml
   bug-fix:
     lifecycle: auto
-    default_traits: [delegated]
     notes:
       - key: diagnosis
         role: queue
         required: true
         description: "Reproduction, root cause, fix approach, and test strategy."
-        skill: "spec-quality"
         guidance: "This note must cover: reproduction steps (exact inputs, expected vs actual output), root cause (specific file, function, condition), fix approach with alternatives, blast radius, and test strategy."
       - key: implementation-notes
         role: work
@@ -165,9 +161,10 @@ Show this schema to the user:
         role: review
         required: true
         description: "Quality gate — fix alignment, regression coverage, simplification, verdict."
-        skill: "review-quality"
         guidance: "Verify: (1) fix addresses diagnosed root cause, (2) regression test exists, (3) edge cases covered. End with verdict."
 ```
+
+These templates carry no `skill:` lines: add a `skill:` to a note only for a skill the workspace actually has (exact-name rule, see `config-format.md`). A `default_traits` entry must name a trait defined in the same document or the server config (an unknown name rejects a push); see the trait library in `workflow-patterns.md`.
 
 ### After showing the template
 
