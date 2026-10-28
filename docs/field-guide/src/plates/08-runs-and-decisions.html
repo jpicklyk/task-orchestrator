@@ -67,7 +67,7 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
       <tr><td>Coordinator token</td><td>Top-level <code>seatToken</code> next to <code>ops</code></td><td><code>update</code> (add or remove items, lower the budget), <code>assign</code>, <code>close</code>, and the note keys of the seat named <code>orchestrator</code>.</td></tr>
       <tr><td>Seat token</td><td>Top-level <code>seatToken</code> on every call the seat makes, reads included</td><td>Act on its own item and seat only. <code>end_seat</code> with its own token. The coordinator token is refused there.</td></tr>
       <tr><td>Director profile</td><td>A separate MCP connection, no token</td><td><code>open</code>, <code>close</code>, <code>pause</code>, <code>resume</code>, <code>ack</code>, <code>answer</code>, <code>withdraw</code> (only a decision it raised itself). Nothing else.</td></tr>
-      <tr><td>Human credential</td><td>A human principal with real proof and no seat token, on any surface</td><td>Everything a director can, and it answers the classes that only a human may. <code>mark</code> is REST only.</td></tr>
+      <tr><td>Human credential</td><td>A human credential and no seat token, over REST or the director profile</td><td>Everything a director can. With a real credential proof it also answers the classes that only a human may. <code>mark</code> is REST only.</td></tr>
     </tbody>
   </table></div>
   <div class="grid3">
@@ -245,7 +245,7 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
         if(need==='human-only'){ok=false;msg='The class is human-only. The director profile cannot answer it: forbidden, scope principal_kind, required human.';}
         else{ok=true;msg='The director profile without a seat token may answer the '+need+' class.';}
       }else{
-        if(need==='any-actor'){ok=true;msg='The class is any-actor. Note that answer is a director-profile op on MCP; a call with a seat token on the director profile, or a human over REST, can reach it.';}
+        if(need==='any-actor'){ok=true;msg='The class is any-actor. Note that answer is a director-profile op on MCP; a call with a seat token on the director profile, or any caller over REST, can reach it.';}
         else{ok=false;msg='The class is '+need+'. An ordinary agent, or a call carrying a seat token, is forbidden.';}
       }
       head=ok?'Answer accepted':'forbidden';
