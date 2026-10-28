@@ -50,8 +50,18 @@ test('AC1: no hooks/*.mjs mentions the retired attribution / actor vocabulary', 
   const retired = ['actor_attribution', 'actor_authentication', 'buildActorMap', 'actorForResult', 'isWorkflowSeatActor', 'invalid_actor', 'rejected_by_policy'];
   const files = hookFiles();
   assert.ok(files.length >= 10, 'sanity: the hook directory listing is not empty');
+  // Scoped exemption: session-start.mjs keeps ONE declaration line spelling the removed 3.x top-level key, for
+  // its config-shape diagnostic (a leftover key in the user's config.yaml; see current/docs/config-reference.md,
+  // the 3.x top-level keys section). It is a diagnostic for the removed key, not live use, so exactly that
+  // line is dropped before the scan; any other mention in that file, and every mention elsewhere, still fails.
+  const diagnosticLine = /^const RETIRED_SECTION = 'actor_attribution';$/;
   for (const f of files) {
-    const text = read(join(HOOKS, f));
+    let text = read(join(HOOKS, f));
+    if (f === 'session-start.mjs') {
+      const lines = text.split(/\r?\n/);
+      assert.equal(lines.filter((l) => diagnosticLine.test(l)).length, 1, 'session-start.mjs keeps exactly one diagnostic declaration');
+      text = lines.filter((l) => !diagnosticLine.test(l)).join('\n');
+    }
     for (const token of retired) assert.ok(!text.includes(token), `${f} still mentions ${token}`);
   }
 });

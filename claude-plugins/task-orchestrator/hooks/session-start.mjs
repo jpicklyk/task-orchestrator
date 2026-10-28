@@ -262,13 +262,14 @@ function buildFreshnessWarning() {
 The checked-out plugin version (\`${devVersion}\`) differs from the currently loaded plugin cache (\`${runningVersion}\`). Refresh the plugin cache — see \`claude-plugins/CLAUDE.md\` → "Plugin Discovery and Cache Refresh".`;
 }
 
-// Config-shape diagnostic: 3.x top-level `orchestration:` / `retrospective:` / the removed 3.x attribution section
+// Config-shape diagnostic: 3.x top-level `orchestration:` / `retrospective:` / the removed 3.x attribution
 // sections are ignored by the plugin and rejected by the server (config-sync validates, then pushes the
-// whole file). The first two move under `extensions.claude-code`; that attribution section is deleted.
+// whole file). The first two move under `extensions.claude-code`; the attribution section is deleted.
 // One line naming what was found.
-// The retired section name is assembled, not spelled, so actor-removal.test.mjs (which bans the literal
-// in hooks/*.mjs) keeps guarding against live use of it.
-const RETIRED_SECTION = ['actor', 'attribution'].join('_');
+// The retired key is spelled literally here because this is a diagnostic for the removed key, not live use of
+// it (see current/docs/config-reference.md, the 3.x top-level keys section). actor-removal.test.mjs exempts
+// exactly this declaration line in this file and bans the literal everywhere else in hooks/*.mjs.
+const RETIRED_SECTION = 'actor_attribution';
 
 function buildConfigShapeNotice(loc) {
   if (typeof loc.text !== 'string' || !loc.text) return null;
