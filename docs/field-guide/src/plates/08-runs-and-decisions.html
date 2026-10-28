@@ -64,7 +64,7 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
   <div class="tscroll"><table class="cred">
     <thead><tr><th>Credential</th><th>How it is passed</th><th>What it can do</th></tr></thead>
     <tbody>
-      <tr><td>Coordinator token</td><td>Top-level <code>seatToken</code> next to <code>ops</code></td><td><code>update</code> (add or remove items, lower the budget), <code>assign</code>, <code>close</code>, and the note keys of the seat named <code>orchestrator</code>.</td></tr>
+      <tr><td>Coordinator token</td><td>Top-level <code>seatToken</code> next to <code>ops</code></td><td><code>update</code> (add or remove items, lower the budget), <code>assign</code>, <code>close</code>, any transition of a member item that the transition table allows, and the note keys of the seat named <code>orchestrator</code>.</td></tr>
       <tr><td>Seat token</td><td>Top-level <code>seatToken</code> on every call the seat makes, reads included</td><td>Act on its own item and seat only. <code>end_seat</code> with its own token. The coordinator token is refused there.</td></tr>
       <tr><td>Director profile</td><td>A separate MCP connection, no token</td><td><code>open</code>, <code>close</code>, <code>pause</code>, <code>resume</code>, <code>ack</code>, <code>answer</code>, <code>withdraw</code> (only a decision it raised itself). Nothing else.</td></tr>
       <tr><td>Human credential</td><td>A human credential and no seat token, over REST or the director profile</td><td>Everything a director can. With a real credential proof it also answers the classes that only a human may. <code>mark</code> is REST only.</td></tr>

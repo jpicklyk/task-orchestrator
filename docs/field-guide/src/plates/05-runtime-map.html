@@ -14,7 +14,7 @@
 <!--DEFS-->
 <div class="wrap">
 <header class="plate-head">
-  <p class="series"><span>MCP Task Orchestrator · Field guide</span><span>Plate 5 of 5</span></p>
+  <p class="series"><span>MCP Task Orchestrator · Field guide</span><span>Plate 5 of 10</span></p>
   <h1>Where it runs and who talks to it</h1>
   <p class="lede">One Docker image, one SQLite file. It runs as a throwaway container per session or as a persistent local server shared by every project, and one tool dispatcher answers the MCP tools and the REST tool route, so the same gate logic and the same response envelope serve both.</p>
 </header>
@@ -182,7 +182,7 @@
 
   <div class="grid3">
     <div class="rule"><h3>Writes are guarded</h3><p class="small">A write may pass <code>expectedVersion</code>, so a stale client gets a 409 <code>version_conflict</code> and cannot overwrite. Each element of <code>ops[]</code> may carry an <code>idempotencyKey</code>, kept for 24 hours per principal, tool and key, so a retry replays its first result. An <code>Idempotency-Key</code> header is a 400 <code>invalid_request</code>.</p></div>
-    <div class="rule"><h3>Errors say what to do</h3><p class="small">Every tool answer is <code>{ ok, data | error, meta: { reqId } }</code>, and an error is <code>{ code, kind, message, detail?, fix? }</code>. A failed gate is 409 <code>gate_blocked</code> with the missing notes. A failed element of a non-atomic batch answers 207 <code>partial_failure</code>, with its own code in its <code>data.results[i]</code> element. The <code>reqId</code> also keys the call log and the server log lines for that call.</p></div>
+    <div class="rule"><h3>Errors say what to do</h3><p class="small">Every tool answer is <code>{ ok, data | error, meta: { reqId } }</code>, and an error is <code>{ code, kind, message, detail?, fix?, retryAfterMs? }</code>. Write calls are non-atomic by default, so a failed element, a failed gate included, answers 207 <code>partial_failure</code> with its own code (for a gate, <code>gate_blocked</code> and the missing notes) in its <code>data.results[i]</code> element. In an <code>atomic: true</code> batch the failing element's error is the answer, so a failed gate there is 409 <code>gate_blocked</code>. The <code>reqId</code> also keys the call log and the server log lines for that call.</p></div>
     <div class="rule"><h3>Where REST differs from MCP</h3><p class="small">The caller is always the credential's principal, on REST and on <code>/mcp</code> alike, and an <code>actor</code> in the body is refused as <code>unknown_parameter</code>. A REST advance is bound by claim ownership and by leases, as on MCP. Lease administration and the event stream exist only here. <code>report</code> (usage, gates, contention, waste and rollup aggregates over server telemetry) is served at <code>POST /ops/report</code> and, over MCP, only on the director profile.</p></div>
   </div>
 </section>
