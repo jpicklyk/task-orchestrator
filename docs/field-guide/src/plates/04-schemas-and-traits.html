@@ -69,7 +69,7 @@ traits: [needs-migration-review]</pre></div>
     </div>
   </div>
   <div class="grid2">
-    <div class="rule"><h3>Four steps pick the schema</h3><p class="small">An item's schema is its per-root schema for the type, then the server's schema for the type, then the per-root <code>default</code>, then the server <code>default</code>. Tags never select a schema. A null type uses only the two <code>default</code> steps, and with nothing found the item is schema-free and advances freely. Creating an item always requires a type, and a type the config does not declare fails <code>schema_violation</code> with <code>detail.availableTypes</code>, which is empty when no types are declared.</p></div>
+    <div class="rule"><h3>Four steps pick the schema</h3><p class="small">An item's schema is its per-root schema for the type, then the server's schema for the type, then the per-root <code>default</code>, then the server <code>default</code>. Tags never select a schema. A null type uses only the two <code>default</code> steps, and with nothing found the item is schema-free and advances freely. Creating an item always requires a type. When the config declares types, one it does not declare fails <code>schema_violation</code> with <code>detail.availableTypes</code>; when it declares none, any type is accepted.</p></div>
     <div class="rule"><h3>Per-item traits, then default traits</h3><p class="small">Traits resolve in one order everywhere: the item's own traits first, then the schema's <code>default_traits</code>, duplicates dropped with the first position kept. When two declarations share a note key, the content comes from the first declaration (base schema before traits) and <code>required</code> is true if any declaration marks it.</p></div>
     <div class="rule"><h3>Traits add, they never relax</h3><p class="small">A trait cannot make a required note optional, because <code>required</code> is OR-merged. A trait also cannot change the role of a note the base schema already declares.</p></div>
     <div class="rule"><h3>A per-root trait replaces the server's whole</h3><p class="small">When a project's <code>traits:</code> map contains a trait name, every dimension of that trait comes from the project entry: notes, seats, resources and both dispatch shapes. A dimension it leaves out is empty, never inherited from the server's trait of that name.</p></div>
@@ -221,7 +221,7 @@ traits:
         mode: advisory      # recorded, never locked</pre>
     <div style="display:grid;gap:16px;align-content:start">
       <div class="rule"><h3>Exclusive or advisory</h3><p class="small"><code>exclusive</code> admits one item at a time. <code>advisory</code> takes no lock and only records that the item used the resource. Reserve exclusive for things that cannot be shared. A credential several agents can use at once should be advisory.</p></div>
-      <div class="rule"><h3>Held for the whole work phase</h3><p class="small">Taken on <code>start</code> or <code>resume</code> into work. Released on any exit from work: start (to review), complete, block, hold or cancel. It expires after an hour by default (24 hours at most). There is no renew call, though the same holder acquiring again refreshes it. An hourly sweep, plus one at start, clears expired leases, and a contender can take an expired one in any case.</p></div>
+      <div class="rule"><h3>Held for the whole work phase</h3><p class="small">Taken on <code>start</code> or <code>resume</code> into work. Released on any exit from work: start (to review, or to terminal when there is no review phase), complete, block, hold or cancel. It expires after an hour by default (24 hours at most). There is no renew call, though the same holder acquiring again refreshes it. An hourly sweep, plus one at start, clears expired leases, and a contender can take an expired one in any case.</p></div>
     </div>
   </div>
   <div class="grid3">
@@ -305,9 +305,10 @@ traits:
 
 // one data.results[i] per ops[] element, in order
 {"ok": true, "data": {"results": [
-  {"ok": true, "valid": true, "errors": [], "warnings": [],
+  {"ok": true, "rootId": "&lt;root&gt;", "valid": true,
+   "errors": [], "warnings": [],
    "diff": {"types": {"added": [], "removed": [],
-                      "changed": ["bug-fix"]}},
+                      "changed": ["bug-fix"]}, ...},
    "affectedInFlight": {"count": 2, "sample": [
      {"itemId": "...", "changedNotes": ["diagnosis"]}]}},
   {"ok": true, "rootId": "...", "version": 5,
