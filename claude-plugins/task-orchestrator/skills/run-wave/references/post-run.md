@@ -43,13 +43,20 @@ needs no new seat continues, and the run closes as usual.
 
 Method A: write the Workflow task notification's usage to `<scratchpad>/run-wave/<runId>/usage.json`
 as `{"tokens": N, "duration": N}` (add `"costUsd": N` when the notification reports a cost). Then
+That file is always written here, but the heartbeat is SENT here only when no run item has a review
+phase (Step 4 sends no `start`, Step 5 assigns no reviewer). Otherwise it is sent at Step 7, after the
+Step 0b re-sweep and just before `close`, because a heartbeat that crosses the budget pauses the run
+and the later `start` and reviewer `assign` would answer `run_paused`. Residual: a Step 5 wave-parent
+`start` under the coordinator token can still answer `run_paused` after a Step 0a heartbeat crossed
+the budget; report it (`paused`), and a non-member parent may be started token-less.
 `node "<helper>" run-ops --plan <plan> --phase heartbeat --usage <usage.json>` renders an `advance`
-call `[claim(first item), heartbeat{usage: {tokens, costUsd?}}, release]`; send it under the
-coordinator token (a heartbeat's `usage` needs a seat token and a held claim, so the coordinator
-claims the run's first member for the length of this one call). This reports the run total once:
+call `[claim(first item), heartbeat{usage: {tokens, costUsd?}}, release]`; add `--item <short>` to
+claim a named item instead (at Step 7 use the first item Step 4 sent `start` for: it is in review,
+so not terminal). Send it under the coordinator token (a heartbeat's `usage` needs a seat token and
+a held claim, so the coordinator claims that member for the length of this one call). This reports the run total once:
 the server keeps the highest value per seat. Any element error is Friction, never retried, and never
 blocks the close. A success carrying `paused: {decisionId}` means the report crossed the run budget:
-surface the decision. Method B: report the same way when a run total is known; otherwise skip.
+surface the decision (at Step 7 it is reported with `openDecisions` in the `closed` report). Method B: report the same way when a run total is known; otherwise skip.
 
 ---
 
@@ -438,7 +445,8 @@ process requires:
 ## Step 7 — Close and loop
 
 Once the review hand-off (Step 5) is dispatched or handed off, any review seats of this run have
-been swept (Step 0b again), and any immediate human checkpoints (Step 6) are surfaced, close the
+been swept (Step 0b again), and any immediate human checkpoints (Step 6) are surfaced, send the usage
+heartbeat now when Step 0a deferred it (see Step 0a), then close the
 run: `node "<helper>" run-ops --plan <plan> --phase close --result <result.json>` renders
 `{op: "close", runId, reason}` — `completed` when the result says `started: true`, `failed` when it
 says `started: false` or the launch threw (no result); pass `--reason cancelled` for an explicit user

@@ -36,7 +36,7 @@ Render a status card from the answer:
 | Field | Show |
 |---|---|
 | `item.role` | the role (absent for a lifecycle-free item: no card, it has no lifecycle) |
-| `gateStatus.canAdvance` | open or blocked |
+| `gateStatus.canAdvance` | open or blocked (seat enforcement and claim ownership are not checked, so a member of an open run can still answer `seat_forbidden`) |
 | `gateStatus.missing`, `missingBySeat` | each missing note key and role, and which seat owns it |
 | `gateStatus.blockedBy` | first failing gate: `table`, `dependency`, `note`, `lease` |
 | `guidanceKey` | resolve its text with `items_read` `schema` (`fields: ["guidance"]`) and show it as Guidance |
@@ -109,6 +109,10 @@ Omit a line when its field is empty.
 
 **`gate_blocked`.** `data.results[0].error.detail.missing[]` lists the notes. Fill them (Step 3) and retry. Also read `detail.violations[].gate`: `missing` and `violations` may both be present, and a review-pending or independence violation is not cleared by filling notes.
 
+**`seat_forbidden`.** The item is a member of an open or paused run whose schema declares seats, and the caller may not send that trigger. `detail.allowedSeats` names who may (it always starts with `coordinator`). The run's coordinator resends with its coordinator token as top-level `seatToken`; otherwise leave the transition to the run, and never retry it token-less. This also covers `resume` of a decision-blocked run member: the coordinator sends it with its token, and a member seat may resume only if its seat `transitions:` list `resume`. Or close the run first.
+
+**`run_paused`.** A `start` under a token of a run paused on its budget or attempt limit. Read `detail.pauseReason` and `detail.pauseDecisionId`; the answer comes through the director board. Do not retry.
+
 **Blocked by a dependency (`dependency_unmet`).** Find the blockers; advance them first, then this item appears in their `unblocked`:
 
 ```to-call
@@ -136,6 +140,12 @@ Use `/dependency-manager` to view or change the edges.
 ```
 
 An empty answer with a `reason` (`claim_held`, `dependency_unmet`) means wait; no `reason` means nothing matches.
+
+For work inside an open run, the run's frontier is the authoritative ready list (`ready`, with `inFlight` and `waiting` beside it):
+
+```to-call
+{"tool": "runs_read", "select": "frontier", "args": {"runId": "7c41e0a2"}}
+```
 
 ## Example: gated flow
 

@@ -1312,6 +1312,25 @@ export function buildPlanDoc(snap, opts = {}) {
     return { ok: false, refused: true, errors: ['no items admitted'], doc };
   }
 
+  // Method A pre-assigns every non-inserted seat of the admitted items in one call, so the run's
+  // maxActiveSeats (honoured only when a number > 0, like the open op) must cover them all.
+  if (method === 'A') {
+    const seatCount = finalIds.reduce(
+      (sum, id) => sum + ((derivedById[id].stages || []).filter((s) => !(s && s.inserted === true)).length),
+      0
+    );
+    const rb = profile && profile.runBudget;
+    const maxSeats = rb && typeof rb === 'object' && typeof rb.maxActiveSeats === 'number' ? rb.maxActiveSeats : undefined;
+    if (maxSeats !== undefined && maxSeats > 0 && maxSeats < seatCount) {
+      const text = `runBudget.maxActiveSeats ${maxSeats} < ${seatCount} schema seats`;
+      if (methodReq === 'A') {
+        return { ok: false, refused: true, errors: [`${text}: Method A pre-assigns every seat; use --method B`] };
+      }
+      method = 'B';
+      degradations.push(`method B: ${text}`);
+    }
+  }
+
   const filteredWaitsFor = {};
   for (const id of finalIds) filteredWaitsFor[id] = fr.waitsFor[id] || [];
 

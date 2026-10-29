@@ -24,6 +24,34 @@ With no argument, classify the request from the conversation:
 
 If the scope is still unclear, ask: "Which item (or items) do you want to complete? Give a root id, a title fragment or a list of ids."
 
+### Run-membership check
+
+`complete_tree` runs every item through the normal transition path, so an item that belongs to an open or paused run is subject to that run's seat rules. List the root's runs (one status per call), then read each run's frontier; a non-terminal member is in `ready`, `inFlight` or `waiting`:
+
+```to-call
+{"tool": "runs_read", "select": "list", "args": {"rootId": "ce064d2c", "status": "open"}}
+```
+
+```to-call
+{"tool": "runs_read", "select": "list", "args": {"rootId": "ce064d2c", "status": "paused"}}
+```
+
+```to-call
+{"tool": "runs_read", "select": "frontier", "args": {"runId": "7c41e0a2"}}
+```
+
+If any target (or any descendant of a `rootId` scope) is a non-terminal member, ask with `AskUserQuestion`:
+
+```
+3 targets belong to a live run. How would you like to proceed?
+  1. Exclude the members - use itemIds of the non-members (leave the root out when a member sits under it)
+  2. Hand it to the run's coordinator - it passes its coordinator token as top-level seatToken
+  3. Close the run first (runs_write close: coordinator, director or human)
+  4. Abort
+```
+
+Run members whose schema has no seats are protected only by this check; the server will not refuse them.
+
 ## Step 2 - Preview impact
 
 ```to-call
@@ -52,6 +80,16 @@ If any item is in work or review, warn that active work will be force-completed 
 ```
 
 Wait for the answer and record the trigger.
+
+Add a `blocked` row to the preview. Under `complete`, blocked items fail `invalid_transition` (resume them first). Under `cancel`, list each `awaiting_decision` item with its `decisionId` (`items_read` `blocked` with `ancestorId`, or `get` per id) and warn that the decision stays open after the cancel; have it answered or withdrawn first (`withdraw`: the raiser or the run's coordinator token, director profile):
+
+```to-call
+{"tool": "items_read", "select": "blocked", "args": {"ancestorId": "98d452e9"}}
+```
+
+```
+  blocked:  2 items (complete: invalid_transition; cancel: 1 awaiting a decision that stays open)
+```
 
 ## Step 3 - Gate pre-check
 
@@ -99,9 +137,9 @@ Report from `data.results[0]`. `items[]` has one entry per item:
 | `applied` | moved to terminal (`previousRole`, `newRole`) |
 | `skipped`, `reason: already_terminal` | already done, or terminalized by a cascade earlier in this call; not a failure |
 | `skipped`, `reason: upstream_failed` | an in-set blocker failed (`blockedBy[]` lists it); retry after fixing that item |
-| `failed` | rejected; `error.code` says why (`gate_blocked` with `detail.missing`, `dependency_unmet`, `not_claim_holder`, `resource_unavailable`, `invalid_transition`) |
+| `failed` | rejected; `error.code` says why (`gate_blocked` with `detail.missing`, `dependency_unmet`, `not_claim_holder`, `resource_unavailable`, `invalid_transition`, `seat_forbidden`, `unauthenticated`) |
 
-`summary` is `{total, applied, skipped, failed}`. A per-item failure is data: the applied transitions still commit together. A store fault or `unavailable` fails the whole element and rolls it back. An element failure (a store fault, `unavailable`, or `not_found`/`ambiguous_id` on `rootId`) answers call-level `partial_failure`; its code is on `data.results[0].error`.
+A cascade entry can carry `blocked: seat` when a seat rule stopped the parent. `summary` is `{total, applied, skipped, failed}`. A per-item failure is data: the applied transitions still commit together. A store fault or `unavailable` fails the whole element and rolls it back. An element failure (a store fault, `unavailable`, or `not_found`/`ambiguous_id` on `rootId`) answers call-level `partial_failure`; its code is on `data.results[0].error`.
 
 ```
 Batch complete - "Auth System Feature"
@@ -113,6 +151,8 @@ Batch complete - "Auth System Feature"
 
   Summary: total 5 | applied 3 | skipped 1 | failed 1
 ```
+
+After a cancel, report every cancelled item whose decision is still open and who can withdraw it (the raiser, or the run's coordinator token).
 
 ## Step 5 - Cleanup (optional)
 

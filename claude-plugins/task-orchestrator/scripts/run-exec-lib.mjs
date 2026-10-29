@@ -1569,7 +1569,8 @@ function runHints(doc, phase) {
  *             every item (Method A, at launch), with opts.item + opts.seat that one seat (Method B, a
  *             review lane, a reseat's base seat). tokenFiles[i] is where results[i].seatToken goes.
  *   update    runs_write update {runId, hints} with hints.phase = opts.runPhase (the hints replace).
- *   heartbeat advance [claim(first item), heartbeat{usage:{tokens, costUsd?}}, release] from opts.usage.
+ *   heartbeat advance [claim(first item, or opts.item: a short or full id of a plan item), heartbeat{usage:{tokens,
+ *             costUsd?}}, release] from opts.usage; an unknown opts.item throws.
  *   end-seats one runs_write end_seat per still-active member seat in opts.seats (runs_read seats
  *             data); outcome done/failed/abandoned from opts.result's stage status; the coordinator
  *             row and ended rows are skipped; tokenFiles[i] names the seat's token file.
@@ -1648,7 +1649,7 @@ export function runOps(core, doc, opts = {}) {
       if (typeof u.costUsd !== 'number' || !(u.costUsd >= 0)) throw new Error('invalid args: usage.costUsd must be a number >= 0')
       usage.costUsd = u.costUsd
     }
-    const itemId = items[0].id
+    const itemId = opts.item ? findItem({ items }, opts.item).id : items[0].id
     return {
       tool: 'advance',
       ops: [

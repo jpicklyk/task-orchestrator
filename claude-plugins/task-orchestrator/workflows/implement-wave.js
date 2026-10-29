@@ -1003,6 +1003,7 @@ function promptSeatToken(plan, item, stage) {
       'a file or your final message. Refer to it only as "the seat token".',
     'A call refused unauthenticated ("The seat token is not accepted.") means this seat was superseded or ended: stop at once, ' +
       'write nothing more, and return status "stopped", reason "seat-token-rejected".',
+    'If that file does not exist, stop at once, write nothing, and return status "stopped", reason "seat-token-missing".',
   ].join('\n')
 }
 
