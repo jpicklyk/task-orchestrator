@@ -10,7 +10,8 @@
 //    `closed` (idle or paused is not done) and that carries no `retro` mark yields the
 //    retrospective dispatch directive from retro-lib, once per run per session: a director session
 //    is always treated as dispatch mode (`nudge` included; `off` stays silent), because the director
-//    must never run a retrospective in its own context. When the
+//    must never run a retrospective in its own context. A run closed more than 24 h ago is skipped
+//    (an absent or unparseable `closedAt` is not). When the
 //    REST path is configured (restRootId non-null) retro-trigger / retro-backstop own the mark and
 //    the dispatch, so this hook stays silent.
 //
@@ -34,6 +35,9 @@ export const WATCH_STATE_NAME = 'director-watch';
 export const PUSH_PREFIX = 'Decision waiting:';
 
 const MAX_RECORDED = 200;
+
+/** A closed run older than this is not dispatched by the watch (the REST path's 24 h list window). */
+const RETRO_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const strings = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
@@ -75,6 +79,11 @@ function decisionsOutput(data, state, statePath) {
 function runEndedOutput(data, toolInput, state, statePath, opts) {
   if (!isPlainObject(data) || data.status !== 'closed') return {};
   if (isPlainObject(data.marks) && hasOwn(data.marks, 'retro')) return {};
+  // Age window: a run closed more than 24 h ago is skipped; an absent or unparseable closedAt behaves as before.
+  if (typeof data.closedAt === 'string') {
+    const closed = Date.parse(data.closedAt);
+    if (Number.isFinite(closed) && Date.now() - closed > RETRO_WINDOW_MS) return {};
+  }
   const runId = typeof data.runId === 'string' && data.runId !== '' ? data.runId : typeof toolInput.runId === 'string' ? toolInput.runId : '';
   if (runId === '') return {};
   let located = null;

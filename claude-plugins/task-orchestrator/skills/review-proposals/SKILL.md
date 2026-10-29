@@ -60,6 +60,7 @@ Classify each candidate by role and notes:
 - **Pending**: role `queue`, no `adoption-decision` note yet. The main triage set.
 - **Deferred**: role `queue`, with an `adoption-decision` note whose body starts with "deferred". List separately; do not re-offer unless the user asks to revisit deferred proposals or the stated revisit condition plausibly holds now.
 - **Stalled**: role `work` (accepted and advanced by `start` but never reached `review` or terminal: an interrupted adoption). Flag as **stalled adoption**; offer to resume (fill remaining notes and `complete`) or cancel.
+- **Awaiting verification**: role `review` (accepted and applied; `outcome-verification` unfilled). List separately as `` `<short-id>` - awaiting verification (accepted <date from its adoption-decision note>) ``. No decision is offered: `/session-retrospective` Step 8a fills `outcome-verification` once at least 2 later retrospectives exist.
 - **Terminal**: skip.
 
 If nothing is pending (no queue-role item without an `adoption-decision`, and no stalled item), report `No pending improvement proposals.` and stop.
@@ -80,7 +81,7 @@ For each candidate (pending and stalled; cap 15, taking the 15 oldest by creatio
 
 From the notes extract:
 
-- **Proposal body**: the `proposal` note (or the item's `summary` if the note is absent).
+- **Proposal body**: the `proposal` note (or the item's `summary` if the note is absent; an absent note is backfilled before any Accept, see Step 5).
 - **Scope clause**: the scope classification the note states (global or project-specific). If it cannot be parsed unambiguously, **treat as global**: never auto-edit a project's config on an ambiguous scope reading.
 - **Existing `github-issue:` line**: the last line of the proposal body, `github-issue: <url>`. Carry it forward so the global-accept path reuses it instead of filing a duplicate.
 
@@ -100,7 +101,7 @@ One compact table of all pending and stalled candidates; deferred proposals get 
 - **Evidence**: a one-line summary of the trend and session count that graduated the proposal.
 - **Age**: days since creation. **Issue**: the existing `github-issue:` link, else `—`.
 
-Below it list deferred proposals as `` `<short-id>` - deferred: <condition> (deferred <date>) `` and stalled ones as `` `<short-id>` - stalled in work: <hint> ``.
+Below it list proposals awaiting verification (no decision offered), deferred proposals as `` `<short-id>` - deferred: <condition> (deferred <date>) `` and stalled ones as `` `<short-id>` - stalled in work: <hint> ``.
 
 ---
 
@@ -124,6 +125,16 @@ For Reject or Defer take a one-line reason from the follow-up (or an "Other" fre
 ---
 
 ## Step 5 - Carry Out Dispositions
+
+### Before any Accept - ensure the `proposal` note
+
+The floor schema requires the `proposal` note in the queue phase, and `start` is gate-blocked without it. A proposal created before the retrospective filled it has none, so every Accept path (project, global, maintainer or community) first checks Step 2's list. When the `proposal` note is absent, upsert it from the item's `summary`, the Step 2 scope classification and a backfill marker, **before any config edit, push or `start`**:
+
+```to-call
+{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<uuid>", "key": "proposal", "role": "queue", "body": "Problem and evidence: <from the item summary>.\nChange: <the exact change the summary names>.\nExpected effect: <as stated in the summary, or not stated>.\nBlast radius: <as stated, or not stated>.\nScope: <global | project-specific; target rootId>.\nbackfilled by review-proposals <YYYY-MM-DD>"}}
+```
+
+Check `data.results[0].ok`. Never write a note that is only a URL.
 
 ### Accept - project-scoped
 
@@ -160,12 +171,12 @@ For Reject or Defer take a one-line reason from the follow-up (or an "Other" fre
 ```
 
    Read `ok` and `data.results[0].newRole`; on a failure `data.results[0].error.code` (`gate_blocked` lists `error.detail.missing`). Do **not** use `complete`: it jumps to terminal and gate-checks required notes across all phases, so the intentionally unfilled `outcome-verification` note would block it. `start` checks only the current phase's notes and lands in `review`.
-8. **Stop in `review`.** Tell the user the item dwells in `review` with `outcome-verification` intentionally unfilled: a future `/session-retrospective` run verifies whether the change helped and fills it. This is by design.
+8. **Stop in `review`.** Tell the user the item dwells in `review` with `outcome-verification` intentionally unfilled: `/session-retrospective` Step 8a verifies whether the change helped, fills it and completes the item once at least 2 later retrospectives exist. This is by design; the item shows under Awaiting verification until then.
 9. Apply the **Source-trend write-back** below: the config change is applied, so the source trend retires now.
 
 ### Accept - global
 
-1. **Ensure a GitHub issue exists.** If Step 2 found a `github-issue:` line, reuse it. Else, if `github_feedback.enabled` is `true` and the `gh` guard (C5) passes, file an issue per the C4 template and append the record-back line (C2) to the proposal note. Else proceed without an issue and say so plainly in the `adoption-decision` note.
+1. **Ensure the `proposal` note exists** (see Before any Accept), then **ensure a GitHub issue exists.** If Step 2 found a `github-issue:` line, reuse it. Else, if `github_feedback.enabled` is `true` and the `gh` guard (C5) passes, file an issue per the C4 template and append the record-back line (C2) to the proposal note. Else proceed without an issue and say so plainly in the `adoption-decision` note.
 2. **Distinguish install type:** `gh repo view <repo> --json viewerPermission -q .viewerPermission`.
    - **ADMIN, MAINTAIN or WRITE: maintainer path.** Upsert `adoption-decision` with `accepted - will implement; tracked in <url>.` and advance `start` twice (the same dwell-in-review pattern as project-scoped acceptance, with the same `complete` caveat). Outcome verification is filled by a later retrospective.
    - **Anything else, or `gh` unavailable: community handoff (the default).** Upsert **both** notes (one `notes_write` call, two `upsert` elements; the first shown):
@@ -226,7 +237,7 @@ Skip silently when no trend matches: a proposal can be created ad hoc.
 | `f3a4b5c6` | Widen skill pointer | Deferred | revisit when trait usage grows |
 ```
 
-Close with a reminder: accepted items dwelling in `review` are not stuck. Their `outcome-verification` note is filled by a future `/session-retrospective` run once the change has had time to show effect.
+Close with a reminder: accepted items dwelling in `review` are not stuck. Their `outcome-verification` note is filled by `/session-retrospective` (Step 8a) once at least 2 retrospectives have run since the adoption and the change has had time to show effect.
 
 ---
 

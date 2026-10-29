@@ -1,7 +1,7 @@
 ---
 name: session-retrospective
 description: "Analyzes the current implementation run - evaluates schema effectiveness, delegation alignment, note quality, and plan-to-execution fit. Captures cross-session trends and proposes improvements when patterns repeat. Use after implementation runs, or when user says 'retrospective', 'session review', 'what did we learn', 'analyze this run', 'how did that go', 'evaluate our process', 'wrap up', 'end of session review'. Also use after a run closes, when the retrospective nudge fires."
-argument-hint: "[optional: root item UUID] [--run <runId>] [--dry-run to preview without creating items] [--deep: workflow-backed matching, main session only]"
+argument-hint: "[optional: root item UUID] [--run <runId>]... (repeatable) [--dry-run to preview without creating items] [--deep: workflow-backed matching, main session only]"
 ---
 
 # Session Retrospective
@@ -21,16 +21,20 @@ A retrospective is owed per **closed** run that is not marked `retro`. Two hooks
 
 Both ask REST `runs_read` `list` with `unmarked: retro` and `endedSince = now - 24h`, and read each run's terminal count from `runs_read` `frontier` (`data.counts.terminal`), for at most 5 runs per pass. In mode `dispatch` with a terminal count at or above `dispatchThreshold` (default 3) they call `runs_write` `mark {runId, key: retro}` (REST only; first write wins, which is the cross-session dedupe; `marked: false` means another session won, so they stay silent) and emit the dispatch directive. Below the threshold, in `nudge` mode (the default), or when the mark fails, they nudge once per run per session and never mark. There is no cross-session marker file (the server mark is the dedupe); per-session state (recorded closes, runs already nudged) lives in `os.tmpdir()/task-orchestrator/<session>/retro.json`. A run whose frontier read fails is skipped that pass, and a close made by a subagent is recorded for the main session's backstop, not acted on. Without an API URL or a project rootId the backstop only nudges once per session, from the closes the trigger recorded.
 
-`retro-ack` is a no-op kept for compatibility: the mark is the acknowledgement. The settings (`mode`: `nudge` | `dispatch` | `off`, and `dispatchThreshold`) are read ONLY from `extensions.claude-code.retrospective`; a top-level `retrospective:` block is ignored and `cooldownMinutes` is gone. Headless iterations, `to_mod_retro` and `mode: off` make both hooks inert.
+`retro-ack.mjs` is the manual acknowledgement: `node retro-ack.mjs --run <id> [--run <id>]...` sends the same `runs_write` `mark {runId, key: retro}` over REST for each run (Step 8b calls it). It prints one line per id (`marked <id>`, `already marked <id>`, `mark failed <id>: <code>`, or `not marked <id>: no REST API configured`) and always exits 0.
 
-**Honest limit.** A manually run retrospective does not mark its run (the mark is REST-only), so an unmarked run can nudge again in a later session inside the 24 h window.
+**Director sessions.** A director never runs a retrospective in its own context, so for it both hooks always dispatch (mode `dispatch`, threshold 0, whatever the config says; `off` stays off): every closed unmarked run it sees is marked first and then dispatched, so a later session does not dispatch it again. Without REST, `director-watch` dispatches once per run per session and only for a run closed within the last 24 h. The dispatch is ONE background agent that invokes this skill with a repeated `--run`.
+
+The settings (`mode`: `nudge` | `dispatch` | `off`, and `dispatchThreshold`) are read ONLY from `extensions.claude-code.retrospective`; a top-level `retrospective:` block is ignored and `cooldownMinutes` is gone. Headless iterations, `to_mod_retro` and `mode: off` make both hooks inert.
+
+**Honest limit.** The mark is REST-only. Without a resolvable REST API URL (Step 8b prints `not marked ...: no REST API configured`), a manually run retrospective leaves its run unmarked, so it can nudge or dispatch again in a later session inside the 24 h window; Step 5b's `run:<runId>` search keeps that repeat from creating a second retrospective item.
 
 ---
 
 ## Step 0 - Mode Check
 
 - `--dry-run` sets **DRY_RUN = true**: perform steps 1-4 and render the report (step 9); skip steps 5-8 (no item creation, no memory updates). Announce: `**Dry run** - no items created, no memory updated.`
-- `--run <runId>` scopes the analysis to one run (step 1a). It wins over a root UUID.
+- `--run <runId>` scopes the analysis to a run (step 1a). It repeats (`--run A --run B`): the scope is the union of the runs' members, and one retrospective covers them all. It wins over a root UUID.
 - `--deep` is handled in 4.3.
 
 ---
@@ -40,7 +44,7 @@ Both ask REST `runs_read` `list` with `unmarked: retro` and `endedSince = now - 
 Collect the distributed `session-tracking` notes of the items in scope.
 
 ### 1a. Identify items in scope
-**`--run <runId>`.** The run view gives `rootId` and `scopeId`:
+**`--run <runId>`** (once per run when repeated; union the members). The run view gives `rootId` and `scopeId`:
 
 ```to-call
 {"tool": "runs_read", "select": "get", "args": {"runId": "<runId>"}}
@@ -221,10 +225,18 @@ If no root item (no `parentId`) has that exact title, create it; a search hit ca
 Check `ok` and `data.results[0].ok`; the new `id` is `data.results[0].id`.
 
 ### 5b. Create the retrospective item
-Include the project name (or rootId) in the title when known, so a shared container stays attributable; otherwise omit that segment.
+**First, drop runs already retrospected.** For each `--run <runId>` search for an existing retrospective that carries it (the title below holds `run:<runId>`):
 
 ```to-call
-{"tool": "items_write", "op": "create", "args": {"title": "Retrospective - <project-name> - <root-item-title> - <YYYY-MM-DD>", "summary": "<one-sentence summary of key findings>", "type": "session-retrospective", "tags": ["session-retrospective"], "parentId": "<container-uuid>"}}
+{"tool": "items_read", "select": "search", "args": {"query": "run:<runId>", "kinds": ["item"], "tags": ["session-retrospective"], "matchMode": "substring", "limit": 5}}
+```
+
+Drop every run that has a hit. If no run remains, create nothing: say `already retrospected <runId>` for each, run Step 8b's `retro-ack.mjs` call for them (the mark may still be missing) and stop.
+
+Include the project name (or rootId) in the title when known, so a shared container stays attributable; otherwise omit that segment. When the scope came from `--run`, end the title with `run:<runId>` once per remaining run (space separated).
+
+```to-call
+{"tool": "items_write", "op": "create", "args": {"title": "Retrospective - <project-name> - <root-item-title> - <YYYY-MM-DD> run:<runId>", "summary": "<one-sentence summary of key findings>", "type": "session-retrospective", "tags": ["session-retrospective"], "parentId": "<container-uuid>"}}
 ```
 
 Check `ok` and `data.results[0].ok`; on a failure read `data.results[0].error.code`. (Use `[i]` for multi-element calls.)
@@ -307,6 +319,14 @@ Read the **scope** classification captured in `improvement-signals`: **global** 
 
 The proposal must carry a **concrete suggestion**: schema edits with the exact YAML; skill updates naming the section; orchestration-context changes naming section and content; hook additions naming event, matcher and purpose.
 
+**Fill the `proposal` note right after each create** (the floor schema requires it in the queue phase; without it `/review-proposals` is gate-blocked at `start`). One upsert per proposal, the new proposal's id as `itemId`:
+
+```to-call
+{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<proposal-uuid>", "key": "proposal", "role": "queue", "body": "Problem and evidence: <the pattern, with the retrospective item ids and session counts that surfaced it>.\nChange: <the exact YAML, the skill file and section, or the hook event, matcher and purpose>.\nExpected effect: <the measurable effect and how later sessions will measure it>.\nBlast radius: <schemas, skills or agents touched>.\nScope: <global | project-specific; target rootId when project-specific>."}}
+```
+
+Check `data.results[0].ok`. A global proposal later gets a final `github-issue: <url>` line from 7c.
+
 ### 7c. File GitHub issues (global proposals only)
 For each **global** proposal created this run, never project-scoped ones, attempt to file or link a GitHub issue. Conventions, template and dedup live in [`references/github-feedback.md`](references/github-feedback.md); this step is the sequence. Every sub-step is best-effort: a failure is caught, recorded as a one-line reason, and the retrospective continues.
 
@@ -344,6 +364,26 @@ With a project rootId also pull project-scoped proposals, which anchor outside t
 
 If meta-findings warrant it, re-upsert the current retrospective's `improvement-signals` note with the meta-evaluation appended (same `notes_write` `upsert` shape as 5c).
 
+### 8a. Verify Adopted Proposals
+
+Accepted proposals dwell in `review` with `outcome-verification` unfilled; this retrospective fills it. List them (global ones: the container's children from the overview above with role `review`; project ones: this list with the project rootId):
+
+```to-call
+{"tool": "items_read", "select": "list", "args": {"type": "improvement-proposal", "role": "review", "ancestorId": "<rootId>", "limit": 50}}
+```
+
+For each one, take the date in its `adoption-decision` note as the adoption date and count the retrospectives created after it (the Step 8 list above; for a project-scoped proposal count only that project's). **With fewer than 2 later retrospectives, skip it and write nothing**: the change has not had time to show an effect. Otherwise compare the later retrospectives and their items (only items created after the adoption date: schema pins mean older items still follow the old config) with the `proposal` note's expected effect, and upsert the verdict, then complete the proposal:
+
+```to-call
+{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<proposal-uuid>", "key": "outcome-verification", "role": "review", "body": "Verdict: <effective|ineffective|inconclusive>. <evidence: later retrospective ids and what they showed against the expected effect; what to try instead when ineffective>."}}
+```
+
+```to-call
+{"tool": "advance", "op": "transition", "args": {"itemId": "<proposal-uuid>", "trigger": "complete"}}
+```
+
+Then the source-trend write-back: `effective` retires the trend (`advance` `transition`, `trigger: "cancel"`, `summary: "archived: verified effective via proposal <short-id>"`); `ineffective` or `inconclusive` appends `proposal <short-id> <verdict> <YYYY-MM-DD>` to the trend's `summary` (`items_write` `update`) and keeps the trend active. A proposal delegated upstream is already terminal and is not listed.
+
 ---
 
 ## Step 8b - Fill the Closure Note and Complete
@@ -360,7 +400,15 @@ Check `ok` and `data.results[0].ok`, then complete:
 {"tool": "advance", "op": "transition", "args": {"itemId": "<retro-uuid>", "trigger": "complete"}}
 ```
 
-Read `ok` and `data.results[0].newRole`; on a failure `data.results[0].error.code` (`gate_blocked`, whose `error.detail.missing` names the unfilled notes). There is no acknowledgement step: the run's `retro` mark is the hooks' dedupe, and a manual run does not set it (see the honest limit above).
+Read `ok` and `data.results[0].newRole`; on a failure `data.results[0].error.code` (`gate_blocked`, whose `error.detail.missing` names the unfilled notes).
+
+Then mark the runs (a `--run` scope only; skip with no `--run`). Run it once for all of them through Bash, repeating `--run`:
+
+```
+node "${CLAUDE_PLUGIN_ROOT}/hooks/retro-ack.mjs" --run <runId> [--run <runId>]...
+```
+
+Report its lines. If `${CLAUDE_PLUGIN_ROOT}` reaches the shell unexpanded (the literal survives in the command), skip the step and record `retro mark skipped: plugin root unresolved` in the report. A `not marked ...: no REST API configured` or `mark failed` line is not an error: say so in the report and continue.
 
 ---
 
@@ -392,5 +440,7 @@ One dimension row each in the real table. Dry-run prefix: `**Dry run** - no item
 **Container not found.** First retrospective on this database. Containers are created lazily: `Session Retrospectives` at 5a, `Retrospective Trends` at 4.1 or the first trend write, `Improvement Proposals` at 7a.
 
 **Legacy trend file detected.** `memory/retrospectives.md` has `- <key>: ...` lines and the Trends container is absent or empty: see [`references/legacy-trend-migration.md`](references/legacy-trend-migration.md). A count mismatch stops it without stubbing the file; re-run to retry.
+
+**Run keeps being dispatched.** Its `retro` mark is missing: the mark is REST-only, so check that a REST API URL resolves (Step 8b prints it) and run `node "${CLAUDE_PLUGIN_ROOT}/hooks/retro-ack.mjs" --run <runId>` by hand.
 
 **Retrospective pulled in another project's items.** No project scope was configured, so the fallback scan covered the whole database. Set `project.rootId` in `.taskorchestrator/config.yaml`, pass the root UUID, or pass `--run <runId>`.

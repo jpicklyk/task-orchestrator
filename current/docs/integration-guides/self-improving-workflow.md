@@ -555,7 +555,7 @@ Hooks fire deterministically on every matching tool call regardless of agent att
 After the first implementation run with the full pipeline:
 
 1. Confirm `session-tracking` notes were filled on each item: `notes_read(select="list", itemId="<uuid>", role="work")`
-2. Run `/session-retrospective --run <runId>` and check the dashboard renders dimension scores; `runs_read(select="get", runId="<runId>")` shows the run's `retro` mark afterwards
+2. Run `/session-retrospective --run <runId>` and check the dashboard renders dimension scores; when a REST API URL resolves, `runs_read(select="get", runId="<runId>")` shows the run's `retro` mark afterwards
 3. List the trend items — `items_read(select="list", type="retrospective-trend", role="queue")` — the first trend entries should now exist under a `Retrospective Trends` container
 4. After a second similar run, check whether any trends graduated into `improvement-proposal` items
 
