@@ -24,6 +24,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.Baseline
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.FROM_START
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.awaitSubscribers
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.Reply
@@ -2390,7 +2391,6 @@ class DecisionSseTest {
         const val OPEN_TOKEN = "decision-sse-open-token"
         const val ROOT_TOKEN = "decision-sse-root-token"
         const val TAG_TOKEN = "decision-sse-tag-token"
-        const val SETTLE_DELAY_MS = 150L
         const val COLLECT_WINDOW_MS = 900L
 
         fun sha256(input: String): ByteArray = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))
@@ -2537,25 +2537,49 @@ class DecisionSseTest {
 
     private suspend fun ApplicationTestBuilder.stream(
         token: String,
-        lastEventId: String?,
-        duringConnection: suspend () -> Unit = {}
+        lastEventId: String?
     ): List<JsonObject> {
         val client = createClient { install(ClientSSE) }
         val collected = mutableListOf<JsonObject>()
         withTimeout(10.seconds) {
-            coroutineScope {
-                launch {
-                    delay(SETTLE_DELAY_MS)
-                    duringConnection()
+            client.sse(
+                urlString = "/events",
+                request = {
+                    header(HttpHeaders.Authorization, "Bearer $token")
+                    if (lastEventId != null) header("Last-Event-ID", lastEventId)
                 }
-                client.sse(
-                    urlString = "/events",
-                    request = {
-                        header(HttpHeaders.Authorization, "Bearer $token")
-                        if (lastEventId != null) header("Last-Event-ID", lastEventId)
-                    }
-                ) {
-                    collected.addAll(collectWithin(incoming))
+            ) {
+                collected.addAll(collectWithin(incoming))
+            }
+        }
+        return collected
+    }
+
+    /**
+     * A live connection: waits for this connection's subscriber to register on [bus] before [produce] runs, and starts
+     * the collect window only once [produce] returns, so neither a slow subscribe nor a slow produce on a loaded runner
+     * drops frames. The test engine keeps an earlier connection's server-side subscriber registered after the client
+     * leaves, so the wait is for one more subscriber than before rather than for exactly one.
+     */
+    private suspend fun ApplicationTestBuilder.liveStream(
+        bus: ApiEventBus,
+        token: String,
+        produce: suspend () -> Unit
+    ): List<JsonObject> {
+        val before = bus.subscriberCount()
+        val client = createClient { install(ClientSSE) }
+        val collected = mutableListOf<JsonObject>()
+        withTimeout(15.seconds) {
+            client.sse(
+                urlString = "/events",
+                request = { header(HttpHeaders.Authorization, "Bearer $token") }
+            ) {
+                coroutineScope {
+                    val job = launch { incoming.collect { sse -> collected.add(Json.parseToJsonElement(sse.data.orEmpty()).jsonObject) } }
+                    bus.awaitSubscribers(before + 1)
+                    produce()
+                    delay(COLLECT_WINDOW_MS)
+                    job.cancel()
                 }
             }
         }
@@ -2653,14 +2677,14 @@ class DecisionSseTest {
             val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application { wire(bus, entries(f)) }
 
-            val open = stream(OPEN_TOKEN, null) { bus.committed(produce(f)) }
+            val open = liveStream(bus, OPEN_TOKEN) { bus.committed(produce(f)) }
             assertEquals(setOf(f.alphaRoot.id.toString(), f.betaRoot.id.toString()), rootsOf(open), "unrestricted control: $open")
 
-            val scoped = stream(ROOT_TOKEN, null) { bus.committed(produce(f)) }
+            val scoped = liveStream(bus, ROOT_TOKEN) { bus.committed(produce(f)) }
             assertTrue(decisionFrames(scoped).isNotEmpty(), "the in-scope decision frames arrive live: $scoped")
             assertEquals(setOf(f.alphaRoot.id.toString()), rootsOf(scoped), "only the subscriber's own root: $scoped")
 
-            val tagged = stream(TAG_TOKEN, null) { bus.committed(produce(f)) }
+            val tagged = liveStream(bus, TAG_TOKEN) { bus.committed(produce(f)) }
             assertTrue(decisionFrames(tagged).isNotEmpty(), "the alpha-tagged decisions arrive live: $tagged")
             assertEquals(setOf(f.alphaRoot.id.toString()), rootsOf(tagged), "the beta-tagged root's decisions stay hidden: $tagged")
         }
