@@ -44,7 +44,8 @@ with `answerers: human-only` cannot be answered over stdio: the answer needs a c
 
 Never resume while the decision is open or acknowledged: the item would run on without the ruling.
 Resume when `items_read` `blocked` shows `resumable: true` for the entry, or when `context`
-`decisions[]` shows the item's `decisionId` as answered or withdrawn:
+`decisions[]` shows the item's `decisionId` as answered, or no longer lists it (withdrawn decisions are
+left out):
 
 ```to-call
 {"tool": "items_read", "select": "blocked", "args": {"ancestorId": "98d452e9"}}

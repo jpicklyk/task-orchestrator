@@ -617,7 +617,7 @@ async function waitWhilePaused() {
     pausePending = null;
     const why = p.pauseReason ? ` (${p.pauseReason})` : "";
     const dec = p.decisionId ? `, decision ${p.decisionId}` : "";
-    say(`  run paused${why}${dec}: waiting for a director or human to answer the pause decision and resume the run, or to close it (polling every ${PAUSE_POLL_MS / 1000}s)`);
+    say(`  run paused${why}${dec}: waiting for a director or human to answer the pause decision (or resume a manual pause), or to close the run (polling every ${PAUSE_POLL_MS / 1000}s)`);
     say(ralphReport("paused", { pauseReason: p.pauseReason, pauseDecisionId: p.decisionId }));
     while (!shuttingDown) {
         const r = await readRun();

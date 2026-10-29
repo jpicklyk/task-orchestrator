@@ -174,7 +174,7 @@ After the script finishes (the user reports back with the summary, or pastes the
 | `Exit reason: error budget exhausted` | Inspect last error; likely repo/build/network issue affecting all iterations |
 | `Exit reason: idle budget exhausted` | Matches exist but stayed claimed, blocked or skip-listed; re-run later |
 | `Exit reason: run closed elsewhere` | A director or human closed the run while the loop was working or waiting (exit 0; the driver sends no close) |
-| `run paused ...` (a status line, not an exit) | The run hit its budget or attempt cap (or was paused by hand). The loop ends the seat and polls the run every 30s; it carries on when a director or human resumes the run, and exits 0 if they close it |
+| `run paused ...` (a status line, not an exit) | The run hit its budget or attempt cap (or was paused by hand). The loop ends the seat and polls the run every 30s; it carries on once a director or human answers the pause decision (or resumes a manual pause), and exits 0 if they close the run |
 
 For preserved worktrees from gate-blocked or errored iterations:
 
@@ -213,7 +213,7 @@ The iteration agent emits `RALPH_OUTCOME: {...}` as its final message, with an o
 | `note_owned_by_other` | permanent | iteration | `gate-blocked` | A note this seat may not write belongs to another seat. Never take it over. Emit gate-blocked with code and the note key in reason; that seat or a human fills it. | gate |
 | `not_claim_holder` | permanent | iteration | `error` | A write was refused because the call does not hold the claim (claim lapsed, or the call went out without the seat token). Emit error with code. | error |
 | `unauthenticated` | permanent | iteration | `error` | The seat token was refused: the iteration must reach the server as the same principal as the driver. Emit error with code. On a driver call with the coordinator token the loop exits 2. | error |
-| `run_paused` | permanent | driver | `error` | The run paused (budget, attempt cap or manual). Never retried and never closes the run: the driver ends the seat, then polls the run every 30s until a director or human resumes it (continue) or closes it (exit 0). | pause-wait |
+| `run_paused` | permanent | driver | `error` | The run paused (budget, attempt cap or manual). Never retried and never closes the run: the driver ends the seat, then polls the run every 30s until a director or human answers the pause decision (or resumes a manual pause) and the loop continues, or closes the run (exit 0). | pause-wait |
 | `run_closed` | permanent | driver | `error` | The run was closed elsewhere (a closed run's tokens may also answer unauthenticated; the driver probes the run to tell the two apart). The driver ends the seat and exits 0 without closing. | exit |
 | `run_at_capacity` | transient | driver | `idle` | assign hit the run's maxActiveSeats. The driver waits 30s, then retries the assign, up to 10 times, then ends the loop. | wait-retry |
 | `unavailable` | shedding | driver | `idle` | The server shed load on a driver call. The driver waits retryAfterMs, then tries again. | backoff |
@@ -324,7 +324,7 @@ node claude-plugins/task-orchestrator/scripts/ralph-loop.mjs \
   --run-budget-usd 30
 ```
 
-When the run's reported spend reaches $30 the server pauses the run on a budget decision; the next assign answers `run_paused`. The driver does not close the run: it prints the pause reason and decision once, then polls the run every 30s until a director or human resumes it (the loop continues) or closes it (the loop exits 0).
+When the run's reported spend reaches $30 the server pauses the run on a budget decision; the next assign answers `run_paused`. The driver does not close the run: it prints the pause reason and decision once, then polls the run every 30s until a director or human answers the pause decision (the loop continues; a manual pause is resumed instead) or closes the run (the loop exits 0).
 
 ---
 

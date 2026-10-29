@@ -42,7 +42,7 @@ needs no new seat continues, and the run closes as usual.
 ## Step 0a — Report usage
 
 Method A: write the Workflow task notification's usage to `<scratchpad>/run-wave/<runId>/usage.json`
-as `{"tokens": N, "duration": N}` (add `"costUsd": N` when the notification reports a cost). Then
+as `{"tokens": N, "duration": N}` (add `"costUsd": N` when the notification reports a cost).
 That file is always written here, but the heartbeat is SENT here only when no run item has a review
 phase (Step 4 sends no `start`, Step 5 assigns no reviewer). Otherwise it is sent at Step 7, after the
 Step 0b re-sweep and just before `close`, because a heartbeat that crosses the budget pauses the run
@@ -454,13 +454,13 @@ close the run: `node "<helper>" run-ops --plan <plan> --phase close --result <re
 says `started: false` or the launch threw (no result); pass `--reason cancelled` for an explicit user
 stop or `--reason abandoned` for a Resume re-plan of an unrecoverable run (any other `--reason` exits
 2). Send it under the coordinator token. `invalid_run_state` on a `completed` close means a seat is
-still active: run Step 0b's sweep, then close again. The answer's `snapshot` lists `openDecisions`
-(a close withdraws no decision): save the close answer as `close.json`, then send the `closed` report
-(`report --event closed --result <result.json> --close <close.json>`), which names them.
+still active: run Step 0b's sweep, then close again. The answer's `snapshot` carries `openDecisions`,
+the number of decisions still open (a close withdraws none): save the close answer as `close.json`, then send the `closed` report
+(`report --event closed --result <result.json> --close <close.json>`).
 
 Report, in one place, every item that was **deferred** (cross-run edge, resource contention,
 run-size cap — with reasons), every item that was **stopped** (invalid envelope, verify/notes-audit
-failure, `awaiting_decision`, `run_paused`, `seat-token-rejected`), every item **held** live-owed,
+failure, `awaiting_decision`, `run_paused`, `seat-token-rejected`, `seat-token-missing`), every item **held** live-owed,
 and every item that was **excluded** at planning time (unowned required note, unavailable schema
 config) — each with its specific reason, not a bare count. Suggest `/session-retrospective --run
 <serverRunId>` for the retrospective of this run. Then return to `SKILL.md` Step 9: re-run Step 2

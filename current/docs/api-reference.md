@@ -2120,7 +2120,7 @@ holder pair is not an active assignee of this run, the coordinator included; an 
 always empty on a closed run, and a paused run computes it normally. `inFlight` (assignment order) holds the active
 member seats, never the coordinator. `waiting` (membership order): a blocked member has the `reason` of its block, one of
 `manual`, `dependency`, `awaiting_decision` or `resource`, plus `decisionId` (the full UUID) whenever the block names a
-decision; a blocked member with `reason: dependency` also has `blockers`, which can be empty. A member that is not
+decision; a blocked member with `reason: dependency` also has `blockers`, always empty. A member that is not
 blocked but has an unsatisfied blocking dependency has `reason: dependency` and `blockers`, the unsatisfied blockers' short ids, sorted.
 Under a restricted scope, members and blockers outside it are left out; a blocker outside it still keeps its item
 waiting. No body, summary, token, principal or assignment id is shown.

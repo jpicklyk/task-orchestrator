@@ -111,7 +111,7 @@ When the director connection's tools are present (`report` and `runs_read` `deci
 {"tool": "runs_read", "select": "decisions", "args": {"rootId": "<rootId>", "limit": 50}, "profile": "director"}
 ```
 
-The select has no status filter: keep the summaries whose `status` is `open` or `acknowledged`, count them, and count those with `overdue: true`. Render `Decisions waiting: N (k overdue)` just above the Runs table and point at `/task-orchestrator:director` to answer them; omit the line when N is 0.
+Follow `page.next` (pass it as `cursor`) until it is absent. The select has no status filter: keep the summaries whose `status` is `open` or `acknowledged`, count them, and count those with `overdue: true`. Render `Decisions waiting: N (k overdue)` just above the Runs table and point at `/task-orchestrator:director` to answer them; omit the line when N is 0.
 
 ### Blocked-item decisions
 

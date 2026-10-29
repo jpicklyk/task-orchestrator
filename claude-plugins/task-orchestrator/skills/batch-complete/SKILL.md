@@ -54,7 +54,7 @@ If any target (or any descendant of a `rootId` scope) is a non-terminal member, 
   4. Abort
 ```
 
-Run members whose schema has no seats are protected only by this check; the server will not refuse them.
+Run members whose schema has no seats are protected only by this check; the server will not refuse them. A call from a `kind: human` credential is never seat-refused either.
 
 ## Step 2 - Preview impact
 
