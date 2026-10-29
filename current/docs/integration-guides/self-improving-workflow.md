@@ -372,23 +372,34 @@ Performs all evaluation steps and renders the report but skips persistence — n
 
 ## Analysis Reporting
 
-Loops 1 and 2 surface findings inline. The agent appends an analysis block to the end of every response that involved MCP tool calls or subagent activity.
+Loops 1 and 2 observe continuously but report at boundaries, under the same timing rules as the retrospective. An analysis footer on every response that touched MCP turns into noise quickly: in a session with background agents, every subagent return and task notification would carry one, and so would plain questions answered in passing.
 
-### Lightweight Format (1-3 MCP calls, no subagents)
+### What Counts as an MCP Call
+
+Only Task Orchestrator tools (`mcp__mcp-task-orchestrator__*`, and the director profile's tools). Other MCP servers in the session (the Claude Code desktop app's own tools, browser panes, log viewers) are invisible to the analysis layer: never counted, never reported on.
+
+### Per Response: Inline Lines Only, and Only for a Finding
+
+When the agent detects a concrete issue (an over-fetch, a missed batch, a logged observation, a self-correction), it writes one `↳ [analysis]` line in the response body where it happens:
 
 ```
----
-◆ **Analysis** — 2 MCP calls | clean
+↳ [analysis] Over-fetch: used get+notes where overview suffices for the dashboard
+↳ [analysis] Logged: [optimization] `a1b2c3d4` — batch dependency creation for linear chains
+↳ [self-correction] Updated memory: pass model on every Agent dispatch
 ```
 
-Or with an issue:
+A clean response gets nothing: no line, no footer, no "clean" marker.
 
-```
----
-◆ **Analysis** — 3 MCP calls | over-fetch: used get+notes for status check
-```
+### At a Boundary: One Workflow Analysis Block
 
-### Full Format (4+ MCP calls or subagent activity)
+The full block appears once per boundary and covers everything since the previous block:
+
+- a worktree's work is finalized: its PR is opened or merged, or the worktree is wrapped up without a PR
+- a run closes (`runs_write` `close`), in the same response that dispatches or surfaces the retrospective
+- a feature or multi-item effort driven outside a run reaches terminal
+- the user asks for it
+
+Like a retrospective directive, the block is held while background tasks or subagents from the same work are still running, emitted after the last of them completes, and boundaries that accumulate while holding merge into one block. It never appears twice for one boundary. A session that ends between boundaries emits nothing; the inline lines and logged observations already carry the signal into `/session-retrospective`.
 
 ```
 ---
@@ -401,7 +412,7 @@ Or with an issue:
 ↳ Subagents dispatched: 2 | Returns reviewed: 2
 ↳ Clean — both returns matched requested format
 
-**Friction Points** (0 this session)
+**Friction Points** (0 since the last block)
 ↳ None detected
 
 **Observations Logged** (1 new, 0 existing matched)
@@ -411,11 +422,12 @@ Or with an issue:
 ↳ Consider using items_read(overview) for the work-summary dashboard
 ```
 
-Inline analysis uses the `↳ [analysis]` prefix for real-time visibility during the response body. The end-of-response block is the aggregate summary.
+Sections with nothing to say are dropped. If the whole span was clean, one line replaces the block:
 
-### When to Omit
-
-Omit the analysis block only when the response involved **zero** MCP calls and **zero** subagent activity (pure conversation, answering from memory, discussing a plan before any tool use).
+```
+---
+◆ **Analysis** — 14 MCP calls since last block | clean
+```
 
 ---
 
@@ -456,14 +468,15 @@ Adds inline analysis and self-correction without requiring a personal output sty
 ```markdown
 ## Self-Improvement Protocol
 
-After every response involving MCP tool calls:
+Watch every Task Orchestrator tool call (other MCP servers do not count):
 1. Did any call return more data than needed? Log as `optimization`.
 2. Did any call fail unexpectedly or require a workaround? Log as `friction` or `missing-capability`.
 3. Did I make an agent-side mistake (forgot model param, used short UUID, dispatched before materializing)? Update auto-memory with the correction.
 
-Append an analysis block at end of response:
-- Lightweight (1-3 calls): `◆ Analysis — N MCP calls | clean | <issue if any>`
-- Full (4+ calls or subagents): structured block covering MCP efficiency, return-payload efficiency, friction, observations
+Report a finding as one inline `↳ [analysis]` line where it happens; say nothing on a clean response.
+Emit one summary block (MCP efficiency, return-payload efficiency, friction, observations) only at a
+boundary: a worktree's PR opened or merged, a run closed, a feature reaching terminal, or when asked.
+Hold it while background agents from that work are still running, and never emit it twice for one boundary.
 ```
 
 This buys you continuous monitoring without changing how you operate. Most of Loop 1 + all of Loop 2.
