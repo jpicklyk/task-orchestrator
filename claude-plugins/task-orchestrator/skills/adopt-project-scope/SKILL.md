@@ -176,6 +176,7 @@ Capture the new UUID as `ANCHOR_ID`.
     name: "<project name>"
   ```
 - If a `project:` key somehow already exists (it should not — Step 1a would have aborted), update its `rootId`/`name` in place rather than adding a duplicate key.
+- If the config write in (b) was denied or failed, stop before (c) and (d): report that the anchor exists without a config block, and that nothing was re-parented.
 
 **(c) Validate, then push the config server-side** (tolerant — see 1c). Use the file text with CRLF replaced by LF as `configYaml`. A root with no config fails `config` `get` with `data.results[0].error.code` `not_found`, which means "no head" (then omit `expectedVersion`):
 
@@ -192,7 +193,6 @@ Capture the new UUID as `ANCHOR_ID`.
 ```
 
 - `validate` reports a problem as `valid: false` with `errors[{path, reason}]`; show them and skip the push (the local file is saved). Relay `warnings`.
-- If the config write in (b) was denied or failed, stop before (c) and (d): report that the anchor exists without a config block, and that nothing was re-parented.
 - Read failures from `data.results[0].error` (call-level `partial_failure`): `config_invalid` on the push: show `detail.errors[{path, reason}]`; nothing was stored. `version_conflict`: read the head again and ask before retrying.
 - If the `config` tool is not available or the call is `forbidden`, skip this step and note: "Config saved locally only — the server push was not possible; the local config.yaml is authoritative."
 
