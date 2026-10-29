@@ -18,6 +18,7 @@
 
 import { extractLastBalancedJson } from './ralph-lib.mjs'
 import { formatProvenance, formatExtraSeats, parseExtraSeats } from './provenance-lib.mjs'
+import { formatCoordinatorReport, REPORT_EVENTS } from './lib/coordinator-report.mjs'
 
 export const STATE_CONTRACT = 'run-wave/state-v1'
 
@@ -752,6 +753,10 @@ export function stageResult(core, doc, state, idOrShort, seat, finalText, opts =
     notes: env.notes || [],
     files: env.files || [],
   })
+  const raised = typeof env.decisionId === 'string' && env.decisionId
+    ? env.decisionId
+    : env.paused && typeof env.paused.decisionId === 'string' ? env.paused.decisionId : ''
+  if (raised) newState.stages[key].decisionId = raised
   newState.outs[key] = env.output
 
   return { status: mapped.status, reason: mapped.reason, state: newState }
@@ -842,6 +847,7 @@ export function resultFromState(core, doc, state) {
           post: entry.post !== undefined ? entry.post : ((entry.commits && entry.commits.post) || ''),
         },
         files: entry.files || [],
+        ...(typeof entry.decisionId === 'string' && entry.decisionId ? { decisionId: entry.decisionId } : {}),
       })
       if (state.outs && key in state.outs) outputs[stage.seat] = state.outs[key]
       if (entry.status !== 'done') {
@@ -1556,7 +1562,9 @@ function runHints(doc, phase) {
  * token, except end_seat, which goes under each seat's own token).
  * opts.phase:
  *   open      runs_write open {rootId, items, scopeId?, label: runId, title, hints:{plan, method,
- *             worktreeMode}, budget?} (budget only from the profile's opt-in runBudget, meta.runBudget).
+ *             worktreeMode}, budget?} (budget only from the profile's opt-in runBudget, meta.runBudget);
+ *             also tokenFile: <scratchDir>/tokens/coordinator.token, where the orchestrator persists the
+ *             coordinator token so a restart or compaction can read it back (the file is redacted by value).
  *   assign    runs_write assign {runId, itemId, seat}; without opts.item every non-inserted stage of
  *             every item (Method A, at launch), with opts.item + opts.seat that one seat (Method B, a
  *             review lane, a reseat's base seat). tokenFiles[i] is where results[i].seatToken goes.
@@ -1590,7 +1598,12 @@ export function runOps(core, doc, opts = {}) {
       for (const k of BUDGET_KEYS) if (typeof rb[k] === 'number' && rb[k] > 0) budget[k] = rb[k]
       if (Object.keys(budget).length > 0) op.budget = budget
     }
-    return { tool: 'runs_write', ops: [op] }
+    const out = { tool: 'runs_write', ops: [op] }
+    const scratch = doc.args.project && doc.args.project.scratchDir
+    if (typeof scratch === 'string' && scratch) {
+      out.tokenFile = `${normalizePath(scratch).replace(/\/+$/, '')}/tokens/coordinator.token`
+    }
+    return out
   }
   if (phase === 'assign') {
     const runId = requireBound(doc)
@@ -1667,6 +1680,209 @@ export function runOps(core, doc, opts = {}) {
     return { tool: 'runs_write', ops: [{ op: 'close', runId, reason: closeReason(opts.result, opts.reason) }] }
   }
   throw new Error(`invalid args: --phase must be open, assign, update, heartbeat, end-seats or close, got ${JSON.stringify(phase)}`)
+}
+
+// ---------------------------------------------------------------------------------------
+// Coordinator report (pure) and the review-wave args builder (pure).
+// ---------------------------------------------------------------------------------------
+
+function unwrapObject(value, depth = 0) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || depth > 4) return {}
+  if (value.data && typeof value.data === 'object' && !Array.isArray(value.data)) return unwrapObject(value.data, depth + 1)
+  if (Array.isArray(value.results) && value.results[0] && typeof value.results[0] === 'object') {
+    return unwrapObject(value.results[0], depth + 1)
+  }
+  if (value.run && typeof value.run === 'object' && !Array.isArray(value.run)) return Object.assign({}, value, value.run)
+  return value
+}
+
+/**
+ * reportFields(doc, opts) -> the fields formatCoordinatorReport takes, built from ids, counts and
+ * short reasons only. opts: {event, result, run, close, needs}. `result` is a result-v1, `run` a saved
+ * runs_read get (or runs_write) answer, `close` a saved runs_write close answer.
+ */
+export function reportFields(doc, opts = {}) {
+  if (!doc || !doc.args) throw new Error('invalid args: not a plan document')
+  const meta = doc.meta || {}
+  const args = doc.args
+  const event = opts.event
+  if (!REPORT_EVENTS.includes(event)) {
+    throw new Error(`invalid args: --event must be one of ${REPORT_EVENTS.join(', ')}, got ${JSON.stringify(event)}`)
+  }
+  const run = unwrapObject(opts.run)
+  const close = unwrapObject(opts.close)
+  const snapshot = close.snapshot && typeof close.snapshot === 'object' ? close.snapshot : {}
+  const result = opts.result && typeof opts.result === 'object' ? opts.result : null
+
+  const fields = {
+    event,
+    label: args.runId,
+    runId: args.serverRunId || run.runId || run.id || '',
+    method: meta.method === 'B' ? 'B' : 'A',
+    phase: (run.hints && run.hints.phase) || '',
+    status: run.status || close.status || undefined,
+    counts: { done: 0, stopped: 0, deferred: 0, held: 0, excluded: (meta.excluded || []).length },
+    decisions: [],
+    stopped: [],
+    needs: opts.needs || '',
+  }
+
+  const deferredPlan = (Array.isArray(args.deferred) ? args.deferred : meta.deferred) || []
+  if (result) {
+    for (const it of result.items || []) {
+      if (it.status === 'done') fields.counts.done++
+      else if (it.status === 'stopped') {
+        fields.counts.stopped++
+        fields.stopped.push({ item: it.short || it.id, reason: it.reason })
+      } else if (it.status === 'deferred') fields.counts.deferred++
+      else fields.counts.held++
+      for (const st of it.stages || []) {
+        if (typeof st.decisionId === 'string' && st.decisionId) {
+          fields.decisions.push({ decisionId: st.decisionId, itemId: it.id })
+        }
+      }
+    }
+    fields.counts.deferred += (result.deferred || []).length
+    fields.counts.excluded += (result.refused || []).length
+    if (result.started === false) {
+      fields.stopped.push({ item: '-', reason: result.reason || 'wave did not start' })
+    }
+  } else {
+    fields.counts.deferred = deferredPlan.length
+  }
+
+  const pauseDecisionId = run.pauseDecisionId || (run.pause && run.pause.decisionId) || ''
+  if (run.status === 'paused' || event === 'paused') {
+    fields.pauseReason = run.pauseReason || ''
+    fields.pauseDecisionId = pauseDecisionId
+    if (pauseDecisionId && !fields.decisions.some((d) => d.decisionId === pauseDecisionId)) {
+      fields.decisions.push({ decisionId: pauseDecisionId, itemId: '' })
+    }
+  }
+
+  if (event === 'closed') {
+    fields.status = 'closed'
+    fields.closeReason = snapshot.reason || close.terminalReason || close.reason || (result && result.started === true ? 'completed' : 'failed')
+    const od = snapshot.openDecisions
+    fields.openDecisions = Array.isArray(od) ? od.map((d) => (d && typeof d === 'object' ? d.id || d.decisionId : d)) : []
+    if (!Array.isArray(od) && Number.isInteger(od)) fields.openDecisionCount = od
+    fields.headline = `${fields.closeReason}; ${fields.counts.done} done, ${fields.counts.stopped} stopped`
+  } else if (event === 'planned') {
+    const admitted = (args.items || []).length
+    fields.headline = `${admitted} item${admitted === 1 ? '' : 's'} planned, ${deferredPlan.length} deferred`
+    fields.counts.deferred = deferredPlan.length
+    if (!fields.needs && ((meta.excluded || []).length > 0 || (meta.degradations || []).length > 0)) {
+      fields.needs = 'approve launch'
+    }
+  } else if (event === 'paused') {
+    fields.status = 'paused'
+    fields.headline = `run paused (${fields.pauseReason || 'unknown'})`
+    if (!fields.needs) fields.needs = 'answer the pause decision, then resume or close'
+  } else {
+    fields.headline = `${fields.decisions.length} open decision${fields.decisions.length === 1 ? '' : 's'}`
+    if (!fields.needs) fields.needs = 'answer the decision'
+  }
+  return fields
+}
+
+const LANE_DEFAULT_SKILL = 'review-quality'
+
+/**
+ * reviewWaveArgs(core, doc, snapshot, result, shorts) -> review-wave/args-v1 over the given items.
+ * Lanes are the item's review-role schema notes grouped by (seat or reviewer, skill or review-quality);
+ * no simplify lane. Throws 'invalid args: ...' for an unknown short or an item with no review notes.
+ */
+export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
+  const { plan } = resolvePlan(core, doc)
+  if (!Array.isArray(shorts) || shorts.length === 0) throw new Error('invalid args: --items needs at least one item')
+  const out = {
+    contract: 'review-wave/args-v1',
+    runId: plan.runId,
+    rootId: plan.rootId,
+    baseSha: plan.baseSha,
+    worktreeMode: plan.worktreeMode,
+    entryMode: 'pre-entered',
+    capabilities: plan.capabilities,
+    items: [],
+  }
+  if (plan.serverRunId) out.serverRunId = plan.serverRunId
+  for (const raw of shorts) {
+    const item = findItem(plan, raw)
+    const schema = (snapshot && snapshot.schemas && snapshot.schemas[item.id]) || {}
+    const reviewNotes = (schema.notes || []).filter((n) => n && n.role === 'review')
+    if (reviewNotes.length === 0) throw new Error(`invalid args: ${item.short} has no review-phase notes`)
+    const groups = new Map()
+    for (const n of reviewNotes) {
+      const seat = n.seat || n.reviewer || 'reviewer'
+      const skill = n.skill || LANE_DEFAULT_SKILL
+      const key = `${seat}.${skill}`
+      if (!groups.has(key)) groups.set(key, { seat, skill, named: !!n.skill, notes: [] })
+      groups.get(key).notes.push(n.key)
+    }
+    const stages = []
+    for (const [lane, g] of groups) {
+      const dispatch =
+        (schema.dispatchBySeat && schema.dispatchBySeat.review && schema.dispatchBySeat.review[g.seat]) ||
+        (schema.dispatch && schema.dispatch.review) || {}
+      const stage = {
+        seat: g.seat,
+        lane,
+        phase: 'review',
+        notes: g.notes,
+        writes: false,
+        protocol: 'protocol.read-only-agent',
+        dispatch,
+        output: 'review-v1',
+      }
+      if (g.named) stage.skills = [g.skill]
+      const tokenFile = core.seatTokenFile(plan, item, { seat: g.seat })
+      if (tokenFile) stage.tokenFile = tokenFile
+      stages.push(stage)
+    }
+    const resItem = result && (result.items || []).find((r) => r.id === item.id)
+    const plannerOut = resItem ? outputForStageId(resItem, item, 'planner-v1') : null
+    const roots = itemRootsOf(plan, item)
+    const rel = (list) => {
+      const seen = []
+      for (const p of list) {
+        const r = relativizePath(p, roots)
+        if (!isUnrooted(r) && !seen.includes(r)) seen.push(r)
+      }
+      return seen
+    }
+    const po = plannerOut || {}
+    const postOf = (seat) => {
+      const st = resItem && (resItem.stages || []).find((s) => s.seat === seat)
+      const post = st && st.commits && st.commits.post
+      return post ? [post] : []
+    }
+    out.items.push({
+      id: item.id,
+      short: item.short,
+      title: item.title,
+      type: item.type,
+      configFingerprint: item.configFingerprint === undefined ? null : item.configFingerprint,
+      traits: item.traits || [],
+      worktree: item.worktree,
+      stages,
+      review: {
+        requiredReviewNotes: reviewNotes.filter((n) => n.required).map((n) => n.key),
+        optionalReviewNotes: reviewNotes.filter((n) => !n.required).map((n) => n.key),
+        ownedFiles: {
+          implementer: rel(po.mainFiles || []),
+          testAuthor: rel([].concat(po.testFiles || [], (po.existingTestEdits || []).filter((e) => e && e.file).map((e) => e.file))),
+          docs: rel(po.docFiles || []),
+        },
+        commits: { implementer: postOf('implementer'), testAuthor: postOf('test-author'), fixtureRepairs: [] },
+      },
+    })
+  }
+  return out
+}
+
+/** reportBlock(doc, opts) -> the formatted TO report block for a plan, result, run and close answer. */
+export function reportBlock(doc, opts = {}) {
+  return formatCoordinatorReport(reportFields(doc, opts))
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1998,7 +2214,59 @@ function execReviewPrompt(argv, io) {
   io.exit(0)
 }
 
+function readJsonFlag(argv, io, flag) {
+  const p = flagValue(argv, flag)
+  if (!p) return undefined
+  const v = io.readInput(p)
+  if (v === null || v === undefined) throw new Error(`invalid args: ${flag} ${p} could not be read as JSON`)
+  return v
+}
+
+function execReport(argv, io) {
+  const planPath = flagValue(argv, '--plan')
+  const doc = io.readInput(planPath)
+  if (!doc || !doc.args) {
+    io.fail(2, 'invalid args', `--plan ${planPath} could not be read or parsed as a plan`)
+    return
+  }
+  const core = io.loadCore()
+  let result = readJsonFlag(argv, io, '--result')
+  if (result !== undefined) result = resolveResultDoc(core, doc, result)
+  const text = reportBlock(doc, {
+    event: flagValue(argv, '--event'),
+    result,
+    run: readJsonFlag(argv, io, '--run'),
+    close: readJsonFlag(argv, io, '--close'),
+    needs: flagValue(argv, '--needs'),
+  })
+  io.writeOut(text)
+  io.exit(0)
+}
+
+function execReviewArgs(argv, io) {
+  const planPath = flagValue(argv, '--plan')
+  const doc = io.readInput(planPath)
+  if (!doc || !doc.args) {
+    io.fail(2, 'invalid args', `--plan ${planPath} could not be read or parsed as a plan`)
+    return
+  }
+  const core = io.loadCore()
+  const snapshot = readJsonFlag(argv, io, '--snapshot')
+  if (!snapshot) {
+    io.fail(2, 'invalid args', '--snapshot is required')
+    return
+  }
+  let result = readJsonFlag(argv, io, '--result')
+  if (result !== undefined) result = resolveResultDoc(core, doc, result)
+  const shorts = String(flagValue(argv, '--items', '')).split(',').map((x) => x.trim()).filter(Boolean)
+  const out = reviewWaveArgs(core, doc, snapshot, result, shorts)
+  io.writeOut(JSON.stringify(out))
+  io.exit(0)
+}
+
 export const EXEC_COMMANDS = {
+  report: execReport,
+  'review-args': execReviewArgs,
   next: execNext,
   prompt: execPrompt,
   'stage-result': execStageResult,

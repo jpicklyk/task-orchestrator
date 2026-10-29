@@ -166,6 +166,12 @@ Blocked: 2
 Coordinator tier: 2 (Workflow)
 ```
 
+Add a coordinator cell to each run's line, from the frontier's `stalled`: show `coord idle (Method A)`
+when the run's `hints.method` is `A` and `hints.phase` is `launched` (nothing runs under the
+coordinator token during a Workflow), `coord idle, seats live` when any `inFlight` seat has
+`stalled: false`, nothing on a paused run, else `COORD STALLED`: `SendMessage` the coordinator, and
+if it is gone, close the run and re-plan.
+
 Then ask which decision to take, or stop if none is open.
 
 ## Answering a decision
@@ -252,7 +258,12 @@ coordinator layer: dispatch it as one background agent.
 ## Waking up
 
 On any wake-up (a `SendMessage` from a coordinator, a task notification, or the user returning
-after idle), read the run that woke you:
+after idle), read the run that woke you. A message starting `TO report:` is a coordinator report
+(events `planned`, `decision`, `paused`, `closed`): act on the ids it names only, after the board
+read below, then Answering. In a tier-2 hand-off: on `planned` with `needs: approve launch`, get the
+user's approval; then call `Workflow` with the returned `args` and `SendMessage` the coordinator
+`launched` with the call's task id, run id and script path; on the task notification, send it the
+result JSON verbatim plus the usage figures (tokens, duration, cost when given).
 
 ```to-call
 {"tool": "runs_read", "select": "get", "args": {"runId": "7c41e0a2"}, "profile": "director"}

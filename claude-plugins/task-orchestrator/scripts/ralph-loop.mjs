@@ -55,6 +55,7 @@ import {
 } from "./ralph-lib.mjs";
 import { callOp, apiBaseUrl } from "../hooks/lib/api-client.mjs";
 import { locateConfig } from "../hooks/config-locator.mjs";
+import { formatCoordinatorReport } from "./lib/coordinator-report.mjs";
 
 const execFileAsync = promisify(execFile);
 // Injected git runner for ralph-lib worktree helpers: argv array, no shell.
@@ -554,6 +555,7 @@ if (!stats.exitReason) stats.exitReason = "loop ended";
 
 await finish();
 say(formatSummary());
+say(ralphReport("closed"));
 process.exit(stats.exitCode);
 
 // -- Loop pieces --------------------------------------------------------------
@@ -616,6 +618,7 @@ async function waitWhilePaused() {
     const why = p.pauseReason ? ` (${p.pauseReason})` : "";
     const dec = p.decisionId ? `, decision ${p.decisionId}` : "";
     say(`  run paused${why}${dec}: waiting for a director or human to answer the pause decision and resume the run, or to close it (polling every ${PAUSE_POLL_MS / 1000}s)`);
+    say(ralphReport("paused", { pauseReason: p.pauseReason, pauseDecisionId: p.decisionId }));
     while (!shuttingDown) {
         const r = await readRun();
         if (shuttingDown) return;
@@ -1068,6 +1071,37 @@ function formatCleanupResult(worktreeName, result) {
         default:
             return null;
     }
+}
+
+/** The coordinator-to-director report block (ids, counts, short reasons only), printed for a relaying agent. */
+function ralphReport(event, extra = {}) {
+    const kept = stats.outcomes.filter((o) => o.outcome.status === "gate-blocked" || o.outcome.status === "error");
+    const base = {
+        event,
+        label: run.runId ? label : "ralph",
+        runId: run.runId || "",
+        method: "ralph",
+        phase: event === "paused" ? "paused" : "-",
+        counts: { done: stats.terminal, stopped: stats.gateBlocked + stats.errored, deferred: stats.skipped, held: 0, excluded: 0 },
+        stopped: kept.map((o) => ({ item: o.outcome.itemId, reason: `${o.outcome.status}${o.outcome.code ? ` ${o.outcome.code}` : ""}` })),
+        needs: "",
+    };
+    if (event === "paused") {
+        return formatCoordinatorReport({
+            ...base,
+            ...extra,
+            status: "paused",
+            headline: `run paused (${extra.pauseReason || "unknown"})`,
+            needs: "answer the pause decision, then resume or close",
+        });
+    }
+    return formatCoordinatorReport({
+        ...base,
+        status: "closed",
+        headline: run.closed ? "run closed elsewhere" : stats.exitReason,
+        closeReason: run.closed ? "closed elsewhere" : stats.closeReason,
+        openDecisions: [],
+    });
 }
 
 function formatIterEnd(i, outcome) {

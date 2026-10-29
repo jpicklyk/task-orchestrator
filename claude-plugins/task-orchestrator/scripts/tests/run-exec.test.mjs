@@ -1963,3 +1963,39 @@ test('#414 (temp-git CLI): verify with post HEAD and absolute/directory declarat
   assert.equal(row.resolvedRefs[0].sha, git(repo, ['rev-parse', 'HEAD']).trim())
   assert.equal(row.resolvedRefs[0].sha, implSha)
 })
+
+// ── Coordinator report (item 666c5e8f): decision ids and the coordinator token file ──────────────
+
+test('REPORT S8: Method B stage-result keeps decisionId (from decisionId, else paused.decisionId) in the state and the result', () => {
+  const core = realCore()
+  const stage = { seat: 'owner', phase: 'work', notes: [], writes: true, dispatch: {}, output: 'generic-v1' }
+  const { doc } = singleItemDoc('aaaaaaaa', stage)
+  const direct = envelope({ status: 'stopped', reason: 'awaiting_decision', output: outputFor('generic-v1'), extra: { decisionId: 'dec-direct' } })
+  const r1 = stageResult(core, doc, initState(doc, 'B'), 'aaaaaaaa', 'owner', JSON.stringify(direct))
+  assert.equal(r1.state.stages['aaaaaaaa:owner'].decisionId, 'dec-direct')
+  assert.equal(resultFromState(core, doc, r1.state).items[0].stages[0].decisionId, 'dec-direct')
+  const viaPause = envelope({ status: 'stopped', reason: 'run_paused', output: outputFor('generic-v1'), extra: { paused: { decisionId: 'dec-pause' } } })
+  const r2 = stageResult(core, doc, initState(doc, 'B'), 'aaaaaaaa', 'owner', JSON.stringify(viaPause))
+  assert.equal(r2.state.stages['aaaaaaaa:owner'].decisionId, 'dec-pause')
+  const plain = stageResult(core, doc, initState(doc, 'B'), 'aaaaaaaa', 'owner', JSON.stringify(envelope({ output: outputFor('generic-v1') })))
+  assert.equal(Object.hasOwn(plain.state.stages['aaaaaaaa:owner'], 'decisionId'), false)
+  assert.equal(Object.hasOwn(resultFromState(core, doc, plain.state).items[0].stages[0], 'decisionId'), false)
+})
+
+test('REPORT S10: the stage-result command redacts a value equal to the content of tokens/coordinator.token', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'run-exec-coord-'))
+  mkdirSync(join(dir, 'tokens'))
+  const TOKEN = 'COORD-TOKEN-VALUE-0123456789'
+  writeFileSync(join(dir, 'tokens', 'coordinator.token'), `${TOKEN}\n`)
+  const stage = { seat: 'owner', phase: 'work', notes: [], writes: true, dispatch: {}, output: 'generic-v1' }
+  const { doc } = singleItemDoc('aaaaaaaa', stage)
+  doc.args.project = { ...(doc.args.project || {}), scratchDir: dir.split(String.fromCharCode(92)).join('/') }
+  const env = envelope({ status: 'stopped', reason: `blocked, echoed ${TOKEN}`, output: outputFor('generic-v1') })
+  const planPath = join(dir, 'plan.json')
+  writeFileSync(planPath, JSON.stringify(doc))
+  writeFileSync(join(dir, 'env.txt'), JSON.stringify(env))
+  const res = runCli(['stage-result', '--plan', planPath, '--item', 'aaaaaaaa', '--seat', 'owner', '--envelope', join(dir, 'env.txt')])
+  assert.equal(res.status, 0, res.stderr)
+  assert.match(res.stdout, /echoed/, "non-vacuity: the reason text is in the state")
+  assert.equal(res.stdout.includes(TOKEN), false, 'the coordinator token value is redacted')
+})

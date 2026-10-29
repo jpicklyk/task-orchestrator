@@ -32,8 +32,10 @@ result passes scrubbed outputs, so a fix-cycle prompt shows `decisions: none` an
 test-author reseat `--declarations`.
 
 `runs_read(select:"get", runId:<serverRunId>)` shows the run's status: a `paused` run (`pauseReason`
-budget, attempts or manual) is surfaced to the user now, with its pause decision; post-run work
-that needs no new seat continues, and the run closes as usual.
+budget, attempts or manual) is reported now: send one `paused` report (`report --event paused
+--run <run.json>`, with `runs_read` `get` saved as `run.json`), and one `decision` report for the
+stages stopped `awaiting_decision` (their `decisionId`s are in `result.json`). Post-run work that
+needs no new seat continues, and the run closes as usual.
 
 ---
 
@@ -293,6 +295,17 @@ itself) and never the token. The review-wave workflow (`review-wave/args-v1`) ta
 `serverRunId` and a per-stage `tokenFile`; lanes that share a seat share one assignment and one
 token file, and its lanes never end their seat, so run Step 0b's sweep again before Step 7.
 
+**Review wave launch.** When this post-run actor has the `Workflow` tool (re-probe F1: a background
+subagent may lack it) and the run is bound, assign each reviewer seat once (`run-ops --phase assign
+--item <short> --seat reviewer`, token file written as above), then `node "<helper>" review-args
+--plan <plan.json> --snapshot <scratchpad>/run-wave/<runId>/snapshot.json --result <result.json>
+--items <short,short,...>` prints the `review-wave/args-v1` object (lanes are the item's review-role
+notes grouped by seat and skill; exit 2 names an item with no review notes). Call
+`Workflow({name: "task-orchestrator:review-wave", args: <that object, as a real object>})`, record
+`reviewWave.taskId`, `reviewWave.wfRunId` and `reviewWave.wfScriptPath` in `state.json`, and end the
+turn. On the notification, aggregate the lane verdicts, run Step 0b's sweep, and continue. Without
+`Workflow`, keep the generic `review-prompt` path above.
+
 **Wave parent review.** Before any reviewer for the wave parent itself is dispatched or handed off
 (a feature-level review; this repo's `/implement` Step 6 item 3), `items_read(select:"context",
 itemId:<parent>)` and branch on its role. No review-role entry in its schema → do not advance it:
@@ -399,7 +412,8 @@ process requires:
   arbitration rule — this repo: `/implement` Step 4b) is a **human or a separately-dispatched
   arbitration agent's** call, not this skill's.
 - A decision a seat raised (`awaiting_decision`, with its `decisionId`) or a pause decision of the
-  run is answered by a human or a director, never by the coordinator.
+  run is answered by a human or a director, never by the coordinator. Each one is reported with a
+  `decision` report (a decision the coordinator raises itself is reported the same way).
   For each item stopped `awaiting_decision`, read `items_read(select:"get")`. With no `decisionId`
   (a token-less seat could not raise), the coordinator raises under the coordinator token with
   `block: true`, building the question and options from the seat's `## Deviations requested`
@@ -431,7 +445,8 @@ says `started: false` or the launch threw (no result); pass `--reason cancelled`
 stop or `--reason abandoned` for a Resume re-plan of an unrecoverable run (any other `--reason` exits
 2). Send it under the coordinator token. `invalid_run_state` on a `completed` close means a seat is
 still active: run Step 0b's sweep, then close again. The answer's `snapshot` lists `openDecisions`
-(a close withdraws no decision): report them.
+(a close withdraws no decision): save the close answer as `close.json`, then send the `closed` report
+(`report --event closed --result <result.json> --close <close.json>`), which names them.
 
 Report, in one place, every item that was **deferred** (cross-run edge, resource contention,
 run-size cap — with reasons), every item that was **stopped** (invalid envelope, verify/notes-audit

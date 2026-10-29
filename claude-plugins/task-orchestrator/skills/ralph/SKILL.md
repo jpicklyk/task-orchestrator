@@ -253,6 +253,14 @@ The script's own exit code:
 | Check the iteration prompt template | Read `skills/ralph/iteration-prompt.md` in this plugin |
 | Regenerate the outcome table after editing `OUTCOME_TABLE` | `node claude-plugins/task-orchestrator/scripts/render-ralph-prompts.mjs` (`--check` verifies) |
 
+**Under a director.** Ralph is a tier-3 coordinator (see `skills/director/references/coordinator-tiers.md`).
+It cannot `SendMessage`, so it prints the coordinator report instead: a `TO report:` block with event
+`paused` when it starts waiting on a paused run (reason and decision id) and event `closed` after the
+final summary (counts, stopped items, close reason). A background agent that started ralph with Bash
+`run_in_background: true` relays each block to the director (`SendMessage` with `to: "main"`; Monitor on
+the output for a mid-run pause, otherwise on exit). Ralph never raises or answers a decision and never
+resumes the run, and the relaying agent never closes ralph's run.
+
 ---
 
 ## Examples

@@ -8,7 +8,7 @@
 // run-planner-lib.mjs stays pure.
 //
 // run-exec-lib.mjs adds rows to the subcommand table below: next, prompt, stage-result,
-// scan-declarations, verify, notes-audit, provenance, review-prompt, reseat, run-ops, follow-ups.
+// scan-declarations, verify, notes-audit, provenance, review-prompt, reseat, run-ops, follow-ups, report, review-args.
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -243,7 +243,7 @@ const EXEC_IO = {
 
 // ---------------------------------------------------------------------------------------
 // Subcommand table. run-exec-lib.mjs supplies: next, prompt, stage-result, scan-declarations,
-// verify, notes-audit, provenance, review-prompt, reseat, run-ops, follow-ups.
+// verify, notes-audit, provenance, review-prompt, reseat, run-ops, follow-ups, report, review-args.
 // ---------------------------------------------------------------------------------------
 const SUBCOMMANDS = {
   probe: runProbe,
@@ -261,7 +261,9 @@ const SUBCOMMANDS = {
   'review-prompt': (args) => exec.EXEC_COMMANDS['review-prompt'](args, EXEC_IO),
   reseat: (args) => exec.EXEC_COMMANDS.reseat(args, EXEC_IO),
   'run-ops': (args) => exec.EXEC_COMMANDS['run-ops'](args, EXEC_IO),
-  'follow-ups': (args) => exec.EXEC_COMMANDS['follow-ups'](args, EXEC_IO)
+  'follow-ups': (args) => exec.EXEC_COMMANDS['follow-ups'](args, EXEC_IO),
+  report: (args) => exec.EXEC_COMMANDS.report(args, EXEC_IO),
+  'review-args': (args) => exec.EXEC_COMMANDS['review-args'](args, EXEC_IO)
 };
 
 async function main() {

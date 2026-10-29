@@ -687,3 +687,31 @@ describe('S15 outcome table', () => {
     assert.equal(typeof out, 'string')
   })
 })
+
+// ---- Coordinator report (item 666c5e8f): the driver prints TO report blocks for a relaying agent ----------
+
+test('REPORT NEW: a pause prints a TO report paused block naming the decision, the end prints a closed block after the summary, and no token value is on stdout', async () => {
+  const s = await scenario({
+    items: [A, B],
+    plan: [{ kind: 'ready', ...COST }, { kind: 'ready' }],
+    apiOpts: { pauseOn: { op: 'heartbeat', nth: 1, decisionId: DECISION }, resumeAfterPolls: 2 },
+    args: ['--max', '2'],
+    env: FAST_POLL,
+  })
+  assert.equal(s.res.timedOut, false, tail(s))
+  assert.equal(s.res.code, 0, tail(s))
+  const out = s.res.out
+  const blocks = out.split('TO report: ').slice(1)
+  assert.equal(blocks.length, 2, 'one paused block and one closed block' + tail(s))
+  assert.match(blocks[0], /^run ralph-\d+-\d+ \([0-9a-f]{8}\) paused: run paused/)
+  assert.match(blocks[0], /\npause: \S+ decision [0-9a-f]{8}\n/)
+  assert.ok(blocks[0].includes(`decision ${idOf(DECISION).slice(0, 8)}`))
+  assert.match(blocks[0], /\nrun: status paused phase paused method ralph\n/)
+  assert.match(blocks[1], / closed: /)
+  assert.match(blocks[1], /\nitems: done 2, stopped 0, deferred 0, held 0, excluded 0\n/)
+  assert.match(blocks[1], /\nclose: completed, open decisions none\n/)
+  assert.ok(out.indexOf('Final Summary') < out.indexOf(' closed: '), 'the closed block follows the summary')
+  for (const t of [BEARER, ...s.api.seats.map((x) => x.token), s.api.run.coordinatorToken].filter(Boolean)) {
+    assert.equal(out.includes(t), false, 'no token value on stdout')
+  }
+})
