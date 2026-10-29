@@ -185,7 +185,7 @@ const SCRUBBED_ENV = [
  * Spawns a hook asynchronously. input: an object (JSON-encoded), a string (sent raw) or null (stdin
  * closed empty). Resolves { status, stdout, stderr, json } where json is the parsed stdout or null.
  */
-export function runHook(hookPath, input, sbx, { apiUrl, env = {}, timeoutMs = 20000 } = {}) {
+export function runHook(hookPath, input, sbx, { apiUrl, env = {}, timeoutMs = 20000, args = [] } = {}) {
   const e = { ...process.env };
   for (const k of SCRUBBED_ENV) delete e[k];
   Object.assign(e, {
@@ -200,7 +200,7 @@ export function runHook(hookPath, input, sbx, { apiUrl, env = {}, timeoutMs = 20
   Object.assign(e, env);
   const cwd = sbx.scope === 'user' ? sbx.cwd : sbx.cfg;
   return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(process.execPath, [hookPath], { env: e, cwd });
+    const child = spawn(process.execPath, [hookPath, ...args], { env: e, cwd });
     let stdout = '';
     let stderr = '';
     const timer = setTimeout(() => {

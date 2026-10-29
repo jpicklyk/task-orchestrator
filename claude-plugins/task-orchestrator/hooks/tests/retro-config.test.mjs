@@ -187,7 +187,8 @@ test('S15: buildDispatch names every runId, keeps the durable wording, names the
   const text = buildDispatch(['run-aaa', 'run-bbb'], 'root-1');
   assert.ok(text.includes('Retrospective dispatch'), text);
   assert.ok(text.includes('/session-retrospective --run run-aaa'), text);
-  assert.ok(text.includes('/session-retrospective --run run-bbb'), text);
+  assert.ok(text.includes('--run run-bbb'), text);
+  assert.ok(text.includes('/session-retrospective --run run-aaa --run run-bbb'), text);
   assert.ok(text.includes('root-1'), text);
   assert.ok(text.includes('durable'), text);
   assert.ok(!/depth 0/i.test(text), 'the depth 0 clause is dropped (AR-73): ' + text);
