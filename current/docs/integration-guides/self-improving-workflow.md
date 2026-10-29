@@ -441,7 +441,7 @@ When you detect tool friction, bugs, or optimization opportunities during MCP us
 3. Fill the `observation-detail` note describing observed/expected/suggested
 ```
 
-**3.** Apply the config: with a REST API URL, `config-sync` pushes the saved file and no reconnect is needed; for a stdio server that reads the file, reconnect with `/mcp` (or restart Claude Code).
+**3.** Apply the config: when a REST API URL resolves and the file carries `project.rootId`, `config-sync` pushes the saved file and no reconnect is needed; otherwise, for a stdio server that reads the file, reconnect with `/mcp` (or restart Claude Code).
 
 You now have persistent tool-issue tracking. Periodically run `items_read(select="list", tags=["agent-observation"])` to triage.
 
@@ -548,7 +548,7 @@ Behavior is configured per workspace via `retrospective.mode` under `extensions.
 
 Hooks fire deterministically on every matching tool call regardless of agent attention, so the nudge cannot be silently skipped. The TO repo uses both 6a and 6b together — the hook injects the nudge (or dispatch directive, in `dispatch` mode), the personal output-style prose tells the agent how to act on it.
 
-**7.** Reload Claude Code so the schemas, skill, hooks, and personal output style are picked up. If you only edited `.taskorchestrator/config.yaml`, no reload is needed when `config-sync` pushes it (a REST API URL); a stdio server that reads the file needs a `/mcp` reconnect.
+**7.** Reload Claude Code so the schemas, skill, hooks, and personal output style are picked up. If you only edited `.taskorchestrator/config.yaml`, no reload is needed when `config-sync` pushes it (a REST API URL resolves and the file carries `project.rootId`); otherwise a stdio server that reads the file needs a `/mcp` reconnect.
 
 ### Verifying the Loop Works
 

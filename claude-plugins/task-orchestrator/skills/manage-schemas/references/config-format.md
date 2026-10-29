@@ -10,7 +10,7 @@ The schema-authoring guide for `.taskorchestrator/config.yaml`: how to write not
 - Create the directory if it doesn't exist: `.taskorchestrator/`
 - Commit this file (`/task-orchestrator:init` advises it); keep `.taskorchestrator/client.json`, which holds a machine-specific URL, out of git
 - How an edit takes effect depends on how the file reaches the server (see "Global vs Per-Project Config" below):
-  - **Per-root (config-sync)** - the `config-sync` hook pushes the file to the server for this project's root at SessionStart and again whenever the file changes (`config` `push`); a pushed config is hot-reloaded, with no restart or reconnect. A push is strict: any error rejects it and stores nothing
+  - **Per-root (config-sync)** - when a REST API URL resolves and the file carries `project.rootId`, the `config-sync` hook pushes the file to the server for that root at SessionStart and again whenever the file changes (`config` `push`); without either it pushes nothing; a pushed config is hot-reloaded, with no restart or reconnect. A push is strict: any error rejects it and stores nothing
   - **Server file (mounted via `AGENT_CONFIG_DIR`)** - the server imports the file into its database once, at boot, so a change needs a server restart. Under STDIO transport an MCP reconnect (`/mcp`) starts a fresh server process and so re-imports it; under HTTP transport the container itself must be restarted
 
 ### Config discovery (plugin hooks and skills)

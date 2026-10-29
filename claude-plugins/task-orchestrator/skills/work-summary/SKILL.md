@@ -105,7 +105,7 @@ When the director connection's tools are present (`report` and `runs_read` `deci
 {"tool": "report", "select": "rollup", "args": {"runId": "<run UUID>"}, "profile": "director"}
 ```
 
-`data.budget` is `{used, limit?}` and `data.decisions.open` the open decisions (both run-only; `decisions` is absent when none). Render `budget used/limit` (`used` alone with no `limit`) and `decisions open` in the run's row.
+`data.budget` is `{used, limit?}` and `data.decisions.open` the open decisions count. Both are run-only and a run rollup always carries both: `decisions` with `open: 0` when nothing is open, `budget` with `limit` absent when the run has no token budget; an anchor rollup has neither. Render `budget used/limit` (`used` alone with no `limit`) and `decisions open` in the run's row.
 
 ```to-call
 {"tool": "runs_read", "select": "decisions", "args": {"rootId": "<rootId>", "limit": 50}, "profile": "director"}
