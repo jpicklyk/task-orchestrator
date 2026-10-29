@@ -1991,3 +1991,224 @@ test("D4: validatePlanDoc accepts a full-UUID serverRunId and rejects an 8-hex p
         assert.ok(result.errors.some((e) => e.includes("serverRunId")), `error names serverRunId for ${JSON.stringify(bad)}: ${JSON.stringify(result.errors)}`);
     }
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Item ad3429e6 (Method A capacity). BLIND test author: written from the frozen `test-plan` and
+// `task-scope` notes (Build D1, AC3) and RunLimits (a non-superseding assign is refused when active
+// member seats >= maxActiveSeats; the coordinator is not counted). Scenario ids CAP-S1..CAP-S8 map to
+// S1..S8 of that test-plan. n = the number of non-inserted stages over the ADMITTED items, read back
+// from the plan doc's own stages[].inserted flags (the declared stage field), never hard-coded.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const CAP_PARENT = "e0000000-0000-4000-8000-0000000000ff";
+function capId(i) {
+    return `e${i}000000-0000-4000-8000-000000000000`;
+}
+function capShort(i) {
+    return `e${i}000000`;
+}
+
+// `count` independent bug-fix-like items under one shared parent. `runBudget` is placed on the profile
+// verbatim when !== undefined (so a test can pass any value shape).
+function capSnapshot(count, runBudget) {
+    const candidates = [];
+    const schemas = {};
+    for (let i = 1; i <= count; i++) {
+        candidates.push(bugFixLikeCandidate({ id: capId(i), short: capShort(i), parentId: CAP_PARENT }));
+        schemas[capId(i)] = bugFixLikeSchema();
+    }
+    const snap = baseSnapshot({
+        ancestorId: CAP_PARENT,
+        rulesServed: [
+            { key: "commit-discipline", rulesVersion: "1" },
+            { key: "declarations-extractor", rulesVersion: "1" },
+        ],
+        candidates,
+        schemas,
+        parents: { [CAP_PARENT]: { role: "work", canAdvance: true, missing: [] } },
+    });
+    if (runBudget !== undefined) snap.profile = { ...snap.profile, runBudget };
+    return snap;
+}
+
+function capPlan(snap, opts = {}) {
+    return buildPlanDoc(clone(snap), { now: NOW, ...opts });
+}
+function nonInsertedStages(doc) {
+    let n = 0;
+    for (const it of doc.args.items) n += it.stages.filter((s) => s.inserted !== true).length;
+    return n;
+}
+function totalStages(doc) {
+    return doc.args.items.reduce((n, it) => n + it.stages.length, 0);
+}
+function capacityDegradations(doc) {
+    return (doc.meta.degradations || []).filter((d) => String(d).includes("maxActiveSeats"));
+}
+// Reads n for an N-item snapshot from a plan built with no budget (stages do not depend on the budget).
+function seatCount(count) {
+    const base = capPlan(capSnapshot(count));
+    assert.equal(base.ok, true, JSON.stringify(base.errors));
+    return nonInsertedStages(base.doc);
+}
+
+test("CAP-S0 (fixture condition): the fixture items carry an inserted extractor stage and more than one schema seat, so m = n-1 is a real, positive cap", () => {
+    const base = capPlan(capSnapshot(2));
+    assert.equal(base.ok, true, JSON.stringify(base.errors));
+    assert.ok(base.doc.args.items.every((it) => it.stages.some((s) => s.inserted === true)), "every item has an inserted stage");
+    assert.ok(totalStages(base.doc) > nonInsertedStages(base.doc), "inserted stages exist, so total > non-inserted");
+    assert.ok(nonInsertedStages(base.doc) >= 4, "two bug-fix-like items yield at least 4 schema seats");
+});
+
+test("CAP-S1: auto method, maxActiveSeats = n-1 -> Method B with the degradation `method B: runBudget.maxActiveSeats <m> < <n> schema seats` [task-scope D1; RunLimits: n pre-assigns succeed iff n <= max]", () => {
+    const n = seatCount(2);
+    const m = n - 1;
+    const res = capPlan(capSnapshot(2, { maxActiveSeats: m }));
+    assert.equal(res.ok, true, JSON.stringify(res.errors));
+    assert.equal(res.doc.meta.method, "B");
+    const caps = capacityDegradations(res.doc);
+    assert.equal(caps.length, 1, JSON.stringify(res.doc.meta.degradations));
+    assert.equal(caps[0], `method B: runBudget.maxActiveSeats ${m} < ${n} schema seats`);
+});
+
+test("CAP-S1 (probe): maxActiveSeats = 1 (smallest positive cap) with several seats -> Method B", () => {
+    const n = seatCount(2);
+    const res = capPlan(capSnapshot(2, { maxActiveSeats: 1 }));
+    assert.equal(res.ok, true, JSON.stringify(res.errors));
+    assert.equal(res.doc.meta.method, "B");
+    assert.deepEqual(capacityDegradations(res.doc), [`method B: runBudget.maxActiveSeats 1 < ${n} schema seats`]);
+});
+
+test("CAP-S2: boundary maxActiveSeats = n -> Method A and no degradation naming maxActiveSeats [RunLimits: refused only when active >= max at assign time]", () => {
+    const n = seatCount(2);
+    const res = capPlan(capSnapshot(2, { maxActiveSeats: n }));
+    assert.equal(res.ok, true, JSON.stringify(res.errors));
+    assert.equal(res.doc.meta.method, "A");
+    assert.deepEqual(capacityDegradations(res.doc), []);
+});
+
+test("CAP-S2 (probe): maxActiveSeats = n+1 -> Method A, no capacity degradation", () => {
+    const n = seatCount(2);
+    const res = capPlan(capSnapshot(2, { maxActiveSeats: n + 1 }));
+    assert.equal(res.ok, true, JSON.stringify(res.errors));
+    assert.equal(res.doc.meta.method, "A");
+    assert.deepEqual(capacityDegradations(res.doc), []);
+});
+
+test("CAP-S3: explicit method A with maxActiveSeats < n -> refused; the error carries both numbers and `use --method B` [task-scope D1 error text]", () => {
+    const n = seatCount(2);
+    const m = n - 1;
+    const res = capPlan(capSnapshot(2, { maxActiveSeats: m }), { method: "A" });
+    assert.equal(res.ok, false);
+    assert.equal(res.refused, true);
+    const expected = `runBudget.maxActiveSeats ${m} < ${n} schema seats: Method A pre-assigns every seat; use --method B`;
+    assert.ok(res.errors.some((e) => String(e).includes(expected)), JSON.stringify(res.errors));
+});
+
+test("CAP-S3 (CLI): `plan --method A` over a snapshot with maxActiveSeats < n exits 3, stdout is the refused doc, stderr names maxActiveSeats", () => {
+    const n = seatCount(2);
+    const res = runCli(["plan", "--method", "A", "--now", NOW], { input: capSnapshot(2, { maxActiveSeats: n - 1 }) });
+    assert.equal(res.status, 3, res.stderr);
+    const parsed = JSON.parse(res.stdout);
+    assert.equal(parsed.ok, false);
+    assert.ok(parsed.errors.some((e) => String(e).includes("maxActiveSeats") && String(e).includes("--method B")), JSON.stringify(parsed.errors));
+    assert.ok(res.stderr.includes("maxActiveSeats"), "stderr carries the refusal detail");
+});
+
+test("CAP-S3 (CLI, boundary): `plan --method A` with maxActiveSeats = n exits 0 and the doc meta.method is A", () => {
+    const n = seatCount(2);
+    const res = runCli(["plan", "--method", "A", "--now", NOW], { input: capSnapshot(2, { maxActiveSeats: n }) });
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(JSON.parse(res.stdout).meta.method, "A");
+});
+
+test("CAP-S3 (CLI, auto): `plan` with no --method and maxActiveSeats < n exits 0 and emits Method B with the capacity degradation", () => {
+    const n = seatCount(2);
+    const res = runCli(["plan", "--now", NOW], { input: capSnapshot(2, { maxActiveSeats: n - 1 }) });
+    assert.equal(res.status, 0, res.stderr);
+    const doc = JSON.parse(res.stdout);
+    assert.equal(doc.meta.method, "B");
+    assert.deepEqual(capacityDegradations(doc), [`method B: runBudget.maxActiveSeats ${n - 1} < ${n} schema seats`]);
+});
+
+test("CAP-S4: inserted extractor stages are not counted: non-inserted count = maxActiveSeats while the total is one higher -> Method A", () => {
+    const base = capPlan(capSnapshot(1));
+    assert.equal(base.ok, true, JSON.stringify(base.errors));
+    const n = nonInsertedStages(base.doc);
+    const total = totalStages(base.doc);
+    assert.equal(total, n + 1, "fixture condition: exactly one inserted stage, so counting inserted stages would see n+1 seats");
+    const res = capPlan(capSnapshot(1, { maxActiveSeats: n }));
+    assert.equal(res.ok, true, JSON.stringify(res.errors));
+    assert.equal(res.doc.meta.method, "A");
+    assert.deepEqual(capacityDegradations(res.doc), []);
+    // one below: now the cap binds
+    const below = capPlan(capSnapshot(1, { maxActiveSeats: n - 1 }));
+    assert.equal(below.doc.meta.method, "B");
+});
+
+test("CAP-S5: maxActiveSeats absent / 0 / -1 / string / null -> Method A and no capacity degradation (the open op sends a cap only for a number > 0)", () => {
+    const shapes = [
+        ["runBudget absent", undefined],
+        ["runBudget without maxActiveSeats", { tokens: 1000 }],
+        ["maxActiveSeats 0", { maxActiveSeats: 0 }],
+        ["maxActiveSeats -1", { maxActiveSeats: -1 }],
+        ["maxActiveSeats string 3", { maxActiveSeats: "3" }],
+        ["maxActiveSeats null", { maxActiveSeats: null }],
+    ];
+    for (const [label, runBudget] of shapes) {
+        const res = capPlan(capSnapshot(2, runBudget));
+        assert.equal(res.ok, true, `${label}: ${JSON.stringify(res.errors)}`);
+        assert.equal(res.doc.meta.method, "A", label);
+        assert.deepEqual(capacityDegradations(res.doc), [], label);
+    }
+});
+
+test("CAP-S5 (fixture condition): the same fixture with a positive cap below n does flip the method, so the shapes above are the only difference", () => {
+    const n = seatCount(2);
+    assert.equal(capPlan(capSnapshot(2, { maxActiveSeats: n - 1 })).doc.meta.method, "B");
+});
+
+test("CAP-S6: explicit method B with maxActiveSeats < n -> Method B and no capacity degradation (the caller already chose B)", () => {
+    const n = seatCount(2);
+    const res = capPlan(capSnapshot(2, { maxActiveSeats: n - 1 }), { method: "B" });
+    assert.equal(res.ok, true, JSON.stringify(res.errors));
+    assert.equal(res.doc.meta.method, "B");
+    assert.deepEqual(capacityDegradations(res.doc), []);
+});
+
+test("CAP-S6 (CLI): `plan --method B` with a tight cap exits 0 and adds no capacity degradation", () => {
+    const n = seatCount(2);
+    const res = runCli(["plan", "--method", "B", "--now", NOW], { input: capSnapshot(2, { maxActiveSeats: n - 1 }) });
+    assert.equal(res.status, 0, res.stderr);
+    const doc = JSON.parse(res.stdout);
+    assert.equal(doc.meta.method, "B");
+    assert.deepEqual(capacityDegradations(doc), []);
+});
+
+test("CAP-S8: items dropped by the maxItems cap are not counted: maxActiveSeats = admitted-only count -> Method A, while the all-candidates count would bind", () => {
+    const full = capPlan(capSnapshot(3));
+    assert.equal(full.ok, true, JSON.stringify(full.errors));
+    const nAll = nonInsertedStages(full.doc);
+    const capped = capPlan(capSnapshot(3), { maxItems: 2 });
+    assert.equal(capped.ok, true, JSON.stringify(capped.errors));
+    assert.equal(capped.doc.args.items.length, 2, "fixture condition: the cap dropped one item");
+    const nAdmitted = nonInsertedStages(capped.doc);
+    assert.ok(nAdmitted < nAll, "fixture condition: the dropped item had seats, so nAdmitted < nAll");
+    const res = capPlan(capSnapshot(3, { maxActiveSeats: nAdmitted }), { maxItems: 2 });
+    assert.equal(res.ok, true, JSON.stringify(res.errors));
+    assert.equal(res.doc.meta.method, "A");
+    assert.deepEqual(capacityDegradations(res.doc), []);
+    // and one below the admitted count binds
+    const tight = capPlan(capSnapshot(3, { maxActiveSeats: nAdmitted - 1 }), { maxItems: 2 });
+    assert.equal(tight.doc.meta.method, "B");
+    assert.deepEqual(capacityDegradations(tight.doc), [`method B: runBudget.maxActiveSeats ${nAdmitted - 1} < ${nAdmitted} schema seats`]);
+});
+
+test("CAP (probe): the same input planned twice yields the same method and the same degradations", () => {
+    const n = seatCount(2);
+    const snap = capSnapshot(2, { maxActiveSeats: n - 1 });
+    const a = capPlan(snap);
+    const b = capPlan(snap);
+    assert.equal(a.doc.meta.method, b.doc.meta.method);
+    assert.deepEqual(a.doc.meta.degradations, b.doc.meta.degradations);
+});

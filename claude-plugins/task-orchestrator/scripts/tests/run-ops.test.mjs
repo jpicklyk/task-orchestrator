@@ -768,3 +768,74 @@ test('REPORT S9: run-ops open names the coordinator token file, keeps the ops an
   assert.equal(out.ops.length, 1)
   assert.equal(hasKeyDeep(out, 'seatToken'), false)
 })
+
+// ============================================================================================
+// Item ad3429e6 - run-ops heartbeat --item (scenarios HB-S9..HB-S11 = test-plan S9..S11).
+// BLIND author: oracle is task-scope Build E1 / AC5: `--phase heartbeat` takes an optional
+// `--item <short|id>` and claims, heartbeats and releases THAT member; without it, items[0].
+// Fixture: independent-two bound plan; items[0] and items[1] are different items, so a heartbeat that
+// ignored --item would claim items[0] and fail every assertion that names items[1].
+// ============================================================================================
+
+test('HB-S9: --item <short id of the second member> -> claim, heartbeat{usage}, release all on that item, not on items[0]', () => {
+  const { dir, bound, boundPath } = boundDoc()
+  const [first, second] = bound.args.items
+  assert.notEqual(first.id, second.id, 'fixture condition: two distinct members')
+  const usage = writeJson(dir, 'usage.json', { tokens: 700, costUsd: 0.25 })
+  const out = ops(boundPath, 'heartbeat', ['--usage', usage, '--item', second.short])
+  assert.equal(out.tool, 'advance')
+  assert.deepEqual(out.ops, [
+    { op: 'claim', itemId: second.id },
+    { op: 'heartbeat', itemId: second.id, usage: { tokens: 700, costUsd: 0.25 } },
+    { op: 'release', itemId: second.id },
+  ])
+  assert.equal(hasKeyDeep(out, 'seatToken'), false)
+})
+
+test('HB-S9: --item <full id of the second member> -> the same three ops on that item', () => {
+  const { dir, bound, boundPath } = boundDoc()
+  const second = bound.args.items[1]
+  const usage = writeJson(dir, 'usage.json', { tokens: 5 })
+  const out = ops(boundPath, 'heartbeat', ['--usage', usage, '--item', second.id])
+  assert.deepEqual(out.ops, [
+    { op: 'claim', itemId: second.id },
+    { op: 'heartbeat', itemId: second.id, usage: { tokens: 5 } },
+    { op: 'release', itemId: second.id },
+  ])
+})
+
+test('HB-S9 (probe): --item naming the FIRST member behaves like the default (same ops)', () => {
+  const { dir, bound, boundPath } = boundDoc()
+  const first = bound.args.items[0]
+  const usage = writeJson(dir, 'usage.json', { tokens: 9 })
+  const named = ops(boundPath, 'heartbeat', ['--usage', usage, '--item', first.short])
+  const dflt = ops(boundPath, 'heartbeat', ['--usage', usage])
+  assert.deepEqual(named, dflt)
+})
+
+test('HB-S10: an unknown --item exits 2 and stderr names the value', () => {
+  const { dir, boundPath } = boundDoc()
+  const usage = writeJson(dir, 'usage.json', { tokens: 1 })
+  const res = runCli(['run-ops', '--plan', boundPath, '--phase', 'heartbeat', '--usage', usage, '--item', 'deadbeef'])
+  assert.equal(res.status, 2, `${res.status} ${res.stdout}`)
+  assert.ok(res.stderr.includes('deadbeef'), `stderr names the unknown item: ${res.stderr}`)
+  assert.equal(res.stdout.trim(), '', 'no ops are rendered for an unknown item')
+})
+
+test('HB-S10 (probe): a well-formed full UUID that is not a member of the plan exits 2 and stderr names it', () => {
+  const { dir, boundPath } = boundDoc()
+  const usage = writeJson(dir, 'usage.json', { tokens: 1 })
+  const stranger = '12345678-1234-4234-8234-123456789abc'
+  const res = runCli(['run-ops', '--plan', boundPath, '--phase', 'heartbeat', '--usage', usage, '--item', stranger])
+  assert.equal(res.status, 2, `${res.status} ${res.stdout}`)
+  assert.ok(res.stderr.includes(stranger), res.stderr)
+})
+
+test('HB-S11: without --item the heartbeat targets items[0], and that differs from items[1]', () => {
+  const { dir, bound, boundPath } = boundDoc()
+  const [first, second] = bound.args.items
+  const usage = writeJson(dir, 'usage.json', { tokens: 42 })
+  const out = ops(boundPath, 'heartbeat', ['--usage', usage])
+  assert.deepEqual(out.ops.map((o) => o.itemId), [first.id, first.id, first.id])
+  assert.notEqual(first.id, second.id)
+})

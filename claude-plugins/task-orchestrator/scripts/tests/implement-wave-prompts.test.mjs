@@ -877,3 +877,48 @@ test('S6 (AC4/D6): an envelope with notes[{key}], seatEnded, decisionId and paus
   assert.deepEqual(validateAgainst(schema, { ...base, notes: [{ key: 'diagnosis', actor: { id: 'x', kind: 'subagent' } }] }), [], 'a leftover actor is tolerated')
   assert.ok(validateAgainst(schema, { ...base, notes: [{ chars: 3 }] }).length > 0, 'key is required on every note')
 })
+
+// ==============================================================================================
+// Item ad3429e6 (task-scope D2 / AC4): the SEAT TOKEN part of a schema seat in a bound plan names the
+// stop for a missing token file: status "stopped", reason "seat-token-missing". The token-less stage
+// (inserted extractor in a bound plan) and every stage of an unbound plan carry no token file, so they
+// must not mention it. Fixture condition for each negative: the bound-plan schema seat DOES carry it.
+// ==============================================================================================
+
+test('TOKMISS (AC4): every schema seat of a bound plan names seat-token-missing with a stopped status inside its SEAT TOKEN part', () => {
+  const core = loadCore(SCRIPT_PATH)
+  const item = makeItem('b1b1b1b1', stages.bugFixLike())
+  const plan = boundPlan(item)
+  for (const seat of ['planner', 'implementer', 'test-author']) {
+    const p = core.seatPrompt(plan, item, stageOfSeat(item, seat), {})
+    const part = partOf(p, 'SEAT TOKEN')
+    const at = part.indexOf('seat-token-missing')
+    assert.ok(at !== -1, `${seat}: the SEAT TOKEN part names seat-token-missing`)
+    const window = part.slice(Math.max(0, at - 240), at + 40)
+    assert.ok(window.includes('stopped'), `${seat}: the missing-file stop returns status stopped (${window})`)
+    assert.ok(/not exist|missing|absent/i.test(window), `${seat}: the stop is conditioned on the token file being absent (${window})`)
+    // the older rejection stop is still there
+    assert.ok(part.includes('seat-token-rejected'), `${seat}: the rejection stop is unchanged`)
+  }
+})
+
+test('TOKMISS (AC4): the inserted declarations-extractor (token-less, bound plan) and every stage of an unbound plan do not mention seat-token-missing', () => {
+  const core = loadCore(SCRIPT_PATH)
+  const item = makeItem('b2b2b2b2', stages.bugFixLike())
+  const extractor = core.seatPrompt(boundPlan(item), item, stageOfSeat(item, 'declarations-extractor'), {})
+  assert.equal(extractor.includes('seat-token-missing'), false, 'token-less extractor')
+  const unbound = makePlan([item])
+  for (const stage of item.stages) {
+    const p = core.seatPrompt(unbound, item, stage, {})
+    assert.equal(p.includes('seat-token-missing'), false, `${stage.seat}: unbound plan`)
+  }
+  // fixture condition: the bound-plan implementer prompt of the same item does carry it
+  assert.ok(core.seatPrompt(boundPlan(item), item, stageOfSeat(item, 'implementer'), {}).includes('seat-token-missing'))
+})
+
+test('TOKMISS (probe): pre-entered entry mode, bound plan, implementer -> still names seat-token-missing once', () => {
+  const core = loadCore(SCRIPT_PATH)
+  const item = makeItem('b3b3b3b3', stages.bugFixLike())
+  const p = core.seatPrompt(boundPlan(item, { entryMode: 'pre-entered' }), item, stageOfSeat(item, 'implementer'), {})
+  assert.equal(p.split('seat-token-missing').length - 1, 1, 'named exactly once, so the stop is one instruction')
+})
