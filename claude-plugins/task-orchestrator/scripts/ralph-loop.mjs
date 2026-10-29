@@ -46,6 +46,9 @@ import {
     endSeatOutcome,
     loopEffect,
     buildUsageOps,
+    buildHeartbeatUsageOp,
+    resolveHeartbeatInterval,
+    hasItemId,
     redactTokens,
     seatTokenFilePath,
     firstOpResult,
@@ -63,6 +66,11 @@ const PROMPT_PATH = path.resolve(HERE, "../skills/ralph/iteration-prompt.md");
 const WRITE_TIMEOUT_MS = 10_000; // open, update, assign, close, advance, end_seat
 const READ_TIMEOUT_MS = 5_000; // items_read next, runs_read list
 const MAX_CAPACITY_RETRIES = 10; // run_at_capacity assign retries per iteration
+const COMPLETE_ATTEMPTS = 3; // transient/shedding answers to the driver's complete transition
+// Poll interval while the run is paused. RALPH_PAUSE_POLL_MS is a test seam, not a user setting.
+const PAUSE_POLL_MS = Number.isInteger(Number(process.env.RALPH_PAUSE_POLL_MS)) && Number(process.env.RALPH_PAUSE_POLL_MS) > 0
+    ? Number(process.env.RALPH_PAUSE_POLL_MS)
+    : 30_000;
 
 // Sent to a resumed iteration (`claude -p --resume <session_id>`) when the prior run exited
 // cleanly without a RALPH_OUTCOME marker. Keep in sync with the "How your turn ends" operating
@@ -96,6 +104,7 @@ try {
             "error-budget": { type: "string", default: String(DEFAULTS.errorBudget) },
             budget: { type: "string", default: String(DEFAULTS.budget) },
             ttl: { type: "string", default: String(DEFAULTS.ttl) },
+            "heartbeat-interval": { type: "string" },
             model: { type: "string", default: DEFAULTS.model },
             "base-ref": { type: "string", default: "origin/main" },
             "cleanup-on-terminal": { type: "boolean", default: true },
@@ -156,6 +165,11 @@ cfg.scratchDir = values["scratch-dir"]
 if (cfg.ttl < 60 || cfg.ttl > 86400) usageError("--ttl must be between 60 and 86400 seconds");
 if (cfg.budget <= 0) usageError("--budget must be > 0");
 if (cfg.iterationTimeout < 1) usageError("--iteration-timeout must be at least 1 second");
+{
+    const hbi = resolveHeartbeatInterval(values["heartbeat-interval"], cfg.ttl);
+    if (hbi.error) usageError(hbi.error);
+    cfg.heartbeatInterval = hbi.seconds;
+}
 
 const { filter, errors: filterErrors } = parseFilter(cfg.filter);
 if (filterErrors.length) usageError(filterErrors.join("; "));
@@ -284,7 +298,15 @@ function sleep(ms) {
 
 // -- REST calls ---------------------------------------------------------------
 async function op(tool, body, timeoutMs) {
-    return firstOpResult(await callOp(tool, body, { timeoutMs, baseUrl }));
+    const res = await callOp(tool, body, { timeoutMs, baseUrl });
+    const out = firstOpResult(res);
+    // A successful write that crossed a run limit carries paused:{decisionId}; the run is now paused.
+    const p = res && (res.paused || res.data?.paused || res.results?.[0]?.paused || res.data?.results?.[0]?.paused);
+    if (out.ok && p && typeof p === "object") {
+        out.paused = { decisionId: p.decisionId };
+        notePause({ decisionId: p.decisionId });
+    }
+    return out;
 }
 const coordinatorCall = (tool, ops) => op(tool, { ops, seatToken: run.coordinatorToken }, WRITE_TIMEOUT_MS);
 const seatCall = (tool, ops, token) => op(tool, { ops, seatToken: token }, WRITE_TIMEOUT_MS);
@@ -309,7 +331,8 @@ const stats = {
     hintsShown: new Set(),
     outcomes: [],
 };
-const run = { runId: null, coordinatorToken: null };
+const run = { runId: null, coordinatorToken: null, closed: false };
+let pausePending = null; // { decisionId?, pauseReason? } once a call reported the run paused
 let activeSeat = null; // { itemId, token, tokenFile }
 let skipList = [];
 const addedMembers = new Set(cfg.items);
@@ -338,6 +361,11 @@ await warnOpenRalphRuns();
 
 // -- Main loop ----------------------------------------------------------------
 while (stats.iterations < cfg.max && !shuttingDown && !stats.exitReason) {
+    // ---- paused: end nothing, close nothing; wait for a director or human (not an idle wait)
+    if (pausePending) {
+        await waitWhilePaused();
+        continue;
+    }
     // ---- select
     const sel = await op("items_read", buildNextQuery({ filter, rootId, skipCount: skipList.length, members: cfg.items.length ? cfg.items : null }), READ_TIMEOUT_MS);
     if (shuttingDown) break;
@@ -356,7 +384,7 @@ while (stats.iterations < cfg.max && !shuttingDown && !stats.exitReason) {
         members: cfg.items.length ? cfg.items : null,
         now: Date.now(),
     });
-    if (decision.drained || (cfg.items.length && cfg.items.every((m) => doneMembers.has(m)))) {
+    if (decision.drained || (cfg.items.length && cfg.items.every((m) => hasItemId(doneMembers, m)))) {
         endLoop("queue drained (no ready items match the filter)");
         break;
     }
@@ -368,10 +396,12 @@ while (stats.iterations < cfg.max && !shuttingDown && !stats.exitReason) {
     const title = decision.pick.title ? ` ${decision.pick.title}` : "";
 
     // ---- membership
-    if (!addedMembers.has(itemId)) {
+    if (!hasItemId(addedMembers, itemId)) {
         const u = await coordinatorCall("runs_write", [{ op: "update", runId: run.runId, addItems: [itemId] }]);
         if (!u.ok) {
-            if (handleCoordinatorStop(u.error, "update")) break;
+            const stop = await handleCoordinatorStop(u.error, "update");
+            if (stop === "stop") break;
+            if (stop === "pause") continue;
             if (isBackoffError(u.error)) {
                 if (await idleWait(u.error.retryAfterMs, `update addItems: ${u.error.code}`)) break;
                 continue;
@@ -409,7 +439,13 @@ while (stats.iterations < cfg.max && !shuttingDown && !stats.exitReason) {
         }
         skipList = addSkip(skipList, { itemId, code, retryAfterMs: claim.error?.retryAfterMs, now: Date.now() });
         say(`  - ${itemId.slice(0, 8)} skipped: claim ${errText(claim.error)}`);
+        if (code === "run_closed") run.closed = true;
+        if (code === "unauthenticated") await runClosedElsewhere("claim");
         await endActiveSeat("abandoned", `ralph: claim failed (${code})`);
+        if (run.closed) {
+            endLoop("run closed elsewhere (on claim)");
+            break;
+        }
         if (code === "unauthenticated") {
             endLoop("the seat token was refused on claim (unauthenticated)", 2);
             break;
@@ -428,25 +464,50 @@ while (stats.iterations < cfg.max && !shuttingDown && !stats.exitReason) {
     stats.iterations++;
     const iterIndex = stats.iterations;
     const tokenFile = seatTokenFilePath(cfg.scratchDir, iterIndex);
+    const heartbeat = startHeartbeat(itemId, seat.token);
     try {
         await writeTokenFile(tokenFile, seat.token);
         activeSeat.tokenFile = tokenFile;
     } catch (err) {
+        stopHeartbeat(heartbeat);
         warn(`  token file write failed: ${err.message}`);
         await endActiveSeat("failed", "ralph: token file write failed");
         endLoop(`could not write the seat token file under ${cfg.scratchDir}`, 2);
         break;
     }
 
-    const result = await runOneIteration({ iterIndex, itemId, title, tokenFile });
-    const outcome = JSON.parse(redactTokens(JSON.stringify(result.outcome), knownTokens));
+    let result;
+    try {
+        result = await runOneIteration({ iterIndex, itemId, title, tokenFile });
+    } finally {
+        stopHeartbeat(heartbeat);
+    }
+    let outcome = JSON.parse(redactTokens(JSON.stringify(result.outcome), knownTokens));
     outcome.itemId = itemId;
 
-    // ---- usage (best effort, never blocks end_seat)
-    const usageOps = buildUsageOps({ itemId, ttlSeconds: cfg.ttl, envelope: result.envelope });
-    if (usageOps) {
-        const ur = await callOp("advance", { ops: usageOps, seatToken: seat.token }, { timeoutMs: WRITE_TIMEOUT_MS, baseUrl });
-        if (!ur || !ur.ok) say(`  usage-report-failed (${ur?.error?.code || "no answer"})`);
+    // ---- was the run closed under us? A closed run's tokens answer unauthenticated, not run_closed.
+    if (heartbeat.unauthenticated || outcome.code === "unauthenticated") await runClosedElsewhere("the iteration");
+
+    // ---- usage while the claim is still held, then the driver's own move into terminal
+    if (run.closed) {
+        if (outcome.status === "ready-to-complete") {
+            outcome = { status: "error", code: "run_closed", reason: "the run was closed before the item could be completed", itemId };
+        }
+    } else if (outcome.status === "ready-to-complete") {
+        const summary = outcome.summary;
+        outcome = await completeReady({ itemId, token: seat.token, envelope: result.envelope });
+        outcome.itemId = itemId;
+        if (summary && !outcome.summary && outcome.status === "terminal") outcome.summary = summary;
+    } else if (outcome.status === "terminal") {
+        // Legacy: the iteration already moved the item; terminal cleared the claim, so usage cannot land.
+        say("  usage-unreported (the iteration moved the item to terminal itself; use ready-to-complete)");
+    } else {
+        // Best effort, never blocks end_seat. The item is not terminal, so the claim is still held.
+        const usageOps = buildUsageOps({ itemId, ttlSeconds: cfg.ttl, envelope: result.envelope });
+        if (usageOps) {
+            const ur = await callOp("advance", { ops: usageOps, seatToken: seat.token }, { timeoutMs: WRITE_TIMEOUT_MS, baseUrl });
+            if (!ur || !ur.ok) say(`  usage-report-failed (${ur?.error?.code || "no answer"})`);
+        }
     }
 
     // ---- end the seat
@@ -518,24 +579,158 @@ async function idleWait(retryAfterMs, why) {
     return Boolean(shuttingDown);
 }
 
-/** run_paused / run_closed / unauthenticated from a coordinator call end the loop; true when they did. */
-function handleCoordinatorStop(error, what) {
+/** Record that the run paused; the loop waits for it after the active seat ends. Never closes the run. */
+function notePause({ decisionId, pauseReason } = {}) {
+    if (!pausePending) pausePending = {};
+    if (decisionId && !pausePending.decisionId) pausePending.decisionId = decisionId;
+    if (pauseReason && !pausePending.pauseReason) pausePending.pauseReason = pauseReason;
+}
+
+/** Read the run token-less: {ok, status, terminalReason, pauseReason} or {ok: false, error}. */
+async function readRun() {
+    const r = await op("runs_read", { select: "get", runId: run.runId }, READ_TIMEOUT_MS);
+    if (!r.ok) return r;
+    const v = r.value?.run && typeof r.value.run === "object" ? r.value.run : r.value;
+    return { ok: true, status: v?.status, terminalReason: v?.terminalReason, pauseReason: v?.pauseReason };
+}
+
+/**
+ * Closed-run probe: a closed run's tokens answer unauthenticated, not run_closed, so on an
+ * unauthenticated answer ask the run itself. A closed run ends the loop (exit 0) and is never
+ * closed or end_seat-ed again. True when the run is closed.
+ */
+async function runClosedElsewhere(what) {
+    if (run.closed) return true;
+    if (!run.runId) return false;
+    const r = await readRun();
+    if (!r.ok || r.status !== "closed") return false;
+    run.closed = true;
+    endLoop(`run closed elsewhere (${r.terminalReason || "closed"}), seen on ${what}`);
+    return true;
+}
+
+/** Wait, polling token-less, until the paused run is open again (continue) or closed (exit 0, no close). */
+async function waitWhilePaused() {
+    const p = pausePending || {};
+    pausePending = null;
+    const why = p.pauseReason ? ` (${p.pauseReason})` : "";
+    const dec = p.decisionId ? `, decision ${p.decisionId}` : "";
+    say(`  run paused${why}${dec}: waiting for a director or human to answer the pause decision and resume the run, or to close it (polling every ${PAUSE_POLL_MS / 1000}s)`);
+    while (!shuttingDown) {
+        const r = await readRun();
+        if (shuttingDown) return;
+        if (r.ok) {
+            if (r.status === "closed") {
+                run.closed = true;
+                endLoop(`run closed elsewhere (${r.terminalReason || "closed"}) while paused`);
+                return;
+            }
+            if (r.status !== "paused") {
+                say("  run resumed: selecting again");
+                return;
+            }
+        } else if (r.error?.kind !== "transient" && r.error?.kind !== "shedding") {
+            endLoop(`runs_read get failed while the run was paused (${errText(r.error)})`, 2);
+            return;
+        }
+        await sleep(PAUSE_POLL_MS);
+    }
+}
+
+/**
+ * run_paused / run_closed / unauthenticated from a coordinator call. "stop": the loop is ending.
+ * "pause": the run paused (the loop waits for it). null: not a stop.
+ */
+async function handleCoordinatorStop(error, what) {
     const code = error?.code;
     if (code === "run_paused") {
-        const why = error.detail?.pauseReason ? ` (${error.detail.pauseReason})` : "";
-        const dec = error.detail?.pauseDecisionId ? `, decision ${error.detail.pauseDecisionId}` : "";
-        endLoop(`run paused${why}${dec}: a director or human must answer the pause decision`, 0, "cancelled");
-        return true;
+        notePause({ decisionId: error.detail?.pauseDecisionId, pauseReason: error.detail?.pauseReason });
+        return "pause";
     }
     if (code === "run_closed") {
+        run.closed = true;
         endLoop(`run closed elsewhere (on ${what})`);
-        return true;
+        return "stop";
     }
     if (code === "unauthenticated") {
+        if (await runClosedElsewhere(what)) return "stop";
         endLoop(`the coordinator credential was refused on ${what} (unauthenticated)`, 2);
-        return true;
+        return "stop";
     }
-    return false;
+    return null;
+}
+
+/** Heartbeat the claim under the seat token from claim to iteration end, so the TTL outlives a long iteration. */
+function startHeartbeat(itemId, token) {
+    const hb = { stopped: false, busy: false, unauthenticated: false, timer: null };
+    hb.timer = setInterval(async () => {
+        if (hb.stopped || hb.busy) return;
+        hb.busy = true;
+        try {
+            const r = await seatCall("advance", [{ op: "heartbeat", itemId, ttlSeconds: cfg.ttl }], token);
+            if (hb.stopped) return;
+            if (!r.ok) {
+                const code = r.error?.code;
+                if (code === "run_paused") notePause({ decisionId: r.error.detail?.pauseDecisionId, pauseReason: r.error.detail?.pauseReason });
+                else if (code === "not_claim_holder") stopHeartbeat(hb);
+                else if (code === "unauthenticated") {
+                    hb.unauthenticated = true;
+                    stopHeartbeat(hb);
+                }
+            }
+        } finally {
+            hb.busy = false;
+        }
+    }, cfg.heartbeatInterval * 1000);
+    hb.timer.unref();
+    return hb;
+}
+
+function stopHeartbeat(hb) {
+    hb.stopped = true;
+    if (hb.timer) clearInterval(hb.timer);
+    hb.timer = null;
+}
+
+/**
+ * The ready-to-complete handshake, under the seat token while the claim is still held: report usage
+ * with a heartbeat, then send the complete transition. Returns the final outcome object.
+ */
+async function completeReady({ itemId, token, envelope }) {
+    const hbOp = buildHeartbeatUsageOp({ itemId, ttlSeconds: cfg.ttl, envelope });
+    if (hbOp) {
+        const ur = await seatCall("advance", [hbOp], token);
+        if (!ur.ok) say(`  usage-report-failed (${ur.error?.code || "no answer"})`);
+    } else {
+        say("  usage-unreported (the iteration's output carried no usage)");
+    }
+    let lastError = null;
+    for (let attempt = 1; attempt <= COMPLETE_ATTEMPTS; attempt++) {
+        const r = await seatCall("advance", [{ op: "transition", itemId, trigger: "complete" }], token);
+        if (r.ok) return { status: "terminal" };
+        lastError = r.error;
+        const code = r.error?.code;
+        if (isBackoffError(r.error) && attempt < COMPLETE_ATTEMPTS && !shuttingDown) {
+            const ms = typeof r.error.retryAfterMs === "number" && r.error.retryAfterMs >= 0 ? r.error.retryAfterMs : 1000;
+            say(`  complete ${errText(r.error)}: retrying in ${ms}ms (attempt ${attempt}/${COMPLETE_ATTEMPTS})`);
+            await sleep(ms);
+            continue;
+        }
+        if (code === "invalid_transition" && r.error.detail?.fromRole === "terminal") {
+            say("  usage-unreported (the item was already terminal)");
+            return { status: "terminal" };
+        }
+        break;
+    }
+    const code = lastError?.code || "error";
+    const reason = `complete transition failed: ${errText(lastError)}`;
+    if (code === "run_paused") {
+        const detail = lastError.detail || {};
+        notePause({ decisionId: detail.pauseDecisionId, pauseReason: detail.pauseReason });
+        return { status: "error", code, reason, pauseReason: detail.pauseReason, decisionId: detail.pauseDecisionId };
+    }
+    if (code === "gate_blocked" || code === "seat_forbidden" || code === "note_owned_by_other") return { status: "gate-blocked", code, reason };
+    return { status: "error", code, reason };
 }
 
 /** Assign the implementer seat; null when the item was skipped or the loop must stop. */
@@ -551,7 +746,7 @@ async function assignSeat(itemId) {
             knownTokens.push(token);
             return { token, assignmentId: a.value?.assignmentId, attempt: a.value?.attempt };
         }
-        if (handleCoordinatorStop(a.error, "assign")) return null;
+        if (await handleCoordinatorStop(a.error, "assign")) return null;
         if (a.error?.code === "run_at_capacity" && attempt < MAX_CAPACITY_RETRIES) {
             say(`  run at capacity: waiting ${DEFAULT_IDLE_BACKOFF_MS}ms, then assigning again`);
             await sleep(DEFAULT_IDLE_BACKOFF_MS);
@@ -576,6 +771,11 @@ async function endActiveSeat(outcome, summary) {
     if (!activeSeat) return;
     const seatNow = activeSeat;
     activeSeat = null;
+    if (run.closed) {
+        // A closed run already ended its seats and released its claims; its tokens are dead.
+        if (seatNow.tokenFile) await rm(seatNow.tokenFile, { force: true }).catch(() => {});
+        return;
+    }
     const r = await seatCall("runs_write", [{ op: "end_seat", outcome, summary: String(redactTokens(summary, knownTokens)).slice(0, 500) }], seatNow.token);
     if (!r.ok) warn(`  end_seat failed (${errText(r.error)})`);
     if (seatNow.tokenFile) await rm(seatNow.tokenFile, { force: true }).catch(() => {});
@@ -593,6 +793,11 @@ function applyEffect(effect, outcome, itemId) {
             stats.gateBlocked++;
             stats.consecutiveGateFailures++;
             stats.consecutiveErrors = 0;
+            skipList = addSkip(skipList, { itemId, code: "gate-blocked", now: Date.now() });
+            break;
+        case "pause":
+            stats.errored++;
+            notePause({ decisionId: effect.decisionId, pauseReason: effect.pauseReason });
             break;
         case "skip":
             stats.skipped++;
@@ -606,6 +811,7 @@ function applyEffect(effect, outcome, itemId) {
             stats.errored++;
             stats.consecutiveErrors++;
             stats.consecutiveGateFailures = 0;
+            skipList = addSkip(skipList, { itemId, code: "error", now: Date.now() });
             break;
     }
 }
@@ -786,7 +992,7 @@ async function warnOpenRalphRuns() {
 
 async function finish() {
     if (activeSeat) await endActiveSeat("failed", `ralph: loop ended (${stats.exitReason})`);
-    if (run.runId && run.coordinatorToken) {
+    if (run.runId && run.coordinatorToken && !run.closed) {
         let r = await coordinatorCall("runs_write", [{ op: "close", runId: run.runId, reason: stats.closeReason }]);
         if (!r.ok && r.error?.code === "invalid_run_state" && stats.closeReason === "completed") {
             stats.closeReason = "cancelled";
@@ -842,7 +1048,7 @@ function formatPreflight() {
   Model:         ${cfg.model}
   Max iter:      ${cfg.max}
   Breakers:      ${cfg.gateBudget} consecutive gate failures | ${cfg.errorBudget} consecutive errors | ${cfg.idleBudget} consecutive idles
-  Per iter:      $${cfg.budget} USD cap | ${cfg.ttl}s claim TTL | ${cfg.iterationTimeout}s timeout
+  Per iter:      $${cfg.budget} USD cap | ${cfg.ttl}s claim TTL (heartbeat every ${cfg.heartbeatInterval}s) | ${cfg.iterationTimeout}s timeout
   Run budget:    ${budget}
   Continuations: ${cfg.maxContinuations} per iteration (0 disables; resumes a clean exit with no RALPH_OUTCOME marker)
   Scratch dir:   ${cfg.scratchDir}
@@ -880,7 +1086,7 @@ function formatSummary() {
         "* Ralph Loop - Final Summary",
         `  Started:       ${stats.startedAt.toISOString()}`,
         `  Duration:      ${minutes}m ${seconds}s`,
-        `  Run:           ${run.runId || "(not opened)"} closed ${stats.closeReason}`,
+        `  Run:           ${run.runId || "(not opened)"} ${run.closed ? "closed elsewhere" : `closed ${stats.closeReason}`}`,
         `  Iterations:    ${stats.iterations}`,
         `  Continued:     ${stats.continued} iteration(s) resumed at least once`,
         `  Exit reason:   ${stats.exitReason}`,
@@ -925,6 +1131,8 @@ Options:
   --run-budget-usd <usd>     Run budget in US dollars (default: none)
   --max-attempts <n>         Attempts per seat before the run pauses (default: none)
   --ttl <seconds>            Claim TTL per iteration (default: ${DEFAULTS.ttl}s, range 60-86400)
+  --heartbeat-interval <s>   Heartbeat the claim this often while an iteration runs
+                             (default: ttl/2, range 1 to ttl-1)
   --iteration-timeout <s>    Kill an iteration after this many seconds: SIGTERM,
                              then SIGKILL 10s later (default: ${DEFAULTS.iterationTimeout})
   --model <name>             Model for the iteration agent (default: ${DEFAULTS.model})
@@ -951,7 +1159,8 @@ Outcomes: see the generated outcome table in skills/ralph/SKILL.md.
 
 Exit codes:
   0    Loop ended normally (drained, iteration cap, gate budget, idle budget,
-       run paused or closed)
+       run closed elsewhere). A paused run does not end the loop: it waits,
+       polling the run every 30s, until the run is resumed or closed.
   2    Error budget exhausted, or a REST call the loop depends on failed
        (open, coordinator credential refused)
   64   CLI argument error, no REST API URL, or no project root
