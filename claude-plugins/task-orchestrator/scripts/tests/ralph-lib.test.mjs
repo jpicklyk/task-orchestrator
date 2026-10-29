@@ -405,7 +405,7 @@ test("worktreeNameForOutcome: non-string itemId keeps tempName without throwing"
 });
 
 test("worktreeNameForOutcome: hostile strings keep tempName", () => {
-    for (const bad of ['";id;#', '"&calc', GOOD_ID + "x", GOOD_ID + '";id', "", "943f729d"]) {
+    for (const bad of ['";id;#', '"&calc', GOOD_ID + "x", GOOD_ID + '";id', "", "943f729"]) {
         assert.equal(worktreeNameForOutcome(bad, 1, "tmp"), "tmp");
     }
 });
@@ -757,9 +757,10 @@ test("S8 AC2/D7/D9: the skip codes are skip rows, the local failure codes are er
     assert.equal(rowOf("dependency_unmet").status, "idle", "AR-66: dependency_unmet is transient waiting, never drained");
 });
 
-test("S8 carry-in m3: run_paused and run_closed end the loop and sit in no retried or backed-off bucket", () => {
+test("S8 carry-in m3: run_paused waits for the run to be resumed and run_closed ends the loop; neither sits in a retried or backed-off bucket", () => {
+    assert.equal(rowOf("run_paused").loop, "pause-wait", "run_paused no longer ends or closes the run");
+    assert.equal(rowOf("run_closed").loop, "exit", "run_closed ends the loop");
     for (const c of ["run_paused", "run_closed"]) {
-        assert.equal(rowOf(c).loop, "exit", `${c} ends the loop`);
         assert.equal(RETRIED_BUCKETS.has(rowOf(c).loop), false, `${c} is not retried`);
     }
 });
@@ -825,11 +826,10 @@ test("S10 probe: an unknown or missing status never ends a seat as done, and the
     }
 });
 
-test("S10 AC8: loopEffect keys on code first - run_paused ends the loop and closes the run cancelled with an exit reason starting 'run paused'", () => {
+test("S10 AC8: loopEffect keys on code first - run_paused is a pause effect that never asks for the run to be closed", () => {
     const e = loopEffect({ code: "run_paused", status: "error", pauseReason: "budget" });
-    assert.equal(e.effect, "exit");
-    assert.match(e.exitReason, /^run paused/i);
-    assert.equal(e.closeReason, "cancelled");
+    assert.equal(e.effect, "pause");
+    assert.equal(e.closeReason, undefined, "a paused run is not closed by the driver (extend / allow_one / skip_item / resume must stay possible)");
 });
 
 test("S10 AC8: loopEffect run_closed ends the loop", () => {
@@ -848,8 +848,9 @@ test("S10 AC8: loopEffect puts unauthenticated and not_claim_holder on the error
     }
 });
 
-test("S10 AC8: the code wins over the status - a terminal-looking run_paused still exits", () => {
-    assert.equal(loopEffect({ code: "run_paused", status: "terminal" }).effect, "exit");
+test("S10 AC8: the code wins over the status - a terminal-looking run_paused is still a pause, a skip-looking run_closed still exits", () => {
+    assert.equal(loopEffect({ code: "run_paused", status: "terminal" }).effect, "pause");
+    assert.equal(loopEffect({ code: "run_paused", status: "terminal" }).closeReason, undefined);
     assert.equal(loopEffect({ code: "run_closed", status: "skip" }).effect, "exit");
 });
 
