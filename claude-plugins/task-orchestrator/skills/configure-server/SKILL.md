@@ -1,6 +1,6 @@
 ---
 name: configure-server
-description: "Configures how the MCP Task Orchestrator SERVER runs and is reached — transport (HTTP vs STDIO), the REST API, port publishing, config mounts, and config-sync. Use when a user says: run the server, register the image, set up the Docker container, enable the REST API, set up config-sync, reconfigure the server, change transport, expose the API, reconnect to a different endpoint, or allow a hostname. NOT for first-time onboarding (that's quick-start), NOT for project/personal setup (that's init), and NOT for note schemas / gates / traits (that's manage-schemas) — this skill only decides how the container is launched and reached. Caller identity is set by the REST auth mode (API_AUTH_MODE), which this skill renders."
+description: "Configures how the MCP Task Orchestrator SERVER runs and is reached — transport (HTTP vs STDIO), the REST API, port publishing, config mounts, and config-sync. Use when a user says: run the server, register the image, set up the Docker container, enable the REST API, set up config-sync, reconfigure the server, change transport, expose the API, reconnect to a different endpoint, or allow a hostname. NOT for first-time onboarding (that's quick-start), NOT for project/personal setup (that's init), and NOT for note schemas / gates / traits (that's manage-schemas) — this skill only decides how the container is launched and reached. Caller identity is set by the REST auth mode (API_AUTH_MODE): this skill renders none and bearer; jwks is linked to the deployment docs, not rendered."
 argument-hint: "[optional: 'recommended', 'http', 'stdio', 'bearer', or a change request e.g. 'enable REST']"
 ---
 
@@ -10,7 +10,7 @@ Decides **how the MCP Task Orchestrator container is launched and reached**: tra
 port publishing, config mount, and config-sync. This is a runtime/deployment concern, distinct from
 `quick-start` (first-time onboarding narrative) and `manage-schemas` (workflow gates/traits/
 `resources:` content inside `.taskorchestrator/config.yaml`). Who a caller is comes from `API_AUTH_MODE`
-and its credentials, which this skill renders; no config key sets it. If the user wants
+and its credentials; this skill renders `none` and `bearer`, and links `jwks` ([fleet deployment](../../../../current/docs/fleet-deployment.md), [REST API, authentication](../../../../current/docs/api-rest.md#1-authentication)) without rendering it; no config key sets it. If the user wants
 schema or gate changes — including resource-lease declarations — redirect to `/manage-schemas` instead
 of proceeding here.
 
@@ -19,9 +19,28 @@ One operator escape hatch worth knowing when launching the container: `RESOURCE_
 contention incidents. Configuring which resources
 exist and which traits declare them stays in `/manage-schemas`; this skill only knows the switch.
 
+Not a director-mode skill: run it outside director mode (`/task-orchestrator:director off`); director-guard denies its file, shell and config steps partway through.
+
 The full fragment catalog (exact env tuples, loopback caveat, Windows/MSYS caveat, `.mcp.json` shapes)
 lives in `references/runtime-config.md` — this skill's job is the **decision flow** and **rendering**,
 not re-deriving that catalog. Read it before rendering any command.
+
+---
+
+## Step 0 - Upgrading from 3.x (only when it applies)
+
+Enter this step when the user mentions upgrading, or an existing `mcp-task-data` volume or container is in play. Ask; `docker ps -a` and `docker volume ls` are allowed to look (outside director mode). A new install skips to Step 1. The image tag `:latest` moves to 4.x, so a 3.x install that pulls `latest` upgrades whether or not anyone planned it: run this step first. The plugin and the server majors must match: a 4.x plugin needs a 4.x server that advertises `seats`.
+
+In order:
+
+1. **Stop every 3.x process** that uses the volume, stdio sessions included.
+2. **Back up the whole volume off-volume.** The automatic `.pre-4.0.*.bak` copy sits on the same volume, so it is not a backup.
+3. **Clear the settings that fail startup:** remove a leftover `actor_authentication:` or `auditing:` key from the mounted global config, and unset `DEGRADED_MODE_POLICY`. The legacy `schema_resolution`, `orchestration`, `retrospective` and `actor_attribution` keys only warn; `USE_FLYWAY` is ignored.
+4. **Start ONE detached 4.0 container and wait until it is healthy** (the `docker inspect` health loop of the fleet guide; raise `--start-period` for a large database). The once-only data steps, including the irreversible `type-backfill`, run at this first boot.
+5. **When REST is on, read `/api/v1/info`** and check `configWarnings`.
+6. **Then register the clients** (Steps 1-6).
+
+Commands and rollback are in [fleet deployment, Upgrading from 3.x](../../../../current/docs/fleet-deployment.md#upgrading-from-3x); do not copy them here.
 
 ---
 
@@ -78,7 +97,7 @@ HTTP → Step 3.
 AskUserQuestion(questions: [{
   question: "REST API mode?", header: "REST API", multiSelect: false,
   options: [
-    { label: "Unauthenticated (Recommended)", description: "No token needed. Loopback-bound only. Enables config-sync with zero extra setup." },
+    { label: "Unauthenticated (Recommended)", description: "No token needed. Loopback-bound only. Enables config-sync with zero extra setup. Every caller is the local agent principal, so human-only decisions cannot be answered." },
     { label: "Bearer token", description: "Token-authenticated. For shared/multi-user setups. The same token also guards /mcp." },
     { label: "Off", description: "MCP only, no REST, no config-sync. /mcp then serves every caller unauthenticated, so it needs an explicit opt-in." }
   ]
@@ -91,6 +110,7 @@ AskUserQuestion(questions: [{
 - **Bearer** → ask for the host path to the token YAML (free-text/"Other" answer), e.g.
   `~/.taskorchestrator-secrets/api-tokens.yaml`. If the file doesn't exist yet, point at
   `current/docs/api-rest.md` §1 for the token-generation snippet — this skill does not generate tokens.
+- **Unauthenticated and Off both:** every caller is the local agent principal (proof none), so a human-only decision class can never be answered; director-or-human classes (run budget, attempt cap, deviation) can, through the director entry. A user who wants human sign-off needs Bearer with a `kind: human` token (see "Director credential").
 - **Off** → REST fragment is `-e API_ENABLED=false -e MCP_ALLOW_UNAUTHENTICATED=true`; config-sync will
   no-op (tell the user). Without the opt-in, an HTTP server with the API off refuses to start (`MCP_AUTH`,
   [fleet deployment](../../../../current/docs/fleet-deployment.md)); with it, `/mcp` serves every caller as
@@ -155,7 +175,7 @@ Render the `.mcp.json` **args array** shape (see reference doc, "`.mcp.json` sha
 ```
 
 Add the floor config-mount fragment (as `args` entries, not env flags: `"-v", "<FLOOR_DIR>:/project/.taskorchestrator:ro", "-e", "AGENT_CONFIG_DIR=/project"`) by default (Step 4's config-mount question is HTTP only and is not asked here); leave it out only if the user asks for no mount.
-No REST, no port, no config-sync — say so.
+No REST, no port, no config-sync — say so. When asked, or when this skill runs standalone, also render the stdio director entry from `references/runtime-config.md` (`.mcp.json` shapes): the same `docker run` args with `-e MCP_TOOL_PROFILE=director` before the image, under the key `mcp-task-orchestrator-director`. A stdio server has no credentials, so the entry carries no header; the caller is the local agent principal.
 
 ### HTTP — three coordinated pieces (all required, this is the default path now)
 
@@ -213,9 +233,16 @@ No REST, no port, no config-sync — say so.
 
 4. **The director entry (optional).** `/task-orchestrator:init` registers it by default; render it here
    when the user asks for it or runs this skill alone. A second entry, `mcp-task-orchestrator-director`
-   (its key must contain `task-orchestrator`), whose `url` is `http://localhost:3001/mcp/director`, with the
-   same `headers` form in bearer mode. It serves only reads, run control and decisions
-   ([API reference, tool profiles](../../../../current/docs/api-reference.md#tool-profiles)).
+   (its key must contain `task-orchestrator`), whose `url` is `http://localhost:3001/mcp/director`. In
+   bearer mode its header is a separate placeholder, with no nested fallback to the agents' token:
+
+   ```json
+   "headers": {"Authorization": "Bearer ${TASK_ORCHESTRATOR_DIRECTOR_TOKEN}"}
+   ```
+
+   It serves only reads, run control and decisions
+   ([API reference, tool profiles](../../../../current/docs/api-reference.md#tool-profiles)). The token
+   behind the placeholder is described in "Director credential" below.
 
 If REST mode is **unauthenticated**, always print the SECURITY caveat (verbatim from
 `references/runtime-config.md` → "Loopback footgun") immediately before or after the docker run block.
@@ -235,13 +262,18 @@ play.
 For any HTTP render, walk through:
 
 1. **Run** the docker command from Step 5.
-2. **Verify the container is up:**
+2. **Wait until the container is healthy** with the `docker inspect` health loop of
+   [fleet deployment, Upgrading from 3.x](../../../../current/docs/fleet-deployment.md#upgrading-from-3x)
+   (not a fixed look at the last seconds of the log; a first boot over an old database can take a while),
+   then look at the state and the log:
    ```bash
    docker ps --filter name=mcp-task-orchestrator-http --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-   docker logs --since 20s mcp-task-orchestrator-http
+   docker logs mcp-task-orchestrator-http
    ```
 3. **Reconnect the client:** update `.mcp.json` (Step 5, piece 2) if not already in place, then run
-   `/mcp` in Claude Code — confirm `mcp-task-orchestrator` shows connected with all tools listed.
+   `/mcp` in Claude Code — confirm `mcp-task-orchestrator` shows connected with all tools listed, then confirm the server is 4.x:
+   over HTTP read `features` from `GET /.well-known/mcp-task-orchestrator.json` (it contains `seats`), and on
+   either transport `runs_read` must be among the tools (a 3.x server has none; go to Step 0).
 4. If REST is enabled, sanity-check it: `curl http://localhost:3001/api/v1/health` should return `200`.
 5. An HTTP `403` with the `forbidden` error envelope (`scope: host`) on `/mcp`, `/api/v1` or
    `/.well-known` means the request's `Host` header is not allowlisted — see
@@ -273,15 +305,32 @@ a READ-capability call — under bearer auth, the token rendered for `TASK_ORCHE
 as fail-open, not an error) — call this out whenever rendering a bearer-mode token for a workspace that
 also uses the guard.
 
-Two token properties matter for decisions on a run. `kind: human`, with a real proof and no seat token, is what answers a `human-only` decision
-class (a director or agent credential cannot), and `profile: director` confines a token to the director
-path (`POST /api/v1/ops/director/{tool}`, `/mcp/director`); both are set in the token file
-([fleet deployment](../../../../current/docs/fleet-deployment.md)).
+### Director credential
+
+The director entry needs its own credential in bearer mode, not the agents' token. Two token properties matter for decisions on a run: `kind: human`, with a real proof and no seat token, is what answers a `human-only` decision class (a director or agent credential cannot), and `profile: director` confines a token to the director path (`POST /api/v1/ops/director/{tool}`, `/mcp/director`). Both are set in the token file ([REST API, authentication](../../../../current/docs/api-rest.md#1-authentication), [capabilities](../../../../current/docs/api-rest.md#2-capabilities-authorization), [fleet deployment](../../../../current/docs/fleet-deployment.md)). A token-file token has proof `issued`, so bearer with `kind: human` is enough; jwks is not required.
+
+Render a two-entry token file (placeholders only; the user generates the digests, see api-rest.md section 1; never write a token or a real digest):
+
+```yaml
+version: 1
+tokens:
+  - id: agents
+    token_sha256: "<sha256 of the agents token>"
+    kind: agent
+    capabilities: [read, write-items, write-notes, advance, manage-dependencies, runs, write-docs, write-config]
+  - id: director
+    token_sha256: "<sha256 of the director token>"
+    kind: agent            # kind: human only when a human drives this entry; see the hazard below
+    profile: director
+    capabilities: [read, runs, decide]
+```
+
+The user exports `TASK_ORCHESTRATOR_API_TOKEN` (agents) and `TASK_ORCHESTRATOR_DIRECTOR_TOKEN` (director) before starting Claude Code. The director token defaults to `kind: agent`: it still answers the director-or-human decision classes through the director path. Set `kind: human` on it ONLY when that entry is driven by a human who should answer human-only classes. The hazard: an LLM director agent that drives a `kind: human` token can answer human-only classes itself, so human sign-off is then only as good as the session. Sharing one token between both variables is possible, with the consequence that the agents' session gains `decide`, or that human-only classes stay unanswerable. A `scope.root_ids` on either token must name depth-0 roots only.
 
 ## Reconfiguring later
 
 Re-running this skill is safe — it always renders a fresh command from the current answers; it does
 not read or depend on any previously-rendered state. To change an existing container's settings,
 stop/remove it first (`docker stop mcp-task-orchestrator-http && docker rm mcp-task-orchestrator-http`),
-then re-render and run the new command. (Maintainers building the image from source have a dedicated
+then re-render and run the new command. When a `mcp-task-orchestrator-director` entry already exists in the client config, re-render it alongside the orchestration entry on any transport change (stdio to HTTP or back): its URL or its `MCP_TOOL_PROFILE=director` args change with the transport. (Maintainers building the image from source have a dedicated
 detect-and-reuse flow in `/deploy_to_docker` — not needed for the published-image path this skill covers.)

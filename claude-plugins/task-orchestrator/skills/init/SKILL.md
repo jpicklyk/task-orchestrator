@@ -10,6 +10,8 @@ The explicit setup step that the SessionStart notices point at (`/task-orchestra
 
 **Mode:** `--user` in `$ARGUMENTS` selects the personal-root flow. `--no-director` skips the director registration (Step 2). Any other non-flag text is the project (or root) name. No flag means project mode.
 
+Not a director-mode skill: run it outside director mode (`/task-orchestrator:director off`); director-guard denies its file, shell and config steps partway through.
+
 Everything is created through MCP tools; the skill never creates roots over REST. Every call below is a `to-call` block, `{tool, select|op, args}`, in the shapes of [call-shapes.md](../_generated/call-shapes.md).
 
 ---
@@ -38,16 +40,24 @@ Read the health view (orchestration profile):
 
 If the Task Orchestrator MCP tools are absent or the call errors, stop and point the user to `/task-orchestrator:configure-server`.
 
+Then confirm the server is 4.x: `runs_read` must be among the tools you can call (a 3.x server has no run tools). If it is absent, the server is 3.x or older and this plugin's majors do not match it: stop and point the user to the "Upgrading from 3.x" step of `/task-orchestrator:configure-server`.
+
 ## Step 2 - Register the MCP entries
 
 Both modes, once the server answers. Locate the orchestration entry the way `hooks/session-start.mjs` does: `.mcp.json` `mcpServers`, then `~/.claude.json` `mcpServers` and `projects[<dir>].mcpServers`; an entry counts when its key contains `task-orchestrator`. An HTTP entry carries `url` (ending `/mcp`); a stdio entry carries `command` and `args`. Note which file holds it.
 
-**The director entry.** Unless `--no-director` was given, make sure a second entry exists next to the orchestration one. Its key must contain `task-orchestrator` (the plugin's hook matchers key on it), so use `mcp-task-orchestrator-director`:
+**The director entry.** Unless `--no-director` was given, make sure a second entry exists next to the orchestration one. Its key must contain `task-orchestrator` (the plugin's hook matchers key on it), so use the exact key `mcp-task-orchestrator-director` (`claude --agent task-orchestrator:director` looks for that key).
 
-- **stdio:** the orchestration entry's `command` and `args`, with `-e MCP_TOOL_PROFILE=director` inserted before the image name.
+- **stdio, `docker run` entry:** the orchestration entry's `command` and `args`, with `-e MCP_TOOL_PROFILE=director` inserted before the image name.
+- **stdio, any other command (JAR, local binary):** copy the entry and set `env: {"MCP_TOOL_PROFILE": "director"}`.
 - **HTTP:** the orchestration entry with `url` set to `<base>/mcp/director` (`<base>` is the orchestration URL without its trailing `/mcp`).
 
-Say why it exists: a single developer on one stdio server has no HTTP endpoint for the director tools, and a run-budget or attempt-cap decision is answered through a second stdio entry started with `MCP_TOOL_PROFILE=director` ([fleet deployment](../../../../current/docs/fleet-deployment.md)). That profile serves only read, run-control and decision operations, and no read that returns a note, document or transition-summary body ([API reference, tool profiles](../../../../current/docs/api-reference.md#tool-profiles)). Both stdio processes share the database volume and act as the one `local` principal. On the first 4.0 start over a 3.x volume, run one process only (start the orchestration entry alone, then add the director): two concurrent first boots can race the `UPGRADE_BACKUP` copy.
+Say why it exists: a single developer on one stdio server has no HTTP endpoint for the director tools, and a run-budget or attempt-cap decision is answered through a second stdio entry started with `MCP_TOOL_PROFILE=director` ([fleet deployment](../../../../current/docs/fleet-deployment.md)). That profile serves only read, run-control and decision operations, and no read that returns a note, document or transition-summary body ([API reference, tool profiles](../../../../current/docs/api-reference.md#tool-profiles)). Both stdio processes share the database volume and act as the one `local` principal. On the first 4.0 start over a 3.x volume, follow the "Upgrading from 3.x" step of `/task-orchestrator:configure-server` first and start the orchestration entry alone; a second concurrent first boot waits on the migration lock and can fail the schema update on a large database.
+
+**Existing entries.** Detect a director entry by the exact key `mcp-task-orchestrator-director`. When found, report it and leave it alone, with two checks:
+
+- Its `Authorization` header uses `${TASK_ORCHESTRATOR_API_TOKEN}`: say it shares the agents' credential, and offer via `AskUserQuestion` to switch it to the director placeholder below.
+- A director-profile entry under another key (a `url` ending `/mcp/director`, or `MCP_TOOL_PROFILE=director` in its `args` or `env`): warn that `claude --agent task-orchestrator:director` will not see its tools, and offer to register it under the exact key.
 
 **Credential mode.** The server is in credential mode when an unauthenticated `POST <base>/mcp` answers `401`, or when the orchestration entry already carries an `Authorization` header:
 
@@ -55,17 +65,23 @@ Say why it exists: a single developer on one stdio server has no HTTP endpoint f
 curl -s -o /dev/null -w "%{http_code}" -X POST <base>/mcp
 ```
 
-In credential mode both entries carry the same header, written exactly as the placeholder below, because Claude Code expands it from the environment. Never write a token into the file:
+In credential mode each entry carries its own header, written exactly as the placeholders below, because Claude Code expands them from the environment. Never write a token into the file. The orchestration entry keeps the agents' token; the director entry gets a separate placeholder, with no nested default:
 
 ```json
 "headers": {"Authorization": "Bearer ${TASK_ORCHESTRATOR_API_TOKEN}"}
 ```
 
-One bearer authenticates `/mcp`, `/mcp/knowledge` and `/mcp/director`. Tell the user to export `TASK_ORCHESTRATOR_API_TOKEN` before starting Claude Code. A stdio server has no credential mode: its entry is local.
+```json
+"headers": {"Authorization": "Bearer ${TASK_ORCHESTRATOR_DIRECTOR_TOKEN}"}
+```
+
+Tell the user to export both variables before starting Claude Code. The director token needs `read`, `runs` and `decide` and is a different token-file entry from the agents' token; the example token file, the `kind` choice and its hazard are in the "Director credential" block of [`/task-orchestrator:configure-server`](../configure-server/SKILL.md), which this step points to instead of repeating. Pointing both variables at one token is allowed, with the consequence that the agents' session gains `decide` (and with `kind: human`, the human-only classes), or that human-only decisions stay unanswerable. A stdio server has no credential mode: its entry is local.
+
+**Who can answer what.** On stdio, and on any unauthenticated or local server, every caller is the `local` agent principal (proof none), so human-only decision classes can never be answered there; director-or-human classes (run budget, attempt cap, deviation) can, through the director entry. A user who wants human sign-off needs bearer (or jwks) with a `kind: human` token.
 
 **Where to write.** Edit `<main>/.mcp.json` only (read-modify-write, preserve everything else). When the orchestration entry lives elsewhere (user scope, `~/.claude.json`), do not edit that file: print the director entry as JSON together with the command for the user to run, for example `claude mcp add-json mcp-task-orchestrator-director '<entry json>' --scope user`. Re-running is idempotent: an existing director entry is left alone and reported.
 
-The entries take effect after the MCP servers reload (a new Claude Code session, or `/mcp`). The end report lists each entry, its file and its mode.
+The entries take effect after the MCP servers reload (a new Claude Code session, or `/mcp`). The end report lists each entry, its file and its mode, and says how to use the director entry once the servers have reloaded: `claude --agent task-orchestrator:director`, or `/task-orchestrator:director` in a normal session.
 
 ---
 

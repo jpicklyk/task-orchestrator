@@ -12,6 +12,8 @@ This is a **destructive-by-execution** skill: the EXECUTE step re-parents real i
 
 For a fresh workspace with no existing unscoped work, use `/task-orchestrator:init` instead; this skill is for databases that already hold unscoped work trees.
 
+Not a director-mode skill: run it outside director mode (`/task-orchestrator:director off`); director-guard denies its file, shell and config steps partway through. Step 0 refuses to start when the session context says director mode is on, because a guard denial between the anchor create and the config write would leave a partial anchor.
+
 Every tool call below is a `to-call` block, `{tool, select|op, args}`, in the shapes of [call-shapes.md](../_generated/call-shapes.md). The `config` tool is orchestration-profile only.
 
 **Non-goals:** cross-DB consolidation (merging items from a second database); merging multiple existing project anchors into one; any server-side enforcement of scope. This skill adopts a single workspace's single database.
@@ -19,6 +21,8 @@ Every tool call below is a `to-call` block, `{tool, select|op, args}`, in the sh
 ---
 
 ## Step 0 — Parse Arguments
+
+- **Director mode.** When the session context says this session is in director mode, stop before anything else: tell the user to run `/task-orchestrator:director off` and re-run. Do not create the anchor first.
 
 - **Project name** — the first non-flag token(s) in `$ARGUMENTS`. If absent, do not guess; ask for it in Step 3 (the dry-run plan) via `AskUserQuestion` before any mutation.
 - **`--dry-run`** — if present, the skill stops after Step 3 (the plan) and performs zero mutations regardless of confirmation. The dry run is ALSO always rendered before execution even without the flag; the flag only forces an early exit.
@@ -31,7 +35,7 @@ Run these checks in order. Each abort prints a clear, user-facing reason and sto
 
 ### 1a — Already adopted?
 
-Read `.taskorchestrator/config.yaml`. If it contains a `project:` block with a non-empty `rootId:`, the workspace is already scoped:
+Read `<main>/.taskorchestrator/config.yaml`, where `<main>` is the parent of `git rev-parse --path-format=absolute --git-common-dir` (the same file Step 4(b) writes, correct from a linked worktree). If it contains a `project:` block with a non-empty `rootId:`, the workspace is already scoped:
 
 ```
 ◆ Workspace already adopted — config.yaml already points at project root <rootId>.
@@ -87,6 +91,28 @@ Classify **every depth-0 root** into exactly one bucket:
 | **MOVE** | Any work container or work tree (a root with work/queue/review children), and any standalone work item. Everything that is real project work. | Re-parented under the new anchor. |
 | **CLEANUP-CANDIDATE** | Evident test artifacts: titles containing `probe`, `smoke`, `depth-test`, `zzprobe`; or tags matching `mtest-*`. | **Flagged only** — never moved, never deleted. Recommend `/batch-complete`. |
 
+**Per MOVE root, read and record four things** (they feed the plan; nothing is mutated). Open runs, the root's config head, its documents and its pending decision blocks:
+
+```to-call
+{"tool": "runs_read", "select": "list", "args": {"rootId": "<move-root>", "limit": 50}}
+```
+
+Keep entries whose `status` is `open` or `paused`. A root with no per-root config answers `not_found`, which means "no head":
+
+```to-call
+{"tool": "config", "op": "get", "args": {"rootId": "<move-root>"}}
+```
+
+```to-call
+{"tool": "docs_read", "select": "list", "args": {"rootId": "<move-root>", "limit": 50}}
+```
+
+```to-call
+{"tool": "items_read", "select": "blocked", "args": {"ancestorId": "<move-root>", "limit": 50}}
+```
+
+From the blocked list keep the explicit blocks whose reason is `awaiting_decision`. A config head that exists is per-root config that stops applying after the move. Documents stay keyed to the old root id; the count is inventory only.
+
 **Ambiguous roots** (no clear rule match — e.g., an untagged standalone item that could be work or a stray container): do NOT guess. Collect them and present via `AskUserQuestion` (`multiSelect`) asking which should MOVE vs stay KEEP-GLOBAL. Test-artifact-looking items always go to CLEANUP-CANDIDATE without asking.
 
 ---
@@ -110,6 +136,12 @@ Summary: 2 move · 2 stay global · 1 cleanup candidate
 Execution will create a "<name>" project anchor and re-parent 2 tree(s) under it.
 ```
 
+Add to the plan, per MOVE root: its open or paused runs, its config head (version), its document count and its pending-decision blocks. Then apply these rules before the confirmation:
+
+- **Open or paused runs: HOLD.** A MOVE root with any open or paused run is reclassified HOLD and is not moved until those runs are closed (by a coordinator, director or human). A run belongs to the root it opened under and `runs_write` `open` refuses a non-root, so moving the root would strand the run. The plan says so, per root.
+- **Pending decisions.** Recommend answering them first. A decision stays keyed to the old root id after a move (it is not restamped), so a director's `runs_read` `decisions` with the anchor as `rootId` will not show it.
+- **Config head.** Either merge it into the workspace `config.yaml` before the move or accept losing it: a per-root config on a root that is no longer a root stops applying.
+- **Credential warning (always printed).** List every MOVE root id and state: any token-file `scope.root_ids`, or JWT `to_scope.root_ids`, that names one of these ids must be re-scoped to the anchor before the next server restart. A token file fails startup on a non-root id; a JWT is refused with `401`.
 - If the project name is still unknown, ask for it now via `AskUserQuestion` before showing the final counts.
 - **`--dry-run`**: stop here. State plainly: "Dry run — no changes made. Re-run without --dry-run to execute."
 - Otherwise, confirm via `AskUserQuestion`:
@@ -160,6 +192,7 @@ Capture the new UUID as `ANCHOR_ID`.
 ```
 
 - `validate` reports a problem as `valid: false` with `errors[{path, reason}]`; show them and skip the push (the local file is saved). Relay `warnings`.
+- If the config write in (b) was denied or failed, stop before (c) and (d): report that the anchor exists without a config block, and that nothing was re-parented.
 - Read failures from `data.results[0].error` (call-level `partial_failure`): `config_invalid` on the push: show `detail.errors[{path, reason}]`; nothing was stored. `version_conflict`: read the head again and ask before retrying.
 - If the `config` tool is not available or the call is `forbidden`, skip this step and note: "Config saved locally only — the server push was not possible; the local config.yaml is authoritative."
 
@@ -169,7 +202,7 @@ Capture the new UUID as `ANCHOR_ID`.
 {"tool": "items_write", "op": "update", "args": {"id": "<move-root-1>", "parentId": "<ANCHOR_ID>"}}
 ```
 
-A 4.x server recomputes each moved subtree's descendant depths and `root_id`. Each moved tree is also repinned against the anchor's config head, which is why the config is pushed before this step (the `reparent` pin point; see [Schema pins](../../../../current/docs/config-reference.md#schema-pins)), so a tree whose items resolve a schema of a different lifecycle class under the anchor's config fails that element with `invalid_transition` and nothing is written for it. The call commits element by element: read the per-element results, report any failure by root, and leave that root for the user to decide.
+A 4.x server recomputes each moved subtree's descendant depths and `root_id`. Each moved tree is also repinned against the anchor's config head, which is why the config is pushed before this step (the `reparent` pin point; see [Schema pins](../../../../current/docs/config-reference.md#schema-pins)), so a tree whose items resolve a schema of a different lifecycle class under the anchor's config fails that element with `invalid_transition` and nothing is written for it. The call commits element by element: read the per-element results, report every failure by root with its `data.results[i].error.code`, and leave that root for the user to decide. The codes to expect: `not_claim_holder` (claimed by another holder: wait for the release, or have the holder release it), `forbidden` (the credential's scope does not cover the root or the anchor), `version_conflict` (re-read that root and retry it), `invalid_transition` (a lifecycle-class crossing under the anchor's config). Roots held for open runs are not in this call at all.
 
 If the push in step (c) was skipped, tell the user that the moved trees are pinned to the server's config, and that after a later push they should run `validate` and offer `repin` per `affectedInFlight`.
 
@@ -237,7 +270,9 @@ A pushed config takes effect immediately for new and unpinned items of the root;
 - **Default dry run.** No mutation without an explicit `AskUserQuestion` "Yes".
 - **Never deletes user data.** Cleanup candidates are only *flagged*; the skill deletes nothing.
 - **Never regenerates config.yaml.** The `project:` block is surgically inserted; all other content is preserved verbatim.
-- **Fail per element, not silently.** A root whose re-parent is refused (`invalid_transition` on a lifecycle-class crossing) is reported and left in place.
+- **Fail per element, not silently.** A root whose re-parent is refused (`not_claim_holder`, `forbidden`, `version_conflict` or `invalid_transition`) is reported by code and left in place.
+- **Open runs hold a root.** A root with an open or paused run is never moved; the user closes the run first.
+- **Credential scope is the user's to fix.** The plan lists every moved root id so token-file and JWT scopes can be re-pointed at the anchor before a restart.
 - **No auto-rollback.** On verify mismatch, the skill reports the manual remedy rather than guessing at an undo.
 
 ---

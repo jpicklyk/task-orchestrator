@@ -55,6 +55,7 @@ TASK_ORCHESTRATOR_API_URL=http://localhost:3001
 | Retention windows (whole days, `0` keeps forever) | `-e RETENTION_EVENTS_DAYS=180 -e RETENTION_AUDIT_EVENTS_DAYS=0 -e RETENTION_LEASE_HISTORY_DAYS=365 -e RETENTION_CALL_LOG_DAYS=90` (the defaults; set only to change one; read once at startup) |
 | jwks key-set staleness | `-e API_JWKS_MAX_STALE_SECONDS=<n>` (default `max(3600, API_JWKS_CACHE_TTL_SECONDS)`; positive and at least the TTL; past it the key set is unavailable and `/mcp` and `/api/v1` answer `503`) |
 | Pre-upgrade backup | `-e UPGRADE_BACKUP=false` to skip it (default `true`; see "Upgrading a 3.x volume" below) |
+| Advanced / operator | `SCHEMA_MODE`, `FTS_INTEGRITY`, `DATABASE_*`, `READINESS_FILE`, `DB_COMPACT_ON_UPGRADE`, `FLYWAY_REPAIR`, `CORS_*`, `API_SSE_*` and the rest: names, meanings and defaults are in [`fleet-deployment.md`](../../../../../current/docs/fleet-deployment.md#environment-variable-reference); not copied here |
 
 ## REST-mode env tuples (full, copy-paste)
 
@@ -224,13 +225,15 @@ token; Claude Code expands `${...}` from its environment:
 ```
 
 **Director entry** (optional second entry; the key must contain `task-orchestrator`). HTTP serves the
-director profile at `/mcp/director`; add the `headers` object in bearer mode:
+director profile at `/mcp/director`; in bearer mode add the `headers` object with its own placeholder (no
+nested fallback to the agents' token; see the "Director credential" block of `configure-server/SKILL.md`):
 ```json
 {
   "mcpServers": {
     "mcp-task-orchestrator-director": {
       "type": "http",
-      "url": "http://localhost:3001/mcp/director"
+      "url": "http://localhost:3001/mcp/director",
+      "headers": {"Authorization": "Bearer ${TASK_ORCHESTRATOR_DIRECTOR_TOKEN}"}
     }
   }
 }
@@ -247,14 +250,19 @@ Over stdio the director profile is a second entry with `MCP_TOOL_PROFILE=directo
   }
 }
 ```
-Both stdio processes share the volume and act as the one `local` principal. On the first 4.0 start over a 3.x volume, run one process only (start the orchestration entry alone, then add the director): two concurrent first boots can race the `UPGRADE_BACKUP` copy.
+For a non-Docker command (JAR, local binary), copy the entry and set `"env": {"MCP_TOOL_PROFILE": "director"}` instead. Both stdio processes share the volume and act as the one `local` principal. On the first 4.0 start over a 3.x volume, run one process only (start the orchestration entry alone, then add the director): a second concurrent first boot waits on the migration lock for up to its timeout and can fail the schema update on a large database.
 
 ---
 
 ## Upgrading a 3.x volume
 
+Do these before the first 4.0 boot: (1) stop every 3.x process that uses the volume, stdio sessions included;
+(2) back up the whole volume off-volume (the `.bak` below sits on the same volume).
+
 The first 4.0 boot of a 3.x volume (schema version 17 or lower) first copies the database to
 `<db name>.pre-4.0.<UTC stamp>.bak` beside it and verifies the copy (`UPGRADE_BACKUP`, default true), then
-migrates. Start exactly ONE container for that first boot: a second concurrent first boot can race the
-copy. Details and the failure modes are in
-[`fleet-deployment.md`](../../../../../current/docs/fleet-deployment.md), "Upgrading from 3.x".
+migrates. Start exactly ONE container for that first boot: the copy runs under the migration lock, so a second
+concurrent boot does not race it, but it waits up to the lock timeout and can fail the schema update on a large
+database. Details, the step-by-step order and the failure modes are in
+[`fleet-deployment.md`](../../../../../current/docs/fleet-deployment.md#upgrading-from-3x), "Upgrading from 3.x", and
+the "Step 0 - Upgrading from 3.x" flow of `configure-server/SKILL.md`.
