@@ -28,7 +28,7 @@ Drive a work item through its gate-enforced lifecycle. The skill is schema-drive
 | `dispatch` | `{agent?, model?, effort?}` for the item's current role |
 | `transitions` | each allowed trigger and the role it leads to |
 
-- `item.role` of `terminal`: nothing to do. `blocked`: use `/status-progression`.
+- `item.role` of `terminal`: nothing to do. `blocked`: use `/status-progression`; for a pending decision follow its [decisions rule](../status-progression/references/decisions.md) (answer first, resume only when `resumable`).
 - **Schema-free:** the schema read answers `{schemaFree: true}`. Tell the user "No schema for this item's type; use `/manage-schemas` to configure gates". The item still advances freely.
 - **Lifecycle-free** (role absent): never advanced; its notes are optional. Any `advance` trigger fails `invalid_transition` with `fromRole: none`.
 

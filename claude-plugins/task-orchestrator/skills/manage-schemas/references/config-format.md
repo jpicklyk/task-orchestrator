@@ -1030,6 +1030,36 @@ Treat a bare `warn`/`reject` config as a discipline aid, not a security control;
 
 The top-level `runs:` block (server file or per-root document, resolved per field: the root's value, else the server's, else the default) sets `stall_after` and optional `budgets` ceilings a run may declare up to. The keys, their types and defaults are in [config-reference.md, Runs](../../../../../current/docs/config-reference.md#runs-runs); how the server enforces a run's budget, and the decisions a limit raises, are in [Fleet Deployment](../../../../../current/docs/fleet-deployment.md#run-budgets-and-caps) and the [workflow guide](../../../../../current/docs/workflow-guide.md#12-runs-seats-and-decisions). Who may answer a limit decision is a `decision_classes:` setting: see [Decision classes](../../../../../current/docs/config-reference.md#decision-classes-decision_classes).
 
+| Key | Type | Meaning |
+|---|---|---|
+| `stall_after` | integer seconds, 1 or more | How long a seat or coordinator may go unseen before it reads as stalled (default 600) |
+| `budgets.tokens` | integer, 1 or more | Ceiling on a run's token budget |
+| `budgets.cost_usd` | number above 0 | Ceiling on a run's cost |
+| `budgets.attempts_per_seat` | integer, 1 or more | Ceiling on attempts one seat may make on one item |
+| `budgets.max_active_seats` | integer, 1 or more | Ceiling on seats active at once |
+
+An absent ceiling means unlimited; a run's own budget may only lower a ceiling.
+
+## Decision Classes (`decision_classes:`)
+
+A decision is raised under a class; the class sets who answers it, its default severity and when it turns overdue. A per-class entry has `answerers` (`human-only`, `director-or-human`, `any-actor`), `severity` (`high`, `normal`, `low`), `expires_after` (seconds), `on_expiry` (`escalate`, the only value) and `freeform` (boolean). The class name matches `^[a-z][a-z0-9_-]{0,63}$`.
+
+```yaml
+decision_classes:
+  release-gate:
+    answerers: human-only
+    severity: high
+    expires_after: 86400
+```
+
+- Built-in classes: `run-budget` and `attempt-cap` (raised by the server only), `deviation` and `question`. A built-in entry in config overrides it field by field.
+- Merge: a per-root entry replaces the server entry of the same name as a whole.
+- The limit classes (`run-budget`, `attempt-cap`) may be raised to `human-only` but are never `any-actor`; a push that lowers them is rejected at `/decision_classes/<name>/answerers`.
+- A `human-only` class cannot be answered on a stdio server: every caller there is the `local` agent principal.
+- Raising a class that is not declared fails `invalid_request /class`.
+
+The full tables are in [config-reference.md](../../../../../current/docs/config-reference.md#decision-classes-decision_classes).
+
 ## Key Stability Warning
 
 Changing a `key` after notes have been written orphans existing notes under the old key. There is no automatic migration - orphaned notes become ad-hoc notes on their items, and an item pinned to the old schema keeps requiring the old key until it is repinned.

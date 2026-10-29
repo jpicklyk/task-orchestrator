@@ -64,6 +64,20 @@ function canonAppendOnly(raw) {
  * Structural check: contract id, UUID-shaped ids, role enum membership (case-sensitive),
  * every candidate has a `schemas` entry. Duplicate ids across sources are never an error.
  */
+// Exclusion reason for an explicitly blocked candidate: names the pending decision, the answered-but-
+// unresumed decision, or the block reason when the snapshot entry carries them (S12).
+function explicitBlockReason(entry) {
+  const reason = entry && typeof entry.reason === 'string' ? entry.reason : null;
+  const dec = entry && typeof entry.decisionId === 'string' ? entry.decisionId.slice(0, 8) : null;
+  if (reason === 'awaiting_decision' && dec) {
+    return entry.resumable === true
+      ? `decision ${dec} answered: resume first`
+      : `awaiting decision ${dec}`;
+  }
+  if (reason) return `explicitly blocked (${reason})`;
+  return 'explicitly blocked';
+}
+
 export function validateSnapshot(snap) {
   const errors = [];
   if (!snap || typeof snap !== 'object' || Array.isArray(snap)) {
@@ -92,6 +106,15 @@ export function validateSnapshot(snap) {
     }
     if (!b || !ROLE_ENUM.has(b.role)) {
       errors.push(`blocked ${b && b.itemId}: invalid role ${b && b.role}`);
+    }
+    if (b && b.resumable != null && typeof b.resumable !== 'boolean') {
+      errors.push(`blocked ${b.itemId}: resumable must be boolean`);
+    }
+    if (b && b.reason != null && typeof b.reason !== 'string') {
+      errors.push(`blocked ${b.itemId}: reason must be a string`);
+    }
+    if (b && b.decisionId != null && typeof b.decisionId !== 'string') {
+      errors.push(`blocked ${b.itemId}: decisionId must be a string`);
     }
     for (const bb of (b && b.blockedBy) || []) {
       if (!bb || !UUID_RE.test(String(bb.itemId || ''))) {
@@ -696,15 +719,17 @@ export function frontier(snap, derivedById, { mode, entryMode } = {}) {
 
   const deferred = [];
   const explicitIds = new Set();
+  const explicitEntry = new Map();
   for (const b of snap.blocked || []) {
     if (b.blockType === 'explicit') {
       explicitIds.add(b.itemId);
+      explicitEntry.set(b.itemId, b);
     }
   }
   for (const id of explicitIds) {
     if (R0.has(id)) {
       R0.delete(id);
-      excluded.push({ id, reason: 'explicitly blocked' });
+      excluded.push({ id, reason: explicitBlockReason(explicitEntry.get(id)) });
     }
   }
 

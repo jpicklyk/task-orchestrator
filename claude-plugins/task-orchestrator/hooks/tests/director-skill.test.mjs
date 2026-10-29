@@ -58,6 +58,11 @@ test('S12 O3: to-call blocks parse, use the director profile and validate', () =
   const list = blocks.find((b) => b.value.tool === 'runs_read' && b.value.select === 'list');
   assert.ok(list, 'runs_read list block');
   assert.equal(list.value.args.status, 'open');
+  const statuses = blocks.filter((b) => b.value.tool === 'runs_read' && b.value.select === 'list').map((b) => b.value.args.status);
+  assert.ok(statuses.includes('open') && statuses.includes('paused'), 'list blocks for open and paused: ' + statuses);
+  const dec = blocks.find((b) => b.value.tool === 'runs_read' && b.value.select === 'decisions');
+  assert.ok(dec && dec.value.args.rootId, 'decisions read is root-wide (rootId)');
+  assert.equal(dec.value.args.runId, undefined, 'decisions read is not per run');
 });
 
 test('S12 O4: dashboard content', () => {
@@ -65,6 +70,9 @@ test('S12 O4: dashboard content', () => {
   has(SKILL, 'blockers[]');
   has(SKILL, 'decisions');
   has(SKILL, 'status filter');
+  has(SKILL, 'resumable');
+  has(SKILL, 'pauseReason');
+  has(SKILL, 'needs resume');
 });
 
 test('S12 O5: decision answering', () => {

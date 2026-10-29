@@ -93,7 +93,7 @@ Omit a line when its field is empty.
 
 ## Blocked items
 
-`block` and `hold` take an optional `reason`: `awaiting_decision`, `dependency`, `resource` or `manual` (default). `reason: awaiting_decision` requires a `decisionId` naming an open or acknowledged decision on that item; a `decisionId` with any other reason, or `reason`/`decisionId` on a trigger other than `block`/`hold`, is `invalid_request`:
+`block` and `hold` take an optional `reason`: `awaiting_decision`, `dependency`, `resource` or `manual` (default). `reason: awaiting_decision` requires a `decisionId` naming an open or acknowledged decision on that item. Get one by raising with `block: true` (`runs_write` `raise`), which raises and blocks in one unit; do not send a bare `block` for a decision (see [references/decisions.md](references/decisions.md)). A `decisionId` with any other reason, or `reason`/`decisionId` on a trigger other than `block`/`hold`, is `invalid_request`:
 
 ```to-call
 {"tool": "advance", "op": "transition", "args": {"itemId": "4b7d0e19", "trigger": "block", "reason": "awaiting_decision", "decisionId": "7c9e6679"}}
@@ -101,7 +101,7 @@ Omit a line when its field is empty.
 
 - `items_read` `get` and `context` show `blockedReason` and `decisionId` for a blocked item.
 - `items_read` `blocked` lists blocked items: each entry has `blockType` (`explicit` or `dependency`) and `blockers[]` (`threshold`, `satisfied`); an explicit entry also has `reason`, and an `awaiting_decision` entry adds `decisionId` and `resumable` (true once the decision is answered, withdrawn or missing).
-- **Answering a decision never resumes the item.** Read the answer, then send `resume` yourself. `resume` clears the reason.
+- **Answering a decision never resumes the item.** Resume only when the entry is `resumable: true` (or `context` `decisions[]` shows the `decisionId` answered or withdrawn); while the decision is open or acknowledged, the next step is to have it answered (the director board), not a `resume`. `resume` clears the reason. The full rule, and how to carry the ruling to the next dispatch, is in [references/decisions.md](references/decisions.md).
 - Decisions are listed on the item in `context` `decisions[]`; `runs_read` `decisions` is director-only.
 - Errors to recognize (on `data.results[0].error`): `invalid_request` with `detail.fields[].field` `/decisionId` (required with `awaiting_decision`, names no decision, belongs to another item, or is already answered or withdrawn). `decision_closed` is a `runs_write` `ack`/`answer`/`withdraw` error (director profile), never an `advance` error. `invalid_transition` with `detail.fromRole: none` (a lifecycle-free item takes no trigger).
 
@@ -117,7 +117,7 @@ Omit a line when its field is empty.
 
 Use `/dependency-manager` to view or change the edges.
 
-**Item is in the blocked role and `start` fails.** `start` is not valid from blocked. Send `resume` (see Triggers), re-read `context`, then `start`.
+**Item is in the blocked role and `start` fails.** `start` is not valid from blocked. Read `blockedReason` first. A pending decision (`awaiting_decision`, not `resumable`) must be answered, not resumed. Otherwise send `resume` (see Triggers), re-read `context`, then `start`.
 
 **Skip the review phase.** `complete` jumps from work straight to terminal but checks every phase's required notes; fill what is missing or use `cancel`.
 
@@ -154,7 +154,8 @@ An empty answer with a `reason` (`claim_held`, `dependency_unmet`) means wait; n
 | In work, skip review | `complete` (checks all phases) |
 | In review, verified | `start` (lands terminal) |
 | Needs pausing | `block` or `hold` with a `reason` |
-| In blocked | `resume` |
+| In blocked, decision pending | have it answered (director), then `resume` once `resumable` |
+| In blocked, any other reason | `resume` |
 | Abandon | `cancel` |
 | Terminal, needs rework | `reopen` |
 | Blocked by another item | advance the blocker first |

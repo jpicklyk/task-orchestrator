@@ -1,6 +1,6 @@
 ---
 name: manage-schemas
-description: "Creates, views, edits, deletes, and validates note schemas for the MCP Task Orchestrator in .taskorchestrator/config.yaml — the templates that define which notes agents must fill at each workflow phase. Also recommends schema designs from a library of workflow patterns (autonomous coding loops, spec-driven teams, research pipelines, content production, support triage, data pipelines, incident response, document review) — use this skill whenever the user describes a workflow they want tracked or gated, even without the word 'schema': what schema should I use, help me design schemas, recommend gates for X, set up schemas for my team/workflow/pipeline. Use when user says: create schema, show schemas, edit schema, delete schema, validate config, what schemas exist, add a note to schema, remove note from schema, or configure gates."
+description: "Creates, views, edits, deletes, and validates note schemas for the MCP Task Orchestrator in .taskorchestrator/config.yaml — the templates that define which notes agents must fill at each workflow phase. Also recommends schema designs from a library of workflow patterns (autonomous coding loops, spec-driven teams, research pipelines, content production, support triage, data pipelines, incident response, document review) — use this skill whenever the user describes a workflow they want tracked or gated, even without the word 'schema': what schema should I use, help me design schemas, recommend gates for X, set up schemas for my team/workflow/pipeline. Use when user says: create schema, show schemas, edit schema, delete schema, validate config, what schemas exist, add a note to schema, remove note from schema, configure gates, run budget, decision class, human-only approval, or stall."
 argument-hint: "[optional: action + schema name or workflow description, e.g. 'view bug-fix', 'create research-spike', 'recommend schemas for support triage', 'validate']"
 ---
 
@@ -24,6 +24,8 @@ Classify from `$ARGUMENTS` and conversation context before making any tool calls
 | "edit", "modify", "change", "update", "add note to", "remove note from" | EDIT |
 | "delete", "remove schema", "drop" | DELETE |
 | "validate", "check", "verify", "lint" | VALIDATE |
+| "run budget", "stall", "stall_after", "attempts per seat", "run policy" | RUN POLICY |
+| "decision class", "human-only", "who can answer", "approval gate", "decision expires" | DECISION CLASSES |
 
 If `$ARGUMENTS` contains both an action and a schema name (e.g., "view bug-fix"), extract both. If intent cannot be determined, ask via `AskUserQuestion` with options: Create, View / Validate, Edit, Delete.
 
@@ -109,6 +111,14 @@ Read current config, confirm the schema name, warn about orphaned notes on exist
 If the target schema is not found in config.yaml, inform the user and offer to CREATE instead.
 
 For detailed workflow, see `references/delete-workflow.md` in this skill folder.
+
+### RUN POLICY — the `runs:` block
+
+View: show `runs:` from the file (or the merged view when a `rootId` exists). Edit: write the keys (`stall_after`, `budgets.tokens`, `budgets.cost_usd`, `budgets.attempts_per_seat`, `budgets.max_active_seats`), then run the Step 4 validate and push. Budgets are ceilings and opt-in; keys and ranges are in `references/config-format.md` -> "Run Budgets (`runs:`)".
+
+### DECISION CLASSES — the `decision_classes:` block
+
+A decision can only be raised under a declared class: a raise with an undeclared class fails `invalid_request /class`. View: when a `rootId` exists, read the server-merged classes with `config` `effective` (built-ins plus server plus root); otherwise read the file. Edit: write the class (`answerers`, `severity`, `expires_after`, `on_expiry`, `freeform`), then the existing Step 4 validate and push. Keys, built-ins and the merge rule are in `references/config-format.md` -> "Decision Classes".
 
 ### VALIDATE — Check Config Integrity
 

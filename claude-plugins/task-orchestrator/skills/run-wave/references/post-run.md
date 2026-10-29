@@ -400,6 +400,11 @@ process requires:
   arbitration agent's** call, not this skill's.
 - A decision a seat raised (`awaiting_decision`, with its `decisionId`) or a pause decision of the
   run is answered by a human or a director, never by the coordinator.
+  For each item stopped `awaiting_decision`, read `items_read(select:"get")`. With no `decisionId`
+  (a token-less seat could not raise), the coordinator raises under the coordinator token with
+  `block: true`, building the question and options from the seat's `## Deviations requested`
+  (see status-progression/references/decisions.md). When it is `resumable` before the run closes,
+  resume it under the coordinator token and carry the ruling; Step 9's re-snapshot re-dispatches it.
 - Opening a PR and merging it are the checkpoints that carry an item from review to terminal in
   most projects — this skill does not open PRs itself; that's the project workflow's job (this
   repo: `/implement` Step 6).

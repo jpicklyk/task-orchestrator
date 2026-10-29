@@ -117,7 +117,16 @@ The answer is `{deleted: n}`. An unknown `id` is `not_found`; a pair or item tha
 {"tool": "items_read", "select": "blocked", "args": {"ancestorId": "98d452e9"}}
 ```
 
-Each entry has `blockType` (`explicit` for the blocked role, `dependency` for an unmet edge) and `blockers[]` with `threshold` and `satisfied` for EVERY blocking edge, satisfied ones included. An explicit entry also has `reason`; an `awaiting_decision` entry adds `decisionId` and `resumable`.
+Each entry has `blockType` (`explicit` for the blocked role, `dependency` for an unmet edge) and `blockers[]` with `threshold` and `satisfied` for EVERY blocking edge, satisfied ones included. An explicit entry also has `reason`; an `awaiting_decision` entry adds `decisionId` and `resumable`. A `table` gate on a blocked item means an explicit block, not an edge: read `blockedReason`.
+
+For an explicit block, act on the `reason`:
+
+| `reason` | Needed |
+|---|---|
+| `awaiting_decision`, `resumable: false` | the decision must be answered (director board); do not resume |
+| `awaiting_decision`, `resumable: true` | answered or withdrawn: resume per [decisions.md](../status-progression/references/decisions.md) |
+| `resource` | lease contention: read `context` `resourceLeases`, retry later |
+| `manual` | `resume` via `/status-progression` |
 
 For each unsatisfied blocker decide what must happen:
 
@@ -159,7 +168,7 @@ Then point to the fix: `/status-progression` on the blocker, or fill its missing
 
 **`duplicate`.** The edge exists already; list it instead.
 
-**Item is still blocked after the blocker finished.** Either `unblockAt` names a role the blocker has not reached, or other incoming edges remain. List incoming edges and check each blocker. If every blocker is satisfied and the item sits in the blocked role, an explicit `block` is the cause: `resume` it via `/status-progression`.
+**Item is still blocked after the blocker finished.** Either `unblockAt` names a role the blocker has not reached, or other incoming edges remain. List incoming edges and check each blocker. If every blocker is satisfied and the item sits in the blocked role, an explicit `block` is the cause: read its `reason` (table above). Resume it via `/status-progression` only when it is not a pending decision.
 
 **`not_found` on delete by `id`.** The edge is gone or the id is from elsewhere. List again and use an `id` from the fresh answer.
 

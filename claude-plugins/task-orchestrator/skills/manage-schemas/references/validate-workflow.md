@@ -82,6 +82,13 @@ For each note in each schema (and trait):
 - Warn if a schema has only `role: review` notes and no queue/work notes (unusual pattern)
 - `default_traits` values should reference trait keys defined in the `traits:` section (error on a push if neither the document nor the server config defines the trait; warn when checking locally)
 
+### 7. Runs and Decision Classes
+- `runs.stall_after` is an integer of at least 1; `runs.budgets.tokens`, `attempts_per_seat` and `max_active_seats` are integers of at least 1; `runs.budgets.cost_usd` is a number above 0 (error otherwise)
+- Each `decision_classes` name matches `^[a-z][a-z0-9_-]{0,63}$` (error otherwise)
+- `answerers` is one of `human-only`, `director-or-human`, `any-actor`; `severity` is one of `high`, `normal`, `low`; `on_expiry` is `escalate`; `expires_after` is an integer of at least 1 (error otherwise)
+- A limit class (`run-budget`, `attempt-cap`) must not use `answerers: any-actor` (error)
+- Warn on a `human-only` class when the server runs over stdio (no human credential exists there)
+
 ---
 
 ## Report Format

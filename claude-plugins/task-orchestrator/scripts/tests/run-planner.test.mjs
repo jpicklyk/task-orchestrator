@@ -654,6 +654,37 @@ test("S12 (integration): explicit block, container, and config-unavailable are a
     assert.ok(excluded.some((e) => e.id === S12_UNAVAILABLE_ID && e.reason === "config-unavailable"));
 });
 
+const S12_DEC = "3f2a9c1e-0000-4000-8000-000000000000";
+
+function s12Reason(extra) {
+    const snap = s12Snapshot();
+    Object.assign(snap.blocked[0], extra);
+    const result = buildPlanDoc(snap, { now: NOW });
+    assert.equal(result.ok, true, JSON.stringify(result.errors));
+    return result.doc.meta.excluded.find((e) => e.id === S12_EXPLICIT_ID).reason;
+}
+
+test("S12: explicit block names the pending decision, the answered-unresumed decision, or the block reason", () => {
+    assert.equal(s12Reason({ reason: "awaiting_decision", decisionId: S12_DEC, resumable: false }), "awaiting decision 3f2a9c1e");
+    assert.equal(s12Reason({ reason: "awaiting_decision", decisionId: S12_DEC }), "awaiting decision 3f2a9c1e");
+    assert.equal(s12Reason({ reason: "awaiting_decision", decisionId: S12_DEC, resumable: true }), "decision 3f2a9c1e answered: resume first");
+    assert.equal(s12Reason({ reason: "manual" }), "explicitly blocked (manual)");
+    assert.equal(s12Reason({}), "explicitly blocked");
+});
+
+test("S12: validateSnapshot rejects a non-boolean resumable and non-string reason or decisionId on a blocked entry", () => {
+    for (const bad of [{ resumable: "yes" }, { reason: 5 }, { decisionId: 7 }]) {
+        const snap = s12Snapshot();
+        Object.assign(snap.blocked[0], bad);
+        const validation = validateSnapshot(snap);
+        assert.equal(validation.ok, false, JSON.stringify(bad));
+        assert.ok(validation.errors.some((e) => /resumable|reason|decisionId/.test(e)), JSON.stringify(validation.errors));
+    }
+    const ok = s12Snapshot();
+    Object.assign(ok.blocked[0], { reason: "awaiting_decision", decisionId: S12_DEC, resumable: true });
+    assert.equal(validateSnapshot(ok).ok, true);
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 // S13 — ownership: a required note whose seat is null, undeclared, or declared
 // for another phase excludes the item (DEC-11); optional notes are ignored.
