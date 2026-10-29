@@ -236,11 +236,16 @@ test('S9: marker is per session; empty file counts; hostile session id stays und
 test('S10: hooks-config registers the guard with fail-closed onFailure', () => {
   const cfg = JSON.parse(readFileSync(HOOKS_CONFIG, 'utf-8'));
   const groups = cfg.hooks.PreToolUse.filter((g) => g.hooks.some((h) => h.command.includes('director-guard.mjs')));
-  assert.equal(groups.length, 1);
-  assert.equal(groups[0].matcher, 'Skill|Read|Edit|Write|Bash|Agent|Grep|Glob|NotebookEdit');
-  assert.equal(groups[0].hooks.length, 1);
-  assert.equal(groups[0].hooks[0].onFailure, 'block');
-  assert.equal((JSON.stringify(cfg).match(/director-guard\.mjs/g) || []).length, 1);
+  assert.equal(groups.length, 2);
+  assert.deepEqual(groups.map((g) => g.matcher).sort(), [
+    '^mcp__.*task-orchestrator.*__(docs_read|items_read|notes_read)$',
+    'Skill|Read|Edit|Write|Bash|PowerShell|Monitor|Agent|Grep|Glob|NotebookEdit|Workflow',
+  ].sort());
+  for (const g of groups) {
+    assert.equal(g.hooks.length, 1);
+    assert.equal(g.hooks[0].onFailure, 'block');
+  }
+  assert.equal((JSON.stringify(cfg).match(/director-guard\.mjs/g) || []).length, 2);
 });
 
 test('S10: under the marker an unusable tool_input denies (fail closed)', () => {
