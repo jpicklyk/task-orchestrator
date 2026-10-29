@@ -32,22 +32,31 @@ result passes scrubbed outputs, so a fix-cycle prompt shows `decisions: none` an
 test-author reseat `--declarations`.
 
 `runs_read(select:"get", runId:<serverRunId>)` shows the run's status: a `paused` run (`pauseReason`
-budget, attempts or manual) is surfaced to the user now, with its pause decision; post-run work
-that needs no new seat continues, and the run closes as usual.
+budget, attempts or manual) is reported now: send one `paused` report (`report --event paused
+--run <run.json>`, with `runs_read` `get` saved as `run.json`), and one `decision` report for the
+stages stopped `awaiting_decision` (their `decisionId`s are in `result.json`). Post-run work that
+needs no new seat continues, and the run closes as usual.
 
 ---
 
 ## Step 0a — Report usage
 
 Method A: write the Workflow task notification's usage to `<scratchpad>/run-wave/<runId>/usage.json`
-as `{"tokens": N, "duration": N}` (add `"costUsd": N` when the notification reports a cost). Then
+as `{"tokens": N, "duration": N}` (add `"costUsd": N` when the notification reports a cost).
+That file is always written here, but the heartbeat is SENT here only when no run item has a review
+phase (Step 4 sends no `start`, Step 5 assigns no reviewer). Otherwise it is sent at Step 7, after the
+Step 0b re-sweep and just before `close`, because a heartbeat that crosses the budget pauses the run
+and the later `start` and reviewer `assign` would answer `run_paused`. Residual: a Step 5 wave-parent
+`start` under the coordinator token can still answer `run_paused` after a Step 0a heartbeat crossed
+the budget; report it (`paused`), and a non-member parent may be started token-less.
 `node "<helper>" run-ops --plan <plan> --phase heartbeat --usage <usage.json>` renders an `advance`
-call `[claim(first item), heartbeat{usage: {tokens, costUsd?}}, release]`; send it under the
-coordinator token (a heartbeat's `usage` needs a seat token and a held claim, so the coordinator
-claims the run's first member for the length of this one call). This reports the run total once:
+call `[claim(first item), heartbeat{usage: {tokens, costUsd?}}, release]`; add `--item <short>` to
+claim a named item instead (at Step 7 use the first item Step 4 sent `start` for: it is in review,
+so not terminal). Send it under the coordinator token (a heartbeat's `usage` needs a seat token and
+a held claim, so the coordinator claims that member for the length of this one call). This reports the run total once:
 the server keeps the highest value per seat. Any element error is Friction, never retried, and never
 blocks the close. A success carrying `paused: {decisionId}` means the report crossed the run budget:
-surface the decision. Method B: report the same way when a run total is known; otherwise skip.
+surface the decision (at Step 7 it is reported with `openDecisions` in the `closed` report). Method B: report the same way when a run total is known; otherwise skip.
 
 ---
 
@@ -293,6 +302,17 @@ itself) and never the token. The review-wave workflow (`review-wave/args-v1`) ta
 `serverRunId` and a per-stage `tokenFile`; lanes that share a seat share one assignment and one
 token file, and its lanes never end their seat, so run Step 0b's sweep again before Step 7.
 
+**Review wave launch.** When this post-run actor has the `Workflow` tool (re-probe F1: a background
+subagent may lack it) and the run is bound, assign each reviewer seat once (`run-ops --phase assign
+--item <short> --seat reviewer`, token file written as above), then `node "<helper>" review-args
+--plan <plan.json> --snapshot <scratchpad>/run-wave/<runId>/snapshot.json --result <result.json>
+--items <short,short,...>` prints the `review-wave/args-v1` object (lanes are the item's review-role
+notes grouped by seat and skill; exit 2 names an item with no review notes). Call
+`Workflow({name: "task-orchestrator:review-wave", args: <that object, as a real object>})`, record
+`reviewWave.taskId`, `reviewWave.wfRunId` and `reviewWave.wfScriptPath` in `state.json`, and end the
+turn. On the notification, aggregate the lane verdicts, run Step 0b's sweep, and continue. Without
+`Workflow`, keep the generic `review-prompt` path above.
+
 **Wave parent review.** Before any reviewer for the wave parent itself is dispatched or handed off
 (a feature-level review; this repo's `/implement` Step 6 item 3), `items_read(select:"context",
 itemId:<parent>)` and branch on its role. No review-role entry in its schema → do not advance it:
@@ -399,7 +419,13 @@ process requires:
   arbitration rule — this repo: `/implement` Step 4b) is a **human or a separately-dispatched
   arbitration agent's** call, not this skill's.
 - A decision a seat raised (`awaiting_decision`, with its `decisionId`) or a pause decision of the
-  run is answered by a human or a director, never by the coordinator.
+  run is answered by a human or a director, never by the coordinator. Each one is reported with a
+  `decision` report (a decision the coordinator raises itself is reported the same way).
+  For each item stopped `awaiting_decision`, read `items_read(select:"get")`. With no `decisionId`
+  (a token-less seat could not raise), the coordinator raises under the coordinator token with
+  `block: true`, building the question and options from the seat's `## Deviations requested`
+  (see status-progression/references/decisions.md). When it is `resumable` before the run closes,
+  resume it under the coordinator token and carry the ruling; Step 9's re-snapshot re-dispatches it.
 - Opening a PR and merging it are the checkpoints that carry an item from review to terminal in
   most projects — this skill does not open PRs itself; that's the project workflow's job (this
   repo: `/implement` Step 6).
@@ -419,18 +445,22 @@ process requires:
 ## Step 7 — Close and loop
 
 Once the review hand-off (Step 5) is dispatched or handed off, any review seats of this run have
-been swept (Step 0b again), and any immediate human checkpoints (Step 6) are surfaced, close the
-run: `node "<helper>" run-ops --plan <plan> --phase close --result <result.json>` renders
+been swept (Step 0b again), and any immediate human checkpoints (Step 6) are surfaced, send the usage
+heartbeat now when Step 0a deferred it (any run item has a review phase): `node "<helper>" run-ops
+--plan <plan> --phase heartbeat --usage <usage.json> --item <short>`, where `<short>` is the first item
+Step 4 sent `start` for (it is in review, so not terminal). Send it under the coordinator token, then
+close the run: `node "<helper>" run-ops --plan <plan> --phase close --result <result.json>` renders
 `{op: "close", runId, reason}` — `completed` when the result says `started: true`, `failed` when it
 says `started: false` or the launch threw (no result); pass `--reason cancelled` for an explicit user
 stop or `--reason abandoned` for a Resume re-plan of an unrecoverable run (any other `--reason` exits
 2). Send it under the coordinator token. `invalid_run_state` on a `completed` close means a seat is
-still active: run Step 0b's sweep, then close again. The answer's `snapshot` lists `openDecisions`
-(a close withdraws no decision): report them.
+still active: run Step 0b's sweep, then close again. The answer's `snapshot` carries `openDecisions`,
+the number of decisions still open (a close withdraws none): save the close answer as `close.json`, then send the `closed` report
+(`report --event closed --result <result.json> --close <close.json>`).
 
 Report, in one place, every item that was **deferred** (cross-run edge, resource contention,
 run-size cap — with reasons), every item that was **stopped** (invalid envelope, verify/notes-audit
-failure, `awaiting_decision`, `run_paused`, `seat-token-rejected`), every item **held** live-owed,
+failure, `awaiting_decision`, `run_paused`, `seat-token-rejected`, `seat-token-missing`), every item **held** live-owed,
 and every item that was **excluded** at planning time (unowned required note, unavailable schema
 config) — each with its specific reason, not a bare count. Suggest `/session-retrospective --run
 <serverRunId>` for the retrospective of this run. Then return to `SKILL.md` Step 9: re-run Step 2

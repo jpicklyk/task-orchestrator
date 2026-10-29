@@ -10,11 +10,18 @@
 //   terminal     a RALPH_OUTCOME terminal marker, exit 0 (default when the plan is exhausted)
 //   skip         a RALPH_OUTCOME skip marker with extras.code / extras.retryAfterMs
 //   error        a RALPH_OUTCOME error marker with extras.code
+//   gate         a RALPH_OUTCOME gate-blocked marker (extras.code, default gate_blocked)
 //   echo         terminal, but the result text and stderr both contain the seat token value
 //   echo-split   terminal, but stderr carries the token in two writes 150 ms apart
 //   sleep        never answers (killed by the driver's iteration timeout); exits by itself after 30 s
 //   crash        exits 3 with no marker
-// Extras `total_cost_usd` and `usage` are copied into the envelope (S11).
+//   ready        a RALPH_OUTCOME ready-to-complete marker (fd1beaee): the iteration filled its notes and committed
+//                but did NOT send the move that lands the item in terminal; the driver completes it
+//   terminal-api a legacy terminal iteration that sends `advance transition complete` itself, under its own seat
+//                token, to the API named by FAKE_CLAUDE_API_URL, and then prints the terminal marker
+// Extras `total_cost_usd` and `usage` are copied into the envelope (S11). Extra `sleepMs` delays the answer (the
+// iteration is long-running: the driver must keep the claim alive meanwhile). Extra `completeFirst: true` makes a
+// `ready` iteration send the complete move itself before printing its marker (a misbehaving iteration).
 //
 // FAKE_CLAUDE_ITEM_IDS is a comma list of the ids the fixture knows; the first one found in the prompt text
 // (the last argv element) becomes the marker's itemId.
@@ -102,10 +109,35 @@ if (behavior.kind === 'crash') {
   process.exit(3)
 }
 
+if (behavior.sleepMs) await sleep(behavior.sleepMs)
+
+async function sendComplete() {
+  const base = process.env.FAKE_CLAUDE_API_URL
+  if (!base || !token || !itemId) throw new Error('terminal-api needs FAKE_CLAUDE_API_URL, a seat token file and a known item id')
+  const res = await fetch(`${base}/api/v1/ops/advance`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ops: [{ op: 'transition', itemId, trigger: 'complete' }], seatToken: token }),
+  })
+  const body = await res.json()
+  append({ type: 'complete-sent', idx, status: res.status, ok: body?.data?.results?.[0]?.ok ?? false, code: body?.data?.results?.[0]?.error?.code ?? body?.error?.code ?? null })
+}
+
 let text
 switch (behavior.kind) {
+  case 'ready':
+    if (behavior.completeFirst) await sendComplete()
+    text = 'notes filled and committed\n' + marker({ status: 'ready-to-complete', itemId, summary: 'fake ready' })
+    break
+  case 'terminal-api':
+    await sendComplete()
+    text = 'work done\n' + marker({ status: 'terminal', itemId, summary: 'fake done' })
+    break
   case 'skip':
     text = marker({ status: 'skip', itemId, code: behavior.code, retryAfterMs: behavior.retryAfterMs, summary: 'fake skip' })
+    break
+  case 'gate':
+    text = marker({ status: 'gate-blocked', itemId, code: behavior.code ?? 'gate_blocked', reason: 'fake gate' })
     break
   case 'error':
     text = marker({ status: 'error', itemId, code: behavior.code, reason: 'fake error' })

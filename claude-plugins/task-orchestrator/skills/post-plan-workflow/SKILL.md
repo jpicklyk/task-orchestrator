@@ -103,7 +103,7 @@ After all agents return:
 
 2. Run the health check to see what completed, stalled or is blocked: `items_read` `context` with the same `ancestorId`.
 3. For each stalled item, `items_read` `context` with its `itemId` shows `gateStatus.missing`.
-4. Address blockers or incomplete work.
+4. Address blockers or incomplete work. An agent that returned `awaiting_decision` needs a decision raised per [decisions.md](../status-progression/references/decisions.md) (when it had no seat token); do not re-dispatch it until the decision is answered and the item resumed.
 
 ## Workflow complete
 

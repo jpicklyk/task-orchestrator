@@ -12,6 +12,10 @@ Every call below is a 4.0 tool call. Shapes are in [`../_generated/call-shapes.m
 
 Supplement the data with brief observations only for a genuine anomaly or actionable insight.
 
+## Director mode
+
+Director mode is the session state entered by `/task-orchestrator:director` (or by running as the hardened `director` agent); its guard denies the file read of Step 0.5 and most of the reads below. Runs, decisions and blocked work belong to the director board: re-invoke `/task-orchestrator:director` for them. For a backlog view in director mode run only these reads: Lean step 1 (`overview`), steps 5 and 6 (`list`), In Flight from `items_read` `list` with `role` `work` and again with `review`, `items_read` `blocked`, and the Runs reads. Skip the health `context` read, `history`, `next`, the Blocked-item decisions `context` reads, a scoped `search` and the Step 0.5 file read (with no session rootId run unscoped), and omit every dashboard section whose read was skipped. For the complete dashboard, dispatch ONE background `Agent` (`run_in_background: true`, `model` set) that runs the steps below and reports the rendered dashboard text, never note bodies. A background agent dispatched by a director is not in director mode: it runs the steps below.
+
 ---
 
 ## Step 0 - Mode Selection
@@ -93,7 +97,21 @@ For each run (cap 5, newest first) read its frontier:
 {"tool": "runs_read", "select": "frontier", "args": {"runId": "<run UUID>"}}
 ```
 
-`data.counts` is members by role, `ready` the members nothing holds back, `inFlight` the active seats (each with its own `stalled` flag), `waiting` the members held back, each with a `reason`: `manual`, `dependency` (with `blockers`, short ids), `awaiting_decision` (with `decisionId`) or `resource`, and `stalled` the coordinator's flag. A paused run's list entry carries `pauseReason`. Render one row per run: label or title, short run id, status, counts, ready, in flight (N stalled), waiting.
+`data.counts` is members by role, `ready` the members nothing holds back, `inFlight` the active seats (each with its own `stalled` flag), `waiting` the members held back, each `{id, reason, decisionId?, blockers?}` with a `reason` of `manual`, `dependency`, `awaiting_decision` or `resource`; `decisionId` is present whenever the member's block names a decision, and `blockers` (short ids) only for `dependency`. `stalled` is the coordinator's flag. A paused run's list entry carries `pauseReason`. Render one row per run: label or title, short run id, status, counts, ready, in flight (N silent, from the seats' `stalled` flags), waiting. The word "stalled" is kept for the health `stalled` items (open items missing notes); a run's seats and coordinator are "silent".
+
+When the director connection's tools are present (`report` and `runs_read` `decisions`; skip the rest of this section silently otherwise), add per run the budget and open decisions from the rollup, and one decisions line for the root. Every call here is a director-profile call:
+
+```to-call
+{"tool": "report", "select": "rollup", "args": {"runId": "<run UUID>"}, "profile": "director"}
+```
+
+`data.budget` is `{used, limit?}` and `data.decisions.open` the open decisions count. Both are run-only and a run rollup always carries both: `decisions` with `open: 0` when nothing is open, `budget` with `limit` absent when the run has no token budget; an anchor rollup has neither. Render `budget used/limit` (`used` alone with no `limit`) and `decisions open` in the run's row.
+
+```to-call
+{"tool": "runs_read", "select": "decisions", "args": {"rootId": "<rootId>", "limit": 50}, "profile": "director"}
+```
+
+Follow `page.next` (pass it as `cursor`) until it is absent. The select has no status filter: keep the summaries whose `status` is `open` or `acknowledged`, count them, and count those with `overdue: true`. Render `Decisions waiting: N (k overdue)` just above the Runs table and point at `/task-orchestrator:director` to answer them; omit the line when N is 0.
 
 ### Blocked-item decisions
 
@@ -150,8 +168,8 @@ Render in this order; omit any section with no data.
 |----|-------|-----------|-----|
 
 ### ⟳ Runs
-| Run | Status | Terminal / total | Ready | In flight | Waiting |
-|-----|--------|------------------|-------|-----------|---------|
+| Run | Status | Terminal / total | Ready | In flight | Waiting | Budget | Decisions open |
+|-----|--------|------------------|-------|-----------|---------|--------|----------------|
 
 ### ○ Backlog
 **Workstreams**
@@ -197,6 +215,16 @@ Everything lean mode shows, plus the complete per-container inventory.
 3. Health, recommendations and the two role totals exactly as in lean steps 2, 4, 5 and 6.
 
 **Never fetch every root's children in one call** (`includeChildren: true` across the whole tree): on a mature workspace the terminal subtrees exceed the tool-result ceiling. Terminal children are counted from `childCounts`, never enumerated; to see one container's completed items use Scoped mode on it.
+
+### Gate rejections (only with the director tools)
+
+Skip silently without them. One director-profile read, default window 7 days:
+
+```to-call
+{"tool": "report", "select": "gates", "args": {"rootId": "<rootId>", "groupBy": "noteKey", "limit": 3}, "profile": "director"}
+```
+
+Render one line after Attention Required: `top gate rejections (7d): <noteKey> N, ...` from `data.items[]` (`key.noteKey`, `blocks`); omit it when `items` is empty.
 
 ### Sections, in order
 

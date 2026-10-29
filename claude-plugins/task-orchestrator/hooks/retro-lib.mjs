@@ -203,10 +203,11 @@ export async function evaluateRuns({ rootId, config, state }) {
 
 /**
  * A director session never runs a retrospective in its own context (its altitude rule forbids note-body
- * reads), so it is always treated as dispatch mode: `nudge` becomes `dispatch`; `off` stays off.
+ * reads), so it is always treated as dispatch mode with threshold 0: every closed run it sees is marked
+ * (first write wins) and dispatched, whatever the configured mode or threshold. `off` stays off.
  */
 export function directorConfig(config) {
-  return config.mode === 'nudge' ? { ...config, mode: 'dispatch' } : config;
+  return config.mode === 'off' ? config : { ...config, mode: 'dispatch', dispatchThreshold: 0 };
 }
 
 /**
@@ -270,6 +271,11 @@ function runCommands(runIds) {
   return runIds.map((id) => `\`/session-retrospective --run ${id}\``);
 }
 
+// ONE invocation covering every run: `--run` repeats and the skill analyzes the union of the runs.
+function runCommand(runIds) {
+  return `\`/session-retrospective ${runIds.map((id) => `--run ${id}`).join(' ')}\``;
+}
+
 export function buildNudge(runIds) {
   const list = (runIds || []).filter(Boolean);
   const tail =
@@ -286,7 +292,7 @@ export function buildNudge(runIds) {
 export function buildDispatch(runIds, ancestorId) {
   const list = (runIds || []).filter(Boolean);
   const ancestor = ancestorId || 'none configured';
-  const invoke = list.length === 0 ? '`/session-retrospective`' : runCommands(list).join(' and ');
+  const invoke = list.length === 0 ? '`/session-retrospective`' : runCommand(list);
   return `Retrospective dispatch (mode: dispatch). Run ${list.join(', ')} closed. ` +
     `This directive is durable — act on it at the next run boundary: if background tasks or subagents ` +
     `are still running, hold it and dispatch only after the last of them completes and its results are ` +

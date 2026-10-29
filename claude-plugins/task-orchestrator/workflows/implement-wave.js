@@ -1003,6 +1003,7 @@ function promptSeatToken(plan, item, stage) {
       'a file or your final message. Refer to it only as "the seat token".',
     'A call refused unauthenticated ("The seat token is not accepted.") means this seat was superseded or ended: stop at once, ' +
       'write nothing more, and return status "stopped", reason "seat-token-rejected".',
+    'If that file does not exist, stop at once, write nothing, and return status "stopped", reason "seat-token-missing".',
   ].join('\n')
 }
 
@@ -1607,7 +1608,7 @@ async function runItem(plan, item, deps) {
       outs[stage.seat] = env ? env.output : undefined
 
       const mapped = mapStageResult(stage, env, plan.entryMode, item)
-      stages.push({
+      const stageRecord = {
         seat: stage.seat,
         status: mapped.status,
         reason: mapped.reason,
@@ -1617,7 +1618,12 @@ async function runItem(plan, item, deps) {
         notes: (env && env.notes) || [],
         commits: (env && env.commits) || { pre: '', post: '' },
         files: (env && env.files) || [],
-      })
+      }
+      const raisedDecision = env && (typeof env.decisionId === 'string' && env.decisionId
+        ? env.decisionId
+        : env.paused && typeof env.paused.decisionId === 'string' ? env.paused.decisionId : '')
+      if (raisedDecision) stageRecord.decisionId = raisedDecision
+      stages.push(stageRecord)
       deps.milestones.settle(item.id, stage.seat, { status: mapped.status, reason: mapped.reason, output: env ? env.output : null })
 
       if (mapped.status !== 'done') {
@@ -1722,6 +1728,7 @@ function safeStage(st) {
     notes: Array.isArray(s.notes)
       ? s.notes.filter((n) => n && typeof n === 'object').map((n) => ({ key: n.key, actor: n.actor, chars: n.chars }))
       : [],
+    ...(typeof s.decisionId === 'string' && s.decisionId ? { decisionId: s.decisionId } : {}),
   }
 }
 

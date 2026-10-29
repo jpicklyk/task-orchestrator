@@ -10,6 +10,8 @@ Drive a work item through its gate-enforced lifecycle. The skill is schema-drive
 
 **Applies to** any item whose `type` resolves to a schema under its pin (`config` `effective` lists the declared types). An item whose type resolves to no schema is schema-free and advances without gates.
 
+**Director mode.** In director mode (the session state entered by `/task-orchestrator:director`, or the hardened `director` agent) a director never drives an item through its phases: hand it to the run's coordinator (`SendMessage`) or to ONE background `Agent` (`run_in_background: true`, `model` set). A background agent dispatched by a director is not in director mode: it runs the steps below.
+
 ## Entry point
 
 ```to-call
@@ -20,7 +22,7 @@ Drive a work item through its gate-enforced lifecycle. The skill is schema-drive
 |---|---|
 | `item.role` | queue, work, review, blocked or terminal. Absent for a lifecycle-free item |
 | `schema[]` | every schema note: `key`, `role`, `required`, `exists`, `filled`, and `seat` when the schema is seat-aware (keys only) |
-| `gateStatus.canAdvance` | whether `start` would pass right now (claim ownership excluded) |
+| `gateStatus.canAdvance` | whether `start` would pass right now (claim ownership and seat enforcement excluded) |
 | `gateStatus.missing` / `missingBySeat` | required notes of the current phase not yet filled, and by whom |
 | `gateStatus.blockedBy` | first failing gate: `table`, `dependency`, `note` or `lease`; present only when `canAdvance` is false |
 | `guidanceKey` | first unfilled required note; resolve its text with the schema read below |
@@ -28,7 +30,7 @@ Drive a work item through its gate-enforced lifecycle. The skill is schema-drive
 | `dispatch` | `{agent?, model?, effort?}` for the item's current role |
 | `transitions` | each allowed trigger and the role it leads to |
 
-- `item.role` of `terminal`: nothing to do. `blocked`: use `/status-progression`.
+- `item.role` of `terminal`: nothing to do. `blocked`: use `/status-progression`; for a pending decision follow its [decisions rule](../status-progression/references/decisions.md) (answer first, resume only when `resumable`).
 - **Schema-free:** the schema read answers `{schemaFree: true}`. Tell the user "No schema for this item's type; use `/manage-schemas` to configure gates". The item still advances freely.
 - **Lifecycle-free** (role absent): never advanced; its notes are optional. Any `advance` trigger fails `invalid_transition` with `fromRole: none`.
 
@@ -71,6 +73,7 @@ Read `data.results[0]`:
 | `unblocked` | items that were waiting on this one |
 | `expectedNotes` | note keys the new phase expects; fill these next |
 | `dispatch` | the profile for `newRole` |
+| `paused` | `{decisionId}`: the transition landed and the run just paused on its budget. Stop dispatching into the run; a director or human answers the decision |
 
 A failed transition is `ok: false` with call-level `partial_failure`; the reason is `data.results[0].error.code`:
 
@@ -78,6 +81,9 @@ A failed transition is `ok: false` with call-level `partial_failure`; the reason
 - `resource_unavailable` (`data.results[0].error.kind: transient`): not a note gate. Another item holds a resource this item's traits declare. Do not fill notes and do not spin-retry; report `data.results[0].error.detail.resources[]` and `data.results[0].error.retryAfterMs` and see `/status-progression`.
 - `dependency_unmet`: a blocker is unfinished; diagnose with `/dependency-manager`.
 - `not_claim_holder`: someone else holds the claim; only the holder can transition.
+- `seat_forbidden`: the item is a member of an open or paused run whose schema declares seats, and your caller is not allowed that trigger (`detail.allowedSeats` lists who is; it always starts with `coordinator`). If you are the run's coordinator, resend with the run's coordinator token as top-level `seatToken`; otherwise leave the transition to the run. Never retry it token-less.
+- `run_paused`: a `start` under a token of a run that is paused on its budget or attempt limit. Read `detail.pauseReason` and `detail.pauseDecisionId`; stop and never retry. A director or human answers the decision.
+- `invalid_transition`: read `detail.fromRole` and `detail.allowed`; the trigger is not valid from that role.
 
 ### Step 4 - Repeat or finish
 
@@ -108,6 +114,18 @@ Keys vary per schema; take them from `schema[]`, never from assumption.
 **Reviewer and other non-entry seats:** a reviewer is dispatched into an item already in review. It must NOT call `start` (from review that lands terminal). It reads `items_read` `context`, fills the review notes, reports the verdict and returns. Test authors, extractors and read-only seats never call `advance`.
 
 **Invariant:** only an entry seat moves its item, and only into its own phase; the orchestrator owns every other transition.
+
+**Item in an open run.** On a member of an open or paused run whose schema declares seats, the orchestrator's `advance`, `notes_write` and `items_write` carry the run's coordinator token as top-level `seatToken`. With it only `orchestrator`-seat note keys are writable; other seat-owned keys answer `note_owned_by_other`. See `current/docs/config-reference.md` ("Seat transitions"). Find the membership by listing the root's runs, then reading each run's frontier (a non-terminal member is in `ready`, `inFlight` or `waiting`):
+
+```to-call
+{"tool": "runs_read", "select": "list", "args": {"rootId": "ce064d2c", "status": "open"}}
+```
+
+```to-call
+{"tool": "runs_read", "select": "frontier", "args": {"runId": "7c41e0a2"}}
+```
+
+Repeat the list with `status: "paused"`; one status per call.
 
 ### Pre-dispatch recipe: a seat at a parent
 
@@ -140,6 +158,7 @@ The answer is `{ok, id, version}`; read `items_read` `schema` for the notes and 
 ## Error recovery
 
 - **Gate rejection:** `gate_blocked` lists the missing keys; fill and retry.
+- **Seat or run refusal:** `seat_forbidden` means the item belongs to a run with seats (send the coordinator token if you are its coordinator, else leave it to the run); `run_paused` means stop and wait for a director or human.
 - **Resource contention:** `resource_unavailable` is transient and distinct from a gate; wait (`retryAfterMs` is a hint) or work another item.
 - **Blocked by dependency:** `dependency_unmet`; use `items_read` `blocked` or `deps_read` `list` to find the blocker.
 - **Stale pin:** an item keeps the schema it was pinned to. `items_read` `get` shows `stale: true` after a later config push; `repin` adopts the push. Changing `type` or `traits` is itself a pin point.

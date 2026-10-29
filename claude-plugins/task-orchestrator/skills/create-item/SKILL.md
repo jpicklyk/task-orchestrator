@@ -8,6 +8,10 @@ argument-hint: "[optional: brief description of what to create]"
 
 Create work items from conversation context: anchor them in a category container, pick a declared `type`, and pre-fill the queue notes. Call shapes are in [`_generated/call-shapes.md`](../_generated/call-shapes.md); field semantics are in `current/docs/api-reference.md`. Ids in examples are 8-hex shorts; any id field also takes the full UUID. Read every answer through the envelope: `ok`, then `data.results[i]` (`ok` or `error`) and `data.summary {ok, failed}`. When a write element fails, the call-level `error` is only `partial_failure` (no detail, no fix): read `code`, `kind` (retry class), `detail` and `fix` from `data.results[i].error`. A read (`select`) call reports its failure in the call-level `error`.
 
+## Director mode
+
+Director mode is the session state entered by `/task-orchestrator:director` (or by running as the hardened `director` agent). Creating an item writes through `items_write` and `notes_write`, which a director does not run inline: dispatch ONE background `Agent` (`run_in_background: true`, `model` set) that runs the steps below, or `SendMessage` the run's coordinator when the new item is meant for a member of an open or paused run. Hand the agent the title, kind, priority, parent hint and whether it is an observation. It reports one line only, `Created: <title> (<short-id>) under <path>`, never note bodies. A background agent dispatched by a director is not in director mode: it runs the steps below.
+
 ## Step 1 - Infer intent
 
 Take from the conversation (or `$ARGUMENTS`): title, kind (bug, feature, tech debt, observation, action item, general), priority (default medium), and scope (one item, or a feature with 2 or more distinct subtasks). If the title or kind is unclear, ask with `AskUserQuestion` and concrete options, never an open question.
@@ -55,7 +59,7 @@ Process-global types such as `agent-observation` resolve from the server config 
 {"tool": "config", "op": "effective", "args": {"rootId": "9f3a1c22"}}
 ```
 
-`data.results[0].types` lists the declared type keys and `data.results[0].traits[].name` the declared traits (each trait is an object `{name, notes, dispatch?, resources?}`; `rootId` omitted reads the server config alone). When types are declared, a create with any other type fails `schema_violation` and `data.results[i].error.detail.availableTypes` lists the valid ones; a blank type always fails. A type with a schema activates gates; one without is schema-free.
+`data.results[0].types` lists the declared type keys and `data.results[0].traits[].name` the declared traits (each trait is an object `{name, notes, dispatch?, resources?}`; `rootId` omitted reads the server config alone). `data.results[0].schemas[]` carries each type's `notes` and `defaultTraits`; keep them for Step 5. When types are declared, a create with any other type fails `schema_violation` and `data.results[i].error.detail.availableTypes` lists the valid ones; a blank type always fails. A type with a schema activates gates; one without is schema-free.
 
 Match the context to a declared type (a bug to the bug type, a feature to the feature type, and so on). With no confident match use the `default` type when it is listed; otherwise ask via `AskUserQuestion` with the declared types as options. When the config declares no types at all, any non-blank type is accepted and the item is schema-free.
 
@@ -81,35 +85,37 @@ Dedup first (a tree's root only; children inherit): one unscoped search. It stay
 
 Show close matches as one FYI line (role and short id each). The user decides; never auto-link, auto-skip or auto-cancel.
 
-Single item (bug, standalone task; an observation is the same call without `parentId`, tagged `agent-observation` plus one kind tag):
+Draft the queue notes first, from the `config effective` answer of Step 4: for the chosen type take the notes of its `schemas[]` entry, then the notes of its traits (the item's `traits`, then the schema's `defaultTraits`). Every note with `role: "queue"` that ANY declaration marks `required` is owed; the base declaration is read first and the first declaration of a key supplies its guidance. Draft each body from the conversation using that note's `guidance` (and run its `skill` if set). Omit a note the conversation cannot fill; never write a blank or invented body (no `createNotes`, which would write a blank row for every key, seat-owned keys included).
+
+Create the item and its notes in ONE `create_tree` call, which commits all or nothing. A single item (bug, standalone task) is a `root` only, with no `children`; an observation is the same call without `parentId`, tagged `agent-observation` plus one kind tag. Each `notes[]` entry names its item by `itemRef`: `root` or a child `ref`.
 
 ```to-call
-{"tool": "items_write", "op": "create", "args": {"title": "Retry on 503", "type": "bug-fix", "priority": "high", "summary": "Client gives up on the first 503.", "tags": ["backend"], "parentId": "9f3a1c22"}}
+{"tool": "items_write", "op": "create_tree", "args": {"root": {"title": "Retry on 503", "type": "bug-fix", "priority": "high", "summary": "Client gives up on the first 503.", "tags": ["backend"]}, "parentId": "9f3a1c22", "notes": [{"itemRef": "root", "key": "diagnosis", "role": "queue", "body": "Client treats 503 as fatal; no retry path."}]}}
 ```
 
-Work tree (a feature with 2 or more named subtasks). `create_tree` is all-or-nothing; every child needs a `type`:
+Work tree (a feature with 2 or more named subtasks); every child needs a `type`:
 
 ```to-call
-{"tool": "items_write", "op": "create_tree", "args": {"root": {"title": "Add retry layer", "type": "feature-implementation", "priority": "medium"}, "parentId": "9f3a1c22", "children": [{"ref": "t1", "title": "Backoff policy", "type": "feature-task"}, {"ref": "t2", "title": "Retry tests", "type": "feature-task"}], "deps": [{"from": "t1", "to": "t2"}]}}
+{"tool": "items_write", "op": "create_tree", "args": {"root": {"title": "Add retry layer", "type": "feature-implementation", "priority": "medium"}, "parentId": "9f3a1c22", "children": [{"ref": "t1", "title": "Backoff policy", "type": "feature-task"}, {"ref": "t2", "title": "Retry tests", "type": "feature-task"}], "deps": [{"from": "t1", "to": "t2"}], "notes": [{"itemRef": "t1", "key": "task-scope", "role": "queue", "body": "Exponential backoff with jitter on 503 and 429."}]}}
 ```
 
-Default to a single item when scope is unclear. A create answers `{ok, id, version}`; a tree answers `{ok, id, version, items, deps, notes}` with `items[]` `{ref, id, depth}`.
+Default to a single item when scope is unclear. A tree answers `{ok, id, version, items, deps, notes}` with `items[]` `{ref, id, depth}` and `notes[]` `{itemRef, key, role, id, warning?}`; a `warning` on a note means the body exceeded its `maxLength` (trim it and upsert again in Step 6).
 
-## Step 6 - Pre-fill queue notes
+## Step 6 - Verify the queue notes
 
-A create returns no `expectedNotes`. Read the item's schema with guidance:
+The Step 5 drafts came from the root's config; the item's own schema is authoritative because it merges the item's traits. Read it once per created item:
 
 ```to-call
 {"tool": "items_read", "select": "schema", "args": {"itemId": "4b7d0e19", "fields": ["guidance"]}}
 ```
 
-`data` is `{schemaFree: true}` for a schema-free item (nothing to fill). Otherwise, for each note with `required: true` and `role: "queue"`, draft the body from the conversation using that note's `guidance` (and run its `skill` if set). Write all of them in one `notes_write` call, one `upsert` element per note (and per item, when several items were created):
+`data` is `{schemaFree: true}` for a schema-free item (nothing more to fill). Otherwise compare the required `role: "queue"` notes with the keys Step 5 wrote; for each still missing, draft the body from the conversation using that note's `guidance` and write them all in one `notes_write` call, one `upsert` element per note (and per item, when several items were created):
 
 ```to-call
 {"tool": "notes_write", "op": "upsert", "args": {"itemId": "4b7d0e19", "key": "diagnosis", "role": "queue", "body": "Client treats 503 as fatal; no retry path."}}
 ```
 
-If the conversation is too thin for a real body, leave the note empty rather than fabricate. A `schema_pinned_conflict` on a write means the item's pin lacks a key the current config requires: `repin` it (see Troubleshooting).
+If the conversation is too thin for a real body, leave the note unwritten rather than fabricate (a blank body counts as missing at the gate). A `schema_pinned_conflict` on a write means the item's pin lacks a key the current config requires: `repin` it (see Troubleshooting).
 
 ## Step 7 - Report
 
@@ -117,7 +123,7 @@ If the conversation is too thin for a real body, leave the note empty rather tha
 Created: <title> (<short-id>)
   Path: <container path, e.g. Features, or "standalone root" for an observation>
   Tags: <tags or none>   Traits: <traits or none>
-  Notes pre-filled: <keys or none>
+  Notes written: <keys or none>
 ```
 
 Add `  Created new container: <name> under <parent>` when a category was created.
@@ -132,7 +138,7 @@ An alternate entry for materializing findings from a `task-orchestrator:audit` r
 4. **Container.** Resolve ONE category container with Steps 2-3 and have the user confirm it. Non-observation rows go under a single audit container created beneath it.
 5. **Priority and type.** Priority is already mapped; do not re-derive it. Use a row's own `type`; for rows without one, pick from `config effective` `types` (Step 4).
 6. **Materialize** only after explicit confirmation: one `create_tree` for the audit container plus its children under the category container (split a larger proposal across calls; later calls attach with `root.id`). `agent-observation` rows are not part of this tree: create them as separate `items_write` `create` elements tagged `agent-observation` plus exactly one kind tag, and no `parentId`.
-7. **Notes.** None pre-filled from the proposal; queue notes are filled later in normal planning.
+7. **Notes.** None written from the proposal; queue notes are filled later in normal planning.
 8. **Report** with Step 7's format, one line per created item.
 
 Never automated: creating without explicit confirmation, acting on dedup candidates, or materializing a `materialize: false` row the user did not flip.

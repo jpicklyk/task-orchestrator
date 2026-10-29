@@ -532,6 +532,24 @@ export function isSkipped(list, itemId, now) {
 }
 
 /**
+ * True when two item ids name the same item: lowercased, hyphens stripped, equal when one is a
+ * prefix of the other (`items_read next` answers 8-hex ids; `--items` and the server also take
+ * full UUIDs). An empty id matches nothing.
+ */
+export function sameItemId(a, b) {
+    const x = String(a ?? "").toLowerCase().replace(/-/g, "");
+    const y = String(b ?? "").toLowerCase().replace(/-/g, "");
+    if (!x || !y) return false;
+    return x.startsWith(y) || y.startsWith(x);
+}
+
+/** True when `id` matches any id of `ids` (a Set or array) per `sameItemId`. */
+export function hasItemId(ids, id) {
+    for (const m of ids || []) if (sameItemId(m, id)) return true;
+    return false;
+}
+
+/**
  * Pure selection over one `items_read next` page. `candidates` are the page's items (each with an
  * `id`), `reason` the page's `reason` (only on an empty page), `members` a Set or array of member
  * ids when the run has a fixed member set (`--items`), else null.
@@ -552,8 +570,7 @@ export function decideSelection({ candidates, reason, skipList, members = null, 
         }
         return { drained: true };
     }
-    const memberSet = members ? new Set([...members].map((m) => String(m).toLowerCase())) : null;
-    const inRun = memberSet ? page.filter((c) => memberSet.has(c.id.toLowerCase())) : page;
+    const inRun = members ? page.filter((c) => hasItemId(members, c.id)) : page;
     if (inRun.length === 0) return { idle: true, waitMs: NEXT_EMPTY_WAIT_MS, reason: "no-member-ready" };
     const pick = inRun.find((c) => !isSkipped(skipList, c.id, now));
     if (pick) return { pick };
@@ -580,10 +597,11 @@ export function decideSelection({ candidates, reason, skipList, members = null, 
  * - `loop`: `continue` (counts terminal, resets breakers), `gate` (gate-failure breaker), `error`
  *   (error breaker), `skip` (skip-list the item, no breaker change), `backoff` (idle wait, idle
  *   budget), `wait-retry` (wait, then retry the same assign), `drained` (exit, nothing left), `exit`
- *   (end the loop now: end the seat, close the run).
+ *   (end the loop now: end the seat, close the run), `pause-wait` (end the seat, poll the run until it is open again or closed).
  */
 export const OUTCOME_TABLE = Object.freeze([
-    { code: "terminal", kind: "outcome", by: "iteration", status: "terminal", action: "The item reached terminal per its schema. The driver ends the seat done.", loop: "continue" },
+    { code: "ready-to-complete", kind: "outcome", by: "iteration", status: "ready-to-complete", action: "All notes are filled and the work is committed, but the iteration did NOT send the move into terminal. The driver reports usage and sends the complete transition itself while the claim is still held, then ends the seat done.", loop: "continue" },
+    { code: "terminal", kind: "outcome", by: "iteration", status: "terminal", action: "The item already reached terminal per its schema (legacy; prefer ready-to-complete). The driver ends the seat done and cannot report usage (usage-unreported).", loop: "continue" },
     { code: "gate-blocked", kind: "outcome", by: "iteration", status: "gate-blocked", action: "A required note cannot be filled autonomously. The driver ends the seat abandoned.", loop: "gate" },
     { code: "error", kind: "outcome", by: "iteration", status: "error", action: "Tool error, build failure, budget cap, or a marker-less exit after every continuation. The driver ends the seat failed.", loop: "error" },
     { code: "skip", kind: "outcome", by: "iteration", status: "skip", action: "The item cannot be worked now; put the catalog code in `code`. The driver ends the seat abandoned and skip-lists the item.", loop: "skip" },
@@ -599,8 +617,8 @@ export const OUTCOME_TABLE = Object.freeze([
     { code: "note_owned_by_other", kind: ERROR_KINDS.note_owned_by_other, by: "iteration", status: "gate-blocked", action: "A note this seat may not write belongs to another seat. Never take it over. Emit gate-blocked with code and the note key in reason; that seat or a human fills it.", loop: "gate" },
     { code: "not_claim_holder", kind: ERROR_KINDS.not_claim_holder, by: "iteration", status: "error", action: "A write was refused because the call does not hold the claim (claim lapsed, or the call went out without the seat token). Emit error with code.", loop: "error" },
     { code: "unauthenticated", kind: ERROR_KINDS.unauthenticated, by: "iteration", status: "error", action: "The seat token was refused: the iteration must reach the server as the same principal as the driver. Emit error with code. On a driver call with the coordinator token the loop exits 2.", loop: "error" },
-    { code: "run_paused", kind: ERROR_KINDS.run_paused, by: "driver", status: "error", action: "The run paused (budget, attempt cap or manual). Never retried: the driver ends the seat and closes the run cancelled; a director or human answers the pause decision.", loop: "exit" },
-    { code: "run_closed", kind: ERROR_KINDS.run_closed, by: "driver", status: "error", action: "The run was closed elsewhere. The driver ends the seat and exits.", loop: "exit" },
+    { code: "run_paused", kind: ERROR_KINDS.run_paused, by: "driver", status: "error", action: "The run paused (budget, attempt cap or manual). Never retried and never closes the run: the driver ends the seat, then polls the run every 30s until a director or human answers the pause decision (or resumes a manual pause) and the loop continues, or closes the run (exit 0).", loop: "pause-wait" },
+    { code: "run_closed", kind: ERROR_KINDS.run_closed, by: "driver", status: "error", action: "The run was closed elsewhere (a closed run's tokens may also answer unauthenticated; the driver probes the run to tell the two apart). The driver ends the seat and exits 0 without closing.", loop: "exit" },
     { code: "run_at_capacity", kind: ERROR_KINDS.run_at_capacity, by: "driver", status: "idle", action: "assign hit the run's maxActiveSeats. The driver waits 30s, then retries the assign, up to 10 times, then ends the loop.", loop: "wait-retry" },
     { code: "unavailable", kind: ERROR_KINDS.unavailable, by: "driver", status: "idle", action: "The server shed load on a driver call. The driver waits retryAfterMs, then tries again.", loop: "backoff" },
     { code: "internal", kind: ERROR_KINDS.internal, by: "driver", status: "idle", action: "A driver call failed inside the server (transient, no retryAfterMs). The driver waits 30s, then repeats the same step.", loop: "backoff" },
@@ -624,25 +642,28 @@ export function renderOutcomeTable(rows = OUTCOME_TABLE) {
 
 /** The `end_seat` outcome for a final RALPH_OUTCOME status: terminal -> done; gate-blocked, skip -> abandoned; error (and anything else) -> failed. */
 export function endSeatOutcome(status) {
-    if (status === "terminal") return "done";
+    if (status === "terminal" || status === "ready-to-complete") return "done";
     if (status === "gate-blocked" || status === "skip") return "abandoned";
     return "failed";
 }
 
 /**
  * How a finished iteration's outcome moves the loop. Keys on `outcome.code` first:
- * `run_paused` -> `{effect: 'exit', exitReason: 'run paused...', closeReason: 'cancelled'}`,
+ * `run_paused` -> `{effect: 'pause', pauseReason?, decisionId?}` (the run stays open),
  * `run_closed` -> `{effect: 'exit', exitReason: 'run closed...', closeReason: 'completed'}`;
  * `unauthenticated`, `not_claim_holder` -> `{effect: 'error', hint}`. Otherwise on `outcome.status`:
- * terminal -> `terminal`, gate-blocked -> `gate`, skip -> `{effect: 'skip', skipCode, retryAfterMs}`
+ * ready-to-complete -> `ready-to-complete`, terminal -> `terminal`, gate-blocked -> `gate`, skip -> `{effect: 'skip', skipCode, retryAfterMs}`
  * (skipCode is the outcome's code, else 'skip'), error and any unknown status -> `error`.
  */
 export function loopEffect(outcome) {
     const code = outcome && typeof outcome.code === "string" ? outcome.code : null;
     const status = outcome && typeof outcome.status === "string" ? outcome.status : null;
     if (code === "run_paused") {
-        const why = typeof outcome.pauseReason === "string" && outcome.pauseReason ? ` (${outcome.pauseReason})` : "";
-        return { effect: "exit", exitReason: `run paused${why}: a director or human must answer the pause decision`, closeReason: "cancelled" };
+        return {
+            effect: "pause",
+            pauseReason: typeof outcome.pauseReason === "string" && outcome.pauseReason ? outcome.pauseReason : undefined,
+            decisionId: typeof outcome.decisionId === "string" && outcome.decisionId ? outcome.decisionId : undefined,
+        };
     }
     if (code === "run_closed") {
         return { effect: "exit", exitReason: "run closed elsewhere", closeReason: "completed" };
@@ -660,6 +681,8 @@ export function loopEffect(outcome) {
         };
     }
     switch (status) {
+        case "ready-to-complete":
+            return { effect: "ready-to-complete" };
         case "terminal":
             return { effect: "terminal" };
         case "gate-blocked":
@@ -700,6 +723,31 @@ export function buildUsageOps({ itemId, ttlSeconds, envelope }) {
         { op: "heartbeat", itemId, usage },
         { op: "release", itemId },
     ];
+}
+
+/**
+ * The `heartbeat` op that reports a finished child's usage while the seat's claim is still held
+ * (the handshake before the driver's complete transition), or null when the envelope carries
+ * neither cost nor token counts. Sent under the seat token; `ttlSeconds` refreshes the claim.
+ */
+export function buildHeartbeatUsageOp({ itemId, ttlSeconds, envelope }) {
+    const ops = buildUsageOps({ itemId, ttlSeconds, envelope });
+    if (!ops) return null;
+    const hb = ops[1];
+    return { op: "heartbeat", itemId, ttlSeconds, usage: hb.usage };
+}
+
+/**
+ * Resolve `--heartbeat-interval` (seconds). `value` undefined -> floor(ttl/2). Returns
+ * `{seconds}` or `{error}` when the value is not an integer in [1, ttl - 1].
+ */
+export function resolveHeartbeatInterval(value, ttl) {
+    if (value === undefined || value === null || value === "") return { seconds: Math.max(1, Math.floor(ttl / 2)) };
+    const n = Number(value);
+    if (!Number.isInteger(n) || n < 1 || n >= ttl) {
+        return { error: `--heartbeat-interval must be an integer from 1 to ${ttl - 1} (below --ttl); got: ${value}` };
+    }
+    return { seconds: n };
 }
 
 /** Replace every occurrence of every non-empty known token value in `text` with `[redacted-token]`. */
@@ -748,12 +796,15 @@ export function firstOpResult(res) {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const HEX_ID_RE = /^[0-9a-f]{8,32}$/i;
+
 /**
- * `ralph-<first 8 of itemId>-<iter>` only when `itemId` is a string shaped like a UUID; any
- * other value (non-string, model-emitted junk) keeps `tempName`.
+ * `ralph-<first 8 hex of itemId>-<iter>` only when `itemId` is a UUID or 8-32 hex characters
+ * (the form `items_read next` answers); any other value (non-string, model-emitted junk) keeps
+ * `tempName`.
  */
 export function worktreeNameForOutcome(itemId, iterIndex, tempName) {
-    if (typeof itemId !== "string" || !UUID_RE.test(itemId)) return tempName;
+    if (typeof itemId !== "string" || !(UUID_RE.test(itemId) || HEX_ID_RE.test(itemId))) return tempName;
     return `ralph-${itemId.slice(0, 8)}-${iterIndex}`;
 }
 

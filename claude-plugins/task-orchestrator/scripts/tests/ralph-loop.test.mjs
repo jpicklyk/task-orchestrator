@@ -353,8 +353,8 @@ test('D4: --items lists the members on open, de-duplicated, and the picked item 
 // ---- S3: timeout, spawn error, crash (AC6, D9) -------------------------------------------------------
 
 describe('S3 timeout and crash recovery', () => {
-  test('AC6: a timed-out iteration is killed, recorded iteration_timeout, its seat ends failed, and the next iteration starts', async () => {
-    const s = await scenario({ items: [A], plan: ['sleep', 'terminal'], args: ['--iteration-timeout', '2', '--max', '2', '--error-budget', '3'], timeoutMs: 40000 })
+  test('AC6: a timed-out iteration is killed, recorded iteration_timeout, its seat ends failed, the item is skip-listed (F6) and the next iteration starts on the next item', async () => {
+    const s = await scenario({ items: [A, B], plan: ['sleep', 'terminal'], args: ['--iteration-timeout', '2', '--max', '2', '--error-budget', '3'], timeoutMs: 40000 })
     assert.equal(s.res.timedOut, false, 'the driver must kill the sleeper itself' + tail(s))
     assert.equal(s.starts.length, 2, 'the next iteration started')
     assert.equal(s.finishes.some((f) => f.idx === 0), false, 'the first iteration never finished: it was killed')
@@ -364,6 +364,7 @@ describe('S3 timeout and crash recovery', () => {
     assert.equal(seats.length, 2)
     assert.equal(seats[0].outcome, 'failed')
     assert.equal(seats[1].outcome, 'done')
+    assert.deepEqual(seats.map((x) => x.itemId), [A, B], 'the failed item is skip-listed, not re-picked: the second seat is on B')
     const ends = opsNamed(s, 'end_seat')
     const assigns = opsNamed(s, 'assign')
     assert.ok(ends[0].seq < assigns[1].seq, 'the timed-out seat is ended before the next assignment')
@@ -384,12 +385,13 @@ describe('S3 timeout and crash recovery', () => {
   })
 
   test('D9: a non-zero exit is an error outcome whose seat ends failed, and it is never resumed', async () => {
-    const s = await scenario({ items: [A], plan: ['crash', 'terminal'], args: ['--max', '2', '--error-budget', '3', '--max-continuations', '2'], timeoutMs: 30000 })
+    const s = await scenario({ items: [A, B], plan: ['crash', 'terminal'], args: ['--max', '2', '--error-budget', '3', '--max-continuations', '2'], timeoutMs: 30000 })
     assert.equal(s.res.timedOut, false, tail(s))
     assert.equal(s.starts.length, 2, 'two iterations, no resume of the crashed one')
     assert.equal(s.starts.some((st) => st.argv.includes('--resume')), false)
     assert.equal(s.api.seats[0].outcome, 'failed')
     assert.equal(s.api.seats[1].outcome, 'done')
+    assert.deepEqual(s.api.seats.map((x) => x.itemId), [A, B], 'the crashed item is skip-listed (F6): the next iteration takes B')
   })
 
   test('probe (POSIX): SIGTERM mid-iteration kills the iteration, ends its seat failed and closes the run cancelled', { skip: process.platform === 'win32' ? 'POSIX signal semantics: Windows terminates the driver without running a handler' : false }, async () => {
@@ -426,14 +428,29 @@ describe('iteration outcome codes', () => {
     assert.equal(s.api.seats[1].outcome, 'done')
   })
 
-  test('AC8: a run_paused code from the iteration ends the loop: seat failed, run closed cancelled, no further assignment', async () => {
-    const s = await scenario({ items: [A], plan: [{ kind: 'error', code: 'run_paused' }, 'terminal'], args: ['--max', '3'], timeoutMs: 30000 })
+  test('AC8: a run_paused code from the iteration fails its seat and waits for the run (F2): no close while paused, runs_read get is polled, the item is worked after the resume', async () => {
+    const s = await scenario({
+      items: [A],
+      plan: [{ kind: 'error', code: 'run_paused' }, 'terminal'],
+      apiOpts: { pauseOn: { op: 'claim', nth: 1 }, resumeAfterPolls: 2, completeOnDone: true },
+      args: ['--max', '3'],
+      env: { RALPH_PAUSE_POLL_MS: '100' },
+      timeoutMs: 30000,
+    })
     assert.equal(s.res.timedOut, false, tail(s))
-    assert.equal(s.starts.length, 1)
-    assert.equal(opsNamed(s, 'assign').length, 1)
+    assert.equal(s.res.code, 0, tail(s))
+    assert.equal(s.starts.length, 2, 'the paused iteration, then the resumed one')
     assert.equal(s.api.seats[0].outcome, 'failed')
-    assert.equal(opsNamed(s, 'close')[0].reason, 'cancelled')
+    assert.equal(s.api.seats[1].outcome, 'done')
+    const closes = opsNamed(s, 'close')
+    assert.equal(closes.length, 1, 'one close, at the end')
+    assert.equal(closes[0].reason, 'completed', 'a pause never closes the run cancelled')
     assert.equal(writes(s).at(-1).op, 'close')
+    const polls = s.api.trace.filter((t) => t.tool === 'runs_read' && t.op === 'get')
+    assert.ok(polls.length >= 2, 'the paused run is polled with runs_read get' + tail(s))
+    const assigns = opsNamed(s, 'assign')
+    assert.ok(polls.at(-1).seq < assigns[1].seq, 'the second assign waits for the resume')
+    assert.ok(opsNamed(s, 'end_seat')[0].seq < polls[0].seq, 'the paused iteration seat ends before the wait begins')
   })
 
   test('AC8: a run_closed code from the iteration ends the loop with no further assignment', async () => {
@@ -447,20 +464,34 @@ describe('iteration outcome codes', () => {
 // ---- S6: coordinator-side assign faults (D10) --------------------------------------------------------
 
 describe('S6 assign faults', () => {
-  test('run_paused on assign ends the loop, is never retried, and the run is closed cancelled', async () => {
+  test('run_paused on assign is not retried while paused and never closes the run: the driver waits (F2), names the pause once, and assigns again after the resume', async () => {
+    const decisionId = 'dddd4444-0000-4000-8000-0000000000aa'
     const s = await scenario({
       items: [A],
-      apiOpts: { assign: () => ({ code: 'run_paused', detail: { runId: ROOT, pauseReason: 'budget', pauseDecisionId: 'dddd4444' } }) },
+      apiOpts: { assign: ({ nth }) => (nth === 1 ? { code: 'run_paused', detail: { runId: ROOT, pauseReason: 'budget', pauseDecisionId: decisionId } } : undefined), resumeAfterPolls: 3, completeOnDone: true },
       args: ['--max', '3'],
+      env: { RALPH_PAUSE_POLL_MS: '100' },
       timeoutMs: 30000,
     })
     assert.equal(s.res.timedOut, false, tail(s))
-    assert.equal(opsNamed(s, 'assign').length, 1, 'run_paused is not retried')
-    assert.equal(opsNamed(s, 'claim').length, 0)
-    assert.equal(s.starts.length, 0)
+    assert.equal(s.res.code, 0, tail(s))
+    const assigns = opsNamed(s, 'assign')
+    assert.equal(assigns.length, 2, 'one refused assign, one after the resume (no assign while paused)')
+    const polls = s.api.trace.filter((t) => t.tool === 'runs_read' && t.op === 'get')
+    assert.equal(polls.length, 3, 'polled until the third answer flipped the run open' + tail(s))
+    for (const p of polls) {
+      assert.equal(p.seatToken, undefined, 'the pause poll is token-less')
+      assert.ok(typeof p.body.runId === 'string' && s.api.run.runId.replace(/-/g, '').startsWith(p.body.runId.replace(/-/g, '').toLowerCase()), 'the poll names the run')
+      assert.ok(p.seq > assigns[0].seq && p.seq < assigns[1].seq, 'every poll sits between the refused and the second assign')
+    }
+    assert.equal(s.starts.length, 1)
+    assert.equal(s.api.seats.at(-1).outcome, 'done')
     assert.match(s.res.out, /run paused/i)
-    assert.equal(opsNamed(s, 'close')[0].reason, 'cancelled')
-    assert.equal(writes(s).at(-1).op, 'close')
+    assert.equal(s.res.out.split(decisionId).length - 1, 1, 'the pause (decision id) is printed exactly once' + tail(s))
+    assert.match(s.res.out, /budget/)
+    const closes = opsNamed(s, 'close')
+    assert.equal(closes.length, 1)
+    assert.equal(closes[0].reason, 'completed')
   })
 
   test('run_closed on assign ends the loop without retrying', async () => {
@@ -498,48 +529,62 @@ describe('S6 assign faults', () => {
 })
 
 // ---- S11: usage (AC9, D11) ---------------------------------------------------------------------------
+// fd1beaee F1: a terminal transition clears the claim (workflow-guide "Effect of complete and cancel on the
+// Claim"), and usage is only recorded under an active held claim (advance heartbeat "usage needs a seat token").
+// So the iteration reports `ready-to-complete`, and the driver sends heartbeat{usage} and THEN transition
+// {trigger: complete} under the seat token, before end_seat.
 
 describe('S11 usage report', () => {
-  const usagePlan = [{ kind: 'terminal', total_cost_usd: 1.25, usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 10, cache_read_input_tokens: 5 } }]
+  const usageExtras = { total_cost_usd: 1.25, usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 10, cache_read_input_tokens: 5 } }
+  const usagePlan = [{ kind: 'ready', ...usageExtras }]
 
-  test('total_cost_usd 1.25 is reported as one advance [claim, heartbeat{usage}, release] call under the seat token, before end_seat', async () => {
+  test('total_cost_usd 1.25 is reported as heartbeat{usage} under the held claim, then transition complete, both under the seat token, before end_seat', async () => {
     const s = await scenario({ items: [A], plan: usagePlan })
     assert.equal(s.res.timedOut, false, tail(s))
+    assert.equal(s.res.code, 0, tail(s))
     const seat = s.api.seats[0]
     const hb = opsNamed(s, 'heartbeat')
     assert.equal(hb.length, 1)
     assert.equal(hb[0].seatToken, seat.token)
+    assert.equal(hb[0].itemId.toLowerCase(), A)
     assert.equal(hb[0].usage.costUsd, 1.25)
     assert.ok(Number.isFinite(hb[0].usage.tokens) && hb[0].usage.tokens >= 150 && hb[0].usage.tokens <= 165, `tokens between input+output and the sum of all four counters (got ${hb[0].usage.tokens})`)
-    const batchOps = s.api.trace.filter((t) => t.tool === 'advance' && t.opsInCall === 3).sort((x, y) => x.seq - y.seq)
-    assert.deepEqual(batchOps.map((x) => x.op), ['claim', 'heartbeat', 'release'])
-    for (const x of batchOps) {
-      assert.equal(x.seatToken, seat.token)
-      assert.equal(x.itemId.toLowerCase(), A)
-    }
-    assert.equal(batchOps[0].ttlSeconds, 120)
+    assert.equal(hb[0].ttlSeconds, 120, 'the heartbeat carries --ttl')
+    const tr = opsNamed(s, 'transition')
+    assert.equal(tr.length, 1)
+    assert.equal(tr[0].trigger, 'complete')
+    assert.equal(tr[0].seatToken, seat.token)
+    assert.equal(tr[0].itemId.toLowerCase(), A)
     const end = opsNamed(s, 'end_seat')[0]
-    assert.ok(batchOps[2].seq < end.seq, 'usage is reported before the seat ends')
+    assert.ok(hb[0].seq < tr[0].seq && tr[0].seq < end.seq, 'heartbeat{usage}, then complete, then end_seat')
     assert.equal(end.outcome, 'done')
-  })
-
-  test('a failed usage report is logged usage-report-failed, is not retried, and never blocks end_seat', async () => {
-    const s = await scenario({ items: [A], plan: usagePlan, apiOpts: { claim: ({ nthForToken }) => (nthForToken >= 2 ? { code: 'unavailable', retryAfterMs: 1000 } : undefined) } })
-    assert.equal(s.res.timedOut, false, tail(s))
-    assert.ok(s.res.out.includes('usage-report-failed'), tail(s))
-    assert.equal(opsNamed(s, 'claim').length, 2, 'the usage claim is not retried')
-    assert.equal(opsNamed(s, 'heartbeat').length, 1)
-    const ends = opsNamed(s, 'end_seat')
-    assert.equal(ends.length, 1)
-    assert.equal(ends[0].outcome, 'done')
+    assert.equal(opsNamed(s, 'claim').filter((c) => c.opsInCall !== 1).length, 0, 'no post-exit claim batch')
+    assert.equal(opsNamed(s, 'release').length, 0, 'no release after the item is terminal')
+    assert.equal(s.api.item(A).role, 'terminal', 'the driver landed the item in terminal')
+    assert.equal(s.api.runView().usage.reportedCostUsd, 1.25, 'the run counts the reported cost (it was lost when usage was sent after terminal)')
+    assert.equal(s.api.runView().usage.reportedTokens, hb[0].usage.tokens)
     assert.equal(opsNamed(s, 'close')[0].reason, 'completed')
   })
 
-  test('no usage report when the envelope carries neither total_cost_usd nor usage', async () => {
-    const s = await scenario({ items: [A], plan: ['terminal'] })
+  test('a usage report that the server refuses never blocks end_seat or the close', async () => {
+    const s = await scenario({ items: [A], plan: usagePlan, apiOpts: { heartbeat: () => ({ code: 'unavailable', retryAfterMs: 1000 }) } })
     assert.equal(s.res.timedOut, false, tail(s))
-    assert.equal(opsNamed(s, 'heartbeat').length, 0)
+    assert.equal(s.res.code, 0, tail(s))
+    assert.equal(opsNamed(s, 'end_seat').length, 1, 'the seat is still ended')
+    assert.equal(opsNamed(s, 'close')[0].reason, 'completed')
+    assert.equal(writes(s).at(-1).op, 'close')
+  })
+
+  test('no usage is sent when the envelope carries neither total_cost_usd nor usage: ready-to-complete is just the complete move', async () => {
+    const s = await scenario({ items: [A], plan: ['ready'] })
+    assert.equal(s.res.timedOut, false, tail(s))
+    assert.equal(opsNamed(s, 'heartbeat').filter((h) => h.usage !== undefined).length, 0)
     assert.equal(opsNamed(s, 'release').length, 0)
+    const tr = opsNamed(s, 'transition')
+    assert.equal(tr.length, 1)
+    assert.equal(tr[0].trigger, 'complete')
+    assert.equal(s.api.seats[0].outcome, 'done')
+    assert.equal(s.api.item(A).role, 'terminal')
   })
 })
 

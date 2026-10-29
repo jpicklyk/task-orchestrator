@@ -58,6 +58,11 @@ test('S12 O3: to-call blocks parse, use the director profile and validate', () =
   const list = blocks.find((b) => b.value.tool === 'runs_read' && b.value.select === 'list');
   assert.ok(list, 'runs_read list block');
   assert.equal(list.value.args.status, 'open');
+  const statuses = blocks.filter((b) => b.value.tool === 'runs_read' && b.value.select === 'list').map((b) => b.value.args.status);
+  assert.ok(statuses.includes('open') && statuses.includes('paused'), 'list blocks for open and paused: ' + statuses);
+  const dec = blocks.find((b) => b.value.tool === 'runs_read' && b.value.select === 'decisions');
+  assert.ok(dec && dec.value.args.rootId, 'decisions read is root-wide (rootId)');
+  assert.equal(dec.value.args.runId, undefined, 'decisions read is not per run');
 });
 
 test('S12 O4: dashboard content', () => {
@@ -65,6 +70,9 @@ test('S12 O4: dashboard content', () => {
   has(SKILL, 'blockers[]');
   has(SKILL, 'decisions');
   has(SKILL, 'status filter');
+  has(SKILL, 'resumable');
+  has(SKILL, 'pauseReason');
+  has(SKILL, 'needs resume');
 });
 
 test('S12 O5: decision answering', () => {
@@ -148,4 +156,81 @@ test('S14: integration guide has the Director Guard heading and a director skill
   const lines = GUIDE.split(/\r?\n/);
   assert.ok(lines.some((l) => l.trim() === '### Director Guard'), 'Director Guard heading');
   assert.ok(lines.some((l) => l.startsWith('|') && l.includes('/task-orchestrator:director')), 'User Skills row for director');
+});
+
+// ---- d8edfe04: director-mode preambles, adopted 4.0 capabilities, reference-doc drift (doc needles) ----
+const SK = (name) => rd('../../skills/' + name + '/SKILL.md');
+const APIREF = rd('../../../../current/docs/api-reference.md');
+const NOT_IN_DIRECTOR = 'A background agent dispatched by a director is not in director mode: it runs the steps below.';
+
+/** The `## Director mode` section (heading to the next `## `), or fails naming the skill. */
+function directorSection(name, text) {
+  const lines = text.split(/\r?\n/);
+  const at = lines.findIndex((l) => l.trim() === '## Director mode');
+  assert.ok(at >= 0, name + ': missing "## Director mode" heading');
+  let end = lines.findIndex((l, i) => i > at && l.startsWith('## '));
+  if (end < 0) end = lines.length;
+  const firstStep = lines.findIndex((l) => /^## Step/.test(l));
+  assert.ok(firstStep < 0 || at < firstStep, name + ': Director mode heading must precede the first Step heading');
+  return lines.slice(at, end).join('\n');
+}
+
+test('d8edfe04: the six user-invocable skills carry a Director mode section before their steps', () => {
+  for (const name of ['create-item', 'status-progression', 'dependency-manager', 'manage-schemas', 'work-summary', 'batch-complete']) {
+    const sec = directorSection(name, SK(name));
+    assert.ok(sec.includes('run_in_background: true'), name + ': section missing run_in_background: true');
+    assert.ok(sec.includes(NOT_IN_DIRECTOR), name + ': section missing the not-in-director-mode sentence');
+  }
+});
+
+test('d8edfe04: orchestrate and schema-workflow name Director mode, orchestrate outside its generated tier block', () => {
+  const orch = SK('orchestrate');
+  const begin = orch.indexOf('<!-- BEGIN GENERATED:tier-classification');
+  const endMarker = '<!-- END GENERATED:tier-classification -->';
+  const end = orch.indexOf(endMarker);
+  assert.ok(begin >= 0 && end > begin, 'orchestrate: generated tier markers');
+  const outside = orch.slice(0, begin) + orch.slice(end + endMarker.length);
+  assert.ok(outside.includes('Director mode'), 'orchestrate: Director mode text outside the generated block');
+  assert.ok(!orch.slice(begin, end).includes('Director mode'), 'orchestrate: Director mode text inside the generated block');
+  assert.ok(SK('schema-workflow').includes('Director mode'), 'schema-workflow: missing Director mode');
+});
+
+test('d8edfe04: work-summary director reads carry the director profile and validate', () => {
+  const blocks = parseToCallBlocks(SK('work-summary'));
+  const wanted = [
+    (b) => b.value.tool === 'report' && b.value.select === 'rollup',
+    (b) => b.value.tool === 'report' && b.value.select === 'gates',
+    (b) => b.value.tool === 'runs_read' && b.value.select === 'decisions',
+  ];
+  for (const [i, pick] of wanted.entries()) {
+    const b = blocks.find((x) => x.value && pick(x));
+    assert.ok(b, 'work-summary: missing director read #' + i);
+    assert.equal(b.value.profile, 'director', 'work-summary: block at line ' + b.line + ' profile');
+    assert.deepEqual(checkToCall(b.value, CATALOG), [], 'work-summary: block at line ' + b.line + ' catalog check');
+  }
+});
+
+test('d8edfe04: create-item writes queue notes in create_tree notes[] and manage-schemas has ROLLBACK ordering', () => {
+  const ci = parseToCallBlocks(SK('create-item'));
+  const tree = ci.filter((b) => b.value && b.value.tool === 'items_write' && b.value.op === 'create_tree');
+  assert.ok(tree.some((b) => Array.isArray(b.value.args.notes) && b.value.args.notes.length > 0), 'create-item: create_tree with notes[]');
+  for (const b of ci) assert.deepEqual(b.error === undefined ? checkToCall(b.value, CATALOG) : [b.error], [], 'create-item: block at line ' + b.line);
+  const ms = SK('manage-schemas');
+  has(ms, '### ROLLBACK');
+  assert.ok(ms.indexOf('"op": "rollback"') > 0, 'manage-schemas: rollback call');
+  assert.ok(ms.indexOf('"op": "rollback"') < ms.indexOf('THEN write the local config file'), 'manage-schemas: rollback must precede the file write');
+});
+
+test('d8edfe04: api-reference prose names seat_forbidden, all frontier reasons and the per-root runs rows', () => {
+  const at = APIREF.indexOf('#### `complete_tree`');
+  assert.ok(at >= 0, 'complete_tree heading');
+  const sec = APIREF.slice(at, at + 6000);
+  has(sec, 'seat_forbidden');
+  const f = APIREF.indexOf('**Frontier** (`frontier{runId}`)');
+  assert.ok(f >= 0, 'frontier paragraph');
+  const fr = APIREF.slice(f, f + 3500);
+  has(fr, 'awaiting_decision');
+  has(fr, '`resource`');
+  assert.ok(/^\| `runs` \| Yes \|/m.test(APIREF), 'per-root table row: runs');
+  assert.ok(/^\| `decision_classes` \| Yes \|/m.test(APIREF), 'per-root table row: decision_classes');
 });

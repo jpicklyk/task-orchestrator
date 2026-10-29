@@ -1,6 +1,6 @@
 ---
 name: manage-schemas
-description: "Creates, views, edits, deletes, and validates note schemas for the MCP Task Orchestrator in .taskorchestrator/config.yaml — the templates that define which notes agents must fill at each workflow phase. Also recommends schema designs from a library of workflow patterns (autonomous coding loops, spec-driven teams, research pipelines, content production, support triage, data pipelines, incident response, document review) — use this skill whenever the user describes a workflow they want tracked or gated, even without the word 'schema': what schema should I use, help me design schemas, recommend gates for X, set up schemas for my team/workflow/pipeline. Use when user says: create schema, show schemas, edit schema, delete schema, validate config, what schemas exist, add a note to schema, remove note from schema, or configure gates."
+description: "Creates, views, edits, deletes, and validates note schemas for the MCP Task Orchestrator in .taskorchestrator/config.yaml — the templates that define which notes agents must fill at each workflow phase. Also recommends schema designs from a library of workflow patterns (autonomous coding loops, spec-driven teams, research pipelines, content production, support triage, data pipelines, incident response, document review) — use this skill whenever the user describes a workflow they want tracked or gated, even without the word 'schema': what schema should I use, help me design schemas, recommend gates for X, set up schemas for my team/workflow/pipeline. Use when user says: create schema, show schemas, edit schema, delete schema, validate config, what schemas exist, add a note to schema, remove note from schema, configure gates, roll back schema, undo schema change, run budget, decision class, human-only approval, or stall."
 argument-hint: "[optional: action + schema name or workflow description, e.g. 'view bug-fix', 'create research-spike', 'recommend schemas for support triage', 'validate']"
 ---
 
@@ -9,6 +9,10 @@ argument-hint: "[optional: action + schema name or workflow description, e.g. 'v
 Create, view, edit, delete, and validate note schemas in `.taskorchestrator/config.yaml`. Schemas define which notes agents must fill at each workflow phase before advancing items.
 
 Every tool call below is a `to-call` block, `{tool, select|op, args}`, in the shapes of [call-shapes.md](../_generated/call-shapes.md). The `config` tool is served by the orchestration profile only.
+
+## Director mode
+
+Director mode is the session state entered by `/task-orchestrator:director` (or by running as the hardened `director` agent). Nothing in this skill runs inline there: the config file cannot be read or written (Read and Write are denied) and the `config` tool is orchestration-only. Dispatch ONE background `Agent` (`run_in_background: true`, `model` set) that runs the steps below with the user's request. It reports one line: the pushed version, any warnings and `affectedInFlight.count`, never YAML or note bodies. A background agent dispatched by a director is not in director mode: it runs the steps below.
 
 ---
 
@@ -23,7 +27,10 @@ Classify from `$ARGUMENTS` and conversation context before making any tool calls
 | "show", "view", "list", "what schemas", "display" | VIEW |
 | "edit", "modify", "change", "update", "add note to", "remove note from" | EDIT |
 | "delete", "remove schema", "drop" | DELETE |
+| "undo", "roll back", "restore", "previous version" | ROLLBACK |
 | "validate", "check", "verify", "lint" | VALIDATE |
+| "run budget", "stall", "stall_after", "attempts per seat", "run policy" | RUN POLICY |
+| "decision class", "human-only", "who can answer", "approval gate", "decision expires" | DECISION CLASSES |
 
 If `$ARGUMENTS` contains both an action and a schema name (e.g., "view bug-fix"), extract both. If intent cannot be determined, ask via `AskUserQuestion` with options: Create, View / Validate, Edit, Delete.
 
@@ -72,6 +79,24 @@ Read `.taskorchestrator/config.yaml` and display schemas in a summary table:
 | bug-fix | auto | 1 (1 req) | 2 (2 req) | 1 (1 req) | 4 |
 ```
 
+When the file has a `project.rootId`, also show what the server resolves for that root. The file lists only the root's own types; the server layers them over its own config, so types the file lacks (server-layer, process-global types) exist for the root too:
+
+```to-call
+{"tool": "config", "op": "effective", "args": {"rootId": "<project.rootId>"}}
+```
+
+Add every `schemas[]` entry whose `configSource` is `global` and whose `type` the file does not declare to the table, marked `(global)`. Then show one sync line, from the head version and a validate of the local file (file text with CRLF replaced by LF):
+
+```to-call
+{"tool": "config", "op": "get", "args": {"rootId": "<project.rootId>"}}
+```
+
+```to-call
+{"tool": "config", "op": "validate", "args": {"rootId": "<project.rootId>", "configYaml": "<file text, LF>"}}
+```
+
+An empty `diff` (no added, removed or changed type, trait or setting) reads `in sync with head v<version>`. Otherwise name the changed keys and say that config-sync (on the next save or session start) or the Step 4 push puts the file on the server. A `not_found` from `get` means the root has no stored config yet.
+
 If the user specified a schema name, show that schema's full detail: each note with key, role, required, description, guidance, and skill (if set). Also show the schema's lifecycle mode and default_traits (if any).
 
 If the config has a `traits:` section, show a separate traits summary table:
@@ -110,6 +135,14 @@ If the target schema is not found in config.yaml, inform the user and offer to C
 
 For detailed workflow, see `references/delete-workflow.md` in this skill folder.
 
+### RUN POLICY — the `runs:` block
+
+View: show `runs:` from the file (or the merged view when a `rootId` exists). Edit: write the keys (`stall_after`, `budgets.tokens`, `budgets.cost_usd`, `budgets.attempts_per_seat`, `budgets.max_active_seats`), then run the Step 4 validate and push. Budgets are ceilings and opt-in; keys and ranges are in `references/config-format.md` -> "Run Budgets (`runs:`)".
+
+### DECISION CLASSES — the `decision_classes:` block
+
+A decision can only be raised under a declared class: a raise with an undeclared class fails `invalid_request /class`. View: when a `rootId` exists, read the server-merged classes with `config` `effective` (built-ins plus server plus root); otherwise read the file. Edit: write the class (`answerers`, `severity`, `expires_after`, `on_expiry`, `freeform`), then the existing Step 4 validate and push. Keys, built-ins and the merge rule are in `references/config-format.md` -> "Decision Classes".
+
 ### VALIDATE — Check Config Integrity
 
 Run structural and semantic checks on the config file and report issues with fix suggestions. When the file has a `project.rootId`, also run the server's own check (`config` `validate`, Step 4): the server is the authority on what a push accepts, and the local checks are for files with no root.
@@ -121,6 +154,36 @@ intended framework skill name (a specific name such as `code-review-checklist` i
 rule in `references/config-format.md` → "`skill` — exact-name rule".
 
 For detailed workflow, see `references/validate-workflow.md` in this skill folder.
+
+### ROLLBACK - Restore an Earlier Config Version
+
+Needs a `project.rootId` (rollback is a server operation on the root's stored versions). The server keeps every pushed version; a rollback appends a copy of the chosen version as the new head, so nothing is lost.
+
+1. List the versions, newest first, and show `version`, `source`, `createdAt` for each. Ask which one with `AskUserQuestion`.
+
+   ```to-call
+   {"tool": "config", "op": "history", "args": {"rootId": "<project.rootId>", "limit": 10}}
+   ```
+
+2. Read the chosen version, then validate its `configYaml` to see what the swap would change against the head (`diff`) and how many in-flight items it affects (`affectedInFlight.count`):
+
+   ```to-call
+   {"tool": "config", "op": "get", "args": {"rootId": "<project.rootId>", "version": 3}}
+   ```
+
+   ```to-call
+   {"tool": "config", "op": "validate", "args": {"rootId": "<project.rootId>", "configYaml": "<configYaml of that version>"}}
+   ```
+
+3. Show the diff and the count; confirm with the user before changing anything.
+4. Roll back on the server FIRST, with `expectedVersion` set to the `headVersion` from step 1 (`version_conflict` means the head moved: read the history again and ask again):
+
+   ```to-call
+   {"tool": "config", "op": "rollback", "args": {"rootId": "<project.rootId>", "version": 3, "expectedVersion": 5}}
+   ```
+
+5. THEN write the local config file from that version's `configYaml` (LF line endings). Order matters: config-sync compares the file with the server head, so a file written before the rollback can be pushed by config-sync as new content (or skipped as superseded) while the server head is still the old one; written after the rollback, the next config-sync finds the file current and does nothing.
+6. As in Step 4 item 4, offer `repin` for the in-flight items the rollback affects.
 
 ---
 

@@ -25,7 +25,9 @@ Calling the skill again while in director mode refreshes the marker and the dash
 ## The altitude rule
 
 - Never open or search a file. `Read`, `Edit`, `Write`, `Grep`, `Glob` and `NotebookEdit` are
-  denied.
+  denied. `PowerShell` and `Monitor` are denied outright (they run a shell command and print its
+  output); `Workflow` runs only `task-orchestrator:implement-wave` with an object `args` carrying
+  `altitudeSafe: true`.
 - Never read a note body, with two exceptions: a decision request (`runs_read` `decision`) and a
   run rollup (`report` `rollup`).
 - `Bash` (absent from the hardened entry's tool list) runs only `git status`, `git log`, `git branch`, `gh pr view`, `gh pr list` and
@@ -81,8 +83,10 @@ on. Confirm they are in your tool list; do not edit `.mcp.json` from here.
 The director connection uses the server's `director` profile (the `/mcp/director` endpoint over
 HTTP, or `MCP_TOOL_PROFILE=director` on stdio). That profile has no note-body read at all, so on
 that connection the server enforces the rule. In a normal session the orchestration connection
-stays registered, and nothing enforces the rule there: the guard sees no MCP call. Use the hardened
-entry (below) when enforcement matters.
+stays registered, and the guard enforces the rule there too: `notes_read` and `docs_read` are denied,
+and `items_read` is allowed only with the `get`, `list`, `overview` and `blocked` selects (or
+`describe: true`). Other tools on that connection are not covered. Use the hardened entry (below)
+when enforcement matters.
 
 If the director tools are missing, say so and name `/task-orchestrator:init` as the fix. Until
 then the director-only members are unavailable on the orchestration connection: `runs_read`
@@ -94,39 +98,46 @@ Still never call `notes_read`.
 
 Run these in order and render one compact board. Every call below uses the director profile.
 
-1. Open runs:
+1. Open runs, then paused runs (the list takes one `status` per call):
 
 ```to-call
 {"tool": "runs_read", "select": "list", "args": {"status": "open", "limit": 20}, "profile": "director"}
 ```
 
-No open run: say so in one line, show the decision list (step 3 without `runId`) and the blocked
-work (step 5), and stop.
+```to-call
+{"tool": "runs_read", "select": "list", "args": {"status": "paused", "limit": 20}, "profile": "director"}
+```
 
-2. For each open run, its frontier: `ready` and `waiting` items, and the `inFlight` seats (each
+Show `pauseReason` on each paused run: a budget or attempt pause waits for its decision. No open
+or paused run: say so in one line, still show the decisions (step 3) and the blocked work (step 5),
+and stop.
+
+2. For each open or paused run, its frontier: `ready` and `waiting` items, and the `inFlight` seats (each
 with `stalled`):
 
 ```to-call
 {"tool": "runs_read", "select": "frontier", "args": {"runId": "7c41e0a2"}, "profile": "director"}
 ```
 
-3. Decisions per run. The select has no status filter: keep the summaries whose `status` is `open` or `acknowledged`
-and drop the others yourself. `overdue: true` narrows to the late ones. A summary carries `class`,
+3. Decisions under the project root, in one read: it returns run and run-less decisions together, newest first
+(follow `page.next`). The select has no status filter: keep the summaries whose `status` is `open` or `acknowledged`
+and drop the others yourself. Group them by `runId`, with a "no run" group. `overdue: true` narrows to the late ones. A summary carries `class`,
 `effectiveSeverity`, `overdue` and the `question` (cut to 120 characters), never the options: those
 come from the `decision` read when you answer.
 
 ```to-call
-{"tool": "runs_read", "select": "decisions", "args": {"runId": "7c41e0a2", "limit": 50}, "profile": "director"}
+{"tool": "runs_read", "select": "decisions", "args": {"rootId": "ce064d2c", "limit": 50}, "profile": "director"}
 ```
 
-4. The rollup per open run (counts, spend, stalls). This is one of the two bodies you may read:
+4. The rollup per open or paused run (counts, spend, stalls). This is one of the two bodies you may read:
 
 ```to-call
 {"tool": "report", "select": "rollup", "args": {"runId": "7c41e0a2"}, "profile": "director"}
 ```
 
 5. Blocked work under the project root. Each entry carries `blockType`, `reason`, `decisionId`,
-`resumable` and `blockers[]` (`id`, `title`, `role`, `satisfied`); do not open the item's notes:
+`resumable` and `blockers[]` (`id`, `title`, `role`, `satisfied`); do not open the item's notes. An `awaiting_decision` entry with `resumable: true` was answered and
+only needs a resume (the rollup's `blocked.resumable` counts them):
 
 ```to-call
 {"tool": "items_read", "select": "blocked", "args": {"ancestorId": "ce064d2c"}, "profile": "director"}
@@ -144,14 +155,22 @@ Render, most urgent first:
 ```
 ## Director board
 Decisions waiting: 2 (1 overdue)
-  [d-3f2a] run 7c41 gate high    "Approve schema change?"   OVERDUE
-  [d-91bc] run 7c41 deviation low "Pick retry strategy"
-Runs: 1 open
+  [d-3f2a] run 7c41 deviation high "Approve schema change?"   OVERDUE
+  [d-91bc] no run   question low   "Pick retry strategy"
+Runs: 1 open, 1 paused
   7c41 "W8 plugin"  ready 3  inFlight 2  waiting 1   spend 1.2M tok   stalled 0
-Blocked: 1
+  9d02 "W9 docs"    PAUSED run-budget (d-5e10)
+Blocked: 2
   8aee "Director skill" blocked by dependency 4440ff65
+  b31c "Api guard"      answered, needs resume (d-77aa)
 Coordinator tier: 2 (Workflow)
 ```
+
+Add a coordinator cell to each run's line, from the frontier's `stalled`: show `coord idle (Method A)`
+when the run's `hints.method` is `A` and `hints.phase` is `launched` (nothing runs under the
+coordinator token during a Workflow), `coord idle, seats live` when any `inFlight` seat has
+`stalled: false`, nothing on a paused run, else `COORD STALLED`: `SendMessage` the coordinator, and
+if it is gone, close the run and re-plan.
 
 Then ask which decision to take, or stop if none is open.
 
@@ -170,6 +189,17 @@ user's rationale:
 ```to-call
 {"tool": "runs_write", "op": "answer", "args": {"decisionId": "3f2a9c1e", "option": "approve", "rationale": "Migration reviewed; table recreation is safe."}, "profile": "director"}
 ```
+
+A run-budget or attempt-cap decision is answered with these options (the amount is in `context.dimension`, whole
+tokens or US dollars):
+
+| Class | Options |
+|---|---|
+| `run-budget` | `extend` (with `amount`) or `stop` |
+| `attempt-cap` | `allow_one`, `skip_item` or `stop` |
+
+Before answering, check the class: `answerers: human-only` cannot be answered from this session
+(`forbidden`, `principal_kind` `human`). `ack` marks a decision seen but deferred; it does not answer it.
 
 `text` carries a free-form answer and `amount` a numeric one, when the decision asks for them.
 On `forbidden`, read `error.detail.scope` and `required`, say which, and stop:
@@ -193,6 +223,13 @@ token of the decision's run. On stdio or an unauthenticated local-mode server ev
 Nobody can withdraw a server-raised run-budget or attempt-cap decision.
 For a seat's decision, `SendMessage` the run's coordinator to withdraw it, or answer it.
 `decision_closed` means someone already answered or withdrew it: refresh the board.
+
+## After the answer
+
+An answer never resumes the item. When the decision has an `itemId`, `SendMessage` the run's coordinator with
+the item id (ids only): it resumes the item and re-dispatches. With no live coordinator (the run is closed, or the
+decision was raised outside a run), dispatch one background `Agent` with an explicit `model` to resume the item
+per `/status-progression`. The board then shows the entry as "answered, needs resume" until it does.
 
 ## Coordinator tier
 
@@ -221,7 +258,12 @@ coordinator layer: dispatch it as one background agent.
 ## Waking up
 
 On any wake-up (a `SendMessage` from a coordinator, a task notification, or the user returning
-after idle), read the run that woke you:
+after idle), read the run that woke you. A message starting `TO report:` is a coordinator report
+(events `planned`, `decision`, `paused`, `closed`): act on the ids it names only, after the board
+read below, then Answering. In a tier-2 hand-off: on `planned` with `needs: approve launch`, get the
+user's approval; then call `Workflow` with the returned `args` and `SendMessage` the coordinator
+`launched` with the call's task id, run id and script path; on the task notification, send it the
+result JSON verbatim plus the usage figures (tokens, duration, cost when given).
 
 ```to-call
 {"tool": "runs_read", "select": "get", "args": {"runId": "7c41e0a2"}, "profile": "director"}

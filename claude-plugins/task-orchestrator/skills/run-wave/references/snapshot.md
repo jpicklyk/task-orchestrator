@@ -56,7 +56,9 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
   not an error.
 - `blocked[]` — from `items_read(select:"blocked")`: `itemId` is the entry's `id`, `blockType` its
   `blockType`, and each `blockedBy` entry is one of its `blockers` (`id` → `itemId`, `role`,
-  `threshold` → `effectiveUnblockRole`, `satisfied`).
+  `threshold` → `effectiveUnblockRole`, `satisfied`). An explicit entry may also carry `reason`,
+  `decisionId` and `resumable`, copied from the entry (all optional); the planner names them in the
+  exclusion reason.
 - `parents` — from `items_read(select:"context", itemId:<parent>)`: `role` is `item.role`,
   `canAdvance` and `missing` are `gateStatus.canAdvance` and `gateStatus.missing`.
 - `rulesServed` — the `config` `rules` list (`{key, rulesVersion}` per rule) for `rootId`.

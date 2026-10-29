@@ -8,6 +8,10 @@ argument-hint: "[optional: item id or title to look up]"
 
 Guides role transitions for a work item: identify it, read its gate status, fill missing notes, advance, and recover from a blocked or failed transition. Shapes are in [`_generated/call-shapes.md`](../_generated/call-shapes.md) (`advance` `transition`); semantics are in `current/docs/api-reference.md` ("advance" and "items_read"). Ids below are 8-hex shorts and any id field also takes the full UUID. Read every answer through the envelope: `ok`, then `data.results[0]` (`ok` or `error`) and `data.summary {ok, failed}`. When a write element fails, the call-level `error` is only `partial_failure` (no detail, no fix): read `code`, `kind` (retry class), `detail` and `fix` from `data.results[0].error`. A read (`select`) call reports its failure in the call-level `error`.
 
+## Director mode
+
+Director mode is the session state entered by `/task-orchestrator:director` (or by running as the hardened `director` agent). Here the director-safe reads are `items_read` `get` and `blocked` (they show the role, the block reason, a `decisionId` and whether the item is `resumable`). Never run `advance`, `notes_write` or `items_read` `context` in director mode. Answering an open decision goes through `/task-orchestrator:director`. Every transition, a resume once the item is `resumable` included, is delegated: `SendMessage` the run's coordinator when the item is a member of an open or paused run, otherwise dispatch ONE background `Agent` (`run_in_background: true`, `model` set) that runs the steps below. The agent reports the item id, the role before and after, and one line on any gate or block, never note bodies. A background agent dispatched by a director is not in director mode: it runs the steps below.
+
 ## Step 1: Identify the item
 
 Resolve `$ARGUMENTS` to an id with a search; if several match, show them via `AskUserQuestion`. With no argument, ask for an id or a title fragment.
@@ -36,7 +40,7 @@ Render a status card from the answer:
 | Field | Show |
 |---|---|
 | `item.role` | the role (absent for a lifecycle-free item: no card, it has no lifecycle) |
-| `gateStatus.canAdvance` | open or blocked |
+| `gateStatus.canAdvance` | open or blocked (seat enforcement and claim ownership are not checked, so a member of an open run can still answer `seat_forbidden`) |
 | `gateStatus.missing`, `missingBySeat` | each missing note key and role, and which seat owns it |
 | `gateStatus.blockedBy` | first failing gate: `table`, `dependency`, `note`, `lease` |
 | `guidanceKey` | resolve its text with `items_read` `schema` (`fields: ["guidance"]`) and show it as Guidance |
@@ -93,7 +97,7 @@ Omit a line when its field is empty.
 
 ## Blocked items
 
-`block` and `hold` take an optional `reason`: `awaiting_decision`, `dependency`, `resource` or `manual` (default). `reason: awaiting_decision` requires a `decisionId` naming an open or acknowledged decision on that item; a `decisionId` with any other reason, or `reason`/`decisionId` on a trigger other than `block`/`hold`, is `invalid_request`:
+`block` and `hold` take an optional `reason`: `awaiting_decision`, `dependency`, `resource` or `manual` (default). `reason: awaiting_decision` requires a `decisionId` naming an open or acknowledged decision on that item. Get one by raising with `block: true` (`runs_write` `raise`), which raises and blocks in one unit; do not send a bare `block` for a decision (see [references/decisions.md](references/decisions.md)). A `decisionId` with any other reason, or `reason`/`decisionId` on a trigger other than `block`/`hold`, is `invalid_request`:
 
 ```to-call
 {"tool": "advance", "op": "transition", "args": {"itemId": "4b7d0e19", "trigger": "block", "reason": "awaiting_decision", "decisionId": "7c9e6679"}}
@@ -101,13 +105,17 @@ Omit a line when its field is empty.
 
 - `items_read` `get` and `context` show `blockedReason` and `decisionId` for a blocked item.
 - `items_read` `blocked` lists blocked items: each entry has `blockType` (`explicit` or `dependency`) and `blockers[]` (`threshold`, `satisfied`); an explicit entry also has `reason`, and an `awaiting_decision` entry adds `decisionId` and `resumable` (true once the decision is answered, withdrawn or missing).
-- **Answering a decision never resumes the item.** Read the answer, then send `resume` yourself. `resume` clears the reason.
+- **Answering a decision never resumes the item.** Resume only when the entry is `resumable: true` (or `context` `decisions[]` shows the `decisionId` answered, or no longer lists it: withdrawn decisions are left out); while the decision is open or acknowledged, the next step is to have it answered (the director board), not a `resume`. `resume` clears the reason. The full rule, and how to carry the ruling to the next dispatch, is in [references/decisions.md](references/decisions.md).
 - Decisions are listed on the item in `context` `decisions[]`; `runs_read` `decisions` is director-only.
 - Errors to recognize (on `data.results[0].error`): `invalid_request` with `detail.fields[].field` `/decisionId` (required with `awaiting_decision`, names no decision, belongs to another item, or is already answered or withdrawn). `decision_closed` is a `runs_write` `ack`/`answer`/`withdraw` error (director profile), never an `advance` error. `invalid_transition` with `detail.fromRole: none` (a lifecycle-free item takes no trigger).
 
 ## Troubleshooting
 
 **`gate_blocked`.** `data.results[0].error.detail.missing[]` lists the notes. Fill them (Step 3) and retry. Also read `detail.violations[].gate`: `missing` and `violations` may both be present, and a review-pending or independence violation is not cleared by filling notes.
+
+**`seat_forbidden`.** The item is a member of an open or paused run whose schema declares seats, and the caller may not send that trigger. `detail.allowedSeats` names who may (it always starts with `coordinator`). The run's coordinator resends with its coordinator token as top-level `seatToken`; otherwise leave the transition to the run, and never retry it token-less. This also covers `resume` of a decision-blocked run member: the coordinator sends it with its token, and a member seat may resume only if its seat `transitions:` list `resume`. Or close the run first.
+
+**`run_paused`.** A `start` under a token of a run paused on its budget or attempt limit. Read `detail.pauseReason` and `detail.pauseDecisionId`; the answer comes through the director board. Do not retry.
 
 **Blocked by a dependency (`dependency_unmet`).** Find the blockers; advance them first, then this item appears in their `unblocked`:
 
@@ -117,7 +125,7 @@ Omit a line when its field is empty.
 
 Use `/dependency-manager` to view or change the edges.
 
-**Item is in the blocked role and `start` fails.** `start` is not valid from blocked. Send `resume` (see Triggers), re-read `context`, then `start`.
+**Item is in the blocked role and `start` fails.** `start` is not valid from blocked. Read `blockedReason` first. A pending decision (`awaiting_decision`, not `resumable`) must be answered, not resumed. Otherwise send `resume` (see Triggers), re-read `context`, then `start`.
 
 **Skip the review phase.** `complete` jumps from work straight to terminal but checks every phase's required notes; fill what is missing or use `cancel`.
 
@@ -137,6 +145,12 @@ Use `/dependency-manager` to view or change the edges.
 
 An empty answer with a `reason` (`claim_held`, `dependency_unmet`) means wait; no `reason` means nothing matches.
 
+For work inside an open run, the run's frontier is the authoritative ready list (`ready`, with `inFlight` and `waiting` beside it):
+
+```to-call
+{"tool": "runs_read", "select": "frontier", "args": {"runId": "7c41e0a2"}}
+```
+
 ## Example: gated flow
 
 1. `context` shows `role: queue`, `canAdvance: false`, `missing: ["feature-summary"]`.
@@ -154,7 +168,8 @@ An empty answer with a `reason` (`claim_held`, `dependency_unmet`) means wait; n
 | In work, skip review | `complete` (checks all phases) |
 | In review, verified | `start` (lands terminal) |
 | Needs pausing | `block` or `hold` with a `reason` |
-| In blocked | `resume` |
+| In blocked, decision pending | have it answered (director), then `resume` once `resumable` |
+| In blocked, any other reason | `resume` |
 | Abandon | `cancel` |
 | Terminal, needs rework | `reopen` |
 | Blocked by another item | advance the blocker first |

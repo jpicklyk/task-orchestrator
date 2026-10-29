@@ -202,7 +202,7 @@ test('S9: config is read per fire - flipping the mode between runs flips the gua
 test('hooks-config registers exactly one Agent matcher group for the guard', () => {
   const cfg = JSON.parse(readFileSync(HOOKS_CONFIG, 'utf-8'));
   const pre = cfg.hooks.PreToolUse;
-  assert.equal(pre.length, 4);
+  assert.equal(pre.length, 5);
   const agentGroups = pre.filter((g) => g.matcher === 'Agent');
   assert.equal(agentGroups.length, 1);
   const cmds = JSON.stringify(cfg).match(/dispatch-model-guard\.mjs/g) || [];

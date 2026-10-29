@@ -91,7 +91,7 @@ const SAFE_OUTPUT_KEYS = new Set([
   'testFilesChanged', 'existingTestEdits', 'proceed', 'redProofShape',
 ])
 const SAFE_STAGE_KEYS = new Set([
-  'seat', 'status', 'reason', 'modelReported', 'agentTypeUsed', 'agentTypeFallback', 'commits', 'files', 'notes',
+  'seat', 'status', 'reason', 'modelReported', 'agentTypeUsed', 'agentTypeFallback', 'commits', 'files', 'notes', 'decisionId',
 ])
 const SAFE_ITEM_KEYS = new Set(['id', 'short', 'status', 'schemaFree', 'reason', 'stages', 'outputs'])
 
@@ -321,3 +321,39 @@ test('S9: validatePlanDoc accepts a boolean altitudeSafe and rejects a string wi
   assert.equal(r.ok, false)
   assert.ok(r.errors.includes('bad altitudeSafe: must be a boolean'), JSON.stringify(r.errors))
 })
+// ── Coordinator report (item 666c5e8f): seat-raised decision ids survive both result shapes ──
+
+async function decisionRun({ altitudeSafe, implEnv }) {
+  const item = itemFixture({ short: 'a2000001', stages: stages.featureTaskLike() })
+  const planOver = { items: [item] }
+  if (altitudeSafe !== undefined) planOver.altitudeSafe = altitudeSafe
+  const script = {
+    'planner:a2000001': envelope(plannerOutput({ mainFiles: ['src/a.js'] })),
+    'implementer:a2000001': implEnv,
+  }
+  const { agent } = fakeAgent(script)
+  return core().runPlan(planFixture(planOver), { agent, parallel: fakeParallel, log: () => {} })
+}
+const DEC_A = '11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+const DEC_B = '22222222-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+
+for (const altitudeSafe of [undefined, true]) {
+  test(`S7 (decisionId): a stage envelope's decisionId and paused.decisionId reach the stage record (altitudeSafe ${altitudeSafe})`, async () => {
+    const raised = await decisionRun({
+      altitudeSafe,
+      implEnv: envelope(implementerOutput(), { status: 'stopped', reason: 'awaiting_decision', decisionId: DEC_A }),
+    })
+    const rs = raised.items[0].stages.find((s) => s.seat === 'implementer')
+    assert.equal(rs.decisionId, DEC_A)
+    const paused = await decisionRun({
+      altitudeSafe,
+      implEnv: envelope(implementerOutput(), { status: 'stopped', reason: 'run_paused', paused: { decisionId: DEC_B } }),
+    })
+    assert.equal(paused.items[0].stages.find((s) => s.seat === 'implementer').decisionId, DEC_B)
+  })
+
+  test(`S7 (decisionId): no decisionId key when the envelope carries neither (altitudeSafe ${altitudeSafe})`, async () => {
+    const plain = await decisionRun({ altitudeSafe, implEnv: envelope(implementerOutput()) })
+    for (const st of plain.items[0].stages) assert.equal(Object.hasOwn(st, 'decisionId'), false)
+  })
+}

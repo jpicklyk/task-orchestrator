@@ -661,3 +661,181 @@ test('CHANGELOG: the 4.0.0 Plugin section announces the coordinator move (server
   assert.ok(/token file/i.test(plugin), 'names token files')
   assert.ok(/re-add/.test(plugin), 'names the marketplace remove and re-add')
 })
+
+// ============================================================================================
+// Coordinator report (item 666c5e8f): the `report` helper and the run-ops open token file
+// ============================================================================================
+
+function reportOut(planPath, args) {
+  const res = runCli(['report', '--plan', planPath, ...args])
+  return res
+}
+const DEC = 'd3c1a2b4-0000-4000-8000-00000000d3c1'
+
+test('REPORT S1: a closed report with 2 stopped items has the fixed lines in order, headed TO report', () => {
+  const { dir, boundPath: planPath } = boundDoc()
+  const result = resultDoc({
+    items: [
+      { id: A, short: 'aaaaaaaa', status: 'stopped', reason: 'run_paused', stages: [{ ...stageStatus('implementer', 'stopped'), decisionId: DEC }], outputs: {} },
+      { id: B, short: 'bbbbbbbb', status: 'stopped', reason: 'gate_blocked', stages: [stageStatus('implementer', 'stopped')], outputs: {} },
+    ],
+  })
+  const close = { data: { results: [{ ok: true, snapshot: { reason: 'failed', openDecisions: [DEC] } }] } }
+  const res = reportOut(planPath, [
+    '--event', 'closed', '--result', writeJson(dir, 'result.json', result), '--close', writeJson(dir, 'close.json', close),
+  ])
+  assert.equal(res.status, 0, res.stderr)
+  const lines = res.stdout.trim().split('\n')
+  assert.match(lines[0], /^TO report: run r-\d+-[0-9a-f]+ \(8f14e45f\) closed: /)
+  assert.deepEqual(lines.map((l) => l.split(':')[0]), ['TO report', 'run', 'decisions', 'items', 'stopped', 'close', 'needs'])
+  assert.equal(lines[1], 'run: status closed phase - method A')
+  assert.equal(lines[2], 'decisions: d3c1a2b4 item aaaaaaaa')
+  assert.equal(lines[3], 'items: done 0, stopped 2, deferred 0, held 0, excluded 0')
+  assert.equal(lines[4], 'stopped: aaaaaaaa run_paused; bbbbbbbb gate_blocked')
+  assert.equal(lines[5], 'close: failed, open decisions d3c1a2b4')
+  assert.equal(lines[6], 'needs: nothing')
+})
+
+test('REPORT S2: a 300-char reason is cut to 120 and a stage carrying prose or a seatToken key contributes nothing', () => {
+  const { dir, boundPath: planPath } = boundDoc()
+  const long = 'x'.repeat(300)
+  const result = resultDoc({
+    items: [{
+      id: A, short: 'aaaaaaaa', status: 'stopped', reason: long,
+      stages: [{ ...stageStatus('implementer', 'stopped'), seatToken: 'SECRET-TOKEN-VALUE', prose: 'DIFF BODY TEXT', notes: [{ key: 'k', body: 'NOTE BODY TEXT' }] }],
+      outputs: { implementer: { text: 'OUTPUT PROSE', seatToken: 'SECRET-TOKEN-VALUE' } },
+    }],
+  })
+  const res = reportOut(planPath, ['--event', 'closed', '--result', writeJson(dir, 'result.json', result)])
+  assert.equal(res.status, 0, res.stderr)
+  const stopped = res.stdout.split('\n').find((l) => l.startsWith('stopped:'))
+  assert.ok(stopped.length <= 'stopped: aaaaaaaa '.length + 120, `reason cut: ${stopped.length}`)
+  for (const leak of ['SECRET-TOKEN-VALUE', 'DIFF BODY TEXT', 'NOTE BODY TEXT', 'OUTPUT PROSE']) {
+    assert.equal(res.stdout.includes(leak), false, `${leak} must not appear`)
+  }
+})
+
+test('REPORT S3: an unknown or missing --event exits 2 invalid args', () => {
+  const { planPath } = planDoc()
+  for (const extra of [['--event', 'nope'], []]) {
+    const res = reportOut(planPath, extra)
+    assert.equal(res.status, 2)
+    assert.equal(JSON.parse(res.stderr).error, 'invalid args')
+  }
+})
+
+test('REPORT S4: planned from a plan with excluded items says needs approve launch; a clean plan says nothing', () => {
+  const clean = planDoc()
+  assert.equal(reportOut(clean.planPath, ['--event', 'planned']).stdout.trim().split('\n').pop(), 'needs: nothing')
+  const dirty = JSON.parse(JSON.stringify(clean.doc))
+  dirty.meta.excluded = [{ id: 'cccccccc-3333-4333-8333-333333333333', reason: 'container' }]
+  const res = reportOut(writeJson(clean.dir, 'dirty.json', dirty), ['--event', 'planned'])
+  assert.equal(res.status, 0, res.stderr)
+  assert.equal(res.stdout.trim().split('\n').pop(), 'needs: approve launch')
+  assert.match(res.stdout, /excluded 1/)
+})
+
+test('REPORT S5: a paused run.json gives the pause line and puts the pause decision in decisions', () => {
+  const { dir, boundPath: planPath } = boundDoc()
+  const run = { data: { runId: SERVER_RUN, status: 'paused', pauseReason: 'budget', pauseDecisionId: DEC, hints: { phase: 'launched', method: 'A' } } }
+  const res = reportOut(planPath, ['--event', 'paused', '--run', writeJson(dir, 'run.json', run)])
+  assert.equal(res.status, 0, res.stderr)
+  const lines = res.stdout.split('\n')
+  assert.equal(lines[1], 'run: status paused phase launched method A')
+  assert.equal(lines[2], 'decisions: d3c1a2b4 item -')
+  assert.equal(lines[3], 'pause: budget decision d3c1a2b4')
+})
+
+test('REPORT S6: 12 stopped items list 10 then and 2 more; zero items gives all-zero counts and a failed close', () => {
+  const { dir, boundPath: planPath } = boundDoc()
+  const items = Array.from({ length: 12 }, (_, i) => ({
+    id: `0000000${i.toString(16)}-0000-4000-8000-000000000000`, short: `0000000${i.toString(16)}`, status: 'stopped', reason: `r${i}`, stages: [], outputs: {},
+  }))
+  const res = reportOut(planPath, ['--event', 'closed', '--result', writeJson(dir, 'many.json', resultDoc({ items }))])
+  const stopped = res.stdout.split('\n').find((l) => l.startsWith('stopped:'))
+  assert.equal(stopped.split('; ').length, 11, '10 entries then the and-N-more entry')
+  assert.ok(stopped.endsWith('and 2 more'))
+  const none = { contract: 'implement-wave/result-v1', started: false, reason: 'nothing admitted', items: [], refused: [], deferred: [] }
+  const z = reportOut(planPath, ['--event', 'closed', '--result', writeJson(dir, 'none.json', none)])
+  assert.match(z.stdout, /items: done 0, stopped 0, deferred 0, held 0, excluded 0/)
+  assert.match(z.stdout, /close: failed/)
+})
+
+test('REPORT S9: run-ops open names the coordinator token file, keeps the ops and carries no seatToken key', () => {
+  const { doc, planPath } = planDoc()
+  const out = ops(planPath, 'open')
+  assert.equal(canonPath(out.tokenFile), canonPath(`${doc.args.project.scratchDir}/tokens/coordinator.token`))
+  assert.equal(out.ops.length, 1)
+  assert.equal(hasKeyDeep(out, 'seatToken'), false)
+})
+
+// ============================================================================================
+// Item ad3429e6 - run-ops heartbeat --item (scenarios HB-S9..HB-S11 = test-plan S9..S11).
+// BLIND author: oracle is task-scope Build E1 / AC5: `--phase heartbeat` takes an optional
+// `--item <short|id>` and claims, heartbeats and releases THAT member; without it, items[0].
+// Fixture: independent-two bound plan; items[0] and items[1] are different items, so a heartbeat that
+// ignored --item would claim items[0] and fail every assertion that names items[1].
+// ============================================================================================
+
+test('HB-S9: --item <short id of the second member> -> claim, heartbeat{usage}, release all on that item, not on items[0]', () => {
+  const { dir, bound, boundPath } = boundDoc()
+  const [first, second] = bound.args.items
+  assert.notEqual(first.id, second.id, 'fixture condition: two distinct members')
+  const usage = writeJson(dir, 'usage.json', { tokens: 700, costUsd: 0.25 })
+  const out = ops(boundPath, 'heartbeat', ['--usage', usage, '--item', second.short])
+  assert.equal(out.tool, 'advance')
+  assert.deepEqual(out.ops, [
+    { op: 'claim', itemId: second.id },
+    { op: 'heartbeat', itemId: second.id, usage: { tokens: 700, costUsd: 0.25 } },
+    { op: 'release', itemId: second.id },
+  ])
+  assert.equal(hasKeyDeep(out, 'seatToken'), false)
+})
+
+test('HB-S9: --item <full id of the second member> -> the same three ops on that item', () => {
+  const { dir, bound, boundPath } = boundDoc()
+  const second = bound.args.items[1]
+  const usage = writeJson(dir, 'usage.json', { tokens: 5 })
+  const out = ops(boundPath, 'heartbeat', ['--usage', usage, '--item', second.id])
+  assert.deepEqual(out.ops, [
+    { op: 'claim', itemId: second.id },
+    { op: 'heartbeat', itemId: second.id, usage: { tokens: 5 } },
+    { op: 'release', itemId: second.id },
+  ])
+})
+
+test('HB-S9 (probe): --item naming the FIRST member behaves like the default (same ops)', () => {
+  const { dir, bound, boundPath } = boundDoc()
+  const first = bound.args.items[0]
+  const usage = writeJson(dir, 'usage.json', { tokens: 9 })
+  const named = ops(boundPath, 'heartbeat', ['--usage', usage, '--item', first.short])
+  const dflt = ops(boundPath, 'heartbeat', ['--usage', usage])
+  assert.deepEqual(named, dflt)
+})
+
+test('HB-S10: an unknown --item exits 2 and stderr names the value', () => {
+  const { dir, boundPath } = boundDoc()
+  const usage = writeJson(dir, 'usage.json', { tokens: 1 })
+  const res = runCli(['run-ops', '--plan', boundPath, '--phase', 'heartbeat', '--usage', usage, '--item', 'deadbeef'])
+  assert.equal(res.status, 2, `${res.status} ${res.stdout}`)
+  assert.ok(res.stderr.includes('deadbeef'), `stderr names the unknown item: ${res.stderr}`)
+  assert.equal(res.stdout.trim(), '', 'no ops are rendered for an unknown item')
+})
+
+test('HB-S10 (probe): a well-formed full UUID that is not a member of the plan exits 2 and stderr names it', () => {
+  const { dir, boundPath } = boundDoc()
+  const usage = writeJson(dir, 'usage.json', { tokens: 1 })
+  const stranger = '12345678-1234-4234-8234-123456789abc'
+  const res = runCli(['run-ops', '--plan', boundPath, '--phase', 'heartbeat', '--usage', usage, '--item', stranger])
+  assert.equal(res.status, 2, `${res.status} ${res.stdout}`)
+  assert.ok(res.stderr.includes(stranger), res.stderr)
+})
+
+test('HB-S11: without --item the heartbeat targets items[0], and that differs from items[1]', () => {
+  const { dir, bound, boundPath } = boundDoc()
+  const [first, second] = bound.args.items
+  const usage = writeJson(dir, 'usage.json', { tokens: 42 })
+  const out = ops(boundPath, 'heartbeat', ['--usage', usage])
+  assert.deepEqual(out.ops.map((o) => o.itemId), [first.id, first.id, first.id])
+  assert.notEqual(first.id, second.id)
+})

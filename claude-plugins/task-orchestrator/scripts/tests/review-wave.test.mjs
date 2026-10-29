@@ -1578,3 +1578,89 @@ test('AC5: a lane prompt never lists run_paused among the retried codes and retr
   }
   assert.equal(retried.slice(0, neverIdx).includes('run_paused'), false, 'fixture condition: a run_paused in the retried half would fail this')
 })
+
+// ── review-args (item 666c5e8f): the front door's args builder passes this workflow's own checks ──
+
+import { spawnSync } from 'node:child_process'
+import * as fsx from 'node:fs'
+
+const CLI = join(PLUGIN, 'scripts', 'run-planner.mjs')
+const RA_SERVER_RUN = '8f14e45f-ceea-4672-8a3e-5e8f4a9b7c10'
+const RA_A = 'aaaaaaaa-1111-4111-8111-111111111111'
+const RA_B = 'bbbbbbbb-2222-4222-8222-222222222222'
+
+function cli(args, input) {
+  return spawnSync(process.execPath, [CLI, ...args], { encoding: 'utf8', input: input === undefined ? undefined : JSON.stringify(input) })
+}
+
+function reviewFixture({ bind = true } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'review-args-'))
+  const snap = JSON.parse(fsx.readFileSync(join(PLUGIN, 'scripts', 'tests', 'fixtures', 'run-planner', 'independent-two.json'), 'utf8'))
+  snap.schemas[RA_A].notes.push(
+    { key: 'review-checklist', role: 'review', required: true, seat: 'reviewer', skill: 'review-quality' },
+    { key: 'security-assessment', role: 'review', required: true, seat: 'reviewer', skill: 'security-review' },
+    { key: 'review-extra', role: 'review', required: false, seat: 'reviewer' },
+  )
+  snap.schemas[RA_A].dispatchBySeat = { review: { reviewer: { agent: 'task-orchestrator:reviewer', model: 'opus', effort: 'high' } } }
+  const planRes = cli(['plan', '--now', '2026-09-28T12:00:00Z', '--scratchpad', join(dir, 'sp')], snap)
+  assert.equal(planRes.status, 0, planRes.stderr)
+  let doc = JSON.parse(planRes.stdout)
+  const planPath = join(dir, 'plan.json')
+  fsx.writeFileSync(planPath, JSON.stringify(doc))
+  let usePath = planPath
+  if (bind) {
+    const b = cli(['bind-run', '--in', planPath, '--server-run', RA_SERVER_RUN])
+    assert.equal(b.status, 0, b.stderr)
+    doc = JSON.parse(b.stdout)
+    usePath = join(dir, 'bound.json')
+    fsx.writeFileSync(usePath, b.stdout)
+  }
+  const snapPath = join(dir, 'snapshot.json')
+  fsx.writeFileSync(snapPath, JSON.stringify(snap))
+  return { dir, doc, planPath: usePath, snapPath }
+}
+
+function reviewArgs(fx, items) {
+  return cli(['review-args', '--plan', fx.planPath, '--snapshot', fx.snapPath, '--items', items])
+}
+
+test('REVIEW-ARGS S11: lanes group review notes by seat and skill, share one token file, and pass normalizeArgs and preflight', () => {
+  const fx = reviewFixture()
+  const res = reviewArgs(fx, 'aaaaaaaa')
+  assert.equal(res.status, 0, res.stderr)
+  const args = JSON.parse(res.stdout)
+  assert.equal(args.contract, 'review-wave/args-v1')
+  assert.equal(args.serverRunId, RA_SERVER_RUN)
+  const item = args.items[0]
+  assert.deepEqual(item.stages.map((s) => s.lane).sort(), ['reviewer.review-quality', 'reviewer.security-review'])
+  const byLane = Object.fromEntries(item.stages.map((s) => [s.lane, s]))
+  assert.deepEqual(byLane['reviewer.security-review'].notes, ['security-assessment'])
+  assert.deepEqual(byLane['reviewer.security-review'].skills, ['security-review'])
+  assert.deepEqual(byLane['reviewer.review-quality'].notes.sort(), ['review-checklist', 'review-extra'])
+  assert.equal(byLane['reviewer.review-quality'].dispatch.model, 'opus')
+  const files = new Set(item.stages.map((s) => s.tokenFile))
+  assert.equal(files.size, 1, 'lanes of one seat share one token file')
+  assert.match([...files][0], /aaaaaaaa\.reviewer\.token$/)
+  assert.deepEqual(item.review.requiredReviewNotes.sort(), ['review-checklist', 'security-assessment'])
+  assert.deepEqual(item.review.optionalReviewNotes, ['review-extra'])
+  const norm = normalizeArgs(args)
+  assert.equal(norm.ok, true, norm.reason)
+  assert.deepEqual(preflight(norm.plan).refused, [])
+})
+
+test('REVIEW-ARGS S12: an item without review notes or an unknown short exits 2; an unbound plan has no serverRunId or tokenFile and still passes normalizeArgs', () => {
+  const fx = reviewFixture()
+  for (const items of ['bbbbbbbb', 'deadbeef']) {
+    const res = reviewArgs(fx, items)
+    assert.equal(res.status, 2, `${items}: ${res.stdout}`)
+  }
+  const unbound = reviewFixture({ bind: false })
+  const res = reviewArgs(unbound, 'aaaaaaaa')
+  assert.equal(res.status, 0, res.stderr)
+  const args = JSON.parse(res.stdout)
+  assert.equal(Object.hasOwn(args, 'serverRunId'), false)
+  for (const st of args.items[0].stages) assert.equal(Object.hasOwn(st, 'tokenFile'), false)
+  const norm = normalizeArgs(args)
+  assert.equal(norm.ok, true, norm.reason)
+  assert.deepEqual(preflight(norm.plan).refused, [])
+})

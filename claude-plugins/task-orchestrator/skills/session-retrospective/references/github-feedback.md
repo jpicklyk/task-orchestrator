@@ -105,6 +105,8 @@ Re-upsert the note with the appended line, using its existing `key` and `role` (
 
 Check `ok` and `data.results[0].ok`; on a failure read `data.results[0].error.code`. (Use `[i]` for multi-element calls.)
 
+When the item has **no `proposal` note** (a legacy item), do not write a note that is only the URL: write the full backfilled body (problem and evidence, change, expected effect, blast radius, scope, taken from the item summary and ending `backfilled by review-proposals <YYYY-MM-DD>`, the shape in review-proposals "Before any Accept") and then the `github-issue: <url>` line as its final line.
+
 ---
 
 ## Best-effort discipline

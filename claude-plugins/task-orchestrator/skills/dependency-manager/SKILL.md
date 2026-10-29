@@ -8,6 +8,10 @@ argument-hint: "[optional: item id, title, or action like 'show blockers for X']
 
 Manage `blocks` and `relates_to` edges between work items: view them, create them, delete them and diagnose why an item cannot start. Shapes are in [`_generated/call-shapes.md`](../_generated/call-shapes.md) (`deps_read`, `deps_write`); semantics are in `current/docs/api-reference.md` ("deps_read", "deps_write"). Ids below are 8-hex shorts and any item id field also takes the full UUID. Read every answer through the envelope: `ok`, then `data.results[i]` (`ok` or `error`) and `data.summary {ok, failed}`. When a write element fails, the call-level `error` is only `partial_failure` (no detail, no fix): read `code`, `kind` (retry class), `detail` and `fix` from `data.results[i].error`. A read (`select`) call reports its failure in the call-level `error`.
 
+## Director mode
+
+Director mode is the session state entered by `/task-orchestrator:director` (or by running as the hardened `director` agent). Director-safe here: VIEW by id (`deps_read` plus `items_read` `get`), a broad DIAGNOSE with `items_read` `blocked`, and resolving a title with `items_read` `list` (not `search`, which the guard denies). An `awaiting_decision` entry in the blocked list belongs to the board: answer it through `/task-orchestrator:director`. A single-item `context` diagnosis and every CREATE or DELETE are delegated, because an edge on a run member changes that run's frontier: `SendMessage` the run's coordinator for a member, otherwise dispatch ONE background `Agent` (`run_in_background: true`, `model` set). The agent reports edge counts and item ids, one line per edge changed, never note bodies. A background agent dispatched by a director is not in director mode: it runs the steps below.
+
 ## Step 1: Determine intent
 
 Resolve `$ARGUMENTS` to an item id with a search; if several match, show them via `AskUserQuestion`. An argument that is already an id defaults to VIEW.
@@ -117,7 +121,16 @@ The answer is `{deleted: n}`. An unknown `id` is `not_found`; a pair or item tha
 {"tool": "items_read", "select": "blocked", "args": {"ancestorId": "98d452e9"}}
 ```
 
-Each entry has `blockType` (`explicit` for the blocked role, `dependency` for an unmet edge) and `blockers[]` with `threshold` and `satisfied` for EVERY blocking edge, satisfied ones included. An explicit entry also has `reason`; an `awaiting_decision` entry adds `decisionId` and `resumable`.
+Each entry has `blockType` (`explicit` for the blocked role, `dependency` for an unmet edge) and `blockers[]` with `threshold` and `satisfied` for EVERY blocking edge, satisfied ones included. An explicit entry also has `reason`; an `awaiting_decision` entry adds `decisionId` and `resumable`. A `table` gate on a blocked item means an explicit block, not an edge: read `blockedReason`.
+
+For an explicit block, act on the `reason`:
+
+| `reason` | Needed |
+|---|---|
+| `awaiting_decision`, `resumable: false` | the decision must be answered (director board); do not resume |
+| `awaiting_decision`, `resumable: true` | answered or withdrawn: resume per [decisions.md](../status-progression/references/decisions.md) |
+| `resource` | lease contention: read `context` `resourceLeases`, retry later |
+| `manual` | `resume` via `/status-progression` |
 
 For each unsatisfied blocker decide what must happen:
 
@@ -159,7 +172,7 @@ Then point to the fix: `/status-progression` on the blocker, or fill its missing
 
 **`duplicate`.** The edge exists already; list it instead.
 
-**Item is still blocked after the blocker finished.** Either `unblockAt` names a role the blocker has not reached, or other incoming edges remain. List incoming edges and check each blocker. If every blocker is satisfied and the item sits in the blocked role, an explicit `block` is the cause: `resume` it via `/status-progression`.
+**Item is still blocked after the blocker finished.** Either `unblockAt` names a role the blocker has not reached, or other incoming edges remain. List incoming edges and check each blocker. If every blocker is satisfied and the item sits in the blocked role, an explicit `block` is the cause: read its `reason` (table above). Resume it via `/status-progression` only when it is not a pending decision.
 
 **`not_found` on delete by `id`.** The edge is gone or the id is from elsewhere. List again and use an `id` from the fresh answer.
 

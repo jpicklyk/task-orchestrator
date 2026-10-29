@@ -35,7 +35,7 @@ Invoke `/schema-workflow` with the item ID:
 /schema-workflow ${item_id}
 ```
 
-The skill reads the item's schema at runtime (guidance text via `items_read` `schema` with `fields: ["guidance"]`) and drives note fills (`notes_write`) and phase moves (`advance` op `transition`) until the item reaches terminal. Every one of those calls carries your `seatToken`. Your job inside that flow:
+The skill reads the item's schema at runtime (guidance text via `items_read` `schema` with `fields: ["guidance"]`) and drives note fills (`notes_write`) and phase moves (`advance` op `transition`) up to, but not including, the move into terminal. Every one of those calls carries your `seatToken`. Your job inside that flow:
 
 - **Author note content** per each note's `guidance` field. The guidance is authoritative - follow it.
 - **Do the actual work** the notes describe. Could be code changes, research, configuration edits, anything. The schema decides what; you execute.
@@ -47,7 +47,9 @@ When a call fails, branch on its `error.code` using the outcome table below, and
 
 - **`resource_unavailable`** on a transition into work (a shared resource the item declares is leased by another item, kind `transient`): this is expected contention, not a failure. Do NOT retry the transition and leave the claim alone; emit `skip` with `code: "resource_unavailable"` and the error's `retryAfterMs`. The driver skip-lists the item and ends your seat.
 - **`gate_blocked`** that you cannot clear because a required note needs information you do not have: emit `gate-blocked` with the note key in `reason`.
-- **`run_paused`** or **`run_closed`**: stop at once and emit `error` with that code; the driver ends the loop.
+- **`run_paused`** or **`run_closed`**: stop at once and emit `error` with that code; the driver ends your seat and waits for a paused run to resume, or exits on a closed one.
+
+**Stop before terminal.** Do NOT send the final `complete` transition (or any move that lands the item in terminal). Entering terminal clears the claim, and the driver can report this iteration's usage only while the claim is still held. Fill every note, commit, and emit `ready-to-complete`; the driver reports usage and sends the transition itself.
 
 Do not end your seat yourself; the driver ends it when your process exits.
 
@@ -67,8 +69,10 @@ If the schema's terminal phase declared push or PR steps, follow them. Otherwise
 Emit the outcome marker as your final message:
 
 ```
-RALPH_OUTCOME: {"status": "terminal", "itemId": "${item_id}", "summary": "<short description of what was done>"}
+RALPH_OUTCOME: {"status": "ready-to-complete", "itemId": "${item_id}", "summary": "<short description of what was done>"}
 ```
+
+If the item is already terminal (a one-step schema moved it for you), emit `terminal` instead; that status cannot carry usage.
 
 For any other ending use the matching status from the table, with `reason` instead of `summary`, plus `code` (and `retryAfterMs`) when a catalog code caused it:
 
@@ -83,7 +87,8 @@ Rows marked `by: driver` are observed by the loop driver, not by you; they are l
 <!-- BEGIN GENERATED:ralph-outcomes -->
 | Code | Kind | By | Status | Action | Loop |
 |---|---|---|---|---|---|
-| `terminal` | outcome | iteration | `terminal` | The item reached terminal per its schema. The driver ends the seat done. | continue |
+| `ready-to-complete` | outcome | iteration | `ready-to-complete` | All notes are filled and the work is committed, but the iteration did NOT send the move into terminal. The driver reports usage and sends the complete transition itself while the claim is still held, then ends the seat done. | continue |
+| `terminal` | outcome | iteration | `terminal` | The item already reached terminal per its schema (legacy; prefer ready-to-complete). The driver ends the seat done and cannot report usage (usage-unreported). | continue |
 | `gate-blocked` | outcome | iteration | `gate-blocked` | A required note cannot be filled autonomously. The driver ends the seat abandoned. | gate |
 | `error` | outcome | iteration | `error` | Tool error, build failure, budget cap, or a marker-less exit after every continuation. The driver ends the seat failed. | error |
 | `skip` | outcome | iteration | `skip` | The item cannot be worked now; put the catalog code in `code`. The driver ends the seat abandoned and skip-lists the item. | skip |
@@ -99,8 +104,8 @@ Rows marked `by: driver` are observed by the loop driver, not by you; they are l
 | `note_owned_by_other` | permanent | iteration | `gate-blocked` | A note this seat may not write belongs to another seat. Never take it over. Emit gate-blocked with code and the note key in reason; that seat or a human fills it. | gate |
 | `not_claim_holder` | permanent | iteration | `error` | A write was refused because the call does not hold the claim (claim lapsed, or the call went out without the seat token). Emit error with code. | error |
 | `unauthenticated` | permanent | iteration | `error` | The seat token was refused: the iteration must reach the server as the same principal as the driver. Emit error with code. On a driver call with the coordinator token the loop exits 2. | error |
-| `run_paused` | permanent | driver | `error` | The run paused (budget, attempt cap or manual). Never retried: the driver ends the seat and closes the run cancelled; a director or human answers the pause decision. | exit |
-| `run_closed` | permanent | driver | `error` | The run was closed elsewhere. The driver ends the seat and exits. | exit |
+| `run_paused` | permanent | driver | `error` | The run paused (budget, attempt cap or manual). Never retried and never closes the run: the driver ends the seat, then polls the run every 30s until a director or human answers the pause decision (or resumes a manual pause) and the loop continues, or closes the run (exit 0). | pause-wait |
+| `run_closed` | permanent | driver | `error` | The run was closed elsewhere (a closed run's tokens may also answer unauthenticated; the driver probes the run to tell the two apart). The driver ends the seat and exits 0 without closing. | exit |
 | `run_at_capacity` | transient | driver | `idle` | assign hit the run's maxActiveSeats. The driver waits 30s, then retries the assign, up to 10 times, then ends the loop. | wait-retry |
 | `unavailable` | shedding | driver | `idle` | The server shed load on a driver call. The driver waits retryAfterMs, then tries again. | backoff |
 | `internal` | transient | driver | `idle` | A driver call failed inside the server (transient, no retryAfterMs). The driver waits 30s, then repeats the same step. | backoff |

@@ -89,3 +89,20 @@ test('A1: post-run.md covers reseat from a safe result: --declarations and red-p
   assert.ok(t.includes('--declarations'))
   assert.ok(t.includes('red-proof-shape'))
 })
+
+test('REPORT S14: the reporting contract is written once in coordinator-tiers.md and the skills conform', () => {
+  const tiers = read(...TIERS_DOC)
+  for (const needle of ['planned', 'decision', 'paused', 'closed', 'to: "main"', 'coordinator.token', 'ralph-loop', 'TO report:', 'COORD STALLED', 'coord idle (Method A)', 'launched']) {
+    assert.ok(tiers.includes(needle), `coordinator-tiers.md mentions ${needle}`)
+  }
+  assert.match(tiers, /^\| 3 \|.*ralph-loop/m, 'the tier-3 row names ralph-loop')
+  const runWave = read('skills', 'run-wave', 'SKILL.md')
+  assert.ok(!runWave.includes("Pushing decisions to a director is not this skill's"), 'the old disclaimer is gone')
+  assert.ok(runWave.includes('Reporting') && runWave.includes('report --plan'), 'run-wave names the report helper')
+  assert.ok(runWave.includes('tokens/coordinator.token'), 'run-wave persists the coordinator token')
+  const director = read('skills', 'director', 'SKILL.md')
+  assert.ok(director.includes('TO report'), 'the director skill names the TO report wake-up')
+  assert.ok(director.includes('coord idle (Method A)'), 'the director board has the coordinator cell')
+  assert.ok(read('skills', 'ralph', 'SKILL.md').includes('Under a director'), 'ralph SKILL.md has the Under a director paragraph')
+  assert.ok(read('skills', 'run-wave', 'references', 'post-run.md').includes('review-args'), 'post-run launches review-wave from review-args')
+})

@@ -173,7 +173,8 @@ After the script finishes (the user reports back with the summary, or pastes the
 | `Exit reason: gate failure budget exhausted` | Inspect preserved worktrees; the schema expects notes the iteration agent can't fill autonomously (often `review-checklist`) |
 | `Exit reason: error budget exhausted` | Inspect last error; likely repo/build/network issue affecting all iterations |
 | `Exit reason: idle budget exhausted` | Matches exist but stayed claimed, blocked or skip-listed; re-run later |
-| `Exit reason: run paused` | The run hit its budget or attempt cap (or was paused by hand); a director or human answers the pause decision, or closes the run |
+| `Exit reason: run closed elsewhere` | A director or human closed the run while the loop was working or waiting (exit 0; the driver sends no close) |
+| `run paused ...` (a status line, not an exit) | The run hit its budget or attempt cap (or was paused by hand). The loop ends the seat and polls the run every 30s; it carries on once a director or human answers the pause decision (or resumes a manual pause), and exits 0 if they close the run |
 
 For preserved worktrees from gate-blocked or errored iterations:
 
@@ -195,7 +196,8 @@ The iteration agent emits `RALPH_OUTCOME: {...}` as its final message, with an o
 <!-- BEGIN GENERATED:ralph-outcomes -->
 | Code | Kind | By | Status | Action | Loop |
 |---|---|---|---|---|---|
-| `terminal` | outcome | iteration | `terminal` | The item reached terminal per its schema. The driver ends the seat done. | continue |
+| `ready-to-complete` | outcome | iteration | `ready-to-complete` | All notes are filled and the work is committed, but the iteration did NOT send the move into terminal. The driver reports usage and sends the complete transition itself while the claim is still held, then ends the seat done. | continue |
+| `terminal` | outcome | iteration | `terminal` | The item already reached terminal per its schema (legacy; prefer ready-to-complete). The driver ends the seat done and cannot report usage (usage-unreported). | continue |
 | `gate-blocked` | outcome | iteration | `gate-blocked` | A required note cannot be filled autonomously. The driver ends the seat abandoned. | gate |
 | `error` | outcome | iteration | `error` | Tool error, build failure, budget cap, or a marker-less exit after every continuation. The driver ends the seat failed. | error |
 | `skip` | outcome | iteration | `skip` | The item cannot be worked now; put the catalog code in `code`. The driver ends the seat abandoned and skip-lists the item. | skip |
@@ -211,8 +213,8 @@ The iteration agent emits `RALPH_OUTCOME: {...}` as its final message, with an o
 | `note_owned_by_other` | permanent | iteration | `gate-blocked` | A note this seat may not write belongs to another seat. Never take it over. Emit gate-blocked with code and the note key in reason; that seat or a human fills it. | gate |
 | `not_claim_holder` | permanent | iteration | `error` | A write was refused because the call does not hold the claim (claim lapsed, or the call went out without the seat token). Emit error with code. | error |
 | `unauthenticated` | permanent | iteration | `error` | The seat token was refused: the iteration must reach the server as the same principal as the driver. Emit error with code. On a driver call with the coordinator token the loop exits 2. | error |
-| `run_paused` | permanent | driver | `error` | The run paused (budget, attempt cap or manual). Never retried: the driver ends the seat and closes the run cancelled; a director or human answers the pause decision. | exit |
-| `run_closed` | permanent | driver | `error` | The run was closed elsewhere. The driver ends the seat and exits. | exit |
+| `run_paused` | permanent | driver | `error` | The run paused (budget, attempt cap or manual). Never retried and never closes the run: the driver ends the seat, then polls the run every 30s until a director or human answers the pause decision (or resumes a manual pause) and the loop continues, or closes the run (exit 0). | pause-wait |
+| `run_closed` | permanent | driver | `error` | The run was closed elsewhere (a closed run's tokens may also answer unauthenticated; the driver probes the run to tell the two apart). The driver ends the seat and exits 0 without closing. | exit |
 | `run_at_capacity` | transient | driver | `idle` | assign hit the run's maxActiveSeats. The driver waits 30s, then retries the assign, up to 10 times, then ends the loop. | wait-retry |
 | `unavailable` | shedding | driver | `idle` | The server shed load on a driver call. The driver waits retryAfterMs, then tries again. | backoff |
 | `internal` | transient | driver | `idle` | A driver call failed inside the server (transient, no retryAfterMs). The driver waits 30s, then repeats the same step. | backoff |
@@ -220,7 +222,11 @@ The iteration agent emits `RALPH_OUTCOME: {...}` as its final message, with an o
 | `spawn_error` | local | driver | `error` | The iteration process could not start (for example --claude-bin missing). The driver ends the seat failed. | error |
 <!-- END GENERATED:ralph-outcomes -->
 
-The seat's end follows the final status: `terminal` ends it `done`; `gate-blocked` and `skip` end it `abandoned`; `error` (including a timeout or spawn error) ends it `failed`. Every exit path ends any active seat before it closes the run (`completed`, or `cancelled` on SIGINT/SIGTERM or a paused run). An `end_seat` that fails leaves the seat active until `close`, where `completed` falls back to `cancelled`.
+The seat's end follows the final status: `ready-to-complete` (once the driver's `complete` lands, reported as `terminal`) and `terminal` end it `done`; `gate-blocked` and `skip` end it `abandoned`; `error` (including a timeout or spawn error) ends it `failed`. Every exit path ends any active seat before it closes the run (`completed`, or `cancelled` on SIGINT/SIGTERM). A paused run is never closed by the driver, and a run closed elsewhere is not closed again. An `end_seat` that fails leaves the seat active until `close`, where `completed` falls back to `cancelled`.
+
+**Usage handshake.** Entering terminal clears the claim, and the server records a seat's usage only under a held claim. So the iteration stops at `ready-to-complete`; the driver sends `heartbeat` with the final `usage`, then `transition` `complete`, both under the seat token (a transient answer on `complete` is retried up to 3 times). A legacy `terminal` outcome reports no usage and prints `usage-unreported`, so `--run-budget-usd` does not count it. Between claim and the end of the iteration the driver also heartbeats the claim every `--heartbeat-interval` seconds (default half of `--ttl`), so a long iteration outlives the TTL. **Skip-listing.** An item whose iteration ends `gate-blocked` or `error` is skip-listed for the rest of the loop.
+
+**Which items ralph can drain.** Ralph drains only types the `implementer` seat can carry to terminal. On a seat-aware schema (such as this repository's `bug-fix`) the review and orchestrator steps belong to other seats, so those iterations end `gate-blocked`.
 
 **Contention is a skip, never a release.** A claim the driver cannot take (`claim_held`) and a resource lease the iteration cannot take (`resource_unavailable`) both skip-list the item for its `retryAfterMs` (30s when absent); `invalid_transition`, `not_found` and `duplicate` skip it for the rest of the loop. The next selection picks a different item. A shedding or transient fault on a driver call (`unavailable`, `internal`, a network timeout) backs the loop off and retries the same step; it never skip-lists the item. See [Workflow Guide section 11 - Resource Leasing](../../../../current/docs/workflow-guide.md#11-resource-leasing) for the lease model.
 
@@ -228,7 +234,7 @@ The script's own exit code:
 
 | Code | Meaning |
 |---|---|
-| `0` | Loop ended normally (drained, iteration cap, gate or idle budget, run paused or closed) |
+| `0` | Loop ended normally (drained, iteration cap, gate or idle budget, run closed elsewhere). A paused run does not end the loop |
 | `2` | Error budget exhausted, or a REST call the loop depends on failed (run open, coordinator credential refused) |
 | `64` | CLI argument error, no REST API URL, or no project root |
 | `70` | Could not read iteration prompt |
@@ -247,19 +253,29 @@ The script's own exit code:
 | Check the iteration prompt template | Read `skills/ralph/iteration-prompt.md` in this plugin |
 | Regenerate the outcome table after editing `OUTCOME_TABLE` | `node claude-plugins/task-orchestrator/scripts/render-ralph-prompts.mjs` (`--check` verifies) |
 
+**Under a director.** Ralph is a tier-3 coordinator (see `skills/director/references/coordinator-tiers.md`).
+It cannot `SendMessage`, so it prints the coordinator report instead: a `TO report:` block with event
+`paused` when it starts waiting on a paused run (reason and decision id) and event `closed` after the
+final summary (counts, stopped items, close reason). A background agent that started ralph with Bash
+`run_in_background: true` relays each block to the director (`SendMessage` with `to: "main"`; Monitor on
+the output for a mid-run pause, otherwise on exit). Ralph never raises or answers a decision and never
+resumes the run, and the relaying agent never closes ralph's run.
+
 ---
 
 ## Examples
 
-### Example 1: Drain the bug-fix queue
+### Example 1: Drain the quick-fix queue
 
-User: "ralph the bug-fix backlog"
+User: "ralph the quick-fix backlog"
 
 ```
-$ARGUMENTS = "tag=bug-fix"
+$ARGUMENTS = "type=quick-fix"
 ```
 
-**Step 1** parses the filter: `tag=bug-fix`; the project root scopes it.
+(`quick-fix` stands for any type whose schema is seat-less, or whose every note the implementer seat owns. This repository's `bug-fix` is seat-aware, so ralph drains only types the implementer seat can carry to terminal.)
+
+**Step 1** parses the filter: `type=quick-fix`; the project root scopes it.
 
 **Step 2** uses defaults (max=10, budgets=3/2, $5/iter, 45 min timeout, sonnet).
 
@@ -269,11 +285,11 @@ $ARGUMENTS = "tag=bug-fix"
 
 ```
 node claude-plugins/task-orchestrator/scripts/ralph-loop.mjs \
-  --filter "tag=bug-fix" \
+  --filter "type=quick-fix" \
   --max 10
 ```
 
-User runs it. The driver opens one run. Per iteration it selects the oldest ready item, assigns it an implementer seat, claims it under the seat token, and spawns a fresh `claude -p --worktree=ralph-<id>` whose prompt names the item and the token file. The agent reads the item's context, invokes `/schema-workflow` to drive it through whatever phases its schema declares, commits changes, and exits with the outcome marker; the driver ends the seat.
+User runs it. The driver opens one run. Per iteration it selects the oldest ready item, assigns it an implementer seat, claims it under the seat token, and spawns a fresh `claude -p --worktree=ralph-<id>` whose prompt names the item and the token file. The agent reads the item's context, invokes `/schema-workflow` to drive it through whatever phases its schema declares, commits changes, and exits with the `ready-to-complete` marker; the driver reports usage, sends the `complete` transition and ends the seat.
 
 5 iterations later: 3 terminal, 1 gate-blocked (a required note couldn't be filled), 1 errored (test failure unrelated to the fix). Loop exits when consecutive gate failures hit the budget (3) or nothing is ready - whichever comes first - and closes the run.
 
@@ -308,7 +324,7 @@ node claude-plugins/task-orchestrator/scripts/ralph-loop.mjs \
   --run-budget-usd 30
 ```
 
-When the run's reported spend reaches $30 the server pauses the run on a budget decision; the next assign answers `run_paused`, and the driver ends the loop and closes the run `cancelled`.
+When the run's reported spend reaches $30 the server pauses the run on a budget decision; the next assign answers `run_paused`. The driver does not close the run: it prints the pause reason and decision once, then polls the run every 30s until a director or human answers the pause decision (the loop continues; a manual pause is resumed instead) or closes the run (the loop exits 0).
 
 ---
 
@@ -424,4 +440,4 @@ Solution: The iteration must collect any results itself, fill notes, and emit th
 
 **Why a marker-less clean exit gets resumed instead of immediately counted as an error.** A model left without a human in the loop can end its turn early - trailing off into a status report instead of continuing the work or emitting a terminating signal. The loop driver treats "clean exit, no marker" as recoverable: it resumes the same session (`claude -p --resume <session_id>`, same worktree - never `--worktree`, which would spin up a new one) and asks it to finish or emit the marker itself, up to `--max-continuations` times (default 2) and only while the iteration's remaining `--budget` stays at or above $0.25 and the iteration timeout has not passed. The decision keys on marker *absence*, never on the outcome's `status`. Spend across resumes is tracked from each envelope's `total_cost_usd`, which reports the resumed conversation's running total, so the driver takes the latest reading rather than summing.
 
-**Why TTL=1800 default (not the server's 900).** A non-trivial iteration can exceed 15 minutes. 1800s gives 30-minute headroom without requiring a heartbeat; ending the seat frees the claim as soon as the iteration finishes. For longer iterations, raise `--ttl` along with `--iteration-timeout`; the cap is 86400 (24 hours).
+**Why TTL=1800 default (not the server's 900).** A non-trivial iteration can exceed 15 minutes. 1800s gives 30-minute headroom, and the driver heartbeats the claim every `--heartbeat-interval` seconds (default `ttl/2`, at least 1 and below `--ttl`) while the iteration runs, so a long iteration does not lose it. Ending the seat frees the claim as soon as the iteration finishes. Keep `--ttl` above the heartbeat interval; the cap is 86400 (24 hours).

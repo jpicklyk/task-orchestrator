@@ -6,6 +6,8 @@ argument-hint: "[optional: describe what you want to track, e.g. 'a web app proj
 
 # Quick Start - MCP Task Orchestrator
 
+Not a director-mode skill: run it outside director mode (`/task-orchestrator:director off`); director-guard denies its file, shell and config steps partway through.
+
 Interactive onboarding that teaches by doing. Detects your workspace state and adapts. Calls are 4.0 tool calls; shapes live in [`../_generated/call-shapes.md`](../_generated/call-shapes.md). Every answer is the response envelope (`ok`, `data` or `error`). A write is `{ops: [...]}` of flat elements (one per `to-call` block here). Results come back as `data.results[i]` in request order with `data.summary {ok, failed}`; read ops of an ops tool (`config` `get`, `validate`, `effective`) answer there too. These calls are non-atomic: if any element fails, even in a one-element call, the answer is `ok: false` with top-level `error.code: partial_failure` (no detail, no fix) beside the full `data`, and the cause is that element's `data.results[i].error` (`code`, `message`, `detail`, `fix`). Any other top-level `error.code` is a call-level rejection (envelope, unknown field, access).
 
 ## Step 0: Learn Your Tools First
@@ -50,7 +52,13 @@ Health check; pass `ancestorId` only when a **project** rootId is known (persona
 {"tool": "items_read", "select": "context", "args": {"ancestorId": "<rootId>"}}
 ```
 
-**If `data.active.items` and `data.stalled` are both empty**, follow the **Fresh-Start Path** (Steps 2-8). **Otherwise** follow the **Orientation Path** (Steps A-C).
+The health view lists `work` and `review` items as `active` and never lists `queue` items, so a backlog-only workspace looks empty there. Check the queue too, with one cheap read (add `ancestorId` when a project rootId is known):
+
+```to-call
+{"tool": "items_read", "select": "list", "args": {"role": "queue", "limit": 1, "ancestorId": "<rootId>"}}
+```
+
+**If `data.active.items`, `data.blocked.items` and `data.stalled` are all empty AND the queue read returns no items**, follow the **Fresh-Start Path** (Steps 2-8). **Otherwise** follow the **Orientation Path** (Steps A-C).
 
 ---
 
@@ -282,7 +290,7 @@ Recommend one concrete action:
 | Situation | Recommendation |
 |---|---|
 | Stalled items with missing notes | Fill the required notes: show the exact `notes_write` call |
-| Explicitly blocked item (`blockType: "explicit"`) whose cause is cleared | `advance` `transition` with `trigger: "resume"` (back to its previous role; `start` is invalid from `blocked`) |
+| Explicitly blocked item (`blockType: "explicit"`) | Read the block's `reason` with `items_read` `context` and the `itemId`, then branch. `awaiting_decision`: resumable only after the decision is answered, and answering never resumes it, so answer it through the director entry, then resume. `resource`: a lease wait, retry later. Any other explicit block: when its cause is cleared, `advance` `transition` with `trigger: "resume"` (back to its previous role; `start` is invalid from `blocked`) |
 | Dependency-blocked item (`blockType: "dependency"`) | Finish its blocker; the item is actionable once the dependency is satisfied |
 | No active work, queue items exist | Start the highest-priority queue item |
 | Empty workspace | Switch to the Fresh-Start path (Step 2) |
