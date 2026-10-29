@@ -446,8 +446,10 @@ process requires:
 
 Once the review hand-off (Step 5) is dispatched or handed off, any review seats of this run have
 been swept (Step 0b again), and any immediate human checkpoints (Step 6) are surfaced, send the usage
-heartbeat now when Step 0a deferred it (see Step 0a), then close the
-run: `node "<helper>" run-ops --plan <plan> --phase close --result <result.json>` renders
+heartbeat now when Step 0a deferred it (any run item has a review phase): `node "<helper>" run-ops
+--plan <plan> --phase heartbeat --usage <usage.json> --item <short>`, where `<short>` is the first item
+Step 4 sent `start` for (it is in review, so not terminal). Send it under the coordinator token, then
+close the run: `node "<helper>" run-ops --plan <plan> --phase close --result <result.json>` renders
 `{op: "close", runId, reason}` — `completed` when the result says `started: true`, `failed` when it
 says `started: false` or the launch threw (no result); pass `--reason cancelled` for an explicit user
 stop or `--reason abandoned` for a Resume re-plan of an unrecoverable run (any other `--reason` exits
