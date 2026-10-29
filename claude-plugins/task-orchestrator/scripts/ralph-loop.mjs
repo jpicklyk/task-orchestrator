@@ -1092,7 +1092,7 @@ function ralphReport(event, extra = {}) {
             ...extra,
             status: "paused",
             headline: `run paused (${extra.pauseReason || "unknown"})`,
-            needs: "answer the pause decision, then resume or close",
+            needs: "answer the pause decision (a manual pause is resumed instead), or close the run",
         });
     }
     return formatCoordinatorReport({

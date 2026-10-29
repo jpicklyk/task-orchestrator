@@ -1778,7 +1778,7 @@ export function reportFields(doc, opts = {}) {
   } else if (event === 'paused') {
     fields.status = 'paused'
     fields.headline = `run paused (${fields.pauseReason || 'unknown'})`
-    if (!fields.needs) fields.needs = 'answer the pause decision, then resume or close'
+    if (!fields.needs) fields.needs = 'answer the pause decision (a manual pause is resumed instead), or close the run'
   } else {
     fields.headline = `${fields.decisions.length} open decision${fields.decisions.length === 1 ? '' : 's'}`
     if (!fields.needs) fields.needs = 'answer the decision'
