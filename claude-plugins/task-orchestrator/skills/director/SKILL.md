@@ -25,7 +25,9 @@ Calling the skill again while in director mode refreshes the marker and the dash
 ## The altitude rule
 
 - Never open or search a file. `Read`, `Edit`, `Write`, `Grep`, `Glob` and `NotebookEdit` are
-  denied.
+  denied. `PowerShell` and `Monitor` are denied outright (they run a shell command and print its
+  output); `Workflow` runs only `task-orchestrator:implement-wave` with an object `args` carrying
+  `altitudeSafe: true`.
 - Never read a note body, with two exceptions: a decision request (`runs_read` `decision`) and a
   run rollup (`report` `rollup`).
 - `Bash` (absent from the hardened entry's tool list) runs only `git status`, `git log`, `git branch`, `gh pr view`, `gh pr list` and
@@ -81,8 +83,10 @@ on. Confirm they are in your tool list; do not edit `.mcp.json` from here.
 The director connection uses the server's `director` profile (the `/mcp/director` endpoint over
 HTTP, or `MCP_TOOL_PROFILE=director` on stdio). That profile has no note-body read at all, so on
 that connection the server enforces the rule. In a normal session the orchestration connection
-stays registered, and nothing enforces the rule there: the guard sees no MCP call. Use the hardened
-entry (below) when enforcement matters.
+stays registered, and the guard enforces the rule there too: `notes_read` and `docs_read` are denied,
+and `items_read` is allowed only with the `get`, `list`, `overview` and `blocked` selects (or
+`describe: true`). Other tools on that connection are not covered. Use the hardened entry (below)
+when enforcement matters.
 
 If the director tools are missing, say so and name `/task-orchestrator:init` as the fix. Until
 then the director-only members are unavailable on the orchestration connection: `runs_read`

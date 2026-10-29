@@ -76,7 +76,19 @@
         ]
       },
       {
-        "matcher": "Skill|Read|Edit|Write|Bash|Agent|Grep|Glob|NotebookEdit",
+        "matcher": "Skill|Read|Edit|Write|Bash|PowerShell|Monitor|Agent|Grep|Glob|NotebookEdit|Workflow",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/director-guard.mjs\"",
+            "timeout": 5,
+            "onFailure": "block"
+          }
+        ]
+      }
+,
+      {
+        "matcher": "^mcp__.*task-orchestrator.*__(docs_read|items_read|notes_read)$",
         "hooks": [
           {
             "type": "command",

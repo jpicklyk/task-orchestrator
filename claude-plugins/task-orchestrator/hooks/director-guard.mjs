@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Director Guard Hook - PreToolUse on Skill|Read|Edit|Write|Bash|Agent|Grep|Glob|NotebookEdit. Two jobs:
+// Director Guard Hook - PreToolUse on Skill|Read|Edit|Write|Bash|PowerShell|Monitor|Agent|Grep|Glob|NotebookEdit|Workflow,
+// plus (a second registration) the task-orchestrator docs_read, items_read and notes_read tools. Two jobs:
 //
 // 1. Marker lifecycle. A Skill call naming the director skill (`director` or
 //    `task-orchestrator:director`) from the main session (non-empty `session_id`, no `agent_id`)
@@ -7,7 +8,11 @@
 //    with `args` `off` removes it. A skill body cannot see its session id, the hook can, so the
 //    marker is written here.
 // 2. Altitude rule. While the marker exists, the director session may not open files or run
-//    foreground work: Read/Edit/Write/Grep/Glob/NotebookEdit are denied, Bash is denied unless
+//    foreground work: Read/Edit/Write/Grep/Glob/NotebookEdit are denied, PowerShell and Monitor are
+//    denied outright, docs_read and notes_read on any task-orchestrator server are denied, items_read
+//    is allowed only for the director selects (get, list, overview, blocked) or `describe: true`,
+//    Workflow is allowed only for `task-orchestrator:implement-wave` with an object `args` carrying
+//    `altitudeSafe: true`, Bash is denied unless
 //    every segment starts with a DIRECTOR_BASH_ALLOW entry and, for `git log`, `git status` and
 //    `git branch`, every later token is on that command's flag allow-list or is a plain operand
 //    (so no patch, diff or file output), and Agent is denied unless `run_in_background === true`. SendMessage and ListAgents are never denied, a call carrying
@@ -35,6 +40,18 @@ export const REASON_PREFIX = 'Director altitude rule:';
 
 const NEVER_DENIED = new Set(['SendMessage', 'ListAgents']);
 const FILE_TOOLS = new Set(['Read', 'Edit', 'Write', 'Grep', 'Glob', 'NotebookEdit']);
+
+/** Tools that run a shell command and return its output. Bash keeps the bashAllowed allow-list; the rest deny. */
+export const SHELL_TOOLS = Object.freeze(['Bash', 'PowerShell', 'Monitor']);
+const SHELL_TOOL_SET = new Set(SHELL_TOOLS);
+
+/** The items_read selects a director session may use (the director profile set). */
+export const DIRECTOR_ITEMS_READ_SELECTS = Object.freeze(['get', 'list', 'overview', 'blocked']);
+
+/** The only workflow that honours `altitudeSafe`. */
+const ALTITUDE_SAFE_WORKFLOW = 'task-orchestrator:implement-wave';
+
+const MCP_NAME = /^mcp__.*task-orchestrator.*__(docs_read|items_read|notes_read)$/;
 
 const REMEDY =
   'Delegate the work through a background `Agent` (`run_in_background: true`) or `SendMessage` to a coordinator, or leave director mode with `/task-orchestrator:director off`.';
@@ -155,6 +172,7 @@ export function guardDecision(input, { env = process.env, director } = {}) {
   if (!inDirector) return null;
   if (tool === 'Skill') return null;
   if (FILE_TOOLS.has(tool)) return denyReason(tool, 'the director never opens a file');
+  if (SHELL_TOOL_SET.has(tool) && tool !== 'Bash') return denyReason(tool, 'a shell command can print any file; only `Bash` with a read-only allow-listed command runs');
   if (tool === 'Bash') {
     if (bashAllowed(toolInputOf(input).command)) return null;
     const allowed = DIRECTOR_BASH_ALLOW.map((e) => `\`${e}\``).join(', ');
@@ -163,6 +181,20 @@ export function guardDecision(input, { env = process.env, director } = {}) {
   if (tool === 'Agent') {
     if (toolInputOf(input).run_in_background === true) return null;
     return denyReason('Agent', 'a foreground dispatch; pass `run_in_background: true`');
+  }
+  if (tool === 'Workflow') {
+    const ti = toolInputOf(input);
+    if (ti.name === ALTITUDE_SAFE_WORKFLOW && isPlainObject(ti.args) && ti.args.altitudeSafe === true) return null;
+    return denyReason('Workflow', `only \`${ALTITUDE_SAFE_WORKFLOW}\` with an object \`args\` carrying \`altitudeSafe: true\` runs`);
+  }
+  const mcp = typeof tool === 'string' ? MCP_NAME.exec(tool) : null;
+  if (mcp !== null) {
+    if (mcp[1] === 'items_read') {
+      const ti = toolInputOf(input);
+      if (ti.describe === true || (typeof ti.select === 'string' && DIRECTOR_ITEMS_READ_SELECTS.includes(ti.select))) return null;
+      return denyReason(tool, `only the ${DIRECTOR_ITEMS_READ_SELECTS.map((e) => `\`${e}\``).join(', ')} selects run`);
+    }
+    return denyReason(tool, 'a read that can return a note or document body');
   }
   return null;
 }
