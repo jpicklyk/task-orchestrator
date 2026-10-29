@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Plugin
 
+- **run-wave post-run leaves merge arming to the project review step.** Under `review: "handoff"`, post-run now says the project's own review step owns merge arming, so post-run never arms auto-merge before the review verdict is recorded.
 - **A director session always gets the retrospective dispatch directive.** `director-watch`, `retro-trigger` and `retro-backstop` treat a session in director mode as `retrospective.mode: dispatch` (`off` still sends nothing), and a run that would be nudged is named in the dispatch directive instead, so the director never runs `/session-retrospective` in its own context.
 - **The director skill matches the director tool profile.** Blocked work is read with `items_read` `blocked` (per-item reason and blockers) rather than `overview` counts; the tool budget names `runs_write` `pause`, `resume` and `close` and when each applies; `forbidden` is told apart by `error.detail.scope`; the frontier's seats are `inFlight`; decision options come from the single `decision` read; tier 3 is decided by asking or by a background `claude --version`.
 - **`create-item` files observations as standalone roots.** An `agent-observation` item is created at depth 0 with no parent, as the self-improving workflow guide describes, instead of under a project's Observations container.

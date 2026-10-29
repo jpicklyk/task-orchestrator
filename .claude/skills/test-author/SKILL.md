@@ -444,6 +444,9 @@ the test, or the spec is wrong; the test author's job stops at an accurate, spec
 `test-manifest` (work phase, required) is the test author's complete account of what was done.
 Fill every field — an omitted field reads as "not done," not as "not applicable" (use an explicit
 `N/A: <reason>` for genuinely inapplicable fields, matching the probe-catalog convention in §6).
+A second or later pass rewrites `test-manifest` in full (every S-id row, probe and arbitration),
+never as a delta that points at a previous revision; or it writes `test-manifest-a<n>`, leaving the
+original as written.
 
 - **Authoring identity** — the (principal, seat) that wrote the tests (the note's attribution), for
   the independence audit to compare against the implementer's (or the declared temporal-only mode, §11).

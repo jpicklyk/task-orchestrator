@@ -688,13 +688,21 @@ exactly three dispositions:
 2. **Test wrong.** REQUIRES a spec citation before this disposition is available: the note key
    plus the quoted acceptance criterion plus the asserted-vs-observed values. "The implementation
    does X" is not evidence for this case — it is evidence for case 1. If no covering criterion
-   exists to cite, this disposition is not available; fall through to case 3. Once cited,
-   re-dispatch the test author, scoped to `src/test/**` only.
+   exists to cite, this disposition is not available; fall through to case 3. Before ruling case 2,
+   confirm the failing test's INPUT fixture matches the declared input contract (the declarations
+   file or the producing stage's schema, e.g. planner-v1): a fixture-shape mismatch is a fixture fix
+   on the test side that keeps the oracle, not a case-2 oracle change. A case-2 fix keeps the S-id's
+   oracle assertion; name the oracle in the re-dispatch prompt. Once cited, re-dispatch the test
+   author, scoped to `src/test/**` only.
 3. **Spec wrong or silent.** Escalate to the user. Amend `task-scope`/`diagnosis` first, then
    dispatch whichever side the amendment implicates.
 
-**Record every arbitration** — case number, the citation (for case 2), and the resolving commit
-SHA — as a bullet in the child's `implementation-notes`. **Never weaken, skip, or `@Disable` a
+**Record every arbitration**, and every other orchestrator ruling in a fix cycle — case number,
+the citation (for case 2), and the resolving commit SHA — as a new `## Amendment A<n>` section in
+the child's `orchestrator-decisions` note (role queue, orchestrator-owned; `implementation-notes`
+is implementer-seat-owned and the orchestrator never writes it). The note is append-only: read its
+current body (`notes_read` `get`) and upsert the old body plus the new section. Never drop or
+rewrite an earlier section; mark a reversed one `REVERSED by A<m>` in place. **Never weaken, skip, or `@Disable` a
 test to unblock a wave**, regardless of disposition; that is exactly the failure mode this trait
 exists to prevent (`test-author` §7, §9).
 
@@ -1023,6 +1031,15 @@ After review passes:
    - Wait on `gh pr checks <n> --watch --fail-fast` and squash-merge only when every check is
      green. Never merge with a check pending. If auto-merge is armed, GitHub enforces "all green"
      only for REQUIRED checks, so this gate still applies to the rest.
+   - **Review-first arming.** Arm auto-merge (`gh pr merge <n> --squash --auto`), or merge, only
+     after the item's review verdict is recorded with 0 blocking, and only once every observation
+     the orchestrator chose to act on is committed on the branch. A PR opened before review (for
+     early CI) is opened without auto-merge. If auto-merge is already armed when a review starts,
+     disarm it first (`gh pr merge <n> --disable-auto`).
+   - **Guard landing.** When a merged PR adds or tightens a guard or contract test
+     (architecture/Konsist, a consistency test, a token or size budget), run
+     `gh api -X PUT repos/<owner>/<repo>/pulls/<n>/update-branch` on every open PR against the
+     same base, and let its CI re-run green before arming.
    - On a red check, read the failed job. An infra flake gets one
      `gh run rerun <run-id> --failed`, recorded in the item's notes; a test failure is fixed on
      the branch.
