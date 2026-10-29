@@ -8,6 +8,10 @@ argument-hint: "[optional: item id or title to look up]"
 
 Guides role transitions for a work item: identify it, read its gate status, fill missing notes, advance, and recover from a blocked or failed transition. Shapes are in [`_generated/call-shapes.md`](../_generated/call-shapes.md) (`advance` `transition`); semantics are in `current/docs/api-reference.md` ("advance" and "items_read"). Ids below are 8-hex shorts and any id field also takes the full UUID. Read every answer through the envelope: `ok`, then `data.results[0]` (`ok` or `error`) and `data.summary {ok, failed}`. When a write element fails, the call-level `error` is only `partial_failure` (no detail, no fix): read `code`, `kind` (retry class), `detail` and `fix` from `data.results[0].error`. A read (`select`) call reports its failure in the call-level `error`.
 
+## Director mode
+
+Director mode is the session state entered by `/task-orchestrator:director` (or by running as the hardened `director` agent). Here the director-safe reads are `items_read` `get` and `blocked` (they show the role, the block reason, a `decisionId` and whether the item is `resumable`). Never run `advance`, `notes_write` or `items_read` `context` in director mode. Answering an open decision goes through `/task-orchestrator:director`. Every transition, a resume once the item is `resumable` included, is delegated: `SendMessage` the run's coordinator when the item is a member of an open or paused run, otherwise dispatch ONE background `Agent` (`run_in_background: true`, `model` set) that runs the steps below. The agent reports the item id, the role before and after, and one line on any gate or block, never note bodies. A background agent dispatched by a director is not in director mode: it runs the steps below.
+
 ## Step 1: Identify the item
 
 Resolve `$ARGUMENTS` to an id with a search; if several match, show them via `AskUserQuestion`. With no argument, ask for an id or a title fragment.

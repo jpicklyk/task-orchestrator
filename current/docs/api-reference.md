@@ -237,7 +237,7 @@ then the root. Per item:
   the `advance` `transition` shapes.
 - rejected: `{itemId, outcome: "failed", error: {code, kind, message, detail?, fix?}}`, the same catalog error
   `advance` `transition` returns for that item (`gate_blocked`, `dependency_unmet`, `not_claim_holder`,
-  `resource_unavailable`, `invalid_transition`, `unauthenticated`). Its in-set dependents are skipped, except after
+  `resource_unavailable`, `invalid_transition`, `seat_forbidden`, `unauthenticated`). Its in-set dependents are skipped, except after
   `invalid_transition` (the item cannot take the trigger from its role), whose dependents still run.
 
 Result: `{ok, id?, trigger, items, summary: {total, applied, skipped, failed}}` (`id` is the `rootId` when given;
@@ -1519,6 +1519,8 @@ per-root document; any other key is rejected, so a push is never silently partia
 | `schema_resolution` | No: removed in 4.0 (rejected) | n/a |
 | `extensions` | Stored, never read: an opaque mapping of namespaces for plugin and hook settings | n/a |
 | `independence` | Yes | `EffectiveConfigResolver.resolveIndependencePolicy()`: a per-root block replaces the server one wholesale |
+| `runs` | Yes | `EffectiveConfigResolver.resolveRunsConfig()`: per field; the per-root value, else the server's, else the default |
+| `decision_classes` | Yes | `EffectiveConfigResolver.resolveDecisionClasses()`: per class name; a per-root class replaces the server class of that name (the built-in classes are not merged at this step) |
 | `actor_authentication` | No: removed in 4.0 (rejected as an unknown key) | n/a |
 | any other key | No (rejected) | n/a |
 
@@ -2110,14 +2112,16 @@ never stalled. Stalled is a derived view only: nothing is ended, released or rai
 
 **Frontier** (`frontier{runId}`): `{runId, status, stalled, counts: {queue, work, review, blocked, terminal}, ready:
 [{id, title, role, type?}], inFlight: [{id, role, seat, attempt, lastSeenAt?, stalled}], waiting: [{id, reason,
-blockers?}]}`, one read with a constant number of statements. `runId` is the full UUID, item ids are 8-hex short ids;
+decisionId?, blockers?}]}`, one read with a constant number of statements. `runId` is the full UUID, item ids are 8-hex short ids;
 `stalled` is the coordinator's, the same as the run view's `coordinatorStalled`; every array is present. `counts` covers
 the visible members, every role present. `ready` (membership order) holds the members that are neither terminal nor
 blocked, have no active seat, no unsatisfied blocking dependency and no live claim held outside the run (a claim whose
 holder pair is not an active assignee of this run, the coordinator included; an expired claim never counts); it is
 always empty on a closed run, and a paused run computes it normally. `inFlight` (assignment order) holds the active
-member seats, never the coordinator. `waiting` (membership order): a blocked member has `reason: manual`; a member with
-an unsatisfied blocking dependency has `reason: dependency` and `blockers`, the unsatisfied blockers' short ids, sorted.
+member seats, never the coordinator. `waiting` (membership order): a blocked member has the `reason` of its block, one of
+`manual`, `dependency`, `awaiting_decision` or `resource`, plus `decisionId` (the full UUID) whenever the block names a
+decision; a blocked member with `reason: dependency` also has `blockers`, which can be empty. A member that is not
+blocked but has an unsatisfied blocking dependency has `reason: dependency` and `blockers`, the unsatisfied blockers' short ids, sorted.
 Under a restricted scope, members and blockers outside it are left out; a blocker outside it still keeps its item
 waiting. No body, summary, token, principal or assignment id is shown.
 

@@ -8,6 +8,10 @@ argument-hint: "[optional: item id, title, or action like 'show blockers for X']
 
 Manage `blocks` and `relates_to` edges between work items: view them, create them, delete them and diagnose why an item cannot start. Shapes are in [`_generated/call-shapes.md`](../_generated/call-shapes.md) (`deps_read`, `deps_write`); semantics are in `current/docs/api-reference.md` ("deps_read", "deps_write"). Ids below are 8-hex shorts and any item id field also takes the full UUID. Read every answer through the envelope: `ok`, then `data.results[i]` (`ok` or `error`) and `data.summary {ok, failed}`. When a write element fails, the call-level `error` is only `partial_failure` (no detail, no fix): read `code`, `kind` (retry class), `detail` and `fix` from `data.results[i].error`. A read (`select`) call reports its failure in the call-level `error`.
 
+## Director mode
+
+Director mode is the session state entered by `/task-orchestrator:director` (or by running as the hardened `director` agent). Director-safe here: VIEW by id (`deps_read` plus `items_read` `get`), a broad DIAGNOSE with `items_read` `blocked`, and resolving a title with `items_read` `list` (not `search`, which the guard denies). An `awaiting_decision` entry in the blocked list belongs to the board: answer it through `/task-orchestrator:director`. A single-item `context` diagnosis and every CREATE or DELETE are delegated, because an edge on a run member changes that run's frontier: `SendMessage` the run's coordinator for a member, otherwise dispatch ONE background `Agent` (`run_in_background: true`, `model` set). The agent reports edge counts and item ids, one line per edge changed, never note bodies. A background agent dispatched by a director is not in director mode: it runs the steps below.
+
 ## Step 1: Determine intent
 
 Resolve `$ARGUMENTS` to an item id with a search; if several match, show them via `AskUserQuestion`. An argument that is already an id defaults to VIEW.

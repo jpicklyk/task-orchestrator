@@ -8,6 +8,10 @@ argument-hint: "[optional: root item id or title to complete]"
 
 Close a feature subtree, cancel an abandoned workstream or clean up stale items in one call, with a preview first and a report of exactly what applied, was skipped or failed. Shapes are in [`_generated/call-shapes.md`](../_generated/call-shapes.md) (`items_write` `complete_tree`); semantics are in `current/docs/api-reference.md` ("complete_tree"). Ids below are 8-hex shorts and any id field also takes the full UUID. The tool is orchestration-profile only.
 
+## Director mode
+
+Director mode is the session state entered by `/task-orchestrator:director` (or by running as the hardened `director` agent). Nothing here runs inline except run control: closing a whole run is `runs_write` `close` on the director profile. Closing or cancelling items is delegated: `SendMessage` the run's coordinator when the items are members of an open or paused run, otherwise dispatch ONE background `Agent` (`run_in_background: true`, `model` set) that runs the steps below. The agent reports the counts `applied`, `skipped` and `failed` and the ids of any failed item, never note bodies. A background agent dispatched by a director is not in director mode: it runs the steps below.
+
 ## Step 1 - Identify scope
 
 Resolve `$ARGUMENTS` to an id with a search; if several match, show them via `AskUserQuestion`.

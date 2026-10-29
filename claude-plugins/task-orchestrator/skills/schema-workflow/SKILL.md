@@ -10,6 +10,8 @@ Drive a work item through its gate-enforced lifecycle. The skill is schema-drive
 
 **Applies to** any item whose `type` resolves to a schema under its pin (`config` `effective` lists the declared types). An item whose type resolves to no schema is schema-free and advances without gates.
 
+**Director mode.** In director mode (the session state entered by `/task-orchestrator:director`, or the hardened `director` agent) a director never drives an item through its phases: hand it to the run's coordinator (`SendMessage`) or to ONE background `Agent` (`run_in_background: true`, `model` set). A background agent dispatched by a director is not in director mode: it runs the steps below.
+
 ## Entry point
 
 ```to-call

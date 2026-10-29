@@ -96,7 +96,7 @@ hot-reloads each project's config without a read-only mount or a restart.
 
 ### Cache Invalidation
 
-The server caches schemas on first access. After editing `config.yaml`, reconnect the MCP server by running `/mcp` in Claude Code and toggling the connection, or restart the container.
+A config file the server reads from disk (a mounted `.taskorchestrator/config.yaml`, or the file under `AGENT_CONFIG_DIR`) is imported once at every boot as a new config version, so an edit applies when the server process restarts: restart the container, or for a stdio server reconnect with `/mcp` in Claude Code (that starts a new process). With a REST API URL, `config-sync` pushes the file to the server when you save it and no reconnect or restart is needed.
 
 ---
 
@@ -156,7 +156,7 @@ With this schema:
 - `start` from review checks `review-checklist` exists, then advances to terminal
 - `trigger: "complete"` checks all required notes across all phases before advancing to terminal
 
-When an item has no review-phase required notes, `start` from work advances directly to terminal, skipping review.
+When the item's schema has no review-phase notes at all (required or not), `start` from work advances directly to terminal, skipping review.
 
 ---
 

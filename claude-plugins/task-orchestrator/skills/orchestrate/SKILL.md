@@ -42,6 +42,8 @@ Classify every piece of work into a tier before starting; the tier decides how m
 
 Review applies only when the item's schema declares review-phase notes; otherwise work advances straight to terminal. Detect it from `newRole` in the `advance` result and skip review dispatch.
 
+**Director mode.** Director mode is the session state entered by `/task-orchestrator:director` (or by running as the hardened `director` agent). No tier runs inline there: Direct and Delegated work becomes ONE background `Agent` (`run_in_background: true`, `model` set) that runs the pipeline above; Parallel work goes to a coordinator (see [coordinator-tiers.md](../director/references/coordinator-tiers.md)). A background agent dispatched by a director is not in director mode: it runs the tiers above.
+
 **Multi-item dispatch:** when post-plan-workflow's four-part condition holds (two or more unblocked leaf items, a resolvable rootId, filled queue notes, protocol rules served), dispatch goes through `/task-orchestrator:run-wave`; otherwise hand-dispatch.
 
 ## Delegation
