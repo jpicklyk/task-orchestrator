@@ -286,7 +286,8 @@ batched advance.
 
 **Under `review: "handoff"`** (the project's `run-profile.json`), run Step 7 first — the run closes
 before the project's own review step (this repo: `/implement` Step 5) — and do not dispatch the
-generic reviewer yourself.
+generic reviewer yourself. The project's review step owns merge arming; do not arm auto-merge from
+post-run.
 
 **Otherwise**, per advanced item that entered a review phase: on a bound run, first assign its
 reviewer lane like any schema seat — `node "<helper>" run-ops --plan <plan> --phase assign --item
