@@ -507,9 +507,10 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
   } else {
     // Seat-less deviation (S5): without any declared seat, the server says nothing about
     // ownership, so the implicit phase owner (planner/implementer) takes EVERY note in its
-    // phase regardless of the note's own `seat` annotation. No note is orchestrator-owned here.
-    // The one exception is the orchestrator's own provenance note (ORCHESTRATOR_PROVENANCE_NOTE):
-    // it is never a seat's note, so it is pulled out of the stage notes and recorded here.
+    // phase regardless of the note's own `seat` annotation. The exceptions are the keys in
+    // ORCHESTRATOR_OWNED_NOTES (the provenance note and orchestrator-confirmation): they are never
+    // a seat's note, so they are pulled out of the stage notes and recorded here, whatever phase
+    // (queue, work or review) they sit in.
     orchestratorNotes = notes
       .filter((n) => ['queue', 'work', 'review'].includes(n.role) && ORCHESTRATOR_OWNED_NOTES.includes(n.key))
       .map((n) => n.key);

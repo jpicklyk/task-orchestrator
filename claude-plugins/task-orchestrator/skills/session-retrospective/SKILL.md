@@ -118,7 +118,10 @@ From `delegation-metadata` notes extract model per delegation (haiku, sonnet, op
 {"tool": "report", "select": "notes", "args": {"rootId": "<rootId>", "groupBy": "noteKey", "since": "<window start>"}, "profile": "director"}
 ```
 
-Compute three figures: the review role's share of total bytes, the `review-checklist` `avgBytes`, and the largest `maxBytes` of any note key. Compare them with the 2026-11-02 baseline (review share 31%, review-checklist average 6.5 KB, largest note 37 KB) and record the three figures in the `session-metrics` note (5c).
+Compute three figures: the review role's share of total bytes, the `review-checklist` `avgBytes`, and the largest `maxBytes` of any note key. Compare them with the 2026-11-02 baseline (review share 31%, review-checklist average 6.5 KB, largest note 37 KB) and record the three figures in the `session-metrics` note (5c). Basis caveat:
+`report` `notes` counts every `note.upserted` write (a rewrite counts again, `avgBytes` is per write),
+while the baseline measured final note bodies once, so a run with many rewrites reads higher; say so
+beside the figures when `rewrites` is not small.
 
 **Structured form.** A note whose first line matches `^adapter=\S+( [a-z-]+=\S+)+$` is a structured provenance line, not legacy prose: split on spaces, then each token on `key=value`. Each `seat:model` pair inside `seats=` is one delegation, typed by seat rather than guessed from prose - planner: architecture/opus; implementer, test-author: sonnet; declarations-extractor: code reading/sonnet; reviewer: opus; any other seat is recorded but not scored. Isolation comes from `isolation=`. `model=` is ignored whenever `seats=` is present. Field order is fixed: `adapter= run= seats= model= isolation= agents= tokens= duration= deferred= in-run-edges= orchestrator-turns=`. Example:
 
