@@ -325,6 +325,13 @@ export function chooseEntry(probe, requested = 'auto') {
  */
 export const ORCHESTRATOR_PROVENANCE_NOTE = 'delegation-metadata';
 
+/**
+ * The notes the orchestrator itself records in a seat-less schema (no seat declared, so no
+ * `seat: orchestrator` annotation to read): the provenance note and the review-role
+ * orchestrator-confirmation. Neither is ever a seat's note or part of lane coverage.
+ */
+export const ORCHESTRATOR_OWNED_NOTES = [ORCHESTRATOR_PROVENANCE_NOTE, 'orchestrator-confirmation'];
+
 /** Keys of `keys` whose schema entry is explicitly optional (`required === false`), in `keys` order. A note with no `required` field stays audited as before. */
 function optionalOf(keys, notes) {
   return keys.filter((k) => {
@@ -344,16 +351,19 @@ export function ownership(schema, phases) {
     if (!declaredSeatsByPhase[s.phase]) declaredSeatsByPhase[s.phase] = new Set();
     declaredSeatsByPhase[s.phase].add(s.name);
   }
+  const orchestratorDeclared = Object.values(declaredSeatsByPhase).some((set) => set.has('orchestrator'));
   const unowned = [];
   const orchestratorNotes = [];
   for (const note of (schema && schema.notes) || []) {
     if (!phases.includes(note.role)) continue;
-    const declaredForPhase = declaredSeatsByPhase[note.role] || new Set();
-    const owned = note.seat != null && declaredForPhase.has(note.seat);
-    if (owned && note.seat === 'orchestrator') {
+    // A note with seat `orchestrator` is orchestrator-owned whenever the schema declares that seat in
+    // ANY phase (it is commonly declared for work only while its notes sit in review).
+    if (note.seat === 'orchestrator' && orchestratorDeclared) {
       orchestratorNotes.push(note.key);
       continue;
     }
+    const declaredForPhase = declaredSeatsByPhase[note.role] || new Set();
+    const owned = note.seat != null && declaredForPhase.has(note.seat);
     if (!owned && note.required) {
       unowned.push(note.key);
     }
@@ -497,11 +507,12 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
   } else {
     // Seat-less deviation (S5): without any declared seat, the server says nothing about
     // ownership, so the implicit phase owner (planner/implementer) takes EVERY note in its
-    // phase regardless of the note's own `seat` annotation. No note is orchestrator-owned here.
-    // The one exception is the orchestrator's own provenance note (ORCHESTRATOR_PROVENANCE_NOTE):
-    // it is never a seat's note, so it is pulled out of the stage notes and recorded here.
+    // phase regardless of the note's own `seat` annotation. The exceptions are the keys in
+    // ORCHESTRATOR_OWNED_NOTES (the provenance note and orchestrator-confirmation): they are never
+    // a seat's note, so they are pulled out of the stage notes and recorded here, whatever phase
+    // (queue, work or review) they sit in.
     orchestratorNotes = notes
-      .filter((n) => phases.includes(n.role) && n.key === ORCHESTRATOR_PROVENANCE_NOTE)
+      .filter((n) => ['queue', 'work', 'review'].includes(n.role) && ORCHESTRATOR_OWNED_NOTES.includes(n.key))
       .map((n) => n.key);
   }
 

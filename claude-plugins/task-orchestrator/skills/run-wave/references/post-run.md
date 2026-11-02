@@ -337,14 +337,16 @@ each scoped to one numbered amendment `A<n>` (A1 for the first Fail, A2 for the 
 cap on cycles.
 
 1. **Planner amends, by name.** Resume the item's planner seat with the blocking findings (via
-   `SendMessage`). It appends a section `## Amendment A<n>` to its own planning note
-   (`specification` for plugin-change, `task-scope`/`diagnosis` where the schema carries those) —
-   never a rewrite of the frozen body above it, and never a separate note key, so the independence
-   audit can still check that the note's freeze timestamp (`modifiedAt`) predates the fix commit.
-   The amendment lists every existing test file it expects edited (planner-v1 `existingTestEdits`)
-   and the mutation red-proofs (within the item's budget) the fix must satisfy. Keep amendments terse: accumulated ones made a
-   50k `task-scope` in one run.
-2. **Implementer, then blind test author, by name**, each scoped to section `A<n>` only. The test
+   `SendMessage`). It writes the ruling into the item's `amendments` note (queue, planner seat;
+   rewritten in full each cycle per its guidance) and never edits the frozen planning note, so
+   `task-scope`, `diagnosis` or `specification` keeps its freeze `modifiedAt` for the independence
+   audit. On a schema with no `amendments` key (plugin-change), append `## Amendment A<n>` to
+   `specification` under the same length rule. An amendment states rulings and behavioural
+   changes; the line-level trace belongs to the implementer's commit and the reviewer's re-check,
+   not here. The ruling lists every existing test file it expects edited (planner-v1
+   `existingTestEdits`) and the mutation red-proofs (within the item's budget) the fix must
+   satisfy. Keep amendments terse: accumulated ones made a 50k `task-scope` in one run.
+2. **Implementer, then blind test author, by name**, each scoped to ruling `A<n>` only. The test
    author appends its own `A<n>` section to `test-plan`/`test-manifest`; the planner does not touch
    those keys, which the test-author seat owns.
 3. **Orchestrator runs the amendment's bug-fix revert, if it names one,** in a scratch copy, never
@@ -353,6 +355,11 @@ cap on cycles.
    (Step 7a) with the rest of the item's budget.
 4. **Original reviewer, by name**, scoped to `git diff <prevReviewedSha>..HEAD -- <owned files>`
    plus the blocking findings — see "Re-review after fixes" below.
+
+**Dispositions at child close.** When a child's review returns Pass or Pass with observations,
+write the child's `orchestrator-confirmation` before advancing it: one line per O# (follow-up
+item created first, or `accepted: <reason>`), `N of N disposed`. Nothing is left for the parent
+review to carry.
 
 **Fallback.** Resume-by-name works in Method B or when seats are dispatched by hand. Method A seats
 run inside the implement-wave Workflow and generally cannot be resumed after it ends; there, and for
@@ -393,7 +400,8 @@ files>`) plus the original blocking findings. The orchestrator never writes a no
 (`review-checklist`, `test-manifest`, `test-plan`, `test-independence-audit`, or any other seat-owned
 key): the server refuses it (`note_owned_by_other`), and a confirmation must never come from the
 seat's own verdict being rewritten. Any orchestrator confirmation goes under its own key,
-`orchestrator-confirmation` (role review, optional; off-schema is fine).
+`orchestrator-confirmation` (role review, optional; a declared note with seat orchestrator on
+feature-task and bug-fix, no seat on feature-implementation).
 
 **Recording out-of-run seats.** Every seat dispatched outside the run for an item (re-review,
 fix-cycle `<seat>-a<n>`, amendment planner) is recorded by re-running
@@ -501,6 +509,10 @@ background and go on to `SKILL.md` Step 9; the next wave's planners do not wait 
    (`/task-orchestrator:create-item`, type by the project's convention), which the policy exempts
    from further proofs. Escalate on evidence as the rule says — a real gap expands the audit to
    the rest of that item's scenarios, still scoped.
+   A carry-in note is a requirement, not a hand-off dump: the source (item and finding id, or
+   the red-proof survivor), what the receiving item must do in at most five lines, how it is
+   verified (one command), and the acceptance criterion it should become. Anything that enumerates
+   files or lines goes in a `page` document the note names by slug. Target under 1200 characters.
 5. **Record once, on the wave parent** (the feature or container the run was scoped to; the
    single item when the run had one), under `red-proof-results` (`notes_write` `upsert`, no
    token): one line per item — proofs run, red/survived, gaps, equivalents, approximate minutes,
@@ -534,10 +546,14 @@ review-role parent, and the parent leaves review only by the explicit advance in
    diff instead, since the base merges in between are not the feature's changes): shared mode
    `git -C <feature-worktree> diff <base>...HEAD -- <paths>`; per-item mode the same pathspec over
    the base-branch range from the SHA before the first child merged to the merged tip, so unrelated
-   base merges stay out. Input: each child's `review-checklist`
-   (`notes_read(select:"get", itemId:<child>, key:"review-checklist")` per child); list any child
-   without one as such. The reviewer fills the parent's review-phase notes; the orchestrator never
-   rewrites them.
+   base merges stay out. Input: each child's `review-checklist` verdict line and its
+   `orchestrator-confirmation` count line (`notes_read(select:"get", ...)` per child; read the
+   bodies, hand over the two lines), plus any child disposition line reading `follow-up` whose item
+   does not exist yet. List any child without a review as such. The reviewer judges the merged range
+   and writes only feature-level findings (cross-child seams, off-scope changes, the merged result
+   of the children together); a child's already-disposed observation is never re-listed,
+   re-numbered or "carried". The reviewer fills the parent's review-phase notes; the orchestrator
+   never rewrites them.
 2. **On Fail**, the default fix path is a fix seat (a fresh `implementer-a<n>`, scoped to the
    finding's file) against the PARENT feature: its dispatch prompt must name it a NON-ENTRY seat
    that never transitions the parent. In shared mode it commits on the feature branch; in per-item
@@ -559,5 +575,5 @@ review-role parent, and the parent leaves review only by the explicit advance in
    after N of N.
 
 **Honest limit.** No server gate and no helper checks dispositions: `orchestrator-confirmation`
-is optional and off-schema, so this is discipline, not enforcement. Under `review: "handoff"` the
+is a declared optional note, so this is discipline, not enforcement. Under `review: "handoff"` the
 project's finalization applies the same rules (this repo: `/implement` Step 6 Parallel).

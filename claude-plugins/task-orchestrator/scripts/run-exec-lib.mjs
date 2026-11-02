@@ -567,7 +567,10 @@ export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
   const promptPlan = tokenFile ? Object.assign({}, plan, { serverRunId: null }) : plan
   let text = core.seatPrompt(promptPlan, item, stage, outs)
   if (tokenFile) text += `\n${reseatTokenPart(plan, baseStage, tokenFile)}`
-  text += `\nFIX CYCLE A${cycle}: work only section "## Amendment A${cycle}" of the item's planning note and the blocking findings it cites.`
+  const hasAmendmentsNote = (item.stages || []).some((st) => Array.isArray(st.notes) && st.notes.includes('amendments'))
+  text += hasAmendmentsNote
+    ? `\nFIX CYCLE A${cycle}: work only ruling A${cycle} in the item's amendments note and the blocking findings it cites.`
+    : `\nFIX CYCLE A${cycle}: work only section "## Amendment A${cycle}" of the item's planning note and the blocking findings it cites.`
   if (isMethodB(doc)) text += `\n${methodBReturn(core, plan, stage)}`
 
   const baseDispatch = baseStage.dispatch && baseStage.dispatch.model
@@ -1438,6 +1441,9 @@ export function reviewPrompt(core, doc, idOrShort, result) {
     'Fill this item\'s review-phase notes (items_read(select:"context", itemId) lists them under schema, role review). ' +
     'Pass keys:[...] on every notes_read list call; write with notes_write upsert, body inline.'
   )
+  if (Array.isArray(item.orchestratorNotes) && item.orchestratorNotes.length > 0) {
+    parts.push(`Never write orchestrator-owned notes [${item.orchestratorNotes.join(', ')}]: the orchestrator records them.`)
+  }
 
   parts.push(
     `RULES: fetch each key below via config(ops:[{op:"rules", rootId:"${plan.rootId}", key:<key>}]) ` +
@@ -1810,7 +1816,12 @@ export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
   for (const raw of shorts) {
     const item = findItem(plan, raw)
     const schema = (snapshot && snapshot.schemas && snapshot.schemas[item.id]) || {}
-    const reviewNotes = (schema.notes || []).filter((n) => n && n.role === 'review')
+    // Orchestrator-owned review notes (seat orchestrator, or listed in the planned item's
+    // orchestratorNotes) are written by the orchestrator: they belong to no lane and to neither list.
+    const orchestratorOwned = new Set(item.orchestratorNotes || [])
+    const reviewNotes = (schema.notes || []).filter(
+      (n) => n && n.role === 'review' && n.seat !== 'orchestrator' && !orchestratorOwned.has(n.key)
+    )
     if (reviewNotes.length === 0) throw new Error(`invalid args: ${item.short} has no review-phase notes`)
     const groups = new Map()
     for (const n of reviewNotes) {
