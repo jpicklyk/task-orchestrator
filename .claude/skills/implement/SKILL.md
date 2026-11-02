@@ -1119,12 +1119,14 @@ For Parallel-tier features with a shared feature worktree:
    `git -C <feature-worktree-path> diff <base>...HEAD`, handed each child's verdict and
    disposition count lines (a child with no review phase is listed as such). The reviewer
    writes only feature-level findings, never re-lists a child's disposed observation, and fills
-   the parent's `review-checklist`. The orchestrator records one line per finding in the parent's `orchestrator-confirmation` (`fixed <sha|PR> | follow-up
-   <item-id> | accepted: <reason>`, ending `N of N disposed`). With exactly one child, Step 7b
+   the parent's `review-checklist`. The orchestrator records one line per finding in the
+   parent's `orchestrator-confirmation` (`fixed <sha|PR> | follow-up <item-id> |
+   accepted: <reason>`, ending `N of N disposed`). With exactly one child, Step 7b
    does not apply (it covers 2+ children only), but the rule is the same: the parent review is
    still done by an independent `task-orchestrator:reviewer` (explicit `model`) over the feature
    range, never by the orchestrator, handed the child's verdict and disposition count lines (or
-   listed as review-less), and the dispositions go in the parent's `orchestrator-confirmation`. See Step 5's
+   listed as review-less), and the dispositions go in the parent's `orchestrator-confirmation`.
+   See Step 5's
    consolidated-reviewer paragraph, which never fills the parent note.
 4. **CHANGELOG check and Docs line** - as the Direct/Delegated tier's step 2: the bullet the
    orchestrator or docs seat wrote before review (Step 4c), or `Changelog: none (<why>)` in the PR

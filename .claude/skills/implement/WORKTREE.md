@@ -162,7 +162,8 @@ When all children reach terminal:
    `task-orchestrator:reviewer` (explicit `model`) over the feature range fills it (with 2+
    children per `run-wave` `post-run.md` Step 7b; with one child Step 7b does not apply, so
    `/implement` Step 6 states the rule, handing the reviewer that child's verdict and disposition
-   count lines, or listing it as review-less) and the orchestrator records the dispositions in `orchestrator-confirmation`.
+   count lines, or listing it as review-less) and the orchestrator records the dispositions in
+   `orchestrator-confirmation`.
 3. Confirm the `CHANGELOG.md` `[Unreleased]` bullet written before review exists, or that the PR
    body states `Changelog: none (<why>)` (`/implement` Step 4c and Step 6).
 4. Push `<FEATURE_BRANCH>` and open one PR.
