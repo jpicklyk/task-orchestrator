@@ -211,10 +211,14 @@ for (const bad of BAD_REFS) {
 }
 
 test("S6 probe: empty and absent itemId are both rejected", () => {
-    assert.equal(validateSnapshot(pairSnapshot({ bRef: "" })).ok, false);
+    const empty = validateSnapshot(pairSnapshot({ bRef: "" }));
+    assert.equal(empty.ok, false);
+    assert.ok(empty.errors.join("\n").includes("itemId"), JSON.stringify(empty.errors));
     const absent = pairSnapshot();
     delete absent.blocked[0].itemId;
-    assert.equal(validateSnapshot(absent).ok, false);
+    const absentR = validateSnapshot(absent);
+    assert.equal(absentR.ok, false);
+    assert.ok(absentR.errors.join("\n").includes("itemId"), JSON.stringify(absentR.errors));
 });
 
 const AMB_1 = "aaaaaaaa-1111-4111-8111-111111111111";
@@ -247,9 +251,15 @@ test("S7 probe: a longer prefix that disambiguates is accepted", () => {
 });
 
 test("S11: a candidate id in 8-hex form is still rejected (identity stays a full UUID)", () => {
-    const snap = pairSnapshot();
+    // Control: with no blocked entries the full-UUID snapshot is valid, so the rename is the only variable.
+    assert.equal(validateSnapshot(pairSnapshot({ blocked: [] })).ok, true);
+    const snap = pairSnapshot({ blocked: [] });
     snap.candidates[1].id = "bbbbbbbb";
-    assert.equal(validateSnapshot(snap).ok, false);
+    snap.schemas.bbbbbbbb = snap.schemas[B_ID];
+    delete snap.schemas[B_ID];
+    const r = validateSnapshot(snap);
+    assert.equal(r.ok, false);
+    assert.deepEqual(r.errors, ["candidate id not a UUID: bbbbbbbb"]);
 });
 
 // -- Edge -------------------------------------------------------------------
