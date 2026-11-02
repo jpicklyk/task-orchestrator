@@ -511,7 +511,7 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
     // The one exception is the orchestrator's own provenance note (ORCHESTRATOR_PROVENANCE_NOTE):
     // it is never a seat's note, so it is pulled out of the stage notes and recorded here.
     orchestratorNotes = notes
-      .filter((n) => phases.includes(n.role) && ORCHESTRATOR_OWNED_NOTES.includes(n.key))
+      .filter((n) => ['queue', 'work', 'review'].includes(n.role) && ORCHESTRATOR_OWNED_NOTES.includes(n.key))
       .map((n) => n.key);
   }
 
