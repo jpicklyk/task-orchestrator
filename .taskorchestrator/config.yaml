@@ -40,7 +40,13 @@ work_item_schemas:
         description: "Quality gate — plan alignment, test quality, and simplification review."
         skill: "review-quality"
         maxLength: 4000
-        guidance: "Verify: (1) what was built aligns with the feature-summary and each child's task-scope — flag planned items that were missed or unplanned changes that were added, (2) tests add specific value and cover the test strategy from the feature's planning notes — not strawman tests that pass without verifying real behavior, (3) if /simplify was run and made changes, verify those changes have test coverage — the reviewer does not run simplify or make fixes, only reports gaps. Also flag changes outside the feature's declared scope."
+        guidance: "Verify: (1) what was built aligns with the feature-summary and each child's task-scope — flag planned items that were missed or unplanned changes that were added, (2) tests add specific value and cover the test strategy from the feature's planning notes — not strawman tests that pass without verifying real behavior, (3) if /simplify was run and made changes, verify those changes have test coverage — the reviewer does not run simplify or make fixes, only reports gaps. Also flag changes outside the feature's declared scope. This note is the item's findings register: number every finding once here (B1.. blocking, O1.. observation), one line each: location, what was expected, what was found, confidence. Sibling review notes cite these ids and never restate a finding. Do not re-prove acceptance criteria the test-independence-audit or security-assessment already verifies; state `AC n: met (<one citation>)` and move on. Carry nothing from child items (see section 2). Target 1500-2500 characters whatever the item size; the 4000 maxLength is a backstop. A review that needs more is a sign the plan should have been split, not that the note should grow."
+      - key: orchestrator-confirmation
+        role: review
+        required: false
+        maxLength: 2500
+        description: "Disposition register: one line per review finding on THIS item, ending N of N disposed."
+        guidance: "Written by the orchestrator when the item's review returns. One line per finding id from this item's review-checklist: `<id>: fixed <sha|PR> | follow-up <item-id> | accepted: <reason>`; a blocking finding can only be fixed; a follow-up item exists before its line is written. End with `N of N disposed`. Dispose a child's findings on the child when the child closes, never on the parent: the parent's note covers only the parent's own feature review. Re-check results from the same reviewer belong in the reviewer's note, not here. Target 300-1200 characters."
 
   feature-task:
     lifecycle: auto
@@ -57,7 +63,15 @@ work_item_schemas:
         seat: planner
         description: "What to build — target files, acceptance criteria, constraints."
         skill: "spec-quality"
-        guidance: "Define the narrow scope of this task. Include: what to build (specific behavior or component), target files and modules, acceptance criteria (how to verify it works), and constraints or dependencies on other tasks. The parent feature specification covers the 'why' and alternatives — this note covers the 'what' for this specific task. Name test commands by file path or glob (node --test path/to/*.test.mjs), never by directory: Node 22 on Windows treats a directory argument as a module and fails."
+        guidance: "Define the narrow scope of this task. Include: what to build (specific behavior or component), target files and modules, acceptance criteria (how to verify it works), and constraints or dependencies on other tasks. The parent feature specification covers the 'why' and alternatives — this note covers the 'what' for this specific task. Name test commands by file path or glob (node --test path/to/*.test.mjs), never by directory: Node 22 on Windows treats a directory argument as a module and fails. Size the note to the change: a docs-class or single-file item needs the goal, the file list, the acceptance criteria and the verify command, in under 3000 characters; the full spec-quality pass (alternatives, blast radius, risks) is for items that touch behaviour. Cite `file:line` for a fact the implementer must not re-derive, not for every file mentioned; more than about 30 citations means the verified-facts list should be a `page` document the note names."
+        maxLength: 12000
+      - key: amendments
+        role: queue
+        required: false
+        seat: planner
+        maxLength: 4000
+        description: "Fix-cycle rulings A1.., rewritten in full each cycle: decision, files, test edits, red-proof; no line-level trace."
+        guidance: "Written by the planner-a<n> seat after a review Fail; the frozen task-scope or diagnosis above is never edited. Rewrite this note in full each cycle so it describes the current ruling set: for each finding, one block of at most eight lines - the ruling (confirmed | refined | rejected, with the one-sentence reason), the implementer's change in behavioural terms (what, in which file; no line-by-line patch trace, the reviewer re-traces the code anyway), the test-author's edits by file, and the red-proof mutation it adds. Superseded rulings collapse to one line `A<n>: <what changed>, <sha>`. Target 1000-2500 characters; the 4000 maxLength is a backstop and was chosen because three accumulated amendments reached 22 KB on one item."
       - key: implementation-notes
         role: work
         required: true
@@ -65,6 +79,13 @@ work_item_schemas:
         description: "Context handoff — deviations, surprises, and decisions that affect dependent work."
         guidance: "Document decisions made during implementation that weren't in the task scope. Focus on what downstream agents need to know: deviations from the plan, API or interface surprises, assumptions that turned out wrong, and any patterns discovered that affect dependent tasks. Cover the substance — do not pad with boilerplate, restated spec content, or redundant summaries. In a fix cycle (-a<n> seat), rewrite this note in full to describe the current state; replace superseded text rather than appending an amendment section, and keep history to a final 'Amendments:' list with one line per A<n> (what changed, commit SHA)."
         maxLength: 3000
+      - key: orchestrator-confirmation
+        role: review
+        required: false
+        seat: orchestrator
+        maxLength: 2500
+        description: "Disposition register: one line per review finding on THIS item, ending N of N disposed."
+        guidance: "Written by the orchestrator when the item's review returns. One line per finding id from this item's review-checklist: `<id>: fixed <sha|PR> | follow-up <item-id> | accepted: <reason>`; a blocking finding can only be fixed; a follow-up item exists before its line is written. End with `N of N disposed`. Dispose a child's findings on the child when the child closes, never on the parent: the parent's note covers only the parent's own feature review. Re-check results from the same reviewer belong in the reviewer's note, not here. Target 300-1200 characters."
 
   bug-fix:
     lifecycle: auto
@@ -83,6 +104,13 @@ work_item_schemas:
         skill: "spec-quality"
         maxLength: 6000
         guidance: "This note must cover: reproduction steps (exact inputs and expected vs actual output), root cause (specific file, function, and condition), the defect class (every other site that shares the root-cause pattern - same cast/fallback idiom, predicate, wildcard or error-classification path - found by a named sweep, each frozen as a decision or listed under Deferred with a reason), fix approach with alternatives considered (min 2 options + 'do nothing'), blast radius of the fix, and test strategy (regression test for the bug, edge cases around the fix). Read references/project-concerns.md for codebase-specific constraints. Target ~2500-3500 characters; the 6000 maxLength is a backstop, not a goal - a shorter note that cites file:line and states the decision is better than a longer one that restates context. Name test commands by file path or glob (node --test path/to/*.test.mjs), never by directory: Node 22 on Windows treats a directory argument as a module and fails."
+      - key: amendments
+        role: queue
+        required: false
+        seat: planner
+        maxLength: 4000
+        description: "Fix-cycle rulings A1.., rewritten in full each cycle: decision, files, test edits, red-proof; no line-level trace."
+        guidance: "Written by the planner-a<n> seat after a review Fail; the frozen task-scope or diagnosis above is never edited. Rewrite this note in full each cycle so it describes the current ruling set: for each finding, one block of at most eight lines - the ruling (confirmed | refined | rejected, with the one-sentence reason), the implementer's change in behavioural terms (what, in which file; no line-by-line patch trace, the reviewer re-traces the code anyway), the test-author's edits by file, and the red-proof mutation it adds. Superseded rulings collapse to one line `A<n>: <what changed>, <sha>`. Target 1000-2500 characters; the 4000 maxLength is a backstop and was chosen because three accumulated amendments reached 22 KB on one item."
       - key: implementation-notes
         role: work
         required: true
@@ -97,7 +125,14 @@ work_item_schemas:
         description: "Quality gate — fix alignment, test quality, and simplification review."
         skill: "review-quality"
         maxLength: 4000
-        guidance: "Verify: (1) the fix addresses the diagnosed root cause and doesn't just mask symptoms, (2) a regression test exists that would have caught the original bug, (3) tests cover edge cases from the diagnosis test strategy, (4) if /simplify was run and made changes, verify those changes have test coverage — the reviewer does not run simplify or make fixes, only reports gaps. Target ~2000-3000 characters; the 4000 maxLength is a backstop, not a goal."
+        guidance: "Verify: (1) the fix addresses the diagnosed root cause and doesn't just mask symptoms, (2) a regression test exists that would have caught the original bug, (3) tests cover edge cases from the diagnosis test strategy, (4) if /simplify was run and made changes, verify those changes have test coverage — the reviewer does not run simplify or make fixes, only reports gaps. This note is the item's findings register: number every finding once here (B1.. blocking, O1.. observation), one line each: location, what was expected, what was found, confidence. Sibling review notes cite these ids and never restate a finding. Do not re-prove acceptance criteria the test-independence-audit or security-assessment already verifies; state `AC n: met (<one citation>)` and move on. Carry nothing from child items (see section 2). Target 1500-2500 characters whatever the item size; the 4000 maxLength is a backstop. A review that needs more is a sign the plan should have been split, not that the note should grow."
+      - key: orchestrator-confirmation
+        role: review
+        required: false
+        seat: orchestrator
+        maxLength: 2500
+        description: "Disposition register: one line per review finding on THIS item, ending N of N disposed."
+        guidance: "Written by the orchestrator when the item's review returns. One line per finding id from this item's review-checklist: `<id>: fixed <sha|PR> | follow-up <item-id> | accepted: <reason>`; a blocking finding can only be fixed; a follow-up item exists before its line is written. End with `N of N disposed`. Dispose a child's findings on the child when the child closes, never on the parent: the parent's note covers only the parent's own feature review. Re-check results from the same reviewer belong in the reviewer's note, not here. Target 300-1200 characters."
 
   plugin-change:
     lifecycle: auto
@@ -201,7 +236,8 @@ traits:
         required: true
         description: "Security review of auth, data handling, and access control."
         skill: "security-review"
-        guidance: "Apply the /security-review method to this item's owned-file diff in its worktree — `git -C <worktree> diff <baseSha>..HEAD -- <owned files>` — not by invoking the built-in command, which diffs the session cwd and is empty for a worktree branch. Do this before advancing past review, and record the findings and verdict in this note. A green author-written test suite is necessary but not sufficient for validation code — the author's suite tests the cases the author thought of. For any validation predicate in the diff (prefix/suffix/containment checks especially), also probe the predicate directly with adversarial bypass inputs — boundary/suffix cases, alternate separators, UNC/encoded paths, mixed case, @/. host tricks — and record the inputs tried and their results."
+        guidance: "Apply the /security-review method to this item's owned-file diff in its worktree — `git -C <worktree> diff <baseSha>..HEAD -- <owned files>` — not by invoking the built-in command, which diffs the session cwd and is empty for a worktree branch. Record here only what the security lens adds: the threat the change addresses in one sentence, residual paths outside the plan's scope (one line each, severity and confidence), and for any validation predicate in the diff the adversarial inputs probed and their results (a table of inputs is fine; prose repeating the table is not). Every finding goes into `review-checklist` as B# or O#; here cite the id, never the finding. Do not restate what the change closes when the checklist's plan-alignment section already proves it; write `Closed paths: per review-checklist AC1-AC4` and stop. Verdict: no blocking finding | blocking (ids). Target 800-1500 characters; the 4000 maxLength is a backstop."
+        maxLength: 4000
 
   needs-perf-review:
     notes:
@@ -264,7 +300,7 @@ traits:
         seat: reviewer
         description: "Task-level quality gate — scope alignment and test coverage."
         maxLength: 4000
-        guidance: "Verify: (1) what was built matches the task-scope note — flag scope creep or missed acceptance criteria, (2) tests cover the stated acceptance criteria and aren't strawman tests, (3) no unintended side effects on files outside the task scope. Task-level review does not run /simplify — that happens at the feature-container level."
+        guidance: "Verify: (1) what was built matches the task-scope note — flag scope creep or missed acceptance criteria, (2) tests cover the stated acceptance criteria and aren't strawman tests, (3) no unintended side effects on files outside the task scope. Task-level review does not run /simplify — that happens at the feature-container level. This note is the item's findings register: number every finding once here (B1.. blocking, O1.. observation), one line each: location, what was expected, what was found, confidence. Sibling review notes cite these ids and never restate a finding. Do not re-prove acceptance criteria the test-independence-audit or security-assessment already verifies; state `AC n: met (<one citation>)` and move on. Carry nothing from child items (see section 2). Target 1500-2500 characters whatever the item size; the 4000 maxLength is a backstop. A review that needs more is a sign the plan should have been split, not that the note should grow."
 
   needs-test-author:
     seats:
@@ -293,7 +329,7 @@ traits:
         description: "Reviewer attestation that test authorship was independent of implementation."
         skill: "review-quality"
         maxLength: 2000
-        guidance: "Attest to: separation held (test files first appear in the author's commit SHA range; actor id differs from the implementer's, or a temporal-only separation is explicitly declared), the coverage mapping spot-checked by opening at least two mapped tests and reading their bodies rather than trusting the manifest alone, at least one oracle traced back to its cited source, the declared probes actually run, and the forbidden-pattern declaration verified as true: fetch rules `forbidden-test-patterns` and `test-assertion-vacuity` with `docs_read` `get` (`kind` `rule`, `slug` the rule name, `rootId`), read the test bodies behind the manifest's declaration, and confirm every instance of a listed pattern is declared with a justification. An undeclared instance, or a declaration claiming none when instances exist, is BLOCKING regardless of suite pass/fail — the same weight as not-independent. Verdict — one of: **independent** | **independent-degraded** (temporal-only separation) | **not-independent** (blocking, regardless of suite pass/fail). Target ~900-1400 characters; the 2000 maxLength is a backstop, not a goal."
+        guidance: "Attest to: separation held (test files first appear in the author's commit SHA range; actor id differs from the implementer's, or a temporal-only separation is explicitly declared), the coverage mapping spot-checked by opening at least two mapped tests and reading their bodies rather than trusting the manifest alone, at least one oracle traced back to its cited source, the declared probes actually run, and the forbidden-pattern declaration verified as true: fetch rules `forbidden-test-patterns` and `test-assertion-vacuity` with `docs_read` `get` (`kind` `rule`, `slug` the rule name, `rootId`), read the test bodies behind the manifest's declaration, and confirm every instance of a listed pattern is declared with a justification. An undeclared instance, or a declaration claiming none when instances exist, is BLOCKING regardless of suite pass/fail — the same weight as not-independent. Verdict — one of: **independent** | **independent-degraded** (temporal-only separation) | **not-independent** (blocking, regardless of suite pass/fail). Target ~900-1400 characters; the 2000 maxLength is a backstop, not a goal. Cite the review-checklist's build-state line instead of restating suite counts, and record a blocking finding only as its checklist id. The two-range ownership proof is one line per range (SHA, seat, files touched), not a commit narrative. Fix-cycle rulings go to amendments, so the frozen planning note keeps its freeze modifiedAt; confirm it predates the implementer's first commit."
 
   session-tracked:
     notes:
@@ -302,7 +338,7 @@ traits:
         required: true
         seat: orchestrator
         description: "Session context — what was done, how it went, and anything the retrospective should know."
-        guidance: "Record what happened during implementation. Structure: - **Outcome**: success | partial | failure - **Files changed**: list with brief rationale - **Deviations**: anything that differed from the specification or plan - **Friction**: tool errors, roundtrips, workarounds, API confusion (type + description) - **Gate interactions**: note fill attempts, gate failures encountered - **Observations**: anything worth tracking for process improvement - **Test results**: pass/fail counts, new tests added. Keep it factual and concise — this feeds the session retrospective. Cover the substance — do not pad with boilerplate, restated spec content, or redundant summaries. Target ~600-1200 characters; the 2000 maxLength is a backstop, not a goal."
+        guidance: "Record what happened during implementation. Structure: - **Outcome**: success | partial | failure - **Files changed**: list with brief rationale - **Deviations**: anything that differed from the specification or plan - **Friction**: tool errors, roundtrips, workarounds, API confusion (type + description) - **Gate interactions**: note fill attempts, gate failures encountered - **Observations**: anything worth tracking for process improvement - **Test results**: pass/fail counts, new tests added. Keep it factual and concise — this feeds the session retrospective. Cover the substance — do not pad with boilerplate, restated spec content, or redundant summaries. Target ~600-1200 characters; the 2000 maxLength is a backstop, not a goal. Do not list follow-up item ids or per-finding dispositions here; `orchestrator-confirmation` is their register. One line `Follow-ups: see orchestrator-confirmation` is enough."
         maxLength: 2000
 
   # Proposal a3f733b6: the orchestrator adds this trait when it writes the first carry-in-* note on an item.
@@ -325,7 +361,7 @@ traits:
         required: true
         maxLength: 4000
         description: "Docs-accuracy gate: every behavioural claim in the changed docs verified against source before the item can leave review."
-        guidance: "Open the file:line behind every claim that states nullability, redaction, ownership, defaults, limits, budgets, ordering or an honest limit and confirm it; wording copied from an existing doc is unverified until its source is opened. Check the Docs and CHANGELOG lines against git diff --name-only <base>...HEAD. Scan changed files for bytes below 0x20 other than TAB and LF, non-UTF-8 bytes and CR line endings. Verdict Pass or Fail, with numbered blocking findings (B1...) and non-blocking (N1...). An uncited semantic claim is an observation; a wrong one is blocking."
+        guidance: "Open the file:line behind every claim that states nullability, redaction, ownership, defaults, limits, budgets, ordering or an honest limit and confirm it; wording copied from an existing doc is unverified until its source is opened. Check the Docs and CHANGELOG lines against git diff --name-only <base>...HEAD. Scan changed files for bytes below 0x20 other than TAB and LF, non-UTF-8 bytes and CR line endings. Verdict Pass or Fail, with numbered blocking findings (B1...) and non-blocking (N1...). An uncited semantic claim is an observation; a wrong one is blocking. List verified claims as `file:line -> source file:line` pairs, one per line, with no prose between them; findings B#/N# go into `review-checklist` when the item has one and are cited here by id. A docs-class item's planner lists `claim -> source file:line` pairs as its verified facts and nothing else; the reviewer's job is to open each pair."
 
 # Resource leasing — reference example only, NOT activated on this project's items.
 # `resources:` is server-only: the registry is one per server and lives in the server (global) config;
