@@ -863,7 +863,7 @@ Profiles: director; capability `read`.
 | `rootId` | string | no |
 | `since` | string | no |
 | `until` | string | no |
-| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource | no |
+| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource \| role \| seat | no |
 | `limit` | integer | no |
 | `cursor` | string | no |
 
@@ -879,7 +879,24 @@ Profiles: director; capability `read`.
 | `rootId` | string | no |
 | `since` | string | no |
 | `until` | string | no |
-| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource | no |
+| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource \| role \| seat | no |
+| `limit` | integer | no |
+| `cursor` | string | no |
+
+Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
+
+<a id="report-notes"></a>
+### `report` select `notes`
+
+Profiles: director; capability `read`.
+
+| Field | Type | Required |
+| --- | --- | --- |
+| `rootId` | string | no |
+| `anchorId` | string | no |
+| `since` | string | no |
+| `until` | string | no |
+| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource \| role \| seat | no |
 | `limit` | integer | no |
 | `cursor` | string | no |
 
@@ -895,7 +912,7 @@ Profiles: director; capability `read`.
 | `rootId` | string | no |
 | `since` | string | no |
 | `until` | string | no |
-| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource | no |
+| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource \| role \| seat | no |
 | `limit` | integer | no |
 | `cursor` | string | no |
 
