@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.report.ReportKit
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.report.R11Json
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.report.R12Json
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDescriber
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
@@ -1161,7 +1162,266 @@ internal object ReportParityScenarios {
                 "invalid_cursor"
             )
 
-    val scenarios: List<ParityScenario> = happy + scopeForbidden + other + nullKeys + r11Happy + r11ScopeForbidden + r11Other
+    // ------------------------------------------------------------------ R12 (item d7b2a970): notes
+
+    private fun noteRow(
+        n: Int,
+        time: String,
+        item: UUID,
+        root: UUID,
+        key: String,
+        role: String,
+        bytes: Int,
+        seat: String? = null
+    ) = EventRecord(
+        id = UUID.nameUUIDFromBytes("r12-parity-event-$n".toByteArray()),
+        occurredAt = at(time),
+        rootId = root,
+        entityKind = DomainEvent.KIND_NOTE,
+        entityId = UUID.nameUUIDFromBytes("r12-parity-note-$item-$key".toByteArray()),
+        type = DomainEvent.NOTE_UPSERTED,
+        seat = seat,
+        data = R12Json.noteUpserted(item, key, role, bytes)
+    )
+
+    /**
+     * The notes fixture, default window [2026-10-03T12:00Z, 2026-10-10T12:00Z). Inside it: c1 `spec` queue 100 bytes (seat planner,
+     * 10:00), c1 `spec` queue 300 (planner, 10:05, a rewrite of the same note), r1 `plan` work 50 (no seat, 10:10), r2 `spec` queue 7
+     * (planner, 10:20). Outside it: c1 `spec` queue 5000 on 2026-10-02T12:00Z (before the window and the oldest row, so the
+     * retained-since instant) and c1 `spec` queue 6000 exactly at 2026-10-10T12:00Z (the open end). Hand sums by role: queue 3 writes
+     * over 2 notes (c1 spec, r2 spec), 1 rewrite, 407 bytes, maximum 300, average floor(407 / 3) = 135; work 1 write, 1 note, 0
+     * rewrites, 50 bytes, average 50. By seat: planner the same as queue; the NULL seat the same as work. By noteKey: spec 3 writes
+     * over 2 notes, 407 bytes; plan 1 write, 50 bytes. Under anchor c1: queue 2 writes, 1 note, 1 rewrite, 400 bytes, average 200.
+     */
+    private val notesSeed: suspend ParitySeeder.() -> Unit = {
+        seed(this)
+        events(
+            noteRow(51, "2026-10-09T10:00:00Z", c1, r1, "spec", "queue", 100, seat = "planner"),
+            noteRow(52, "2026-10-09T10:05:00Z", c1, r1, "spec", "queue", 300, seat = "planner"),
+            noteRow(53, "2026-10-09T10:10:00Z", r1, r1, "plan", "work", 50),
+            noteRow(54, "2026-10-09T10:20:00Z", r2, r2, "spec", "queue", 7, seat = "planner"),
+            noteRow(55, "2026-10-02T12:00:00Z", c1, r1, "spec", "queue", 5000, seat = "planner"),
+            noteRow(56, "2026-10-10T12:00:00Z", c1, r1, "spec", "queue", 6000, seat = "planner")
+        )
+    }
+
+    val r12Happy: List<ParityScenario> =
+        listOf(
+            scenario(
+                "notes by role over seeded events",
+                ParityKind.HAPPY,
+                reader,
+                """{"select":"notes"}""",
+                200,
+                expectContains =
+                    listOf(
+                        "{\"key\":{\"role\":\"queue\"},\"writes\":3,\"notes\":2,\"rewrites\":1,\"bytes\":407,\"maxBytes\":300,\"avgBytes\":135}",
+                        "{\"key\":{\"role\":\"work\"},\"writes\":1,\"notes\":1,\"rewrites\":0,\"bytes\":50,\"maxBytes\":50,\"avgBytes\":50}",
+                        "\"total\":2",
+                        "\"basis\":\"raw\"",
+                        "\"retainedSince\":\"2026-10-02T12:00:00Z\""
+                    ),
+                expectAbsent = listOf("5000", "6000", "truncatedByRetention"),
+                member = "notes",
+                rows = notesSeed
+            ),
+            scenario(
+                "notes by seat over seeded events, a NULL seat is an empty key",
+                ParityKind.OTHER,
+                reader,
+                """{"select":"notes","groupBy":"seat"}""",
+                200,
+                expectContains =
+                    listOf(
+                        "{\"key\":{\"seat\":\"planner\"},\"writes\":3,\"notes\":2,\"rewrites\":1,\"bytes\":407,\"maxBytes\":300,\"avgBytes\":135}",
+                        "{\"key\":{},\"writes\":1,\"notes\":1,\"rewrites\":0,\"bytes\":50,\"maxBytes\":50,\"avgBytes\":50}",
+                        "\"total\":2"
+                    ),
+                member = "notes",
+                rows = notesSeed
+            ),
+            scenario(
+                "notes by noteKey over seeded events",
+                ParityKind.OTHER,
+                reader,
+                """{"select":"notes","groupBy":"noteKey"}""",
+                200,
+                expectContains =
+                    listOf(
+                        "{\"key\":{\"noteKey\":\"spec\"},\"writes\":3,\"notes\":2,\"rewrites\":1,\"bytes\":407,\"maxBytes\":300,\"avgBytes\":135}",
+                        "{\"key\":{\"noteKey\":\"plan\"},\"writes\":1,\"notes\":1,\"rewrites\":0,\"bytes\":50,\"maxBytes\":50,\"avgBytes\":50}",
+                        "\"total\":2"
+                    ),
+                member = "notes",
+                rows = notesSeed
+            ),
+            scenario(
+                "notes under an anchor keeps its subtree",
+                ParityKind.OTHER,
+                reader,
+                """{"select":"notes","anchorId":"$c1"}""",
+                200,
+                expectContains =
+                    listOf(
+                        "{\"key\":{\"role\":\"queue\"},\"writes\":2,\"notes\":1,\"rewrites\":1,\"bytes\":400,\"maxBytes\":300,\"avgBytes\":200}",
+                        "\"total\":1"
+                    ),
+                expectAbsent = listOf("\"work\""),
+                member = "notes",
+                rows = notesSeed
+            ),
+            scenario(
+                "notes root scoped sees only its root",
+                ParityKind.OTHER,
+                rootScoped,
+                """{"select":"notes"}""",
+                200,
+                expectContains =
+                    listOf(
+                        "{\"key\":{\"role\":\"queue\"},\"writes\":2,\"notes\":1,\"rewrites\":1,\"bytes\":400,\"maxBytes\":300,\"avgBytes\":200}",
+                        "{\"key\":{\"role\":\"work\"},\"writes\":1",
+                        "\"total\":2"
+                    ),
+                expectAbsent = listOf("\"bytes\":407"),
+                member = "notes",
+                rows = notesSeed
+            ),
+            scenario(
+                "notes tag scoped is not forbidden and sees no untagged item",
+                ParityKind.OTHER,
+                tagScoped,
+                """{"select":"notes"}""",
+                200,
+                expectContains = listOf("\"total\":0"),
+                expectAbsent = listOf("forbidden", "\"writes\":1"),
+                member = "notes",
+                rows = notesSeed
+            )
+        )
+
+    val r12ScopeForbidden: List<ParityScenario> =
+        listOf(
+            scenario(
+                "notes scope root rootId",
+                ParityKind.SCOPE_FORBIDDEN,
+                rootScoped,
+                """{"select":"notes","rootId":"$r2"}""",
+                403,
+                "forbidden",
+                expectContains = listOf("\"scope\":\"root\"", "\"required\":\"$r1\""),
+                expectAbsent = listOf("\"writes\""),
+                member = "notes",
+                rows = notesSeed
+            ),
+            scenario(
+                "notes scope root anchorId",
+                ParityKind.SCOPE_FORBIDDEN,
+                rootScoped,
+                """{"select":"notes","anchorId":"$r2"}""",
+                403,
+                "forbidden",
+                expectContains = listOf("\"scope\":\"root\"", "\"required\":\"$r1\""),
+                expectAbsent = listOf("\"writes\""),
+                member = "notes",
+                rows = notesSeed
+            )
+        )
+
+    private fun notesOther(
+        name: String,
+        arguments: String,
+        status: Int,
+        code: String?,
+        contains: List<String> = emptyList(),
+        token: ParityToken = reader
+    ) = scenario("notes $name", ParityKind.OTHER, token, arguments, status, code, expectContains = contains, member = "notes")
+
+    val r12Other: List<ParityScenario> =
+        listOf("tool", "principal", "resource", "host", "surface", "errorCode", "trait").map { groupBy ->
+            notesOther("groupBy $groupBy", """{"select":"notes","groupBy":"$groupBy"}""", 400, "invalid_request", listOf("/groupBy"), admin)
+        } +
+            listOf(
+                notesOther("groupBy with other casing", """{"select":"notes","groupBy":"Role"}""", 400, "invalid_request"),
+                notesOther(
+                    "unknown anchorId",
+                    """{"select":"notes","anchorId":"99999999-9999-4999-8999-999999999999"}""",
+                    404,
+                    "not_found"
+                ),
+                notesOther("unknown rootId", """{"select":"notes","rootId":"99999999-9999-4999-8999-999999999999"}""", 404, "not_found"),
+                notesOther("rootId of a child", """{"select":"notes","rootId":"$c1"}""", 400, "invalid_request", listOf("/rootId")),
+                notesOther("unknown runId", """{"select":"notes","runId":"$r1"}""", 400, "unknown_parameter", listOf("/runId")),
+                notesOther(
+                    "unknown noteKey filter",
+                    """{"select":"notes","noteKey":"spec"}""",
+                    400,
+                    "unknown_parameter",
+                    listOf("/noteKey")
+                ),
+                notesOther(
+                    "since not before until",
+                    """{"select":"notes","since":"2026-10-09T00:00:00Z","until":"2026-10-09T00:00:00Z"}""",
+                    400,
+                    "invalid_request"
+                ),
+                notesOther("window over 31 days", """{"select":"notes","since":"2026-09-09T11:59:59.999Z"}""", 400, "invalid_request"),
+                notesOther(
+                    "window of exactly 31 days",
+                    """{"select":"notes","since":"2026-09-09T12:00:00Z"}""",
+                    200,
+                    null,
+                    listOf("\"total\":0")
+                ),
+                notesOther("limit zero", """{"select":"notes","limit":0}""", 400, "invalid_request", listOf("\"field\":\"limit\"")),
+                notesOther(
+                    "limit above the maximum",
+                    """{"select":"notes","limit":201}""",
+                    400,
+                    "invalid_request",
+                    listOf("\"field\":\"limit\"")
+                ),
+                notesOther("garbled cursor", """{"select":"notes","cursor":"!!!not-a-cursor"}""", 400, "invalid_cursor"),
+                notesOther(
+                    "without the read capability",
+                    """{"select":"notes"}""",
+                    403,
+                    "forbidden",
+                    listOf("\"scope\":\"capability\"", "\"required\":\"read\""),
+                    noRead
+                ),
+                scenario(
+                    "usage groupBy role",
+                    ParityKind.OTHER,
+                    admin,
+                    """{"select":"usage","groupBy":"role"}""",
+                    400,
+                    "invalid_request",
+                    expectContains = listOf("/groupBy")
+                ),
+                scenario(
+                    "gates groupBy seat",
+                    ParityKind.OTHER,
+                    admin,
+                    """{"select":"gates","groupBy":"seat"}""",
+                    400,
+                    "invalid_request",
+                    expectContains = listOf("/groupBy"),
+                    member = "gates"
+                ),
+                scenario(
+                    "contention groupBy role",
+                    ParityKind.OTHER,
+                    admin,
+                    """{"select":"contention","groupBy":"role"}""",
+                    400,
+                    "invalid_request",
+                    expectContains = listOf("/groupBy"),
+                    member = "contention"
+                )
+            )
+
+    val scenarios: List<ParityScenario> =
+        happy + scopeForbidden + other + nullKeys + r11Happy + r11ScopeForbidden + r11Other + r12Happy + r12ScopeForbidden + r12Other
 
     val exemptions: List<ScopeExempt> = emptyList()
 }
@@ -1202,8 +1462,23 @@ class ReportParityTest {
     }
 
     @Test
+    fun `R12 S12 happy notes scenarios agree across MCP director and REST in body, status and database`() {
+        for (s in ReportParityScenarios.r12Happy) harness.run(s)
+    }
+
+    @Test
+    fun `R12 S12 scope-forbidden notes scenarios agree across MCP director and REST under the same access`() {
+        for (s in ReportParityScenarios.r12ScopeForbidden) harness.run(s)
+    }
+
+    @Test
+    fun `R12 S12 notes validation, window, scope and strictness scenarios agree across MCP director and REST`() {
+        for (s in ReportParityScenarios.r12Other) harness.run(s)
+    }
+
+    @Test
     fun `R11 S15 control - every report select holds a happy and a restricted scope-forbidden scenario and runs on the director`() {
-        val selects = listOf("usage", "gates", "contention", "waste", "rollup")
+        val selects = listOf("usage", "gates", "notes", "contention", "waste", "rollup")
         for (select in selects) {
             val mine = ReportParityScenarios.scenarios.filter { it.member == select }
             assertTrue(mine.any { it.kind == ParityKind.HAPPY }, "$select has a happy scenario")
@@ -1235,15 +1510,15 @@ class ReportParityTest {
     }
 
     @Test
-    fun `R11 S15 describe lists the five selects with their exact inputs, runId only on rollup, no filter input`() {
+    fun `R11 S15 describe lists the six selects with their exact inputs, runId only on rollup, no filter input`() {
         val spec = assertNotNull(registry["report"])
         val described = ToolDescriber.describe(spec, ToolProfile.DIRECTOR, null)
         val operations = described.getValue("operations").jsonArray.map { it.jsonObject }
         assertEquals(
-            setOf("usage", "gates", "contention", "waste", "rollup"),
+            setOf("usage", "gates", "notes", "contention", "waste", "rollup"),
             operations.map { it.getValue("name").jsonPrimitive.content }.toSet()
         )
-        assertEquals(5, operations.size)
+        assertEquals(6, operations.size)
         for (operation in operations) {
             val name = operation.getValue("name").jsonPrimitive.content
             val properties =
@@ -1256,6 +1531,7 @@ class ReportParityTest {
                 when (name) {
                     "waste" -> setOf("rootId", "since", "until")
                     "rollup" -> setOf("anchorId", "since", "until", "runId")
+                    "notes" -> setOf("rootId", "anchorId", "since", "until", "groupBy", "limit", "cursor")
                     else -> setOf("rootId", "since", "until", "groupBy", "limit", "cursor")
                 }
             assertEquals(expected, properties.toSet(), "$name inputs: $properties")
@@ -1278,12 +1554,12 @@ class ReportParityTest {
         assertTrue(mine.any { it.kind == ParityKind.SCOPE_FORBIDDEN && it.token.isScopeRestricted })
         assertTrue(mine.all { it.tool == "report" })
         assertEquals(
-            setOf("usage", "gates", "contention", "waste", "rollup"),
+            setOf("usage", "gates", "notes", "contention", "waste", "rollup"),
             mine
                 .map {
                     it.member
                 }.toSet(),
-            "the catalog covers exactly the usage, gates, contention, waste and rollup selects"
+            "the catalog covers exactly the usage, gates, notes, contention, waste and rollup selects"
         )
         assertTrue(ProductionParity.scenarios.containsAll(mine), "every report scenario is registered in the production catalog")
         assertEquals(emptyList(), ParityCoverage.missing(registry, ProductionParity.scenarios, ProductionParity.exemptions))
@@ -1305,7 +1581,7 @@ class ReportParityTest {
         assertNull(McpOperationAdapter.toolFor(spec, ToolProfile.KNOWLEDGE))
         assertNotNull(McpOperationAdapter.toolFor(spec, ToolProfile.DIRECTOR))
         assertEquals(
-            listOf("usage", "gates", "contention", "waste", "rollup"),
+            listOf("usage", "gates", "notes", "contention", "waste", "rollup"),
             ParityCoverage.members(registry).filter { it.first == "report" }.map { it.second }
         )
     }
@@ -1349,7 +1625,7 @@ class ReportParityTest {
         val described = ToolDescriber.describe(spec, ToolProfile.DIRECTOR, null)
         val operations = described.getValue("operations").jsonArray.map { it.jsonObject }
         assertEquals(
-            listOf("usage", "gates", "contention", "waste", "rollup"),
+            listOf("usage", "gates", "notes", "contention", "waste", "rollup"),
             operations.map { it.getValue("name").jsonPrimitive.content }
         )
 

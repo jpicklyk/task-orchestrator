@@ -10,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.infrastructure.UsageDailyFolder
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.report.R11Events
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.report.R11Json
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.report.R12Notes
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -474,6 +475,162 @@ class ReportQueryCountTest {
             for ((name, plan) in large.plans) {
                 assertTrue(plan.isNotEmpty(), "no plan was captured for '$name'")
                 // The aggregate names the table `events` or aliases it `e`; a scan of it without USING is a full table scan.
+                val bare = plan.filter { Regex("^SCAN (events|\"events\"|e)( |$)").containsMatchIn(it.trim()) && " USING " !in it }
+                val shown = plan.joinToString("\n")
+                assertTrue(bare.isEmpty(), "'$name' scans events without an index:\n$shown")
+                assertTrue(plan.any { "idx_events_" in it }, "'$name' reaches events through an idx_events_* index:\n$shown")
+            }
+        }
+
+    // ------------------------------------------------------------------ R12: notes
+
+    private val noteTypes = setOf(DomainEvent.NOTE_UPSERTED)
+
+    /**
+     * [scale] copies of a note-write kit. Kit k is one item (child of R1 for even k, of R2 for odd k; tag `api` when k is a
+     * multiple of 3, otherwise `beta`; type `ty-k`) with four `note.upserted` events inside the default window: keys `nk-k-0`
+     * (written twice, role queue, seat `s-0`), `nk-k-1` (role work, seat `s-1`) and `nk-k-2` (role work, no seat, no principal
+     * kind). So at scale N: noteKey has 3N groups, role 2 groups, seat 3 groups, type N groups, day up to 3 groups.
+     */
+    private suspend fun seedNoteEvents(
+        d: SqliteTestDatabase,
+        scale: Int
+    ) {
+        val ev = R11Events(d)
+        val nt = R12Notes(ev)
+        val a = ev.item("Alpha root", id = r1)
+        val b = ev.item("Beta root", id = r2)
+        val records = mutableListOf<EventRecord>()
+        for (k in 0 until scale) {
+            val parent = if (k % 2 == 0) a else b
+            val item = ev.item("kit-$k", parent = parent, type = "ty-$k", tags = if (k % 3 == 0) "api" else "beta")
+            val at = ReportKit.NOW.minus(Duration.ofHours((k % 150).toLong())).minusMillis(1)
+            records += nt.write(item, "nk-$k-0", "queue", 10 + k, at, seat = "s-0", principalKind = "agent")
+            records += nt.write(item, "nk-$k-0", "queue", 20 + k, at, seat = "s-0", principalKind = "agent")
+            records += nt.write(item, "nk-$k-1", "work", 30 + k, at, seat = "s-1", principalKind = "user")
+            records += nt.write(item, "nk-$k-2", "work", 40 + k, at)
+        }
+        ev.append(records)
+    }
+
+    private suspend fun noteGroups(
+        service: ReportService,
+        ctx: CallContext,
+        request: ReportNotesRequest
+    ): Int = assertIs<Outcome.Ok<NotesReport>>(service.notes(ctx, request)).value.page.total
+
+    private suspend fun measureNotes(scale: Int): Measured11 {
+        val counts = linkedMapOf<String, Int>()
+        val plans = linkedMapOf<String, List<String>>()
+        val groups = linkedMapOf<String, Int>()
+        return SqliteTestDatabase.open(clock = clock).use { d ->
+            val fx = ReportFixture(d, clock)
+            seedNoteEvents(d, scale)
+            val admin = fx.ctx(principalsVisible = true)
+            val scoped = fx.ctx(AccessScope.principal(setOf(r1), emptySet()))
+            val tagged = fx.ctx(AccessScope.principal(null, setOf("api")))
+            val service = fx.service()
+
+            val firstKeys =
+                assertIs<Outcome.Ok<NotesReport>>(
+                    service.notes(admin, ReportNotesRequest(groupBy = ReportGroupBy.NOTE_KEY, limit = 2))
+                ).value
+            val keysCursor = assertNotNull(firstKeys.page.next, "scale $scale: the kit holds more noteKey groups than one page of two")
+            val firstRoles = assertIs<Outcome.Ok<NotesReport>>(service.notes(admin, ReportNotesRequest(limit = 1))).value
+            val rolesCursor = assertNotNull(firstRoles.page.next, "scale $scale: two roles are more than one page of one")
+
+            val cases = linkedMapOf<String, suspend () -> Any?>()
+            cases["notes first page"] = { service.notes(admin, ReportNotesRequest(limit = 1)) }
+            cases["notes second page"] = { service.notes(admin, ReportNotesRequest(limit = 1, cursor = rolesCursor)) }
+            cases["notes noteKey first page"] = { service.notes(admin, ReportNotesRequest(groupBy = ReportGroupBy.NOTE_KEY, limit = 2)) }
+            cases["notes noteKey second page"] =
+                { service.notes(admin, ReportNotesRequest(groupBy = ReportGroupBy.NOTE_KEY, limit = 2, cursor = keysCursor)) }
+            for (groupBy in listOf(ReportGroupBy.SEAT, ReportGroupBy.TYPE, ReportGroupBy.PRINCIPAL_KIND, ReportGroupBy.DAY)) {
+                cases["notes groupBy ${groupBy.wire}"] = { service.notes(admin, ReportNotesRequest(groupBy = groupBy, limit = 2)) }
+            }
+            cases["notes rootId full id"] = { service.notes(admin, ReportNotesRequest(rootId = IdRef(r1.toString()), limit = 2)) }
+            cases["notes rootId prefix"] = { service.notes(admin, ReportNotesRequest(rootId = IdRef(r2.toString().take(8)), limit = 2)) }
+            cases["notes anchorId full id"] = { service.notes(admin, ReportNotesRequest(anchorId = IdRef(r1.toString()), limit = 2)) }
+            cases["notes anchorId prefix"] =
+                { service.notes(admin, ReportNotesRequest(anchorId = IdRef(r2.toString().take(8)), limit = 2)) }
+            cases["notes rootId with anchorId"] =
+                { service.notes(admin, ReportNotesRequest(rootId = IdRef(r1.toString()), anchorId = IdRef(r1.toString()), limit = 2)) }
+            cases["notes root scoped"] = { service.notes(scoped, ReportNotesRequest(limit = 2)) }
+            cases["notes root scoped with anchorId"] =
+                { service.notes(scoped, ReportNotesRequest(anchorId = IdRef(r1.toString()), limit = 2)) }
+            for (groupBy in listOf(ReportGroupBy.ROLE, ReportGroupBy.NOTE_KEY, ReportGroupBy.TYPE)) {
+                cases["notes tag scoped ${groupBy.wire}"] = { service.notes(tagged, ReportNotesRequest(groupBy = groupBy, limit = 2)) }
+            }
+            cases["eventsRetainedSince notes"] =
+                { d.unitOfWork().read { d.repositoryProvider().reportQueries().eventsRetainedSince(noteTypes) } }
+
+            for ((name, call) in cases) {
+                call()
+                val captured = captureStatements(d, call)
+                counts[name] = captured.count
+                plans[name] = captured.sqls.filter(::isSelect).flatMap { sql -> explain(d, sql) }
+            }
+
+            groups["notes noteKey"] = firstKeys.page.total
+            groups["notes role"] = firstRoles.page.total
+            groups["notes seat"] = noteGroups(service, admin, ReportNotesRequest(groupBy = ReportGroupBy.SEAT, limit = 200))
+            groups["notes type"] = noteGroups(service, admin, ReportNotesRequest(groupBy = ReportGroupBy.TYPE, limit = 200))
+            groups["notes root scoped"] =
+                noteGroups(service, scoped, ReportNotesRequest(groupBy = ReportGroupBy.NOTE_KEY, limit = 200))
+            groups["notes rootId"] =
+                noteGroups(service, admin, ReportNotesRequest(rootId = IdRef(r1.toString()), groupBy = ReportGroupBy.NOTE_KEY, limit = 200))
+            groups["notes anchorId"] =
+                noteGroups(
+                    service,
+                    admin,
+                    ReportNotesRequest(anchorId = IdRef(r1.toString()), groupBy = ReportGroupBy.NOTE_KEY, limit = 200)
+                )
+            groups["notes tag scoped"] =
+                noteGroups(service, tagged, ReportNotesRequest(groupBy = ReportGroupBy.NOTE_KEY, limit = 200))
+            Measured11(counts, plans, groups)
+        }
+    }
+
+    @Test
+    fun `R12 S13 notes and its retained-since read issue the same number of statements at scale 1 and 40`(): Unit =
+        runBlocking {
+            val small = measureNotes(1)
+            val large = measureNotes(40)
+
+            assertEquals(small.counts.keys, large.counts.keys)
+            val mismatches = small.counts.keys.filter { small.counts.getValue(it) != large.counts.getValue(it) }
+            assertTrue(
+                mismatches.isEmpty(),
+                "statement count must not depend on data volume:\n" +
+                    mismatches.joinToString("\n") { "$it: ${small.counts[it]} vs ${large.counts[it]}" }
+            )
+            for ((name, count) in small.counts) assertTrue(count > 0, "the interceptor saw no statement for '$name'")
+        }
+
+    @Test
+    fun `R12 S13 control - the scale changes the note events and the scoped, tag, rootId and anchorId calls really filter`(): Unit =
+        runBlocking {
+            val small = measureNotes(1)
+            val large = measureNotes(40)
+
+            assertEquals(3, small.groups.getValue("notes noteKey"))
+            assertEquals(120, large.groups.getValue("notes noteKey"), "forty kits of three keys")
+            assertEquals(2, large.groups.getValue("notes role"))
+            assertEquals(3, large.groups.getValue("notes seat"), "s-0, s-1 and the null seat")
+            assertEquals(40, large.groups.getValue("notes type"))
+            assertEquals(60, large.groups.getValue("notes root scoped"), "R1 holds the twenty even kits")
+            assertEquals(60, large.groups.getValue("notes rootId"))
+            assertEquals(60, large.groups.getValue("notes anchorId"), "the anchor R1 holds the same twenty kits")
+            assertEquals(42, large.groups.getValue("notes tag scoped"), "fourteen kits carry the api tag")
+        }
+
+    @Test
+    fun `R12 S13 every SELECT of notes reaches events through an index`(): Unit =
+        runBlocking {
+            val large = measureNotes(40)
+
+            for ((name, plan) in large.plans) {
+                assertTrue(plan.isNotEmpty(), "no plan was captured for '$name'")
                 val bare = plan.filter { Regex("^SCAN (events|\"events\"|e)( |$)").containsMatchIn(it.trim()) && " USING " !in it }
                 val shown = plan.joinToString("\n")
                 assertTrue(bare.isEmpty(), "'$name' scans events without an index:\n$shown")
