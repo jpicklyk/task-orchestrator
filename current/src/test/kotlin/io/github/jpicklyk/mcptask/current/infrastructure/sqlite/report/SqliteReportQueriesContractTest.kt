@@ -2172,19 +2172,19 @@ class SqliteReportNotesContractTest {
         }
 
     @Test
-    fun `R12 S2 probe an empty-string seat is a key of its own, distinct from the NULL seat`(): Unit =
+    fun `R12 S2 probe an empty-string seat is absent and counts with the NULL seat`(): Unit =
         runBlocking {
             seedMixed()
 
             val page = noteWrites(nq(NoteWriteDimension.SEAT))
 
-            // Oracle: task-scope "seat = events.seat" and "Null value -> {}": only a NULL is the null group, so '' (d1, 7 bytes)
-            // is its own group (three states: absent, empty, present). Arbitration is owed if the product merges blank into NULL.
+            // Oracle: orchestrator-decisions A1 - a blank seat is absent. events.seat holds a named seat or NULL; '' is never a seat the
+            // server issues, so the '' write (d1, 7 bytes, its own note) falls in the same {} group as the NULL row (b1, 50 bytes).
             assertEquals(
-                listOf(row("rev", 1, 1, 1000, 1000), row("impl", 2, 1, 400, 300), row(null, 1, 1, 50, 50), row("", 1, 1, 7, 7)),
+                listOf(row("rev", 1, 1, 1000, 1000), row("impl", 2, 1, 400, 300), row(null, 2, 2, 57, 50)),
                 page.rows
             )
-            assertEquals(4, page.totalGroups)
+            assertEquals(3, page.totalGroups)
         }
 
     @Test
