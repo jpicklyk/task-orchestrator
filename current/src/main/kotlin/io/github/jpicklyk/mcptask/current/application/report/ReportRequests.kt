@@ -64,10 +64,10 @@ enum class ReportGroupBy(
  * must carry the same schema (and therefore the same description) in every select that declares it (`ToolRegistry`).
  */
 internal object ReportFieldDocs {
-    const val ROOT_ID = "Only this depth-0 root (UUID or 8-32 hex prefix). Default: all you may see."
-    const val SINCE = "Window start, inclusive: ISO 8601 with Z or offset. Default and cap: describe."
-    const val UNTIL = "Window end, exclusive: ISO 8601 with Z or offset."
-    const val ANCHOR_ID = "This subtree, itself included (UUID or 8-32 hex prefix)."
+    const val ROOT_ID = "Only this depth-0 root (UUID or 8-32 hex prefix). Default: all."
+    const val SINCE = "Window start, inclusive, ISO 8601. Default/cap: describe."
+    const val UNTIL = "Window end, exclusive, ISO 8601."
+    const val ANCHOR_ID = "Subtree incl. itself (UUID or 8-32 hex prefix)."
 }
 
 /** `report usage`: call_log aggregates over a half-open window, grouped by one column. */
@@ -81,7 +81,7 @@ data class ReportUsageRequest(
     val until: String? = null,
     @Doc(GROUP_BY_DOC)
     val groupBy: ReportGroupBy? = null,
-    @Doc("Page size, 1 to 200 (default 50).") val limit: Int? = null,
+    @Doc("Page size 1-200 (default 50)") val limit: Int? = null,
     @Doc(CURSOR_DOC) val cursor: String? = null
 )
 
@@ -96,7 +96,7 @@ data class ReportGatesRequest(
     val until: String? = null,
     @Doc(GROUP_BY_DOC)
     val groupBy: ReportGroupBy? = null,
-    @Doc("Page size, 1 to 200 (default 50).") val limit: Int? = null,
+    @Doc("Page size 1-200 (default 50)") val limit: Int? = null,
     @Doc(CURSOR_DOC) val cursor: String? = null
 )
 
@@ -116,7 +116,7 @@ data class ReportNotesRequest(
     val until: String? = null,
     @Doc(GROUP_BY_DOC)
     val groupBy: ReportGroupBy? = null,
-    @Doc("Page size, 1 to 200 (default 50).") val limit: Int? = null,
+    @Doc("Page size 1-200 (default 50)") val limit: Int? = null,
     @Doc(CURSOR_DOC) val cursor: String? = null
 )
 
@@ -131,7 +131,7 @@ data class ReportContentionRequest(
     val until: String? = null,
     @Doc(GROUP_BY_DOC)
     val groupBy: ReportGroupBy? = null,
-    @Doc("Page size, 1 to 200 (default 50).") val limit: Int? = null,
+    @Doc("Page size 1-200 (default 50)") val limit: Int? = null,
     @Doc(CURSOR_DOC) val cursor: String? = null
 )
 
@@ -160,10 +160,10 @@ data class ReportRollupRequest(
     val since: String? = null,
     @Doc(ReportFieldDocs.UNTIL)
     val until: String? = null,
-    @Doc("Roll up this run (UUID or 8-32 hex prefix).")
+    @Doc("Roll up this run (UUID or 8-32 hex prefix)")
     val runId: IdRef? = null
 )
 
-private const val GROUP_BY_DOC = "Row grouping; subset and default per select."
+private const val GROUP_BY_DOC = "Grouping; subset/default per select."
 
-private const val CURSOR_DOC = "page.next of the prior page."
+private const val CURSOR_DOC = "page.next of the prior page"

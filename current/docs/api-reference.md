@@ -2016,18 +2016,18 @@ retention changes in an answer; [Data Retention](./fleet-deployment.md#data-rete
 **Request reference.** Generated from the registry (see [Overview](#overview)); every select or op below lists its complete input, its profile and capability, and the error codes it can return.
 
 <!-- generated:tool report -->
-Aggregate reports. select: usage (call metrics per group), gates (rejected transitions), notes (note writes), contention (claims, leases), waste (ratios), rollup (subtree or run summary).
+Reports. select: usage (call metrics), gates (rejections), notes (writes), contention (claims, leases), waste, rollup (subtree or run).
 
 **`report` select `usage`** (director profile only; capability `read`): Call-log usage per group over [since, until), default the 7 days before now. groupBy tool (default), operation, host, surface, principalKind, errorCode, day (UTC date) or principal (admin only). Metrics: calls, errors, responseBytes, responseTokensEst (sums), avgLatencyMs (rounded half up), maxLatencyMs, retries (attempts - 1) and replays. Ordered by calls desc, then key asc. A missing group value is omitted from key ({}), never null, and sorts first. data.window gives since, until, retainedSince (the oldest raw row held), basis and truncatedByRetention when the window starts before the oldest data held. Basis raw reads the raw call log (window of at most 31 days inside the raw horizon); otherwise basis daily reads per-day summaries (at most 400 days; since floors and a folded until ceils to UTC midnight; groupBy principal is raw-only). A tag-scoped credential is forbidden; a root-scoped one sees only rows of its roots.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | no | Only this depth-0 root (UUID or 8-32 hex prefix). Default: all you may see. |
-| `since` | string | no | Window start, inclusive: ISO 8601 with Z or offset. Default and cap: describe. |
-| `until` | string | no | Window end, exclusive: ISO 8601 with Z or offset. |
-| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource \| role \| seat | no | Row grouping; subset and default per select. |
-| `limit` | integer | no | Page size, 1 to 200 (default 50). |
-| `cursor` | string | no | page.next of the prior page. |
+| `rootId` | string | no | Only this depth-0 root (UUID or 8-32 hex prefix). Default: all. |
+| `since` | string | no | Window start, inclusive, ISO 8601. Default/cap: describe. |
+| `until` | string | no | Window end, exclusive, ISO 8601. |
+| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource \| role \| seat | no | Grouping; subset/default per select. |
+| `limit` | integer | no | Page size 1-200 (default 50) |
+| `cursor` | string | no | page.next of the prior page |
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
@@ -2035,12 +2035,12 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | no | Only this depth-0 root (UUID or 8-32 hex prefix). Default: all you may see. |
-| `since` | string | no | Window start, inclusive: ISO 8601 with Z or offset. Default and cap: describe. |
-| `until` | string | no | Window end, exclusive: ISO 8601 with Z or offset. |
-| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource \| role \| seat | no | Row grouping; subset and default per select. |
-| `limit` | integer | no | Page size, 1 to 200 (default 50). |
-| `cursor` | string | no | page.next of the prior page. |
+| `rootId` | string | no | Only this depth-0 root (UUID or 8-32 hex prefix). Default: all. |
+| `since` | string | no | Window start, inclusive, ISO 8601. Default/cap: describe. |
+| `until` | string | no | Window end, exclusive, ISO 8601. |
+| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource \| role \| seat | no | Grouping; subset/default per select. |
+| `limit` | integer | no | Page size 1-200 (default 50) |
+| `cursor` | string | no | page.next of the prior page |
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
@@ -2048,13 +2048,13 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | no | Only this depth-0 root (UUID or 8-32 hex prefix). Default: all you may see. |
-| `anchorId` | string | no | This subtree, itself included (UUID or 8-32 hex prefix). |
-| `since` | string | no | Window start, inclusive: ISO 8601 with Z or offset. Default and cap: describe. |
-| `until` | string | no | Window end, exclusive: ISO 8601 with Z or offset. |
-| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource \| role \| seat | no | Row grouping; subset and default per select. |
-| `limit` | integer | no | Page size, 1 to 200 (default 50). |
-| `cursor` | string | no | page.next of the prior page. |
+| `rootId` | string | no | Only this depth-0 root (UUID or 8-32 hex prefix). Default: all. |
+| `anchorId` | string | no | Subtree incl. itself (UUID or 8-32 hex prefix). |
+| `since` | string | no | Window start, inclusive, ISO 8601. Default/cap: describe. |
+| `until` | string | no | Window end, exclusive, ISO 8601. |
+| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource \| role \| seat | no | Grouping; subset/default per select. |
+| `limit` | integer | no | Page size 1-200 (default 50) |
+| `cursor` | string | no | page.next of the prior page |
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
@@ -2062,12 +2062,12 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | no | Only this depth-0 root (UUID or 8-32 hex prefix). Default: all you may see. |
-| `since` | string | no | Window start, inclusive: ISO 8601 with Z or offset. Default and cap: describe. |
-| `until` | string | no | Window end, exclusive: ISO 8601 with Z or offset. |
-| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource \| role \| seat | no | Row grouping; subset and default per select. |
-| `limit` | integer | no | Page size, 1 to 200 (default 50). |
-| `cursor` | string | no | page.next of the prior page. |
+| `rootId` | string | no | Only this depth-0 root (UUID or 8-32 hex prefix). Default: all. |
+| `since` | string | no | Window start, inclusive, ISO 8601. Default/cap: describe. |
+| `until` | string | no | Window end, exclusive, ISO 8601. |
+| `groupBy` | string: tool \| operation \| host \| surface \| principalKind \| errorCode \| day \| principal \| noteKey \| type \| trait \| resource \| role \| seat | no | Grouping; subset/default per select. |
+| `limit` | integer | no | Page size 1-200 (default 50) |
+| `cursor` | string | no | page.next of the prior page |
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
@@ -2075,9 +2075,9 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | no | Only this depth-0 root (UUID or 8-32 hex prefix). Default: all you may see. |
-| `since` | string | no | Window start, inclusive: ISO 8601 with Z or offset. Default and cap: describe. |
-| `until` | string | no | Window end, exclusive: ISO 8601 with Z or offset. |
+| `rootId` | string | no | Only this depth-0 root (UUID or 8-32 hex prefix). Default: all. |
+| `since` | string | no | Window start, inclusive, ISO 8601. Default/cap: describe. |
+| `until` | string | no | Window end, exclusive, ISO 8601. |
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
@@ -2085,10 +2085,10 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`,
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `anchorId` | string | no | This subtree, itself included (UUID or 8-32 hex prefix). |
-| `since` | string | no | Window start, inclusive: ISO 8601 with Z or offset. Default and cap: describe. |
-| `until` | string | no | Window end, exclusive: ISO 8601 with Z or offset. |
-| `runId` | string | no | Roll up this run (UUID or 8-32 hex prefix). |
+| `anchorId` | string | no | Subtree incl. itself (UUID or 8-32 hex prefix). |
+| `since` | string | no | Window start, inclusive, ISO 8601. Default/cap: describe. |
+| `until` | string | no | Window end, exclusive, ISO 8601. |
+| `runId` | string | no | Roll up this run (UUID or 8-32 hex prefix) |
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 <!-- /generated:tool report -->

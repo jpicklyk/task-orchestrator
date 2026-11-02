@@ -16,19 +16,19 @@
       },
       "rootId": {
         "type": "string",
-        "description": "Only this depth-0 root (UUID or 8-32 hex prefix). Default: all you may see. [select: usage, gates, notes, contention, waste]"
+        "description": "Only this depth-0 root (UUID or 8-32 hex prefix). Default: all. [select: usage, gates, notes, contention, waste]"
       },
       "since": {
         "type": "string",
-        "description": "Window start, inclusive: ISO 8601 with Z or offset. Default and cap: describe."
+        "description": "Window start, inclusive, ISO 8601. Default/cap: describe."
       },
       "until": {
         "type": "string",
-        "description": "Window end, exclusive: ISO 8601 with Z or offset."
+        "description": "Window end, exclusive, ISO 8601."
       },
       "groupBy": {
         "type": "string",
-        "description": "Row grouping; subset and default per select. [select: usage, gates, notes, contention]",
+        "description": "Grouping; subset/default per select. [select: usage, gates, notes, contention]",
         "enum": [
           "tool",
           "operation",
@@ -48,19 +48,19 @@
       },
       "limit": {
         "type": "integer",
-        "description": "Page size, 1 to 200 (default 50). [select: usage, gates, notes, contention]"
+        "description": "Page size 1-200 (default 50) [select: usage, gates, notes, contention]"
       },
       "cursor": {
         "type": "string",
-        "description": "page.next of the prior page. [select: usage, gates, notes, contention]"
+        "description": "page.next of the prior page [select: usage, gates, notes, contention]"
       },
       "anchorId": {
         "type": "string",
-        "description": "This subtree, itself included (UUID or 8-32 hex prefix). [select: notes, rollup]"
+        "description": "Subtree incl. itself (UUID or 8-32 hex prefix). [select: notes, rollup]"
       },
       "runId": {
         "type": "string",
-        "description": "Roll up this run (UUID or 8-32 hex prefix). [select: rollup]"
+        "description": "Roll up this run (UUID or 8-32 hex prefix) [select: rollup]"
       },
       "describe": {
         "type": "boolean",
@@ -69,7 +69,7 @@
     },
     "type": "object"
   },
-  "description": "Aggregate reports. select: usage (call metrics per group), gates (rejected transitions), notes (note writes), contention (claims, leases), waste (ratios), rollup (subtree or run summary). Call with describe:true for each operation's parameters and errors.",
+  "description": "Reports. select: usage (call metrics), gates (rejections), notes (writes), contention (claims, leases), waste, rollup (subtree or run). Call with describe:true for each operation's parameters and errors.",
   "annotations": {
     "readOnlyHint": true,
     "destructiveHint": false,
