@@ -550,8 +550,8 @@ review-role parent, and the parent leaves review only by the explicit advance in
    base merges stay out. Input: the verdict line of each child's findings register (its
    `review-checklist`, or the first review-role note its reviewer filled when the schema declares
    none) and its `orchestrator-confirmation` count line (`notes_read(select:"get", ...)` per
-   child; read the bodies, hand over the two lines), plus any child disposition line reading `follow-up` whose item
-   does not exist yet. List any child without a review as such. The reviewer judges the merged range
+   child; read the bodies, hand over the two lines), plus any child disposition line reading
+   `follow-up` whose item does not exist yet. List any child without a review as such. The reviewer judges the merged range
    and writes only feature-level findings (cross-child seams, off-scope changes, the merged result
    of the children together); a child's already-disposed observation is never re-listed,
    re-numbered or "carried". The reviewer fills the parent's review-phase notes; the orchestrator
