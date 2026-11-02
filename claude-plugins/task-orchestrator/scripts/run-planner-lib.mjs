@@ -17,6 +17,41 @@ export const ARGS_CONTRACT = 'implement-wave/args-v1';
 export const PLAN_DOC_MAX_BYTES = 61440;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Reference fields (blocked[].itemId, blockedBy[].itemId, candidates[].parentId) accept what the
+// server accepts: a UUID or 8-32 hex characters of one (compact views answer 8-hex ids).
+const HEX_REF_RE = /^[0-9a-f]{8,32}$/i;
+const isIdRef = (v) => UUID_RE.test(String(v || '')) || HEX_REF_RE.test(String(v || ''));
+const idKey = (v) => String(v || '').toLowerCase().replace(/-/g, '');
+// Prefix rule: two ids name the same item iff one key is a prefix of the other.
+const sameRef = (a, b) => {
+  if (a == null || b == null) return false;
+  const x = idKey(a);
+  const y = idKey(b);
+  return x !== '' && y !== '' && (x.startsWith(y) || y.startsWith(x));
+};
+const candidateMatches = (snap, ref) => {
+  const key = idKey(ref);
+  const ids = new Set();
+  for (const c of (snap && snap.candidates) || []) {
+    if (c && typeof c.id === 'string' && idKey(c.id).startsWith(key)) ids.add(c.id);
+  }
+  return [...ids];
+};
+// Resolve every reference to the unique matching candidate's full id; no match keeps it as given.
+function resolveSnapshotRefs(snap) {
+  const resolve = (ref) => {
+    const m = candidateMatches(snap, ref);
+    return m.length === 1 ? m[0] : ref;
+  };
+  return {
+    ...snap,
+    blocked: (Array.isArray(snap.blocked) ? snap.blocked : []).map((b) => ({
+      ...b,
+      itemId: resolve(b.itemId),
+      ...(Array.isArray(b.blockedBy) ? { blockedBy: b.blockedBy.map((bb) => ({ ...bb, itemId: resolve(bb.itemId) })) } : {})
+    }))
+  };
+}
 const ROLE_ENUM = new Set(['queue', 'work', 'review', 'blocked', 'terminal']);
 
 const CARRY_IN_PREFIX = 'carry-in-';
@@ -92,6 +127,9 @@ export function validateSnapshot(snap) {
     if (!c || !UUID_RE.test(String(c.id || ''))) {
       errors.push(`candidate id not a UUID: ${c && c.id}`);
     }
+    if (c && c.parentId != null && !isIdRef(c.parentId)) {
+      errors.push(`candidate ${c.id}: parentId not a UUID or 8-32 hex id: ${c.parentId}`);
+    }
     if (!c || !ROLE_ENUM.has(c.role)) {
       errors.push(`candidate ${c && c.id}: invalid role ${c && c.role}`);
     }
@@ -101,8 +139,10 @@ export function validateSnapshot(snap) {
   }
   const blocked = Array.isArray(snap.blocked) ? snap.blocked : [];
   for (const b of blocked) {
-    if (!b || !UUID_RE.test(String(b.itemId || ''))) {
-      errors.push(`blocked itemId not a UUID: ${b && b.itemId}`);
+    if (!b || !isIdRef(b.itemId)) {
+      errors.push(`blocked itemId not a UUID or 8-32 hex id: ${b && b.itemId}`);
+    } else if (candidateMatches(snap, b.itemId).length > 1) {
+      errors.push(`blocked itemId ambiguous: ${b.itemId} matches more than one candidate`);
     }
     if (!b || !ROLE_ENUM.has(b.role)) {
       errors.push(`blocked ${b && b.itemId}: invalid role ${b && b.role}`);
@@ -117,8 +157,10 @@ export function validateSnapshot(snap) {
       errors.push(`blocked ${b.itemId}: decisionId must be a string`);
     }
     for (const bb of (b && b.blockedBy) || []) {
-      if (!bb || !UUID_RE.test(String(bb.itemId || ''))) {
-        errors.push(`blocker itemId not a UUID: ${bb && bb.itemId}`);
+      if (!bb || !isIdRef(bb.itemId)) {
+        errors.push(`blocker itemId not a UUID or 8-32 hex id: ${bb && bb.itemId}`);
+      } else if (candidateMatches(snap, bb.itemId).length > 1) {
+        errors.push(`blocker itemId ambiguous: ${bb.itemId} matches more than one candidate`);
       }
       if (bb && bb.role != null && !ROLE_ENUM.has(bb.role)) {
         errors.push(`blocker ${bb.itemId}: invalid role ${bb.role}`);
@@ -302,12 +344,11 @@ export function chooseMode(snap, requested = 'auto') {
   if (requested === 'shared' || requested === 'per-item') return requested;
   const items = ((snap && snap.candidates) || []).filter((c) => !c.hasChildren);
   if (items.length === 0) return 'per-item';
-  const parentIds = new Set(items.map((c) => c.parentId ?? null));
-  if (parentIds.size === 1) {
-    const [only] = parentIds;
-    if (only != null) return 'shared';
-  }
-  return 'per-item';
+  const parents = items.map((c) => c.parentId ?? null);
+  if (parents.some((p) => p == null)) return 'per-item';
+  // Prefix rule: a compact 8-hex parentId and its full UUID name one parent.
+  const longest = parents.reduce((a, b) => (idKey(b).length > idKey(a).length ? b : a));
+  return parents.every((p) => sameRef(p, longest)) ? 'shared' : 'per-item';
 }
 
 /**
@@ -993,7 +1034,7 @@ export function sharedFileEdgeWarnings(snap, mode) {
       if (bb.satisfied) continue;
       const blk = candById.get(bb.itemId);
       if (!blk || blk.hasChildren || !scopes[bb.itemId]) continue;
-      if (dep.parentId == null || dep.parentId !== blk.parentId) continue;
+      if (dep.parentId == null || !sameRef(dep.parentId, blk.parentId)) continue;
       const declared = ((scopes[b.itemId].dependsOn) || []).map((d) => String(d).toLowerCase());
       if (declared.includes(String(bb.itemId).toLowerCase()) || declared.includes(shortFromId(bb.itemId).toLowerCase())) continue;
       const a = canon(b.itemId);
@@ -1189,6 +1230,7 @@ export function buildPlanDoc(snap, opts = {}) {
     return { ok: false, refused: false, errors: snapCheck.errors };
   }
 
+  snap = resolveSnapshotRefs(snap);
   const probe = snap.probe || {};
   const profile = snap.profile || {};
   const candidatesById = new Map((snap.candidates || []).map((c) => [c.id, c]));
