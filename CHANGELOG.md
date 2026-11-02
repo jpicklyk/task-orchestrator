@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`report` select `notes`: note-write volume by role, key, seat and type.** Reads the `note.upserted` events of a window (default the last 7 days, at most 31) and reports per group `writes`, distinct `notes`, `rewrites`, `bytes`, `maxBytes` and `avgBytes`, grouped by `role` (default), `noteKey`, `seat`, `type` (the item's current type), `principalKind` or `day`, optionally within the subtree of `anchorId`. Director profile and REST ops, with the same visibility rules as `gates`. No migration.
+
 ### Changed
 
 - **Plugin hooks find the REST API from the MCP server registration.** When neither `TASK_ORCHESTRATOR_API_URL` nor a project-level `client.json` sets a URL, the hooks and the `ralph`/`run-wave` scripts now use the origin of the `task-orchestrator` MCP server registered over http(s) (`~/.claude.json` project entry, then `.mcp.json`, then `~/.claude.json` user entry, matching Claude Code's own precedence), before the user-level `client.json`. The MCP endpoint is now the one place to change the server, including a dynamically assigned port. A `.mcp.json` registration is used only when its origin is loopback; a URL with credentials or an unresolved `${VAR}` is ignored.

@@ -8,6 +8,7 @@
         "enum": [
           "usage",
           "gates",
+          "notes",
           "contention",
           "waste",
           "rollup"
@@ -15,7 +16,7 @@
       },
       "rootId": {
         "type": "string",
-        "description": "Only this depth-0 root (UUID or 8-32 hex prefix). Default: all you may see. [select: usage, gates, contention, waste]"
+        "description": "Only this depth-0 root (UUID or 8-32 hex prefix). Default: all you may see. [select: usage, gates, notes, contention, waste]"
       },
       "since": {
         "type": "string",
@@ -27,7 +28,7 @@
       },
       "groupBy": {
         "type": "string",
-        "description": "Row grouping; subset and default per select. [select: usage, gates, contention]",
+        "description": "Row grouping; subset and default per select. [select: usage, gates, notes, contention]",
         "enum": [
           "tool",
           "operation",
@@ -40,20 +41,22 @@
           "noteKey",
           "type",
           "trait",
-          "resource"
+          "resource",
+          "role",
+          "seat"
         ]
       },
       "limit": {
         "type": "integer",
-        "description": "Page size, 1 to 200 (default 50). [select: usage, gates, contention]"
+        "description": "Page size, 1 to 200 (default 50). [select: usage, gates, notes, contention]"
       },
       "cursor": {
         "type": "string",
-        "description": "page.next of the prior page. [select: usage, gates, contention]"
+        "description": "page.next of the prior page. [select: usage, gates, notes, contention]"
       },
       "anchorId": {
         "type": "string",
-        "description": "Roll up this subtree (UUID or 8-32 hex prefix). [select: rollup]"
+        "description": "This subtree, itself included (UUID or 8-32 hex prefix). [select: notes, rollup]"
       },
       "runId": {
         "type": "string",
@@ -66,7 +69,7 @@
     },
     "type": "object"
   },
-  "description": "Aggregate reports. select: usage (call metrics per group), gates (rejected transitions), contention (claims, leases), waste (ratios), rollup (subtree or run summary). Call with describe:true for each operation's parameters and errors.",
+  "description": "Aggregate reports. select: usage (call metrics per group), gates (rejected transitions), notes (note writes), contention (claims, leases), waste (ratios), rollup (subtree or run summary). Call with describe:true for each operation's parameters and errors.",
   "annotations": {
     "readOnlyHint": true,
     "destructiveHint": false,

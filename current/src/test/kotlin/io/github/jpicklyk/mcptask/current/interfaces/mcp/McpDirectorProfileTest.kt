@@ -297,7 +297,7 @@ class McpDirectorProfileTest {
             assertEquals(directorSelects, listing.tool("items_read").enumOf("select"), "items_read director selects")
             assertEquals(setOf("list", "graph"), listing.tool("deps_read").enumOf("select"), "deps_read director selects")
             assertEquals(
-                setOf("usage", "gates", "contention", "waste", "rollup"),
+                setOf("usage", "gates", "notes", "contention", "waste", "rollup"),
                 listing.tool("report").enumOf("select"),
                 "report director selects"
             )

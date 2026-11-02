@@ -12,6 +12,9 @@ import io.github.jpicklyk.mcptask.current.application.port.GateDimension
 import io.github.jpicklyk.mcptask.current.application.port.GateRow
 import io.github.jpicklyk.mcptask.current.application.port.GatesQuery
 import io.github.jpicklyk.mcptask.current.application.port.ListPage
+import io.github.jpicklyk.mcptask.current.application.port.NoteWriteDimension
+import io.github.jpicklyk.mcptask.current.application.port.NoteWriteRow
+import io.github.jpicklyk.mcptask.current.application.port.NoteWritesQuery
 import io.github.jpicklyk.mcptask.current.application.port.PageRequest
 import io.github.jpicklyk.mcptask.current.application.port.ReadScope
 import io.github.jpicklyk.mcptask.current.application.port.RunFacts
@@ -72,6 +75,13 @@ data class UsageReport(
 data class GatesReport(
     val groupBy: ReportGroupBy,
     val page: ListPage<GateRow>,
+    val window: ReportWindow
+)
+
+/** One `notes` page: the groups of [page] keyed by [groupBy], and the [window] they cover. */
+data class NotesReport(
+    val groupBy: ReportGroupBy,
+    val page: ListPage<NoteWriteRow>,
     val window: ReportWindow
 )
 
@@ -528,6 +538,82 @@ class ReportService(
     }
 
     /**
+     * `report notes`: `note.upserted` events grouped by [ReportGroupBy.ROLE] (default), [ReportGroupBy.NOTE_KEY],
+     * [ReportGroupBy.SEAT], [ReportGroupBy.TYPE], [ReportGroupBy.PRINCIPAL_KIND] or [ReportGroupBy.DAY]. Visibility is as
+     * for [gates]; `anchorId` (any depth, resolved as for `rollup`) keeps the writes on items of its subtree.
+     */
+    suspend fun notes(
+        ctx: CallContext,
+        req: ReportNotesRequest
+    ): Outcome<NotesReport> {
+        val groupBy = req.groupBy ?: ReportGroupBy.ROLE
+        val dimension =
+            when (groupBy) {
+                ReportGroupBy.ROLE -> NoteWriteDimension.ROLE
+                ReportGroupBy.NOTE_KEY -> NoteWriteDimension.NOTE_KEY
+                ReportGroupBy.SEAT -> NoteWriteDimension.SEAT
+                ReportGroupBy.TYPE -> NoteWriteDimension.TYPE
+                ReportGroupBy.PRINCIPAL_KIND -> NoteWriteDimension.PRINCIPAL_KIND
+                ReportGroupBy.DAY -> NoteWriteDimension.DAY
+                else -> return Outcome.Err(
+                    invalid("/groupBy", "notes accepts: ${NOTES_GROUPS.joinToString(", ") { it.wire }}", groupBy.wire)
+                )
+            }
+        val window =
+            when (val w = window(req.since, req.until, MAX_RAW_WINDOW)) {
+                is Outcome.Err -> return w
+                is Outcome.Ok -> w.value
+            }
+        val page =
+            when (val p = PageRequest.from(req.limit, req.cursor)) {
+                is Outcome.Err -> return p
+                is Outcome.Ok -> p.value
+            }
+        return unitOfWork.read<Outcome<NotesReport>> {
+            val rootId =
+                when (val r = req.rootId?.let { root(ctx, it) }) {
+                    null -> null
+                    is Outcome.Err -> return@read r
+                    is Outcome.Ok -> r.value
+                }
+            val repo = stores.workItemRepository()
+            val anchorId =
+                when (val ref = req.anchorId) {
+                    null -> null
+                    else ->
+                        when (val r = ScopedIds.resolveTarget(repo, ctx.scope, ref, ANCHOR_FIELD)) {
+                            is Outcome.Err -> return@read r
+                            is Outcome.Ok -> {
+                                if (repo.getById(r.value) == null) {
+                                    return@read Outcome.Err(
+                                        if (ctx.scope.isUnrestricted) notFound(ref.raw) else ScopedIds.denied(ctx.scope)
+                                    )
+                                }
+                                r.value
+                            }
+                        }
+                }
+            val queries = stores.reportQueries()
+            val result =
+                queries.noteWrites(
+                    NoteWritesQuery(
+                        since = window.first,
+                        until = window.second,
+                        groupBy = dimension,
+                        scopeRootIds = ctx.scope.rootIds,
+                        scopeTags = ctx.scope.tagsInclude,
+                        rootId = rootId,
+                        anchorId = anchorId,
+                        limit = page.limit,
+                        offset = page.offset
+                    )
+                )
+            val retainedSince = queries.eventsRetainedSince(setOf(DomainEvent.NOTE_UPSERTED))
+            Outcome.Ok(NotesReport(groupBy, ListPage.of(result.rows, result.totalGroups, page), reportWindow(window, retainedSince)))
+        }
+    }
+
+    /**
      * `report contention`: claim and lease events grouped by (kind, resource). The only accepted `groupBy` is
      * [ReportGroupBy.RESOURCE]. Visibility is as for [gates].
      */
@@ -761,6 +847,17 @@ class ReportService(
         /** The `groupBy` values `gates` accepts, in wire order. */
         val GATES_GROUPS: List<ReportGroupBy> =
             listOf(ReportGroupBy.NOTE_KEY, ReportGroupBy.TYPE, ReportGroupBy.TRAIT, ReportGroupBy.ERROR_CODE)
+
+        /** The `groupBy` values `notes` accepts, in wire order. */
+        val NOTES_GROUPS: List<ReportGroupBy> =
+            listOf(
+                ReportGroupBy.ROLE,
+                ReportGroupBy.NOTE_KEY,
+                ReportGroupBy.SEAT,
+                ReportGroupBy.TYPE,
+                ReportGroupBy.PRINCIPAL_KIND,
+                ReportGroupBy.DAY
+            )
 
         /** The claim.* and lease.* event types `contention` reads (and whose oldest row is its `retainedSince`). */
         val CONTENTION_EVENT_TYPES: Set<String> =

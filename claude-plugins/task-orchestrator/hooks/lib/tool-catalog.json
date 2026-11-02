@@ -2488,7 +2488,7 @@
               "required": false
             },
             "groupBy": {
-              "type": "string: tool | operation | host | surface | principalKind | errorCode | day | principal | noteKey | type | trait | resource",
+              "type": "string: tool | operation | host | surface | principalKind | errorCode | day | principal | noteKey | type | trait | resource | role | seat",
               "required": false
             },
             "limit": {
@@ -2532,7 +2532,55 @@
               "required": false
             },
             "groupBy": {
-              "type": "string: tool | operation | host | surface | principalKind | errorCode | day | principal | noteKey | type | trait | resource",
+              "type": "string: tool | operation | host | surface | principalKind | errorCode | day | principal | noteKey | type | trait | resource | role | seat",
+              "required": false
+            },
+            "limit": {
+              "type": "integer",
+              "required": false
+            },
+            "cursor": {
+              "type": "string",
+              "required": false
+            }
+          },
+          "errors": [
+            "ambiguous_id",
+            "forbidden",
+            "internal",
+            "invalid_cursor",
+            "invalid_request",
+            "not_found",
+            "unavailable",
+            "unknown_parameter"
+          ]
+        },
+        "notes": {
+          "anchor": "report-notes",
+          "profiles": [
+            "director"
+          ],
+          "capability": "read",
+          "destructive": false,
+          "fields": {
+            "rootId": {
+              "type": "string",
+              "required": false
+            },
+            "anchorId": {
+              "type": "string",
+              "required": false
+            },
+            "since": {
+              "type": "string",
+              "required": false
+            },
+            "until": {
+              "type": "string",
+              "required": false
+            },
+            "groupBy": {
+              "type": "string: tool | operation | host | surface | principalKind | errorCode | day | principal | noteKey | type | trait | resource | role | seat",
               "required": false
             },
             "limit": {
@@ -2576,7 +2624,7 @@
               "required": false
             },
             "groupBy": {
-              "type": "string: tool | operation | host | surface | principalKind | errorCode | day | principal | noteKey | type | trait | resource",
+              "type": "string: tool | operation | host | surface | principalKind | errorCode | day | principal | noteKey | type | trait | resource | role | seat",
               "required": false
             },
             "limit": {

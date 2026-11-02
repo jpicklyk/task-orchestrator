@@ -30,6 +30,7 @@ document body or a call argument.
 |---|---|---|
 | Which tools, hosts or principals make the calls, how often do they fail, and how big are the answers? | `usage` | The call log, and the per-day summaries behind it for old windows |
 | Where do transitions get rejected: which missing note, which type, which trait? | `gates` | Rejection events |
+| How many bytes of notes are written, by which role, seat, key or type, and how many are rewrites? | `notes` | Note-write events |
 | Which items or resources are fought over, and how often do claims and leases expire or get forced? | `contention` | Claim and lease events |
 | Are agents fetching more than they use, reading and never writing, or hitting empty queues? | `waste` | The call log, with session joins |
 | How big is this part of the tree, how much of it is blocked, and what did working on it cost? | `rollup` with `anchorId` | Items, events and the call log |
@@ -49,7 +50,7 @@ A number in a report is only as good as its basis. These are the ones to know.
   summaries plus the raw tail (`daily`). On the daily basis `since` is floored to its UTC midnight, and an `until` that
   ends inside already-folded days is ceiled to the next midnight, so the echoed window may be wider than the one you
   asked for. `groupBy: principalKind` groups by the credential's kind (`human`, `agent` or `service`; the local principal is `agent`); rows logged before the kind was recorded keep `external` and are not backfilled, so a window across that upgrade shows an `external` group beside the real kinds. `groupBy: principal` needs the raw table and is `invalid_request` when the window needs the daily basis.
-  The other selects (`gates`, `contention` and `waste`) read events or the raw call log and always report `basis: raw`; `rollup` carries no `window.basis`.
+  The other selects (`gates`, `notes`, `contention` and `waste`) read events or the raw call log and always report `basis: raw`; `rollup` carries no `window.basis`.
 - **`cost.basis` on a rollup: `targets` or `run`.** An anchor rollup counts the calls that name a subtree item or that
   wrote one of the subtree's events (`targets`). A run rollup counts the calls stamped with the run id (`run`). Both
   are lower bounds: a call that named no item and wrote nothing, or was never bound to the run, is missed.
@@ -63,6 +64,8 @@ A number in a report is only as good as its basis. These are the ones to know.
 - **The `gates` join for `type` and `trait` is as of now.** A rejection is grouped by the item's current type and
   traits, not by those it had when it was rejected. After a retype or a trait change, old rejections move with the item,
   and a deleted item falls in the group with the empty key.
+- **The `notes` join for `type` is as of now.** A write is grouped by the current type of the item it was written on; a deleted item falls in the group with the empty key.
+- **`notes` seat is missing for review-role writes.** Under the handoff review profile review-role writes carry no seat, so grouping by `seat` puts them in the `{}` group.
 - **Empty keys are not nulls.** A group whose grouped column is missing has a `key` of `{}`, and it sorts first.
 
 ## Retention and what a report can see
@@ -80,6 +83,8 @@ window as partial.
   window with the older of the raw horizon and the earliest folded day. The summaries themselves are not pruned.
 - **`gates`.** Rejection events are activity-class and are pruned by the activity-event setting. `retainedSince` is the
   oldest rejection held, so a window older than that counts only what survived.
+- **`notes`.** `note.upserted` events are activity-class and are pruned by the activity-event setting; `retainedSince` is the
+  oldest one held. `note.deleted` is not counted, and the report is write volume, not the size of the notes now stored.
 - **`contention`.** Claim and lease events are activity-class too. The pruner always keeps the latest `claim.expired`
   row of each item, however old, so the oldest event held can be much older than the bulk of the data. Treat
   `retainedSince` here as an upper bound on how far back the data is complete, not as a promise.

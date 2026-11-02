@@ -79,7 +79,7 @@ class WasteToolClassificationTest {
     @Test
     fun `S16 report lists usage and waste, and waste is visible in the director profile only`() {
         assertEquals(
-            listOf("usage", "gates", "contention", "waste", "rollup"),
+            listOf("usage", "gates", "notes", "contention", "waste", "rollup"),
             ParityCoverage
                 .members(registry)
                 .filter {
@@ -134,7 +134,7 @@ class WasteToolClassificationTest {
                 .jsonPrimitive.content
         assertTrue("at most 7 days" in doc("waste"), "waste documents its cap: ${doc("waste")}")
         assertTrue("at most 400 days" in doc("usage"), "usage documents its cap: ${doc("usage")}")
-        for (select in listOf("gates", "contention", "rollup")) {
+        for (select in listOf("gates", "notes", "contention", "rollup")) {
             assertTrue("31 days" in doc(select), "$select documents its cap: ${doc(select)}")
         }
         assertTrue(
