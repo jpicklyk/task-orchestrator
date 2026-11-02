@@ -59,13 +59,14 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
   `threshold` → `effectiveUnblockRole`, `satisfied`). An explicit entry may also carry `reason`,
   `decisionId` and `resumable`, copied from the entry (all optional); the planner names them in the
   exclusion reason.
-- Id forms — `candidates[].id` is identity and must be the full UUID (`items_read` `get`); it keys
+- Id forms - `candidates[].id` is identity and must be the full UUID (`items_read` `get`); it keys
   `schemas`, `scopes`, `carryIns` and `noteOwners`. Reference fields (`blocked[].itemId`,
   `blockedBy[].itemId`, `candidates[].parentId`) may be a full UUID or 8-32 hex characters, as the
   compact `blocked` and `next` views answer them (`blockers[].id` is a full UUID there). The planner
-  resolves each reference to the unique candidate whose id starts with it before joining; no match
-  keeps it as given (`not projected`), and more than one match is a validation error naming
-  `ambiguous`. `parentId` equality uses the same prefix rule.
+  resolves each reference to the unique candidate whose id starts with it before joining. No match
+  keeps the reference as given: an unmatched `blocked[]` entry defers that item as `not projected`,
+  while an unmatched `blockedBy[]` reference becomes a cross-run deferral. More than one match is
+  a validation error naming `ambiguous`. `parentId` equality uses the same prefix rule.
 - `parents` — from `items_read(select:"context", itemId:<parent>)`: `role` is `item.role`,
   `canAdvance` and `missing` are `gateStatus.canAdvance` and `gateStatus.missing`.
 - `rulesServed` — the `config` `rules` list (`{key, rulesVersion}` per rule) for `rootId`.
