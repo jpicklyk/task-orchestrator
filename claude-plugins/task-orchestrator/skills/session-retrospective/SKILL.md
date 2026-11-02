@@ -108,6 +108,18 @@ Across the collected `session-tracking` notes: total item count and outcome dist
 
 From `delegation-metadata` notes extract model per delegation (haiku, sonnet, opus) and isolation (inline, worktree); they feed 3b.
 
+**Note volume (only with the director tools).** Skip silently without them. Make two director-profile reads over one window: `since` is the `createdAt` of the newest `session-retrospective` item for this project, else 7 days ago, and the window is capped at 31 days.
+
+```to-call
+{"tool": "report", "select": "notes", "args": {"rootId": "<rootId>", "groupBy": "role", "since": "<window start>"}, "profile": "director"}
+```
+
+```to-call
+{"tool": "report", "select": "notes", "args": {"rootId": "<rootId>", "groupBy": "noteKey", "since": "<window start>"}, "profile": "director"}
+```
+
+Compute three figures: the review role's share of total bytes, the `review-checklist` `avgBytes`, and the largest `maxBytes` of any note key. Compare them with the 2026-11-02 baseline (review share 31%, review-checklist average 6.5 KB, largest note 37 KB) and record the three figures in the `session-metrics` note (5c).
+
 **Structured form.** A note whose first line matches `^adapter=\S+( [a-z-]+=\S+)+$` is a structured provenance line, not legacy prose: split on spaces, then each token on `key=value`. Each `seat:model` pair inside `seats=` is one delegation, typed by seat rather than guessed from prose - planner: architecture/opus; implementer, test-author: sonnet; declarations-extractor: code reading/sonnet; reviewer: opus; any other seat is recorded but not scored. Isolation comes from `isolation=`. `model=` is ignored whenever `seats=` is present. Field order is fixed: `adapter= run= seats= model= isolation= agents= tokens= duration= deferred= in-run-edges= orchestrator-turns=`. Example:
 
 ```

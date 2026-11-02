@@ -892,7 +892,7 @@ This mode is per-root honorable (see "Global vs Per-Project Config" above): a pr
 pushes its own `note_limits.mode` overrides the server mode for that root's items only; a per-root
 document with no `note_limits` section at all defers to the server mode unchanged.
 
-Notes are a compression boundary: keep bodies distilled prose, and route verbatim artifacts (test output, diffs, logs) through `bodyFromFile` rather than pasting them inline.
+Notes are a compression boundary: keep bodies distilled prose. Verbatim artifacts never go in a note body: test output, diffs, logs, grep or search output, file inventories, line-number tables and anything else a command produced. Store them as a `docs_write` `page` document (slug `<item-short>/<purpose>`) and have the note name the slug, the command that produced it and the row count. A note holding more than about 20 table rows, or citing more than about 30 `file:line` pairs, is an inventory and belongs in a document.
 
 ---
 

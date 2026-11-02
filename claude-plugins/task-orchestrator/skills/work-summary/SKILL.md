@@ -226,6 +226,16 @@ Skip silently without them. One director-profile read, default window 7 days:
 
 Render one line after Attention Required: `top gate rejections (7d): <noteKey> N, ...` from `data.items[]` (`key.noteKey`, `blocks`); omit it when `items` is empty.
 
+### Note volume (only with the director tools)
+
+Skip silently without them. One director-profile read, default window 7 days:
+
+```to-call
+{"tool": "report", "select": "notes", "args": {"rootId": "<rootId>", "groupBy": "role"}, "profile": "director"}
+```
+
+Render one line after the gate-rejections line: `note volume (7d): <role> <bytes> (<share>%), ...` from `data.items[]` (`key.role`, `bytes`; the share is each role's `bytes` over the summed `bytes`), one entry per role; omit it when `items` is empty.
+
 ### Sections, in order
 
 1. **Health Headline**, **Attention Required**, **Recommended Next**: as in lean mode.
