@@ -253,10 +253,10 @@ test('S3: ERROR_KINDS maps every API error-catalog code to its kind; frozen', ()
 
 // ---- S4 ----------------------------------------------------------------------------------
 
-test('S4: catalog has exactly the 72 API entries, each with profiles derived from the goldens (REST-only = [])', () => {
-  assert.equal(API.entries.length, 72);
+test('S4: catalog has exactly the 73 API entries, each with profiles derived from the goldens (REST-only = [])', () => {
+  assert.equal(API.entries.length, 73);
   const catalogCount = Object.values(catalogFile.tools).reduce((n, t) => n + Object.keys(t.entries).length, 0);
-  assert.equal(catalogCount, 72);
+  assert.equal(catalogCount, 73);
   assert.deepEqual(Object.keys(catalogFile.tools).sort(), Object.keys(GOLDENS).sort());
   for (const e of API.entries) {
     const got = catalogFile.tools[e.tool].entries[e.name];
