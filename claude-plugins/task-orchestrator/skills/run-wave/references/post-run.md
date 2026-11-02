@@ -357,7 +357,8 @@ cap on cycles.
    plus the blocking findings — see "Re-review after fixes" below.
 
 **Dispositions at child close.** When a child's review returns Pass or Pass with observations,
-write the child's `orchestrator-confirmation` before advancing it: one line per O# (follow-up
+write the child's `orchestrator-confirmation` before advancing it: one line per non-blocking
+finding id (`O#` from a review-checklist, `N#` from a docs-accuracy or similar review; follow-up
 item created first, or `accepted: <reason>`), `N of N disposed`. Nothing is left for the parent
 review to carry.
 
@@ -546,8 +547,9 @@ review-role parent, and the parent leaves review only by the explicit advance in
    diff instead, since the base merges in between are not the feature's changes): shared mode
    `git -C <feature-worktree> diff <base>...HEAD -- <paths>`; per-item mode the same pathspec over
    the base-branch range from the SHA before the first child merged to the merged tip, so unrelated
-   base merges stay out. Input: each child's `review-checklist` verdict line and its
-   `orchestrator-confirmation` count line (`notes_read(select:"get", ...)` per child; read the
+   base merges stay out. Input: the verdict line of each child's findings register (its
+   `review-checklist`, or the first review-role note its reviewer filled when the schema declares
+   none) and its `orchestrator-confirmation` count line (`notes_read(select:"get", ...)` per child; read the
    bodies, hand over the two lines), plus any child disposition line reading `follow-up` whose item
    does not exist yet. List any child without a review as such. The reviewer judges the merged range
    and writes only feature-level findings (cross-child seams, off-scope changes, the merged result
