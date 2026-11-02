@@ -11,6 +11,10 @@ import io.github.jpicklyk.mcptask.current.application.port.GateDimension
 import io.github.jpicklyk.mcptask.current.application.port.GateRow
 import io.github.jpicklyk.mcptask.current.application.port.GatesPage
 import io.github.jpicklyk.mcptask.current.application.port.GatesQuery
+import io.github.jpicklyk.mcptask.current.application.port.NoteWriteDimension
+import io.github.jpicklyk.mcptask.current.application.port.NoteWriteRow
+import io.github.jpicklyk.mcptask.current.application.port.NoteWritesPage
+import io.github.jpicklyk.mcptask.current.application.port.NoteWritesQuery
 import io.github.jpicklyk.mcptask.current.application.port.ReportQueries
 import io.github.jpicklyk.mcptask.current.application.port.RunCost
 import io.github.jpicklyk.mcptask.current.application.port.UsageDimension
@@ -19,11 +23,13 @@ import io.github.jpicklyk.mcptask.current.application.port.UsageQuery
 import io.github.jpicklyk.mcptask.current.application.port.UsageRow
 import io.github.jpicklyk.mcptask.current.application.report.ContentionReport
 import io.github.jpicklyk.mcptask.current.application.report.GatesReport
+import io.github.jpicklyk.mcptask.current.application.report.NotesReport
 import io.github.jpicklyk.mcptask.current.application.report.ReportContentionRequest
 import io.github.jpicklyk.mcptask.current.application.report.ReportFixture
 import io.github.jpicklyk.mcptask.current.application.report.ReportGatesRequest
 import io.github.jpicklyk.mcptask.current.application.report.ReportGroupBy
 import io.github.jpicklyk.mcptask.current.application.report.ReportKit
+import io.github.jpicklyk.mcptask.current.application.report.ReportNotesRequest
 import io.github.jpicklyk.mcptask.current.application.report.ReportUsageRequest
 import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
@@ -32,13 +38,17 @@ import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.report.noteItem
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
@@ -1879,5 +1889,1039 @@ class ReportGatesContentionServiceTest {
 
             assertEquals(gatesOk().page.items, gatesOk().page.items)
             assertEquals(contentionOk().page.items, contentionOk().page.items)
+        }
+}
+
+// ====================================================================================================================
+// R12 (item d7b2a970): the `notes` select of the report tool, over the real SQLite database.
+// ====================================================================================================================
+
+/** Payload JSON of a `note.upserted` event; the keys follow the declared `NoteUpserted` payload map. */
+internal object R12Json {
+    fun noteUpserted(
+        itemId: UUID,
+        key: String,
+        role: String,
+        bodyLength: Int,
+        bodyFromFile: String? = null
+    ): String =
+        buildJsonObject {
+            put("itemId", itemId.toString())
+            put("key", key)
+            put("role", role)
+            put("bodyLength", bodyLength)
+            if (bodyFromFile != null) put("bodyFromFile", bodyFromFile)
+        }.toString()
+}
+
+/** Builds `note.upserted` event rows: the entity is the NOTE (its id derives from item and key), the payload names the item. */
+internal class R12Notes(
+    private val ev: R11Events
+) {
+    /** The note id for an (item, key) pair: stable, and never equal to the item id. */
+    fun noteId(
+        itemId: UUID,
+        key: String
+    ): UUID = UUID.nameUUIDFromBytes("r12-note/$itemId/$key".toByteArray())
+
+    fun write(
+        item: WorkItem,
+        key: String,
+        role: String,
+        bytes: Int,
+        at: Instant,
+        seat: String? = null,
+        principalKind: String? = null,
+        bodyFromFile: String? = null,
+        type: String = DomainEvent.NOTE_UPSERTED
+    ): EventRecord = writeFor(item.id, ev.rootOf(item), key, role, bytes, at, seat, principalKind, bodyFromFile, type)
+
+    fun writeFor(
+        itemId: UUID,
+        rootId: UUID,
+        key: String,
+        role: String,
+        bytes: Int,
+        at: Instant,
+        seat: String? = null,
+        principalKind: String? = null,
+        bodyFromFile: String? = null,
+        type: String = DomainEvent.NOTE_UPSERTED
+    ): EventRecord =
+        EventRecord(
+            id = UUID.randomUUID(),
+            occurredAt = at,
+            rootId = rootId,
+            entityKind = DomainEvent.KIND_NOTE,
+            entityId = noteId(itemId, key),
+            type = type,
+            principalKind = principalKind,
+            seat = seat,
+            data = R12Json.noteUpserted(itemId, key, role, bytes, bodyFromFile)
+        )
+}
+
+/**
+ * Independent contract tests (test-author seat, item d7b2a970, R12) for `ReportQueries.noteWrites` over the real SQLite
+ * database: the store-level half of scenarios S1 to S7 of the frozen test-plan (all NEW-SURFACE). Events are appended through
+ * the production event store and the port is reached as production reaches it, `repositoryProvider().reportQueries()` inside a
+ * read unit.
+ *
+ * Oracles (task-scope Wire and Filters clauses, none read from a run): the select aggregates `note.upserted` events in
+ * `[since, until)`; `writes` is the number of events, `notes` the number of DISTINCT entity ids (the note id), `bytes` the sum of
+ * `data.bodyLength` and `maxBytes` its maximum; the groupings are role (`data.role`), noteKey (`data.key`), seat (`events.seat`),
+ * type (the item's CURRENT type joined through `data.itemId`, never the entity id), principalKind (`events.principal_kind`) and
+ * day (the UTC date of `occurred_at`); a NULL value and a deleted item fall in the null-key group; rows order by bytes
+ * descending then key ascending with the null key first; `totalGroups` counts all groups whatever the page; a null root set is
+ * unrestricted, an empty set sees nothing, a set sees events whose `root_id` is in it, a tag set sees events whose item currently
+ * carries one of the tags and never a deleted item; `anchorId` keeps the events whose item is in the anchor's subtree, the anchor
+ * included, a deleted item excluded; `rootId` and `anchorId` together intersect. The expected numbers are hand sums written next
+ * to the rows.
+ *
+ * Negative-assertion conditions: every exclusion (a row on the window's end, another event type, a sibling, a foreign root, a
+ * deleted item, a retagged item) has a seeded row that the control query over the same fixture counts, so dropping the rule
+ * changes the answer.
+ *
+ * Forbidden-construct declaration: none. No assumeTrue, no @Disabled, no swallowed assertion, no not-null-only check standing
+ * in for a value.
+ *
+ * Domain invariants satisfied by construction: work items come from [R11Events.item] (a child's depth is its parent's depth plus
+ * one and its root is the parent's root); an event's root is its item's root; the note id is derived from item and key; payloads
+ * come from [R12Json].
+ */
+@Timeout(value = 240, unit = TimeUnit.SECONDS)
+class SqliteReportNotesContractTest {
+    private val clock = SettableClock(ReportKit.NOW)
+
+    @RegisterExtension
+    @JvmField
+    val db = SqliteTestDatabase.perMethod(clock = clock)
+
+    private val ev get() = R11Events(db.db)
+    private val nt get() = R12Notes(ev)
+    private val now = ReportKit.NOW
+
+    private fun ago(d: Duration): Instant = now.minus(d)
+
+    private val hourAgo get() = ago(Duration.ofHours(1))
+
+    private suspend fun <T> inRead(block: suspend (ReportQueries) -> T): T =
+        db.unitOfWork().read { block(db.repositoryProvider().reportQueries()) }
+
+    private fun nq(
+        groupBy: NoteWriteDimension = NoteWriteDimension.ROLE,
+        since: Instant = ago(Duration.ofDays(7)),
+        until: Instant = now,
+        scopeRootIds: Set<UUID>? = null,
+        scopeTags: Set<String> = emptySet(),
+        rootId: UUID? = null,
+        anchorId: UUID? = null,
+        limit: Int = 50,
+        offset: Int = 0
+    ) = NoteWritesQuery(since, until, groupBy, scopeRootIds, scopeTags, rootId, anchorId, limit, offset)
+
+    private suspend fun noteWrites(q: NoteWritesQuery): NoteWritesPage = inRead { it.noteWrites(q) }
+
+    private fun row(
+        key: String?,
+        writes: Long,
+        notes: Long,
+        bytes: Long,
+        maxBytes: Long
+    ) = NoteWriteRow(key, writes, notes, bytes, maxBytes)
+
+    private suspend fun append(vararg records: EventRecord) = ev.append(records.toList())
+
+    private class Mixed(
+        val i1: WorkItem,
+        val i2: WorkItem
+    )
+
+    /**
+     * The mixed fixture, all inside the default window. Writes (item, key, role, bodyLength, seat, principalKind, time):
+     * a1 (i1, k1, queue, 100, impl, agent, 2026-10-11T23:59:59.999Z); a2 (i1, k1, queue, 300, impl, agent, 2026-10-12T00:00:00Z);
+     * b1 (i1, k2, work, 50, no seat, user, 2026-10-12T08:00Z); c1 (i2, k3, work, 1000, rev, no kind, 2026-10-12T09:00Z); d1
+     * (i2, k1, queue, 7, empty-string seat, agent, 2026-10-12T10:00Z).
+     */
+    private suspend fun seedMixed(): Mixed {
+        val i1 = ev.item("I1")
+        val i2 = ev.item("I2")
+        append(
+            nt.write(i1, "k1", "queue", 100, Instant.parse("2026-10-11T23:59:59.999Z"), seat = "impl", principalKind = "agent"),
+            nt.write(i1, "k1", "queue", 300, Instant.parse("2026-10-12T00:00:00Z"), seat = "impl", principalKind = "agent"),
+            nt.write(i1, "k2", "work", 50, Instant.parse("2026-10-12T08:00:00Z"), seat = null, principalKind = "user"),
+            nt.write(i2, "k3", "work", 1000, Instant.parse("2026-10-12T09:00:00Z"), seat = "rev", principalKind = null),
+            nt.write(i2, "k1", "queue", 7, Instant.parse("2026-10-12T10:00:00Z"), seat = "", principalKind = "agent")
+        )
+        return Mixed(i1, i2)
+    }
+
+    // ------------------------------------------------------------------ S1 role
+
+    @Test
+    fun `R12 S1 by role a write is an event, a note is a distinct note id, bytes sum and max, ordered by bytes descending`(): Unit =
+        runBlocking {
+            val i1 = ev.item("I1")
+            val i2 = ev.item("I2")
+            append(
+                nt.write(i1, "k1", "queue", 100, hourAgo),
+                nt.write(i1, "k1", "queue", 200, hourAgo),
+                nt.write(i1, "k1", "queue", 300, hourAgo),
+                nt.write(i1, "k2", "queue", 50, hourAgo),
+                nt.write(i2, "k3", "work", 1000, hourAgo)
+            )
+
+            val page = noteWrites(nq())
+
+            assertEquals(
+                listOf(row("work", 1, 1, 1000, 1000), row("queue", 4, 2, 650, 300)),
+                page.rows,
+                "work leads on bytes; queue has 4 events over the 2 notes (i1 k1, i1 k2), 100+200+300+50 bytes, maximum 300"
+            )
+            assertEquals(2, page.totalGroups)
+        }
+
+    @Test
+    fun `R12 S1 the default grouping of the port query is whatever the caller passes, role is the plain dimension`(): Unit =
+        runBlocking {
+            val i1 = ev.item("I1")
+            append(nt.write(i1, "k1", "queue", 10, hourAgo), nt.write(i1, "k1", "work", 20, hourAgo))
+
+            assertEquals(listOf(row("work", 1, 1, 20, 20), row("queue", 1, 1, 10, 10)), noteWrites(nq(NoteWriteDimension.ROLE)).rows)
+        }
+
+    @Test
+    fun `R12 S1 probe a zero-length body counts as a write with zero bytes`(): Unit =
+        runBlocking {
+            val i1 = ev.item("I1")
+            append(nt.write(i1, "k1", "queue", 0, hourAgo))
+
+            assertEquals(listOf(row("queue", 1, 1, 0, 0)), noteWrites(nq()).rows)
+        }
+
+    @Test
+    fun `R12 S1 probe a replayed write is two recorded events of one note, a write from a file counts like an inline one`(): Unit =
+        runBlocking {
+            val i1 = ev.item("I1")
+            // Two events with identical payloads are two recorded writes (the report counts events, not calls) of one note.
+            append(
+                nt.write(i1, "k1", "queue", 40, hourAgo),
+                nt.write(i1, "k1", "queue", 40, hourAgo),
+                nt.write(i1, "k2", "queue", 5, hourAgo, bodyFromFile = "docs/body.md")
+            )
+
+            assertEquals(listOf(row("queue", 3, 2, 85, 40)), noteWrites(nq()).rows)
+        }
+
+    @Test
+    fun `R12 S1 probe keys that differ only by case are two groups, the same key on two items is one group of two notes`(): Unit =
+        runBlocking {
+            val i1 = ev.item("I1")
+            val i2 = ev.item("I2")
+            append(
+                nt.write(i1, "Spec", "queue", 10, hourAgo),
+                nt.write(i1, "spec", "queue", 20, hourAgo),
+                nt.write(i2, "spec", "queue", 30, hourAgo)
+            )
+
+            assertEquals(
+                listOf(row("spec", 2, 2, 50, 30), row("Spec", 1, 1, 10, 10)),
+                noteWrites(nq(NoteWriteDimension.NOTE_KEY)).rows,
+                "spec on two items is two notes in one group; Spec is another group"
+            )
+        }
+
+    @Test
+    fun `R12 S1 a repeated query over unchanged data answers the same rows`(): Unit =
+        runBlocking {
+            seedMixed()
+
+            val first = noteWrites(nq())
+            val second = noteWrites(nq())
+
+            assertEquals(first, second)
+        }
+
+    // ------------------------------------------------------------------ S2 the other groupings
+
+    @Test
+    fun `R12 S2 by noteKey the key is data key and the same key on two items is one group`(): Unit =
+        runBlocking {
+            seedMixed()
+
+            assertEquals(
+                listOf(row("k3", 1, 1, 1000, 1000), row("k1", 3, 2, 407, 300), row("k2", 1, 1, 50, 50)),
+                noteWrites(nq(NoteWriteDimension.NOTE_KEY)).rows,
+                "k1: a1, a2 on i1 and d1 on i2 = 3 events over 2 notes, 100+300+7 bytes"
+            )
+        }
+
+    @Test
+    fun `R12 S2 by seat a NULL seat is the null key`(): Unit =
+        runBlocking {
+            seedMixed()
+
+            val page = noteWrites(nq(NoteWriteDimension.SEAT))
+
+            assertEquals(
+                listOf(row("rev", 1, 1, 1000, 1000), row("impl", 2, 1, 400, 300)),
+                page.rows.filter { it.key == "rev" || it.key == "impl" },
+                "rev (c1) and impl (a1, a2: one note written twice) are named seats"
+            )
+            assertTrue(page.rows.any { it.key == null && it.maxBytes == 50L }, "b1 has no seat: its 50-byte write is in the null group")
+        }
+
+    @Test
+    fun `R12 S2 probe an empty-string seat is absent and counts with the NULL seat`(): Unit =
+        runBlocking {
+            seedMixed()
+
+            val page = noteWrites(nq(NoteWriteDimension.SEAT))
+
+            // Oracle: orchestrator-decisions A1 - a blank seat is absent. events.seat holds a named seat or NULL; '' is never a seat the
+            // server issues, so the '' write (d1, 7 bytes, its own note) falls in the same {} group as the NULL row (b1, 50 bytes).
+            assertEquals(
+                listOf(row("rev", 1, 1, 1000, 1000), row("impl", 2, 1, 400, 300), row(null, 2, 2, 57, 50)),
+                page.rows
+            )
+            assertEquals(3, page.totalGroups)
+        }
+
+    @Test
+    fun `R12 S2 by principalKind a NULL kind is the null key`(): Unit =
+        runBlocking {
+            seedMixed()
+
+            assertEquals(
+                listOf(row(null, 1, 1, 1000, 1000), row("agent", 3, 2, 407, 300), row("user", 1, 1, 50, 50)),
+                noteWrites(nq(NoteWriteDimension.PRINCIPAL_KIND)).rows
+            )
+        }
+
+    @Test
+    fun `R12 S2 by day the key is the UTC date and a note written on two days counts once in each`(): Unit =
+        runBlocking {
+            seedMixed()
+
+            assertEquals(
+                listOf(row("2026-10-12", 4, 4, 1357, 1000), row("2026-10-11", 1, 1, 100, 100)),
+                noteWrites(nq(NoteWriteDimension.DAY)).rows,
+                "a1 is one millisecond before midnight UTC, a2 on it; i1 k1 is one note on each day; 10-12 holds a2, b1, c1, d1"
+            )
+        }
+
+    // ------------------------------------------------------------------ S3 type, as of now, joined through the item
+
+    @Test
+    fun `R12 S3 type is the current type of the item named in the payload, a deleted or typeless item falls in the null group`(): Unit =
+        runBlocking {
+            val retyped = ev.item("retyped", type = "t1")
+            val updated = assertNotNull(db.repositoryProvider().itemStore().update(retyped.copy(type = "t2")))
+            val deleted = ev.item("deleted", type = "t9")
+            val untyped = ev.item("untyped")
+            val typedBare = ev.item("typedBare", type = "t1")
+            val neverCreated = UUID.randomUUID()
+            append(
+                nt.write(updated, "k", "queue", 10, hourAgo),
+                nt.write(deleted, "k", "queue", 20, hourAgo),
+                nt.write(untyped, "k", "queue", 30, hourAgo),
+                nt.write(typedBare, "k", "queue", 40, hourAgo),
+                nt.writeFor(neverCreated, UUID.randomUUID(), "k", "queue", 50, hourAgo)
+            )
+            ev.delete(deleted)
+
+            val page = noteWrites(nq(NoteWriteDimension.TYPE))
+
+            assertEquals(
+                listOf(row(null, 3, 3, 100, 50), row("t1", 1, 1, 40, 40), row("t2", 1, 1, 10, 10)),
+                page.rows,
+                "deleted, typeless and never-created items share the null group; the retyped item counts under t2 only"
+            )
+            assertEquals(3, page.totalGroups)
+        }
+
+    // ------------------------------------------------------------------ S4 failure: other types and the window edges
+
+    @Test
+    fun `R12 S4 other event types with a note-shaped payload are ignored`(): Unit =
+        runBlocking {
+            val i1 = ev.item("I1")
+            append(
+                nt.write(i1, "k", "queue", 5, hourAgo),
+                nt.write(i1, "k", "queue", 1000, hourAgo, type = "note.deleted"),
+                nt.write(i1, "k", "queue", 1000, hourAgo, type = "note.ownership_transferred"),
+                nt.write(i1, "k", "queue", 1000, hourAgo, type = DomainEvent.TRANSITION_REJECTED),
+                nt.write(i1, "k", "queue", 1000, hourAgo, type = DomainEvent.ITEM_TRANSITIONED)
+            )
+
+            for (dimension in NoteWriteDimension.entries) {
+                assertEquals(1L, noteWrites(nq(dimension)).rows.sumOf { it.writes }, "$dimension counts the one real write only")
+            }
+            assertEquals(listOf(row("queue", 1, 1, 5, 5)), noteWrites(nq()).rows)
+        }
+
+    @Test
+    fun `R12 S4 the window is half open - since is in, one millisecond before since is out, until is out`(): Unit =
+        runBlocking {
+            val i1 = ev.item("I1")
+            val since = ago(Duration.ofDays(2))
+            val until = ago(Duration.ofDays(1))
+            append(
+                nt.write(i1, "k", "queue", 1, since),
+                nt.write(i1, "k", "queue", 2, since.minusMillis(1)),
+                nt.write(i1, "k", "queue", 4, until.minusMillis(1)),
+                nt.write(i1, "k", "queue", 8, until)
+            )
+
+            assertEquals(
+                listOf(row("queue", 2, 1, 5, 4)),
+                noteWrites(nq(since = since, until = until)).rows,
+                "1 at since and 4 one millisecond before until are in; 2 and 8 are out"
+            )
+            assertEquals(
+                listOf(row("queue", 3, 1, 13, 8)),
+                noteWrites(nq(since = since, until = until.plusMillis(1))).rows,
+                "control: widening until by one millisecond brings the write at until in"
+            )
+        }
+
+    // ------------------------------------------------------------------ S5 anchorId
+
+    private class Tree(
+        val r1: WorkItem,
+        val c: WorkItem,
+        val g: WorkItem,
+        val s: WorkItem,
+        val d: WorkItem,
+        val r2: WorkItem
+    )
+
+    /** r1 > c > g, r1 > s (sibling of c), c > d (deleted after its write), and another root r2. Bytes 1, 2, 4, 8, 16, 32. */
+    private suspend fun seedTree(): Tree {
+        val r1 = ev.item("Alpha root", id = ReportKit.R1)
+        val r2 = ev.item("Beta root", id = ReportKit.R2)
+        val c = ev.item("c", parent = r1)
+        val g = ev.item("g", parent = c)
+        val s = ev.item("s", parent = r1)
+        val d = ev.item("d", parent = c)
+        append(
+            nt.write(r1, "k_r1", "queue", 1, hourAgo),
+            nt.write(c, "k_c", "queue", 2, hourAgo),
+            nt.write(g, "k_g", "queue", 4, hourAgo),
+            nt.write(s, "k_s", "queue", 8, hourAgo),
+            nt.write(d, "k_d", "queue", 16, hourAgo),
+            nt.write(r2, "k_r2", "queue", 32, hourAgo)
+        )
+        ev.delete(d)
+        return Tree(r1, c, g, s, d, r2)
+    }
+
+    @Test
+    fun `R12 S5 an anchor keeps its own writes and its descendants, not a sibling, a deleted item or another root`(): Unit =
+        runBlocking {
+            val t = seedTree()
+
+            assertEquals(
+                listOf(row("queue", 6, 6, 63, 32)),
+                noteWrites(nq()).rows,
+                "control: with no anchor all six writes count, the deleted item's included"
+            )
+            assertEquals(
+                listOf(row("queue", 2, 2, 6, 4)),
+                noteWrites(nq(anchorId = t.c.id)).rows,
+                "anchor c: c (2) and its grandchild g (4); not the sibling s, the deleted d, the root r1 or r2"
+            )
+            assertEquals(
+                listOf(row("queue", 4, 4, 15, 8)),
+                noteWrites(nq(anchorId = t.r1.id)).rows,
+                "anchor r1: r1, c, g and s; the deleted d and the other root r2 are out"
+            )
+            assertEquals(listOf(row("queue", 1, 1, 4, 4)), noteWrites(nq(anchorId = t.g.id)).rows, "a leaf anchor counts itself")
+        }
+
+    @Test
+    fun `R12 S5 rootId and anchorId together intersect`(): Unit =
+        runBlocking {
+            val t = seedTree()
+
+            assertEquals(
+                listOf(row("queue", 2, 2, 6, 4)),
+                noteWrites(nq(rootId = ReportKit.R1, anchorId = t.c.id)).rows,
+                "the anchor lies in R1"
+            )
+            assertEquals(
+                emptyList(),
+                noteWrites(nq(rootId = ReportKit.R2, anchorId = t.c.id)).rows,
+                "the anchor c is not in R2: the filters are ANDed"
+            )
+            assertEquals(0, noteWrites(nq(rootId = ReportKit.R2, anchorId = t.c.id)).totalGroups)
+            assertEquals(listOf(row("queue", 1, 1, 32, 32)), noteWrites(nq(rootId = ReportKit.R2)).rows, "control: R2 alone has its write")
+        }
+
+    // ------------------------------------------------------------------ S6 scope
+
+    @Test
+    fun `R12 S6 a root scope keeps the writes of its roots, an empty set sees nothing, rootId narrows`(): Unit =
+        runBlocking {
+            seedTree()
+
+            assertEquals(
+                listOf(row("queue", 5, 5, 31, 16)),
+                noteWrites(nq(scopeRootIds = setOf(ReportKit.R1))).rows,
+                "R1 holds r1, c, g, s and the deleted d (root scope is root_id based); k_r2 is another root's"
+            )
+            assertEquals(listOf(row("queue", 1, 1, 32, 32)), noteWrites(nq(scopeRootIds = setOf(ReportKit.R2))).rows)
+            assertEquals(emptyList(), noteWrites(nq(scopeRootIds = emptySet())).rows)
+            assertEquals(0, noteWrites(nq(scopeRootIds = emptySet())).totalGroups)
+            assertEquals(
+                emptyList(),
+                noteWrites(nq(scopeRootIds = setOf(ReportKit.R1), rootId = ReportKit.R2)).rows,
+                "rootId R2 is outside a scope of {R1}: the filters intersect"
+            )
+            assertEquals(
+                listOf(row("queue", 1, 1, 32, 32)),
+                noteWrites(nq(scopeRootIds = setOf(ReportKit.R1, ReportKit.R2), rootId = ReportKit.R2)).rows
+            )
+        }
+
+    @Test
+    fun `R12 S6 a tag scope sees only writes of items that currently carry an allowed tag`(): Unit =
+        runBlocking {
+            val api = ev.item("api", tags = "api")
+            val listed = ev.item("listed", tags = "x,api")
+            val prefix = ev.item("prefix", tags = "apiary")
+            val other = ev.item("other", tags = "beta")
+            val untagged = ev.item("untagged")
+            val gone = ev.item("gone", tags = "api")
+            val retagged = ev.item("retagged", tags = "api")
+            val bytes = mapOf(api to 1, listed to 2, prefix to 4, other to 8, untagged to 16, gone to 32, retagged to 64)
+            for ((item, length) in bytes) append(nt.write(item, "k", "queue", length, hourAgo))
+            ev.delete(gone)
+            assertNotNull(db.repositoryProvider().itemStore().update(retagged.copy(tags = "beta")))
+
+            assertEquals(
+                listOf(row("queue", 2, 2, 3, 2)),
+                noteWrites(nq(scopeTags = setOf("api"))).rows,
+                "exact tag membership: api (1) and x,api (2); not apiary, beta, untagged, the deleted item or the retagged one"
+            )
+            assertEquals(
+                listOf(row("queue", 7, 7, 127, 64)),
+                noteWrites(nq()).rows,
+                "control: unrestricted sees all seven writes, the deleted and the retagged item's included"
+            )
+            assertEquals(
+                listOf(row("queue", 4, 4, 75, 64)),
+                noteWrites(nq(scopeTags = setOf("api", "beta"))).rows,
+                "any allowed tag matches: api (1), x,api (2), beta (8) and the retagged item (64, now beta)"
+            )
+        }
+
+    // ------------------------------------------------------------------ S7 order, paging, empty
+
+    @Test
+    fun `R12 S7 equal bytes order by key ascending with the null key first, limit and offset page the groups`(): Unit =
+        runBlocking {
+            val i1 = ev.item("I1")
+            append(
+                nt.write(i1, "k1", "queue", 10, hourAgo, seat = "b"),
+                nt.write(i1, "k2", "queue", 10, hourAgo, seat = "a"),
+                nt.write(i1, "k3", "queue", 10, hourAgo, seat = null)
+            )
+
+            assertEquals(
+                listOf(row(null, 1, 1, 10, 10), row("a", 1, 1, 10, 10), row("b", 1, 1, 10, 10)),
+                noteWrites(nq(NoteWriteDimension.SEAT)).rows
+            )
+            val first = noteWrites(nq(NoteWriteDimension.SEAT, limit = 1))
+            assertEquals(listOf(row(null, 1, 1, 10, 10)), first.rows)
+            assertEquals(3, first.totalGroups, "totalGroups counts every group, not the page")
+            val second = noteWrites(nq(NoteWriteDimension.SEAT, limit = 1, offset = 1))
+            assertEquals(listOf(row("a", 1, 1, 10, 10)), second.rows)
+            assertEquals(3, second.totalGroups)
+            val beyond = noteWrites(nq(NoteWriteDimension.SEAT, limit = 5, offset = 3))
+            assertEquals(emptyList(), beyond.rows)
+            assertEquals(3, beyond.totalGroups)
+        }
+
+    @Test
+    fun `R12 S7 an empty window answers no rows and zero groups, control the same data over a wide window answers`(): Unit =
+        runBlocking {
+            val i1 = ev.item("I1")
+            append(nt.write(i1, "k", "queue", 10, hourAgo))
+
+            val empty = noteWrites(nq(since = ago(Duration.ofDays(3)), until = ago(Duration.ofDays(2))))
+
+            assertEquals(emptyList(), empty.rows)
+            assertEquals(0, empty.totalGroups)
+            assertEquals(1, noteWrites(nq()).totalGroups)
+        }
+
+    // ------------------------------------------------------------------ retained-since over note.upserted
+
+    @Test
+    fun `R12 S9 eventsRetainedSince for note upserted is the oldest such row over the whole table`(): Unit =
+        runBlocking {
+            val i1 = ev.item("I1")
+            val oldest = ago(Duration.ofDays(9))
+            append(
+                nt.write(i1, "k", "queue", 1, ago(Duration.ofDays(30)), type = DomainEvent.ITEM_TRANSITIONED),
+                nt.write(i1, "k", "queue", 1, ago(Duration.ofDays(20)), type = "note.deleted"),
+                nt.write(i1, "k", "queue", 1, oldest),
+                nt.write(i1, "k", "queue", 1, ago(Duration.ofDays(2)))
+            )
+
+            assertEquals(oldest, inRead { it.eventsRetainedSince(setOf(DomainEvent.NOTE_UPSERTED)) })
+            assertNull(inRead { it.eventsRetainedSince(setOf("note.never_written")) })
+        }
+}
+
+/**
+ * Independent tests (test-author seat, item d7b2a970, R12) for the `notes` wire item and `ReportService.notes` over the real
+ * SQLite database and the real [ReportQueries] port: the service and wire half of scenarios S8 to S11 of the frozen test-plan
+ * (all NEW-SURFACE).
+ *
+ * Oracles (task-scope Wire, Filters and groupBy clauses, none read from a run): `rewrites` is `writes - notes`, `avgBytes` is the
+ * integer floor of `bytes / writes`, a null key is an empty `key` object and a non-null key is `{<groupBy wire name>: value}`;
+ * groupBy defaults to role and accepts exactly role, noteKey, seat, type, principalKind and day, anything else (and the new role
+ * and seat values on usage, gates and contention) is `invalid_request` at `/groupBy`; the window is `[since, until)`, until
+ * defaults to the env clock, since to seven days before, at most 31 days (`invalid_request` at `/since`), basis `raw`;
+ * `retainedSince` is the oldest `note.upserted` row over the whole table; rootId must be depth 0 (`invalid_request` at
+ * `/rootId`), anchorId resolves at any depth, outside a root scope it is forbidden, unknown it is not_found unrestricted and
+ * forbidden restricted; a tag scope is not forbidden; limit 1 to 200, a garbled cursor is `invalid_cursor`.
+ *
+ * Negative-assertion conditions: every exclusion has a seeded row that appears in the control from the same fixture (a foreign
+ * root, an untagged item, an older row of another type).
+ *
+ * Forbidden-construct declaration: none.
+ *
+ * Domain invariants satisfied by construction: work items from [R11Events.item]; events from [R12Notes].
+ */
+@Timeout(value = 240, unit = TimeUnit.SECONDS)
+class ReportNotesServiceTest {
+    private val clock = SettableClock(ReportKit.NOW)
+
+    @RegisterExtension
+    @JvmField
+    val db = SqliteTestDatabase.perMethod(clock = clock)
+
+    private val fx get() = ReportFixture(db.db, clock)
+    private val ev get() = R11Events(db.db)
+    private val nt get() = R12Notes(ev)
+    private val now = ReportKit.NOW
+    private val r1 = ReportKit.R1
+    private val r2 = ReportKit.R2
+
+    private val noteGroupings =
+        setOf(
+            ReportGroupBy.ROLE,
+            ReportGroupBy.NOTE_KEY,
+            ReportGroupBy.SEAT,
+            ReportGroupBy.TYPE,
+            ReportGroupBy.PRINCIPAL_KIND,
+            ReportGroupBy.DAY
+        )
+
+    private fun ago(d: Duration): Instant = now.minus(d)
+
+    private val hourAgo get() = ago(Duration.ofHours(1))
+
+    private suspend fun notes(
+        request: ReportNotesRequest = ReportNotesRequest(),
+        ctx: CallContext = fx.ctx()
+    ): Outcome<NotesReport> = fx.service().notes(ctx, request)
+
+    private suspend fun notesOk(
+        request: ReportNotesRequest = ReportNotesRequest(),
+        ctx: CallContext = fx.ctx()
+    ): NotesReport =
+        when (val outcome = notes(request, ctx)) {
+            is Outcome.Ok -> outcome.value
+            is Outcome.Err -> error("expected an ok notes report for $request but got ${outcome.error}")
+        }
+
+    private fun err(outcome: Outcome<*>) = assertIs<Outcome.Err>(outcome).error
+
+    private fun fieldOf(error: ErrorDetail?): String = assertIs<ErrorDetail.InvalidRequest>(error).fields.single().field
+
+    private suspend fun append(vararg records: EventRecord) = ev.append(records.toList())
+
+    private fun row(
+        key: String?,
+        writes: Long,
+        notes: Long,
+        bytes: Long,
+        maxBytes: Long
+    ) = NoteWriteRow(key, writes, notes, bytes, maxBytes)
+
+    // ------------------------------------------------------------------ S8 the wire item
+
+    @Test
+    fun `R12 S8 the wire item derives rewrites as writes minus notes and avgBytes as the floor of bytes over writes`() {
+        val json =
+            noteItem(ReportGroupBy.ROLE, row("queue", 4, 2, 650, 300))
+
+        assertEquals(
+            Json.parseToJsonElement(
+                """{"key":{"role":"queue"},"writes":4,"notes":2,"rewrites":2,"bytes":650,"maxBytes":300,"avgBytes":162}"""
+            ),
+            json,
+            "650 / 4 = 162.5, floored to 162"
+        )
+        assertEquals(
+            Json.parseToJsonElement(
+                """{"key":{"noteKey":"k"},"writes":3,"notes":3,"rewrites":0,"bytes":10,"maxBytes":5,"avgBytes":3}"""
+            ),
+            noteItem(ReportGroupBy.NOTE_KEY, row("k", 3, 3, 10, 5)),
+            "10 / 3 = 3.33, floored to 3; no rewrite"
+        )
+    }
+
+    @Test
+    fun `R12 S8 a null key is an empty key object and each grouping names its own wire key`() {
+        assertEquals(
+            Json.parseToJsonElement("""{"key":{},"writes":1,"notes":1,"rewrites":0,"bytes":0,"maxBytes":0,"avgBytes":0}"""),
+            noteItem(ReportGroupBy.SEAT, row(null, 1, 1, 0, 0)),
+            "a zero-length body: bytes 0, avgBytes 0"
+        )
+        val keyedBy =
+            mapOf(
+                ReportGroupBy.ROLE to "role",
+                ReportGroupBy.NOTE_KEY to "noteKey",
+                ReportGroupBy.SEAT to "seat",
+                ReportGroupBy.TYPE to "type",
+                ReportGroupBy.PRINCIPAL_KIND to "principalKind",
+                ReportGroupBy.DAY to "day"
+            )
+        assertEquals(noteGroupings, keyedBy.keys, "fixture: every note grouping has an expectation")
+        for ((groupBy, wire) in keyedBy) {
+            val key =
+                noteItem(groupBy, row("v", 1, 1, 7, 7))
+                    .getValue("key")
+                    .jsonObject
+            assertEquals(setOf(wire), key.keys, groupBy.wire)
+            assertEquals("v", key.getValue(wire).jsonPrimitive.content, groupBy.wire)
+        }
+    }
+
+    @Test
+    fun `R12 S8 the service answers the rows the port computes, echoes the grouping and defaults to role`(): Unit =
+        runBlocking {
+            val i1 = ev.item("I1", type = "t1")
+            append(
+                nt.write(i1, "k1", "queue", 100, hourAgo, seat = "impl", principalKind = "agent"),
+                nt.write(i1, "k1", "queue", 200, hourAgo, seat = "impl", principalKind = "agent"),
+                nt.write(i1, "k2", "work", 50, hourAgo)
+            )
+
+            val byDefault = notesOk()
+            assertEquals(ReportGroupBy.ROLE, byDefault.groupBy)
+            assertEquals(listOf(row("queue", 2, 1, 300, 200), row("work", 1, 1, 50, 50)), byDefault.page.items)
+            assertEquals(2, byDefault.page.total)
+
+            val expectedFirst =
+                mapOf(
+                    ReportGroupBy.ROLE to "queue",
+                    ReportGroupBy.NOTE_KEY to "k1",
+                    ReportGroupBy.SEAT to "impl",
+                    ReportGroupBy.TYPE to "t1",
+                    ReportGroupBy.PRINCIPAL_KIND to "agent",
+                    ReportGroupBy.DAY to "2026-10-13"
+                )
+            for ((groupBy, key) in expectedFirst) {
+                val report = notesOk(ReportNotesRequest(groupBy = groupBy))
+                assertEquals(groupBy, report.groupBy)
+                assertEquals(
+                    key,
+                    report.page.items
+                        .first()
+                        .key,
+                    groupBy.wire
+                )
+            }
+        }
+
+    // ------------------------------------------------------------------ S9 validation
+
+    @Test
+    fun `R12 S9 notes accepts role, noteKey, seat, type, principalKind and day and rejects every other grouping at groupBy`(): Unit =
+        runBlocking {
+            for (groupBy in ReportGroupBy.entries) {
+                val outcome = notes(ReportNotesRequest(groupBy = groupBy))
+                if (groupBy in noteGroupings) {
+                    assertIs<Outcome.Ok<NotesReport>>(outcome, groupBy.wire)
+                } else {
+                    val error = err(outcome)
+                    assertEquals(ErrorCode.INVALID_REQUEST, error.code, groupBy.wire)
+                    assertEquals("/groupBy", fieldOf(error.detail), groupBy.wire)
+                }
+            }
+        }
+
+    @Test
+    fun `R12 S9 a window of exactly 31 days is accepted and one millisecond more is invalid at since`(): Unit =
+        runBlocking {
+            assertIs<Outcome.Ok<NotesReport>>(notes(ReportNotesRequest(since = "2026-09-01T00:00:00Z", until = "2026-10-02T00:00:00Z")))
+            val over = err(notes(ReportNotesRequest(since = "2026-09-01T00:00:00Z", until = "2026-10-02T00:00:00.001Z")))
+            assertEquals(ErrorCode.INVALID_REQUEST, over.code)
+            assertTrue(assertIs<ErrorDetail.InvalidRequest>(over.detail).fields.any { it.field == "/since" }, "the cap names /since")
+            assertEquals(
+                ErrorCode.INVALID_REQUEST,
+                err(notes(ReportNotesRequest(since = now.minus(Duration.ofDays(31)).minusMillis(1).toString()))).code,
+                "the cap also applies against the default until"
+            )
+            assertIs<Outcome.Ok<NotesReport>>(notes(ReportNotesRequest(since = now.minus(Duration.ofDays(31)).toString())))
+        }
+
+    @Test
+    fun `R12 S9 since at or after until and a malformed instant are invalid`(): Unit =
+        runBlocking {
+            val bad =
+                listOf(
+                    "2026-10-05T00:00:00Z" to "2026-10-05T00:00:00Z",
+                    "2026-10-06T00:00:00Z" to "2026-10-05T00:00:00Z",
+                    "yesterday" to "2026-10-05T00:00:00Z",
+                    "2026-10-01" to "2026-10-05T00:00:00Z"
+                )
+            for ((since, until) in bad) {
+                assertEquals(ErrorCode.INVALID_REQUEST, err(notes(ReportNotesRequest(since = since, until = until))).code, "$since $until")
+            }
+            assertIs<Outcome.Ok<NotesReport>>(
+                notes(ReportNotesRequest(since = "2026-10-05T00:00:00Z", until = "2026-10-05T00:00:00.001Z")),
+                "control: one millisecond is a valid window"
+            )
+        }
+
+    @Test
+    fun `R12 S9 the default window is seven days before now and half open, basis raw`(): Unit =
+        runBlocking {
+            val i1 = ev.item("I1")
+            val start = ago(Duration.ofDays(7))
+            append(
+                nt.write(i1, "in_start", "queue", 1, start),
+                nt.write(i1, "out_before", "queue", 2, start.minusMillis(1)),
+                nt.write(i1, "in_end", "queue", 4, now.minusMillis(1)),
+                nt.write(i1, "out_end", "queue", 8, now)
+            )
+
+            val report = notesOk(ReportNotesRequest(groupBy = ReportGroupBy.NOTE_KEY))
+
+            assertEquals(
+                setOf("in_start", "in_end"),
+                report.page.items
+                    .map { it.key }
+                    .toSet()
+            )
+            assertEquals(start, report.window.since)
+            assertEquals(now, report.window.until)
+            assertEquals("raw", report.window.basis)
+        }
+
+    @Test
+    fun `R12 S9 an offset input is echoed in UTC and an empty answer has no retainedSince`(): Unit =
+        runBlocking {
+            val report = notesOk(ReportNotesRequest(since = "2026-10-12T14:00:00+02:00", until = "2026-10-13T13:30:00+02:00"))
+
+            assertEquals(Instant.parse("2026-10-12T12:00:00Z"), report.window.since)
+            assertEquals(Instant.parse("2026-10-13T11:30:00Z"), report.window.until)
+            assertEquals(emptyList(), report.page.items)
+            assertEquals(0, report.page.total)
+            assertNull(report.window.retainedSince)
+            assertFalse(report.window.truncatedByRetention)
+        }
+
+    @Test
+    fun `R12 S9 retainedSince is the oldest note upserted row, older rows of other types are ignored`(): Unit =
+        runBlocking {
+            val i1 = ev.item("I1")
+            val oldest = ago(Duration.ofDays(9))
+            append(
+                nt.write(i1, "k", "queue", 1, ago(Duration.ofDays(20)), type = DomainEvent.ITEM_TRANSITIONED),
+                nt.write(i1, "k", "queue", 1, ago(Duration.ofDays(15)), type = "note.deleted"),
+                nt.write(i1, "k", "queue", 1, oldest),
+                nt.write(i1, "k", "queue", 1, ago(Duration.ofDays(2)))
+            )
+
+            val before = notesOk(ReportNotesRequest(since = ago(Duration.ofDays(12)).toString()))
+            assertEquals(oldest, before.window.retainedSince)
+            assertTrue(before.window.truncatedByRetention, "since is before the oldest note write")
+
+            val exact = notesOk(ReportNotesRequest(since = oldest.toString()))
+            assertEquals(oldest, exact.window.retainedSince)
+            assertFalse(exact.window.truncatedByRetention, "since equal to retainedSince is not truncated")
+
+            val after = notesOk(ReportNotesRequest(since = ago(Duration.ofDays(8)).toString()))
+            assertEquals(oldest, after.window.retainedSince, "retainedSince ignores the window")
+            assertFalse(after.window.truncatedByRetention)
+        }
+
+    @Test
+    fun `R12 S9 limit outside 1 to 200 is invalid and a garbled cursor is invalid_cursor`(): Unit =
+        runBlocking {
+            for (limit in listOf(0, 201, -1)) {
+                assertEquals(ErrorCode.INVALID_REQUEST, err(notes(ReportNotesRequest(limit = limit))).code, "limit $limit")
+            }
+            assertIs<Outcome.Ok<NotesReport>>(notes(ReportNotesRequest(limit = 1)))
+            assertIs<Outcome.Ok<NotesReport>>(notes(ReportNotesRequest(limit = 200)))
+            assertEquals(ErrorCode.INVALID_CURSOR, err(notes(ReportNotesRequest(cursor = "!!!not-a-cursor"))).code)
+        }
+
+    @Test
+    fun `R12 S9 paging walks every group once, total is the number of groups on every page`(): Unit =
+        runBlocking {
+            val i1 = ev.item("I1")
+            append(
+                nt.write(i1, "k1", "queue", 30, hourAgo),
+                nt.write(i1, "k2", "queue", 20, hourAgo),
+                nt.write(i1, "k3", "queue", 10, hourAgo)
+            )
+
+            val first = notesOk(ReportNotesRequest(groupBy = ReportGroupBy.NOTE_KEY, limit = 2))
+            assertEquals(listOf("k1", "k2"), first.page.items.map { it.key })
+            assertEquals(3, first.page.total)
+            val cursor = assertNotNull(first.page.next)
+            val second = notesOk(ReportNotesRequest(groupBy = ReportGroupBy.NOTE_KEY, limit = 2, cursor = cursor))
+            assertEquals(listOf("k3"), second.page.items.map { it.key })
+            assertEquals(3, second.page.total)
+            assertNull(second.page.next)
+        }
+
+    // ------------------------------------------------------------------ S10 rootId and anchorId, scope
+
+    private suspend fun seedRootTree() {
+        val a = ev.item("Alpha root", id = r1, tags = "api")
+        val b = ev.item("Beta root", id = r2, tags = "beta")
+        val c = ev.item("Alpha child", parent = a, id = ReportKit.C1)
+        append(
+            nt.write(a, "k_alpha", "queue", 1, hourAgo),
+            nt.write(b, "k_beta", "queue", 2, hourAgo),
+            nt.write(c, "k_child", "queue", 4, hourAgo)
+        )
+    }
+
+    private val restricted get() = fx.ctx(AccessScope.principal(setOf(r1), emptySet()))
+
+    @Test
+    fun `R12 S10 a rootId that is not a depth-0 item is invalid_request at the rootId pointer`(): Unit =
+        runBlocking {
+            seedRootTree()
+            for (ctx in listOf(fx.ctx(), restricted)) {
+                val error = err(notes(ReportNotesRequest(rootId = IdRef(ReportKit.C1.toString())), ctx))
+
+                assertEquals(ErrorCode.INVALID_REQUEST, error.code)
+                assertEquals("/rootId", fieldOf(error.detail))
+            }
+            assertIs<Outcome.Ok<NotesReport>>(notes(ReportNotesRequest(rootId = IdRef(r1.toString()))), "control: a root answers")
+        }
+
+    @Test
+    fun `R12 S10 a rootId outside the root scope is forbidden at the root scope`(): Unit =
+        runBlocking {
+            seedRootTree()
+
+            val error = err(notes(ReportNotesRequest(rootId = IdRef(r2.toString())), restricted))
+
+            assertEquals(ErrorCode.FORBIDDEN, error.code)
+            assertEquals(ForbiddenScope.ROOT, assertIs<ErrorDetail.Forbidden>(error.detail).scope)
+            assertIs<Outcome.Ok<NotesReport>>(notes(ReportNotesRequest(rootId = IdRef(r1.toString())), restricted), "control: own root")
+        }
+
+    @Test
+    fun `R12 S10 an anchorId outside the root scope is forbidden, one inside answers at any depth`(): Unit =
+        runBlocking {
+            seedRootTree()
+
+            val outside = err(notes(ReportNotesRequest(anchorId = IdRef(r2.toString())), restricted))
+            assertEquals(ErrorCode.FORBIDDEN, outside.code)
+            assertEquals(ForbiddenScope.ROOT, assertIs<ErrorDetail.Forbidden>(outside.detail).scope)
+
+            val child = notesOk(ReportNotesRequest(anchorId = IdRef(ReportKit.C1.toString())), restricted)
+            assertEquals(listOf(row("queue", 1, 1, 4, 4)), child.page.items, "the depth-1 child anchors a subtree of itself")
+            val root = notesOk(ReportNotesRequest(anchorId = IdRef(r1.toString())), restricted)
+            assertEquals(listOf(row("queue", 2, 2, 5, 4)), root.page.items, "anchor r1 holds r1 and its child")
+        }
+
+    @Test
+    fun `R12 S10 an unknown anchorId is not_found unrestricted and forbidden under a restricted scope`(): Unit =
+        runBlocking {
+            seedRootTree()
+            val unknown = IdRef("99999999-9999-4999-8999-999999999999")
+
+            assertEquals(ErrorCode.NOT_FOUND, err(notes(ReportNotesRequest(anchorId = unknown))).code)
+            assertEquals(ErrorCode.FORBIDDEN, err(notes(ReportNotesRequest(anchorId = unknown), restricted)).code)
+            assertEquals(ErrorCode.NOT_FOUND, err(notes(ReportNotesRequest(rootId = unknown))).code)
+        }
+
+    @Test
+    fun `R12 S10 an ambiguous anchorId prefix is ambiguous_id`(): Unit =
+        runBlocking {
+            seedRootTree()
+            ev.item("Alpha sibling", id = UUID.fromString("a1a1a1a1-1111-4111-8111-111111111111"))
+
+            assertEquals(ErrorCode.AMBIGUOUS_ID, err(notes(ReportNotesRequest(anchorId = IdRef("a1a1a1a1")))).code)
+            assertIs<Outcome.Ok<NotesReport>>(notes(ReportNotesRequest(anchorId = IdRef(r2.toString().take(8)))), "control: unique prefix")
+        }
+
+    @Test
+    fun `R12 S10 a root scope sees only its roots and rootId with anchorId intersect`(): Unit =
+        runBlocking {
+            seedRootTree()
+
+            assertEquals(listOf(row("queue", 3, 3, 7, 4)), notesOk().page.items, "control: unrestricted sees all three writes")
+            assertEquals(listOf(row("queue", 2, 2, 5, 4)), notesOk(ReportNotesRequest(), restricted).page.items, "R2's write is hidden")
+            val both =
+                notesOk(ReportNotesRequest(rootId = IdRef(r2.toString()), anchorId = IdRef(ReportKit.C1.toString())))
+            assertEquals(emptyList(), both.page.items, "the anchor lies in R1, the rootId is R2: ANDed")
+        }
+
+    @Test
+    fun `R12 S10 a tag scope is not forbidden and sees only writes of items that currently carry an allowed tag`(): Unit =
+        runBlocking {
+            seedRootTree()
+            val tagged = fx.ctx(AccessScope.principal(null, setOf("api")))
+
+            val report = notesOk(ReportNotesRequest(groupBy = ReportGroupBy.NOTE_KEY), tagged)
+
+            assertEquals(
+                listOf("k_alpha"),
+                report.page.items.map { it.key },
+                "only the root tagged api; the untagged child and beta are hidden"
+            )
+            assertEquals(
+                3,
+                notesOk(ReportNotesRequest(groupBy = ReportGroupBy.NOTE_KEY)).page.total,
+                "control: unrestricted sees three keys"
+            )
+        }
+
+    @Test
+    fun `R12 S10 retainedSince is table-wide, a root scope sees the oldest note write of another root`(): Unit =
+        runBlocking {
+            val a = ev.item("Alpha root", id = r1)
+            val b = ev.item("Beta root", id = r2)
+            val elsewhere = ago(Duration.ofDays(4))
+            append(nt.write(b, "k_r2", "queue", 1, elsewhere), nt.write(a, "k_r1", "queue", 2, ago(Duration.ofDays(1))))
+
+            val report = notesOk(ReportNotesRequest(groupBy = ReportGroupBy.NOTE_KEY), restricted)
+
+            assertEquals(elsewhere, report.window.retainedSince)
+            assertEquals(listOf("k_r1"), report.page.items.map { it.key })
+        }
+
+    // ------------------------------------------------------------------ S11 the other selects keep their subsets
+
+    @Test
+    fun `R12 S11 usage, gates and contention reject the new role and seat groupings at the groupBy pointer`(): Unit =
+        runBlocking {
+            for (groupBy in listOf(ReportGroupBy.ROLE, ReportGroupBy.SEAT)) {
+                val usage = err(fx.usage(ReportUsageRequest(groupBy = groupBy)))
+                val gates = err(fx.service().gates(fx.ctx(), ReportGatesRequest(groupBy = groupBy)))
+                val contention = err(fx.service().contention(fx.ctx(), ReportContentionRequest(groupBy = groupBy)))
+                for ((name, error) in listOf("usage" to usage, "gates" to gates, "contention" to contention)) {
+                    assertEquals(ErrorCode.INVALID_REQUEST, error.code, "$name ${groupBy.wire}")
+                    assertEquals("/groupBy", fieldOf(error.detail), "$name ${groupBy.wire}")
+                }
+            }
+            fx.ok(ReportUsageRequest(groupBy = ReportGroupBy.TOOL))
+            assertIs<Outcome.Ok<GatesReport>>(fx.service().gates(fx.ctx(), ReportGatesRequest(groupBy = ReportGroupBy.NOTE_KEY)))
         }
 }

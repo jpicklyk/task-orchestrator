@@ -17,9 +17,17 @@ fun reportTool(): SelectToolSpec =
     SelectToolSpec(
         name = REPORT,
         description =
-            "Aggregate reports. select: usage (call metrics per group), gates (rejected transitions), contention (claims, " +
-                "leases), waste (ratios), rollup (subtree or run summary).",
-        selects = listOf(reportUsageSelect, reportGatesSelect, reportContentionSelect, reportWasteSelect, reportRollupSelect)
+            "Reports. select: usage (call metrics), gates (rejections), " +
+                "notes (writes), contention (claims, leases), waste, rollup (subtree or run).",
+        selects =
+            listOf(
+                reportUsageSelect,
+                reportGatesSelect,
+                reportNotesSelect,
+                reportContentionSelect,
+                reportWasteSelect,
+                reportRollupSelect
+            )
     )
 
 /** `data.window`: `{since, until, retainedSince?, basis, truncatedByRetention?}`, instants in UTC. */

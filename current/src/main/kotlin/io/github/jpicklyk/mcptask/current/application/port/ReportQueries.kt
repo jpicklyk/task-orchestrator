@@ -102,6 +102,52 @@ data class GatesPage(
     val totalGroups: Int
 )
 
+/** The `note.upserted` dimension a `notes` report groups by. */
+enum class NoteWriteDimension {
+    ROLE,
+    NOTE_KEY,
+    SEAT,
+    TYPE,
+    PRINCIPAL_KIND,
+    DAY
+}
+
+/**
+ * One `notes` aggregation over the `note.upserted` events with `since <= occurred_at < until`, grouped by [groupBy].
+ * [NoteWriteDimension.TYPE] is the CURRENT type of the item named by `data.itemId` (the event's entity is the note, not
+ * the item); a deleted item has no type. Visibility is as for [GatesQuery]; [anchorId] further keeps only writes on
+ * items of that subtree, itself included. Groups are ordered by bytes descending, then key ascending (a null key first).
+ */
+data class NoteWritesQuery(
+    val since: Instant,
+    val until: Instant,
+    val groupBy: NoteWriteDimension,
+    val scopeRootIds: Set<UUID>?,
+    val scopeTags: Set<String>,
+    val rootId: UUID?,
+    val anchorId: UUID?,
+    val limit: Int,
+    val offset: Int
+)
+
+/**
+ * One `notes` group: [key] (null when the write has no value for the dimension), [writes] (events), [notes] (distinct
+ * note ids), [bytes] (sum of `data.bodyLength`) and [maxBytes].
+ */
+data class NoteWriteRow(
+    val key: String?,
+    val writes: Long,
+    val notes: Long,
+    val bytes: Long,
+    val maxBytes: Long
+)
+
+/** One page of a `notes` report: [rows] in order and [totalGroups] before paging. */
+data class NoteWritesPage(
+    val rows: List<NoteWriteRow>,
+    val totalGroups: Int
+)
+
 /** Which coordination mechanism a `contention` row describes. */
 enum class ContentionKind(
     val wire: String
@@ -337,6 +383,9 @@ interface ReportQueries {
 
     /** The page of `gates` groups [query] asks for, with the total group count. */
     suspend fun gates(query: GatesQuery): GatesPage
+
+    /** The page of `notes` groups [query] asks for, with the total group count. */
+    suspend fun noteWrites(query: NoteWritesQuery): NoteWritesPage
 
     /** The page of `contention` groups [query] asks for, with the total group count. */
     suspend fun contention(query: ContentionQuery): ContentionPage

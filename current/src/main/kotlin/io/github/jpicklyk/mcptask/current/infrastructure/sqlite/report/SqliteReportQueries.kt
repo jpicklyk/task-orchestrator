@@ -11,6 +11,10 @@ import io.github.jpicklyk.mcptask.current.application.port.GateRow
 import io.github.jpicklyk.mcptask.current.application.port.GatesPage
 import io.github.jpicklyk.mcptask.current.application.port.GatesQuery
 import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
+import io.github.jpicklyk.mcptask.current.application.port.NoteWriteDimension
+import io.github.jpicklyk.mcptask.current.application.port.NoteWriteRow
+import io.github.jpicklyk.mcptask.current.application.port.NoteWritesPage
+import io.github.jpicklyk.mcptask.current.application.port.NoteWritesQuery
 import io.github.jpicklyk.mcptask.current.application.port.ReportQueries
 import io.github.jpicklyk.mcptask.current.application.port.RunCost
 import io.github.jpicklyk.mcptask.current.application.port.RunRollupCounts
@@ -176,6 +180,73 @@ class SqliteReportQueries(
                     rows += GateRow(rs.getString("k"), rs.getLong("blocks"), rs.getLong("items"))
                 }
                 GatesPage(rows, total)
+            }
+        }
+
+    /**
+     * ONE statement. A `note.upserted` event's entity is the NOTE, so the item (type, tags, anchor subtree) is reached
+     * through `data.itemId` (lower-case hyphenated text) turned back into the item id. `ev` materializes the visible
+     * writes of the window with their group value and body length; the group is then counted, summed and paged.
+     */
+    override suspend fun noteWrites(query: NoteWritesQuery): NoteWritesPage =
+        databaseManager.readTx {
+            val itemId = "unhex(replace(json_extract(e.data, '$.itemId'), '-', ''))"
+            val extras = ArrayList<String>()
+            if (query.scopeTags.isNotEmpty()) extras += "w.id IS NOT NULL"
+            if (query.anchorId != null) extras += "$itemId IN (SELECT id FROM sub)"
+            val (where, filterArgs) =
+                eventFilter(
+                    types = listOf(DomainEvent.NOTE_UPSERTED),
+                    since = query.since,
+                    until = query.until,
+                    scopeRootIds = query.scopeRootIds,
+                    scopeTags = query.scopeTags,
+                    rootId = query.rootId,
+                    extra = extras.takeIf { it.isNotEmpty() }?.joinToString(" AND ")
+                )
+            val group =
+                when (query.groupBy) {
+                    NoteWriteDimension.ROLE -> "json_extract(e.data, '$.role')"
+                    NoteWriteDimension.NOTE_KEY -> "json_extract(e.data, '$.key')"
+                    NoteWriteDimension.SEAT -> "NULLIF(e.seat, '')"
+                    NoteWriteDimension.TYPE -> "w.type"
+                    NoteWriteDimension.PRINCIPAL_KIND -> "NULLIF(e.principal_kind, '')"
+                    NoteWriteDimension.DAY -> "substr(e.occurred_at, 1, 10)"
+                }
+            val args = ArrayList<Pair<IColumnType<*>, Any?>>()
+            query.anchorId?.let { args += TextColumnType() to hex(it) }
+            args += filterArgs
+            args += IntegerColumnType() to query.limit
+            args += IntegerColumnType() to query.offset
+            val prefix = if (query.anchorId != null) "$SUBTREE_CTES, " else "WITH "
+            selectSql(
+                prefix +
+                    "ev AS MATERIALIZED (SELECT e.entity_id AS eid, $group AS k, " +
+                    "COALESCE(json_extract(e.data, '$.bodyLength'), 0) AS bl " +
+                    "FROM events e LEFT JOIN work_items w ON w.id = $itemId WHERE $where), " +
+                    "g AS MATERIALIZED (SELECT k, COUNT(*) AS writes, COUNT(DISTINCT eid) AS notes, SUM(bl) AS bytes, " +
+                    "MAX(bl) AS max_bytes FROM ev GROUP BY k) " +
+                    "SELECT t.total, p.* FROM (SELECT COUNT(*) AS total FROM g) t " +
+                    "LEFT JOIN (SELECT * FROM g ORDER BY bytes DESC, k ASC LIMIT ? OFFSET ?) p ON 1 = 1 " +
+                    "ORDER BY p.bytes DESC, p.k ASC",
+                args
+            ) { rs ->
+                var total = 0
+                val rows = ArrayList<NoteWriteRow>()
+                while (rs.next()) {
+                    total = rs.getInt("total")
+                    rs.getLong("writes")
+                    if (rs.wasNull()) continue
+                    rows +=
+                        NoteWriteRow(
+                            rs.getString("k"),
+                            rs.getLong("writes"),
+                            rs.getLong("notes"),
+                            rs.getLong("bytes"),
+                            rs.getLong("max_bytes")
+                        )
+                }
+                NoteWritesPage(rows, total)
             }
         }
 
