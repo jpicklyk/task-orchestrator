@@ -161,8 +161,8 @@ When all children reach terminal:
    authors the parent `review-checklist`, whatever the child count: one independent
    `task-orchestrator:reviewer` (explicit `model`) over the feature range fills it (with 2+
    children per `run-wave` `post-run.md` Step 7b; with one child Step 7b does not apply, so
-   `/implement` Step 6 states the rule, handing the reviewer that child's `review-checklist` if
-   any) and the orchestrator records the dispositions in `orchestrator-confirmation`.
+   `/implement` Step 6 states the rule, handing the reviewer that child's verdict and disposition
+   count lines) and the orchestrator records the dispositions in `orchestrator-confirmation`.
 3. Confirm the `CHANGELOG.md` `[Unreleased]` bullet written before review exists, or that the PR
    body states `Changelog: none (<why>)` (`/implement` Step 4c and Step 6).
 4. Push `<FEATURE_BRANCH>` and open one PR.
@@ -172,6 +172,10 @@ When all children reach terminal:
    git worktree remove <FEATURE_WORKTREE>
    git branch -D <FEATURE_BRANCH>
    ```
+
+A hand-off note to a later wave or session (`wave<n>-handoff`, `phase<n>-handoff`) is the index:
+merged PRs, what is unblocked, owed cells. File or line inventories go in a `docs_write` page
+document that the note names by slug.
 
 ## Direct / Delegated tier (single item)
 
