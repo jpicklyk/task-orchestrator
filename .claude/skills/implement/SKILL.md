@@ -946,8 +946,13 @@ The review agent:
 | Verdict | Action |
 |---------|--------|
 | **Pass** | Proceed to Step 6 |
-| **Pass with observations** | Proceed to Step 6; log observations for follow-up |
+| **Pass with observations** | Proceed to Step 6; dispose observations per Dispositions at child close |
 | **Fail — blocking issues** | Stop and report to the user with the full findings. Do not attempt to fix autonomously — bring the human into the loop. |
+
+**Dispositions at child close.** When a child's review returns Pass or Pass with observations,
+write the child's `orchestrator-confirmation` before advancing it: one line per O# (follow-up
+item created first, or `accepted: <reason>`), `N of N disposed`. Nothing is left for the parent
+review to carry.
 
 Review failures surface issues that may indicate systemic problems worth learning
 from. Automatically retrying hides these signals.
@@ -1111,14 +1116,17 @@ For Parallel-tier features with a shared feature worktree:
 3. Advance the parent to review. The orchestrator never authors the parent's `review-checklist`,
    whatever the child count. With 2+ children, run the feature review of `run-wave`
    `post-run.md` Step 7b: one independent `task-orchestrator:reviewer` (explicit `model`) over
-   `git -C <feature-worktree-path> diff <base>...HEAD`, handed each child's `review-checklist`
-   if any; the reviewer fills the parent's `review-checklist`, and the orchestrator records one
-   line per finding in the parent's `orchestrator-confirmation` (`fixed <sha|PR> | follow-up
-   <item-id> | accepted: <reason>`, ending `N of N disposed`). With exactly one child, Step 7b
+   `git -C <feature-worktree-path> diff <base>...HEAD`, handed each child's verdict and
+   disposition count lines (a child with no review phase is listed as such). The reviewer
+   writes only feature-level findings, never re-lists a child's disposed observation, and fills
+   the parent's `review-checklist`. The orchestrator records one line per finding in the
+   parent's `orchestrator-confirmation` (`fixed <sha|PR> | follow-up <item-id> |
+   accepted: <reason>`, ending `N of N disposed`). With exactly one child, Step 7b
    does not apply (it covers 2+ children only), but the rule is the same: the parent review is
    still done by an independent `task-orchestrator:reviewer` (explicit `model`) over the feature
-   range, never by the orchestrator, handed the child's `review-checklist` if any, and the
-   dispositions go in the parent's `orchestrator-confirmation`. See Step 5's
+   range, never by the orchestrator, handed the child's verdict and disposition count lines (or
+   listed as review-less), and the dispositions go in the parent's `orchestrator-confirmation`.
+   See Step 5's
    consolidated-reviewer paragraph, which never fills the parent note.
 4. **CHANGELOG check and Docs line** - as the Direct/Delegated tier's step 2: the bullet the
    orchestrator or docs seat wrote before review (Step 4c), or `Changelog: none (<why>)` in the PR
