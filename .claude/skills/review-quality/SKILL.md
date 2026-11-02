@@ -257,8 +257,8 @@ For each finding, state:
 - **Severity** (blocking or observation)
 - **Confidence** (how sure you are this is a real issue, not a false positive)
 
-Write each finding once, in the register note (`review-checklist`), as one line carrying the four
-facts above. Sibling review notes cite the id. Four facts in one line is specific enough; a
+Write each finding once, in the register note (`review-checklist`, or the first review-role note
+you fill when the schema declares none), as one line carrying the four facts above. Sibling review notes cite the id. Four facts in one line is specific enough; a
 paragraph per finding is not more actionable, only longer.
 
 Be specific. "Tests could be better" is not actionable. "Test `testCreateItem` asserts
