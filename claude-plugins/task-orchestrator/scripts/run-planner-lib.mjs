@@ -1684,3 +1684,35 @@ export function validatePlanDoc(doc, argsSchema, snapshot) {
 
   return { ok: errors.length === 0, errors };
 }
+
+/**
+ * artifactWriteGuard({targetExists, existingText, stateText, force}) -> {ok:true} | {ok:false, runId, error}
+ * Pure decision for run-planner's `--out`: refuse to overwrite an existing file that belongs to a
+ * launched run. Launched means the sibling state.json parses to an object whose phase is a string
+ * other than 'planned', or the existing file parses to a plan doc with a truthy args.serverRunId.
+ * A missing target, `force`, and unparseable text (treated as absent) are always allowed.
+ */
+export function artifactWriteGuard({ targetExists, existingText, stateText, force } = {}) {
+  if (!targetExists || force) return { ok: true };
+  const parse = (t) => {
+    if (typeof t !== 'string' || t === '') return null;
+    try {
+      const v = JSON.parse(t);
+      return v && typeof v === 'object' ? v : null;
+    } catch {
+      return null;
+    }
+  };
+  const state = parse(stateText);
+  const plan = parse(existingText);
+  const planArgs = plan && plan.args && typeof plan.args === 'object' ? plan.args : null;
+  const stateLaunched = Boolean(state) && typeof state.phase === 'string' && state.phase !== 'planned';
+  const planBound = Boolean(planArgs) && Boolean(planArgs.serverRunId);
+  if (!stateLaunched && !planBound) return { ok: true };
+  const runId = (state && state.runId) || (planArgs && (planArgs.runId || planArgs.serverRunId)) || null;
+  return {
+    ok: false,
+    runId,
+    error: `target belongs to launched run ${runId === null ? '(unknown)' : runId}; pass --force to overwrite`
+  };
+}

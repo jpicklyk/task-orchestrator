@@ -31,4 +31,4 @@ Then hand the decision over. With a seat token (your dispatch has a `SEAT TOKEN:
 
 Without a seat token, stop and return `awaiting_decision`; the orchestrator raises the decision. A stall is never a reason to raise. A director or human answers; the orchestrator then resumes the item and re-dispatches.
 
-**Leave nothing running.** Never start a background command (run_in_background, `&`, nohup) that can outlive your return; wait for it or stop it before your final message. Bound filesystem searches to the repo/worktree and known caches (e.g. `~/.gradle/caches`); never search from `/` or a drive root.
+**Leave nothing running.** Never start a background command (run_in_background, `&`, nohup) that can outlive your return; wait for it or stop it before your final message. Bound filesystem searches to the repo/worktree and known caches (e.g. `~/.gradle/caches`); never search from `/` or a drive root. Smoke-run plugin helpers only against a throwaway run root (a fresh mkdtemp directory passed as the run dir), never against the session's run-wave directory.

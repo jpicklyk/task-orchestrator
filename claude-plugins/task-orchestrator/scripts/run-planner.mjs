@@ -3,14 +3,16 @@
 //
 // Subcommands: probe | plan | explain | validate | bind-run. Input via --in <file> or stdin; JSON on
 // stdout; {error, detail} on stderr. Exit 0 ok, 2 invalid input, 3 refused (stdout still
-// carries the doc or {ok:false, errors}). This file is the ONLY place that reads the clock,
+// carries the doc or {ok:false, errors}). A global `--out <path> [--force]` (any subcommand) writes the
+// document to <path> instead of stdout; it refuses (exit 3) to overwrite a launched run's existing file
+// (a sibling state.json past 'planned', or a bound plan.json) unless --force. This file is the ONLY place that reads the clock,
 // the filesystem, the network (probe's server check) or environment variables —
 // run-planner-lib.mjs stays pure.
 //
 // run-exec-lib.mjs adds rows to the subcommand table below: next, prompt, stage-result,
 // scan-declarations, verify, notes-audit, provenance, review-prompt, reseat, run-ops, follow-ups, report, review-args.
 
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,6 +56,9 @@ function homeDir() {
   return process.env.USERPROFILE || process.env.HOME || '';
 }
 
+// OUT: the global --out/--force pair main() strips before dispatch; null means plain stdout.
+let OUT = null;
+
 function fail(code, message, detail) {
   process.stderr.write(`${JSON.stringify({ error: message, detail: detail ?? null })}\n`);
   process.exit(code);
@@ -65,6 +70,28 @@ function parseJson(text) {
   } catch {
     return null;
   }
+}
+
+// emit: the one writer of a subcommand's stdout document. Without --out it is stdout, as ever.
+// With --out it consults lib.artifactWriteGuard (target + sibling state.json) before writing the
+// file, and prints nothing on stdout.
+function emit(text) {
+  const doc = text.endsWith('\n') ? text : `${text}\n`;
+  if (!OUT) {
+    process.stdout.write(doc);
+    return;
+  }
+  const target = resolve(OUT.path);
+  const targetExists = existsSync(target);
+  const statePath = join(dirname(target), 'state.json');
+  const guard = lib.artifactWriteGuard({
+    targetExists,
+    existingText: targetExists ? safeRead(target) : '',
+    stateText: existsSync(statePath) ? safeRead(statePath) : '',
+    force: OUT.force
+  });
+  if (!guard.ok) return fail(3, 'refused', `${resolve(OUT.path)} ${guard.error.replace(/^target /, "")}`);
+  writeFileSync(target, doc);
 }
 
 function resolvePluginRoot(args) {
@@ -102,7 +129,7 @@ async function runProbe(args) {
     settings: [local, projectSettings, user],
     serverCompat
   });
-  process.stdout.write(`${JSON.stringify(result)}\n`);
+  emit(JSON.stringify(result));
   process.exit(0);
 }
 
@@ -136,13 +163,13 @@ function runPlan(args) {
   const result = lib.buildPlanDoc(snap, { now, maxItems, mode, entry, method, scratchpad, worktree, branch, altitudeSafe });
 
   if (result.ok) {
-    process.stdout.write(`${JSON.stringify(result.doc)}\n`);
+    emit(JSON.stringify(result.doc));
     process.exit(0);
   }
   if (result.doc) {
-    process.stdout.write(`${JSON.stringify(result.doc)}\n`);
+    emit(JSON.stringify(result.doc));
   } else {
-    process.stdout.write(`${JSON.stringify({ ok: false, errors: result.errors })}\n`);
+    emit(JSON.stringify({ ok: false, errors: result.errors }));
   }
   if (result.refused) {
     process.stderr.write(`${JSON.stringify({ error: 'refused', detail: result.errors })}\n`);
@@ -156,7 +183,7 @@ function runExplain(args) {
   const text = readInput(args);
   const doc = parseJson(text);
   if (!doc) return fail(2, 'invalid args', 'bad JSON input');
-  process.stdout.write(`${lib.explainPlan(doc)}\n`);
+  emit(lib.explainPlan(doc));
   process.exit(0);
 }
 
@@ -170,7 +197,7 @@ function runBindRun(args) {
   } catch (e) {
     return fail(2, 'invalid args', String((e && e.message) || e));
   }
-  process.stdout.write(`${JSON.stringify(out)}\n`);
+  emit(JSON.stringify(out));
   process.exit(0);
 }
 
@@ -194,7 +221,7 @@ function runValidate(args) {
 
   const schema = loadArgsSchema();
   const result = lib.validatePlanDoc(doc, schema, snapshot);
-  process.stdout.write(`${JSON.stringify(result)}\n`);
+  emit(JSON.stringify(result));
   process.exit(result.ok ? 0 : 3);
 }
 
@@ -217,7 +244,7 @@ const EXEC_IO = {
     }
   },
   writeOut(text) {
-    process.stdout.write(text.endsWith('\n') ? text : `${text}\n`);
+    emit(text);
   },
   fail(code, message, detail) {
     fail(code, message, detail);
@@ -271,7 +298,19 @@ const SUBCOMMANDS = {
 };
 
 async function main() {
-  const [, , cmd, ...rest] = process.argv;
+  const [, , cmd, ...argv] = process.argv;
+  const rest = [];
+  let outPath = null;
+  let force = false;
+  for (let i = 0; i < argv.length; i += 1) {
+    if (argv[i] === '--force') force = true;
+    else if (argv[i] === '--out') {
+      if (argv[i + 1] === undefined) return fail(2, 'invalid args', '--out needs a path');
+      outPath = argv[i + 1];
+      i += 1;
+    } else rest.push(argv[i]);
+  }
+  if (outPath !== null) OUT = { path: outPath, force };
   const handler = SUBCOMMANDS[cmd];
   if (!handler) {
     return fail(2, 'invalid args', `unknown subcommand ${cmd}`);

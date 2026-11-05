@@ -1075,6 +1075,21 @@ function promptCarryIns(stage, item) {
   return ''
 }
 
+/**
+ * Smoke-run part: an implementer-v1 stage whose planner-declared files touch the plugin tree is told
+ * to exercise plugin helpers only against a throwaway run root. No planner output or no plugin path:
+ * nothing.
+ */
+function promptSmokeRoot(plan, item, stage, outsByOutput) {
+  if (stage.output !== 'implementer-v1') return ''
+  const p = outsByOutput['planner-v1']
+  if (!p) return ''
+  const roots = itemRoots(plan, item)
+  const raw = [].concat(p.mainFiles || [], p.docFiles || [], p.testFiles || [])
+  if (!raw.some((f) => typeof f === 'string' && relativizePath(f, roots).startsWith('claude-plugins/'))) return ''
+  return "Smoke-run plugin helpers only against a throwaway run root (a fresh mkdtemp directory passed as the run dir), never against the session's run-wave directory."
+}
+
 /** Part 6: rule fetch by key. */
 function protocolKeyFor(stage) {
   if (stage.enters) return 'protocol.entry-seat'
@@ -1526,6 +1541,7 @@ function seatPrompt(plan, item, stage, outs) {
     promptInlineBodies(),
     promptCommitForm(item, stage),
     promptVerify(plan, item, stage, outsByOutput),
+    promptSmokeRoot(plan, item, stage, outsByOutput),
     handoff(stage, outsByOutput, itemRoots(plan, item), item),
     promptRerunAndEntry(plan, item, stage),
     promptDeviation(plan, item, stage),
