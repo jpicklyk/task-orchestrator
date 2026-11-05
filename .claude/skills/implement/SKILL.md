@@ -1125,8 +1125,8 @@ merge, step 8):
 1. Fill the parent's `implementation-notes` and `session-tracking` notes (aggregating
    across children - distributed-tracking pattern works as today; under the coordinator token
    while the parent is a member of an open run; final content written once, in confirmed past tense;
-   the run-wave pointer line (in `run-pointers`), the cumulative `delegation-metadata` re-upsert and the
-   step 8 post-merge live acceptance line are the only re-edits, each under the coordinator token of an open run).
+   the only re-edits are the ones run-wave `references/post-run.md` Step 3 sanctions, and the step 8
+   post-merge live acceptance line is written as that file's Step 7b (d) says).
 2. Run final verification from the feature worktree (incremental; this and Step 4c's run are
    the only whole-suite runs in the wave):
    ```bash
