@@ -21,6 +21,9 @@ work.
 5. **There is no equivalent safety net for staging itself.** Scoping by path at every step is the
    entire mechanism that keeps a shared worktree safe -- there is nothing else protecting you from
    committing another agent's in-flight work.
+6. **Commit promptly, revert narrowly.** Commit each owned path as soon as its edit is done, with the
+   path-scoped form. Revert only your own paths; never a whole-tree checkout, reset, stash, or a
+   formatter or revert pass over files another seat may be editing.
 
 ## claude:
 
@@ -32,3 +35,5 @@ work.
   `--only`.
 - Read `git -C <worktree> diff -- <owned paths>` before committing if a formatter (e.g. a lint
   auto-fix task) has run, since `--only` scopes by path, not by hunk.
+- `git -C <worktree> checkout -- <owned paths>` is the only revert form; never a whole-tree
+  checkout, reset or stash.

@@ -569,8 +569,8 @@ export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
   if (tokenFile) text += `\n${reseatTokenPart(plan, baseStage, tokenFile)}`
   const hasAmendmentsNote = (item.stages || []).some((st) => Array.isArray(st.notes) && st.notes.includes('amendments'))
   text += hasAmendmentsNote
-    ? `\nFIX CYCLE A${cycle}: work only ruling A${cycle} in the item's amendments note and the blocking findings it cites.`
-    : `\nFIX CYCLE A${cycle}: work only section "## Amendment A${cycle}" of the item's planning note and the blocking findings it cites.`
+    ? `\nFIX CYCLE A${cycle}: work only ruling A${cycle} in the item's amendments note and the blocking findings it cites. Commit your owned paths as soon as each fix is done (git commit --only -- <paths>) and revert only your own paths, never the whole tree.`
+    : `\nFIX CYCLE A${cycle}: work only section "## Amendment A${cycle}" of the item's planning note and the blocking findings it cites. Commit your owned paths as soon as each fix is done (git commit --only -- <paths>) and revert only your own paths, never the whole tree.`
   if (isMethodB(doc)) text += `\n${methodBReturn(core, plan, stage)}`
 
   const baseDispatch = baseStage.dispatch && baseStage.dispatch.model
