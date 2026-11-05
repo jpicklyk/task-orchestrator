@@ -120,7 +120,7 @@ paths are prefixed with the item worktree; directory and glob entries pass throu
 
 - Owned set: a `test-author` seat owns planner `testFiles` plus `existingTestEdits[].file`. An
   `implementer` on an item with no test-author stage owns the same union. An `implementer` on an item
-  WITH a test-author stage owns `existingTestEdits[].file` only.
+  WITH a test-author stage owns no test files (its owned-tests verify renders `SKIP <name>: no owned test files`).
 - No test owner: a seat-aware item (implementer stage not `implicitOwner`) with no test-author stage whose planner returns
   non-empty `testFiles` is stopped with `no-test-owner: add needs-test-author or clear testFiles (<list>)` before the
   implementer is dispatched (`existingTestEdits` alone never stops it). A seat-less item (`implicitOwner` implementer) is
@@ -132,7 +132,11 @@ paths are prefixed with the item worktree; directory and glob entries pass throu
   carry-in note `carry-in-frozen-plan` (under 1200 characters, carry-in shape of run-wave/SKILL.md Step 3) and
   relaunches; the rerun planner disposes it in scope and adds only the test-plan. Whenever an implementer has no test-author stage and the owned set is non-empty, its HANDOFF block ends with
   `TESTS ARE YOURS: <paths> - no test-author seat runs on this item; write, run and commit them yourself.` (testFiles then
-  existingTestEdits files, exact duplicates once). Method A and B share one core, so both behave identically.
+  existingTestEdits files, exact duplicates once). When the item HAS a test-author stage and `existingTestEdits` lists files,
+  the implementer's HANDOFF block instead ends with `EXISTING TEST EDITS BELONG TO THE TEST AUTHOR: <files> - never edit those
+  files; expect them to fail after your change; list each in failingExistingTests with the failing test name, and continue.`
+  (exact duplicates once; no line when the edits are empty). The two lines are mutually exclusive. Method A and B share one
+  core, so both behave identically.
 - `ownedTestsPattern` (optional regex source string, per entry) drops owned paths that do not match, so a
   `node --test` entry never receives `.kt` files.
 - An empty owned set, or no planner output, renders `SKIP <name>: no owned test files` instead of a command.

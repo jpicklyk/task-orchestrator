@@ -91,9 +91,9 @@ const CORES = [
 
 // ---- Method A runner: runPlan over a single item with a scripted planner ----
 
-async function runA(item, plannerOutput, extraScript = {}) {
+async function runA(item, plannerOutput, extraScript = {}, planOverrides = {}) {
   const core = harnessLoadCore(IMPLEMENT_WAVE)
-  const plan = planFixture({ items: [item] })
+  const plan = planFixture({ items: [item], ...planOverrides })
   const script = {
     [`planner:${item.short}`]: env(plannerOutput),
     [`implementer:${item.short}`]: env(implementerOut(), ENTERED),
@@ -108,9 +108,9 @@ async function runA(item, plannerOutput, extraScript = {}) {
 
 // ---- Method B runner: planner stageResult then (if done) implementer prompt + next ----
 
-function runB(item, plannerOutput) {
+function runB(item, plannerOutput, planOverrides = {}) {
   const core = loadWaveCore()
-  const doc = { contract: 'run-wave/plan-doc-v1', args: planFixture({ items: [item] }), meta: {} }
+  const doc = { contract: 'run-wave/plan-doc-v1', args: planFixture({ items: [item], ...planOverrides }), meta: {} }
   const state = initState(doc, 'B')
   const res = stageResult(core, doc, state, item.short, 'planner', JSON.stringify(env(plannerOutput)))
   const after = res.state || state
@@ -223,6 +223,52 @@ test('S5 (Method B): bug-fix-like item with test-author stage -> planner done; i
   assert.equal(res.status, 'done')
   assert.ok(implPrompt.includes(HANDOFF_MARKER), 'HANDOFF block still rendered')
   assert.equal(implPrompt.includes('TESTS ARE YOURS'), false)
+})
+
+// ---- #644: existingTestEdits belong to the test author when that stage exists ----
+
+const BOUNDARY = 'EXISTING TEST EDITS BELONG TO THE TEST AUTHOR'
+const OWNED_VERIFY = {
+  project: { verify: [{ name: 'owned-tests', command: 'node --test <ownedTests>', seats: ['implementer', 'test-author'] }] },
+}
+const EDIT_PLANNER = () => plannerOut({ mainFiles: ['src/x.js'], existingTestEdits: [{ file: 't/e.test.mjs', edit: 'adjust assertion' }] })
+const TA_SCRIPT = {
+  [`declarations-extractor:${SHORT}`]: env({ declarations: 'the function returns a value', harnessPointers: 'none', gaps: 'none' }),
+  [`test-author:${SHORT}`]: env({
+    returnLine: 'none', testFiles: [], scenariosCovered: 'none', verify: [],
+    redAuthorTests: [], missingDeclaration: 'none', breachDisclosure: 'none',
+  }),
+}
+
+function assertBoundary(prompt) {
+  const lines = prompt.split(String.fromCharCode(10)).filter((l) => l.includes(BOUNDARY))
+  assert.equal(lines.length, 1, 'exactly one boundary line')
+  assert.equal(
+    lines[0].trim(),
+    `${BOUNDARY}: t/e.test.mjs - never edit those files; expect them to fail after your change; list each in failingExistingTests with the failing test name, and continue.`
+  )
+  assert.ok(prompt.indexOf(lines[0]) > prompt.indexOf(HANDOFF_MARKER), 'after the HANDOFF marker')
+  assert.equal(prompt.includes('TESTS ARE YOURS'), false)
+  assert.ok(prompt.includes('SKIP owned-tests: no owned test files'), 'implementer owns no test files')
+}
+
+test('#644 (Method A): item with a test-author stage -> implementer gets the boundary line and an empty owned-tests verify', async () => {
+  const { r, implPrompt } = await runA(withTestAuthorItem(), EDIT_PLANNER(), TA_SCRIPT, OWNED_VERIFY)
+  assert.equal(r.status, 'done', `reason: ${r.reason}`)
+  assertBoundary(implPrompt)
+})
+
+test('#644 (Method B): item with a test-author stage -> implementer gets the boundary line and an empty owned-tests verify', () => {
+  const { res, implPrompt } = runB(withTestAuthorItem(), EDIT_PLANNER(), OWNED_VERIFY)
+  assert.equal(res.status, 'done')
+  assertBoundary(implPrompt)
+})
+
+test('#644: no boundary line when existingTestEdits is empty, or on an item without a test-author stage', async () => {
+  const none = runB(withTestAuthorItem(), plannerOut({ mainFiles: ['src/x.js'] }))
+  assert.equal(none.implPrompt.includes(BOUNDARY), false)
+  const sa = runB(saItem(), EDIT_PLANNER())
+  assert.equal(sa.implPrompt.includes(BOUNDARY), false)
 })
 
 // ============================================================================================

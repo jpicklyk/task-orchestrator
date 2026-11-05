@@ -1189,7 +1189,8 @@ function promptCommitForm(item, stage) {
  * ownedTestsFor(item, stage, outsByOutput) -> string[]
  * The test paths a writer seat owns, for the <ownedTests> verify placeholder. test-author-v1 and an
  * implementer-v1 with no test-author stage own planner testFiles + existingTestEdits[].file; an
- * implementer-v1 WITH a test-author stage owns existingTestEdits[].file only. Other seats own none.
+ * implementer-v1 WITH a test-author stage owns no test files (existingTestEdits belong to the test
+ * author when that stage exists). Other seats own none.
  */
 function ownedTestsFor(item, stage, outsByOutput) {
   const p = outsByOutput['planner-v1']
@@ -1200,7 +1201,7 @@ function ownedTestsFor(item, stage, outsByOutput) {
   if (stage.output === 'test-author-v1') return files
   if (stage.output === 'implementer-v1') {
     const hasTestAuthorStage = item.stages.some((s) => s.output === 'test-author-v1')
-    return hasTestAuthorStage ? edits : files
+    return hasTestAuthorStage ? [] : files
   }
   return []
 }
@@ -1342,6 +1343,14 @@ function handoff(stage, outs, roots, item) {
         if (owned.length > 0) {
           lines.push(
             `TESTS ARE YOURS: ${owned.join(', ')} - no test-author seat runs on this item; write, run and commit them yourself.`
+          )
+        }
+      } else if (item) {
+        const edits = []
+        for (const e of p.existingTestEdits || []) if (e && e.file && !edits.includes(e.file)) edits.push(e.file)
+        if (edits.length > 0) {
+          lines.push(
+            `EXISTING TEST EDITS BELONG TO THE TEST AUTHOR: ${edits.join(', ')} - never edit those files; expect them to fail after your change; list each in failingExistingTests with the failing test name, and continue.`
           )
         }
       }
