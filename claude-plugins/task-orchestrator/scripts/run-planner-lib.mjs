@@ -368,10 +368,10 @@ export const ORCHESTRATOR_PROVENANCE_NOTE = 'delegation-metadata';
 
 /**
  * The notes the orchestrator itself records in a seat-less schema (no seat declared, so no
- * `seat: orchestrator` annotation to read): the provenance note and the review-role
- * orchestrator-confirmation. Neither is ever a seat's note or part of lane coverage.
+ * `seat: orchestrator` annotation to read): the provenance note, the review-role
+ * orchestrator-confirmation and the run-wave pointer note `run-pointers`. None is ever a seat's note or part of lane coverage.
  */
-export const ORCHESTRATOR_OWNED_NOTES = [ORCHESTRATOR_PROVENANCE_NOTE, 'orchestrator-confirmation'];
+export const ORCHESTRATOR_OWNED_NOTES = [ORCHESTRATOR_PROVENANCE_NOTE, 'orchestrator-confirmation', 'run-pointers'];
 
 /** Keys of `keys` whose schema entry is explicitly optional (`required === false`), in `keys` order. A note with no `required` field stays audited as before. */
 function optionalOf(keys, notes) {
@@ -549,7 +549,7 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
     // Seat-less deviation (S5): without any declared seat, the server says nothing about
     // ownership, so the implicit phase owner (planner/implementer) takes EVERY note in its
     // phase regardless of the note's own `seat` annotation. The exceptions are the keys in
-    // ORCHESTRATOR_OWNED_NOTES (the provenance note and orchestrator-confirmation): they are never
+    // ORCHESTRATOR_OWNED_NOTES (the provenance note, orchestrator-confirmation and run-pointers): they are never
     // a seat's note, so they are pulled out of the stage notes and recorded here, whatever phase
     // (queue, work or review) they sit in.
     orchestratorNotes = notes
@@ -633,7 +633,7 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
   } else {
     if (phases.includes('queue') && !isResumed) {
       const queueNotes = notes
-        .filter((n) => n.role === 'queue' && n.key !== ORCHESTRATOR_PROVENANCE_NOTE)
+        .filter((n) => n.role === 'queue' && !ORCHESTRATOR_OWNED_NOTES.includes(n.key))
         .map((n) => n.key);
       const rulesSkills = deriveRulesSkills(queueNotes, notes, servedKeys);
       const plannerStage = {
@@ -651,7 +651,7 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
       stages.push(plannerStage);
     }
     const workNotes = notes
-      .filter((n) => n.role === 'work' && n.key !== ORCHESTRATOR_PROVENANCE_NOTE)
+      .filter((n) => n.role === 'work' && !ORCHESTRATOR_OWNED_NOTES.includes(n.key))
       .map((n) => n.key);
     const rulesSkillsW = deriveRulesSkills(workNotes, notes, servedKeys);
     const implementerStage = {

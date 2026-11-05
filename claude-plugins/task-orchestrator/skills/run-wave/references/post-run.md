@@ -216,7 +216,7 @@ Two notes, written by you with `notes_write` `upsert` (body inline) under the co
 (top-level `seatToken`): the coordinator token may write the `orchestrator`-seat keys of run members,
 and a token-less write to such a key is refused. They are the front door's own notes about the run,
 filled after Steps 1–2 have concrete results to report. A note created under the coordinator token is
-owned by that pair, so write its final content once, in confirmed past tense; the run-wave pointer line and the cumulative
+owned by that pair, so write its final content once, in confirmed past tense; the run-wave pointer line (in `run-pointers`; `session-tracking` for a feature started before that note existed or a schema without the key) and the cumulative
 `delegation-metadata` re-upsert are the only re-edits, each under the coordinator token of an open run
 over the item. Inside an open run a human credential may also write it; once the run
 is closed, a different (principal, seat) pair needs an admin takeover. On `note_owned_by_other`: with no
@@ -502,7 +502,7 @@ config) — each with its specific reason, not a bare count. Suggest `/session-r
 
 Cleanup: once an item's seats have committed, delete its recovery snapshots with `git for-each-ref --format=%(refname) refs/wip/<short>` piped to `git update-ref -d` for each ref (`refs/wip/<short>` and `refs/wip/<short>-<seat>`). Leave a snapshot in place for any item that stopped without committing. Delete `<scratchpad>/run-wave/<runId>/tokens/` once the run is closed: its tokens are dead.
 
-A closed run stays readable (`runs_read` `get`) and its pointer line stays in place — Step 0 F7
+A closed run stays readable (`runs_read` `get`) and its pointer line (in `run-pointers`, or the `session-tracking` fallback) stays in place — Step 0 F7
 reads only open and paused runs, so a finished run is never mistaken for an open one.
 
 ---

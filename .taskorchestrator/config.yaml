@@ -47,6 +47,13 @@ work_item_schemas:
         maxLength: 2500
         description: "Disposition register: one line per review finding on THIS item, ending N of N disposed."
         guidance: "Written by the orchestrator when the item's review returns. One line per finding id from this item's review-checklist: `<id>: fixed <sha|PR> | follow-up <item-id> | accepted: <reason>`; a blocking finding can only be fixed; a follow-up item exists before its line is written. End with `N of N disposed`. Dispose a child's findings on the child when the child closes, never on the parent: the parent's note covers only the parent's own feature review. Re-check results from the same reviewer belong in the reviewer's note, not here. Target 300-1200 characters."
+      - key: run-pointers
+        role: work
+        required: false
+        seat: orchestrator
+        maxLength: 2000
+        description: "Run-wave pointer lines for this feature, one per run."
+        guidance: "One run-wave pointer line per run, written by the front door under the coordinator token; never hand-edited."
 
   feature-task:
     lifecycle: auto

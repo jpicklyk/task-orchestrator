@@ -1105,7 +1105,7 @@ For Parallel-tier features with a shared feature worktree:
 1. Fill the parent's `implementation-notes` and `session-tracking` notes (aggregating
    across children - distributed-tracking pattern works as today; under the coordinator token
    while the parent is a member of an open run; final content written once, in confirmed past tense;
-   the run-wave pointer line and the cumulative `delegation-metadata` re-upsert are the only re-edits,
+   the run-wave pointer line (in `run-pointers`) and the cumulative `delegation-metadata` re-upsert are the only re-edits,
    each under the coordinator token of an open run).
 2. Run final verification from the feature worktree (incremental; this and Step 4c's run are
    the only whole-suite runs in the wave):
