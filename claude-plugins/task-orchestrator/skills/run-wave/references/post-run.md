@@ -229,7 +229,12 @@ run report instead.
    Friction (the declarations-scan hit count from Method B step 4, any Step 0 fallback taken in
    `SKILL.md`, any `verify`/notes-audit failure, a failed usage report). Write this **after**
    verify and the notes audit have run, in confirmed past tense — not as a speculative "pending
-   verification" draft you intend to edit later.
+   verification" draft you intend to edit later. When the item's schema has a review phase (a
+   review-role note, or a review trait such as `needs-docs-accuracy-review`), the confirmed state
+   is "implemented, review pending": write `Outcome: implemented, review pending`, label the
+   deviations "Deviations (before review)", and end the body with the mandatory line
+   `Review: pending - verdict in <review-note key>; fix cycles are recorded in the item's amendments note or its planning note's Amendment A<n> sections`.
+   `Outcome: success` is reserved for items whose schema has no review phase.
 2. **`delegation-metadata`** — the single provenance line, produced by
    `node "<helper>" provenance --plan <plan> --result <result> --method A|B --turns <n> --usage <usage-file> [--meta-dir <dir>]`. **Method A: `--usage` is mandatory** (the Step 0a
    file): the helper records that run total once, on the run's first item, and

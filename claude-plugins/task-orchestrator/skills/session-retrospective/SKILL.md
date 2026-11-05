@@ -104,7 +104,7 @@ If no items are in scope, or no item has a `session-tracking` note, exit with: `
 
 ## Step 2 - Aggregate Note Data
 
-Across the collected `session-tracking` notes: total item count and outcome distribution (success, partial, failed, skipped); combined deduplicated files list; combined friction list; combined observations; test result totals. Run the health read of 1a (`context`) for the current state snapshot when not already done.
+Across the collected `session-tracking` notes: total item count and outcome distribution (success, partial, failed, skipped, plus `implemented, review pending`, counted only when the named review note is absent); when a note ends with the `Review: pending - verdict in <key>` line, take the outcome and deviation count from that review note (final verdict, first-review blocking count) and its amendment sections instead of the frozen pre-review text, and report first-review fail rate (items whose first verdict was Fail / items reviewed); combined deduplicated files list; combined friction list; combined observations; test result totals. Run the health read of 1a (`context`) for the current state snapshot when not already done.
 
 From `delegation-metadata` notes extract model per delegation (haiku, sonnet, opus) and isolation (inline, worktree); they feed 3b.
 
@@ -148,7 +148,7 @@ If `delegation-metadata` notes exist, cross-reference the expected model: `haiku
 With at least one structured line, show a per-run table before 3c: `| adapter | run | agents | tokens | duration | orchestrator-turns |`.
 
 ### 3c. Note Effectiveness
-For items with both queue-phase notes (specs) and work-phase notes: compare themes; "deviated from spec", "unexpected" or "assumption was wrong" flags a spec gap; work-phase notes under ~30 tokens flag context loss for downstream agents. **Score:** effective / mixed / ineffective.
+For items with both queue-phase notes (specs) and work-phase notes: compare themes; "deviated from spec", "unexpected" or "assumption was wrong" flags a spec gap, and so does a fix-cycle amendment (an `Amendment A<n>` section or amendments note raised after a failed first review); work-phase notes under ~30 tokens flag context loss for downstream agents. **Score:** effective / mixed / ineffective.
 
 ### 3d. Plan-to-Execution Alignment
 Creation times come from one `items_read` `list` with `fields: ["createdAt", "modifiedAt", "summary"]`, scoped by `ancestorId` (the root, or the run's `scopeId`); with neither, `get` each in-scope item with `fields: ["createdAt"]` (at most 20).
