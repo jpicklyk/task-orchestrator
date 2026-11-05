@@ -150,7 +150,8 @@ now pointing at another item's commit).
 **Red-proofs themselves are run by you, the orchestrator**, not the helper — `verify` only
 returns the budget (`items[].redProof.shape`, plus `items[].redProof.commands` for whichever
 of the project's `run-profile.json` -> `verify[]` entries name the `orchestrator` seat); this
-repo's profile names the lock helper self-check and a scratch-worktree revert-and-rebuild.
+repo's profile names `wave-build` (the locked `:current:test` and `:current:ktlintCheck` run) and
+`plugin-node-tests` (the plugin `scripts/tests` and `hooks/tests` node suites).
 
 **The red-proof policy is a targeted budget, not one proof per scenario, and it runs in two
 places.** The full statement lives in the served `test-author` rule, section 5. What you run
