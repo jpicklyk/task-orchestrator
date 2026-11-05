@@ -1076,7 +1076,8 @@ After review passes:
    `specification` filled at creation; (b) `deps_write` `create` a `relates_to` edge from it to the
    feature; (c) re-parent each such check under it (`items_write` `update` `parentId`); (d) add one
    line `Post-merge live acceptance: <holder short id> (<check short ids>)` to the feature's
-   `session-tracking`; (e) complete the feature. The holder's specification opens with this fixed
+   `session-tracking` when that note was created token-less (written token-less), else to
+   `orchestrator-confirmation` (run-wave `references/post-run.md` Step 7b (d)); (e) complete the feature. The holder's specification opens with this fixed
    next-session preamble: (1) purge the plugin cache and update the marketplace, per
    `claude-plugins/CLAUDE.md` "Plugin Discovery and Cache Refresh"; (2) after the next session
    starts, grep the cached files for one string the change added (name the string); (3) the user's
@@ -1199,7 +1200,8 @@ merge, step 8):
    `specification` filled at creation; (b) `deps_write` `create` a `relates_to` edge from it to the
    feature; (c) re-parent each such check under it (`items_write` `update` `parentId`); (d) add one
    line `Post-merge live acceptance: <holder short id> (<check short ids>)` to the feature's
-   `session-tracking`; (e) complete the feature. The holder's specification opens with this fixed
+   `session-tracking` when that note was created token-less (written token-less), else to
+   `orchestrator-confirmation` (run-wave `references/post-run.md` Step 7b (d)); (e) complete the feature. The holder's specification opens with this fixed
    next-session preamble: (1) purge the plugin cache and update the marketplace, per
    `claude-plugins/CLAUDE.md` "Plugin Discovery and Cache Refresh"; (2) after the next session
    starts, grep the cached files for one string the change added (name the string); (3) the user's
