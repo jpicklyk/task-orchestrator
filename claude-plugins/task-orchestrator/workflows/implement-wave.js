@@ -45,6 +45,7 @@ const OUTPUT_SCHEMAS = {
       mainFiles: { type: 'array', items: { type: 'string' } },
       docFiles: { type: 'array', items: { type: 'string' } },
       testFiles: { type: 'array', items: { type: 'string' } },
+      needsTestAuthor: { type: 'boolean' },
       existingTestEdits: {
         type: 'array',
         items: {
@@ -786,9 +787,21 @@ function isNoneSentinel(s) {
 }
 
 /**
+ * noTestOwner(item) -> true when a seat-aware item has no test-author-v1 stage and its implementer-v1
+ * stage is not implicitOwner (nobody owns new test files). Shared by the planner prompt line and the
+ * mapStageResult stop so the two cannot drift.
+ */
+function noTestOwner(item) {
+  const stages = (item && item.stages) || []
+  const impl = stages.find((s) => s.output === 'implementer-v1')
+  return !stages.some((s) => s.output === 'test-author-v1') && !(impl && impl.implicitOwner === true)
+}
+
+/**
  * mapStageResult(stage, env, entryMode='seat', item?) -> {status, reason}
  * Precedence: null envelope; schema-changed; config-unavailable; entry (when
- * stage.enters and not done); planner proceed===false; planner envelope-mismatch (proceed:true
+ * stage.enters and not done); planner proceed===false; planner needsTestAuthor===true on a no-test-owner
+ * item (when item is given); planner envelope-mismatch (proceed:true
  * with an empty mainFiles/docFiles/testFiles set while stage.notes is non-empty); no-test-owner (only
  * when item is given: planner proceed:true with testFiles, no test-author-v1 stage on the item, and the
  * item's implementer-v1 stage not implicitOwner); test-author
@@ -815,6 +828,9 @@ function mapStageResult(stage, env, entryMode = 'seat', item) {
     if (env.output.proceed === false) {
       return { status: 'stopped', reason: `planner: ${env.output.blockReason}` }
     }
+    if (item && env.output.needsTestAuthor === true && noTestOwner(item)) {
+      return { status: 'stopped', reason: 'no-test-owner: needs-test-author requested by planner' }
+    }
     if (
       env.output.proceed === true &&
       (env.output.mainFiles || []).length === 0 &&
@@ -828,9 +844,7 @@ function mapStageResult(stage, env, entryMode = 'seat', item) {
       }
     }
     if (item && env.output.proceed === true && (env.output.testFiles || []).length > 0) {
-      const stages = item.stages || []
-      const impl = stages.find((s) => s.output === 'implementer-v1')
-      if (!stages.some((s) => s.output === 'test-author-v1') && !(impl && impl.implicitOwner === true)) {
+      if (noTestOwner(item)) {
         return {
           status: 'stopped',
           reason: `no-test-owner: add needs-test-author or clear testFiles (${env.output.testFiles.join(', ')})`,
@@ -1423,6 +1437,14 @@ function promptReturn(stage, item) {
       'existingTestEdits: include every existing test that pins the size, order or matcher list of an enumerated ' +
         'surface this item changes; record the grep and its hit count in your planning note, including 0 hits.'
     )
+    if (item && item.stages.some((s) => s.output === 'test-author-v1')) {
+      lines.push('Test-author stage: present')
+    } else if (item && noTestOwner(item)) {
+      lines.push(
+        'Test-author stage: absent - testFiles must be []; put doc or test assertion changes in existingTestEdits ' +
+          'on existing test files; if the change needs new test files, return needsTestAuthor: true instead.'
+      )
+    }
     if (item && item.stages.some((s) => s.output === 'test-author-v1')) {
       lines.push(
         'declarationModules: list every repo-relative module whose behavior a test-plan scenario oracle or harness ' +

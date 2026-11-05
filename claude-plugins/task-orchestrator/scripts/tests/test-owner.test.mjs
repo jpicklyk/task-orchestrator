@@ -442,3 +442,95 @@ test('PROBE replay (Method B): the same stageResult twice from the same state gi
   assert.equal(two.status, one.status)
   assert.equal(two.reason, one.reason)
 })
+
+// ============================================================================================
+// S10 - planner prompt states test-author stage presence; needsTestAuthor stop (#636), both cores
+// ============================================================================================
+
+const PRESENT_LINE = 'Test-author stage: present'
+const ABSENT_LINE =
+  'Test-author stage: absent - testFiles must be []; put doc or test assertion changes in existingTestEdits ' +
+  'on existing test files; if the change needs new test files, return needsTestAuthor: true instead.'
+const NTA_REASON = 'no-test-owner: needs-test-author requested by planner'
+
+function countLine(text, line) {
+  return text.split('\n').filter((l) => l.trim() === line).length
+}
+function stageText(core, item, seat) {
+  const plan = planFixture({ items: [item] })
+  const st = item.stages.find((s) => s.seat === seat)
+  return core.seatPrompt(plan, item, st, {})
+}
+
+for (const [name, load] of CORES) {
+  test(`S10 (${name} core): planner prompt present line on a test-author item, never the absent line`, () => {
+    const core = load()
+    const item = withTestAuthorItem()
+    const text = stageText(core, item, 'planner')
+    assert.equal(countLine(text, PRESENT_LINE), 1)
+    assert.ok(!text.includes('Test-author stage: absent'))
+  })
+
+  test(`S10 (${name} core): planner prompt absent line exactly once on an SA item`, () => {
+    const core = load()
+    const text = stageText(core, saItem(), 'planner')
+    assert.equal(countLine(text, ABSENT_LINE), 1)
+    assert.ok(!text.includes('Test-author stage: present'))
+  })
+
+  test(`S10 (${name} core): seat-less item planner prompt carries neither line; implementer prompts never do`, () => {
+    const core = load()
+    const text = stageText(core, seatlessItem(), 'planner')
+    assert.ok(!text.includes('Test-author stage:'))
+    for (const item of [saItem(), seatlessItem(), withTestAuthorItem()]) {
+      assert.ok(!stageText(core, item, 'implementer').includes('Test-author stage:'))
+    }
+  })
+
+  test(`S10 (${name} core): needsTestAuthor:true on SA -> stopped with the exact reason, whatever the lists`, () => {
+    const core = load()
+    const item = saItem()
+    const st = plannerStageOf(item)
+    const cases = [
+      plannerOut({ needsTestAuthor: true, mainFiles: ['src/m.js'] }),
+      plannerOut({ needsTestAuthor: true, mainFiles: ['src/m.js'], testFiles: ['t/a.test.mjs'] }),
+      plannerOut({ needsTestAuthor: true }),
+    ]
+    for (const out of cases) {
+      const r = core.mapStageResult({ ...st, notes: ['specification'] }, env(out), 'seat', item)
+      assert.equal(r.status, 'stopped')
+      assert.equal(r.reason, NTA_REASON)
+    }
+  })
+
+  test(`S10 (${name} core): needsTestAuthor:true is ignored on seat-less and test-author items; false is inert`, () => {
+    const core = load()
+    for (const item of [seatlessItem(), withTestAuthorItem()]) {
+      const r = core.mapStageResult(plannerStageOf(item), env(plannerOut({ needsTestAuthor: true, mainFiles: ['src/m.js'] })), 'seat', item)
+      assert.equal(r.status, 'done')
+    }
+    const sa = saItem()
+    const r = core.mapStageResult(plannerStageOf(sa), env(plannerOut({ needsTestAuthor: false, mainFiles: ['src/m.js'] })), 'seat', sa)
+    assert.equal(r.status, 'done')
+  })
+
+  test(`S10 (${name} core): proceed:false wins over needsTestAuthor:true`, () => {
+    const core = load()
+    const item = saItem()
+    const r = core.mapStageResult(plannerStageOf(item), env(plannerOut({ proceed: false, blockReason: 'nope', needsTestAuthor: true })), 'seat', item)
+    assert.equal(r.reason, 'planner: nope')
+  })
+
+  test(`S10 (${name} core): OUTPUT_SCHEMAS planner-v1 needsTestAuthor is boolean and optional`, () => {
+    const schema = load().OUTPUT_SCHEMAS['planner-v1']
+    assert.deepEqual(schema.properties.needsTestAuthor, { type: 'boolean' })
+    assert.ok(!schema.required.includes('needsTestAuthor'))
+  })
+}
+
+test('S10 (Method B): stageResult needsTestAuthor:true on SA stops and dispatches no implementer', () => {
+  const { res, implPrompt } = runB(saItem(), plannerOut({ needsTestAuthor: true, mainFiles: ['src/m.js'] }))
+  assert.equal(res.status, 'stopped')
+  assert.equal(res.reason, NTA_REASON)
+  assert.equal(implPrompt, null)
+})
