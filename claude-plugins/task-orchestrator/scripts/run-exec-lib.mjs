@@ -1255,7 +1255,7 @@ export function verify(doc, result, gitFacts) {
 
     const verifyCommands = (project.verify || [])
       .filter((v) => Array.isArray(v.seats) && v.seats.includes('orchestrator'))
-      .map((v) => ({ name: v.name, command: v.command }))
+      .map((v) => (Array.isArray(v.appliesTo) ? { name: v.name, command: v.command, appliesTo: v.appliesTo } : { name: v.name, command: v.command }))
 
     const blobs = gitFacts && gitFacts.blobs && gitFacts.blobs[argItem.worktree]
     if (blobs) {
@@ -1287,7 +1287,7 @@ export function verify(doc, result, gitFacts) {
     }
   })
 
-  return { ok: items.every((it) => it.ok), items, warnings }
+  return { ok: items.every((it) => it.ok), items, warnings, knownRed: Array.isArray(project.knownRed) ? project.knownRed : [] }
 }
 
 /**

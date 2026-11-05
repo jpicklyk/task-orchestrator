@@ -37,6 +37,13 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
   mode and `plan` copies `probe.pluginVersion`/`probe.workflowSizeGuideline` into
   `capabilities`/`sizeGuideline`. `serverCompat` is checked in Step 0 F2 (non-null stops the run);
   `probe --no-server-check` skips that network check and `--api-url <url>` overrides the resolved URL.
+- `profile.verify[].appliesTo` — optional, a non-empty array of repo-relative glob patterns (same
+  segment-glob matching as `appendOnlyFiles`, case-insensitive). `promptVerify` renders the entry only when
+  some planned file (planner `mainFiles`, `docFiles`, `testFiles`, `existingTestEdits[].file`) matches;
+  otherwise `SKIP <name>: appliesTo matched no planned file`. With no planner output the entry renders.
+- `profile.knownRed` — optional array of `{test, reason, expires?, tracking?}` (`expires` as `YYYY-MM-DD`, or
+  `tracking`, required). `plan` copies live entries into `args.project.knownRed` and drops one whose
+  `expires` is before the plan date with a warning `knownRed <test> expired <date>`.
 - `profile.runBudget` — optional `{tokens?, costUsd?, attemptsPerSeat?, maxActiveSeats?}`: when set,
   `plan` copies it to `meta.runBudget` and `run-ops --phase open` sends it as the run's `budget`
   (absent means no cap; the server refuses a budget above its configured ceiling). `plan` also copies
@@ -83,6 +90,10 @@ Structural checks beyond the ones already documented in the helper's own doc com
   non-empty strings (including `null`).
 - `profile.appendOnlyFiles entry "<raw>" is not a repo-relative file pattern` — one per entry that is
   absolute, contains a `..` segment, is empty (`.`, `./`), or has only `*`/`**` segments.
+- `profile.verify[<i>].appliesTo must be an array of repo-relative patterns` - the key is present but is
+  empty, not an array of non-empty strings, or holds an absolute, drive-letter or `..` pattern.
+- `profile.knownRed[<i>] must have test, reason and expires (YYYY-MM-DD) or tracking` - one per entry that
+  lacks a non-empty `test` or `reason`, or has neither a valid `expires` date nor a `tracking` reference.
 - `probe must be an object` — fires when `probe` is absent, `null`, an array, or any non-object.
   Unlike `profile`, `probe` is required: a plain object (even `{}`) passes.
 
@@ -132,8 +143,11 @@ paths are prefixed with the item worktree; directory and glob entries pass throu
 - The whole-suite run belongs on `orchestrator`-seat entries (run after the wave, surfaced as
   `redProof.commands`). `<ownedTests>` is not supported on orchestrator entries.
 
-Add an `<ownedTests>` entry to a project's `run-profile.json` only once every installed plugin
-cache carries this `promptVerify`: an older cached `implement-wave.js` prints the command verbatim,
-so seats would see a literal `<ownedTests>`. For this repo, the intended entry is
-`{"name":"plugin-node-owned-tests","command":"node --test <ownedTests>","ownedTestsPattern":"\\.test\\.mjs$","seats":["implementer","test-author"]}`,
-beside the orchestrator's `plugin-node-tests`.
+`appliesTo` is evaluated before `<ownedTests>` handling. When `args.project.knownRed` is non-empty, implementer
+and test-author VERIFY blocks also carry one `KNOWN RED (not a regression): <test> - <reason>` line per entry
+(the `VERIFY:` header renders even for a seat with no verify entry); other seats get none. `run-exec verify`
+echoes `knownRed` at the top level and `appliesTo` on `redProof.commands` entries; it filters nothing.
+
+An older cached `implement-wave.js` prints an `<ownedTests>` command verbatim and ignores `appliesTo`. This
+repo's profile carries `plugin-node-owned-tests` (`appliesTo` `claude-plugins/**`) beside the orchestrator's
+`plugin-node-tests`, since the plugin cache carries `<ownedTests>` support at 4.0.0.

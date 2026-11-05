@@ -89,6 +89,11 @@ derived for that item (`null` when the item had no planner-v1 output to derive o
 untagged commit (no `[<short>]` in its subject) surfaces as a top-level `warnings` entry, not a
 per-item finding, and does not by itself fail the item.
 
+**`appliesTo` and `knownRed`.** `orchestrator`-seat entries in `redProof.commands` carry `appliesTo` when the
+profile declares it: run such an entry only when a path in `git diff --name-only <baseSha>..HEAD` matches one
+of its patterns. The verify output's top-level `knownRed` lists tests already known red (each with `expires` or
+`tracking`): report them once, do not triage them as regressions.
+
 **How ownership is matched.** Declared files and changed paths are both normalized to
 repo-relative POSIX before comparison: `\` becomes `/`, empty segments (`//` runs, a leading or
 trailing `/` after an absolute prefix) and `.` segments are dropped, `..` segments are kept as

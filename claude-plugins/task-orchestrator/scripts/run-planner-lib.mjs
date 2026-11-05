@@ -249,6 +249,40 @@ export function validateSnapshot(snap) {
       }
     }
   }
+  if (snap.profile && typeof snap.profile === 'object' && !Array.isArray(snap.profile)) {
+    if (Array.isArray(snap.profile.verify)) {
+      snap.profile.verify.forEach((entry, i) => {
+        if (!entry || typeof entry !== 'object' || !('appliesTo' in entry)) return;
+        const ap = entry.appliesTo;
+        let bad = !Array.isArray(ap) || ap.length === 0 || ap.some((e) => typeof e !== 'string' || e === '');
+        if (!bad) {
+          bad = ap.some((raw) => {
+            const c = canonAppendOnly(raw);
+            const segs = c.split('/');
+            return c === '' || c === '.' || /^\//.test(c) || /^[a-zA-Z]:/.test(c) || segs.includes('..');
+          });
+        }
+        if (bad) errors.push(`profile.verify[${i}].appliesTo must be an array of repo-relative patterns`);
+      });
+    }
+    if ('knownRed' in snap.profile) {
+      const kr = snap.profile.knownRed;
+      if (!Array.isArray(kr)) {
+        errors.push('profile.knownRed must be an array');
+      } else {
+        const nonEmpty = (x) => typeof x === 'string' && x.trim() !== '';
+        kr.forEach((e, i) => {
+          const isObj = e && typeof e === 'object' && !Array.isArray(e);
+          const okDate = isObj && typeof e.expires === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(e.expires) && !Number.isNaN(Date.parse(e.expires));
+          const ok = isObj && nonEmpty(e.test) && nonEmpty(e.reason)
+            && (okDate || (e.expires === undefined && nonEmpty(e.tracking)))
+            && (e.tracking === undefined || nonEmpty(e.tracking))
+            && (e.expires === undefined || okDate);
+          if (!ok) errors.push(`profile.knownRed[${i}] must have test, reason and expires (YYYY-MM-DD) or tracking`);
+        });
+      }
+    }
+  }
   // probe is load-bearing for chooseEntry (entry mode) and assembleArgs' capabilities
   // (pluginVersion, phase0Hooks) — a snapshot silently missing it planned pre-entered
   // without any signal (observation a0d31e5b). Required, unlike profile.
@@ -1057,6 +1091,24 @@ function normalizePath(p) {
 }
 
 /**
+ * liveKnownRed(profile, now) -> {live, expired}: knownRed entries split by their optional `expires`
+ * date against the date of `now` (pure: never the clock). An entry is live through its expires day.
+ */
+export function liveKnownRed(profile, now) {
+  const list = profile && Array.isArray(profile.knownRed) ? profile.knownRed : null;
+  if (!list) return { live: null, expired: [] };
+  const d = new Date(now);
+  const today = Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+  const live = [];
+  const expired = [];
+  for (const e of list) {
+    if (today && typeof e.expires === 'string' && e.expires < today) expired.push(e);
+    else live.push(e);
+  }
+  return { live, expired };
+}
+
+/**
  * assembleArgs(snap, planned, opts) -> implement-wave/args-v1 object
  * planned = {ids, waitsFor, derivedById, deferred}
  * opts = {now, runId, mode, entryMode, probe, profile, scratchpad, worktree, branch}
@@ -1167,6 +1219,8 @@ export function assembleArgs(snap, planned, opts) {
     searchScope
   };
   if (scratchDirValue) project.scratchDir = scratchDirValue;
+  const knownRedLive = liveKnownRed(profile, now).live;
+  if (knownRedLive) project.knownRed = knownRedLive.map((e) => ({ ...e }));
   if (Array.isArray(profile.appendOnlyFiles)) project.appendOnlyFiles = profile.appendOnlyFiles.map(canonAppendOnly);
 
   const capabilities = { features: snap.features || [], phase0Hooks: !!probe.phase0Hooks };
@@ -1414,6 +1468,7 @@ export function buildPlanDoc(snap, opts = {}) {
   }
 
   warnings.push(...sharedFileWarnings);
+  for (const e of liveKnownRed(profile, now).expired) warnings.push(`knownRed ${e.test} expired ${e.expires}`);
 
   const estAgents = finalIds.reduce((sum, id) => sum + ((derivedById[id].stages || []).length), 0);
   const worktreesToCreate = buildWorktreesToCreate(snap, args, mode);

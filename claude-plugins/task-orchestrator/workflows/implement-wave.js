@@ -1194,9 +1194,27 @@ function ownedTestsFor(item, stage, outsByOutput) {
 function promptVerify(plan, item, stage, outsByOutput) {
   const proj = plan.project || {}
   const entries = (proj.verify || []).filter((v) => Array.isArray(v.seats) && v.seats.includes(stage.seat))
-  if (entries.length === 0) return ''
+  const knownRed =
+    stage.seat === 'implementer' || stage.seat === 'test-author'
+      ? (Array.isArray(proj.knownRed) ? proj.knownRed : []).filter((k) => k && k.test)
+      : []
+  if (entries.length === 0 && knownRed.length === 0) return ''
   const lines = ['VERIFY:']
+  // appliesTo: planned files (mainFiles, docFiles, testFiles, existingTestEdits) relativized like owned
+  // tests; with no planner output the entry renders (fail-safe).
+  const planned = (() => {
+    const p = outsByOutput['planner-v1']
+    if (!p) return null
+    const roots = itemRoots(plan, item)
+    const raw = [].concat(p.mainFiles || [], p.docFiles || [], p.testFiles || [])
+    for (const e of p.existingTestEdits || []) if (e && e.file) raw.push(e.file)
+    return raw.map((f) => relativizePath(f, roots)).filter(Boolean)
+  })()
   for (const v of entries) {
+    if (planned && Array.isArray(v.appliesTo) && v.appliesTo.length > 0 && !planned.some((f) => appendOnlyMatch(f, v.appliesTo))) {
+      lines.push('SKIP ' + (v.name || 'verify') + ': appliesTo matched no planned file')
+      continue
+    }
     const command = v.command || JSON.stringify(v)
     if (!command.includes('<ownedTests>')) {
       lines.push(command)
@@ -1231,6 +1249,7 @@ function promptVerify(plan, item, stage, outsByOutput) {
       lines.push(command.split('<ownedTests>').join(owned.join(' ')))
     }
   }
+  for (const k of knownRed) lines.push('KNOWN RED (not a regression): ' + k.test + ' - ' + (k.reason || ''))
   if (plan.worktreeMode === 'shared') {
     lines.push(
       'Shared worktree: failures whose test paths are all owned by another item or seat are expected while ' +
