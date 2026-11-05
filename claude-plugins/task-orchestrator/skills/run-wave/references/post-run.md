@@ -405,8 +405,9 @@ run over that one item, `<runId>-a<n>`. Follow these steps in order:
 
 2. Bind a copy of the plan to the new run: `bind-run --in plan.json --server-run <uuid>`, written to
    `plan-a<n>.json`.
-3. Re-`assign` the base seat under this run's coordinator token and write its `seatToken` to the base
-   seat's token file.
+3. Re-`assign` the base seat under this run's coordinator token (`run-ops --phase assign --plan plan-a<n>.json`:
+   run-ops reads the runId from the bound plan, and `plan.json` still targets the closed run) and write its
+   `seatToken` to the base seat's token file.
 4. Reseat each fix-cycle seat with `reseat --plan plan-a<n>.json` (the command below).
 5. After the re-review verdict, rewrite the item's `session-tracking` under this run's coordinator
    token: the `Review: pending - ...` line becomes `Review: <verdict> after A<n> - <review-note key>`
