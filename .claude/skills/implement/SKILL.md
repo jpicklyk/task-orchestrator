@@ -1206,7 +1206,8 @@ merge, step 8):
    opt-in for any check that runs the Workflow tool. Then one line per re-parented check. The next
    session runs the checks, fills the holder's `session-tracking` and completes it. Create the
    holder and re-parent the checks before (e): a terminal auto parent takes no new children.
-9. Advance the parent feature to terminal (only after `N of N disposed`).
+9. Advance the parent feature to terminal (only after `N of N disposed`); when step 8 applies this is
+   its (e), run once after (a)-(d).
 10. **Wave-boundary red-proofs.** Now that the feature PR has merged, run every child's
    decision-point budget mutations in ONE batch (`run-wave` `post-run.md` Step 7a): a scratch
    worktree at the merged `main` SHA, each mutation applied with `references/patch-anchored.py`
