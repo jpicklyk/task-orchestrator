@@ -5,7 +5,8 @@
 // stdout; {error, detail} on stderr. Exit 0 ok, 2 invalid input, 3 refused (stdout still
 // carries the doc or {ok:false, errors}). A global `--out <path> [--force]` (any subcommand) writes the
 // document to <path> instead of stdout; it refuses (exit 3) to overwrite a launched run's existing file
-// (a sibling state.json past 'planned', or a bound plan.json) unless --force. This file is the ONLY place that reads the clock,
+// (a sibling state.json past 'planned', or a bound plan.json) unless --force. A shell redirect
+// (`> plan.json`, as the run-wave SKILL.md save still does) bypasses the guard. This file is the ONLY place that reads the clock,
 // the filesystem, the network (probe's server check) or environment variables —
 // run-planner-lib.mjs stays pure.
 //

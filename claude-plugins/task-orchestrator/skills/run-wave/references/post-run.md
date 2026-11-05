@@ -19,7 +19,7 @@ Read the local `<scratchpad>/run-wave/<runId>/plan.json` (bound: it carries `arg
 from state (Method B) to `<scratchpad>/run-wave/<runId>/result.json`. Any item with no envelope
 recorded at all — neither a successful `stage-result` nor a `stopped` marker — is treated as
 `stopped: "agent returned null"`. A result with `started: false` (or a launch that threw) means
-nothing ran: skip to Step 7 and close the run `failed`. Record the phase `notified`. Orchestrator post-run scripts write new, run-scoped file names and never write over a seat's artifact; run-planner's `--out <path>` refuses a launched run's existing files unless `--force`.
+nothing ran: skip to Step 7 and close the run `failed`. Record the phase `notified`. Orchestrator post-run scripts write new, run-scoped file names and never write over a seat's artifact; run-planner's `--out <path>` refuses a launched run's existing files unless `--force`; a shell redirect (`> plan.json`) bypasses that guard, so write over a launched run's files only through `--out`.
 
 An altitude-safe result (`altitudeSafe: true`, from a plan made with `--altitude-safe`) is saved and
 verified the same way: it keeps `items[].stages` (status, commits, files, note keys) and the file
