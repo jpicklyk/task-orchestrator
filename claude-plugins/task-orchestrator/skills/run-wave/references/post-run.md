@@ -361,6 +361,16 @@ cap on cycles.
 4. **Original reviewer, by name**, scoped to `git diff <prevReviewedSha>..HEAD -- <owned files>`
    plus the blocking findings — see "Re-review after fixes" below.
 
+**Late carry-ins and orchestrator-originated fixes.** A carry-in that arrives after planning, or a
+fix the orchestrator originates, is applied through an amendment: seat `planner-a<n>` with the
+helper's `reseat` command (see Fallback below); it reads the carry-in and the cited source, writes
+the `A<n>` amendment with the exact text, and `implementer-a<n>` applies it. On an item with no
+planner stage, dispatch the amendment planner by hand and record it with `--extra-seats` (see
+below). The orchestrator states the obligation and its source, never the replacement prose. A seat
+applies orchestrator text verbatim only for a mechanical edit: a path, an id or a version string. A
+pre-launch late carry-in on an item with no planner stage (the `lateCarryIns` of SKILL.md Step 3)
+keeps its orchestrator disposition line, which states the obligation and source only.
+
 **Dispositions at child close.** When a child's review returns Pass or Pass with observations,
 write the child's `orchestrator-confirmation` before advancing it: one line per non-blocking
 finding id (`O#` from a review-checklist, `N#` from a docs-accuracy or similar review; follow-up

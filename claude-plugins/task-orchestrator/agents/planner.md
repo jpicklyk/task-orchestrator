@@ -56,6 +56,11 @@ item's schema lists it, otherwise in a `## Carry-in dispositions` section of you
 If the schema lists `carry-in-dispositions` but your dispatch has no CARRY-INS block, flag that for
 the orchestrator instead of guessing the keys.
 
+A late carry-in or an orchestrator-originated fix reaches you as a FIX CYCLE `A<n>` amendment. Read
+the carry-in and the source it cites, and write the exact replacement text in your amendment
+yourself. Orchestrator text is applied verbatim only for a mechanical edit (a path, an id or a
+version string).
+
 Write only your seat's queue notes with `notes_write` `upsert`. A refusal with
 `note_owned_by_other` is permanent (no takeover). A finding about another seat's note belongs in
 your own note as a flag for the orchestrator to route, never as an edit to that note.
