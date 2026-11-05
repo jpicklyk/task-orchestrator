@@ -136,6 +136,7 @@ Each `awaiting_decision` entry carries a server-computed `resumable` (true when 
 - **Workstreams** = non-terminal roots with children. Progress = `terminal / total` from `childCounts`, rendered `N/M terminal` (not `done`: the terminal bucket includes cancelled items). "Next up" = the highest-priority queue row from step 5 whose `parentId` is that root.
 - **Standalone queue roots** group by kind: the `type` if set; else the first tag not in {`agent-observation`, `feature`, `container`}; else "Uncategorized".
 - **Rollup threshold:** a group of more than 5 renders as a count line by kind, listing items only when priority is medium or higher or tagged `action-item`.
+- **Post-merge live acceptance.** A non-terminal item whose title starts `Post-merge live acceptance:` (found in the step-5 queue rows or step-2 active items) renders as that one Attention Required row, not in In Flight. `<n>` is its open children, read from the same scoped overview as Full mode step 2 (`itemId`, `excludeTerminal`, `childCounts`), capped at 5 such overviews; its children are not rendered as separate rows in Recommended Next or Backlog.
 - **Hygiene candidates:** empty non-terminal containers; evident test artifacts (probe/smoke titles, `mtest-*` tags).
 
 ### Dashboard format
@@ -162,6 +163,7 @@ Render in this order; omit any section with no data.
 | `xxxxxxxx` | <title> | <parent or —> | Blocked by: `<blocker-id>` <blocker-title> |
 | `yyyyyyyy` | <title> | <parent or —> | Blocked (awaiting_decision): <class> <status>; resumable |
 | `zzzzzzzz` | <title> | <parent or —> | Stalled: missing `<note-key>` |
+| `hhhhhhhh` | Post-merge live acceptance: <feature> | <parent or -> | Live checks pending: <n> |
 
 ### ▸ Recommended Next
 | ID | Title | Container | Pri |

@@ -256,7 +256,8 @@ run report instead.
 (`notes_read(select:"get", itemId, key:"session-tracking")`): a `**Live-owed**:` line naming an
 open entry holds that item in work — leave it out of the call below and report it. When the line
 is absent, read the item's spec note's State matrix the same way; no line and no open matrix
-entry means no hold.
+entry means no hold. A live-owed item whose only open entry needs a refreshed plugin cache is the case
+the Step 7b post-merge split handles once the PR merges.
 
 **One** `advance` call, under the coordinator token, with one `transition` element per item that
 passed Steps 1–2 and is not held: `trigger: "start"` for an item whose schema has a review phase,
@@ -550,7 +551,8 @@ background and go on to `SKILL.md` Step 9; the next wave's planners do not wait 
 ## Step 7b - Feature closure
 
 Applies to a parent with 2 or more children whose resolved schema has a review phase (this repo:
-`feature-implementation`), once EVERY child is terminal. Shared mode: before the feature PR is
+`feature-implementation`), once EVERY child is terminal (a child that is only a live check needing a
+refreshed plugin cache or a user opt-in is the exception: see "Post-merge live acceptance" below). Shared mode: before the feature PR is
 pushed, so before Step 7a. Per-item mode: after the last child's PR has merged; it does not wait
 on Step 7a. Not covered here: a parent with one child (the project workflow's finalization decides how its
 independent parent review runs; this repo: `/implement` Step 6) and a
@@ -600,6 +602,22 @@ review-role parent, and the parent leaves review only by the explicit advance in
    (`/task-orchestrator:create-item`).
 4. **Complete.** The orchestrator's explicit `advance` `transition` `complete` on the parent, only
    after N of N.
+
+**Post-merge live acceptance.** After the feature PR has merged (a `review: "handoff"` close applies
+it too: the project's finalization, this repo `/implement` Step 6, carries the same step), if the
+only non-terminal children are live checks that need a refreshed plugin cache or a user opt-in: (a)
+create one `plugin-change` item titled `Post-merge live acceptance: <feature title>` under the
+feature's parent, its `specification` filled at creation; (b) `deps_write` `create` a `relates_to`
+edge from it to the feature; (c) re-parent each such check under it (`items_write` `update`
+`parentId`); (d) add one line `Post-merge live acceptance: <holder short id> (<check short ids>)` to
+the feature's `session-tracking`; (e) complete the feature. The holder's specification opens with
+this fixed next-session preamble: (1) purge the plugin cache and update the marketplace, per
+`claude-plugins/CLAUDE.md` "Plugin Discovery and Cache Refresh"; (2) after the next session starts,
+grep the cached files for one string the change added (name the string); (3) the user's opt-in for
+any check that runs the Workflow tool. Then one line per re-parented check. The next session runs
+the checks, fills the holder's `session-tracking` and completes it. Create the holder and re-parent
+the checks before (e): a terminal auto parent takes no new children. The complete in item 4 follows
+steps (a)-(d). No server gate enforces the split: it is discipline, like the dispositions below.
 
 **Honest limit.** No server gate and no helper checks dispositions: `orchestrator-confirmation`
 is a declared optional note, so this is discipline, not enforcement. Under `review: "handoff"` the
