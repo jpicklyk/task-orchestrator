@@ -536,11 +536,11 @@ test('ownedTests: an invalid ownedTestsPattern renders SKIP naming the pattern, 
   assert.ok(!block.includes('B.kt'), block)
 })
 
-test('ownedTests: implementer WITH a test-author stage owns only existingTestEdits; test-author owns both', () => {
+test('ownedTests: implementer WITH a test-author stage owns no test files; test-author owns both', () => {
   const planner = { testFiles: ['new.test.mjs'], existingTestEdits: [{ file: 'old.test.mjs' }] }
   const impl = verifyBlock(ownedPrompt({ stageList: stages.bugFixLike(), seat: 'implementer', planner }))
-  assert.ok(impl.includes('"/tmp/wt-0a0a0a0a/old.test.mjs"'), impl)
-  assert.ok(!impl.includes('new.test.mjs'), impl)
+  assert.ok(impl.includes('SKIP plugin-node-owned-tests: no owned test files'), impl)
+  assert.ok(!impl.includes('new.test.mjs') && !impl.includes('old.test.mjs'), impl)
   const ta = verifyBlock(ownedPrompt({ stageList: stages.bugFixLike(), seat: 'test-author', planner }))
   assert.ok(ta.includes('new.test.mjs') && ta.includes('old.test.mjs'), ta)
 })

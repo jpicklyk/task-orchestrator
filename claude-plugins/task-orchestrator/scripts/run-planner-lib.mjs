@@ -249,6 +249,49 @@ export function validateSnapshot(snap) {
       }
     }
   }
+  if (snap.profile && typeof snap.profile === 'object' && !Array.isArray(snap.profile)) {
+    if (Array.isArray(snap.profile.verify)) {
+      snap.profile.verify.forEach((entry, i) => {
+        if (!entry || typeof entry !== 'object' || !('appliesTo' in entry)) return;
+        const ap = entry.appliesTo;
+        let bad = !Array.isArray(ap) || ap.length === 0 || ap.some((e) => typeof e !== 'string' || e === '');
+        if (!bad) {
+          bad = ap.some((raw) => {
+            const c = canonAppendOnly(raw);
+            const segs = c.split('/');
+            return c === '' || c === '.' || /^\//.test(c) || /^[a-zA-Z]:/.test(c) || segs.includes('..');
+          });
+        }
+        if (bad) errors.push(`profile.verify[${i}].appliesTo must be an array of repo-relative patterns`);
+      });
+    }
+    if ('knownRed' in snap.profile) {
+      const kr = snap.profile.knownRed;
+      if (!Array.isArray(kr)) {
+        errors.push('profile.knownRed must be an array');
+      } else {
+        const nonEmpty = (x) => typeof x === 'string' && x.trim() !== '';
+        // Strict YYYY-MM-DD: the fields must round-trip through a local Date, so 2026-02-31 is refused
+        // (Date.parse would roll it over to March 3).
+        const realDate = (s) => {
+          const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+          if (!m) return false;
+          const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+          const dt = new Date(y, mo - 1, d);
+          return dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d;
+        };
+        kr.forEach((e, i) => {
+          const isObj = e && typeof e === 'object' && !Array.isArray(e);
+          const okDate = isObj && typeof e.expires === 'string' && realDate(e.expires);
+          const ok = isObj && nonEmpty(e.test) && nonEmpty(e.reason)
+            && (okDate || (e.expires === undefined && nonEmpty(e.tracking)))
+            && (e.tracking === undefined || nonEmpty(e.tracking))
+            && (e.expires === undefined || okDate);
+          if (!ok) errors.push(`profile.knownRed[${i}] must have test, reason and expires (YYYY-MM-DD) or tracking`);
+        });
+      }
+    }
+  }
   // probe is load-bearing for chooseEntry (entry mode) and assembleArgs' capabilities
   // (pluginVersion, phase0Hooks) — a snapshot silently missing it planned pre-entered
   // without any signal (observation a0d31e5b). Required, unlike profile.
@@ -368,10 +411,10 @@ export const ORCHESTRATOR_PROVENANCE_NOTE = 'delegation-metadata';
 
 /**
  * The notes the orchestrator itself records in a seat-less schema (no seat declared, so no
- * `seat: orchestrator` annotation to read): the provenance note and the review-role
- * orchestrator-confirmation. Neither is ever a seat's note or part of lane coverage.
+ * `seat: orchestrator` annotation to read): the provenance note, the review-role
+ * orchestrator-confirmation and the run-wave pointer note `run-pointers`. None is ever a seat's note or part of lane coverage.
  */
-export const ORCHESTRATOR_OWNED_NOTES = [ORCHESTRATOR_PROVENANCE_NOTE, 'orchestrator-confirmation'];
+export const ORCHESTRATOR_OWNED_NOTES = [ORCHESTRATOR_PROVENANCE_NOTE, 'orchestrator-confirmation', 'run-pointers'];
 
 /** Keys of `keys` whose schema entry is explicitly optional (`required === false`), in `keys` order. A note with no `required` field stays audited as before. */
 function optionalOf(keys, notes) {
@@ -549,7 +592,7 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
     // Seat-less deviation (S5): without any declared seat, the server says nothing about
     // ownership, so the implicit phase owner (planner/implementer) takes EVERY note in its
     // phase regardless of the note's own `seat` annotation. The exceptions are the keys in
-    // ORCHESTRATOR_OWNED_NOTES (the provenance note and orchestrator-confirmation): they are never
+    // ORCHESTRATOR_OWNED_NOTES (the provenance note, orchestrator-confirmation and run-pointers): they are never
     // a seat's note, so they are pulled out of the stage notes and recorded here, whatever phase
     // (queue, work or review) they sit in.
     orchestratorNotes = notes
@@ -633,7 +676,7 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
   } else {
     if (phases.includes('queue') && !isResumed) {
       const queueNotes = notes
-        .filter((n) => n.role === 'queue' && n.key !== ORCHESTRATOR_PROVENANCE_NOTE)
+        .filter((n) => n.role === 'queue' && !ORCHESTRATOR_OWNED_NOTES.includes(n.key))
         .map((n) => n.key);
       const rulesSkills = deriveRulesSkills(queueNotes, notes, servedKeys);
       const plannerStage = {
@@ -651,7 +694,7 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
       stages.push(plannerStage);
     }
     const workNotes = notes
-      .filter((n) => n.role === 'work' && n.key !== ORCHESTRATOR_PROVENANCE_NOTE)
+      .filter((n) => n.role === 'work' && !ORCHESTRATOR_OWNED_NOTES.includes(n.key))
       .map((n) => n.key);
     const rulesSkillsW = deriveRulesSkills(workNotes, notes, servedKeys);
     const implementerStage = {
@@ -1057,6 +1100,24 @@ function normalizePath(p) {
 }
 
 /**
+ * liveKnownRed(profile, now) -> {live, expired}: knownRed entries split by their optional `expires`
+ * date against the date of `now` (pure: never the clock). An entry is live through its expires day.
+ */
+export function liveKnownRed(profile, now) {
+  const list = profile && Array.isArray(profile.knownRed) ? profile.knownRed : null;
+  if (!list) return { live: null, expired: [] };
+  const d = new Date(now);
+  const today = Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+  const live = [];
+  const expired = [];
+  for (const e of list) {
+    if (today && typeof e.expires === 'string' && e.expires < today) expired.push(e);
+    else live.push(e);
+  }
+  return { live, expired };
+}
+
+/**
  * assembleArgs(snap, planned, opts) -> implement-wave/args-v1 object
  * planned = {ids, waitsFor, derivedById, deferred}
  * opts = {now, runId, mode, entryMode, probe, profile, scratchpad, worktree, branch}
@@ -1167,6 +1228,8 @@ export function assembleArgs(snap, planned, opts) {
     searchScope
   };
   if (scratchDirValue) project.scratchDir = scratchDirValue;
+  const knownRedLive = liveKnownRed(profile, now).live;
+  if (knownRedLive) project.knownRed = knownRedLive.map((e) => ({ ...e }));
   if (Array.isArray(profile.appendOnlyFiles)) project.appendOnlyFiles = profile.appendOnlyFiles.map(canonAppendOnly);
 
   const capabilities = { features: snap.features || [], phase0Hooks: !!probe.phase0Hooks };
@@ -1414,6 +1477,7 @@ export function buildPlanDoc(snap, opts = {}) {
   }
 
   warnings.push(...sharedFileWarnings);
+  for (const e of liveKnownRed(profile, now).expired) warnings.push(`knownRed ${e.test} expired ${e.expires}`);
 
   const estAgents = finalIds.reduce((sum, id) => sum + ((derivedById[id].stages || []).length), 0);
   const worktreesToCreate = buildWorktreesToCreate(snap, args, mode);
@@ -1628,4 +1692,36 @@ export function validatePlanDoc(doc, argsSchema, snapshot) {
   }
 
   return { ok: errors.length === 0, errors };
+}
+
+/**
+ * artifactWriteGuard({targetExists, existingText, stateText, force}) -> {ok:true} | {ok:false, runId, error}
+ * Pure decision for run-planner's `--out`: refuse to overwrite an existing file that belongs to a
+ * launched run. Launched means the sibling state.json parses to an object whose phase is a string
+ * other than 'planned', or the existing file parses to a plan doc with a truthy args.serverRunId.
+ * A missing target, `force`, and unparseable text (treated as absent) are always allowed.
+ */
+export function artifactWriteGuard({ targetExists, existingText, stateText, force } = {}) {
+  if (!targetExists || force) return { ok: true };
+  const parse = (t) => {
+    if (typeof t !== 'string' || t === '') return null;
+    try {
+      const v = JSON.parse(t);
+      return v && typeof v === 'object' ? v : null;
+    } catch {
+      return null;
+    }
+  };
+  const state = parse(stateText);
+  const plan = parse(existingText);
+  const planArgs = plan && plan.args && typeof plan.args === 'object' ? plan.args : null;
+  const stateLaunched = Boolean(state) && typeof state.phase === 'string' && state.phase !== 'planned';
+  const planBound = Boolean(planArgs) && Boolean(planArgs.serverRunId);
+  if (!stateLaunched && !planBound) return { ok: true };
+  const runId = (state && state.runId) || (planArgs && (planArgs.runId || planArgs.serverRunId)) || null;
+  return {
+    ok: false,
+    runId,
+    error: `target belongs to launched run ${runId === null ? '(unknown)' : runId}; pass --force to overwrite`
+  };
 }

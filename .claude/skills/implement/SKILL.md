@@ -949,6 +949,8 @@ The review agent:
 | **Pass with observations** | Proceed to Step 6; dispose observations per Dispositions at child close |
 | **Fail — blocking issues** | Stop and report to the user with the full findings. Do not attempt to fix autonomously — bring the human into the loop. |
 
+Once the user rules a fix on a run-wave item whose run closed at handoff, the fix cycle follows the numbered recipe in run-wave `post-run.md` Step 5 "Fallback", which also finalizes the item's `session-tracking`.
+
 **Dispositions at child close.** When a child's review returns Pass or Pass with observations,
 write the child's `orchestrator-confirmation` before advancing it: one line per O# (follow-up
 item created first, or `accepted: <reason>`), `N of N disposed`. Nothing is left for the parent
@@ -1065,6 +1067,23 @@ After review passes:
    ```to-call
    {"tool":"advance","op":"transition","args":{"itemId":"4b7d0e19","trigger":"start"}}
    ```
+   An item that has children follows the same rule before this advance, with the item in the feature's
+   place and its parent as the holder's parent:
+
+   **Post-merge live acceptance.** Once the PR has merged and the only non-terminal children are
+   live checks that need a refreshed plugin cache or a user opt-in: (a) create one `plugin-change`
+   item titled `Post-merge live acceptance: <feature title>` under the feature's parent, its
+   `specification` filled at creation; (b) `deps_write` `create` a `relates_to` edge from it to the
+   feature; (c) re-parent each such check under it (`items_write` `update` `parentId`); (d) add one
+   line `Post-merge live acceptance: <holder short id> (<check short ids>)` to the feature's
+   `session-tracking` when that note was created token-less (written token-less), else to
+   `orchestrator-confirmation` (run-wave `references/post-run.md` Step 7b (d)); (e) complete the feature. The holder's specification opens with this fixed
+   next-session preamble: (1) purge the plugin cache and update the marketplace, per
+   `claude-plugins/CLAUDE.md` "Plugin Discovery and Cache Refresh"; (2) after the next session
+   starts, grep the cached files for one string the change added (name the string); (3) the user's
+   opt-in for any check that runs the Workflow tool. Then one line per re-parented check. The next
+   session runs the checks, fills the holder's `session-tracking` and completes it. Create the
+   holder and re-parent the checks before (e): a terminal auto parent takes no new children.
 7. The retrospective hook fires on a successful `runs_write` `close` (or the Stop backstop for a
    closed run without the `retro` mark), never on a terminal transition; its mode key is
    `extensions.claude-code.retrospective.mode`. Work finished outside a run gets no hook: run
@@ -1100,13 +1119,15 @@ For Parallel-tier features with a shared feature worktree:
 3. **Do NOT push. Do NOT create a PR.** The work is committed to `feat/<feature-slug>`
    inside the shared worktree; that's the integration point.
 
-**When all children reach terminal**, the parent feature is ready to finalize:
+**When all children reach terminal**, the parent feature is ready to finalize (a child that is only a live
+check needing a refreshed plugin cache or a user opt-in counts as done here; it is split off after the
+merge, step 8):
 
 1. Fill the parent's `implementation-notes` and `session-tracking` notes (aggregating
    across children - distributed-tracking pattern works as today; under the coordinator token
    while the parent is a member of an open run; final content written once, in confirmed past tense;
-   the run-wave pointer line and the cumulative `delegation-metadata` re-upsert are the only re-edits,
-   each under the coordinator token of an open run).
+   the only re-edits are the ones run-wave `references/post-run.md` Step 3 sanctions, and the step 8
+   post-merge live acceptance line is written as that file's Step 7b (d) says).
 2. Run final verification from the feature worktree (incremental; this and Step 4c's run are
    the only whole-suite runs in the wave):
    ```bash
@@ -1173,15 +1194,30 @@ For Parallel-tier features with a shared feature worktree:
    git worktree remove <feature-worktree-path>
    git branch -D feat/<feature-slug>
    ```
-8. Advance the parent feature to terminal (only after `N of N disposed`).
-9. **Wave-boundary red-proofs.** Now that the feature PR has merged, run every child's
+8. **Post-merge live acceptance.** Once the PR has merged and the only non-terminal children are
+   live checks that need a refreshed plugin cache or a user opt-in: (a) create one `plugin-change`
+   item titled `Post-merge live acceptance: <feature title>` under the feature's parent, its
+   `specification` filled at creation; (b) `deps_write` `create` a `relates_to` edge from it to the
+   feature; (c) re-parent each such check under it (`items_write` `update` `parentId`); (d) add one
+   line `Post-merge live acceptance: <holder short id> (<check short ids>)` to the feature's
+   `session-tracking` when that note was created token-less (written token-less), else to
+   `orchestrator-confirmation` (run-wave `references/post-run.md` Step 7b (d)); (e) complete the feature. The holder's specification opens with this fixed
+   next-session preamble: (1) purge the plugin cache and update the marketplace, per
+   `claude-plugins/CLAUDE.md` "Plugin Discovery and Cache Refresh"; (2) after the next session
+   starts, grep the cached files for one string the change added (name the string); (3) the user's
+   opt-in for any check that runs the Workflow tool. Then one line per re-parented check. The next
+   session runs the checks, fills the holder's `session-tracking` and completes it. Create the
+   holder and re-parent the checks before (e): a terminal auto parent takes no new children.
+9. Advance the parent feature to terminal (only after `N of N disposed`); when step 8 applies this is
+   its (e), run once after (a)-(d).
+10. **Wave-boundary red-proofs.** Now that the feature PR has merged, run every child's
    decision-point budget mutations in ONE batch (`run-wave` `post-run.md` Step 7a): a scratch
    worktree at the merged `main` SHA, each mutation applied with `references/patch-anchored.py`
    and run only against the test classes that child's `test-manifest` maps to it, one incremental
    whole-suite run per survivor, results recorded once on the parent's `red-proof-results` note.
    A real gap becomes a carry-in on the next item touching that seam or one test-only follow-up
    item, never a reopen. Background; it gates nothing.
-10. Retrospective - the plugin's retrospective hook fires on a successful `runs_write` `close`
+11. Retrospective - the plugin's retrospective hook fires on a successful `runs_write` `close`
    (or the Stop backstop for a closed run without the `retro` mark), never on a terminal
    transition. In `dispatch` mode (`extensions.claude-code.retrospective.mode` in
    `.taskorchestrator/config.yaml`) it directs a background `/session-retrospective`
@@ -1240,7 +1276,7 @@ run plan doesn't apply.
 6. **Step 6 — One PR at parent finalization.** Children advance to terminal without
    pushing or PR'ing. Only when the parent feature itself reaches terminal does the
    orchestrator push `feat/<slug>` and open the single feature-level PR. After that PR
-   merges, the wave-boundary red-proofs run (Step 6 item 9): every child's budget mutations
+   merges, the wave-boundary red-proofs run (Step 6 item 10): every child's budget mutations
    batched at the merged SHA, scoped to manifest-mapped test classes, in the background.
 7. **Track child commits** — maintain a table mapping child UUID → pre-commit SHA →
    post-commit SHA → Test-Pre-SHA → Test-Post-SHA → status (implementing / test-authoring /

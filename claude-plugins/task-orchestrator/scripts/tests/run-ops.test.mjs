@@ -21,7 +21,7 @@ import { loadWaveCore } from '../lib/wave-core.mjs'
 import {
   CLOSE_REASONS, closeReason, advanceFollowUps, initState, next, stageResult, resultFromState, provenance,
 } from '../run-exec-lib.mjs'
-import { SNAPSHOT_CONTRACT } from '../run-planner-lib.mjs'
+import { SNAPSHOT_CONTRACT, ORCHESTRATOR_OWNED_NOTES } from '../run-planner-lib.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PLUGIN_ROOT = join(HERE, '..', '..')
@@ -838,4 +838,28 @@ test('HB-S11: without --item the heartbeat targets items[0], and that differs fr
   const out = ops(boundPath, 'heartbeat', ['--usage', usage])
   assert.deepEqual(out.ops.map((o) => o.itemId), [first.id, first.id, first.id])
   assert.notEqual(first.id, second.id)
+})
+
+test('run-pointers: SKILL.md Step 5 names the run-pointers note with the session-tracking fallback, and post-run.md names run-pointers', () => {
+  const skill = skillText('SKILL.md')
+  const post = skillText('references/post-run.md')
+  assert.ok(has(skill, '`run-pointers` note'), 'Step 5 names the run-pointers note')
+  assert.ok(has(skill, 'else to its `session-tracking` note'), 'Step 5 names the session-tracking fallback')
+  assert.ok(has(skill, 'in `run-pointers` (or `session-tracking`)'), 'the stale-pointer sentence names both notes')
+  assert.ok(has(post, 'run-pointers'), 'post-run.md names run-pointers')
+})
+
+test('run-pointers: ORCHESTRATOR_OWNED_NOTES includes run-pointers', () => {
+  assert.ok(ORCHESTRATOR_OWNED_NOTES.includes('run-pointers'))
+})
+
+test('run-pointers: a seat-less schema with an optional run-pointers work note plans it into orchestratorNotes and out of every stage', () => {
+  const snap = loadFixture('independent-two.json')
+  snap.schemas[A].notes.push({ key: 'run-pointers', role: 'work', required: false, seat: null })
+  const dir = mkdtempSync(join(tmpdir(), 'run-pointers-'))
+  const res = runCli(['plan', '--now', NOW, '--scratchpad', join(dir, 'sp')], { input: snap })
+  assert.equal(res.status, 0, res.stderr)
+  const item = JSON.parse(res.stdout).args.items.find((i) => i.short === 'aaaaaaaa')
+  assert.ok(item.orchestratorNotes.includes('run-pointers'), 'planned into orchestratorNotes')
+  assert.equal(item.stages.some((st) => (st.notes || []).includes('run-pointers')), false, 'no stage holds the key')
 })

@@ -37,6 +37,13 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
   mode and `plan` copies `probe.pluginVersion`/`probe.workflowSizeGuideline` into
   `capabilities`/`sizeGuideline`. `serverCompat` is checked in Step 0 F2 (non-null stops the run);
   `probe --no-server-check` skips that network check and `--api-url <url>` overrides the resolved URL.
+- `profile.verify[].appliesTo` — optional, a non-empty array of repo-relative glob patterns (same
+  segment-glob matching as `appendOnlyFiles`, case-insensitive). `promptVerify` renders the entry only when
+  some planned file (planner `mainFiles`, `docFiles`, `testFiles`, `existingTestEdits[].file`) matches;
+  otherwise `SKIP <name>: appliesTo matched no planned file`. With no planner output the entry renders.
+- `profile.knownRed` — optional array of `{test, reason, expires?, tracking?}` (`expires` as `YYYY-MM-DD`, or
+  `tracking`, required). `plan` copies live entries into `args.project.knownRed` and drops one whose
+  `expires` is before the plan date with a warning `knownRed <test> expired <date>`.
 - `profile.runBudget` — optional `{tokens?, costUsd?, attemptsPerSeat?, maxActiveSeats?}`: when set,
   `plan` copies it to `meta.runBudget` and `run-ops --phase open` sends it as the run's `budget`
   (absent means no cap; the server refuses a budget above its configured ceiling). `plan` also copies
@@ -83,6 +90,12 @@ Structural checks beyond the ones already documented in the helper's own doc com
   non-empty strings (including `null`).
 - `profile.appendOnlyFiles entry "<raw>" is not a repo-relative file pattern` — one per entry that is
   absolute, contains a `..` segment, is empty (`.`, `./`), or has only `*`/`**` segments.
+- `profile.verify[<i>].appliesTo must be an array of repo-relative patterns` - the key is present but is
+  empty, not an array of non-empty strings, or holds an absolute, drive-letter or `..` pattern.
+- `profile.knownRed must be an array` - the key is present but is not an array (including `null`).
+- `profile.knownRed[<i>] must have test, reason and expires (YYYY-MM-DD) or tracking` - one per entry that
+  lacks a non-empty `test` or `reason`, or has neither a valid `expires` date nor a `tracking` reference.
+  A valid `expires` is strict `YYYY-MM-DD` naming a real calendar day, so `2026-02-31` is refused.
 - `probe must be an object` — fires when `probe` is absent, `null`, an array, or any non-object.
   Unlike `profile`, `probe` is required: a plain object (even `{}`) passes.
 
@@ -109,13 +122,23 @@ paths are prefixed with the item worktree; directory and glob entries pass throu
 
 - Owned set: a `test-author` seat owns planner `testFiles` plus `existingTestEdits[].file`. An
   `implementer` on an item with no test-author stage owns the same union. An `implementer` on an item
-  WITH a test-author stage owns `existingTestEdits[].file` only.
+  WITH a test-author stage owns no test files (its owned-tests verify renders `SKIP <name>: no owned test files`).
 - No test owner: a seat-aware item (implementer stage not `implicitOwner`) with no test-author stage whose planner returns
   non-empty `testFiles` is stopped with `no-test-owner: add needs-test-author or clear testFiles (<list>)` before the
   implementer is dispatched (`existingTestEdits` alone never stops it). A seat-less item (`implicitOwner` implementer) is
-  exempt. Whenever an implementer has no test-author stage and the owned set is non-empty, its HANDOFF block ends with
+  exempt. The planner prompt states `Test-author stage: present|absent` (no line on a seat-less item), and a planner may
+  return `needsTestAuthor: true`; on an item with no test owner that stops it before any implementer pass with
+  `no-test-owner: needs-test-author requested by planner` (checked right after `proceed: false`, before the
+  envelope-mismatch stop). On that reason the orchestrator adds the `needs-test-author` trait (`items_write` update),
+  writes the stopped planner's envelope (decisions, mainFiles, docFiles, existingTestEdits) into an orchestrator
+  carry-in note `carry-in-frozen-plan` (under 1200 characters, carry-in shape of run-wave/SKILL.md Step 3) and
+  relaunches; the rerun planner disposes it in scope and adds only the test-plan. Whenever an implementer has no test-author stage and the owned set is non-empty, its HANDOFF block ends with
   `TESTS ARE YOURS: <paths> - no test-author seat runs on this item; write, run and commit them yourself.` (testFiles then
-  existingTestEdits files, exact duplicates once). Method A and B share one core, so both behave identically.
+  existingTestEdits files, exact duplicates once). When the item HAS a test-author stage and `existingTestEdits` lists files,
+  the implementer's HANDOFF block instead ends with `EXISTING TEST EDITS BELONG TO THE TEST AUTHOR: <files> - never edit those
+  files; expect them to fail after your change; list each in failingExistingTests with the failing test name, and continue.`
+  (exact duplicates once; no line when the edits are empty). The two lines are mutually exclusive. Method A and B share one
+  core, so both behave identically.
 - `ownedTestsPattern` (optional regex source string, per entry) drops owned paths that do not match, so a
   `node --test` entry never receives `.kt` files.
 - An empty owned set, or no planner output, renders `SKIP <name>: no owned test files` instead of a command.
@@ -126,8 +149,11 @@ paths are prefixed with the item worktree; directory and glob entries pass throu
 - The whole-suite run belongs on `orchestrator`-seat entries (run after the wave, surfaced as
   `redProof.commands`). `<ownedTests>` is not supported on orchestrator entries.
 
-Add an `<ownedTests>` entry to a project's `run-profile.json` only once every installed plugin
-cache carries this `promptVerify`: an older cached `implement-wave.js` prints the command verbatim,
-so seats would see a literal `<ownedTests>`. For this repo, the intended entry is
-`{"name":"plugin-node-owned-tests","command":"node --test <ownedTests>","ownedTestsPattern":"\\.test\\.mjs$","seats":["implementer","test-author"]}`,
-beside the orchestrator's `plugin-node-tests`.
+`appliesTo` is evaluated before `<ownedTests>` handling. When `args.project.knownRed` is non-empty, implementer
+and test-author VERIFY blocks also carry one `KNOWN RED (not a regression): <test> - <reason>` line per entry
+(the `VERIFY:` header renders even for a seat with no verify entry); other seats get none. `run-exec verify`
+echoes `knownRed` at the top level and `appliesTo` on `redProof.commands` entries; it filters nothing.
+
+An older cached `implement-wave.js` prints an `<ownedTests>` command verbatim and ignores `appliesTo`. This
+repo's profile carries `plugin-node-owned-tests` (`appliesTo` `claude-plugins/**`) beside the orchestrator's
+`plugin-node-tests`, since the plugin cache carries `<ownedTests>` support at 4.0.0.

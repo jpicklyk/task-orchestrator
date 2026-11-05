@@ -45,6 +45,7 @@ const OUTPUT_SCHEMAS = {
       mainFiles: { type: 'array', items: { type: 'string' } },
       docFiles: { type: 'array', items: { type: 'string' } },
       testFiles: { type: 'array', items: { type: 'string' } },
+      needsTestAuthor: { type: 'boolean' },
       existingTestEdits: {
         type: 'array',
         items: {
@@ -786,9 +787,21 @@ function isNoneSentinel(s) {
 }
 
 /**
+ * noTestOwner(item) -> true when a seat-aware item has no test-author-v1 stage and its implementer-v1
+ * stage is not implicitOwner (nobody owns new test files). Shared by the planner prompt line and the
+ * mapStageResult stop so the two cannot drift.
+ */
+function noTestOwner(item) {
+  const stages = (item && item.stages) || []
+  const impl = stages.find((s) => s.output === 'implementer-v1')
+  return !stages.some((s) => s.output === 'test-author-v1') && !(impl && impl.implicitOwner === true)
+}
+
+/**
  * mapStageResult(stage, env, entryMode='seat', item?) -> {status, reason}
  * Precedence: null envelope; schema-changed; config-unavailable; entry (when
- * stage.enters and not done); planner proceed===false; planner envelope-mismatch (proceed:true
+ * stage.enters and not done); planner proceed===false; planner needsTestAuthor===true on a no-test-owner
+ * item (when item is given); planner envelope-mismatch (proceed:true
  * with an empty mainFiles/docFiles/testFiles set while stage.notes is non-empty); no-test-owner (only
  * when item is given: planner proceed:true with testFiles, no test-author-v1 stage on the item, and the
  * item's implementer-v1 stage not implicitOwner); test-author
@@ -815,6 +828,9 @@ function mapStageResult(stage, env, entryMode = 'seat', item) {
     if (env.output.proceed === false) {
       return { status: 'stopped', reason: `planner: ${env.output.blockReason}` }
     }
+    if (item && env.output.needsTestAuthor === true && noTestOwner(item)) {
+      return { status: 'stopped', reason: 'no-test-owner: needs-test-author requested by planner' }
+    }
     if (
       env.output.proceed === true &&
       (env.output.mainFiles || []).length === 0 &&
@@ -828,9 +844,7 @@ function mapStageResult(stage, env, entryMode = 'seat', item) {
       }
     }
     if (item && env.output.proceed === true && (env.output.testFiles || []).length > 0) {
-      const stages = item.stages || []
-      const impl = stages.find((s) => s.output === 'implementer-v1')
-      if (!stages.some((s) => s.output === 'test-author-v1') && !(impl && impl.implicitOwner === true)) {
+      if (noTestOwner(item)) {
         return {
           status: 'stopped',
           reason: `no-test-owner: add needs-test-author or clear testFiles (${env.output.testFiles.join(', ')})`,
@@ -1061,6 +1075,21 @@ function promptCarryIns(stage, item) {
   return ''
 }
 
+/**
+ * Smoke-run part: an implementer-v1 stage whose planner-declared files touch the plugin tree is told
+ * to exercise plugin helpers only against a throwaway run root. No planner output or no plugin path:
+ * nothing.
+ */
+function promptSmokeRoot(plan, item, stage, outsByOutput) {
+  if (stage.output !== 'implementer-v1') return ''
+  const p = outsByOutput['planner-v1']
+  if (!p) return ''
+  const roots = itemRoots(plan, item)
+  const raw = [].concat(p.mainFiles || [], p.docFiles || [], p.testFiles || [])
+  if (!raw.some((f) => typeof f === 'string' && relativizePath(f, roots).startsWith('claude-plugins/'))) return ''
+  return "Smoke-run plugin helpers only against a throwaway run root (a fresh mkdtemp directory passed as the run dir), never against the session's run-wave directory."
+}
+
 /** Part 6: rule fetch by key. */
 function protocolKeyFor(stage) {
   if (stage.enters) return 'protocol.entry-seat'
@@ -1160,7 +1189,8 @@ function promptCommitForm(item, stage) {
  * ownedTestsFor(item, stage, outsByOutput) -> string[]
  * The test paths a writer seat owns, for the <ownedTests> verify placeholder. test-author-v1 and an
  * implementer-v1 with no test-author stage own planner testFiles + existingTestEdits[].file; an
- * implementer-v1 WITH a test-author stage owns existingTestEdits[].file only. Other seats own none.
+ * implementer-v1 WITH a test-author stage owns no test files (existingTestEdits belong to the test
+ * author when that stage exists). Other seats own none.
  */
 function ownedTestsFor(item, stage, outsByOutput) {
   const p = outsByOutput['planner-v1']
@@ -1171,7 +1201,7 @@ function ownedTestsFor(item, stage, outsByOutput) {
   if (stage.output === 'test-author-v1') return files
   if (stage.output === 'implementer-v1') {
     const hasTestAuthorStage = item.stages.some((s) => s.output === 'test-author-v1')
-    return hasTestAuthorStage ? edits : files
+    return hasTestAuthorStage ? [] : files
   }
   return []
 }
@@ -1180,9 +1210,27 @@ function ownedTestsFor(item, stage, outsByOutput) {
 function promptVerify(plan, item, stage, outsByOutput) {
   const proj = plan.project || {}
   const entries = (proj.verify || []).filter((v) => Array.isArray(v.seats) && v.seats.includes(stage.seat))
-  if (entries.length === 0) return ''
+  const knownRed =
+    stage.seat === 'implementer' || stage.seat === 'test-author'
+      ? (Array.isArray(proj.knownRed) ? proj.knownRed : []).filter((k) => k && k.test)
+      : []
+  if (entries.length === 0 && knownRed.length === 0) return ''
   const lines = ['VERIFY:']
+  // appliesTo: planned files (mainFiles, docFiles, testFiles, existingTestEdits) relativized like owned
+  // tests; with no planner output the entry renders (fail-safe).
+  const planned = (() => {
+    const p = outsByOutput['planner-v1']
+    if (!p) return null
+    const roots = itemRoots(plan, item)
+    const raw = [].concat(p.mainFiles || [], p.docFiles || [], p.testFiles || [])
+    for (const e of p.existingTestEdits || []) if (e && e.file) raw.push(e.file)
+    return raw.map((f) => relativizePath(f, roots)).filter(Boolean)
+  })()
   for (const v of entries) {
+    if (planned && Array.isArray(v.appliesTo) && v.appliesTo.length > 0 && !planned.some((f) => appendOnlyMatch(f, v.appliesTo))) {
+      lines.push('SKIP ' + (v.name || 'verify') + ': appliesTo matched no planned file')
+      continue
+    }
     const command = v.command || JSON.stringify(v)
     if (!command.includes('<ownedTests>')) {
       lines.push(command)
@@ -1217,6 +1265,7 @@ function promptVerify(plan, item, stage, outsByOutput) {
       lines.push(command.split('<ownedTests>').join(owned.join(' ')))
     }
   }
+  for (const k of knownRed) lines.push('KNOWN RED (not a regression): ' + k.test + ' - ' + (k.reason || ''))
   if (plan.worktreeMode === 'shared') {
     lines.push(
       'Shared worktree: failures whose test paths are all owned by another item or seat are expected while ' +
@@ -1294,6 +1343,14 @@ function handoff(stage, outs, roots, item) {
         if (owned.length > 0) {
           lines.push(
             `TESTS ARE YOURS: ${owned.join(', ')} - no test-author seat runs on this item; write, run and commit them yourself.`
+          )
+        }
+      } else if (item) {
+        const edits = []
+        for (const e of p.existingTestEdits || []) if (e && e.file && !edits.includes(e.file)) edits.push(e.file)
+        if (edits.length > 0) {
+          lines.push(
+            `EXISTING TEST EDITS BELONG TO THE TEST AUTHOR: ${edits.join(', ')} - never edit those files; expect them to fail after your change; list each in failingExistingTests with the failing test name, and continue.`
           )
         }
       }
@@ -1419,6 +1476,18 @@ function promptReturn(stage, item) {
   ]
   if (stage.output === 'planner-v1') {
     lines.push('Emit StructuredOutput exactly once, as your final action; a second call replaces the first.')
+    lines.push(
+      'existingTestEdits: include every existing test that pins the size, order or matcher list of an enumerated ' +
+        'surface this item changes; record the grep and its hit count in your planning note, including 0 hits.'
+    )
+    if (item && item.stages.some((s) => s.output === 'test-author-v1')) {
+      lines.push('Test-author stage: present')
+    } else if (item && noTestOwner(item)) {
+      lines.push(
+        'Test-author stage: absent - testFiles must be []; put doc or test assertion changes in existingTestEdits ' +
+          'on existing test files; if the change needs new test files, return needsTestAuthor: true instead.'
+      )
+    }
     if (item && item.stages.some((s) => s.output === 'test-author-v1')) {
       lines.push(
         'declarationModules: list every repo-relative module whose behavior a test-plan scenario oracle or harness ' +
@@ -1481,6 +1550,7 @@ function seatPrompt(plan, item, stage, outs) {
     promptInlineBodies(),
     promptCommitForm(item, stage),
     promptVerify(plan, item, stage, outsByOutput),
+    promptSmokeRoot(plan, item, stage, outsByOutput),
     handoff(stage, outsByOutput, itemRoots(plan, item), item),
     promptRerunAndEntry(plan, item, stage),
     promptDeviation(plan, item, stage),

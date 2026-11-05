@@ -19,7 +19,7 @@ Read the local `<scratchpad>/run-wave/<runId>/plan.json` (bound: it carries `arg
 from state (Method B) to `<scratchpad>/run-wave/<runId>/result.json`. Any item with no envelope
 recorded at all — neither a successful `stage-result` nor a `stopped` marker — is treated as
 `stopped: "agent returned null"`. A result with `started: false` (or a launch that threw) means
-nothing ran: skip to Step 7 and close the run `failed`. Record the phase `notified`.
+nothing ran: skip to Step 7 and close the run `failed`. Record the phase `notified`. Orchestrator post-run scripts write new, run-scoped file names and never write over a seat's artifact; run-planner's `--out <path>` refuses a launched run's existing files unless `--force`; a shell redirect (`> plan.json`) bypasses that guard, so write over a launched run's files only through `--out`.
 
 An altitude-safe result (`altitudeSafe: true`, from a plan made with `--altitude-safe`) is saved and
 verified the same way: it keeps `items[].stages` (status, commits, files, note keys) and the file
@@ -83,10 +83,16 @@ non-zero exit here is an expected result, not a call to retry. Per item this che
 commit SHAs actually exist, each stage's committed file list is a subset of what that seat was
 allowed to touch (implementer ⊆ `mainFiles ∪ docFiles`; test-author ⊆ `testFiles ∪
 existingTestEdits[].file`; never cross-owned), commit subjects carry the `[<short>]` tag and a
-`Seat:` trailer, and it returns `items[].redProof.shape` - the red-proof budget the planner
+`Seat:` trailer, the item's committed text files read at the worktree HEAD are valid UTF-8 with no double-encoded
+(mojibake) sequences (a `<file>:<line> non-UTF-8 or double-encoded text` finding; binary files are skipped), and it returns `items[].redProof.shape` - the red-proof budget the planner
 derived for that item (`null` when the item had no planner-v1 output to derive one from). An
 untagged commit (no `[<short>]` in its subject) surfaces as a top-level `warnings` entry, not a
 per-item finding, and does not by itself fail the item.
+
+**`appliesTo` and `knownRed`.** `orchestrator`-seat entries in `redProof.commands` carry `appliesTo` when the
+profile declares it: run such an entry only when a path in `git diff --name-only <baseSha>..HEAD` matches one
+of its patterns. The verify output's top-level `knownRed` lists tests already known red (each with `expires` or
+`tracking`): report them once, do not triage them as regressions.
 
 **How ownership is matched.** Declared files and changed paths are both normalized to
 repo-relative POSIX before comparison: `\` becomes `/`, empty segments (`//` runs, a leading or
@@ -144,7 +150,8 @@ now pointing at another item's commit).
 **Red-proofs themselves are run by you, the orchestrator**, not the helper — `verify` only
 returns the budget (`items[].redProof.shape`, plus `items[].redProof.commands` for whichever
 of the project's `run-profile.json` -> `verify[]` entries name the `orchestrator` seat); this
-repo's profile names the lock helper self-check and a scratch-worktree revert-and-rebuild.
+repo's profile names `wave-build` (the locked `:current:test` and `:current:ktlintCheck` run) and
+`plugin-node-tests` (the plugin `scripts/tests` and `hooks/tests` node suites).
 
 **The red-proof policy is a targeted budget, not one proof per scenario, and it runs in two
 places.** The full statement lives in the served `test-author` rule, section 5. What you run
@@ -215,8 +222,8 @@ Two notes, written by you with `notes_write` `upsert` (body inline) under the co
 (top-level `seatToken`): the coordinator token may write the `orchestrator`-seat keys of run members,
 and a token-less write to such a key is refused. They are the front door's own notes about the run,
 filled after Steps 1–2 have concrete results to report. A note created under the coordinator token is
-owned by that pair, so write its final content once, in confirmed past tense; the run-wave pointer line and the cumulative
-`delegation-metadata` re-upsert are the only re-edits, each under the coordinator token of an open run
+owned by that pair, so write its final content once, in confirmed past tense; the run-wave pointer line (in `run-pointers`; `session-tracking` for a feature started before that note existed or a schema without the key), the cumulative
+`delegation-metadata` re-upsert and the `session-tracking` closure rewrite after a fix cycle (Step 5 "Fallback", step 5) are the only re-edits, each under the coordinator token of an open run
 over the item. Inside an open run a human credential may also write it; once the run
 is closed, a different (principal, seat) pair needs an admin takeover. On `note_owned_by_other`: with no
 `detail.ownerSeat` the note was created token-less earlier, so re-send once without the token; with
@@ -229,7 +236,12 @@ run report instead.
    Friction (the declarations-scan hit count from Method B step 4, any Step 0 fallback taken in
    `SKILL.md`, any `verify`/notes-audit failure, a failed usage report). Write this **after**
    verify and the notes audit have run, in confirmed past tense — not as a speculative "pending
-   verification" draft you intend to edit later.
+   verification" draft you intend to edit later. When the item's schema has a review phase (a
+   review-role note, or a review trait such as `needs-docs-accuracy-review`), the confirmed state
+   is "implemented, review pending": write `Outcome: implemented, review pending`, label the
+   deviations "Deviations (before review)", and end the body with the mandatory line
+   `Review: pending - verdict in <review-note key>; fix cycles are recorded in the item's amendments note or its planning note's Amendment A<n> sections`.
+   `Outcome: success` is reserved for items whose schema has no review phase.
 2. **`delegation-metadata`** — the single provenance line, produced by
    `node "<helper>" provenance --plan <plan> --result <result> --method A|B --turns <n> --usage <usage-file> [--meta-dir <dir>]`. **Method A: `--usage` is mandatory** (the Step 0a
    file): the helper records that run total once, on the run's first item, and
@@ -250,7 +262,8 @@ run report instead.
 (`notes_read(select:"get", itemId, key:"session-tracking")`): a `**Live-owed**:` line naming an
 open entry holds that item in work — leave it out of the call below and report it. When the line
 is absent, read the item's spec note's State matrix the same way; no line and no open matrix
-entry means no hold.
+entry means no hold. A live-owed item whose only open entry needs a refreshed plugin cache is the case
+the Step 7b post-merge split handles once the PR merges.
 
 **One** `advance` call, under the coordinator token, with one `transition` element per item that
 passed Steps 1–2 and is not held: `trigger: "start"` for an item whose schema has a review phase,
@@ -356,6 +369,16 @@ cap on cycles.
 4. **Original reviewer, by name**, scoped to `git diff <prevReviewedSha>..HEAD -- <owned files>`
    plus the blocking findings — see "Re-review after fixes" below.
 
+**Late carry-ins and orchestrator-originated fixes.** A carry-in that arrives after planning, or a
+fix the orchestrator originates, is applied through an amendment: seat `planner-a<n>` with the
+helper's `reseat` command (see Fallback below); it reads the carry-in and the cited source, writes
+the `A<n>` amendment with the exact text, and `implementer-a<n>` applies it. On an item with no
+planner stage, dispatch the amendment planner by hand and record it with `--extra-seats` (see
+below). The orchestrator states the obligation and its source, never the replacement prose. A seat
+applies orchestrator text verbatim only for a mechanical edit: a path, an id or a version string. A
+pre-launch late carry-in on an item with no planner stage (the `lateCarryIns` of SKILL.md Step 3)
+keeps its orchestrator disposition line, which states the obligation and source only.
+
 **Dispositions at child close.** When a child's review returns Pass or Pass with observations,
 write the child's `orchestrator-confirmation` before advancing it: one line per non-blocking
 finding id (`O#` from a review-checklist, `N#` from a docs-accuracy or similar review; follow-up
@@ -369,12 +392,32 @@ and the same scope, so the audit trail distinguishes the cycle. The server knows
 so a fix-cycle seat runs under its **base** seat's assignment: on a still-open run, first re-`assign`
 the base seat (`run-ops --phase assign --item <short> --seat <base seat>`, coordinator token; this
 supersedes the old assignment as attempt n+1) and write the new `seatToken` to the base seat's token
-file. When the run is already closed (for example after a `review: "handoff"` close), open a run over
-that one item (`runs_write(ops:[{op:"open", rootId, items:[<itemId>], label:"<runId>-a<n>"}])`),
-bind a copy of the plan to it (`bind-run --in plan.json --server-run <uuid>` written to
-`plan-a<n>.json`), assign the base seat under that run's coordinator token, pass the copy to
-`reseat`, and close that run after the cycle. Render the seat's prompt with the helper's `reseat`
-command instead of writing it by hand:
+file. When the run is already closed (for example after a `review: "handoff"` close), the cycle gets its own
+run over that one item, `<runId>-a<n>`. Follow these steps in order:
+
+1. Open a run over that one item, label `<runId>-a<n>`. `open` carries no `seatToken`; save the returned
+   `coordinatorToken` as one line to its own token file beside the run's (for example
+   `tokens/coordinator-a<n>.token`, never over `tokens/coordinator.token`), and never echo it.
+
+```to-call
+{"tool": "runs_write", "op": "open", "args": {"rootId": "<rootId>", "items": ["<itemId>"], "label": "<runId>-a<n>"}}
+```
+
+2. Bind a copy of the plan to the new run: `bind-run --in plan.json --server-run <uuid>`, written to
+   `plan-a<n>.json`.
+3. Re-`assign` the base seat under this run's coordinator token (`run-ops --phase assign --plan plan-a<n>.json`:
+   run-ops reads the runId from the bound plan, and `plan.json` still targets the closed run) and write its
+   `seatToken` to the base seat's token file.
+4. Reseat each fix-cycle seat with `reseat --plan plan-a<n>.json` (the command below).
+5. After the re-review verdict, rewrite the item's `session-tracking` under this run's coordinator
+   token: the `Review: pending - ...` line becomes `Review: <verdict> after A<n> - <review-note key>`
+   and the Outcome line becomes `Outcome: implemented, review <verdict> after A<n>` (final on a Pass;
+   a Fail opens cycle `a<n+1>` with its own run). In the same step, before the close, re-upsert
+   `delegation-metadata` per "Recording out-of-run seats".
+6. Close the run (`runs_write` `close`, `runId` = this run's uuid, `reason` `completed`, coordinator
+   token). `completed` is refused while a seat is active, so every seat of this run, a re-review seat included, has ended its seat first.
+
+Render the seat's prompt with the helper's `reseat` command instead of writing it by hand:
 
 ```
 node "<helper>" reseat --plan <plan.json> --run <runId> --result <result.json> \
@@ -449,6 +492,14 @@ process requires:
   (`--out` is not written on 1 or 2). Stage mapping: `git show :1:CHANGELOG.md` is the ancestor;
   merging the base into the feature branch, `:2:` (ours) is the branch and `:3:` (theirs) is the
   base; in a rebase onto the base the two swap.
+- A merge round git completes without conflict is not yet a semantic merge. Merge the base with
+  `git merge --no-commit --no-ff <base>`, then list the files both sides changed: with `<mb>` =
+  `git merge-base HEAD MERGE_HEAD`, intersect `git diff --name-only <mb> HEAD` (the branch side) and
+  `git diff --name-only <mb> MERGE_HEAD` (the base side). For each prose file in the intersection
+  (`.md`, agent, rule and skill files), read the merged region for duplicated or contradictory
+  paragraphs and fix them before committing; for code, run the run profile's `verify[]` entries that
+  name the `orchestrator` seat. Record `both-sides files: <list>, checked` (or `both-sides files:
+  none`) in the merge commit's body and in the feature parent's `session-tracking` at finalization.
 
 ---
 
@@ -478,7 +529,7 @@ config) — each with its specific reason, not a bare count. Suggest `/session-r
 
 Cleanup: once an item's seats have committed, delete its recovery snapshots with `git for-each-ref --format=%(refname) refs/wip/<short>` piped to `git update-ref -d` for each ref (`refs/wip/<short>` and `refs/wip/<short>-<seat>`). Leave a snapshot in place for any item that stopped without committing. Delete `<scratchpad>/run-wave/<runId>/tokens/` once the run is closed: its tokens are dead.
 
-A closed run stays readable (`runs_read` `get`) and its pointer line stays in place — Step 0 F7
+A closed run stays readable (`runs_read` `get`) and its pointer line (in `run-pointers`, or the `session-tracking` fallback) stays in place — Step 0 F7
 reads only open and paused runs, so a finished run is never mistaken for an open one.
 
 ---
@@ -526,7 +577,8 @@ background and go on to `SKILL.md` Step 9; the next wave's planners do not wait 
 ## Step 7b - Feature closure
 
 Applies to a parent with 2 or more children whose resolved schema has a review phase (this repo:
-`feature-implementation`), once EVERY child is terminal. Shared mode: before the feature PR is
+`feature-implementation`), once EVERY child is terminal (a child that is only a live check needing a
+refreshed plugin cache or a user opt-in is the exception: see "Post-merge live acceptance" below). Shared mode: before the feature PR is
 pushed, so before Step 7a. Per-item mode: after the last child's PR has merged; it does not wait
 on Step 7a. Not covered here: a parent with one child (the project workflow's finalization decides how its
 independent parent review runs; this repo: `/implement` Step 6) and a
@@ -576,6 +628,23 @@ review-role parent, and the parent leaves review only by the explicit advance in
    (`/task-orchestrator:create-item`).
 4. **Complete.** The orchestrator's explicit `advance` `transition` `complete` on the parent, only
    after N of N.
+
+**Post-merge live acceptance.** After the feature PR has merged (a `review: "handoff"` close applies
+it too: the project's finalization, this repo `/implement` Step 6, carries the same step), if the
+only non-terminal children are live checks that need a refreshed plugin cache or a user opt-in: (a)
+create one `plugin-change` item titled `Post-merge live acceptance: <feature title>` under the
+feature's parent, its `specification` filled at creation; (b) `deps_write` `create` a `relates_to`
+edge from it to the feature; (c) re-parent each such check under it (`items_write` `update`
+`parentId`); (d) add one line `Post-merge live acceptance: <holder short id> (<check short ids>)` to
+the feature's `session-tracking`, token-less when that note was created token-less (it stays re-writable after the runs close), else in `orchestrator-confirmation`, since per Step 3 a note created under a coordinator token takes a re-edit only inside an open run; (e) complete the feature. The holder's specification opens with
+this fixed next-session preamble: (1) purge the plugin cache and update the marketplace, per
+`claude-plugins/CLAUDE.md` "Plugin Discovery and Cache Refresh"; (2) after the next session starts,
+grep the cached files for one string the change added (name the string); (3) the user's opt-in for
+any check that runs the Workflow tool. Then one line per re-parented check. The next session runs
+the checks, fills the holder's `session-tracking` and completes it. Create the holder and re-parent
+the checks before (e): a terminal auto parent takes no new children. The complete in item 4 follows
+steps (a)-(d); in shared mode, where Step 7b runs before the feature PR is pushed, the split and item 4
+therefore wait for the merge. No server gate enforces the split: it is discipline, like the dispositions below.
 
 **Honest limit.** No server gate and no helper checks dispositions: `orchestrator-confirmation`
 is a declared optional note, so this is discipline, not enforcement. Under `review: "handoff"` the

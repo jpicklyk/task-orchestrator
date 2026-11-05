@@ -267,9 +267,8 @@ Generated from the run plan (`stages[].notes` + `orchestratorNotes`).
 | Orchestrator | `delegation-metadata`, `session-tracking` | `<... / 2000>` |
 
 On a run member the orchestrator writes `delegation-metadata` and `session-tracking` under the
-coordinator token, final content written once in confirmed past tense (the run-wave pointer line and
-the cumulative `delegation-metadata` re-upsert are the only re-edits, each under the coordinator token
-of an open run), copying the implementer's Friction lines into
+coordinator token, final content written once in confirmed past tense (the only re-edits are the ones
+run-wave `references/post-run.md` Step 3 sanctions, the run-wave pointer line in `run-pointers` among them), copying the implementer's Friction lines into
 `session-tracking`; seats never write them.
 
 Take every limit and target from the item's RESOLVED schema (`items_read` `schema`,

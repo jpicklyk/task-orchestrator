@@ -33,12 +33,17 @@
             "properties": {
               "name": { "type": "string" },
               "command": { "type": "string" },
-              "seats": { "type": "array", "items": { "type": "string" } }
+              "seats": { "type": "array", "items": { "type": "string" } },
+              "appliesTo": { "type": "array", "minItems": 1, "items": { "type": "string" } }
             }
           }
         },
         "searchScope": { "type": "array", "items": { "type": "string" } },
-        "appendOnlyFiles": { "type": "array", "items": { "type": "string" } }
+        "appendOnlyFiles": { "type": "array", "items": { "type": "string" } },
+        "knownRed": {
+          "type": "array",
+          "items": { "type": "object", "required": ["test", "reason"], "properties": { "test": { "type": "string" }, "reason": { "type": "string" }, "expires": { "type": "string" }, "tracking": { "type": "string" } } }
+        }
       }
     },
     "items": {
