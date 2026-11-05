@@ -415,7 +415,7 @@ run over that one item, `<runId>-a<n>`. Follow these steps in order:
    a Fail opens cycle `a<n+1>` with its own run). In the same step, before the close, re-upsert
    `delegation-metadata` per "Recording out-of-run seats".
 6. Close the run (`runs_write` `close`, `runId` = this run's uuid, `reason` `completed`, coordinator
-   token). `completed` is refused while a seat is active, so every reseated seat has ended its seat first.
+   token). `completed` is refused while a seat is active, so every seat of this run, a re-review seat included, has ended its seat first.
 
 Render the seat's prompt with the helper's `reseat` command instead of writing it by hand:
 
