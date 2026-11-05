@@ -1273,7 +1273,7 @@ run plan doesn't apply.
 6. **Step 6 — One PR at parent finalization.** Children advance to terminal without
    pushing or PR'ing. Only when the parent feature itself reaches terminal does the
    orchestrator push `feat/<slug>` and open the single feature-level PR. After that PR
-   merges, the wave-boundary red-proofs run (Step 6 item 9): every child's budget mutations
+   merges, the wave-boundary red-proofs run (Step 6 item 10): every child's budget mutations
    batched at the merged SHA, scoped to manifest-mapped test classes, in the background.
 7. **Track child commits** — maintain a table mapping child UUID → pre-commit SHA →
    post-commit SHA → Test-Pre-SHA → Test-Post-SHA → status (implementing / test-authoring /
