@@ -465,6 +465,14 @@ process requires:
   (`--out` is not written on 1 or 2). Stage mapping: `git show :1:CHANGELOG.md` is the ancestor;
   merging the base into the feature branch, `:2:` (ours) is the branch and `:3:` (theirs) is the
   base; in a rebase onto the base the two swap.
+- A merge round git completes without conflict is not yet a semantic merge. Merge the base with
+  `git merge --no-commit --no-ff <base>`, then list the files both sides changed: with `<mb>` =
+  `git merge-base HEAD MERGE_HEAD`, intersect `git diff --name-only <mb> HEAD` (the branch side) and
+  `git diff --name-only <mb> MERGE_HEAD` (the base side). For each prose file in the intersection
+  (`.md`, agent, rule and skill files), read the merged region for duplicated or contradictory
+  paragraphs and fix them before committing; for code, run the run profile's `verify[]` entries that
+  name the `orchestrator` seat. Record `both-sides files: <list>, checked` (or `both-sides files:
+  none`) in the merge commit's body and in the feature parent's `session-tracking` at finalization.
 
 ---
 
