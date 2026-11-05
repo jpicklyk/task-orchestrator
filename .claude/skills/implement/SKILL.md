@@ -949,6 +949,8 @@ The review agent:
 | **Pass with observations** | Proceed to Step 6; dispose observations per Dispositions at child close |
 | **Fail — blocking issues** | Stop and report to the user with the full findings. Do not attempt to fix autonomously — bring the human into the loop. |
 
+Once the user rules a fix on a run-wave item whose run closed at handoff, the fix cycle follows the numbered recipe in run-wave `post-run.md` Step 5 "Fallback", which also finalizes the item's `session-tracking`.
+
 **Dispositions at child close.** When a child's review returns Pass or Pass with observations,
 write the child's `orchestrator-confirmation` before advancing it: one line per O# (follow-up
 item created first, or `accepted: <reason>`), `N of N disposed`. Nothing is left for the parent

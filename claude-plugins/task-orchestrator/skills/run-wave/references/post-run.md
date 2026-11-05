@@ -216,8 +216,8 @@ Two notes, written by you with `notes_write` `upsert` (body inline) under the co
 (top-level `seatToken`): the coordinator token may write the `orchestrator`-seat keys of run members,
 and a token-less write to such a key is refused. They are the front door's own notes about the run,
 filled after Steps 1–2 have concrete results to report. A note created under the coordinator token is
-owned by that pair, so write its final content once, in confirmed past tense; the run-wave pointer line (in `run-pointers`; `session-tracking` for a feature started before that note existed or a schema without the key) and the cumulative
-`delegation-metadata` re-upsert are the only re-edits, each under the coordinator token of an open run
+owned by that pair, so write its final content once, in confirmed past tense; the run-wave pointer line (in `run-pointers`; `session-tracking` for a feature started before that note existed or a schema without the key), the cumulative
+`delegation-metadata` re-upsert and the `session-tracking` closure rewrite after a fix cycle (Step 5 "Fallback", step 5) are the only re-edits, each under the coordinator token of an open run
 over the item. Inside an open run a human credential may also write it; once the run
 is closed, a different (principal, seat) pair needs an admin takeover. On `note_owned_by_other`: with no
 `detail.ownerSeat` the note was created token-less earlier, so re-send once without the token; with
@@ -386,12 +386,31 @@ and the same scope, so the audit trail distinguishes the cycle. The server knows
 so a fix-cycle seat runs under its **base** seat's assignment: on a still-open run, first re-`assign`
 the base seat (`run-ops --phase assign --item <short> --seat <base seat>`, coordinator token; this
 supersedes the old assignment as attempt n+1) and write the new `seatToken` to the base seat's token
-file. When the run is already closed (for example after a `review: "handoff"` close), open a run over
-that one item (`runs_write(ops:[{op:"open", rootId, items:[<itemId>], label:"<runId>-a<n>"}])`),
-bind a copy of the plan to it (`bind-run --in plan.json --server-run <uuid>` written to
-`plan-a<n>.json`), assign the base seat under that run's coordinator token, pass the copy to
-`reseat`, and close that run after the cycle. Render the seat's prompt with the helper's `reseat`
-command instead of writing it by hand:
+file. When the run is already closed (for example after a `review: "handoff"` close), the cycle gets its own
+run over that one item, `<runId>-a<n>`. Follow these steps in order:
+
+1. Open a run over that one item, label `<runId>-a<n>`. `open` carries no `seatToken`; save the returned
+   `coordinatorToken` as one line to its own token file beside the run's (for example
+   `tokens/coordinator-a<n>.token`, never over `tokens/coordinator.token`), and never echo it.
+
+```to-call
+{"tool": "runs_write", "op": "open", "args": {"rootId": "<rootId>", "items": ["<itemId>"], "label": "<runId>-a<n>"}}
+```
+
+2. Bind a copy of the plan to the new run: `bind-run --in plan.json --server-run <uuid>`, written to
+   `plan-a<n>.json`.
+3. Re-`assign` the base seat under this run's coordinator token and write its `seatToken` to the base
+   seat's token file.
+4. Reseat each fix-cycle seat with `reseat --plan plan-a<n>.json` (the command below).
+5. After the re-review verdict, rewrite the item's `session-tracking` under this run's coordinator
+   token: the `Review: pending - ...` line becomes `Review: <verdict> after A<n> - <review-note key>`
+   and the Outcome line becomes `Outcome: implemented, review <verdict> after A<n>` (final on a Pass;
+   a Fail opens cycle `a<n+1>` with its own run). In the same step, before the close, re-upsert
+   `delegation-metadata` per "Recording out-of-run seats".
+6. Close the run (`runs_write` `close`, `runId` = this run's uuid, `reason` `completed`, coordinator
+   token). `completed` is refused while a seat is active, so every reseated seat has ended its seat first.
+
+Render the seat's prompt with the helper's `reseat` command instead of writing it by hand:
 
 ```
 node "<helper>" reseat --plan <plan.json> --run <runId> --result <result.json> \
