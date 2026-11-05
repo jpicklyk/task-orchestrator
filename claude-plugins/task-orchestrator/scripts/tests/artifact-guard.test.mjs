@@ -125,6 +125,25 @@ test('cli: --out without a value exits 2; no --out leaves stdout unchanged', () 
   assert.ok(JSON.parse(r.stdout).args)
 })
 
+/test('cli: --out --force exits 2 with a JSON refusal on stderr, no file named --force', () => {
+  const dir = tmp()
+  try {
+    const r = run(['plan', '--out', '--force'], { input: snapshotText(), cwd: dir })
+    assert.equal(r.status, 2)
+    assert.match(JSON.parse(r.stderr.trim()).detail, /--out needs a path/)
+    assert.equal(existsSync(join(dir, '--force')), false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('cli: a lone --force without --out exits 2 with a JSON refusal on stderr', () => {
+  const r = run(['plan', '--force'], { input: snapshotText() })
+  assert.equal(r.status, 2)
+  assert.equal(r.stdout, '')
+  assert.match(JSON.parse(r.stderr.trim()).detail, /--force applies only with --out/)
+})
+
 // ---- prompt smoke-root line ----
 
 const SMOKE = /throwaway run root/

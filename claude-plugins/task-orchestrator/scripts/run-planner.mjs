@@ -305,11 +305,13 @@ async function main() {
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--force') force = true;
     else if (argv[i] === '--out') {
-      if (argv[i + 1] === undefined) return fail(2, 'invalid args', '--out needs a path');
+      // A following flag (e.g. `--out --force`) is a missing path, not a file named '--force'.
+      if (argv[i + 1] === undefined || argv[i + 1].startsWith('--')) return fail(2, 'invalid args', '--out needs a path');
       outPath = argv[i + 1];
       i += 1;
     } else rest.push(argv[i]);
   }
+  if (force && outPath === null) return fail(2, 'invalid args', '--force applies only with --out <path>');
   if (outPath !== null) OUT = { path: outPath, force };
   const handler = SUBCOMMANDS[cmd];
   if (!handler) {
