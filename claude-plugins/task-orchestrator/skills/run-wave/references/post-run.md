@@ -643,7 +643,8 @@ grep the cached files for one string the change added (name the string); (3) the
 any check that runs the Workflow tool. Then one line per re-parented check. The next session runs
 the checks, fills the holder's `session-tracking` and completes it. Create the holder and re-parent
 the checks before (e): a terminal auto parent takes no new children. The complete in item 4 follows
-steps (a)-(d). No server gate enforces the split: it is discipline, like the dispositions below.
+steps (a)-(d); in shared mode, where Step 7b runs before the feature PR is pushed, the split and item 4
+therefore wait for the merge. No server gate enforces the split: it is discipline, like the dispositions below.
 
 **Honest limit.** No server gate and no helper checks dispositions: `orchestrator-confirmation`
 is a declared optional note, so this is discipline, not enforcement. Under `review: "handoff"` the
