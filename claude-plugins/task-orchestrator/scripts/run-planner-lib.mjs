@@ -271,9 +271,18 @@ export function validateSnapshot(snap) {
         errors.push('profile.knownRed must be an array');
       } else {
         const nonEmpty = (x) => typeof x === 'string' && x.trim() !== '';
+        // Strict YYYY-MM-DD: the fields must round-trip through a local Date, so 2026-02-31 is refused
+        // (Date.parse would roll it over to March 3).
+        const realDate = (s) => {
+          const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+          if (!m) return false;
+          const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+          const dt = new Date(y, mo - 1, d);
+          return dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d;
+        };
         kr.forEach((e, i) => {
           const isObj = e && typeof e === 'object' && !Array.isArray(e);
-          const okDate = isObj && typeof e.expires === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(e.expires) && !Number.isNaN(Date.parse(e.expires));
+          const okDate = isObj && typeof e.expires === 'string' && realDate(e.expires);
           const ok = isObj && nonEmpty(e.test) && nonEmpty(e.reason)
             && (okDate || (e.expires === undefined && nonEmpty(e.tracking)))
             && (e.tracking === undefined || nonEmpty(e.tracking))

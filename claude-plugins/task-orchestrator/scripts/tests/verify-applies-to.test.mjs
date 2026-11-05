@@ -48,6 +48,7 @@ test('validate: knownRed entries need test, reason and a valid expires or tracki
   const cases = [
     { test: 'T', reason: 'r' },
     { test: 'T', reason: 'r', expires: '2026-13-45' },
+    { test: 'T', reason: 'r', expires: '2026-02-31' },
     { test: 'T', reason: 'r', expires: 'soon' },
     { test: '', reason: 'r', tracking: '#1' },
     { test: 'T', tracking: '#1' },

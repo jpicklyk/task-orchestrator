@@ -92,8 +92,10 @@ Structural checks beyond the ones already documented in the helper's own doc com
   absolute, contains a `..` segment, is empty (`.`, `./`), or has only `*`/`**` segments.
 - `profile.verify[<i>].appliesTo must be an array of repo-relative patterns` - the key is present but is
   empty, not an array of non-empty strings, or holds an absolute, drive-letter or `..` pattern.
+- `profile.knownRed must be an array` - the key is present but is not an array (including `null`).
 - `profile.knownRed[<i>] must have test, reason and expires (YYYY-MM-DD) or tracking` - one per entry that
   lacks a non-empty `test` or `reason`, or has neither a valid `expires` date nor a `tracking` reference.
+  A valid `expires` is strict `YYYY-MM-DD` naming a real calendar day, so `2026-02-31` is refused.
 - `probe must be an object` — fires when `probe` is absent, `null`, an array, or any non-object.
   Unlike `profile`, `probe` is required: a plain object (even `{}`) passes.
 
