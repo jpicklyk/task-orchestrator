@@ -229,6 +229,10 @@ const EXEC_IO = {
     const r = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
     return { status: r.status, stdout: r.stdout || '' };
   },
+  gitBytes(cwd, args) {
+    const r = spawnSync('git', ['-C', cwd, ...args], { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024 });
+    return { status: r.status, stdout: r.stdout ? new Uint8Array(r.stdout) : new Uint8Array(0) };
+  },
   listDir(dir) {
     try {
       return readdirSync(dir);

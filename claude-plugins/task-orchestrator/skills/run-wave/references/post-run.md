@@ -83,7 +83,8 @@ non-zero exit here is an expected result, not a call to retry. Per item this che
 commit SHAs actually exist, each stage's committed file list is a subset of what that seat was
 allowed to touch (implementer ⊆ `mainFiles ∪ docFiles`; test-author ⊆ `testFiles ∪
 existingTestEdits[].file`; never cross-owned), commit subjects carry the `[<short>]` tag and a
-`Seat:` trailer, and it returns `items[].redProof.shape` - the red-proof budget the planner
+`Seat:` trailer, the item's committed text files read at the worktree HEAD are valid UTF-8 with no double-encoded
+(mojibake) sequences (a `<file>:<line> non-UTF-8 or double-encoded text` finding; binary files are skipped), and it returns `items[].redProof.shape` - the red-proof budget the planner
 derived for that item (`null` when the item had no planner-v1 output to derive one from). An
 untagged commit (no `[<short>]` in its subject) surfaces as a top-level `warnings` entry, not a
 per-item finding, and does not by itself fail the item.

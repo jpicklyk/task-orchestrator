@@ -1010,6 +1010,63 @@ function attributeCommits(itemCommits, writingStages) {
   return rangeBySeat
 }
 
+const BINARY_EXTENSIONS = new Set([
+  'png', 'jpg', 'jpeg', 'gif', 'ico', 'jar', 'zip', 'gz', 'pdf', 'woff', 'woff2', 'ttf', 'class', 'db', 'sqlite',
+])
+
+// Double-encoded (mojibake) markers, written as \u escapes so this source stays ASCII.
+const DOUBLE_ENCODED_PATTERNS = [
+  /\u00C3\u00A2\u00E2\u201A\u00AC/, // triple encoding
+  /\u00E2\u20AC/, // UTF-8 punctuation read as cp1252 (em dash, quotes, ellipsis)
+  /\u00C2[\u0080-\u00BF]/, // UTF-8 Latin-1 supplement read as cp1252 (nbsp, section sign)
+]
+
+/**
+ * scanTextEncoding(path, bytes) -> [{line, kind}]. kind is 'non-utf8' (a line that is not valid
+ * UTF-8) or 'double-encoded' (a valid line carrying mojibake markers); lines are 1-based, at most
+ * one entry per line (the first kind wins). A binary file (extension in BINARY_EXTENSIONS,
+ * case-insensitive, or a NUL byte in the first 8000 bytes) and null or empty bytes are skipped.
+ */
+export function scanTextEncoding(path, bytes) {
+  if (!bytes || bytes.length === 0) return []
+  const ext = /\.([^./\\]+)$/.exec(String(path || ''))
+  if (ext && BINARY_EXTENSIONS.has(ext[1].toLowerCase())) return []
+  const head = bytes.length > 8000 ? bytes.subarray(0, 8000) : bytes
+  if (head.indexOf(0) !== -1) return []
+  const decoder = new TextDecoder('utf-8', { fatal: true })
+  const hits = []
+  const scanLine = (text, line) => {
+    if (DOUBLE_ENCODED_PATTERNS.some((re) => re.test(text))) hits.push({ line, kind: 'double-encoded' })
+  }
+  let whole = null
+  try {
+    whole = decoder.decode(bytes)
+  } catch {
+    whole = null
+  }
+  if (whole !== null) {
+    whole.split('\n').forEach((text, i) => scanLine(text, i + 1))
+    return hits
+  }
+  let start = 0
+  let line = 1
+  for (let i = 0; i <= bytes.length; i++) {
+    if (i < bytes.length && bytes[i] !== 0x0a) continue
+    const chunk = bytes.subarray(start, i)
+    let text = null
+    try {
+      text = decoder.decode(chunk)
+    } catch {
+      text = null
+    }
+    if (text === null) hits.push({ line, kind: 'non-utf8' })
+    else scanLine(text, line)
+    start = i + 1
+    line++
+  }
+  return hits
+}
+
 /**
  * verify(doc, result, gitFacts) -> {ok, items:[{id, short, status, ok, findings, redProof}], warnings}.
  * gitFacts = {exists:{[sha]:bool}, commits:[{sha, subject, body, files[]}], roots?:{[worktree]:string[]},
@@ -1021,7 +1078,10 @@ function attributeCommits(itemCommits, writingStages) {
  * committing before the implementer's last commit, a 'reseat <seat> pre <sha7> not in run history'
  * finding for a reseat ledger `pre` that is not in the run's item history. Fix-cycle boundary: the
  * test-author-before-implementer order is judged only over item commits at or before the earliest
- * reseat ledger `pre` (the ledger `pre` is trusted as recorded).
+ * reseat ledger `pre` (the ledger `pre` is trusted as recorded). Optional gitFacts.blobs =
+ * {[worktree]:{[path]:Uint8Array|null}} (keyed by the commit file path as git printed it) adds one
+ * '<file>:<line> non-UTF-8 or double-encoded text' finding per scanTextEncoding hit over the files
+ * of the item's tagged commits (a null blob is skipped; absent blobs means no check).
  */
 export function verify(doc, result, gitFacts) {
   const project = (doc.args && doc.args.project) || {}
@@ -1196,6 +1256,20 @@ export function verify(doc, result, gitFacts) {
     const verifyCommands = (project.verify || [])
       .filter((v) => Array.isArray(v.seats) && v.seats.includes('orchestrator'))
       .map((v) => ({ name: v.name, command: v.command }))
+
+    const blobs = gitFacts && gitFacts.blobs && gitFacts.blobs[argItem.worktree]
+    if (blobs) {
+      const seenFiles = new Set()
+      for (const c of itemCommits) {
+        for (const f of c.files || []) {
+          if (seenFiles.has(f)) continue
+          seenFiles.add(f)
+          for (const hit of scanTextEncoding(f, blobs[f])) {
+            findings.push(`${relativizePath(f, roots)}:${hit.line} non-UTF-8 or double-encoded text`)
+          }
+        }
+      }
+    }
 
     const status = plannerOut ? resItem.status || 'unknown' : 'skipped: no planner output'
 
@@ -2053,6 +2127,27 @@ function execVerify(argv, io) {
     commits.push(...parseGitLog(log.stdout))
   }
   const gitFacts = { exists, commits, resolved, roots }
+  if (typeof io.gitBytes === 'function') {
+    // Bytes of every tagged commit's files at the worktree HEAD; a non-zero status (deleted,
+    // renamed away, quoted path) or a spawn failure is a null blob (skipped).
+    const blobs = {}
+    for (const wt of worktrees) {
+      const paths = new Set()
+      for (const item of doc.args.items) {
+        if (item.worktree !== wt) continue
+        for (const c of commits) {
+          if (!(c.subject || '').includes(`[${item.short}]`)) continue
+          for (const f of c.files || []) paths.add(f)
+        }
+      }
+      blobs[wt] = {}
+      for (const f of paths) {
+        const r = io.gitBytes(wt, ['cat-file', 'blob', `HEAD:${f}`])
+        blobs[wt][f] = r && r.status === 0 && r.stdout ? r.stdout : null
+      }
+    }
+    gitFacts.blobs = blobs
+  }
   const out = verify(doc, result, gitFacts)
   io.writeOut(JSON.stringify(out))
   io.exit(out.ok ? 0 : 3)
