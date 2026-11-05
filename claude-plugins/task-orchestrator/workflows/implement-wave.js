@@ -1419,6 +1419,10 @@ function promptReturn(stage, item) {
   ]
   if (stage.output === 'planner-v1') {
     lines.push('Emit StructuredOutput exactly once, as your final action; a second call replaces the first.')
+    lines.push(
+      'existingTestEdits: include every existing test that pins the size, order or matcher list of an enumerated ' +
+        'surface this item changes; record the grep and its hit count in your planning note, including 0 hits.'
+    )
     if (item && item.stages.some((s) => s.output === 'test-author-v1')) {
       lines.push(
         'declarationModules: list every repo-relative module whose behavior a test-plan scenario oracle or harness ' +

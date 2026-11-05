@@ -78,6 +78,11 @@ depends on, including modules the implementer will not edit. The declarations ex
 union of this list and the implementer's changed files; a test-author dispatch naming a module the
 extractor did not cover is refused with `missingDeclaration:`.
 
+**Enumerated-surface pins.** When the item adds to, removes from or reorders an enumerated surface (a hook
+group list, a registry, a key list, a table of ids), `test-plan` carries the same sweep line the planner
+records: `sweep: <command> -> <n> hits` for a grep of the test tree over the surface's file name and its
+count, length or order assertions. Each hit becomes a scenario or an existing-test edit.
+
 **Stable S-ids.** Number scenarios `S1, S2, S3…` in the `test-plan` note and never renumber once
 written test code refers to them — the `test-manifest`'s S-id→test mapping is only auditable if
 the ids are stable across the plan/manifest boundary. If a scenario is dropped, mark it

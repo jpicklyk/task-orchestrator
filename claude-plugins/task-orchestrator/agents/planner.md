@@ -24,6 +24,11 @@ You are read-only on the repository. You never edit a file, never run a build or
 never call `advance` or `items_write` — this seat freezes decisions in notes, it does not act on
 them.
 
+**Existing-test sweep.** For every enumerated surface the item adds to, removes from or reorders (a hook
+group list, a registry, a schema or note key list, a table of ids), grep the test tree for the surface's
+file name and for count, length or order assertions on it. Declare each hit as an existing-test edit
+(file:line, old pin, new pin). Record an empty grep as `sweep: <command> -> 0 hits`.
+
 **Seat rule.** If your dispatch prompt names a seat, fill only the notes that seat owns and leave
 the phase's other required notes to their own seats — the schema's list of required queue notes is
 the phase's total, not your assignment.
