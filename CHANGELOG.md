@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Plugin
 
-- **Planner enumerated-surface pin sweep.** The planner agent, the test-author test-plan and the run-wave planner-v1 prompt now require a grep for existing tests that pin the count, order or matcher list of any enumerated surface the item changes, recorded with its hit count.
+- **Planner enumerated-surface pin sweep.** The planner agent, the test-author test-plan and the run-wave planner-v1 prompt now require a grep for existing tests that pin the count, length or order of any enumerated surface the item changes (the planner-v1 prompt also names matcher lists), recorded with its hit count.
 - **session-tracking says review pending.** run-wave post-run writes `Outcome: implemented, review pending` plus a mandatory `Review: pending - verdict in <key>` line on items with a review phase; `success` is reserved for items without one, and /session-retrospective reads the verdict from the review note and reports first-review fail rate.
 - **Encoding check in run-exec verify.** `verify` now reads each item's committed text files at HEAD and fails the item on non-UTF-8 bytes or double-encoded (mojibake) sequences, with binary files skipped by extension or NUL sniff.
 - **Late carry-ins go through a planner amendment.** run-wave post-run and the planner agent state that a late carry-in or an orchestrator-originated fix is applied by a `planner-a<n>` amendment and `implementer-a<n>`; the orchestrator names the obligation and its source, never the replacement prose, except for mechanical edits.
