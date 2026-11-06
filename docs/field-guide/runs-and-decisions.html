@@ -211,7 +211,7 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
     <thead><tr><th>Concern</th><th>Rule</th><th>What happens</th></tr></thead>
     <tbody>
       <tr><td>Stalled</td><td>Quiet for longer than <code>stallAfterSeconds</code>. Config key <code>runs.stall_after</code>, default 600, pinned when the run opens.</td><td>A view only. Nothing is ended or released. Only a call under the token to a tool that takes <code>ops</code> counts as a sign of life; a <code>select</code> read never does. A long seat sends an <code>advance</code> <code>heartbeat</code>.</td></tr>
-      <tr><td>Frontier</td><td><code>runs_read</code> <code>select="frontier"</code></td><td>The members that are <code>ready</code>, the seats <code>inFlight</code> with their stalled flag, and the <code>waiting</code> members with a reason (<code>manual</code> or <code>dependency</code>).</td></tr>
+      <tr><td>Frontier</td><td><code>runs_read</code> <code>select="frontier"</code></td><td>The members that are <code>ready</code>, the seats <code>inFlight</code> with their stalled flag, and the <code>waiting</code> members with a reason (<code>manual</code>, <code>dependency</code>, <code>awaiting_decision</code> or <code>resource</code>).</td></tr>
       <tr><td>Budget</td><td>Optional <code>tokens</code> and <code>costUsd</code> on the run</td><td>The next <code>heartbeat</code>, <code>assign</code>, <code>end_seat</code>, <code>transition</code> or <code>raise</code> under a token after a crossing pauses the run (<code>pauseReason: budget</code>) and the server raises a <code>run-budget</code> decision. Answer <code>extend</code> with an <code>amount</code>, or <code>stop</code>.</td></tr>
       <tr><td>Attempts</td><td><code>attemptsPerSeat</code></td><td>An <code>assign</code> past the cap is <code>run_paused</code>, the run pauses (<code>attempts</code>) and an <code>attempt-cap</code> decision is raised. Answer <code>allow_one</code>, <code>skip_item</code> or <code>stop</code>.</td></tr>
       <tr><td>Concurrency</td><td><code>maxActiveSeats</code></td><td>An extra <code>assign</code> is a transient <code>run_at_capacity</code>. No decision. Retry when a seat ends.</td></tr>
@@ -281,7 +281,7 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
     <div class="panel">
       <h3>The altitude rule</h3>
       <p class="small">While the mode is on, a guard hook denies file reads and edits, foreground agent dispatch, and any shell command outside a short read-only list. The only bodies the director may read are one decision request and one run rollup. A denied call is delegated to a background agent or sent to a coordinator, not retried another way.</p>
-      <p class="small">The guard sees no MCP call. The director connection enforces the rule on the server, because it has no note-body read at all. In a normal session the orchestration connection stays registered, and nothing stops a note read there. Use the hardened entry when enforcement matters.</p>
+      <p class="small">The guard also watches three MCP reads on the orchestration connection: it denies <code>notes_read</code> and <code>docs_read</code> and allows <code>items_read</code> only with <code>get</code>, <code>list</code>, <code>overview</code> and <code>blocked</code>. It sees no other MCP call. The director connection enforces the rule on the server, because it has no note-body read at all. Use the hardened entry when the rule must hold for every tool.</p>
     </div>
   </div>
   <h3>The board</h3>

@@ -198,9 +198,11 @@ per-signal positions, the weights and `rrfK`. The full contract is in
       "matchedIn": ["text"]
     }
   ],
-  "page": { "total": 5, "capped": false }
+  "page": { "total": 5, "truncated": false }
 }
 ```
+
+`capped: true` is present only when more than 100 matches existed; `next` is present while more pages remain.
 
 `field` names the field that actually contains a match (`title`, `summary` or `description` for an item,
 the first of those in that order when several do; `title` or `body` for a document, `title` when both do;

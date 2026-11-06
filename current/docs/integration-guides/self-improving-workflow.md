@@ -152,7 +152,7 @@ The first loop runs in real time as the agent uses MCP tools. It surfaces issues
 | Note body waste | `notes_read(get)` on every note when only keys/roles are needed | `notes_read(list)` returns an item's notes without bodies — `get` only the note whose body is needed |
 | Redundant queries | Same entity queried twice in a turn | Cache the first result or combine into one call |
 | Unfiltered search | `items_read(search)` with no filters | Add `role`, `tags`, `ancestorId`, or `kinds` to narrow |
-| Multi-status role query | Listing specific statuses when a role would suffice | Use `role="work"` — resolves to all work-phase statuses |
+| Multi-status role query | Listing specific statuses when a role would suffice | Use `role="work"` to list every item in the work phase with one filter |
 | Full notes for partial read | `notes_read(get)` for all notes when one is needed | Scope with `notes_read(list, role=..., keys=[...])` |
 
 **Friction patterns:**
@@ -309,7 +309,7 @@ tags:    retrospective-trend,delegation
 notes:   evidence-2026-04-29-<retro-short-id>  (role: work — one per recurrence)
 ```
 
-The dimension tag is one of `schema-effectiveness`, `delegation`, `note-quality`, `friction`, or `extension-candidate`. Findings that match an existing trend increment `Sessions: N` and add an evidence note; new findings create a trend item of type `retrospective-trend` at `Sessions: 1` (the server's global config must declare that type; the shipped global floor does). A trend that is addressed or obsolete is retired with `advance` `transition` `cancel`, which drops it out of the active listing. `--deep` hands the matching to the `retro-analysis` workflow in the main session, and stashes the findings as the plan document `retro/<runId>` while it runs.
+The dimension tag is one of `schema-effectiveness`, `delegation`, `note-quality`, `plan-to-execution`, `friction`, or `extension-candidate` (plus `positive` for a positive pattern). Findings that match an existing trend increment `Sessions: N` and add an evidence note; new findings create a trend item of type `retrospective-trend` at `Sessions: 1` (the server's global config must declare that type; the shipped global floor does). A trend that is addressed or obsolete is retired with `advance` `transition` `cancel`, which drops it out of the active listing. `--deep` hands the matching to the `retro-analysis` workflow in the main session, and stashes the findings as the plan document `retro/<runId>` while it runs.
 
 > **Legacy layout.** Earlier plugin versions kept trends in `memory/retrospectives.md` in the auto-memory directory. If that file still holds trend entries and the Trends container is absent or empty, the skill follows `skills/session-retrospective/references/legacy-trend-migration.md` to move them into MCP items once.
 
@@ -485,7 +485,7 @@ This buys you continuous monitoring without changing how you operate. Most of Lo
 
 The complete setup — all three loops including session-level aggregation and trend graduation.
 
-> **What the plugin ships vs. what you assemble.** Enabling the TO plugin gives you the orchestration core only — the `orchestration-context` SessionStart hook, the `orchestrate` skill, and the other orchestration skills (planning, materialization, advance, work-summary, etc.). The analysis layer described below is **not** packaged in the plugin marketplace and is **not installed when you enable the plugin**. The TO project repo carries reference implementations of these pieces as project-local source files (`.claude/skills/`, `.claude/hooks/`, `.taskorchestrator/config.yaml`). Adopters copy and adapt those files into their own projects. This keeps the self-improvement layer optional and per-project customizable rather than imposing one shape on every TO user.
+> **What the plugin ships vs. what you assemble.** Enabling the TO plugin gives you the orchestration core only — the `orchestration-context` SessionStart hook, the `orchestrate` skill, and the other orchestration skills (planning, materialization, advance, work-summary, etc.). The analysis layer described below is **not** packaged in the plugin marketplace and is **not installed when you enable the plugin**. The TO project repo carries reference implementations of these pieces: the `.taskorchestrator/config.yaml` schemas and traits, and the process-schema floor under `deploy/global-config/.taskorchestrator/`; the retrospective skill and hooks ship in the plugin (described below). Adopters copy and adapt those files into their own projects. This keeps the self-improvement layer optional and per-project customizable rather than imposing one shape on every TO user.
 
 **1.** Complete Option A (observation schema).
 
@@ -529,7 +529,7 @@ Place the file in `~/.claude/output-styles/` (a personal style is still a valid 
 - Run meta-evaluation if 3+ prior retrospectives exist
 - Render a dashboard
 
-> **Reference implementation:** The plugin carries this skill at `claude-plugins/task-orchestrator/skills/session-retrospective/SKILL.md`. If you prefer a project-local variant (no plugin activation required), copy that file into your own project's `.claude/skills/session-retrospective/SKILL.md` and adapt as needed — schema names, trend container and tag names, dimension definitions, and graduation thresholds may differ in your setup. After plugin updates, remove and re-add the marketplace to pick up skill changes (content is cached).
+> **Reference implementation:** The plugin carries this skill at `claude-plugins/task-orchestrator/skills/session-retrospective/SKILL.md`. If you prefer a project-local variant (no plugin activation required), copy that file into your own project's `.claude/skills/session-retrospective/SKILL.md` and adapt as needed — schema names, trend container and tag names, dimension definitions, and graduation thresholds may differ in your setup. After plugin updates the cache is keyed by version and can stay stale, and remove and re-add does not refresh it: delete `~/.claude/plugins/cache/task-orchestrator-marketplace`, then run `claude plugin marketplace update task-orchestrator-marketplace` (re-extraction is lazy; see "Plugin Discovery and Cache Refresh" in [claude-plugins/CLAUDE.md](../../../claude-plugins/CLAUDE.md#plugin-discovery-and-cache-refresh)).
 
 **6.** Wire a retrospective nudge so the agent suggests `/session-retrospective` after implementation runs end. Two layered options — pick one or use both:
 

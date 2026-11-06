@@ -195,7 +195,7 @@ select{font:400 13px/1.3 var(--mono);padding:5px 8px;border:1.5px solid var(--in
     <p class="small sub">A one-element write without <code>atomic</code> that fails answers <code>partial_failure</code>, with this error object at <code>data.results[0].error</code>.</p></div>
     <div style="display:grid;gap:16px;align-content:start">
       <div class="rule"><h3>An idempotencyKey makes a write safe to resend</h3><p class="small">Each element of a write call may carry an <code>idempotencyKey</code>. The server records a committed element for 24 hours per principal and tool and returns its stored result again (<code>replayed: true</code>) instead of running it twice. The same key with a different element is <code>idempotency_mismatch</code>.</p></div>
-      <div class="rule"><h3>Same key on every retry</h3><p class="small">No response arrived, such as a timeout: resend with the same key. Only an element that committed is recorded, so an element that failed runs again when you retry with the same key.</p></div>
+      <div class="rule"><h3>Same key on every retry</h3><p class="small">No response arrived, such as a timeout: resend with the same key. A committed element is recorded, so the retry returns its stored result. An element that failed with a gate, dependency or other runtime error is not recorded and runs again; only an <code>invalid_request</code> or <code>unknown_parameter</code> rejection is recorded and replayed.</p></div>
     </div>
   </div>
 </section>

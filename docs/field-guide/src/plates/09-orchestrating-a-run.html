@@ -140,7 +140,7 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
         <text x="10" y="204" class="s mu">Both methods execute the same plan. The server run is the state (runs_read), so an interrupted run can resume.</text>
       </svg>
     </div>
-    <figcaption>The plan comes from each item's resolved schema: its seats decide which agents run, in what order, on which model. Method B takes over only when the Workflow tool is missing. A server that serves no seats or no rules stops both methods.</figcaption>
+    <figcaption>The plan comes from each item's resolved schema: its seats decide which agents run, in what order, on which model. Method B takes over when the Workflow tool is missing, when <code>--method B</code> is passed, or when the run's <code>maxActiveSeats</code> is below the number of schema seats. A server that serves no seats or no rules stops both methods.</figcaption>
   </figure>
   <div class="grid3">
     <div class="rule"><h3>When the plan routes here</h3><p class="small">After materializing, the plugin hands off to <code>run-wave</code> only if at least two leaf items are unblocked, a project root resolves, their queue notes are filled, and the three protocol rules are served. Otherwise it dispatches by hand and says which condition failed.</p></div>
@@ -189,7 +189,7 @@ config(op="rules", rootId)</pre>
   </table></div>
   <div class="grid3">
     <div class="rule"><h3>Ralph's limits</h3><p class="small">Defaults: 10 iterations, 5 US dollars per iteration, a 45-minute iteration timeout, a 30-minute claim. The loop stops after 3 gate failures in a row, 2 errors in a row or 3 idle results. The run has no budget unless <code>--run-budget-tokens</code>, <code>--run-budget-usd</code> or <code>--max-attempts</code> is passed.</p></div>
-    <div class="rule"><h3>Each iteration reports</h3><p class="small">One outcome line: <code>terminal</code>, <code>gate-blocked</code>, <code>error</code>, <code>skip</code>, <code>idle</code> or <code>no-item</code>. The loop reads it to decide whether to continue.</p></div>
+    <div class="rule"><h3>Each iteration reports</h3><p class="small">The iteration ends with one outcome line: <code>ready-to-complete</code> (or the legacy <code>terminal</code>), <code>gate-blocked</code>, <code>error</code> or <code>skip</code>. The driver itself adds <code>idle</code> and <code>no-item</code>. The loop reads the outcome to decide whether to continue.</p></div>
     <div class="rule"><h3>Run it on work you trust</h3><p class="small">Iterations run with permission prompts bypassed, each in its own temporary worktree. The budget and the claim expiry are the hard stops.</p></div>
   </div>
 </section>

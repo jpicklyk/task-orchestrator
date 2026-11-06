@@ -65,7 +65,7 @@ A number in a report is only as good as its basis. These are the ones to know.
   traits, not by those it had when it was rejected. After a retype or a trait change, old rejections move with the item,
   and a deleted item falls in the group with the empty key.
 - **The `notes` join for `type` is as of now.** A write is grouped by the current type of the item it was written on; a deleted item falls in the group with the empty key.
-- **`notes` seat is missing for review-role writes.** Under the handoff review profile review-role writes carry no seat, so grouping by `seat` puts them in the `{}` group.
+- **A write with no seat falls in the `{}` group.** Only a write made under a seat token records a seat, so notes written outside a run (or by a caller without a seat token) group under `{}` when you group by `seat`.
 - **Empty keys are not nulls.** A group whose grouped column is missing has a `key` of `{}`, and it sorts first.
 
 ## Retention and what a report can see

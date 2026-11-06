@@ -7,9 +7,8 @@ This document describes the 4.0 HTTP REST API (v1). It runs on the same Ktor ser
 **OpenAPI spec:** [`api/openapi.yaml`](api/openapi.yaml) — covers all routes for machine consumption. Note: the YAML is hand-maintained and may lag behind edge-case behavior; this document and the source are authoritative.
 
 **HTTP-first policy.** New plugin-side infrastructure features — `config-sync.mjs`, SSE event
-streaming, and the `plan-capture.mjs` hook (which stashes an approved plan as a plan document;
-its `PUT /roots/{rootId}/plans/{slug}` route was removed in 4.0 in favour of `POST /ops/docs_write`, and the hook
-follows in the plugin work) — are built HTTP-only, each fail-opening to a silent no-op when
+streaming, and the `plan-capture.mjs` hook (which stashes an approved plan as a plan document
+through `POST /ops/docs_write`; the 3.x `PUT /roots/{rootId}/plans/{slug}` route was removed in 4.0) — are built HTTP-only, each fail-opening to a silent no-op when
 its REST env var (`TASK_ORCHESTRATOR_API_URL`, etc.) is absent. STDIO deployments keep full MCP tool
 functionality but do not gain these convenience features; STDIO is positioned as the local/evaluation
 transport, while a persistent HTTP daemon with the REST API enabled is the recommended path for
@@ -209,7 +208,7 @@ Each token grants a set of additive capabilities:
 | Capability | Config string | Grants access to |
 |------------|--------------|-----------------|
 | `READ` | `read` | All GET endpoints under `/api/v1/` |
-| `WRITE_ITEMS` | `write-items` | `items_write` ops through `POST /ops/items_write` (create, update, delete, and `create_tree` in the orchestration profile) |
+| `WRITE_ITEMS` | `write-items` | `items_write` ops through `POST /ops/items_write` (create, update, delete, `repin`, and `create_tree` in the orchestration profile) |
 | `WRITE_NOTES` | `write-notes` | `POST /ops/notes_write` ops `upsert` and `delete` (checked per op by the dispatcher, section 20a) |
 | `ADVANCE` | `advance` | The `advance` tool's ops (`transition`, `claim`, `release`, `heartbeat`) through `POST /ops/advance`, and `items_write` `complete_tree` (orchestration profile) through `POST /ops/items_write` (section 20a) |
 | `MANAGE_DEPENDENCIES` | `manage-dependencies` | `POST /ops/deps_write` ops `create`, `delete`, `linear`, `fan_out` and `fan_in` (checked per op by the dispatcher, section 20a) |
@@ -259,7 +258,7 @@ collection checks cannot drift apart.
 - `POST /ops/deps_read` and `POST /ops/deps_write` (section 10) - the subject item of a read is
   checked (`403 forbidden`); an edge whose counterparty is out of scope is dropped from a read page
   and not counted; a write needs every named item (both stored ends for a delete) in scope
-- `POST /ops/report` - `gates` and `contention` read events: a `tags_include` token sees only the events whose item
+- `POST /ops/report` - `gates`, `notes` and `contention` read events: a `tags_include` token sees only the events whose item
   currently carries an allowed tag (no `403`), a `root_ids` token only the events of its roots. `usage`, `waste` and
   `rollup` (whose cost reads call rows) read `call_log`, whose rows carry no tags: a `tags_include` token is
   `403 forbidden` (`detail.scope` `tag`) before anything is read; a `root_ids` token aggregates only the calls
@@ -450,12 +449,15 @@ These shapes are the members of the `effective` op's result (the `config` tool, 
   "role": "work",
   "required": true,
   "description": "string",
-  "guidance": "string|null",
-  "skill": "string|null",
-  "maxLength": 3000
+  "guidance": "string",
+  "skill": "string",
+  "maxLength": 3000,
+  "shared": true
 }
 ```
 
+`guidance` (string, optional) and `skill` (string, optional) are omitted (never emitted as `null`) when the entry
+sets neither. `shared` (boolean, optional) is present, as `true`, only when the key is `shared`; omitted otherwise.
 `maxLength` (integer, optional) is present only when a maximum note-body length is configured for
 this entry; omitted otherwise. It appears wherever a `NoteSchemaEntryDto` is returned: in the `effective` result's
 `schemas[].notes` and `traits[].notes`.
@@ -507,16 +509,16 @@ per-root entry alone (see `EffectiveConfigDto` below).
   "lifecycleMode": "auto",
   "hasReviewPhase": true,
   "transitions": {
-    "queue": {"start": "work", "complete": "terminal", "cancel": "terminal"},
-    "work": {"start": "review", "complete": "terminal", "block": "blocked", "hold": "blocked", "cancel": "terminal"},
-    "review": {"start": "terminal", "complete": "terminal", "block": "blocked", "cancel": "terminal"},
-    "blocked": {"resume": "<previousRole>", "complete": "terminal", "cancel": "terminal"},
+    "queue": {"block": "blocked", "cancel": "terminal", "complete": "terminal", "hold": "blocked", "start": "work"},
+    "work": {"block": "blocked", "cancel": "terminal", "complete": "terminal", "hold": "blocked", "start": "review"},
+    "review": {"block": "blocked", "cancel": "terminal", "complete": "terminal", "hold": "blocked", "start": "terminal"},
+    "blocked": {"cancel": "terminal", "resume": "<previousRole>"},
     "terminal": {"reopen": "queue"}
   }
 }
 ```
 
-Note: `"<previousRole>"` is a literal sentinel string — dashboards must resolve it from the live item's `previousRole` field.
+Note: `"<previousRole>"` is a literal sentinel string — dashboards must resolve it from the live item's `previousRole` field. Each role lists only the triggers the transition table allows from it, ordered by wire name.
 
 A type whose schema declares `lifecycle: none` is listed with `"lifecycleMode": "none"` and `"transitions": {}`: its
 items are lifecycle-free and take no trigger.
@@ -525,7 +527,7 @@ items are lifecycle-free and take no trigger.
 ```json
 {
   "roles": ["queue", "work", "review", "blocked", "terminal"],
-  "triggers": ["start", "complete", "block", "hold", "resume", "cancel", "reopen"],
+  "triggers": ["block", "cancel", "complete", "hold", "reopen", "resume", "start"],
   "types": [<StatusGraphTypeDto>]
 }
 ```
@@ -673,7 +675,7 @@ error codes live in [api-reference.md](api-reference.md); this table only maps o
 | `GET /items/{id}/gate` | `items_read` `{select: "context", itemId: id}` (orchestration profile); the gate is `data.gateStatus`, with `guidanceKey` and `skillPointer` as siblings in `data` | `read` |
 | `GET /items/{id}?include=notes\|deps\|children` | `notes_read` `{select: "list"}`, `deps_read` `{select: "list"}`, `GET /items/{id}/children`; the `include` parameter is gone | `read` |
 | `POST /items`, `PATCH /items/{id}`, `DELETE /items/{id}` | `items_write` ops `create`, `update`, `delete`; `expectedVersion` replaces `If-Match`, `recursive` guards a parent delete, `idempotencyKey` replaces the `Idempotency-Key` header. `create_tree` and `complete_tree` are orchestration-profile ops (neither had a 3.x route) | `write-items` (`advance` for `complete_tree`) |
-| `POST /items/{id}/advance` | `advance` ops `transition`, `claim`, `release`, `heartbeat`. `transition` enforces claim ownership on REST exactly as on MCP (an item claimed by another actor is `not_claim_holder`), and so do the note, item and dependency writes (`notes_write`, `items_write` `update`/`delete`, every `deps_write` op naming a held item). A cascade into a parent another principal holds is not applied and is reported with `blocked: "ownership"` (`items_write`: `reason: "not_claim_holder"`), and a cascade into a seat-enforced member the caller could not send the equivalent trigger to is not applied either (`blocked: "seat"`; `items_write`: `reason: "seat_forbidden"`), checked after ownership. A terminal cascade never moves a parent in `review`: it is reported with `blocked: "gate"` and `reason: "review-pending"` (no `missing`; `items_write`: `reason: "gate_blocked"`). Resource leases are always enforced (no override flag), and `DELETE /resources/leases/{key}` (section 14) recovers a stuck lease. Seats are enforced inside an open run: on an item that is a member of a run that is not closed (open or paused) and whose pinned schema declares `seats`, a seat token may `start` only its own item and only into the phase its seat `enters`, and may send another trigger only when its seat's `transitions` list it (default `block`, `hold`); the run's coordinator token may send anything the table allows; any other caller (no token, another run's token, a token for another item) is `403 seat_forbidden{itemId, seat, action, allowedSeats}` (`seat` is omitted without a token), checked right after claim ownership and before every other gate, with nothing applied and no rejection row. A human credential without a token is exempt. `items_read` `select=context` previews ignore seats, so they can predict an advance the seat check refuses for a given caller. Recovery from a `seat_forbidden`: send the call with the coordinator token of the run, or with a human credential, or have the seat's own token send it. The cascade form of the same rule is described earlier in this row (`blocked: "seat"`) | `advance` |
+| `POST /items/{id}/advance` | `advance` ops `transition`, `claim`, `release`, `heartbeat`. `transition` enforces claim ownership on REST exactly as on MCP (an item claimed by another actor is `not_claim_holder`), and so do the note, item and dependency writes (`notes_write`, `items_write` `update`/`delete`, every `deps_write` op naming a held item). A cascade into a parent another principal holds is not applied and is reported with `blocked: "ownership"` (`items_write`: `reason: "not_claim_holder"`), and a cascade into a seat-enforced member the caller could not send the equivalent trigger to is not applied either (`blocked: "seat"`; `items_write`: `reason: "seat_forbidden"`), checked after ownership. A terminal cascade never moves a parent in `review`: it is reported with `blocked: "gate"` and `reason: "review-pending"` (no `missing`; `items_write`: `reason: "gate_blocked"`). There is no per-call override flag (a server-wide `RESOURCE_LEASES_ENFORCED=false` is the only way to skip the lease gate), and `DELETE /resources/leases/{key}` (section 14) recovers a stuck lease. Seats are enforced inside an open run: on an item that is a member of a run that is not closed (open or paused) and whose pinned schema declares `seats`, a seat token may `start` only its own item and only into the phase its seat `enters`, and may send another trigger only when its seat's `transitions` list it (default `block`, `hold`); the run's coordinator token may send anything the table allows; any other caller (no token, another run's token, a token for another item) is `403 seat_forbidden{itemId, seat, action, allowedSeats}` (`seat` is omitted without a token), checked right after claim ownership and before every other gate, with nothing applied and no rejection row. A human credential without a token is exempt. `items_read` `select=context` previews ignore seats, so they can predict an advance the seat check refuses for a given caller. Recovery from a `seat_forbidden`: send the call with the coordinator token of the run, or with a human credential, or have the seat's own token send it. The cascade form of the same rule is described earlier in this row (`blocked: "seat"`) | `advance` |
 | `PUT /items/{id}/notes/{key}`, `DELETE /items/{id}/notes/{key}` | `notes_write` ops `upsert`, `delete`; `expectedVersion` guards a write (`0` = must not exist, `n` = current version must be `n`, else `409 version_conflict`). `bodyFromFile` is MCP-only: over REST an element that sets it fails alone with `invalid_request` on `/bodyFromFile`, no file is opened, and the other elements of a non-atomic batch still run. A note is owned by the principal whose 4.0 write created it (a note written before 4.0 has no owner until its first 4.0 `upsert`, which adopts it): another principal's `upsert` or `delete` of a key whose schema entry is not `shared: true` is `403 note_owned_by_other{itemId, key}` (the owner is never named). An `upsert` with `takeover: true` needs `admin` (`403 forbidden`, capability scope, otherwise), moves the note to the caller and records `note.ownership_transferred`; `notes_read` shows `owner{id}` only to a caller who may see attribution. Inside a run that is not closed, with a seat-aware schema, a seat-owned key (its schema entry's `seat`, declared in the same phase) is written (`upsert` or `delete`) only by that seat's token, or by the run's coordinator token when the seat is `orchestrator`; any other caller is `403 note_owned_by_other{itemId, key, ownerSeat}`, even on a first write, and that seat refusal comes before `takeover` is considered, so a `takeover: true` does not get past it; humans and `shared` keys are exempt | `write-notes` |
 | `GET /items/{id}/dependencies`, `GET /items/{id}/backlinks` | `deps_read` `{select: "list", item: id}`; backlinks are `direction: incoming`; `{select: "graph"}` walks the blocking graph. A subject item outside the scope is `403 forbidden`; an out-of-scope counterparty is dropped and not counted | `read` |
 | `POST /dependencies`, `DELETE /dependencies/{id}` | `deps_write` ops `create`, `delete` (by `id`, by `from`/`to`, or every edge of an `item`), `linear`, `fan_out`, `fan_in` (each pattern is one element, all or nothing). Every named item must be in scope, else the element is `forbidden` and nothing is written | `manage-dependencies` |
@@ -695,7 +697,7 @@ The config ops check `rootId` scope first, so a root outside the caller's scope 
 mapping of an element error follows the envelope table in section 20a (`config_invalid` `422`, `version_conflict` `409`,
 `payload_too_large` `413`, `not_found` `404`). The `Idempotency-Key` header and `If-Match` / `If-None-Match` handling of
 the retired config routes are gone with them (section 4). Plugin consumers of the removed routes (`config-sync`,
-`plan-capture`, `phase-guard`) are re-pointed by the plugin work.
+`plan-capture`, `phase-guard`) now call the equivalent ops through `POST /api/v1/ops/{tool}`.
 
 ---
 
@@ -942,7 +944,7 @@ refuse a `tags_include` token outright (`forbidden`, `detail.scope` `tag`; call 
 a `root_ids` token's own roots (§3).
 
 **Reports.** `POST /ops/report` serves the `report` tool (a director-profile tool on MCP). Its selects are `usage`
-(windows at most 400 days), `gates`, `contention` and an anchor `rollup` (at most 31 days), `waste` (at most 7 days) and a
+(windows at most 400 days), `gates`, `notes`, `contention` and an anchor `rollup` (at most 31 days), `waste` (at most 7 days) and a
 run `rollup` (no window: the whole run). The `usage` select
 aggregates `call_log` per `groupBy` group over a half-open `[since, until)` window (default the last 7 days, at most
 400; a window of at most 31 days inside the raw horizon (an empty `call_log` with a fold present counts as before it) reads `call_log` with `basis` `raw`, any other reads the per-day
@@ -950,7 +952,7 @@ summaries `usage_daily` plus the raw tail with `basis` `daily`, `since` floored 
 `groupBy` `principal` is raw-only): `{items: [{key, calls, errors, responseBytes, responseTokensEst, avgLatencyMs, maxLatencyMs, retries, replays}],
 page, window: {since, until, retainedSince?, basis, truncatedByRetention?}}`. `key` is `{<groupBy>: value}`, or `{}`
 when the group value is missing (never a JSON `null`). Grouping by `principal` needs `admin`. The
-field reference is in [`api-reference.md`](api-reference.md#report). The `gates` and `contention` selects aggregate the `events` table (rejected transitions, claim and lease activity) and apply a tag scope per event instead of refusing it. The `waste` select answers one object of call-pattern waste signals over `call_log` (no grouping, no page) with the visibility of `usage`. The `rollup` select takes exactly
+field reference is in [`api-reference.md`](api-reference.md#report). The `gates`, `notes` and `contention` selects aggregate the `events` table (rejected transitions, claim and lease activity) and apply a tag scope per event instead of refusing it. The `waste` select answers one object of call-pattern waste signals over `call_log` (no grouping, no page) with the visibility of `usage`. The `rollup` select takes exactly
 one of `anchorId` and `runId` (neither is `400 invalid_request` on `/anchorId`, both on `/runId`). With `anchorId` (any
 item, any depth) it answers one object for the anchor's subtree, inclusive: `{scope: {anchorId, rootId}, window: {since,
 until, clamped?}, itemCounts: {total, byRole}, blocked: {total}, transitions: {total, cascades, rejected}, notes: {written},
@@ -1143,7 +1145,7 @@ happy-path and a scope-forbidden scenario.
 
 The director tool profile over REST: the same dispatcher, request body, envelopes, statuses, capability and
 scope checks as `POST /api/v1/ops/{tool}`, serving only the selects of the director profile (the set
-`/mcp/director` serves: `items_read` `get`, `list`, `overview` and `blocked`; `deps_read` `list` and `graph`; `runs_read` `get`, `list`, `frontier`, `decisions` and `decision`; `runs_write` `open`, `close`, `pause`, `resume`, `ack`, `answer` and `withdraw`). For a
+`/mcp/director` serves: `items_read` `get`, `list`, `overview` and `blocked`; `deps_read` `list` and `graph`; `runs_read` `get`, `list`, `frontier`, `decisions` and `decision`; `runs_write` `open`, `close`, `pause`, `resume`, `ack`, `answer` and `withdraw`; `report` `usage`, `gates`, `notes`, `contention`, `rollup` and `waste`). For a
 member of that set the envelope is byte-equal to the `/ops/{tool}` answer, apart from `meta.reqId`.
 
 - A registered tool with no member in the director set answers `403 forbidden` with `detail: {scope: "capability",
@@ -1152,7 +1154,7 @@ member of that set the envelope is byte-equal to the `/ops/{tool}` answer, apart
 - A select hidden inside a visible tool (e.g. `items_read` `history`) answers the dispatcher's `400 invalid_request`
   (`/select`, listing the visible selects).
 
-Any credential may call it with the capability the member needs (`read`). It is the only path a token with
+Any credential may call it with the capability the member needs (`read` for the selects, `runs` or `decide` for the `runs_write` ops). It is the only path a token with
 `profile: director` may call (§1); the path is matched exactly (`/api/v1/ops/director/<tool>`, lowercase, no
 trailing slash, no encoding), and anything else is refused for such a token. The machine-readable form is in
 [`api/openapi.yaml`](api/openapi.yaml) (path `/ops/director/{tool}`).
@@ -1173,7 +1175,7 @@ Ktor's `sse {}` handler runs inside the response-body phase — after the HTTP 2
 
 This route is exempted from the global `AuthenticationPlugin` via `publicPaths`/`publicPrefixes`
 (matched against the request path only, not the full URI — so a `?token=` or any other query
-string on the exempted path still matches). `CurrentMcpServer.kt` registers `/api/v1/events` as the only public path
+string on the exempted path still matches). `CurrentMcpServer.kt` adds `/api/v1/events` to the plugin's public paths (`/api/v1/health` and the `/.well-known/` prefix are public by default)
 (`/mcp*` is delegated: the MCP authentication plugin authenticates it, so it is not public); a Ktor application plugin like `AuthenticationPlugin` is never
 route-scoped by nesting alone, so `publicPaths` is the only lever that keeps the global plugin from
 401'ing this route before the SSE pre-flight plugin gets a chance to run its own check.
@@ -1216,7 +1218,7 @@ connection-time check, distinct from the per-event filtering described below.
 is enforced per-event on top of it, identically for the live stream and for `Last-Event-ID` replay,
 via the same `allowsItemTags` predicate the REST collection endpoints use (§3). A connection whose
 principal has no `tags_include` is unaffected. An event with no `itemId` is judged on its type: the control events
-(`sync.lost`, `auth.expired`) always pass; a `run.*` event passes only when its `rootId` is in the principal's root set
+(`sync.lost`, `auth.expired`) always pass; a `run.*` event, and a `decision.*` event that names no item, passes only when its `rootId` is in the principal's root set
 (when it has one) and, for a `tags_include` principal, the run's root item is admitted by the tag allowlist (the same
 cached decision as the item events); any other event without an `itemId` is dropped. Otherwise each event's `itemId` is resolved to its current tags and checked against the allowlist;
 the result is cached per connection for `item.*`/`scope.*` events (which also refresh the cache, so a
@@ -1309,7 +1311,7 @@ Every write (`POST /ops/{tool}`) synthesizes an actor server-side from the authe
 **Independence violations (A2) are redacted by construction, not by policy.** An independence violation
 carries only seat names and note keys (`key`, `seat`, `constraint`, `conflictingSeat`, `waived`) —
 never an actor id, proof, or verification claim — on every surface (`items_read` `context` `gateStatus.violations`,
-the `violations` of an `advance` `transition` result, and the `detail.violations` of a `409 gate_blocked`). This is unconditional: it does not vary with `API_REDACT_NOTE_ATTRIBUTION`,
+the `violations` of an `advance` `transition` result); the `detail.violations` of a `409 gate_blocked` carry the same information as entries `{gate: "independence", reason}`, with the seat name and note key inside `reason`. This is unconditional: it does not vary with `API_REDACT_NOTE_ATTRIBUTION`,
 caller capability tier, or admin status, because there is no attribution-bearing field on the DTO for
 `AttributionRedactor` to redact in the first place.
 
