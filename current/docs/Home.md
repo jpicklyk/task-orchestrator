@@ -53,7 +53,7 @@ Register it in `.mcp.json` (HTTP shape — not an args array):
 }
 ```
 
-And export the client-side env so `config-sync` can find the server (without this it silently no-ops, unless `/task-orchestrator:init` or `/task-orchestrator:init --user` has already written the URL to a project-level or user-level `client.json`):
+And export the client-side env so `config-sync` can find the server (optional: config-sync also reads the origin of a loopback http `mcp-task-orchestrator` registration in `.mcp.json`, and `/task-orchestrator:init` or `/task-orchestrator:init --user` may have written the URL to a project-level or user-level `client.json`; with none of these it silently no-ops):
 
 ```bash
 export TASK_ORCHESTRATOR_API_URL=http://localhost:3001

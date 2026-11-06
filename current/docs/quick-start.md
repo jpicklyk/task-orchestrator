@@ -146,7 +146,7 @@ Hooks run automatically — no invocation required:
 
 ### Orchestration context
 
-The plugin injects an orchestration context at every session start, with nothing to select or activate. Claude Code acts as a project management orchestrator — it plans, tracks progress in the WorkItem graph, and scales process to the size of the work: small known fixes it implements inline, larger work it delegates to subagents. Useful for complex multi-step features. It applies once the project has a `.taskorchestrator/config.yaml`; set `orchestration: {mode: off}` there to turn it off. See [Tier 5: Orchestration Mode](integration-guides/orchestration-mode.md).
+The plugin injects an orchestration context at every session start, with nothing to select or activate. Claude Code acts as a project management orchestrator — it plans, tracks progress in the WorkItem graph, and scales process to the size of the work: small known fixes it implements inline, larger work it delegates to subagents. Useful for complex multi-step features. It applies once the project has a `.taskorchestrator/config.yaml`; set `mode: off` under `extensions: claude-code: orchestration:` there to turn it off. See [Tier 5: Orchestration Mode](integration-guides/orchestration-mode.md).
 
 ### Initialize
 
@@ -381,7 +381,7 @@ Create `.taskorchestrator/config.yaml` in your project root:
 # Preferred format — supports lifecycle and traits fields
 work_item_schemas:
   task-implementation:
-    lifecycle: AUTO          # AUTO (default), MANUAL, or PERMANENT
+    lifecycle: auto          # auto (default), manual, permanent, or none (lifecycle-free)
     notes:
       - key: acceptance-criteria
         role: queue
@@ -446,7 +446,7 @@ After adding or editing this file, reconnect the MCP server:
 | `DATABASE_PATH` | `data/current-tasks.db` | SQLite file path inside the container |
 | `SCHEMA_MODE` | `migrate` | `migrate` applies pending migrations on startup; `validate` runs no migrate and fails startup on a pending or future version; it is not read-only (it takes the lock file, may create an empty DB file on a missing path, and runs the FTS integrity check, which may rebuild). An invalid value fails startup even with `FLYWAY_REPAIR=true`. `USE_FLYWAY` is removed and ignored with a WARN. |
 | `FLYWAY_REPAIR` | `false` | Run Flyway repair (fix migration checksums) instead of migrate, then exit 0 without serving — the process never starts a transport or reports healthy. Takes precedence over a valid `SCHEMA_MODE`. |
-| `AGENT_CONFIG_DIR` | _(unset)_ | Parent directory of `.taskorchestrator/`; set when mounting a config folder into the container |
+| `AGENT_CONFIG_DIR` | `/project` in the Docker image (working directory when run from the JAR) | Parent directory of `.taskorchestrator/`; set when mounting a config folder into the container |
 | `LOG_LEVEL` | `INFO` | Verbosity: `DEBUG`, `INFO`, `WARN`, `ERROR` |
 | `LOG_FILE` | _(unset)_ | Opt-in log file path (e.g. `/app/data/logs/task-orchestrator.log`). Unset means no file logging. |
 
@@ -460,7 +460,7 @@ JSON-RPC on the stdio transport. Each line carries `timestamp` (ISO-8601 UTC), `
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TASK_ORCHESTRATOR_API_URL` | _(unset)_ | Base URL of the REST API for config-sync and the phase guard. When unset, the hooks fall back to `apiUrl` in a project-level `client.json` beside the located config, or in the main checkout for a linked worktree (written by `/task-orchestrator:init`; honoured only as a bare loopback origin with no path, query or fragment), then to the user-level `client.json` (written by `/task-orchestrator:init --user`; unrestricted). |
+| `TASK_ORCHESTRATOR_API_URL` | _(unset)_ | Base URL of the REST API for config-sync and the phase guard. When unset, the hooks fall back to `apiUrl` in a project-level `client.json` beside the located config, or in the main checkout for a linked worktree (written by `/task-orchestrator:init`; honoured only as a bare loopback origin with no path, query or fragment), then to the origin of the orchestrator's http(s) MCP registration (local, then project, then user scope; a project `.mcp.json` origin must be loopback), then to the user-level `client.json` (written by `/task-orchestrator:init --user`; unrestricted). |
 | `TASK_ORCHESTRATOR_HOME` | _(your home directory)_ | `TASK_ORCHESTRATOR_HOME` replaces your home directory for Task Orchestrator: when it is set, the user-level `config.yaml` and `client.json` are read only from `$TASK_ORCHESTRATOR_HOME/.taskorchestrator/`, and `~/.taskorchestrator/config.yaml` is ignored unless `AGENT_CONFIG_DIR` points at it. |
 | `TASK_ORCHESTRATOR_CEILING` | _(unset)_ | `TASK_ORCHESTRATOR_CEILING` is an optional directory at which project-config discovery stops climbing — like `GIT_CEILING_DIRECTORIES`. It exists mainly so tests stay isolated; leave it unset in normal use. |
 | `TASK_ORCHESTRATOR_SETUP_HINT` | _(on)_ | Set to `off` to silence the once-per-day init hint shown at session start. |
@@ -533,7 +533,7 @@ With a credential mode, add the header to the entry (`.mcp.json` expands `${VAR}
 
 Restart Claude Code and run `/mcp` to confirm the connection and that the tools are listed. Other MCP clients should target the same `http://localhost:3001/mcp` URL using the Streamable HTTP transport.
 
-> **The registration key can be anything, as long as it contains `task-orchestrator`.** The bundled `task-orchestrator` plugin's hooks (actor attribution, retro trigger, phase guard, skill enforcement) match MCP tool calls by looking for `task-orchestrator` in the server segment of the tool name (`mcp__<server>__<tool>`) — a key like `mcp-task-orchestrator` or `mcp-task-orchestrator-http` works, but an unrelated key (e.g. `tasks`) silently disables those hooks for this server. The plugin's SessionStart hook runs a self-check and warns in-session if it finds a registration missing the token.
+> **The registration key can be anything, as long as it contains `task-orchestrator`.** The bundled `task-orchestrator` plugin's hooks (retro trigger, phase guard, skill enforcement) match MCP tool calls by looking for `task-orchestrator` in the server segment of the tool name (`mcp__<server>__<tool>`) — a key like `mcp-task-orchestrator` or `mcp-task-orchestrator-http` works, but an unrelated key (e.g. `tasks`) silently disables those hooks for this server. The plugin's SessionStart hook runs a self-check and warns in-session if it finds a registration missing the token.
 
 **HTTP transport environment variables:**
 
@@ -544,12 +544,12 @@ Restart Claude Code and run `/mcp` to confirm the connection and that the tools 
 | `MCP_HTTP_HOST` | `0.0.0.0` | Interface the server binds. Leave at `0.0.0.0` for Docker — the container is network-isolated, so control host exposure via the `-p` mapping (publish to `127.0.0.1` as shown above). For a direct, non-Docker JAR run, set `127.0.0.1` to bind loopback only. |
 | `MCP_ALLOW_UNAUTHENTICATED` | `false` | Required to start HTTP with `API_ENABLED=false`: it opts `/mcp` into serving every caller as the `local` principal, with no credential check. Without it that combination fails startup. Unneeded when the API is enabled (its auth mode decides). |
 | `API_ENABLED` | `false` | REST API off by default (MCP-only). Set `true` to opt into the REST API (Step 10), which then requires `API_AUTH_MODE`. |
-| `AGENT_CONFIG_DIR` | working dir | Directory containing `.taskorchestrator/config.yaml` (schema config). Set to the mounted project path. |
+| `AGENT_CONFIG_DIR` | `/project` in the Docker image (working directory when run from the JAR) | Directory containing `.taskorchestrator/config.yaml` (schema config). Set to the mounted project path. |
 | `MCP_ALLOWED_HOSTS` | *(empty)* | Comma-separated `Host` header allowlist (DNS-rebinding protection), **extending** the always-allowed loopback defaults (`localhost`, `127.0.0.1`, `[::1]`, any port). `host` matches any port, `host:port` matches that port only. Needed when you reach the server through a name other than loopback (a Docker Compose service name, `host.docker.internal`, a LAN hostname, a reverse-proxy `Host`). `*` disables the check entirely (not recommended). See [fleet-deployment.md](fleet-deployment.md) for the full behavior. |
 
 > **The REST API is off by default.** `API_ENABLED` defaults to `false`, so MCP-over-HTTP needs no API configuration — the example sets it explicitly only for clarity. Opt into the REST API (Step 10) with `API_ENABLED=true`, which then *hard-requires* `API_AUTH_MODE` (omitting it is a fatal startup error).
 
-> **Schema config works identically over HTTP.** `.taskorchestrator/config.yaml` is loaded via `AGENT_CONFIG_DIR` regardless of transport — the `-v ...:/project/.taskorchestrator:ro` mount above gives the HTTP server the same schemas it would have over stdio. (An HTTP server resolves a single project's config; run one server per project.)
+> **Schema config works identically over HTTP.** `.taskorchestrator/config.yaml` is loaded via `AGENT_CONFIG_DIR` regardless of transport — the `-v ...:/project/.taskorchestrator:ro` mount above gives the HTTP server the same schemas it would have over stdio. (The mounted file is the server-scope config, the fallback for every project; per-project config pushed with the `config` tool or `config-sync` layers over it per root, so one server can serve many projects.)
 
 The `docker compose --profile http up` service in `docker-compose.yml` is pre-configured this way, including `MCP_ALLOW_UNAUTHENTICATED=true`. If you want the recommended REST-enabled, unauthenticated, loopback-only posture as copy-paste compose instead, use the additive `http-rest` profile (`docker compose --profile http-rest up`) — it layers `API_ENABLED=true`, `API_AUTH_MODE=none`, and `API_ALLOW_UNAUTHENTICATED=true` onto the same HTTP service without changing the `http` profile's REST-off default.
 
@@ -635,7 +635,7 @@ tokens:
       - manage-dependencies
 ```
 
-`capabilities` controls what the token may do. Valid values: `read`, `write-items`, `write-notes`, `advance`, `manage-dependencies`, `admin`. For a read-only dashboard token use just `- read`. (`admin` additionally exposes actor/verification attribution fields — omit it unless you need that.)
+`capabilities` controls what the token may do. Valid values: `read`, `write-items`, `write-notes`, `advance`, `manage-dependencies`, `write-config`, `write-docs`, `runs`, `decide`, `admin`. For a read-only dashboard token use just `- read`. (`admin` additionally exposes actor/verification attribution fields — omit it unless you need that.)
 
 ### 3. Start the server with the API enabled
 

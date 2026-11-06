@@ -20,7 +20,7 @@ This project is governed by our [Code of Conduct](CODE_OF_CONDUCT.md). By partic
 
 ### Prerequisites
 
-- **JDK 17 or later** - Required for Kotlin development
+- **JDK 21** - The Gradle toolchain is pinned to 21 (Gradle can download it if absent)
 - **Gradle** - Build system (included via wrapper)
 - **Docker** - Required for running the MCP server
 - **Git** - Version control
@@ -51,11 +51,24 @@ This project is governed by our [Code of Conduct](CODE_OF_CONDUCT.md). By partic
 
 ### Claude Code Setup
 
-When you clone this repository, two things are pre-configured for development:
+When you clone this repository, plugin discovery is pre-configured for development, and you add your own dev MCP server entry:
 
 - **Plugin auto-discovery**: The `.claude-plugin/marketplace.json` at the repo root is automatically discovered by Claude Code. Install the plugin via `/plugin` and it provides skills, hooks, and an orchestration context — without bundling an MCP server (developers run their own).
 
-- **Dev MCP server**: The `.mcp.json` at the repo root configures the MCP server to use your locally-built Docker image (`task-orchestrator:dev`). Claude Code reads this automatically on startup.
+- **Dev MCP server**: `.mcp.json` is git-ignored, so create your own at the repo root pointing at the locally built image (`task-orchestrator:dev`), for example:
+
+  ```json
+  {
+    "mcpServers": {
+      "mcp-task-orchestrator": {
+        "command": "docker",
+        "args": ["run", "--rm", "-i", "-v", "mcp-task-data:/app/data", "task-orchestrator:dev"]
+      }
+    }
+  }
+  ```
+
+  Claude Code reads it automatically on startup.
 
 After building the dev Docker image and installing the plugin, restart Claude Code. The MCP server will start automatically with your local build, and all skills and hooks will be active.
 
@@ -152,7 +165,7 @@ See the `add-component` skill (`.claude/skills/add-component/SKILL.md`) for the 
 
 **Summary**:
 - [ ] Write the request class with `@Doc` on every field (`current/src/main/kotlin/.../application/api/<area>/`)
-- [ ] Add one select/op file with its name, `doc`, profile, capability and `errors` (`interfaces/shared/tools/<area>/`)
+- [ ] Add one select/op file with its name, `doc`, profile, capability and `errors` (`interfaces/shared/tools/<area>/`, or `interfaces/mcp/tools/<area>/` for the `notes` and `advance` tools)
 - [ ] Return `Outcome` values from the handler (domain errors, never exceptions, for expected failures)
 - [ ] Register the select/op in its tool, and a new tool in `buildToolSpecs()` (`interfaces/shared/tools/ToolRegistry.kt`)
 - [ ] Run `./gradlew :current:regenerateToolGoldens` and `./gradlew :current:regenerateApiReference`, and commit both outputs
@@ -167,24 +180,7 @@ Skills live in the plugin at `claude-plugins/task-orchestrator/skills/`.
 
 **Creation Methods**:
 
-1. **Use Skill Builder (Recommended)** - Interactive tool that guides you:
-   ```
-   You: "Help me create a Skill that [describes workflow]"
-   → Skill Builder interviews you about requirements
-   → Generates complete SKILL.md with proper structure
-   → Creates examples.md and supporting files
-   ```
-
-2. **Copy a Template** - 7 ready-to-use templates available:
-   - Coordination Skill - Coordinate multiple tool calls
-   - Information Retrieval - Query and analyze data
-   - Status Update - Efficiently update entity state
-   - Workflow Automation - Automate multi-step workflows
-   - Analysis - Analyze patterns and provide insights
-   - Validation - Check quality criteria
-   - Migration - Transform or move data
-
-3. **Manual Creation** - For full control:
+1. **Manual Creation** - For full control:
    ```markdown
    ---
    name: My Skill
@@ -228,35 +224,13 @@ Skills live in the plugin at `claude-plugins/task-orchestrator/skills/`.
 
 ### Creating Custom Hooks
 
-Hooks are bash scripts that execute automatically when events occur (0 tokens - no LLM calls).
+Hooks are command scripts (the plugin's are Node `.mjs` files) that execute automatically when events occur (0 tokens - no LLM calls).
 
 Hooks live in the plugin at `claude-plugins/task-orchestrator/hooks/`.
 
 **Creation Methods**:
 
-1. **Use Hook Builder (Recommended)** - Interactive Skill that helps you:
-   ```
-   You: "Help me create a hook that [describes automation]"
-   → Hook Builder interviews you about needs
-   → Generates complete bash script with error handling
-   → Creates configuration
-   → Provides testing instructions
-   ```
-
-2. **Copy a Template** - 11 ready-to-use templates available:
-   - Basic PostToolUse Hook - Simple event-triggered automation
-   - Blocking Quality Gate Hook - Prevent operations that fail validation
-   - Database Query Hook - Query Task Orchestrator database
-   - Git Automation Hook - Automate git commits, branches, tags
-   - Logging/Metrics Hook - Track events to CSV/JSON logs
-   - External API Hook - Call webhooks, REST APIs
-   - Notification Hook - Send Slack/email/desktop notifications
-   - SubagentStop Hook - React to subagent completion
-   - Conditional Multi-Action Hook - Multiple actions based on conditions
-   - Dependency Check Hook - Verify dependencies before allowing operations
-   - Error Handling Hook - Robust error handling patterns
-
-3. **Manual Creation** - For full control:
+1. **Manual Creation** - For full control:
    ```bash
    #!/bin/bash
    # Read JSON input from stdin
@@ -284,7 +258,7 @@ Hooks live in the plugin at `claude-plugins/task-orchestrator/hooks/`.
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "mcp__task-orchestrator__set_status",
+        "matcher": "mcp__mcp-task-orchestrator__advance",
         "hooks": [
           {
             "type": "command",
@@ -320,7 +294,7 @@ Hooks live in the plugin at `claude-plugins/task-orchestrator/hooks/`.
 **Testing**:
 ```bash
 # Test with sample input
-echo '{"tool_input": {"id": "test", "status": "completed"}}' | \
+echo '{"tool_input": {"ops": [{"op": "transition", "itemId": "a3f28c01", "trigger": "complete"}]}}' | \
   .claude/hooks/your-hook.sh
 
 # Check output for errors
@@ -333,7 +307,7 @@ echo '{"tool_input": {"id": "test", "status": "completed"}}' | \
 For schema changes, follow the migration checklist in [.claude/skills/add-component/SKILL.md](.claude/skills/add-component/SKILL.md).
 
 **Production migrations** (Flyway):
-1. Create file: `src/main/resources/db/migration/sqlite/V{N}__{Description}.sql`
+1. Create file: `current/src/main/resources/db/migration/sqlite/V{N}__{Description}.sql`
 2. Use sequential numbering
 3. Follow SQLite patterns
 4. Include rollback instructions in comments

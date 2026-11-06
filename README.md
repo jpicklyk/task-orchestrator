@@ -130,13 +130,13 @@ Register it in `.mcp.json` using the HTTP shape:
 }
 ```
 
-And export the client-side variable that tells `config-sync` where the server is (without it, config-sync silently does nothing):
+And, optionally, export the client-side variable that tells `config-sync` where the server is (config-sync also reads the origin of a loopback http `mcp-task-orchestrator` registration in `.mcp.json`; with neither, it silently does nothing):
 
 ```bash
 export TASK_ORCHESTRATOR_API_URL=http://localhost:3001
 ```
 
-Alternatively, a `client.json` (`apiUrl` only, no token) supplies the URL. Project-mode `/task-orchestrator:init` writes it beside the project config, only for a loopback server and only as a bare origin with no path, query or fragment (add `.taskorchestrator/client.json` to `.gitignore`, the URL is machine-specific); `/task-orchestrator:init --user` writes the user-level file, which works for any host. The order is the environment variable, then the project-level file, then the user-level file. `/task-orchestrator:init` sets up a project root for the current directory, and `/task-orchestrator:init --user` creates a personal root that serves every directory without its own config.
+Alternatively, a `client.json` (`apiUrl` only, no token) supplies the URL. Project-mode `/task-orchestrator:init` writes it beside the project config, only for a loopback server and only as a bare origin with no path, query or fragment (add `.taskorchestrator/client.json` to `.gitignore`, the URL is machine-specific); `/task-orchestrator:init --user` writes the user-level file, which works for any host. The order is the environment variable, then the project-level file, then the origin of the orchestrator's http(s) MCP registration (local, then project, then user scope; a project `.mcp.json` origin must be loopback), then the user-level file. `/task-orchestrator:init` sets up a project root for the current directory, and `/task-orchestrator:init --user` creates a personal root that serves every directory without its own config.
 
 > **SECURITY:** unauthenticated mode (REST and `/mcp` alike) means anyone who can reach the port has full
 > read/write/delete access, as the single `local` principal. This is only safe because the port is published **loopback-only** (`-p 127.0.0.1:3001:3001`).
@@ -333,8 +333,9 @@ Illustrated: [Runs and Decisions](https://jpicklyk.github.io/task-orchestrator/f
 | **Workflow** | `advance` | Trigger-based transitions with gate enforcement and dependency validation, and claim, release and heartbeat ops for multi-agent fleets |
 | **Documents** | `docs_read`, `docs_write` | Versioned plan, rule and page documents per project root |
 | **Project config** | `config` | Push, validate, roll back and inspect per-project schema config and rule text |
+| **Runs** | `runs_read`, `runs_write` | Open, pause, close and inspect runs, seats and decisions |
 
-Every tool answers one response envelope, and `describe: true` on any call returns the tool's schema. A `knowledge` profile (`/mcp/knowledge`, or `MCP_TOOL_PROFILE=knowledge` on stdio) exposes the smaller read/write subset without orchestration, and a `director` profile (`/mcp/director`, or `MCP_TOOL_PROFILE=director`) exposes only item and dependency reads plus the `report` tool. Item IDs accept short hex prefixes: `itemId="a3f28c01"` works in place of a full UUID once the prefix (8 to 32 hex characters) is unambiguous. Upgrading from 3.x? See "Upgrading from 3.x" in the [Changelog](CHANGELOG.md). See the [API Reference](https://github.com/jpicklyk/task-orchestrator/wiki/api-reference) for every tool's parameters and response shapes.
+Every tool answers one response envelope, and `describe: true` on any call returns the tool's schema. A `knowledge` profile (`/mcp/knowledge`, or `MCP_TOOL_PROFILE=knowledge` on stdio) exposes the smaller read/write subset without orchestration, and a `director` profile (`/mcp/director`, or `MCP_TOOL_PROFILE=director`) exposes item and dependency reads, the `report` tool and a subset of the run controls (`runs_read`, `runs_write`). Item IDs accept short hex prefixes: `itemId="a3f28c01"` works in place of a full UUID once the prefix (8 to 32 hex characters) is unambiguous. Upgrading from 3.x? See "Upgrading from 3.x" in the [Changelog](CHANGELOG.md). See the [API Reference](https://github.com/jpicklyk/task-orchestrator/wiki/api-reference) for every tool's parameters and response shapes.
 
 ---
 

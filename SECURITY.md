@@ -4,6 +4,7 @@
 
 | Version | Supported |
 |---------|-----------|
+| 4.x     | Yes       |
 | 3.x     | Yes       |
 | 2.x     | No        |
 | 1.x     | No        |
@@ -82,7 +83,7 @@ The optional REST API (`/api/v1/*`, opt-in via `API_ENABLED=true`) selects its a
 
 | Mode | Identity | Capability model |
 |------|----------|-------------------|
-| `bearer` | Static token, hashed (SHA-256) at rest in a YAML file | Per-token `capabilities` (`read`, `write-items`, `write-notes`, `write-config`, `write-docs`, `advance`, `manage-dependencies`, `admin`) and optional `scope.root_ids` |
+| `bearer` | Static token, hashed (SHA-256) at rest in a YAML file | Per-token `capabilities` (`read`, `write-items`, `write-notes`, `write-config`, `write-docs`, `advance`, `manage-dependencies`, `runs`, `decide`, `admin`) and optional `scope.root_ids` |
 | `jwks` | JWT verified against a JWKS endpoint (`API_JWKS_URL`) | Same capability model, driven by JWT claims |
 | `none` (opt-in, requires `API_ALLOW_UNAUTHENTICATED=true` in addition) | None - every request, REST or `/mcp`, runs as the one `local` `ADMIN` principal | Unrestricted: full read/write/delete access to every item, note, and per-root config, with no scope restriction |
 
@@ -97,7 +98,7 @@ The optional REST API (`/api/v1/*`, opt-in via `API_ENABLED=true`) selects its a
 
 The actor of every write is the **transport principal**, never a request field. A bearer or JWT credential names its holder (audited `api:<id>`); stdio, `/mcp` in a local mode and REST `API_AUTH_MODE=none` run as the single `local` principal. The server refuses a body `actor` on every tool as `unknown_parameter`, so a caller cannot assert an identity of its own, and verification fails closed: a bad credential is `401`, and a JWKS key set that cannot be had is `503 unavailable`, never a guessed identity. Claim ownership and note ownership are enforced against the principal for every client.
 
-- **Client-side hook.** The Claude Code plugin's `enforce-actor-attribution` hook predates this model: it is client-side only, never a server control, and is removed in a later plugin release. A 4.0 server rejects a body `actor` whatever the hook does.
+- **Client-side hook removed.** The Claude Code plugin no longer ships an actor-attribution hook; the server alone decides the principal, and a 4.0 server rejects a body `actor`.
 - **`actor_authentication` config is removed.** A leftover `actor_authentication:` block in the global config, or a set `DEGRADED_MODE_POLICY`, fails startup, because the block authenticated and attributed no call (no request carries an actor or an `actor.proof` any more). Configure caller authentication with `API_AUTH_MODE` and the `API_JWKS_*` variables. See [`current/docs/fleet-deployment.md`](current/docs/fleet-deployment.md#actor_authentication-removed-in-40).
 - **One principal per credential.** Callers that share a credential, or that all run as `local`, are one principal: they share claims and note ownership. Give each agent its own credential, or its own run seat token, to separate them.
 - **Claim write fence.** A write to an item whose claim is ACTIVE and held by another principal (a transition, note write, item update or delete, or dependency write) is refused `not_claim_holder`, on MCP and REST alike. The fence ends when the claim expires or is released. It orders cooperating principals; it is not a secrecy control, and principals sharing one credential are one principal.

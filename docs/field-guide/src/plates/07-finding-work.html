@@ -67,7 +67,7 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
   </div>
   <div class="grid3">
     <div class="rule"><h3>Ranking</h3><p class="small">By default: high, then medium, then low priority. Within a priority, lowest complexity first, with unset complexity last. Remaining ties go to the lower id. <code>oldest</code> gives fair first-in, first-out draining.</p></div>
-    <div class="rule"><h3>What never appears</h3><p class="small">Items whose blockers have not reached their threshold, items with an active claim (the caller's own included), and items under an ancestor claimed by another agent. Items with no lifecycle never appear, and <code>complexityMax</code> also drops items with no complexity set. <code>includeClaimed</code> lifts the two claim filters for operators and adds <code>isClaimed</code> to every row, true only for the item's own active claim. An empty page says why in <code>data.reason</code>, <code>claim_held</code> or <code>dependency_unmet</code>, and gives no reason when nothing matched at all.</p></div>
+    <div class="rule"><h3>What never appears</h3><p class="small">Items whose blockers have not reached their threshold, items with an active claim, and items under an ancestor with an active claim (the caller's own claims included in both cases). Items with no lifecycle never appear, and <code>complexityMax</code> also drops items with no complexity set. <code>includeClaimed</code> lifts the two claim filters for operators and adds <code>isClaimed</code> to every row, true only for the item's own active claim. An empty page says why in <code>data.reason</code>, <code>claim_held</code> or <code>dependency_unmet</code>, and gives no reason when nothing matched at all.</p></div>
     <div class="rule"><h3>Other roles</h3><p class="small">The default role is queue. A review fleet asks with <code>role="review"</code>, a triage agent with <code>role="blocked"</code>.</p></div>
   </div>
 </section>
@@ -86,6 +86,7 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
       <tr><td><code>traits</code></td><td>A list of trait names</td><td>Extra notes, seats, resources and dispatch for this one item.</td></tr>
       <tr><td><code>properties</code></td><td>A JSON object, optional</td><td>Free-form data on the item. It cannot carry a <code>traits</code> key.</td></tr>
       <tr><td><code>schemaVersion</code></td><td><code>{server, root, key, layer}</code>, read-only</td><td>The schema pin: the config versions and base schema the item resolves through. It is taken on create and moves on a type or trait change, a move to another root, a reopen from terminal, or <code>items_write</code> <code>repin</code>.</td></tr>
+      <tr><td><code>requiresVerification</code>, <code>metadata</code></td><td>A boolean; free-form text</td><td>Whether completion needs verification, and free-form metadata text.</td></tr>
       <tr><td><code>parentId</code></td><td>An item id, or none for a root</td><td>The hierarchy. Depth is computed and has no fixed limit.</td></tr>
     </tbody>
   </table></div>
@@ -179,7 +180,7 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
       var why=null;
       if(it.role!=='queue')why='Not in queue: role is '+it.role;
       else if(it.waits)why='Blocked by "'+it.waits+'"';
-      else if(it.claimed&&!ic)why='Claimed by another agent';
+      else if(it.claimed&&!ic)why='Has an active claim';
       else if(it.ancestor&&!ic)why='An ancestor is claimed';
       else if(cx<10&&it.c===null)why='No complexity set: excluded by complexityMax';
       else if(cx<10&&it.c>cx)why='Complexity above complexityMax';

@@ -86,7 +86,7 @@ Items progress via named triggers — never update the role directly:
 | `complete` | queue, work or review to terminal (not from blocked) |
 | `block` / `hold` | queue, work or review to blocked (saves previous role; not from blocked or terminal) |
 | `resume` | blocked → previous role |
-| `cancel` | Any → terminal (statusLabel: "cancelled") |
+| `cancel` | queue, work, review or blocked to terminal (statusLabel: "cancelled"); not from terminal |
 | `reopen` | terminal to queue |
 
 See [Workflow Guide](../workflow-guide.md) Section 2 for the full trigger table.

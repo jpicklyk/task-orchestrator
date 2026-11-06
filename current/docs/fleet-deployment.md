@@ -56,10 +56,11 @@ How `/mcp` establishes its caller is decided once at startup from the REST API c
 
 Server startup returns a `StartupOutcome` (`Started` or `Failed(reason, detail)` with
 `reason` one of `DATABASE_INIT`, `SCHEMA_UPDATE` (the schema update failed, or the migration lock could not be taken within its 300 s wait), `UPGRADE_BACKUP` (the verified pre-upgrade
-copy of a 3.x database could not be taken, see "Upgrading from 3.x" below), `UNKNOWN_TRANSPORT`, `READINESS_MARKER`,
+copy of a 3.x database could not be taken, see "Upgrading from 3.x" below), `UNKNOWN_TRANSPORT`, `UNKNOWN_TOOL_PROFILE` (an unrecognized `MCP_TOOL_PROFILE`), `READINESS_MARKER`,
 `TRANSPORT_START` — the transport (stdio session creation or the HTTP Ktor engine) failed to
-bind/start after DB init and schema update had already succeeded — or `DATA_STEPS` — a data step
-failed or a registered once step is unapplied, see "Data steps" below). A
+bind/start after DB init and schema update had already succeeded — `DATA_STEPS` — a data step
+failed or a registered once step is unapplied, see "Data steps" below — or `MCP_AUTH` (HTTP with the
+REST API disabled and no `MCP_ALLOW_UNAUTHENTICATED=true`)). A
 `Failed` outcome throws `StartupFailedException` from `main()`, so the JVM exits non-zero and
 container orchestrators (Docker, Kubernetes, systemd) see a real startup failure instead of a
 process that silently logged an error and kept running.
@@ -902,13 +903,13 @@ out of scope; this is a known, accepted forensic gap for anything written before
    reaching every copy; then purge pre-upgrade backups.
 2. **Compaction now runs automatically.** The first start after upgrading to a build
    with this remediation runs a one-time startup compaction — `VACUUM`, a rebuild + `integrity-check`
-   of all four FTS5 shadow tables, and a WAL checkpoint — gated on `PRAGMA user_version` so
+   of all six FTS5 tables, and a WAL checkpoint — gated on `PRAGMA user_version` so
    it runs exactly once per database file (a repeat boot is a no-op; a failed attempt is WARN-logged
    and retried on the next boot). It completes before the readiness marker is written and before
    the server starts serving. Set `DB_COMPACT_ON_UPGRADE=false` to opt out (e.g. to run the offline
    runbook manually on your own schedule instead); see the environment variable table below. **This
    is not the same check as step 3's `PRAGMA integrity_check`** — the automatic path runs only the
-   FTS5 `integrity-check` special command against each of the four shadow tables in [FTS_TABLES],
+   FTS5 `integrity-check` special command against each of the six FTS5 tables in [FTS_TABLES],
    not a whole-database `PRAGMA integrity_check`; it is not a full substitute for step 3's offline
    check. The image ships no `sqlite3` binary (see step 2 below), so verify the automatic run with
    the server's own INFO log lines instead of trying to inspect `PRAGMA user_version` directly:
@@ -928,7 +929,8 @@ out of scope; this is a known, accepted forensic gap for anything written before
       - `PRAGMA wal_checkpoint(TRUNCATE);`
       - `VACUUM;`
       - `INSERT INTO t(t) VALUES('rebuild');` and then `VALUES('integrity-check')`, for each `t` in
-        `work_items_fts_trigram`, `work_items_fts_text`, `notes_fts_trigram`, `notes_fts_text`
+        `work_items_fts_trigram`, `work_items_fts_text`, `notes_fts_trigram`, `notes_fts_text`,
+        `documents_fts_trigram`, `documents_fts_text`
       - `PRAGMA integrity_check;`
       - `PRAGMA wal_checkpoint(TRUNCATE);`
    4. `chown -R 1001:1001 /data`, then restart.
@@ -1535,11 +1537,11 @@ An agent retrying a claim and getting `claim_held` back-to-back is **expected** 
 
 ### `unavailable` (HTTP 503) on every call under JWKS
 
-This means the JWKS key set cannot be had: it was never fetched, or the refresh keeps failing and the cached set is older than `max_stale_seconds`. The answer carries `retryAfterMs` 15000 and no `WWW-Authenticate` header, and the same holds on REST, `/mcp` and the SSE `?token=` path.
+This means the JWKS key set cannot be had: it was never fetched, or the refresh keeps failing and the cached set is older than `API_JWKS_MAX_STALE_SECONDS`. The answer carries `retryAfterMs` 15000 and no `WWW-Authenticate` header, and the same holds on REST, `/mcp` and the SSE `?token=` path.
 
 **Recovery checklist:**
 
-1. Check the key source: the `API_JWKS_URL` (or `jwks_uri` / `oidc_discovery`) must be reachable from the server, and not resolve to a non-public address (the egress guard refuses those).
+1. Check the key source: the `API_JWKS_URL` must be reachable from the server, and not resolve to a non-public address (the egress guard refuses those).
 2. Read the server log: one WARN names the reason (never the token) each time a call is refused.
 3. Restore connectivity; the next call after the refresh backoff succeeds. To ride out longer outages raise `API_JWKS_MAX_STALE_SECONDS` (`GET /api/v1/info` shows the value as `maxStale`), accepting that a revoked key is honored for that long.
 4. A `401 invalid_token` is a different problem: the JWT itself is invalid (`iss`, `aud`, expiry, or a signing key outside the `algorithms` allowlist).

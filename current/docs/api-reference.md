@@ -39,8 +39,8 @@ over MCP.
 
 | Profile | HTTP path | stdio | Tools |
 |---|---|---|---|
-| `orchestration` | `/mcp` | `MCP_TOOL_PROFILE=orchestration` (the default) | every 4.0 tool except the director-only `report`, with all its selects and ops, including `advance` and `config` |
-| `knowledge` | `/mcp/knowledge` | `MCP_TOOL_PROFILE=knowledge` | `items_read` (no `context`, `next`, `blocked`), `items_write` (no `create_tree`, `complete_tree`, `repin`), `notes_read`, `notes_write`, `deps_read`, `deps_write`, `docs_read`, `docs_write` |
+| `orchestration` | `/mcp` | `MCP_TOOL_PROFILE=orchestration` (the default) | every 4.0 tool except the director-only `report`, including `advance` and `config`; `runs_read` and `runs_write` carry only their orchestration-profile selects and ops (no `decisions`, `decision`, `pause`, `resume`, `ack`, `answer`, `withdraw`, and never `mark`) |
+| `knowledge` | `/mcp/knowledge` | `MCP_TOOL_PROFILE=knowledge` | `items_read` (no `context`, `next`, `blocked`, `history`), `items_write` (no `create_tree`, `complete_tree`, `repin`), `notes_read`, `notes_write`, `deps_read`, `deps_write`, `docs_read`, `docs_write` |
 | `director` | `/mcp/director` | `MCP_TOOL_PROFILE=director` | `items_read` (`get`, `list`, `overview`, `blocked` only), `deps_read`, `report`, `runs_read` (`get`, `list`, `frontier`, `decisions`, `decision`) and `runs_write` (`open`, `close`, `pause`, `resume`, `ack`, `answer`, `withdraw` only): no read that can return a note, document or transition-summary body, and no other write |
 
 `/mcp/knowledge` and `/mcp/director` are exact and case-sensitive; any other `/mcp/<x>` is `404`. A session keeps the
@@ -62,9 +62,9 @@ REST-only members included. The `runs_read` and `runs_write` tool descriptions a
 | `docs_read` | Documents | Read | Get a document or one version, list, history and links (4.0 envelope) |
 | `advance` | Workflow | Write | Phase transitions (cascade and gate enforcement) and claim ownership: ops `transition`, `claim`, `release`, `heartbeat` |
 | `config` | System | Write/Read | Per-root config (get, history, push, validate, rollback, reset), the effective resolved view, and rule text: ops of one 4.0 tool, orchestration profile only |
-| `report` | Reports | Read | Aggregate reports: `usage` (call-log calls, errors, bytes, tokens, latency, retries and replays per group over a window), `gates` (rejected transitions per note key, type, trait or error code), `contention` (claim and lease acquire, reject, expire and release counts per resource) and `waste` (redundant reads, over-fetch, reads with no later write, empty `next`, related follow-through and lifecycle-free rejections as ratios) and `rollup` (one subtree or one run: items per role, blocked, transitions, notes written and call cost, plus a run's decisions, seats, attempts and budget); director profile only on MCP |
+| `report` | Reports | Read | Aggregate reports: `usage` (call-log calls, errors, bytes, tokens, latency, retries and replays per group over a window), `gates` (rejected transitions per note key, type, trait or error code), `notes` (note upserts: writes, rewrites and bytes per role, key, seat, type, principal kind or day), `contention` (claim and lease acquire, reject, expire and release counts per resource) and `waste` (redundant reads, over-fetch, reads with no later write, empty `next`, related follow-through and lifecycle-free rejections as ratios) and `rollup` (one subtree or one run: items per role, blocked, transitions, notes written and call cost, plus a run's decisions, seats, attempts and budget); director profile only on MCP |
 | `runs_read` | Runs | Read | Get one run, list runs (newest first; `status`, `rootId`, `endedSince`, `unmarked`) or read a run's frontier (ready, in-flight and waiting members); orchestration and director profiles (`seats`: orchestration only) |
-| `runs_write` | Runs | Write | Open, update, close, pause, resume and mark runs: ops of one 4.0 tool; `mark` is REST only |
+| `runs_write` | Runs | Write | Open, update, close, pause, resume, assign and end seats, raise, ack, answer and withdraw decisions, and mark runs: ops of one 4.0 tool; `mark` is REST only |
 
 ---
 
@@ -416,7 +416,7 @@ needs the `READ` capability and honors the root and tag scope of the caller.
 | `list` | `{items: [compact view], page}` |
 | `schema` | the resolved schema view, or `{schemaFree: true}` |
 | `search` | `{items: [hit], page}` |
-| `overview` | global `{items, page}`; scoped `{item, childCounts, items, page}`; anchored `{anchor: {id, title}, items, page}` |
+| `overview` | global `{items, page}`; scoped `{item, childCounts, blockedByReason?, items, page}`; anchored `{anchor: {id, title}, items, page}` |
 | `related` | `{items: [hit], page}` |
 | `context` | with `itemId`: the gate state of one item; without: `{active, blocked, stalled, claimSummary}` |
 | `next` | `{items: [compact view], page, reason?}` |
@@ -475,7 +475,7 @@ when given (one fixed order: per-root type, global type, per-root `default`, glo
 config). The `itemId` path resolves the item's fully trait-merged schema over its own `rootId` (a pinned item over
 its pinned config versions and base schema, so `configFingerprint` is the pinned layer's). The view is
 `{type, configFingerprint, configSource, schemaVersion?, stale?, notes: [{key, role, required, description,
-guidance?, skill?, maxLength?, seat?, independentOf?}], dispatch?, resources?, seats?, dispatchBySeat?, features}`;
+guidance?, skill?, maxLength?, seat?, independentOf?, shared?}], dispatch?, resources?, seats?, dispatchBySeat?, features}`;
 `schemaVersion` and `stale` are the item's pin view as in the full item view (item path only). Seats,
 dispatch and the type-path vs item-path difference are described in
 [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seats-trait--schema-dimension).
@@ -526,7 +526,7 @@ page), and each document hit on the returned page records its id and version as 
 - Anchored (`anchorId`): `anchor: {id, title}` and a page of the anchor's children, each with
   full-subtree role counts (descendants at any depth).
 
-`childCounts` is `{role: n}` with zero roles omitted; lifecycle-free items count under no role (they are not folded
+`blockedByReason` (on the scoped answer and on each listed entry) is `{reason: n}`, BLOCKED children counted by typed reason with zero counts omitted, and is absent when no child is blocked. `childCounts` is `{role: n}` with zero roles omitted; lifecycle-free items count under no role (they are not folded
 into `queue`), here and in the anchored roll-ups. `excludeTerminal` drops terminal items that have no
 open work below them; a terminal item with a non-terminal descendant is kept, a lifecycle-free descendant is not open
 work, and a lifecycle-free item itself is always kept. Under a restricted scope
@@ -590,7 +590,7 @@ omitted from `blockers` while its item stays listed.
 
 - `item` is the compact view; `fields: ["ancestors"]` adds the ancestors the caller may see.
 - `schema` is keys-only (`key`, `role`, `required`, `exists`, `filled`, plus `seat` when the resolved schema is
-  seat-aware). Resolve `description`, `guidance` and `skill` with `items_read(select="schema", itemId=...,
+  seat-aware, and `shared: true` for a shared note). Resolve `description`, `guidance` and `skill` with `items_read(select="schema", itemId=...,
   fields=["guidance"])`.
 - `gateStatus.canAdvance` is the policy evaluation `advance(start)` would run right now, claim ownership excluded:
   false when the transition table rejects `start` (a `terminal` or `blocked` item), a blocking dependency is unmet,
@@ -888,8 +888,8 @@ are thin translations to it (see `api-rest.md` section 11). `notes_read` replace
 
 | Select | Answer (`data`) |
 |---|---|
-| `get` | `{id, key, role, version, body, modifiedAt, actor?, verification?}`; with `ifVersion` equal to the current version, `{unchanged: true, version}` and no body |
-| `list` | `{items: [{id, key, role, version, bodyLength, modifiedAt, actor?, verification?}], page: {total, truncated, next?}}` ordered by key then id |
+| `get` | `{id, key, role, version, body, modifiedAt, actor?, verification?, owner?}`; with `ifVersion` equal to the current version, `{unchanged: true, version}` and no body |
+| `list` | `{items: [{id, key, role, version, bodyLength, modifiedAt, actor?, verification?, owner?}], page: {total, truncated, next?}}` ordered by key then id |
 
 - `itemId` is a full UUID or 8 to 32 hex characters of one (`ambiguous_id` when a prefix matches more
   than one item). A missing note is `not_found` with id `<itemUuid>/<key>`.
@@ -1220,7 +1220,7 @@ tools and the REST `POST /items/{id}/advance` route. It is served over MCP and `
 section 20a); both answer the same response envelope.
 
 Every `transition` is ONE transaction through the shared advance pipeline (`AdvanceService`): the item is re-read, the transition
-policy evaluates its gates in a fixed order (claim ownership, transition table, cascade warrant, hold, blocking dependencies,
+policy evaluates its gates in a fixed order (claim ownership, seat, transition table, cascade warrant, hold, review-pending, blocking dependencies,
 required notes, resource lease; the first failure wins), and the role change, its audit row, its event, the lease acquire or
 release, and every cascade it triggers commit together or not at all. Unblocked downstream items are then reported.
 
@@ -1232,16 +1232,16 @@ key with another payload is `idempotency_mismatch`. All ops need the `advance` c
 
 | Op | Result element (on top of `ok: true`) |
 |---|---|
-| `transition` | `{itemId, previousRole, newRole, trigger, statusLabel?, cascades?, unblocked?, expectedNotes?, guidanceKey?, skillPointer?, dispatch?, violations?}` |
+| `transition` | `{itemId, previousRole, newRole, trigger, statusLabel?, cascades?, unblocked?, expectedNotes?, guidanceKey?, skillPointer?, dispatch?, violations?, paused?}` |
 | `claim` | `{itemId, claimed: true, version, claimedAt, expiresAt, originalClaimedAt, released?, refreshed?, selected?, claimRef?, displaced?}` |
 | `release` | `{itemId, released: true}` |
-| `heartbeat` | `{itemId, claimed: true, version, claimedAt, expiresAt, originalClaimedAt, released?, refreshed: true}` |
+| `heartbeat` | `{itemId, claimed: true, version, claimedAt, expiresAt, originalClaimedAt, released?, refreshed: true, paused?}` |
 
 `itemId` is a UUID or a dash-free hex prefix of 8 to 32 characters (`not_found` when nothing matches, `ambiguous_id` with the
 candidate ids when several do).
 
 **`transition` result.** `cascades` lists the parents evaluated as a side effect: `{itemId, previousRole, targetRole, applied,
-blocked?: ownership | seat | gate | resource | role | dependency, missing?: [{key, role, seat?}], contended?: [resourceKey], blockers?: [{id, role}]}`.
+blocked?: ownership | seat | gate | resource | role | dependency, missing?: [{key, role, seat?}], contended?: [resourceKey], blockers?: [{id, role}], reason?}` (`reason` is set with `blocked: gate`, for example `review-pending`). `paused` is `{decisionId}`, present only when a call under a run seat token crossed the run's budget and paused the run.
 `unblocked` is `[{itemId, title}]`. Under a root- or tag-scoped token, a `cascades` or `unblocked` entry for an item the scope
 does not admit is `{itemId}` only (the same rule applies to `complete_tree` items and to `items_write` `cascade` entries).
 `expectedNotes` is the list of note keys the new phase expects; `guidanceKey` and
@@ -1295,7 +1295,7 @@ such as `/ops/0/trigger`, `/ops/1/ttlSeconds`, `/ops/2/itemId`, `/ops/0/credenti
 `unknown_parameter`, `not_found` (item), `ambiguous_id`, `forbidden` (token scope or capability), `invalid_transition` (also for
 claiming a terminal item, and for claiming a lifecycle-free item: `fromRole` `none`, `trigger` `claim`, nothing allowed, the
 caller's other claims kept; every `transition` trigger on a lifecycle-free item fails the same way with `fromRole` `none`), `gate_blocked` (`detail.missing[]`; for an independence block `missing` is empty and
-`detail.violations` is `[{gate: "independence", reason}]`), `dependency_unmet`, `not_claim_holder`, `claim_held`
+`detail.violations` is `[{gate: "independence", reason}]`), `dependency_unmet`, `seat_forbidden` (a run seat token may not send the trigger; see `blocked: seat` above), `run_paused` (a `start` under a seat token while the run is paused for a budget or attempt limit), `not_claim_holder`, `claim_held`
 (`detail.expiresAt`, `detail.retryAfterMs`), `resource_unavailable` (`detail.resources[]` with the contended key and its mode,
 `retryAfterMs`; never the holder), `unauthenticated`, `unavailable` (per-root config could not be read; `retryAfterMs` 1000), `config_invalid` (a config head, the server's or the root's, has no loadable canonical form; permanent,
 `detail.errors[0].path` empty; never `internal`),
@@ -1669,7 +1669,7 @@ on every select that names one document and an optional filter on `list`. A `roo
 - `version` and `ifVersion` together are `invalid_request`; a missing document or version is `not_found`. Versions are integers, 1 for the first write.
 - `contentHash` is the SHA-256 hex of the LF-normalized body's UTF-8 bytes. For a `rule` document it is the `rulesVersion` that the [`config`](#config) tool's `rules` op reports.
 - `list` leaves archived documents out unless `includeArchived` is true. `adoptedBy` is the item that adopted a plan (`items_write` `create_tree` with a `docRef`); it is omitted when the caller's scope does not admit that item. The adoption outlives the item, so an unrestricted caller still sees a deleted adopter, while a scoped caller (which cannot place a missing item) does not.
-- `links` returns the links the document makes (`references` parsed from `[[slug]]` in its body, `attached`, `adopted_by`) and, with `incoming`, the links that point at it (a `derived_from` note, another document's reference). A link end is `{kind, id}` with `kind` `item`, `note` or `document`; `to` is absent while a reference names no document yet, and `toRef` is the reference text (set on every `references` link, resolved or not, and on `derived_from` as `plan:<slug>`; absent on `attached` and `adopted_by`). A link whose item or note end is outside the caller's scope, or no longer exists, is left out before paging and is not counted in `page.total`. The adopter of an `adopted_by` link follows the `adoptedBy` rule instead: it is shown whenever the caller's scope admits it, even after the item is deleted (an unrestricted caller always sees it; a scoped caller fails closed on a deleted adopter).
+- `links` takes `direction` (`outgoing`, `incoming` or `all`, default `all`): `outgoing` returns the links the document makes (`references` parsed from `[[slug]]` in its body, `attached`, `adopted_by`), `incoming` the links that point at it (a `derived_from` note, another document's reference), `all` both. A link end is `{kind, id}` with `kind` `item`, `note` or `document`; `to` is absent while a reference names no document yet, and `toRef` is the reference text (set on every `references` link, resolved or not, and on `derived_from` as `plan:<slug>`; absent on `attached` and `adopted_by`). A link whose item or note end is outside the caller's scope, or no longer exists, is left out before paging and is not counted in `page.total`. The adopter of an `adopted_by` link follows the `adoptedBy` rule instead: it is shown whenever the caller's scope admits it, even after the item is deleted (an unrestricted caller always sees it; a scoped caller fails closed on a deleted adopter).
 - `actor` on a version is shown only to a caller allowed to see attribution (the same rule as `notes_read`).
 - Paging follows the envelope's list rules (amendment U22).
 
@@ -1918,7 +1918,7 @@ The window rules are those of `usage`, but the window is at most **7 days** (the
 `relatedFollowThrough` always holds `edges`, `links`, `tags` and `text`. `value` is `numerator / denominator` rounded
 half up to 4 decimals, a JSON number, omitted when the denominator is 0. Rows are classed by tool: READ is
 `items_read`, `notes_read`, `docs_read`, `deps_read`; WRITE is `items_write`, `notes_write`, `deps_write`,
-`docs_write`, `advance`; `report` and `config` are in neither. A non-ops REST row records its route template as the
+`docs_write`, `advance`; `report`, `config`, `runs_read` and `runs_write` are in neither. A non-ops REST row records its route template as the
 tool, so it never matches a class. A `docs_read` `get` answered `{unchanged, version}` for a current `ifVersion` is
 an ok read like any other.
 
@@ -2104,7 +2104,7 @@ the envelope request and every answer is the response envelope. Each field is do
 ### runs_read
 
 **Selects.** `get` (one run by UUID or an 8 to 32 character hex prefix), `list` (a page of runs, `openedAt` descending
-then id), `seats` (orchestration only) and `frontier` (below). `list` filters: `status`, `rootId`, `endedSince` (ISO 8601 UTC, compared with `closedAt`, inclusive) and
+then id), `seats` (orchestration only), `frontier` (below), and `decisions` and `decision` (director only, see Decisions). `list` filters: `status`, `rootId`, `endedSince` (ISO 8601 UTC, compared with `closedAt`, inclusive) and
 `unmarked` (a mark key; only closed runs that do not carry it, so combining it with a `status` other than `closed` is
 `invalid_request` on `/unmarked`). A run is as visible as its root: `get` of a run whose root is outside the caller's scope is
 `forbidden` (never `not_found`), and `list` leaves such runs out.
@@ -2408,7 +2408,7 @@ Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, 
 
 ## Idempotency
 
-The write tools (`items_write`, `notes_write`, `deps_write`, `advance`) take no `requestId`: each `ops[]` element may
+The write tools (`items_write`, `notes_write`, `deps_write`, `docs_write`, `advance`, `config`, `runs_write`) take no `requestId`: each `ops[]` element may
 carry an `idempotencyKey`, recorded per `(principal, tool, key)` for 24 hours. A repeated key with
 the same element replays the stored result with `replayed: true`; the same key with a different element is
 `idempotency_mismatch`. Only an element that committed is recorded, so a failed element re-runs on retry with the same

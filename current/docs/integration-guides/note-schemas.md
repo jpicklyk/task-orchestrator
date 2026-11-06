@@ -20,7 +20,7 @@ The examples are 4.0 tool-call request bodies; the profile table, `describe: tru
 
 This is the most important concept to understand before configuring schemas.
 
-- **Schemas** = rules defined in `.taskorchestrator/config.yaml`. They specify which notes must exist at each phase. Never stored in the database.
+- **Schemas** = rules defined in `.taskorchestrator/config.yaml` (imported into the server's config store at boot, or pushed per project root). They specify which notes must exist at each phase. They are not attached to items or notes.
 - **Notes** = content that agents write via `notes_write`. Stored in the MCP database. Notes carry no reference to schemas.
 - **They meet only at gate-check time:** when an `advance` `transition` fires, it fetches the item's notes from the database and checks them against schema requirements. If required notes are missing, the gate rejects the transition.
 
@@ -167,8 +167,7 @@ The `default` key matches any item whose `type` has no schema of its own:
 ```yaml
 work_item_schemas:
   feature:
-    notes:
-      # feature-specific notes
+    notes: []   # feature-specific notes go here
   default:
     notes:
       - key: session-tracking

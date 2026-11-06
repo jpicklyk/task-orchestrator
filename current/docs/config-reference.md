@@ -25,7 +25,7 @@ Every top-level key has one owner. The server validates what it owns and stores 
 | `independence` | server | yes | yes | `mode` (`off`, `warn`, `reject`) and `require_verified`. |
 | `runs` | server | yes | yes | Run settings: `stall_after` and the `budgets` ceilings. Resolved per field. See [Runs](#runs-runs). |
 | `decision_classes` | server | yes | yes | Decision classes by name. A per-root entry replaces the server entry of that name. See [Decision classes](#decision-classes-decision_classes). |
-| `project` | server (per-root) | ignored | yes | `rootId` and `name`. A `rootId` that differs from the push target is rejected unless `force`. |
+| `project` | server (per-root) | `rootId` retargets the import to that root (see Parse modes); `name` ignored | yes | `rootId` and `name`. A `rootId` that differs from the push target is rejected unless `force`. |
 | `resources` | server only | yes | rejected | The resource registry is one per server. |
 | `actor_authentication` | removed | fails startup | rejected | Removed in 4.0: a leftover key fails startup (see [below](#actor_authentication)). |
 | `extensions` | extension | allowed | allowed | A mapping of namespaces. Stored, never read by the server. |
@@ -357,6 +357,6 @@ item's current pin.
 
 - [config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md): the
   schema-authoring guide (note entries, traits, seats, dispatch, resources) the plugin ships.
-- [REST API Reference](api-rest.md), section "Project config", for the routes.
+- [REST API Reference](api-rest.md), sections "Config DTOs", "Config ETags", "Endpoints - Config JSON Schema" and "Endpoints - Ops (RPC)", for the routes.
 - [Workflow guide, Runs, Seats and Decisions](workflow-guide.md#12-runs-seats-and-decisions): how runs, seats and
   decisions use these keys.

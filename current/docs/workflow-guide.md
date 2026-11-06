@@ -941,9 +941,9 @@ traits:
         guidance: "<guidance>"
 ```
 
-There is no schema-level `traits:` key — a schema names its traits with `default_traits:`, and the parser warns on and ignores any other key. Traits can also carry `resources:`, `dispatch:`, and `seats:`; see [config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md) for the full format.
+There is no schema-level `traits:` key — a schema names its traits with `default_traits:`, and any other key is rejected when you push or validate a config (a stored 3.x config that carries one loads with a warning and the key is ignored). Traits can also carry `resources:`, `dispatch:`, and `seats:`; see [config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md) for the full format.
 
-Additional top-level keys (workflows, status, cascade) are supported but not covered in this guide.
+Additional top-level keys (`resources`, `note_limits`, `status_labels`, `project`, `independence`, `extensions`, `runs`, `decision_classes`) are supported but not covered in this guide; see the [config reference](./config-reference.md).
 
 ### Note Schema Entry Fields
 
@@ -1215,8 +1215,8 @@ workers should treat `resource_unavailable` the same way they treat `claim_held`
 the `claim` op: release any claim on the item and move to a different item, never spin-retry the same
 item against the same lock.
 
-On the REST surface, the same contention maps to `409 resource_unavailable` with a `Retry-After`
-header (whole seconds, rounded up) — see [`api-rest.md`](./api-rest.md) §10/§14.
+On the REST surface, the same contention maps to `409 resource_unavailable`; the envelope carries
+`error.retryAfterMs` (and `detail.retryAfterMs`) - see [`api-rest.md`](./api-rest.md#6-error-codes) section 6 (Error Codes).
 
 An item that declares **no** `resources:` can never produce `resource_unavailable` — the check
 short-circuits before any lease-repository access, so the overwhelmingly common case (items with no
@@ -1307,8 +1307,8 @@ ISO-8601 instant to ask "who held this at exactly this moment" (an open interval
 own `expiresAt`, so a crashed holder's interval reads as "not held" once its TTL lapses, even though
 the operator hasn't force-released it yet). Holder/closer actor identity is ADMIN-only, same
 redaction rule as the live list. History rows carry no foreign key to the holder work item and
-deliberately survive its deletion — this is an audit trail, not a live-state mirror. There is no
-pruning or retention policy in v1: the table is append-only and grows with lease-event cardinality.
+deliberately survive its deletion — this is an audit trail, not a live-state mirror. Closed
+intervals are pruned after `RETENTION_LEASE_HISTORY_DAYS` days (default 365, `0` keeps them forever); open intervals are never pruned. See [Data Retention](./fleet-deployment.md#data-retention).
 
 ---
 
