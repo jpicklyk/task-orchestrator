@@ -1377,6 +1377,7 @@ test('Follow-up (O10-1, corrected): args.models/args.efforts reach agent() opts 
     for (const c of matching) {
       assert.equal(c.opts.model, MODELS[key], `${desc} model must be models.${key}`)
       assert.equal(c.opts.effort, EFFORTS[key], `${desc} effort must be efforts.${key}`)
+      assert.equal(c.opts.label, `${c.label} [${MODELS[key]}/${EFFORTS[key]}]`, `${desc} label must carry the [model/effort] tag`)
     }
   }
   checkKey((c) => c.label === 'scope', 'review', 'scope (reuses "review" — no dedicated scope key)')
@@ -1392,6 +1393,7 @@ test('Follow-up (O10-1, corrected): args.models/args.efforts reach agent() opts 
   for (const c of verifyCalls) {
     assert.equal(c.opts.model, undefined, 'args.models.verify was omitted -> no model in opts')
     assert.equal(c.opts.effort, EFFORTS.verify, 'args.efforts.verify WAS provided -> effort is still set')
+    assert.equal(c.opts.label, `${c.label} [inherit/${EFFORTS.verify}]`, 'an unset model reads inherit in the label tag')
   }
 })
 

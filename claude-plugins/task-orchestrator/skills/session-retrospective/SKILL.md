@@ -129,7 +129,7 @@ beside the figures when `rewrites` is not small.
 adapter=claude-workflow run=r-20260928-b2d seats=planner:opus,implementer:sonnet,declarations-extractor:sonnet,test-author:sonnet,reviewer:opus model=sonnet isolation=worktree:.claude/worktrees/feat-b2-front-door agents=5 tokens=412800 duration=1860000 deferred=0 in-run-edges=1 orchestrator-turns=3
 ```
 
-`tokens=` / `duration=` may read `see:<short>`: the run total lives on that item, so count it once and never sum it per item (in the per-run table show the run's first-item value, never a `see:` reference). An optional second line `extra-seats=<seat>:<model>:<tokens>,...` lists seats dispatched outside the run; score each like a `seats=` pair, typing the seat after stripping a trailing fix-cycle suffix `-a<n>` (`reviewer-a1` scores as reviewer). **Legacy form:** free-form prose naming model and isolation, parsed as before; a run mixing both forms scores both.
+Optional effort tails: `efforts=<seat>:<effort>,...` (`low`/`medium`/`high`/`xhigh`/`max`; a seat absent from it had none recorded), `effort-source=transcript|assigned|mixed` (`transcript`: read from the seat's own transcript, the effort it actually ran at; `assigned`: the plan's dispatch effort only, which proves nothing about the run), and `effort-substituted=<seat>:<requested>,...` (seats whose observed effort differs from the assigned one). `tokens=` / `duration=` may read `see:<short>`: the run total lives on that item, so count it once and never sum it per item (in the per-run table show the run's first-item value, never a `see:` reference). An optional second line `extra-seats=<seat>:<model>:<tokens>,...` lists seats dispatched outside the run; score each like a `seats=` pair, typing the seat after stripping a trailing fix-cycle suffix `-a<n>` (`reviewer-a1` scores as reviewer). **Legacy form:** free-form prose naming model and isolation, parsed as before; a run mixing both forms scores both.
 
 ---
 
@@ -143,6 +143,7 @@ If `delegation-metadata` notes exist, cross-reference the expected model: `haiku
 
 - Flag misalignments (opus for bulk ops, haiku for architecture), scored per seat delegation for a structured note (one score per `seat:model` pair).
 - A `substituted=` field is an allowlist substitution, not a misalignment. A `model-source=self-report` field is noted separately and not folded into the misalignment count.
+- Report effort beside model: list each `seat:model/effort` (from `efforts=`; `-` when unset) in the per-run table with its `effort-source`, and the distribution of efforts per seat type across runs. Effort is not scored against an expected value; flag it as a finding for 5b when a pattern stands out (a seat type always at `max`, a review seat below `medium`, an effort set on a seat whose model was substituted) so a trend can form over sessions. Every `effort-substituted=` entry is a dispatch-versus-runtime mismatch and is always a finding; a run whose lines all read `effort-source=assigned` is noted as "effort not observed" (the post-run `dispatch-meta` step was skipped).
 - **Score:** fraction of delegations matching the expected model. With no `delegation-metadata`, note "delegation metadata not recorded" and skip scoring.
 
 With at least one structured line, show a per-run table before 3c: `| adapter | run | agents | tokens | duration | orchestrator-turns |`.
