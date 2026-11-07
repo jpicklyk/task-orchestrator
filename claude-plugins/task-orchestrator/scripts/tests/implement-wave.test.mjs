@@ -348,6 +348,7 @@ test('S1: independent items are scheduled inside one shared parallel() — item 
   await waitUntil(() => pending().includes(`implementer:${itemA.short}`), { label: 'implementer:A pending' })
   const implACall = calls.find((c) => c.label === `implementer:${itemA.short}`)
   const implAt0 = implACall.t0
+  assert.match(implACall.opts.label, /^implementer:[A-Za-z0-9]+ \[(inherit|[a-z]+)(\/[a-z]+)?\]$/, 'the runtime label carries a [model/effort] tag')
 
   assert.ok(
     pending().includes(`planner:${itemB.short}`),

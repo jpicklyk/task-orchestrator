@@ -856,6 +856,17 @@ test('S13: run-exec-lib provenance() defaults model-source to self-report and ad
   assert.match(line, /orchestrator-turns=2\b/)
 })
 
+test('efforts: provenance() records each stage dispatch effort as efforts=<seat>:<effort> and omits the token when no stage sets one', () => {
+  const { doc, item, result } = provenanceFixture('r-test-0010')
+  const none = provenance({ core: realCore(), doc, result, method: 'A', turns: 1 })[item.id]
+  assert.ok(!none.includes('efforts='), none)
+  const stages = doc.args.items[0].stages.map((s) => (s.seat === 'implementer' ? { ...s, dispatch: { ...s.dispatch, effort: 'high' } } : s))
+  const withEffort = { ...doc, args: { ...doc.args, items: [{ ...doc.args.items[0], stages }] } }
+  const line = provenance({ core: realCore(), doc: withEffort, result, method: 'A', turns: 1 })[item.id]
+  assert.match(line, / efforts=implementer:high(\s|$)/, line)
+  assert.ok(line.indexOf('model-source=') < line.indexOf('efforts='), 'efforts= is a tail after model-source=')
+})
+
 test('S13: run-exec-lib provenance() uses adapter=claude-agent for method B', () => {
   const { doc, item, result } = provenanceFixture('r-test-0008')
   const lines = provenance({ core: realCore(), doc, result, method: 'B', turns: 1 })

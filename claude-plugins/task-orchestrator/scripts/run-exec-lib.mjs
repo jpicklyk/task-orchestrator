@@ -1358,7 +1358,8 @@ export function notesAudit(doc, observed, itemIds, opts) {
  * deferred = result.deferred.length + args.deferred.length. in-run-edges =
  * doc.meta.inRunEdges.length. orchestrator-turns = turns. substituted lists seats whose meta
  * model differs from stage.dispatch.model. model-source is 'meta' only when every seat's
- * model came from meta, else 'self-report'.
+ * model came from meta, else 'self-report'. efforts lists each seat whose stage dispatch set an
+ * effort (the ASSIGNED effort: no runtime reports the effort it ran at), omitted when none did.
  */
 export function provenance({ core, doc, result, method, turns, usage, meta, journal, extraSeats, item: onlyItem }) {
   const out = {}
@@ -1372,6 +1373,7 @@ export function provenance({ core, doc, result, method, turns, usage, meta, jour
     const resultStages = (resItem && resItem.stages && resItem.stages.length > 0) ? resItem.stages : item.stages
     const seats = []
     const substituted = []
+    const efforts = []
     let anyFromMeta = false
     let anySelfReport = false
 
@@ -1391,6 +1393,7 @@ export function provenance({ core, doc, result, method, turns, usage, meta, jour
         anySelfReport = true
       }
       seats.push({ seat, model })
+      if (stageDef.dispatch && stageDef.dispatch.effort) efforts.push({ seat, effort: stageDef.dispatch.effort })
       const requested = stageDef.dispatch && stageDef.dispatch.model
       if (requested && model !== requested) substituted.push({ seat, requested })
     }
@@ -1427,6 +1430,7 @@ export function provenance({ core, doc, result, method, turns, usage, meta, jour
     if (substituted.length > 0) fields.substituted = substituted
     fields.modelSource = anyFromMeta && !anySelfReport ? 'meta' : 'self-report'
     if (journal) fields.journal = journal
+    if (efforts.length > 0) fields.efforts = efforts
     if (doc.args.serverRunId) fields.extra = { 'server-run': doc.args.serverRunId }
 
     out[item.id] = formatProvenance(fields)
@@ -2230,13 +2234,14 @@ function execProvenance(argv, io) {
   if (metaDir) {
     // O3: '<seat>:<short>.meta.json' is not a legal filename on NTFS (':' is reserved), so the
     // dir is listed and each *.meta.json file's own `label` field (frozen shape
-    // {label:'<seat>:<short>', model}) supplies the key instead of the filename.
+    // {label:'<seat>:<short>', model}) supplies the key instead of the filename. A label copied
+    // from the workflow pane carries the display tag ' [<model>/<effort>]'; it is stripped here.
     meta = {}
     const names = (io.listDir ? io.listDir(metaDir) : []).filter((n) => n.endsWith('.meta.json'))
     for (const name of names) {
       const p = `${metaDir}/${name}`.replace(/\\/g, '/')
       const parsed = io.readInput(p)
-      if (parsed && parsed.label) meta[parsed.label] = parsed
+      if (parsed && parsed.label) meta[String(parsed.label).replace(/ \[[^\]]*\]$/, '')] = parsed
     }
   }
   const extraFlag = flagValue(argv, '--extra-seats')

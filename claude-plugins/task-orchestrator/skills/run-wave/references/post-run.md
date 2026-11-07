@@ -250,7 +250,9 @@ run report instead.
    (`{"items": {"<short>": {"tokens": N, "duration": N}}}`); omit it otherwise (tokens/duration read
    `unknown`). Pass `--meta-dir` when per-seat `*.meta.json` files with the actually-reported model
    exist (gives `model-source` other than `self-report`); otherwise the line falls back to each
-   stage's self-reported `modelReported`. A bound plan appends `server-run=<uuid>` after the fixed
+   stage's self-reported `modelReported`. When any stage's dispatch set an `effort`, the line
+   carries an `efforts=<seat>:<effort>,...` tail (the assigned effort; no runtime reports the effort
+   it ran at). A bound plan appends `server-run=<uuid>` after the fixed
    fields. This line is what the session-retrospective skill's structured-provenance parser reads —
    do not hand-write it, and do not reorder its fields.
 

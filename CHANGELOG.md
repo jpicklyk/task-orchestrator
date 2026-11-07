@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Plugin
+
+- **Dispatch labels show the assigned model and effort.** Every `implement-wave`, `review-wave`, `audit` and `retro-analysis` agent label ends with ` [<model>/<effort>]` (`[<model>]` without an effort, `[inherit]` when no model was set), so the workflow pane and background-task list show what each seat was assigned; the orchestrate skill asks the same tag of every direct Agent `description`, and Method B dispatch names it. The `delegation-metadata` provenance line gains an optional `efforts=<seat>:<effort>,...` tail (after `journal=`), and the session retrospective reports effort beside model in delegation alignment.
+
 ## [4.0.0] - 2026-11-07
 
 ### Upgrading from 3.x

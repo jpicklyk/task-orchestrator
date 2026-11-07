@@ -42,10 +42,21 @@ const VERIFY_LENS_INSTRUCTIONS = {
 }
 
 /** agentOpts(plan, phaseKey, base) -> base merged with model/effort from plan.models[phaseKey]/plan.efforts[phaseKey] when set */
+/**
+ * dispatchTag({model?, effort?}) -> '[<model>/<effort>]' | '[<model>]' | '[inherit]'. The label
+ * suffix that shows the assigned model and effort wherever the label is displayed (the workflow
+ * pane, the background-task list); 'inherit' makes an unset model visible instead of silent.
+ */
+function dispatchTag(d) {
+  const model = d && d.model ? d.model : 'inherit'
+  return d && d.effort ? `[${model}/${d.effort}]` : `[${model}]`
+}
+
 function agentOpts(plan, phaseKey, base) {
   const opts = Object.assign({}, base)
   if (plan.models && plan.models[phaseKey]) opts.model = plan.models[phaseKey]
   if (plan.efforts && plan.efforts[phaseKey]) opts.effort = plan.efforts[phaseKey]
+  opts.label = `${base.label} ${dispatchTag(opts)}`
   return opts
 }
 
