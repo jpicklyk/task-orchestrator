@@ -647,7 +647,7 @@ queue --(start)--> work --(start)--> review --(start)--> terminal
 
 - **Keep it lean.** 2-3 required notes per phase is the practical maximum before agents find workarounds
 - **Queue gates = pre-work contract.** Requirements, design, root cause - filled before agents touch code
-- **Work gates = evidence of completion.** Implementation notes, test results - filled after implementation
+- **Work gates = evidence of completion.** Implementation notes (what the diff does not say), verification evidence - filled after implementation
 - **Review phase is optional.** Only add `role: review` notes for genuine deploy/verify/sign-off steps
 - **Optional notes are reminders.** `required: false` notes appear in `expectedNotes` without blocking
 - **Use `type` for schema selection, tags for categorization.** Tags never select a schema.
