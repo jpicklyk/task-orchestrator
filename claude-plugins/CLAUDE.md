@@ -12,6 +12,7 @@ forced cache refresh — see "Plugin Discovery and Cache Refresh" below. No vers
 |--------|-----------|-----------------|
 | `task-orchestrator` | `claude-plugins/task-orchestrator/` | `4.0.0` |
 | `task-orchestrator-mod` | `claude-plugins/task-orchestrator-mod/` | `0.2.0` |
+| `director-indicator` | `claude-plugins/director-indicator/` | `0.1.0` |
 
 > Updated automatically by `/prepare-release`. Do not bump manually.
 
@@ -94,3 +95,5 @@ blocks (`{tool, select|op, args, profile?}`) validated against the catalog.
 - For development, skip the cache: `--plugin-dir` or `CLAUDE_CODE_PLUGIN_DIRS` watch the folder, and a save reloads the module. A reload re-runs `register` and `session.start` and resets module variables; `$.state` and `$.store` survive.
 - A plugin-authoring dev-mods folder is a COPY, not a link. Re-sync it after edits and check it with `diff -rq`. The "Enable hot reloading?" answer is the switch.
 - Never load two copies at once (marketplace plus dev).
+
+`director-indicator` ([README](director-indicator/README.md)) is a second, standalone mod with the same loading and refresh rules. It shares no code or state with `task-orchestrator-mod`; keep it that way (a feature for one never lands in the other). Its CI is `.github/workflows/director-indicator.yml`, running the same gate script on its folder with a CLI pinned at 2.1.317 (the `Backdrop` component).

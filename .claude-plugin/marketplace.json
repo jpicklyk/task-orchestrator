@@ -38,6 +38,36 @@
       "tags": ["claude-code-mods", "work-graph", "mcp-server", "early-access"],
       "source": "./claude-plugins/task-orchestrator-mod",
       "strict": true
+    },
+    {
+      "name": "director-indicator",
+      "version": "0.1.0",
+      "description": "Opt-in Claude Code mod that marks a Task Orchestrator director-mode session: a director footer label, a tinted desktop backdrop and enter/exit toasts (early-access function-hooks API)",
+      "author": {
+        "name": "Jeff Picklyk",
+        "url": "https://github.com/jpicklyk"
+      },
+      "homepage": "https://github.com/jpicklyk/task-orchestrator",
+      "repository": "https://github.com/jpicklyk/task-orchestrator",
+      "license": "MIT",
+      "keywords": [
+        "claude-code-mods",
+        "task-management",
+        "workflow",
+        "mcp",
+        "claude-code",
+        "director",
+        "function-hooks"
+      ],
+      "category": "productivity",
+      "tags": [
+        "claude-code-mods",
+        "director",
+        "mcp-server",
+        "early-access"
+      ],
+      "source": "./claude-plugins/director-indicator",
+      "strict": true
     }
   ]
 }
