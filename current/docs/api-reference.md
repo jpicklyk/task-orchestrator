@@ -151,8 +151,10 @@ kind `shedding`, `retryAfterMs`). A `properties` object carrying a `traits` key 
 
 **Scope.** Every item an element touches is checked against the caller's scope before any write: the target of
 `update` and `delete`, a `parentId` (create) or the new parent (a reparent). A root create is `forbidden` under a root
-scope (the new id cannot be a listed root) and, under a tag scope, needs a listed tag in `tags`; `clear: ["parentId"]`
-under a root scope is allowed only when the item itself is a listed root. Under a restricted scope an id that
+scope (the new id cannot be a listed root) and under a tag scope, and so is moving an item to the top level
+(`clear: ["parentId"]` on a non-root item), unless the caller holds `admin`; clearing the parent of an item that already
+is a root is a no-op. Under a tag scope the tags a write produces are checked too: a `create` needs a listed tag in `tags`,
+and an `update` that sends `tags` may add or remove only listed tags and must keep one (`forbidden`, scope `tag`). Under a restricted scope an id that
 resolves to nothing the caller may see is `forbidden` (scope is no existence oracle), and an ambiguous prefix lists only
 the candidates the scope admits (the shared `items_read` "Ids" rule, Q32).
 
@@ -210,8 +212,9 @@ already-adopted document (`duplicate`, kind `document`), an anchor miss (`invali
 `not_found`.
 
 **Scope.** The whole tree hangs under one anchor, which is the only check: `root.id` (attach) or `parentId` must be
-admitted; a top-level root create is `forbidden` under a root scope and, under a tag scope, needs a listed tag in
-`root.tags`. A `docRef.rootId` is never looked up: it is matched against the tree's own root, so a foreign or
+admitted; a top-level root create is `forbidden` under a root scope or a tag scope (unless the caller holds `admin`). Under a
+tag scope every row the tree creates, a created root and each child, needs a listed tag in its `tags` (`forbidden`, scope
+`tag`); an attached root is an existing row and is not tag-checked again. A `docRef.rootId` is never looked up: it is matched against the tree's own root, so a foreign or
 unknown id is the same `invalid_request` on `/docRef/rootId`.
 
 #### `complete_tree`

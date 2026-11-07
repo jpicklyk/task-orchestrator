@@ -285,6 +285,15 @@ root in `items_write` `create_tree`) and moving an item to the top level (`clear
 holds `admin` (`detail.required` is the listed roots, empty for a tag-only token). Clearing the parent of an item
 that already is a root stays a no-op. A reparent under another parent is checked against the new parent.
 
+A `tags_include` token is also checked against the tags a write produces, not only the stored tags of the rows it
+touches. The new row of an `items_write` `create`, and every row of a `create_tree` (a created root and each child; an
+attached root is an existing row), must carry at least one listed tag; an `update` that sends `tags` may add or remove
+only listed tags and must leave at least one on the item (an update that omits `tags` keeps them and is unaffected). A
+write that breaks the rule is `forbidden` with `detail.scope` `tag` and nothing is written, so a tag-scoped token
+cannot move an item into another tenant's tags, create a child for another tenant, or create a row it could not read
+back. The accepted cost is that such a token cannot add or remove a tag outside its list, descriptive tags included.
+There is no `admin` exception (the stored-tag check has none either).
+
 **A collection never turns a tag-scope mismatch into `403`.** A tag-scoped caller whose scope matches
 nothing on a collection (an `items_read` `list`, `search`, `overview` or `related` page, `GET /items/{id}/children`,
 `ancestors`, an `items_read` `history` page) gets `200 OK` with an empty or partially filtered result; `403` is

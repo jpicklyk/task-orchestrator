@@ -50,6 +50,28 @@ object ScopeGuard {
         return Outcome.Ok(Unit)
     }
 
+    /**
+     * The tag half of scope applied to the tags a write PRODUCES ([check] only sees stored, pre-write tags).
+     * [before] is the item's stored CSV tags (null for a create), [after] the CSV tags the write sets. Under a tag
+     * restriction the write is `forbidden` (tag scope) when it adds or removes any tag outside the listed ones
+     * (symmetric difference), or when the resulting tags carry no listed tag (the writer could not read its own
+     * row). No tag restriction admits everything with no work. Pure: no repository read.
+     */
+    fun checkTagWrite(
+        scope: AccessScope,
+        before: String?,
+        after: String?
+    ): Outcome<Unit> {
+        if (scope.tagsInclude.isEmpty()) return Outcome.Ok(Unit)
+        val old = splitTags(before)
+        val new = splitTags(after)
+        val foreign = ((old - new) + (new - old)).filter { it !in scope.tagsInclude }
+        if (foreign.isNotEmpty() || new.none { it in scope.tagsInclude }) {
+            return Outcome.Err(forbidden(ForbiddenScope.TAG, scope.tagsInclude))
+        }
+        return Outcome.Ok(Unit)
+    }
+
     /** The error for a missing item or a lookup fault: the root restriction when there is one, else the tag one. */
     private fun forbiddenFor(scope: AccessScope): DomainError =
         scope.rootIds?.let { forbidden(ForbiddenScope.ROOT, it.map { id -> id.toString() }) }

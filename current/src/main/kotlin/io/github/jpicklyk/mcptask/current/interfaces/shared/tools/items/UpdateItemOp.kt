@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
 import io.github.jpicklyk.mcptask.current.application.service.ItemPatchCommand
 import io.github.jpicklyk.mcptask.current.application.service.ParentChange
 import io.github.jpicklyk.mcptask.current.application.support.IdRef
+import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -146,6 +147,10 @@ private suspend fun WriteScope.updateItem(
         (checkItemScope(env, ctx, newParent) as? Outcome.Err)?.let { return it }
     } else if (newParent == null && clearParent && existing.parentId != null && !ctx.rootWritesAllowed) {
         return Outcome.Err(rootWriteForbidden(ctx))
+    }
+    // A tag rewrite is checked against the tags it produces; an update that omits tags keeps them.
+    if (req.tags != null) {
+        (ScopeGuard.checkTagWrite(ctx.scope, existing.tags, joinTags(req.tags)) as? Outcome.Err)?.let { return it }
     }
 
     val command =
