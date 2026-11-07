@@ -160,7 +160,11 @@ class RootCreateUnderScopeTest {
             val plain = twTree(twRoot("NewTree"), listOf(twChild("c")))
             assertForbidden(k.callScoped(rootScoped, plain).errorAt(), "root", r1.toString())
 
-            val tagged = twTree(twRoot("TaggedTree", extra = listOf("tags" to strings("alpha"))), listOf(twChild("c")))
+            val tagged =
+                twTree(
+                    twRoot("TaggedTree", extra = listOf("tags" to strings("alpha"))),
+                    listOf(twChild("c", extra = listOf("tags" to strings("alpha"))))
+                )
             assertForbidden(k.callScoped(tagScoped, tagged).errorAt(), "root", "")
             assertForbidden(k.callScoped(rootScoped, tagged).errorAt(), "root", r1.toString())
             assertEquals(before, k.snapshot(), "no work_items, notes, dependencies or events row changed")
