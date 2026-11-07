@@ -9,7 +9,7 @@ mcpSdk = "0.13.0"
 
 # Ktor (pinned to match MCP SDK 0.13.0's bundled version; keep the two in step — the SDK's SSE
 # routing is compiled against one Ktor minor. >= 3.4.1 closes CVE-2026-68762.)
-ktor = "3.4.3"
+ktor = "3.6.1"
 
 # Database
 sqlite = "3.53.4.0"
@@ -20,7 +20,7 @@ hikaricp = "7.1.0"
 # Logging
 slf4j = "2.0.17"
 
-logback = "1.5.32"
+logback = "1.5.38"
 
 # kotlin-logging-jvm: transitive runtime dep of the MCP SDK (io.github.oshai:kotlin-logging-jvm),
 # NOT a direct dependency we choose to add — pinned here (compileOnly) only so
@@ -53,10 +53,10 @@ jsonSchemaValidator = "1.5.9"
 jacksonBom = "2.21.7"
 
 # JWT / JWKS
-nimbusJoseJwt = "10.3"
+nimbusJoseJwt = "10.10"
 
 # Bouncy Castle (test-only — provides Ed25519/OKP crypto backend for nimbus-jose-jwt tests)
-bouncyCastle = "1.80"
+bouncyCastle = "1.86"
 
 # Google Tink (runtime — required by nimbus-jose-jwt Ed25519Verifier for EdDSA support)
 googleTink = "1.18.0"
