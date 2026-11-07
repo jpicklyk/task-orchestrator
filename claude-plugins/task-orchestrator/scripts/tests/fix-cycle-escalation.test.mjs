@@ -5,7 +5,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -120,9 +120,9 @@ test('AC1: an effort above the ceiling is never lowered; the base effort falls b
   assert.equal(fallback.effort, 'high', 'implementation class medium, one level up')
 })
 
-test('AC1: the stop-and-report line is added only when an escalated cycle runs at xhigh', () => {
+test('AC1: the stop-and-report line is added only when an escalated cycle runs at the escalation ceiling', () => {
   const doc = makeDoc({ implEffort: 'medium' })
-  const line = execLib.XHIGH_STOP_LINE
+  const line = execLib.CEILING_STOP_LINE
   assert.equal(line, 'When the checks pass, stop and report; do not start further review rounds.')
   assert.equal(call(doc, 'implementer-a1', { cause: 'review' }).prompt.includes(line), false)
   assert.equal(call(doc, 'implementer-a2', { cause: 'review' }).prompt.includes(line), true)
@@ -143,6 +143,22 @@ test('AC1: a replay keeps the first recorded effort and cause; an older row gain
   const filled = execLib.reseat(core, doc, old, SHORT, 'implementer-a1', { cause: 'test', pre: PRE })
   assert.equal(filled.result.items[0].reseats[0].effort, 'high')
   assert.equal(filled.result.items[0].reseats[0].cause, 'test')
+})
+
+test('AC1: the stop-and-report line follows the policy ceiling, not a literal level', () => {
+  const policy = JSON.parse(readFileSync(join(HERE, '..', '..', 'dispatch-policy.json'), 'utf8'))
+  policy.escalation.ceiling = 'high'
+  const dir = mkdtempSync(join(tmpdir(), 'fix-ceiling-'))
+  const policyPath = join(dir, 'policy.json')
+  writeFileSync(policyPath, JSON.stringify(policy))
+  const line = execLib.CEILING_STOP_LINE
+  const doc = makeDoc({ implEffort: 'medium' })
+  const a1 = call(doc, 'implementer-a1', { cause: 'review', policyPath })
+  assert.equal(a1.effort, 'high')
+  assert.equal(a1.prompt.includes(line), true, 'high is the lowered ceiling')
+  const a2 = call(doc, 'implementer-a2', { cause: 'review', policyPath })
+  assert.equal(a2.effort, 'high')
+  assert.equal(a2.prompt.includes(line), true)
 })
 
 function cli(args) {

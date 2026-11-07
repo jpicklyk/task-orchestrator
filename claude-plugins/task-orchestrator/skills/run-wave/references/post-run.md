@@ -468,7 +468,7 @@ replacement. Only `review` and `test` on an implementer or test-author base esca
 `effort` is the base stage's dispatch effort raised one level per cycle and capped at the policy's
 `escalation.ceiling`; every other cause and base keeps the base effort. The output also carries
 `cause` and `ceilingReached` (true when the escalated cycle runs at the ceiling). Dispatch the seat
-with the Agent `effort` parameter set to that `effort`. At `xhigh` the prompt also tells the seat to
+with the Agent `effort` parameter set to that `effort`. At the escalation ceiling the prompt also tells the seat to
 stop and report once the checks pass. The prompt is the base stage's prompt under the `<seat>-a<n>`
 commit trailer, with no ENTRY block, the base seat's token file and END SEAT on a bound plan
 (`tokenFile` in the output), and a `FIX CYCLE A<n>` line. A test-author base on an item with a

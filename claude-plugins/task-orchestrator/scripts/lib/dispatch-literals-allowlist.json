@@ -1,0 +1,8 @@
+[
+  { "file": "skills/manage-schemas/references/config-format.md", "text": "review: { agent: task-orchestrator:reviewer, effort: high }", "comment": "syntax example of a trait override" },
+  { "file": "skills/manage-schemas/references/config-format.md", "text": "`work: {agent: X}` and a `default_traits` trait B declares", "comment": "precedence example" },
+  { "file": "skills/manage-schemas/references/config-format.md", "text": "B's `effort: high` is never folded in", "comment": "precedence example" },
+  { "file": "skills/manage-schemas/references/config-format.md", "text": "test-author: { agent: task-orchestrator:test-author, model: sonnet }", "comment": "seat override examples" },
+  { "file": "skills/manage-schemas/references/config-format.md", "text": "extractor:   { agent: null, model: sonnet, effort: low }", "comment": "seat override examples" },
+  { "file": "skills/session-retrospective/SKILL.md", "text": "adapter=claude-workflow run=r-20260928-b2d", "comment": "provenance line format example parsed by the retrospective" }
+]

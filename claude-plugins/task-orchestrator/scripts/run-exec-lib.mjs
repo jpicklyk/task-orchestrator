@@ -20,7 +20,7 @@ import { extractLastBalancedJson } from './ralph-lib.mjs'
 import { formatProvenance, formatExtraSeats, parseExtraSeats, fixCycleTokenWarnings, FIX_CYCLE_SEAT_RE } from './provenance-lib.mjs'
 import { formatCoordinatorReport, REPORT_EVENTS } from './lib/coordinator-report.mjs'
 // The dispatch policy is the one file read outside io: reseat escalates a fix cycle's effort with it.
-import { escalate, ceilingReached, forClass } from './lib/dispatch-policy.mjs'
+import { escalate, ceilingReached, forClass, loadPolicy } from './lib/dispatch-policy.mjs'
 import { policyClassFor } from './run-planner-lib.mjs'
 
 export const STATE_CONTRACT = 'run-wave/state-v1'
@@ -511,8 +511,8 @@ export const RESEAT_CAUSES = ['review', 'test', 'carry-in', 'breach']
 const ESCALATING_CAUSES = new Set(['review', 'test'])
 const ESCALATING_OUTPUTS = new Set(['implementer-v1', 'test-author-v1'])
 
-/** Anthropic's "stop and report when checks pass" line, added to a fix cycle that runs at xhigh. */
-export const XHIGH_STOP_LINE = 'When the checks pass, stop and report; do not start further review rounds.'
+/** Anthropic's "stop and report when checks pass" line, added to a fix cycle that runs at the escalation ceiling. */
+export const CEILING_STOP_LINE = 'When the checks pass, stop and report; do not start further review rounds.'
 
 function isAbsentDeclaration(text) {
   if (typeof text !== 'string') return true
@@ -531,7 +531,7 @@ function isAbsentDeclaration(text) {
  * else its policy class effort. ceilingReached is true when an escalating cycle runs at the ceiling
  * (a further failure goes to the decision path). The prompt is core.seatPrompt over a clone of the
  * base stage renamed to `seat` with enters:false, outs from the result item's outputs (keyed by base
- * seat), plus a FIX CYCLE line, XHIGH_STOP_LINE when an escalated cycle runs at xhigh, and the
+ * seat), plus a FIX CYCLE line, CEILING_STOP_LINE when an escalated cycle runs at the policy escalation ceiling, and the
  * Method B addendum on Method B plans. opts = {cause, declarations?, model?, tokens?, pre?,
  * assignment?, policyPath?}. On a bound run the reseat runs under the BASE seat's server assignment (the
  * orchestrator re-assigns the base seat first, which supersedes it as attempt n+1, and writes the new
@@ -600,7 +600,7 @@ export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
   const escalates = ESCALATING_CAUSES.has(cause) && ESCALATING_OUTPUTS.has(baseStage.output)
   const effort = escalates ? escalate(baseEffort, cycle, opts.policyPath) : baseEffort
   const atCeiling = escalates ? ceilingReached(baseEffort, cycle, opts.policyPath) : false
-  if (escalates && effort === 'xhigh') text += `\n${XHIGH_STOP_LINE}`
+  if (escalates && effort === loadPolicy(opts.policyPath).escalation.ceiling) text += `\n${CEILING_STOP_LINE}`
   if (isMethodB(doc)) text += `\n${methodBReturn(core, plan, stage)}`
 
   const baseDispatch = baseStage.dispatch && baseStage.dispatch.model

@@ -145,7 +145,9 @@ State how far to trust the figures: unknown-token seats are gaps, and runs from 
 
 - Loop tokens exceed 25% of the run's tokens.
 - The loop's share rose across the last three retrospectives (from the `fix-cycle-cost` trend's evidence notes).
-- Cycles at `xhigh` pass no more often than cycles at `high`.
+- Cycles at the escalation ceiling pass no more often than cycles one level below it.
+
+**First baseline.** The `fix-cycle-cost` trend has no history when this feature ships. Its first evidence note is a one-time baseline, written by the orchestrator after the feature merges (not by a retrospective run and not by the implementer): from the recent runs' `delegation-metadata` notes (the structured provenance line plus the `extra-seats` row), sum the `-a<n>` rows with cause `review` or `test` and divide by each run's total tokens, giving the loop-token share per run and across them, and record those figures as the trend's first evidence note. Rows without effort and cause (three-field) count toward tokens but not toward the by-effort pass rates; say so in the note.
 
 ---
 

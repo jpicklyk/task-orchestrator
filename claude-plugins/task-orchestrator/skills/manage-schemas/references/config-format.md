@@ -384,7 +384,7 @@ traits:
 | Phase key | - | One of `queue`, `work`, `review` only - exact lowercase match. Any other key (`terminal`, `blocked`, `Work`, an unrecognized string) rejects a push. |
 | `agent` | no* | Opaque string passed as `subagent_type` - never validated against any registry. |
 | `model` | no* | Opaque string passed as the Agent tool's `model` parameter. |
-| `effort` | no* | One of `low`, `medium`, `high`, `xhigh`, `max`, matched **case-sensitively** (`High` is invalid). Passed as the Agent tool's `effort` parameter - see "The Claude Code note" below. |
+| `effort` | no* | One of `low`, `medium`, `high`, `xhigh`, `max`, matched **case-sensitively** (`High` is invalid). Passed as the Agent tool's `effort` parameter - see "How effort reaches a dispatch" below. |
 
 \* At least one of `agent` / `model` / `effort` must be present (a phase map may instead carry only
 `seats:`, see "Seats"). An empty profile, an unknown profile field, or a non-string or blank field
@@ -425,28 +425,33 @@ and every phase you want to keep.
 | `items_read` `schema` | `dispatch: {"queue"\|"work"\|"review": {agent?, model?, effort?}}` - one entry per resolved phase |
 | `config` `effective` | each trait carries its `dispatch` (and `resources`) when declared; with a `rootId` the view is that root's config layered over the server's, without it the server's alone |
 
-### The Claude Code note - how effort reaches a dispatch
+### The policy underneath a profile
 
-The server only reports a profile's `effort`; the dispatcher applies it. Claude Code's Agent tool
-takes a per-invocation `effort` (v2.1.292+), so a dispatcher passes the profile's value there the
-same way it passes `model`. It overrides the agent definition's frontmatter `effort`
-(`effort: low|medium|high|xhigh|max`) and needs no `agent`, so a profile with `effort` and no
-`agent` still applies.
+A trait's dispatch profile is a per-trait override. When no trait supplies a field, the plugin's
+dispatch policy (`claude-plugins/task-orchestrator/dispatch-policy.json`, described by the
+`task-orchestrator:model-effort` skill) supplies it: each seat resolves to a class (planner,
+research, implementer, test author, reviewer and so on) with a default `model` and `effort`.
+A profile therefore needs to declare only a real override: a `model` or `effort` that differs
+from the class default. Repeating a class default in a trait adds nothing, and this repo's own
+config no longer does. A trait value of `null` for `model` or `effort` falls back to the class.
 
-With no value passed, the definition's frontmatter applies. With no frontmatter either, a dispatch
-runs at the session's level on the main conversation's model and at the model's default on any
-other, so set `effort` explicitly when a seat runs on a different model. `CLAUDE_CODE_EFFORT_LEVEL`
-and organization caps outrank all of these, and a level the model does not support runs at the
-highest supported level below it. Level names do not mean the same amount of work across models,
-so review a phase's `effort` when a trait changes that phase's model.
+### How effort reaches a dispatch
 
-The `implement-wave` workflow passes a seat's `effort` on its `agent()` call. A run-wave Method B
-run does not yet: its `next` entries carry no `effort`, so a Method B seat gets its definition's
-frontmatter. Clients that call the model API directly may apply a profile's `effort` field
-themselves. The plugin's agent definitions declare `effort` in their frontmatter (see `agents/`)
-and use `model: inherit` there, which is exactly why the
-caller must still pass `model` explicitly on every dispatch of the phase owner - `dispatch.model`
-when the profile sets one, otherwise its own model choice. See
+The server only reports a profile's `effort`; the dispatcher applies it. The dispatcher passes the
+profile's value (or the class default) as the Agent tool's `effort` parameter, the same way it passes
+`model`. The parameter overrides the agent definition's defaults and needs no `agent`, so a profile
+with `effort` and no `agent` still applies. The plugin's dispatch hook denies an Agent call that
+omits `model` or `effort`, and the plugin's agent definitions set neither, so every dispatch names
+both explicitly: the profile's value when it sets one, otherwise the class default from
+`task-orchestrator:model-effort`. `CLAUDE_CODE_EFFORT_LEVEL` and organization caps outrank the
+parameter, and a level the model does not support runs at the highest supported level below it.
+Level names do not mean the same amount of work across models, so review a phase's `effort` when a
+trait changes that phase's model.
+
+`implement-wave` passes a seat's `effort` on its `agent()` call and run-wave Method B `next`
+entries carry `effort` for the Agent call. A fix after a failed test or review runs one level above
+the original dispatch per cycle, capped at the policy's `escalation.ceiling`. Clients that call the
+model API directly may apply a profile's `effort` field themselves. See
 [`orchestrate`](../../orchestrate/SKILL.md) -> Dispatching an item's phase owner for the
 consumer-side rule, which applies in both orchestration modes and is followed identically by
 `schema-workflow` and orchestrator workflows such as a project's implementation skill outside

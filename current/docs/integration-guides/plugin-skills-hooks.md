@@ -94,17 +94,17 @@ When the state is "no config" or "config without rootId" and an orchestrator MCP
 
 **Script:** `dispatch-model-guard.mjs`. **Event:** `PreToolUse` on the `Agent` tool.
 
-**What it does:** denies a dispatch whose `model` is absent, empty or not a string. The shipped agents use `model: inherit`, so an omitted `model` silently runs the subagent on the caller's own model. The deny reason says to retry the same call with `model` set: in `workflow` mode it names the delegation table, in `schema` mode the item's dispatch profile. The value of `model` is not validated; the Agent tool owns that.
+**What it does:** denies a dispatch whose `model` or `effort` is absent, empty or not a string. The shipped agents set neither, so an omitted value silently runs the subagent at the caller's own model or effort. The deny reason names what is missing (`model`, `effort` or both) and says to retry the same call with it set, taking the values from the `task-orchestrator:model-effort` class table or the item's dispatch profile. The values are not validated; the Agent tool owns that.
 
 **Inert when:** the session is a headless ralph iteration, no `.taskorchestrator/config.yaml` can be located, `orchestration.mode` is `off`, or `model` is present. A subagent or director-session dispatch is still guarded: the check is on the dispatch, whoever makes it.
 
-**Effect:** every dispatch carries an explicit model. It fails open: any error emits `{}`.
+**Effect:** every dispatch carries an explicit model and effort. It fails open: any error emits `{}`.
 
 ### Dispatch Hint
 
 **Script:** `dispatch-hint.mjs`. **Event:** `PostToolUse` on `advance`.
 
-**What it does:** for each applied `transition` result element that entered `work` or `review`, injects one line as `additionalContext`: `↳ <itemId> now in <role>; dispatch profile: agent=<agent|none> model=<model> [effort=<effort>] - pass model explicitly`. The profile comes from the `dispatch` object already in the result, so there is no server call. When the profile has no model, `workflow` mode shows `table default` and `schema` mode shows `unset`; `effort=` appears only when the profile has one.
+**What it does:** for each applied `transition` result element that entered `work` or `review`, injects one line as `additionalContext`: `↳ <itemId> now in <role>; dispatch profile: agent=<agent|none> model=<model> effort=<effort|class default|unset> - pass model and effort explicitly`. The profile comes from the `dispatch` object already in the result, so there is no server call. When the profile has no model, `workflow` mode shows `table default` and `schema` mode shows `unset`; `effort=` always appears: `class default` in `workflow` mode and `unset` in `schema` mode when the profile has none.
 
 **Inert when:** the session is a headless ralph iteration, no config can be located, `orchestration.mode` is `off`, the call comes from a subagent or a run seat (only the dispatcher needs the hint), or no transition entered `work` or `review`. A 3.x-shaped result shows the legacy-shape warning once per session and hints nothing.
 
@@ -271,6 +271,10 @@ the caller's identity is the transport principal.
 
 A **run** is a server-side unit of work (`runs_write` / `runs_read`, see the Runs category of the [API reference](../api-reference.md)). The plugin has three consumers.
 
+### Model and effort policy
+
+Every dispatch (run-wave, `implement-wave`, ralph, coordinators, retrospective extractors) takes its `model` and `effort` from `dispatch-policy.json`, through `scripts/lib/dispatch-policy.mjs`; a trait's `dispatch` profile overrides it per field. A fix after a failed test or review (`run-planner reseat --cause review|test|carry-in|breach`) runs an implementer or test author one effort level higher per cycle, capped at `escalation.ceiling`; the output carries `effort`, `cause` and `ceilingReached`, the reseat ledger and the `extra-seats` provenance row record both, and the session retrospective reports the failure loop's cost. `defaultModels` in the run profile and frontmatter `effort` in the agent definitions are gone. A guard test (`hooks/tests/contract-dispatch-literals.test.mjs`) fails on a model alias or effort level used as a dispatch value outside the policy file and its allow-list.
+
 ### run-wave on server runs
 
 `/task-orchestrator:run-wave` resolves a frontier of ready items into a run plan (`scripts/run-planner.mjs`), then:
@@ -303,6 +307,8 @@ An altitude-safe `implement-wave` result carries counts, statuses, commit SHAs, 
 `/task-orchestrator:ralph` emits the `scripts/ralph-loop.mjs` invocation. The loop needs the REST API (`TASK_ORCHESTRATOR_API_URL`) and a project root, and opens ONE run per loop (a budget only from `--run-budget-tokens`, `--run-budget-usd` and `--max-attempts`, never a default cap). Each iteration selects the oldest ready item with `items_read` `next`, adds it to the run, assigns an `implementer` seat, claims the item under that seat's token and spawns a fresh `claude -p --worktree`; the token reaches the iteration only as a `0o600` file path (`TASK_ORCHESTRATOR_SEAT_TOKEN_FILE`). The seat is ended on every outcome, and the run is closed on exit. The iteration signals its result with a `RALPH_OUTCOME:` marker. There is no `--actor` flag.
 
 ### The retrospective on run marks
+
+A run labelled `<runId>-a<n>` (a fix-cycle run) always owes a retrospective in `dispatch` mode, whatever `dispatchThreshold` says.
 
 A retrospective is owed per closed run that has no `retro` mark. `runs_write` `close` triggers Retro Trigger, Retro Backstop checks at `Stop` via `runs_read` `unmarked: retro`, and the first `mark` wins. `/task-orchestrator:session-retrospective --run <runId>` takes the run's members from its ended seats and frontier. See [Self-Improving Workflow](self-improving-workflow.md).
 
@@ -342,6 +348,7 @@ These are triggered by hooks and the orchestration context, not invoked directly
 | `post-plan-workflow` | Post-plan hook (ExitPlanMode) | Materialize items from approved plan — work trees, dependencies, queue-phase notes |
 | `schema-workflow` | Orchestration context | Guide items through schema-defined note gates during implementation |
 | `orchestrate` | Orchestration context | On-demand tier classification, delegation model table and phase-owner dispatch rules |
+| `model-effort` | Every dispatch site | The dispatch policy: model and effort per class of work, effort tuning, escalation after a failed test or review (`dispatch-policy.json` is the only place a value is edited) |
 
 ---
 
