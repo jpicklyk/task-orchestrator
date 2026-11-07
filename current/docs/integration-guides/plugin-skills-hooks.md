@@ -96,7 +96,7 @@ When the state is "no config" or "config without rootId" and an orchestrator MCP
 
 **What it does:** denies a dispatch whose `model` or `effort` is absent, empty or not a string. The shipped agents set neither, so an omitted value silently runs the subagent at the caller's own model or effort. The deny reason names what is missing (`model`, `effort` or both) and says to retry the same call with it set, taking the values from the `task-orchestrator:model-effort` class table or the item's dispatch profile. The values are not validated; the Agent tool owns that.
 
-**Inert when:** the session is a headless ralph iteration, no `.taskorchestrator/config.yaml` can be located, `orchestration.mode` is `off`, or `model` is present. A subagent or director-session dispatch is still guarded: the check is on the dispatch, whoever makes it.
+**Inert when:** the session is a headless ralph iteration, no `.taskorchestrator/config.yaml` can be located, `orchestration.mode` is `off`, or both `model` and `effort` are present. A subagent or director-session dispatch is still guarded: the check is on the dispatch, whoever makes it.
 
 **Effect:** every dispatch carries an explicit model and effort. It fails open: any error emits `{}`.
 
@@ -104,7 +104,7 @@ When the state is "no config" or "config without rootId" and an orchestrator MCP
 
 **Script:** `dispatch-hint.mjs`. **Event:** `PostToolUse` on `advance`.
 
-**What it does:** for each applied `transition` result element that entered `work` or `review`, injects one line as `additionalContext`: `↳ <itemId> now in <role>; dispatch profile: agent=<agent|none> model=<model> effort=<effort|class default|unset> - pass model and effort explicitly`. The profile comes from the `dispatch` object already in the result, so there is no server call. When the profile has no model, `workflow` mode shows `table default` and `schema` mode shows `unset`; `effort=` always appears: `class default` in `workflow` mode and `unset` in `schema` mode when the profile has none.
+**What it does:** for each applied `transition` result element that entered `work` or `review`, injects one line as `additionalContext`: `↳ <itemId> now in <role>; dispatch profile: agent=<agent|none> model=<model> effort=<effort|class default|unset> - pass model and effort explicitly`. The profile comes from the `dispatch` object already in the result, so there is no server call. A value the profile does not set (`model` or `effort`) reads `class default` in `workflow` mode, meaning the work's class in `task-orchestrator:model-effort`, and `unset` in `schema` mode; `effort=` always appears.
 
 **Inert when:** the session is a headless ralph iteration, no config can be located, `orchestration.mode` is `off`, the call comes from a subagent or a run seat (only the dispatcher needs the hint), or no transition entered `work` or `review`. A 3.x-shaped result shows the legacy-shape warning once per session and hints nothing.
 

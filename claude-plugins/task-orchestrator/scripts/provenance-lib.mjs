@@ -250,13 +250,16 @@ export function parseExtraSeats(text) {
     .filter((s) => s.length > 0)
     .map((s) => {
       const parts = s.split(':')
-      if (parts.length === 5) {
+      // Five-field form, read from the right so a model id containing ':' still parses: the last
+      // three parts must be tokens (digits or 'unknown'), an effort ('' allowed) and a cause ('' allowed).
+      const n = parts.length
+      if (n >= 5 && /^(\d+|unknown)$/.test(parts[n - 3]) && /^[a-z]*$/.test(parts[n - 2]) && /^[a-z-]*$/.test(parts[n - 1])) {
         return {
           seat: unescapeValue(parts[0]),
-          model: unescapeValue(parts[1]),
-          tokens: parts[2] === 'unknown' ? 'unknown' : Number(parts[2]),
-          effort: unescapeValue(parts[3]),
-          cause: unescapeValue(parts[4]),
+          model: unescapeValue(parts.slice(1, n - 3).join(':')),
+          tokens: parts[n - 3] === 'unknown' ? 'unknown' : Number(parts[n - 3]),
+          effort: unescapeValue(parts[n - 2]),
+          cause: unescapeValue(parts[n - 1]),
         }
       }
       const first = s.indexOf(':')

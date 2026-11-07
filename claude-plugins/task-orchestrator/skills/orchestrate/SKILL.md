@@ -37,7 +37,7 @@ Classify every piece of work into a tier before starting; the tier decides how m
 |------|--------|-----------|----------|
 | Plan mode | skip | optional | required |
 | Queue notes | none required | fill per schema | fill per schema |
-| Implementation | orchestrator inline, no subagent, no delegation table | single subagent | parallel worktree agents |
+| Implementation | orchestrator inline, no subagent, no delegation metadata | single subagent | parallel worktree agents |
 | Review | inline (orchestrator) | separate agent | separate agent |
 
 Review applies only when the item's schema declares review-phase notes; otherwise work advances straight to terminal. Detect it from `newRole` in the `advance` result and skip review dispatch.

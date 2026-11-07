@@ -578,10 +578,10 @@ for the phase being dispatched INTO: if the orchestrator already called `advance
 the queue profile, not work's, so read `items_read` `schema` (`itemId`)'s per-phase
 `dispatch.work` map instead. When that profile names an `agent`, dispatch with
 `subagent_type = dispatch.agent`. Regardless of whether `agent` is set, still pass `model`
-explicitly — `dispatch.model` if set, else the table above. Pass `dispatch.effort`, when set, on
-the Agent tool's own `effort` parameter (Claude Code v2.1.292+); it overrides the dispatched
-agent's frontmatter `effort`. With no profile `effort`, omit the parameter and the frontmatter
-applies.
+explicitly — `dispatch.model` if set, else the work's class from `task-orchestrator:model-effort`.
+Likewise always pass `effort` on the Agent tool's own `effort` parameter: `dispatch.effort` if set,
+else the class's effort. The agent definitions declare no `effort`, so an omitted value runs at the
+model's default and `dispatch-model-guard` denies the call.
 
 **After implementation agents return:**
 

@@ -273,10 +273,17 @@ const DISPATCH_VALUE = '(?:haiku|sonnet|opus|fable|low|medium|high|xhigh|max)(?!
 const DISPATCH_RES = [
   new RegExp(String.raw`(?<![A-Za-z0-9_-])(model|effort)["']?\s*[:=]\s*["'` + '`' + String.raw`]?` + DISPATCH_VALUE, 'g'),
   new RegExp(String.raw`--(model|effort)(?:[ =]|["'],\s*)["'` + '`' + String.raw`]?` + DISPATCH_VALUE, 'g'),
+  // keyword, whitespace, quoted value: `model "sonnet"`
+  new RegExp(String.raw`(?<![A-Za-z0-9_-])(model|effort)\s+["']` + DISPATCH_VALUE, 'g'),
 ];
 
 // The scan's own source and the allow-list necessarily spell the shapes.
 const DISPATCH_SELF_EXEMPT = new Set(['scripts/lib/contract-checks.mjs', 'scripts/lib/dispatch-literals-allowlist.json']);
+
+/** dispatchLiteralsInLine(line) -> the dispatch-value spellings found in one line (exported for tests). */
+export function dispatchLiteralsInLine(line) {
+  return dispatchLiterals(line);
+}
 
 function dispatchLiterals(line) {
   const found = [];

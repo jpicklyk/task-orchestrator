@@ -843,7 +843,7 @@ Default: `workflow` - applied when the block or `mode` key is absent, or the val
 
 | Mode | Behavior |
 |------|----------|
-| `workflow` (default) | Full behavior: tier classification, delegation table, and dispatch rules. |
+| `workflow` (default) | Full behavior: tier classification, the `model-effort` class table, and dispatch rules. |
 | `schema` | No tiers and no model table; the item's resolved note schema alone drives the process. |
 | `off` | Every orchestration hook exits silently. |
 
