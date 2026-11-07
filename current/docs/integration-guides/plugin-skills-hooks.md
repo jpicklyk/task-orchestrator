@@ -466,7 +466,7 @@ If `guidanceKey` is absent, all required notes are filled. Proceed to step 6. Ot
 
 **6. Return results:**
 
-Commit all changes with a descriptive message. Report: (1) files changed with line counts, (2) test results summary, (3) any blockers. The orchestrator handles the terminal transition.
+Commit all changes with a descriptive message. Report: (1) deviations, decisions, not-done items and gotchas (the delta record), (2) the `Verified:` line, (3) any blockers. The orchestrator handles the terminal transition.
 
 ### Key rules
 
@@ -512,7 +512,7 @@ A `blocks` edge reads "from blocks to": the middleware and Redis items block the
 
 **6. Each subagent:**
 - Reads the item's role with `items_read` `context`, then sends `advance` `transition` `start` — queue to work
-- Reads `guidanceKey` (resolved via `items_read` `select: "schema"`) — fills `implementation-notes` and `session-tracking` notes
+- Reads `guidanceKey` (resolved via `items_read` `select: "schema"`) — fills `implementation-notes` and `session-tracking` notes (both are delta records: what the diff, log and CI do not hold)
 - Commits changes
 - Returns to the orchestrator
 

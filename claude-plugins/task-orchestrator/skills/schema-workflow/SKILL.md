@@ -94,7 +94,7 @@ If `expectedNotes` lists unfilled required notes, go back to Step 2. If `newRole
 | Phase | Typical purpose | Filled |
 |---|---|---|
 | queue | requirements, design, reproduction steps | during planning, before work |
-| work | implementation notes, test results | during or after implementation |
+| work | implementation deltas (deviations, decisions), verification | during or after implementation |
 | review | verdicts, deploy or verification notes | after implementation |
 
 Keys vary per schema; take them from `schema[]`, never from assumption.

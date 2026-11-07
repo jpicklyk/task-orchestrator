@@ -157,7 +157,8 @@ Step 5 of `/implement` for the agent template.
 When all children reach terminal:
 
 1. Final test + ktlint pass on the feature worktree.
-2. Fill parent feature's notes (implementation-notes, session-tracking). The orchestrator never
+2. Fill parent feature's notes (`implementation-notes` cross-child only, per the
+   `feature-implementation` schema guidance; `session-tracking` as the run record). The orchestrator never
    authors the parent `review-checklist`, whatever the child count: one independent
    `task-orchestrator:reviewer` (explicit `model`) over the feature range fills it (with 2+
    children per `run-wave` `post-run.md` Step 7b; with one child Step 7b does not apply, so

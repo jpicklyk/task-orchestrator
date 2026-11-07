@@ -119,9 +119,13 @@ After implementation agents return:
 {"tool":"notes_write","op":"upsert","args":{"itemId":"4b7d0e19","key":"implementation-notes","role":"work","body":"<content>"}}
 ```
 
-**What to write:** Key decisions made during implementation. Deviations from the plan.
-Any surprises (wrong class names, API differences, test isolation issues). Files changed with
-line counts. If an observation was fixed, reference its item ID.
+**What to write:** Cross-child record only, per the `feature-implementation` schema guidance:
+ordering or interface decisions made between children, a shared-worktree merge that changed a
+child's behaviour after its review, findings routed between children, and scope deferred to a
+follow-up feature. Never re-list the children's commits, files, test counts or findings; each
+child's notes hold them. When nothing crossed child boundaries, the whole body is
+`No cross-child decisions; each child's notes stand alone.`, which satisfies the gate. If an
+observation was fixed, reference its item ID.
 
 ### 2c. Fill `session-tracking`
 
@@ -131,9 +135,10 @@ line counts. If an observation was fixed, reference its item ID.
 
 **What to write:** Run `./gradlew :current:test` ONCE here, incrementally (no
 `--rerun-tasks`) — this is the orchestrator's single whole-suite run for the item; no seat
-ran it before you and the reviewer will not run it after. Report total count and any
-failures, new test classes or cases added, and a summary of what changed this session. This
-note comes from the `session-tracked` default trait and feeds `/session-retrospective`.
+ran it before you and the reviewer will not run it after. Record it as the `Verified:` line
+(`Verified: <command> green at <sha>`, or `red at <sha>` with the failing class names), not
+counts or a change summary. This note comes from the `session-tracked` default trait and feeds
+`/session-retrospective`.
 
 ### 2d. Advance to review
 

@@ -154,7 +154,8 @@ Run ONCE, via the lock helper, before committing:
   `<invocation> > "<scratchpad>\<name>.log" 2>&1; EXIT=$?` then read the log file.
 - `EXIT=0` → commit.
 - `EXIT≠0` and EVERY error names a file outside your owned list → record the foreign file(s) and
-  the error text under **Friction** in `implementation-notes`, commit anyway, and return. Do **not**
+  the error text under `Not done:` in `implementation-notes` and in your return (that note has no
+  Friction section), commit anyway, and return. Do **not**
   retry: the file belongs to another agent mid-flight and will change under you.
 - `EXIT≠0` with at least one error in a file you own → fix and re-run, **max 3 invocations
   total**. Still red on your own files: commit nothing, report the error verbatim, return.
@@ -244,7 +245,7 @@ Tightening changes this wave: `<per item — the tightened contract, or "none">`
 ## Docs
 
 Implementers do not edit `current/docs/**`, `README.md`, `CLAUDE.md` or `CHANGELOG.md`. List the
-exact edits your change requires under "Docs needed" in `implementation-notes`; a single
+exact edits your change requires under `Not done:` ("Docs needed") in `implementation-notes`; a single
 serialized docs seat makes them after the implementation wave, so two agents never write the same
 doc. The `CHANGELOG.md` `[Unreleased]` bullet belongs to the orchestrator or the docs seat, written
 once after the implementation wave and before review (`/implement` Step 4c), never to an implementer: parallel streams appending under the
@@ -268,8 +269,8 @@ Generated from the run plan (`stages[].notes` + `orchestratorNotes`).
 
 On a run member the orchestrator writes `delegation-metadata` and `session-tracking` under the
 coordinator token, final content written once in confirmed past tense (the only re-edits are the ones
-run-wave `references/post-run.md` Step 3 sanctions, the run-wave pointer line in `run-pointers` among them), copying the implementer's Friction lines into
-`session-tracking`; seats never write them.
+run-wave `references/post-run.md` Step 3 sanctions, the run-wave pointer line in `run-pointers` among them), copying the friction the implementer reported
+(its `Not done:` entries and return) into `session-tracking` `Friction:`; seats never write them.
 
 Take every limit and target from the item's RESOLVED schema (`items_read` `schema`,
 `itemId`, `fields: ["guidance"]` - each entry's `maxLength` and guidance text), not from this table and not
@@ -301,8 +302,7 @@ The last two rows keep every commit on the branch accounted for: a reviewer diff
 would otherwise meet docs and fixture-repair commits with no owner and read them as a boundary
 violation.
 
-Build state reviewers rely on: `<:current:test N tests / 0 failed and :current:ktlintCheck green
-at <sha> — the orchestrator's one wave run>`. Reviewers run no gradle — see the Compile self-check slot's "Who runs gradle" table.
+Build state reviewers rely on: `Build state: <:current:test and :current:ktlintCheck> green|red at <sha>` (no tally; the orchestrator's one wave run). Reviewers run no gradle — see the Compile self-check slot's "Who runs gradle" table.
 
 Seat token (reviewer): `<token file path from the dispatch, or "none (hand-dispatch outside a run)">`. A dispatch-issued token goes in the top-level `seatToken` of EVERY call this seat makes, reads included; it is never printed, committed, copied into a prompt or written to a note. A call answered `unauthenticated` means the seat was superseded or ended: halt and write nothing more. A hand-dispatch outside a run carries none.
 Pre-merge red-proof results (orchestrator-run in a scratch worktree, item tests only: the bug-fix

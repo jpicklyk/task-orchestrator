@@ -106,7 +106,7 @@ CLAUDE.md can instruct agents to fill specific note keys even without schema gat
 
 When creating a feature item, always fill these notes:
 - `feature-summary` (role: queue) — what the feature must do
-- `implementation-notes` (role: work) — how you built it
+- `implementation-notes` (role: work) — what the diff does not say (deviations, decisions, gotchas)
 - `review-checklist` (role: review) — test output and coverage
 ```
 

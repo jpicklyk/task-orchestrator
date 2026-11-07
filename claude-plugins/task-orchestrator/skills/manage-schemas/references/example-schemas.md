@@ -21,8 +21,8 @@ work_item_schemas:
       - key: implementation-notes
         role: work
         required: true
-        description: "Context handoff for downstream agents — deviations, surprises, decisions."
-        guidance: "Document decisions not in the feature-summary. Focus on what downstream agents need: deviations, API surprises, wrong assumptions, patterns affecting dependent work."
+        description: "Cross-child record - decisions, merges, carry-ins and deferrals no child's notes hold."
+        guidance: "Cross-child record only: what no child's notes can hold. `Decisions:` ordering or interface choices made between children; `Merges:` a shared-worktree merge that changed a child's behaviour after its review (what, which child, sha); `Carry-ins:` findings routed between children (from -> to, child ids); `Deferred:` scope deliberately left to a follow-up feature (item id). Never re-list the children's commits, files, test counts or findings; each child's notes and `orchestrator-confirmation` hold them. When nothing crossed child boundaries, the whole body is the one line `No cross-child decisions; each child's notes stand alone.` and that satisfies the gate. Target ~300-1200 characters; the 3000 maxLength is a backstop, not a goal."
       - key: review-checklist
         role: review
         required: true
@@ -49,7 +49,7 @@ Schema for child work items under a feature container. Lighter queue gate (task 
         role: work
         required: true
         description: "Context handoff — deviations, surprises, decisions affecting dependent work."
-        guidance: "Document decisions not in the task scope. Focus on what downstream agents need."
+        guidance: "A delta record for the next reader, not a change log: the diff, git log and CI already hold what changed, where, and whether tests pass. Sections, each omitted when empty: `Deviations:` where the code departs from task-scope and why (a conflict handed to a decision goes under `## Deviations requested`); `Decisions:` choices the plan did not make, each with the rejected option in one clause; `Not done:` scope left out or verification not run, each with the reason; `Gotchas:` what a reader of the diff would misread (an ordering constraint, a seam added for tests, a shared helper the change now leans on). Never: per-file narration of the change, commit lists beyond one `Commits: <sha or range>` line, acceptance criteria restated as met, test counts. When nothing applies, the whole body is the one line `No deviations; nothing a reader of the diff would miss.` and that satisfies the gate. In a fix cycle (-a<n> seat), rewrite this note in full to describe the current state; replace superseded text rather than appending an amendment section, and keep history to a final 'Amendments:' list with one line per A<n> (what changed, commit SHA). Target ~300-1200 characters; the 3000 maxLength is a backstop, not a goal."
 ```
 
 ## `bug-fix` (queue + work + review)
@@ -70,8 +70,8 @@ Root cause analysis before code, verification after.
       - key: implementation-notes
         role: work
         required: true
-        description: "Context handoff — what changed, deviations from diagnosis."
-        guidance: "Document what changed and why. Note if root cause differed from diagnosis."
+        description: "Delta record - deviations from the diagnosis, root-cause match, defect-class sites left."
+        guidance: "A delta record for the next reader, not a change log: the diff, git log and CI already hold what changed, where, and whether tests pass. Sections, each omitted when empty: `Deviations:` where the code departs from the diagnosis and why (a conflict handed to a decision goes under `## Deviations requested`); `Decisions:` choices the plan did not make, each with the rejected option in one clause, and whether the root cause matched the diagnosis (if not, what it was); `Not done:` scope left out or verification not run, each with the reason, and every defect-class site from the diagnosis that was left, with why; `Gotchas:` what a reader of the diff would misread (an ordering constraint, a seam added for tests, a shared helper the change now leans on). Never: per-file narration of the change, commit lists beyond one `Commits: <sha or range>` line, acceptance criteria restated as met, test counts. When nothing applies, the whole body is the one line `No deviations; nothing a reader of the diff would miss.` and that satisfies the gate. In a fix cycle (-a<n> seat), rewrite this note in full to describe the current state; replace superseded text rather than appending an amendment section, and keep history to a final 'Amendments:' list with one line per A<n> (what changed, commit SHA). Target ~300-1200 characters; the 3000 maxLength is a backstop, not a goal."
       - key: review-checklist
         role: review
         required: true
@@ -184,7 +184,7 @@ traits:
         role: work
         required: true
         description: "Session context — what was done, how it went, and anything the retrospective should know."
-        guidance: "Record what happened during implementation. Structure: **Outcome** (success/partial/failure), **Files changed** (list with rationale), **Deviations** (from spec/plan), **Friction** (tool errors, roundtrips, workarounds), **Gate interactions**, **Observations**, **Test results** (pass/fail counts). Keep it factual and concise — this feeds the session retrospective."
+        guidance: "Closure record for the retrospective: only what the diff, git log and CI do not already hold. Lines, in this order: `Outcome: success | partial | failure` (on an item with a review phase write `Outcome: implemented, review pending` and end the body with `Review: pending - verdict in <review-note key>`; `success` is reserved for items with no review phase); `Commits: <sha or range>` (one line; never a file list, the commits name their files); `Verified: <command> green at <sha> | not run (<why>)` (one line; never test counts, CI holds them); `Deviations: <what differed from the plan and why> | none`; `Friction: <type: description>, ... | none` (tool errors, round-trips, workarounds, API confusion); `Observations: <process signal worth a trend>` (omit when none); `Follow-ups: see orchestrator-confirmation` (never per-finding dispositions here). Lines the run tooling adds (`run-wave:` pointer fallback, `**Live-owed**:`) stay as they are. A clean item is five short lines. Target ~300-800 characters; the 2000 maxLength is a backstop, not a goal."
 
   needs-task-review:
     notes:
