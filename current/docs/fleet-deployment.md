@@ -237,7 +237,7 @@ per subject. Verified tokens and an unavailable key set (answered 503, WARN once
 claim logs one WARN on the `JwksApiVerifier` logger: `API JWT claim defect: claim=<claim>
 reason=<code> action=<rejected|ignored> suppressed=<n>`. The pairs are a closed set of constants:
 `to_scope` `not_object` or `malformed` (rejected), `payload` `duplicate_key` (rejected: an object key
-repeated at any depth of the verified payload), `to_kind` `not_string` or `unknown_value`
+repeated below the top level of the verified payload; a top-level repeat fails the claims parser first and logs no such line), `to_kind` `not_string` or `unknown_value`
 (rejected), `to_capabilities` `not_string_list` or `unknown_value` (ignored; one line per token
 however many elements were dropped). An unexpected fault in the verification pipeline logs `JWT
 verification fault: reason=internal suppressed=<n>` on the same logger. Each key

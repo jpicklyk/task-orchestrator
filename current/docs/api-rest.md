@@ -159,7 +159,7 @@ custom claims the issuer sets:
   WARN naming `to_capabilities`; if the claim is present but is not a string list, it is treated as
   absent (WARN logged) and the default `[read]` applies.
 
-Every one of these defects logs a WARN that names the claim. The line shapes and reason codes are in
+Every one of these defects logs a WARN that names the claim, except a key repeated at the top level of the payload, which the claims parser rejects first. The line shapes and reason codes are in
 [Fleet deployment: Logging](fleet-deployment.md#logging) ("API JWT claim defects and verifier faults").
 
 Unrecognized top-level JWT claims (added by the IdP) are ignored — only unrecognized keys nested
@@ -239,7 +239,7 @@ Tokens with `scope.root_ids` set can only access items within those project tree
 Tokens with `scope.tags_include` set are additionally restricted to items carrying at least one of
 the listed tags. Unlike `root_ids`, tag scope applies **item-level only** — there is no ancestor
 walk; the item's own `tags` column is checked against the (CSV-trimmed) allowlist for exact
-membership. An empty `tags_include` means no tag constraint. Both scope halves are enforced by the
+membership. An absent `tags_include` means no tag constraint; an empty list fails startup. Both scope halves are enforced by the
 one scope predicate (`ScopeGuard`) every tool, read route and the event stream use, so single-item and
 collection checks cannot drift apart.
 
