@@ -372,7 +372,15 @@ gradle" table for this; never paste a suite command into a seat prompt.
 
 The checked-in lock helper (`references/gradle-locked.ps1`) enforces the seat rows: it refuses
 `:current:test`, `:current:ktlintCheck` and `--rerun-tasks` unless `TO_GRADLE_OWNER=orchestrator`
-is set inline on the call, which only the orchestrator's own invocations do. The lock is a directory carrying `owner.json` (holder pid, start time, acquire time): a waiter prints `LOCK HELD by pid <p> since <iso>` while it waits and reclaims the lock (`LOCK RECLAIMED: <reason>`) when that pid is dead or reused, or, with no readable `owner.json`, once the directory is older than `TO_GRADLE_LOCK_STALE_MINUTES` (default 30); a live holder is never reclaimed by age. Evidence for the
+is set inline on the call, which only the orchestrator's own invocations do. The lock is a directory
+carrying `owner.json` (holder pid, start time, acquire time), taken by renaming a staged copy into
+place so it is never ownerless. A waiter prints `LOCK HELD by pid <p> since <iso>` while it waits
+and reclaims the lock (`LOCK RECLAIMED: <reason>`) when that pid is dead or reused. With no readable
+`owner.json` (absent or unparseable) it reclaims once the directory is older than
+`TO_GRADLE_LOCK_STALE_MINUTES` (default 30); an `owner.json` that cannot be read counts as a live
+holder, and a live holder is never reclaimed by age. In a mixed-version wave, worktrees on an old
+base can reclaim or delete each other's locks until every worktree carries this fix. Evidence for
+the
 rule: on `release/4.0` every seat was running the forced suite (~8,000 tests, 7+ minutes each) so
 a 1-4 hour item spent an hour or more in Gradle (retrospectives `7e698694`, `462a33bb`).
 
