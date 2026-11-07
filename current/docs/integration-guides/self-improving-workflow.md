@@ -58,11 +58,12 @@ work_item_schemas:
           Closure record for the retrospective: only what the diff, git log and CI do not already hold. Lines, in this order:
           `Outcome: success | partial | failure` (on an item with a review phase write `Outcome: implemented, review pending` and end the body with `Review: pending - verdict in <review-note key>`; `success` is reserved for items with no review phase);
           `Commits: <sha or range>` (one line; never a file list, the commits name their files);
-          `Verified: <command> green at <sha> | not run (<why>)` (one line; never test tallies, CI holds them);
+          `Verified: <command> green at <sha> | not run (<why>)` (one line; never test counts, CI holds them);
           `Deviations: <what differed from the plan and why> | none`;
           `Friction: <type: description>, ... | none` (tool errors, round-trips, workarounds, API confusion);
           `Observations: <process signal worth a trend>` (omit when none);
           `Follow-ups: see orchestrator-confirmation` (never per-finding dispositions here).
+          Lines the run tooling adds (`run-wave:` pointer fallback, `**Live-owed**:`) stay as they are.
           A clean item is five short lines. Target ~300-800 characters; the 2000 maxLength is a backstop, not a goal.
 ```
 
