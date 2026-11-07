@@ -718,7 +718,7 @@ work_item_schemas:
       - key: implementation-notes
         role: work
         required: true
-        description: "What was built and why"
+        description: "Delta record: what the diff, git log and CI do not hold (deviations, decisions, not-done, gotchas)"
 ```
 
 > **manage-schemas write operations must preserve this block untouched** - see the create/edit/delete workflow docs in this skill folder.
