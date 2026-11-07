@@ -1680,9 +1680,10 @@ function runHints(doc, phase) {
  *             opts.notes is a JSON object keyed by item id (full or short) whose value is an array of
  *             notes_read get data objects ({key, role, body, owner:{id, seat?}, version}) for the keys of
  *             that item's planner-v1 stage. A note already owned by the stage's seat is skipped; any other
- *             yields {op:'delete', itemId, key} then {op:'upsert', itemId, key, role, body, expectedVersion:0}.
+ *             yields {op:'delete', itemId, key, expectedVersion: note.version} then {op:'upsert', itemId, key, role, body, expectedVersion:0}.
  *             tokenFiles[i]: the upsert goes under the stage's seat token file; the delete under the same
- *             file on a seat-aware schema, null (token-less) when the item has an implicitOwner stage.
+ *             file on a seat-aware schema, null (token-less) when the item has an implicitOwner stage. opts.item (short or full id) renders only
+ *             that item (an id matching no plan item throws); an unresolved seat token file throws.
  *   close     runs_write close {runId, reason: closeReason(opts.result, opts.reason)}.
  * Throws 'invalid args: ...' on bad input.
  */
@@ -1794,7 +1795,9 @@ export function runOps(core, doc, opts = {}) {
     }
     const ops = []
     const tokenFiles = []
+    const only = opts.item ? findItem(plan, opts.item) : null
     for (const item of plan.items) {
+      if (only && item !== only) continue
       const stage = item.stages.find((s) => s.output === 'planner-v1')
       if (!stage) continue
       const id = item.id.toLowerCase()
@@ -1812,7 +1815,10 @@ export function runOps(core, doc, opts = {}) {
         if (!note || typeof note.key !== 'string' || !keys.includes(note.key)) continue
         if (note.owner && note.owner.seat === stage.seat) continue
         if (typeof note.body !== 'string') throw new Error(`invalid args: note ${note.key} of ${hit} has no string body`)
-        ops.push({ op: 'delete', itemId: item.id, key: note.key })
+        if (!file) throw new Error(`invalid args: no token file resolves for seat ${stage.seat} of item ${item.short}; adopt-notes never renders a token-less upsert`)
+        const del = { op: 'delete', itemId: item.id, key: note.key }
+        if (Number.isInteger(note.version)) del.expectedVersion = note.version
+        ops.push(del)
         tokenFiles.push(seatless ? null : file)
         ops.push({ op: 'upsert', itemId: item.id, key: note.key, role: note.role, body: note.body, expectedVersion: 0 })
         tokenFiles.push(file)
