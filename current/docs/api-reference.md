@@ -87,7 +87,9 @@ An element may carry an `idempotencyKey`: a repeated key replays the stored resu
 Placement (depth, root) is computed from the parent row inside the write unit; an item is created in `queue`, or
 lifecycle-free (no role) when its type's base schema is `lifecycle: none`, and there is no role field (use
 `advance`). A `terminal` parent under `auto` lifecycle accepts no new children and no reparent onto it
-(`invalid_transition`). See `config-reference.md` "Lifecycle-free items".
+(`invalid_transition`). A depth-0 item with an open or paused run is refused a move under another item with
+`invalid_request` (the run's `rootId` would name a non-root); close its runs first. See `config-reference.md`
+"Lifecycle-free items".
 
 | Op | Result (`results[i]`) |
 |---|---|
@@ -145,7 +147,7 @@ that blocked an unapplied cascade (`not_claim_holder`, `seat_forbidden`, `gate_b
 **Errors.** `invalid_request` / `unknown_parameter` (decoding; pointers like `/ops/0/type`), `not_found`,
 `ambiguous_id` (an 8-hex prefix matching several items), `version_conflict`, `cycle_detected` (reparent under a
 descendant), `schema_violation` (undeclared or blank `type`, undeclared trait; `detail.availableTypes` /
-`availableTraits`), `invalid_transition` (closed parent), `forbidden` (scope), `unavailable` (a per-root config fault:
+`availableTraits`), `invalid_transition` (closed parent), `invalid_request` (also a reparent of a root with an open or paused run), `forbidden` (scope), `unavailable` (a per-root config fault:
 kind `shedding`, `retryAfterMs`). A `properties` object carrying a `traits` key is `invalid_request` on `properties`
 (`traits` is its own field).
 
