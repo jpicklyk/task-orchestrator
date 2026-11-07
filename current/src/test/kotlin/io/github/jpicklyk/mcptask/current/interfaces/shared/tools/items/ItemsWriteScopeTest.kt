@@ -280,8 +280,8 @@ class ItemsWriteScopeTest {
                 "alpha"
             )
             assertEquals(before, k.snapshot())
-            val ok = k.callScoped(tagScoped, createOp("UnderC1", c1)).okId()
-            assertEquals(c1, assertNotNull(k.item(ok)).parentId, "control: a parent carrying the tag admits an untagged child")
+            val ok = k.callScoped(tagScoped, JsonObject(createOp("UnderC1", c1) + ("tags" to strings("alpha")))).okId()
+            assertEquals(c1, assertNotNull(k.item(ok)).parentId, "control: a tagged child under a parent carrying the tag is admitted")
         }
 
     // ------------------------------------------------------------------ S13 capability
