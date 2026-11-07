@@ -237,7 +237,7 @@ work_item_schemas:
       - key: session-tracking
         role: work
         required: true
-        description: "Brief record of what was changed and test results."
+        description: "One short paragraph: what the fix was and why that way, then the Commits and Verified lines."
 ```
 
 ### Complete Example Schema
@@ -255,8 +255,8 @@ work_item_schemas:
       - key: implementation-notes
         role: work
         required: true
-        description: "Context handoff for downstream agents — deviations, surprises, and decisions that affect dependent work."
-        guidance: "Document decisions made during implementation that weren't in the feature-summary. Focus on deviations from the plan, interface surprises, and assumptions that turned out wrong."
+        description: "Delta record for the next reader — deviations, decisions, not-done items and gotchas; never a change log."
+        guidance: "Record only what the diff, git log and CI do not hold: deviations from the plan and why, decisions the plan did not make, scope left out, and what a reader of the diff would misread. No per-file narration, commit lists or test counts. When nothing applies, write the one line: No deviations; nothing a reader of the diff would miss."
       - key: review-checklist
         role: review
         required: true
@@ -393,7 +393,7 @@ A create returns no schema decoration. Read the notes the item expects with the 
     "configSource": "per-root",
     "notes": [
       { "key": "feature-summary", "role": "queue", "required": true, "description": "Lean feature-level summary - goal, findings-to-tasks mapping, dependency edges, non-goals pointer.", "guidance": "Cover the goal in 2-3 sentences, a findings->tasks mapping, dependency edges between child tasks, and a pointer to where non-goals and alternatives are recorded." },
-      { "key": "implementation-notes", "role": "work", "required": true, "description": "Context handoff for downstream agents - deviations, surprises, and decisions that affect dependent work.", "guidance": "Document decisions made during implementation that weren't in the feature-summary. Focus on deviations from the plan, interface surprises, and assumptions that turned out wrong." },
+      { "key": "implementation-notes", "role": "work", "required": true, "description": "Delta record for the next reader - deviations, decisions, not-done items and gotchas; never a change log.", "guidance": "Record only what the diff, git log and CI do not hold: deviations from the plan and why, decisions the plan did not make, scope left out, and what a reader of the diff would misread. No per-file narration, commit lists or test counts. When nothing applies, write the one line: No deviations; nothing a reader of the diff would miss." },
       { "key": "review-checklist", "role": "review", "required": true, "description": "Quality gate - plan alignment, test quality, and simplification review.", "guidance": "Verify what was built aligns with the feature-summary, tests cover the test strategy, and any /simplify changes have test coverage." }
     ],
     "features": ["seats", "dispatchBySeat", "independent_of", "rules"]
