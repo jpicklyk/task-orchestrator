@@ -76,13 +76,133 @@ if ($gradleArgs.Count -eq 0) {
   exit 97
 }
 
+# The lock is a directory holding owner.json {pid, processStart, acquiredAt, worktree, tasks}, so a waiter can tell a
+# live holder from one that died without reaching `finally` (killed client, closed terminal, host crash). It is taken
+# by rename: the directory is staged as "$lock.new-<guid>" with owner.json already written, then moved onto $lock, so
+# a lock written by this version is never ownerless. A move onto an existing $lock throws and the caller waits.
+# STALE = the holder pid is not running, or that pid's StartTime is later than acquiredAt (pid reuse). A live pid is
+# never reclaimed by age. A lock with an absent or unparseable owner.json is stale only once its directory is older
+# than TO_GRADLE_LOCK_STALE_MINUTES (default 30; any other value warns and uses 30). An owner.json whose read throws
+# (held open by its writer) is re-read once after 1 s; a second failure counts as a live holder with unknown pid.
 $lock = Join-Path $env:TEMP "bugwave-gradle.lock"
-$acquired = $false
-for ($i = 0; $i -lt 600; $i++) {
-  try { New-Item -ItemType Directory -Path $lock -ErrorAction Stop | Out-Null; $acquired = $true; break }
-  catch { Start-Sleep -Seconds 5 }
+$ownerName = "owner.json"
+$timeoutMinutes = 50
+
+$staleMinutes = 30
+$rawBound = $env:TO_GRADLE_LOCK_STALE_MINUTES
+if (-not [string]::IsNullOrWhiteSpace($rawBound)) {
+  $parsedBound = 0
+  if ([int]::TryParse($rawBound.Trim(), [ref]$parsedBound) -and $parsedBound -gt 0) { $staleMinutes = $parsedBound }
+  else { Write-Output "WARN: TO_GRADLE_LOCK_STALE_MINUTES='$rawBound' is not a positive integer; using 30." }
 }
-if (-not $acquired) { Write-Output "LOCK TIMEOUT after 50 min"; Write-Output "EXIT=99"; exit 99 }
+
+# Returns @{ pid; acquiredAt (UTC DateTime) } for a readable owner.json, @{ error = $true } when the read itself throws,
+# else $null (absent, garbage, pid < 1, no time).
+function Read-LockOwner([string]$dir) {
+  $file = Join-Path $dir $ownerName
+  if (-not (Test-Path -LiteralPath $file)) { return $null }
+  try { $text = Get-Content -LiteralPath $file -Raw -ErrorAction Stop }
+  catch { if (Test-Path -LiteralPath $file) { return @{ error = $true } } else { return $null } }
+  try {
+    $o = $text | ConvertFrom-Json -ErrorAction Stop
+    $p = 0
+    if (-not [int]::TryParse([string]$o.pid, [ref]$p) -or $p -lt 1) { return $null }
+    $v = $o.acquiredAt
+    if ($v -is [datetime]) { $at = $v.ToUniversalTime() }
+    else {
+      $style = [System.Globalization.DateTimeStyles]::AdjustToUniversal -bor [System.Globalization.DateTimeStyles]::AssumeUniversal
+      $at = [datetime]::Parse([string]$v, [System.Globalization.CultureInfo]::InvariantCulture, $style)
+    }
+    return @{ pid = $p; acquiredAt = $at }
+  } catch { return $null }
+}
+
+# Classifies a lock directory: @{ state = gone|stale|live; reason; pid; since }.
+function Get-LockVerdict([string]$dir) {
+  if (-not (Test-Path -LiteralPath $dir)) { return @{ state = 'gone' } }
+  $o = Read-LockOwner $dir
+  if ($null -ne $o -and $o.error) {
+    Start-Sleep -Seconds 1
+    $o = Read-LockOwner $dir
+    if ($null -ne $o -and $o.error) {
+      $made = (Get-Item -LiteralPath $dir -ErrorAction SilentlyContinue).CreationTimeUtc
+      if ($null -eq $made) { return @{ state = 'gone' } }
+      return @{ state = 'live'; pid = 'unknown'; since = $made.ToString('o') }
+    }
+    if (-not (Test-Path -LiteralPath $dir)) { return @{ state = 'gone' } }
+  }
+  if ($null -ne $o) {
+    $since = $o.acquiredAt.ToString('o')
+    $proc = Get-Process -Id $o.pid -ErrorAction SilentlyContinue
+    if ($null -eq $proc) { return @{ state = 'stale'; reason = "holder pid $($o.pid) is not running"; pid = $o.pid; since = $since } }
+    $started = $null
+    try { $started = $proc.StartTime.ToUniversalTime() } catch { $started = $null }
+    if ($null -ne $started -and $started -gt $o.acquiredAt) {
+      return @{ state = 'stale'; reason = "pid $($o.pid) was reused (started $($started.ToString('o')), after the lock was taken $since)"; pid = $o.pid; since = $since }
+    }
+    return @{ state = 'live'; pid = $o.pid; since = $since }
+  }
+  $created = (Get-Item -LiteralPath $dir -ErrorAction SilentlyContinue).CreationTimeUtc
+  if ($null -eq $created) { return @{ state = 'gone' } }
+  $since = $created.ToString('o')
+  if (([datetime]::UtcNow - $created).TotalMinutes -gt $staleMinutes) {
+    return @{ state = 'stale'; reason = "no readable owner.json and the lock is older than $staleMinutes min"; pid = 'unknown'; since = $since }
+  }
+  return @{ state = 'live'; pid = 'unknown'; since = $since }
+}
+
+$acquired = $false
+$clock = [System.Diagnostics.Stopwatch]::StartNew()
+$lastNotice = $null
+while ($clock.Elapsed.TotalMinutes -lt $timeoutMinutes) {
+  # Stage the lock with its owner.json, then rename it into place; a throw means $lock exists.
+  $staging = "$lock.new-" + [guid]::NewGuid().ToString('N')
+  try {
+    New-Item -ItemType Directory -Path $staging -ErrorAction Stop | Out-Null
+    $me = Get-Process -Id $PID
+    $ownerDoc = [ordered]@{
+      pid = $PID
+      processStart = $me.StartTime.ToUniversalTime().ToString('o')
+      acquiredAt = [datetime]::UtcNow.ToString('o')
+      worktree = $Worktree
+      tasks = @($gradleArgs)
+    }
+    $ownerDoc | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $staging $ownerName) -Encoding UTF8 -ErrorAction Stop
+  } catch {
+    # Only our own staging directory is removed; $lock is never touched here.
+    Remove-Item -LiteralPath $staging -Force -Recurse -ErrorAction SilentlyContinue
+    Write-Output "REFUSED: could not write owner.json into the lock: $($_.Exception.Message)"
+    Write-Output "EXIT=96"
+    exit 96
+  }
+  try { [System.IO.Directory]::Move($staging, $lock); $acquired = $true; break }
+  catch {
+    Remove-Item -LiteralPath $staging -Force -Recurse -ErrorAction SilentlyContinue
+    $v = Get-LockVerdict $lock
+    if ($v.state -eq 'gone') { Start-Sleep -Seconds 1; continue }
+    if ($v.state -eq 'stale') {
+      # Move aside (atomic; a failed move means another waiter got there first), re-judge the moved copy, then delete or restore.
+      $aside = "$lock.stale-" + [guid]::NewGuid().ToString('N')
+      try { [System.IO.Directory]::Move($lock, $aside) } catch { Start-Sleep -Seconds 1; continue }
+      $again = Get-LockVerdict $aside
+      if ($again.state -eq 'stale' -and "$($again.pid)" -eq "$($v.pid)" -and $again.since -eq $v.since) {
+        Remove-Item -LiteralPath $aside -Force -Recurse -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $aside) { Write-Output "WARN: stale copy left at $aside" }
+        else { Write-Output "LOCK RECLAIMED: $($v.reason)" }
+      } else {
+        try { [System.IO.Directory]::Move($aside, $lock) }
+        catch { Write-Output "WARN: lock copy left at $aside" }
+      }
+      continue
+    }
+    if ($null -eq $lastNotice -or $clock.Elapsed.TotalSeconds - $lastNotice -ge 60) {
+      Write-Output "LOCK HELD by pid $($v.pid) since $($v.since)"
+      $lastNotice = $clock.Elapsed.TotalSeconds
+    }
+    Start-Sleep -Seconds 5
+  }
+}
+if (-not $acquired) { Write-Output "LOCK TIMEOUT after $timeoutMinutes min"; Write-Output "EXIT=99"; exit 99 }
 $gradlew = Join-Path $Worktree "gradlew.bat"
 try {
   if (-not (Test-Path $gradlew)) {
@@ -94,7 +214,11 @@ try {
     if ($null -eq $code) { $code = 1 }   # a launch failure is never a green run
   }
 } finally {
-  Remove-Item $lock -Force -Recurse -ErrorAction SilentlyContinue
+  # Release only a lock that still names this process; one reclaimed from us belongs to its new holder.
+  $mine = Read-LockOwner $lock
+  if ($null -ne $mine -and $mine.pid -eq $PID) {
+    Remove-Item -LiteralPath $lock -Force -Recurse -ErrorAction SilentlyContinue
+  }
 }
 if (Test-Path $Log) { Get-Content $Log -Tail 40 }
 Write-Output "EXIT=$code (log: $Log)"
