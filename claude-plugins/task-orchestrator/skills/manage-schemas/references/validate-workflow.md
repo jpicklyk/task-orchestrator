@@ -76,6 +76,7 @@ For each note in each schema (and trait):
 - `key` values must be unique within a schema (error if duplicated)
 - At least one note should have `required: true` (warn if all notes in a schema are optional — the schema has no gate effect)
 - `skill` values should reference skills that exist in the project (warn if unknown — not an error since skill availability varies)
+- `session-tracking` and `implementation-notes` guidance should not ask for a file list or test counts (warn when it matches `files changed`, `file(s) changed`, `test results`, or `pass/fail` not preceded by `no ` or `never `); point to the Legacy Closure-Note Guidance section of `edit-workflow.md`
 
 ### 6. Cross-Schema Consistency
 - No duplicate schema keys within `work_item_schemas` (YAML silently uses the last one)
@@ -109,6 +110,7 @@ For each note in each schema (and trait):
     ! bug-fix.implementation-notes: missing "required" field — defaults to false (set explicitly)
     ! feature-implementation.deploy-notes: description is 94 chars (recommended: under 80)
     ! research-spike: all notes are optional — schema has no gate effect
+    ! bug-fix.session-tracking: guidance asks for a file list or test counts — see edit-workflow.md, Legacy Closure-Note Guidance
     ! container: lifecycle is "auto" — consider "manual" for organizational containers
 
   ✓ 2 schemas passed all checks: feature-task, agent-observation

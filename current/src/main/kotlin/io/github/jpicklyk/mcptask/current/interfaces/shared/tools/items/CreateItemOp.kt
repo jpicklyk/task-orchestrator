@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
 import io.github.jpicklyk.mcptask.current.application.support.IdRef
+import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
@@ -82,6 +83,8 @@ private suspend fun WriteScope.createItem(
                 resolved
             }
         }
+    // The new row's tags must stay inside the tag scope (and carry a listed tag, or its creator could not read it).
+    (ScopeGuard.checkTagWrite(ctx.scope, null, joinTags(req.tags)) as? Outcome.Err)?.let { return it }
 
     val command =
         ItemCreateCommand(

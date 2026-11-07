@@ -95,7 +95,7 @@ For each item in scope (up to 20), list its notes by key. A list carries no bodi
 {"tool": "notes_read", "select": "get", "args": {"itemId": "<uuid>", "key": "session-tracking"}}
 ```
 
-`session-tracking` holds per-item outcome, files changed, deviations, friction, observations and test results; `delegation-metadata` (optional) holds the orchestrator-recorded model and isolation (structured provenance line or legacy prose).
+`session-tracking` holds per-item outcome, commits, verified line, deviations, friction and observations; `delegation-metadata` (optional) holds the orchestrator-recorded model and isolation (structured provenance line or legacy prose).
 
 ### 1c. Early exit
 If no items are in scope, or no item has a `session-tracking` note, exit with: `No implementation run data found. Nothing to retrospect - run /implement first, then try again.`
@@ -104,7 +104,7 @@ If no items are in scope, or no item has a `session-tracking` note, exit with: `
 
 ## Step 2 - Aggregate Note Data
 
-Across the collected `session-tracking` notes: total item count and outcome distribution (success, partial, failed, skipped, plus `implemented, review pending`, counted only when the named review note is absent); when a note ends with the `Review: pending - verdict in <key>` line, take the outcome and deviation count from that review note (final verdict, first-review blocking count) and its amendment sections instead of the frozen pre-review text; a fix-cycled item instead ends with `Review: <verdict> after A<n> - <key>` and the Outcome `implemented, review <verdict> after A<n>` (post-run Step 5 Fallback, step 5), so count it by that final verdict and read the first-review blocking count from the named note. Report first-review fail rate (items whose first verdict was Fail / items reviewed); combined deduplicated files list; combined friction list; combined observations; test result totals. Run the health read of 1a (`context`) for the current state snapshot when not already done.
+Across the collected `session-tracking` notes: total item count and outcome distribution (success, partial, failed, skipped, plus `implemented, review pending`, counted only when the named review note is absent); when a note ends with the `Review: pending - verdict in <key>` line, take the outcome and deviation count from that review note (final verdict, first-review blocking count) and its amendment sections instead of the frozen pre-review text; a fix-cycled item instead ends with `Review: <verdict> after A<n> - <key>` and the Outcome `implemented, review <verdict> after A<n>` (post-run Step 5 Fallback, step 5), so count it by that final verdict and read the first-review blocking count from the named note. Report first-review fail rate (items whose first verdict was Fail / items reviewed); combined friction list; combined observations. Run the health read of 1a (`context`) for the current state snapshot when not already done.
 
 From `delegation-metadata` notes extract model per delegation (haiku, sonnet, opus) and isolation (inline, worktree); they feed 3b.
 
@@ -118,7 +118,7 @@ From `delegation-metadata` notes extract model per delegation (haiku, sonnet, op
 {"tool": "report", "select": "notes", "args": {"rootId": "<rootId>", "groupBy": "noteKey", "since": "<window start>"}, "profile": "director"}
 ```
 
-Compute three figures: the review role's share of total bytes, the `review-checklist` `avgBytes`, and the largest `maxBytes` of any note key. Compare them with the 2026-11-02 baseline (review share 31%, review-checklist average 6.5 KB, largest note 37 KB) and record the three figures in the `session-metrics` note (5c). Basis caveat:
+Compute three figures: the review role's share of total bytes, the `review-checklist` `avgBytes`, and the largest `maxBytes` of any note key. Compare them with the 2026-11-02 baseline (review share 31%, review-checklist average 6.5 KB, largest note 37 KB) and record the three figures in the `session-metrics` note (5c). Also compute two note-volume figures: the work role's `avgBytes` from the same `groupBy` role call (baseline 1127 bytes on 2026-11-07, target under 800) and the overrun count, the number of note keys whose `maxBytes` (from the `groupBy` noteKey call) exceeds that key's `maxLength` in the resolved schema; record both in `session-metrics` (5c). The `maxLength` cap is advisory under the default `warn` mode (`reject` refuses the write). Basis caveat:
 `report` `notes` counts every `note.upserted` write (a rewrite counts again, `avgBytes` is per write),
 while the baseline measured final note bodies once, so a run with many rewrites reads higher; say so
 beside the figures when `rewrites` is not small.
@@ -129,26 +129,27 @@ beside the figures when `rewrites` is not small.
 adapter=claude-workflow run=r-20260928-b2d seats=planner:opus,implementer:sonnet,declarations-extractor:sonnet,test-author:sonnet,reviewer:opus model=sonnet isolation=worktree:.claude/worktrees/feat-b2-front-door agents=5 tokens=412800 duration=1860000 deferred=0 in-run-edges=1 orchestrator-turns=3
 ```
 
-`tokens=` / `duration=` may read `see:<short>`: the run total lives on that item, so count it once and never sum it per item (in the per-run table show the run's first-item value, never a `see:` reference). An optional second line `extra-seats=<seat>:<model>:<tokens>,...` lists seats dispatched outside the run; score each like a `seats=` pair, typing the seat after stripping a trailing fix-cycle suffix `-a<n>` (`reviewer-a1` scores as reviewer). **Legacy form:** free-form prose naming model and isolation, parsed as before; a run mixing both forms scores both.
+Optional effort tails: `efforts=<seat>:<effort>,...` (`low`/`medium`/`high`/`xhigh`/`max`; a seat absent from it had none recorded), `effort-source=transcript|assigned|mixed` (`transcript`: read from the seat's own transcript, the effort it actually ran at; `assigned`: the plan's dispatch effort only, which proves nothing about the run), and `effort-substituted=<seat>:<requested>,...` (seats whose observed effort differs from the assigned one). `tokens=` / `duration=` may read `see:<short>`: the run total lives on that item, so count it once and never sum it per item (in the per-run table show the run's first-item value, never a `see:` reference). An optional second line `extra-seats=<seat>:<model>:<tokens>,...` lists seats dispatched outside the run; score each like a `seats=` pair, typing the seat after stripping a trailing fix-cycle suffix `-a<n>` (`reviewer-a1` scores as reviewer). **Legacy form:** free-form prose naming model and isolation, parsed as before; a run mixing both forms scores both.
 
 ---
 
 ## Step 3 - Evaluate Across Dimensions
 
 ### 3a. Schema Effectiveness
-For each item, examine its notes (1b): which schema-required notes exist with non-empty content; size per note (**<50 tokens sparse**, **50-500 appropriate**, **>500 potentially verbose** for status-type notes, specification notes exempt); items missing required notes. **Score:** fraction of expected notes that exist with appropriately sized content.
+For each item, examine its notes (1b): which schema-required notes exist with non-empty content (queue and review notes; work-role notes are not scored by size, 3c scores them on content), and which items are missing required notes. **Score:** fraction of expected notes that exist with non-empty content.
 
 ### 3b. Delegation Alignment
 If `delegation-metadata` notes exist, cross-reference the expected model: `haiku` for MCP bulk ops, materialization and simple queries; `sonnet` for code reading, implementation and test writing; `opus` for architecture, complex tradeoffs and multi-file synthesis.
 
 - Flag misalignments (opus for bulk ops, haiku for architecture), scored per seat delegation for a structured note (one score per `seat:model` pair).
 - A `substituted=` field is an allowlist substitution, not a misalignment. A `model-source=self-report` field is noted separately and not folded into the misalignment count.
+- Report effort beside model: list each `seat:model/effort` (from `efforts=`; `-` when unset) in the per-run table with its `effort-source`, and the distribution of efforts per seat type across runs. Effort is not scored against an expected value; flag it as a finding for 5b when a pattern stands out (a seat type always at `max`, a review seat below `medium`, an effort set on a seat whose model was substituted) so a trend can form over sessions. Every `effort-substituted=` entry is a dispatch-versus-runtime mismatch and is always a finding; a run whose lines all read `effort-source=assigned` is noted as "effort not observed" (the post-run `dispatch-meta` step was skipped).
 - **Score:** fraction of delegations matching the expected model. With no `delegation-metadata`, note "delegation metadata not recorded" and skip scoring.
 
 With at least one structured line, show a per-run table before 3c: `| adapter | run | agents | tokens | duration | orchestrator-turns |`.
 
 ### 3c. Note Effectiveness
-For items with both queue-phase notes (specs) and work-phase notes: compare themes; "deviated from spec", "unexpected" or "assumption was wrong" flags a spec gap, and so does a fix-cycle amendment (an `Amendment A<n>` section or amendments note raised after a failed first review); work-phase notes under ~30 tokens flag context loss for downstream agents. **Score:** effective / mixed / ineffective.
+For items with both queue-phase notes (specs) and work-phase notes: compare themes; "deviated from spec", "unexpected" or "assumption was wrong" flags a spec gap, and so does a fix-cycle amendment (an `Amendment A<n>` section or amendments note raised after a failed first review); then take the derivability sample: the longest `implementation-notes` of the run, each sentence marked derivable (it states what the diff, git log or CI show) or not, and report the non-derivable share (a sanctioned empty-form body scores fully non-derivable). **Score:** effective at >= 70% non-derivable / mixed / ineffective.
 
 ### 3d. Plan-to-Execution Alignment
 Creation times come from one `items_read` `list` with `fields: ["createdAt", "modifiedAt", "summary"]`, scoped by `ancestorId` (the root, or the run's `scopeId`); with neither, `get` each in-scope item with `fields: ["createdAt"]` (at most 20).
@@ -260,7 +261,7 @@ Check `ok` and `data.results[0].ok`; on a failure read `data.results[0].error.co
 The `session-retrospective` schema has four required notes: queue-phase `session-metrics`, `workflow-evaluation`, `improvement-signals`, and work-phase `actions-taken` (filled at 8b). Fill the three queue notes now as one `notes_write` call with three `upsert` elements (one shown):
 
 ```to-call
-{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<retro-uuid>", "key": "session-metrics", "role": "queue", "body": "<Step 3 quantitative data: item counts, outcomes, schema usage, token estimates, files changed>"}}
+{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<retro-uuid>", "key": "session-metrics", "role": "queue", "body": "<Step 3 quantitative data: item counts, outcomes, schema usage, token estimates, note-volume figures (work-role avgBytes, maxLength overruns)>"}}
 ```
 
 `workflow-evaluation` holds the Step 3 per-dimension scores and findings; `improvement-signals` the Step 4 trend analysis (new, reinforced, proposals, and the scope classification of Step 7b). Check `data.results[i].ok` for all three.

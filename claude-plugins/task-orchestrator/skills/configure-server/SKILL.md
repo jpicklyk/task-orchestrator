@@ -35,7 +35,7 @@ In order:
 
 1. **Stop every 3.x process** that uses the volume, stdio sessions included.
 2. **Back up the whole volume off-volume.** The automatic `.pre-4.0.*.bak` copy sits on the same volume, so it is not a backup.
-3. **Clear the settings that fail startup:** remove a leftover `actor_authentication:` or `auditing:` key from the mounted global config, and unset `DEGRADED_MODE_POLICY`. The legacy `schema_resolution`, `orchestration`, `retrospective` and `actor_attribution` keys only warn; `USE_FLYWAY` is ignored.
+3. **Clear the settings that fail startup:** remove a leftover `actor_authentication:` or `auditing:` key and any repeated key from the mounted global config, delete `scope: null`, `scope: {}`, `root_ids: null`, `root_ids: []`, `tags_include: null` and `tags_include: []` from the API token file, and unset `DEGRADED_MODE_POLICY`. The legacy `schema_resolution`, `orchestration`, `retrospective` and `actor_attribution` keys only warn; `USE_FLYWAY` is ignored.
 4. **Start ONE detached 4.0 container and wait until it is healthy** (the `docker inspect` health loop of the fleet guide; raise `--start-period` for a large database). The once-only data steps, including the irreversible `type-backfill`, run at this first boot.
 5. **When REST is on, read `/api/v1/info`** and check `configWarnings`.
 6. **Then register the clients** (Steps 1-6).

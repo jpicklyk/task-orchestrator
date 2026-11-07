@@ -38,7 +38,7 @@ work_item_schemas:
       - key: implementation-evidence
         role: work
         required: true
-        description: "What was built, test results, deviations from the task definition."
+        description: "The delta record (deviations, decisions, not done, gotchas) and a `Verified:` line."
 ```
 
 **Rationale to present:** each stage transition is a re-readable document instead of chat

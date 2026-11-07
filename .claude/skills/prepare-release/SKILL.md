@@ -529,6 +529,18 @@ if [ ! -s "$RELNOTES" ]; then
   exit 1
 fi
 
+# A curated body wins when the release ships one (a major release's section is too long to publish).
+if [ -s ".github/release-notes/vX.Y.Z.md" ]; then
+  cp ".github/release-notes/vX.Y.Z.md" "$RELNOTES"
+fi
+
+# GitHub rejects a very long release body; treat 120000 characters as the ceiling and fail loudly.
+if [ "$(wc -m < "$RELNOTES")" -gt 120000 ]; then
+  echo "ERROR: release notes exceed 120000 characters; write a curated .github/release-notes/vX.Y.Z.md" >&2
+  rm -f "$RELNOTES"
+  exit 1
+fi
+
 gh release edit vX.Y.Z --notes-file "$RELNOTES"
 rm -f "$RELNOTES"
 ```
@@ -604,7 +616,7 @@ git push origin release/3.x
 ```
 
 The 3.x line keeps its `3.16.0` version, the `3.16` image tag and its own `[Unreleased]` changelog
-section. Every later 3.x fix lands there as a twin of its 4.0 PR.
+section. The 3.x line is frozen except for security fixes; a security fix lands there as a twin of its 4.x PR.
 
 **b. Twin audit.** `main` keeps taking 3.x fixes while the long-lived branch is open, and each one is
 meant to have a twin on `release/4.0` (or a stated "4.0 already covers it"). List them with

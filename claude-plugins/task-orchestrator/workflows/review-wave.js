@@ -622,9 +622,19 @@ function aggregateVerdict(laneResults) {
   return { status: 'done', verdict: 'pass', reason: 'review passed' }
 }
 
+/**
+ * dispatchTag({model?, effort?}) -> '[<model>/<effort>]' | '[<model>]' | '[inherit]'. The label
+ * suffix that shows the assigned model and effort wherever the label is displayed (the workflow
+ * pane, the background-task list); 'inherit' makes an unset model visible instead of silent.
+ */
+function dispatchTag(d) {
+  const model = d && d.model ? d.model : 'inherit'
+  return d && d.effort ? `[${model}/${d.effort}]` : `[${model}]`
+}
+
 function laneAgentOpts(stage, item, plan) {
   const phase = 'Review' // locally bound so this key is not a free runtime-global reference
-  const opts = { label: `${stage.lane}:${item.short}`, phase, schema: laneSchema(stage.output) }
+  const opts = { label: `${stage.lane}:${item.short} ${dispatchTag(stage.dispatch)}`, phase, schema: laneSchema(stage.output) }
   if (stage.dispatch) {
     if (stage.dispatch.model) opts.model = stage.dispatch.model
     if (stage.dispatch.effort) opts.effort = stage.dispatch.effort

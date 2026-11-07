@@ -1,5 +1,8 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt
 
+import com.fasterxml.jackson.core.JsonFactory
+import com.fasterxml.jackson.core.JsonProcessingException
+import com.fasterxml.jackson.core.StreamReadFeature
 import com.nimbusds.jwt.JWTClaimsSet
 import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.Principal
@@ -116,12 +119,36 @@ class JwksApiVerifier(
             }
             is JwtVerdict.Unavailable -> ApiTokenVerdict.Unavailable(verdict.reason)
             is JwtVerdict.Verified ->
-                toVerifiedApiToken(verdict.claims, verdict.cacheState.fromStaleCache)
-                    ?.let { ApiTokenVerdict.Verified(it) }
-                    ?: run {
-                        logRejection(FailureKind.CLAIMS.wire)
-                        ApiTokenVerdict.Rejected
-                    }
+                if (hasDuplicateKey(verdict.payload)) {
+                    logClaimDefect(PAYLOAD, DUPLICATE_KEY, "rejected")
+                    logRejection(FailureKind.CLAIMS.wire)
+                    ApiTokenVerdict.Rejected
+                } else {
+                    toVerifiedApiToken(verdict.claims, verdict.cacheState.fromStaleCache)
+                        ?.let { ApiTokenVerdict.Verified(it) }
+                        ?: run {
+                            logRejection(FailureKind.CLAIMS.wire)
+                            ApiTokenVerdict.Rejected
+                        }
+                }
+        }
+
+    /**
+     * True when [payload] repeats an object key at any depth. The claims parser already rejects a repeated top-level
+     * key but takes the last value of a repeated nested key, so a nested `to_scope` member could be shadowed. The text
+     * already parsed once, so the strict pass can only fail on a duplicate; the detail goes to DEBUG only.
+     */
+    private fun hasDuplicateKey(payload: String): Boolean =
+        try {
+            STRICT_JSON.createParser(payload).use { parser ->
+                while (parser.nextToken() != null) {
+                    // Drain: the strict-duplicate feature throws on a repeated key.
+                }
+            }
+            false
+        } catch (e: JsonProcessingException) {
+            logger.debug("API JWT payload has a duplicate key: {}", e.originalMessage)
+            true
         }
 
     /** One INFO line per rejection, flood-limited per reason code. Fixed format: no token, claim or free text. */
@@ -212,18 +239,17 @@ class JwksApiVerifier(
      * naming the claim and a reason code; it never includes the JWT, a claim value or the parser message (DEBUG keeps that).
      */
     private fun extractScope(claims: JWTClaimsSet): AccessScope? {
-        val toScope =
-            try {
-                claims.getJSONObjectClaim("to_scope")
-            } catch (e: Exception) {
-                e.rethrowIfCancellation()
-                logger.debug("to_scope claim is not a JSON object: {}", e.message)
-                logClaimDefect(TO_SCOPE, "not_object", "rejected")
-                return null
-            }
+        // Only an absent claim is unrestricted; an explicit null (or {}) is a malformed restriction.
+        if (!claims.claims.containsKey(TO_SCOPE)) return AccessScope.unrestricted()
+        val raw = claims.getClaim(TO_SCOPE)
+        if (raw != null && raw !is Map<*, *>) {
+            logger.debug("to_scope claim is not a JSON object: {}", raw::class.simpleName)
+            logClaimDefect(TO_SCOPE, "not_object", "rejected")
+            return null
+        }
 
         return try {
-            ScopeClaimParser.parse(toScope)
+            ScopeClaimParser.parse(claims.claims, TO_SCOPE)
         } catch (e: IllegalArgumentException) {
             logger.debug("to_scope claim is malformed: {}", e.message)
             logClaimDefect(TO_SCOPE, "malformed", "rejected")
@@ -275,8 +301,13 @@ class JwksApiVerifier(
         const val TO_KIND = "to_kind"
         const val TO_SCOPE = "to_scope"
         const val TO_CAPABILITIES = "to_capabilities"
+        const val PAYLOAD = "payload"
+        const val DUPLICATE_KEY = "duplicate_key"
         const val DID_PREFIX = "did:"
         const val VERIFIER_KIND = "api"
+
+        /** Thread-safe; rejects a repeated object key at any depth. */
+        val STRICT_JSON: JsonFactory = JsonFactory.builder().enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build()
 
         // ApiAuthConfig.Jwks carries only a url, which maps to a JWKS URI key source by construction.
         const val KEY_SOURCE_KIND = "jwks_uri"

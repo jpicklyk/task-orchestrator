@@ -19,7 +19,7 @@ work_item_schemas:
       - key: iteration-evidence
         role: work
         required: true
-        description: "Final evidence — iterations used vs bound, test results, files touched."
+        description: "Final evidence — iterations used vs bound, the delta record (deviations, decisions, not done, gotchas) and a `Verified:` line."
         maxLength: 1500
   default:
     lifecycle: auto

@@ -109,6 +109,8 @@ snakeyaml = { module = "org.yaml:snakeyaml", version.ref = "snakeyaml" }
 # JSON Schema validation
 json-schema-validator = { module = "com.networknt:json-schema-validator", version.ref = "jsonSchemaValidator" }
 jackson-bom = { module = "com.fasterxml.jackson:jackson-bom", version.ref = "jacksonBom" }
+# No version: the platform(libs.jackson.bom) above pins it. Used directly by JwksApiVerifier (strict duplicate-key scan).
+jackson-core = { module = "com.fasterxml.jackson.core:jackson-core" }
 
 # JWT / JWKS
 nimbus-jose-jwt = { module = "com.nimbusds:nimbus-jose-jwt", version.ref = "nimbusJoseJwt" }

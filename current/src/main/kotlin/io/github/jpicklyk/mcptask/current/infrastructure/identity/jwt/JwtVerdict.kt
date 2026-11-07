@@ -25,12 +25,14 @@ sealed class JwtVerdict {
      * Every check passed.
      *
      * @param claims The verified claims set.
+     * @param payload The decoded payload JSON text the claims were parsed from (for a caller's own strict scan).
      * @param kid The token's `kid` header (null when absent).
      * @param alg The token's signing algorithm name.
      * @param cacheState How the key set that verified the token was served.
      */
     data class Verified(
         val claims: JWTClaimsSet,
+        val payload: String,
         val kid: String?,
         val alg: String,
         val cacheState: CacheState,

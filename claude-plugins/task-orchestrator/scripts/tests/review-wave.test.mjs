@@ -369,6 +369,10 @@ test('S1: runReview dispatches exactly the args-declared lanes, one call per lan
   const securityCall = calls.find((c) => c.label === 'reviewer.security-review:bbbbbbbb')
   assert.equal(securityCall.opts.model, 'opus')
   assert.equal(securityCall.opts.effort, 'high')
+  assert.equal(securityCall.opts.label, 'reviewer.security-review:bbbbbbbb [opus/high]', 'the runtime label carries the assigned model and effort')
+  for (const call of calls) {
+    assert.match(call.opts.label, /^[a-z.-]+:[0-9a-f]+ \[(inherit|[a-z]+)(\/[a-z]+)?\]$/, `call ${call.label} label must end with a [model/effort] tag`)
+  }
 
   assert.equal(result.items.length, 2)
   for (const item of result.items) {
