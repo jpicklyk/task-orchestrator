@@ -375,3 +375,8 @@ test('S13: an unknown snake_case token would be caught by the S6 vocabulary', ()
   const tokens = claudeSnakeTokens('## claude:' + NL + NL + tick('items_read') + ' ' + tick('advance_item') + NL);
   assert.deepEqual(tokens.filter((t) => !VOCAB.has(t)), ['advance_item']);
 });
+test('closure notes: implementer.md names the closure-notes rule and the docs_read fetch', () => {
+  const text = readText(agentPath('implementer'));
+  assert.ok(text.includes('`closure-notes`'), 'implementer.md must name the closure-notes rule');
+  assert.ok(text.includes('`docs_read`'), 'implementer.md must name docs_read');
+});

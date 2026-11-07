@@ -438,8 +438,10 @@ dispatch. No `/simplify` pass. **Exception — a Direct-tier `bug-fix` carrying
 `needs-test-author`:** follow Step 4b's Direct-tier test-first-then-fix sequence
 (test-plan frozen at queue → regression test observed red → fix → green) instead of
 implementing first. Fill the `session-tracking` note (required by both
-`quick-fix` and `default` schemas) with a brief summary of what changed and test
-results. Advance (`start`): to review, or to terminal when the schema has no review phase
+`quick-fix` and `default` schemas) as a delta record per its schema guidance: outcome, the
+`Commits:` line, the `Verified:` line, deviations and friction (for `quick-fix`, one short
+paragraph on what the fix was and why that way, then those lines). No file list and no test
+counts. Advance (`start`): to review, or to terminal when the schema has no review phase
 (`quick-fix`); Step 5 reads `newRole`:
 `advance` `transition` with `trigger: "start"`.
 
@@ -910,8 +912,8 @@ The review agent:
    recorded the build state in the Review scoping slot. On Direct tier the orchestrator reviews
    inline after its own run. On Delegated tier the orchestrator runs `:current:test` and
    `:current:ktlintCheck` (Step 4's "Verification commands" - a PR with failing lint will not
-   merge) and records count, result and SHA in its own `session-tracking` before dispatching the
-   reviewer, which takes those numbers from there per `review-quality` Area 1.
+   merge) and records the `Verified:` line (command, result, SHA) in its own `session-tracking`
+   before dispatching the reviewer, which reads the build state from there per `review-quality` Area 1.
 5. Evaluates plan alignment, test quality, and simplification
 6. **On items carrying `needs-test-author`, additionally:**
    - **Two-range ownership check:** confirm the impl-range/author-range disjointness recorded
@@ -1123,8 +1125,10 @@ For Parallel-tier features with a shared feature worktree:
 check needing a refreshed plugin cache or a user opt-in counts as done here; it is split off after the
 merge, step 8):
 
-1. Fill the parent's `implementation-notes` and `session-tracking` notes (aggregating
-   across children - distributed-tracking pattern works as today; under the coordinator token
+1. Fill the parent's `implementation-notes` (cross-child content only, per the
+   `feature-implementation` schema guidance: decisions between children, post-review merges, routed
+   findings, deferred scope, or the one-line empty form) and `session-tracking` (the run record,
+   per the `session-tracked` guidance; the children's notes are not re-listed) - under the coordinator token
    while the parent is a member of an open run; final content written once, in confirmed past tense;
    the only re-edits are the ones run-wave `references/post-run.md` Step 3 sanctions, and the step 8
    post-merge live acceptance line is written as that file's Step 7b (d) says).
@@ -1234,8 +1238,8 @@ merge, step 8):
 - **No PR-body staleness.** The PR body is authored once, after the feature is done,
   describing what actually shipped.
 - **Aggregate retrospective material.** Distributed `session-tracking` notes across
-  children plus parent-level aggregation gives clean retro input (validated by retro
-  `a7f6024f`).
+  children plus the parent's run record give clean retro input (validated by retro
+  `a7f6024f`); the parent's `implementation-notes` stays cross-child only.
 
 Local `main` always tracks `origin/main` — no divergence, no `reset --hard` needed.
 

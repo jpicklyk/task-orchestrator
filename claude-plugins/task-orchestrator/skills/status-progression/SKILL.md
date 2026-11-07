@@ -33,7 +33,7 @@ Render a status card from the answer:
   Role:     work
   Gate:     BLOCKED - 2 required notes missing
   Missing:  implementation-notes (work), session-tracking (work)
-  Guidance: "Describe what was implemented, which files changed and why..."
+  Guidance: "A delta record for the next reader, not a change log..."
   Next:     start -> review
 ```
 
@@ -55,7 +55,7 @@ A schema-free item has an open gate: the schema read answers `{schemaFree: true}
 If `canAdvance` is false because of notes, fill them from the conversation; ask the user when the content cannot be inferred. Send them in one call, an `upsert` element per note:
 
 ```to-call
-{"tool": "notes_write", "op": "upsert", "args": {"itemId": "4b7d0e19", "key": "implementation-notes", "role": "work", "body": "Added the retry policy in client.kt; tests cover 503 and timeout."}}
+{"tool": "notes_write", "op": "upsert", "args": {"itemId": "4b7d0e19", "key": "implementation-notes", "role": "work", "body": "No deviations; nothing a reader of the diff would miss."}}
 ```
 
 Re-read `context` and confirm `canAdvance` is true. Only one `guidanceKey` is returned at a time (the first unfilled required note); `schema[]` lists all of them.

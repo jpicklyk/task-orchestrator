@@ -73,9 +73,9 @@ once per wave (dispatch contract, "Who runs gradle"); a reviewer re-running it a
 Gradle per item and no information.
 
 Read the recorded build state: the Review scoping slot's "Build state reviewers rely on"
-line, the orchestrator's `session-tracking` note, or the `test-manifest` VERIFY line (which
-cites scoped classes, not a suite count). Record the count, the pass/fail breakdown and the
-SHA it was taken at.
+line, the orchestrator's `session-tracking` `Verified:` line, or the `test-manifest` VERIFY line
+(which cites scoped classes, not a suite count). Record one line,
+`Build state: <command> green|red at <sha>`, with no test tally.
 
 **If no build state is recorded, or it is for an older SHA than the diff under review:**
 that is a blocking finding — say so and stop; do not run the suite to fill the gap.

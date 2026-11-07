@@ -183,7 +183,7 @@ operating-rule TEXT, not just a skill invocation. This is a second, independent 
   blocking session start.
 - **Bundled rules.** On SessionStart only (not on FileChanged) the hook also syncs the plugin's
   bundled rule keys (`protocol.entry-seat`, `protocol.in-phase-seat`, `protocol.read-only-agent`,
-  `commit-discipline`, `review-scoping`), protocol keys first. `bundled-rules/manifest.json` is an
+  `commit-discipline`, `review-scoping`, `closure-notes`), protocol keys first. `bundled-rules/manifest.json` is an
   append-only list of known body hashes per key, and the push policy follows it: a key absent from the
   server is pushed; a server copy matching a known older hash is overwritten with the current body; a
   server copy matching no known hash is never touched. A same-named file in the workspace's
@@ -197,7 +197,7 @@ operating-rule TEXT, not just a skill invocation. This is a second, independent 
   server rule that was customized on purpose; to make it stop, put that rule in the workspace's
   `.taskorchestrator/rules/` so the workspace copy owns the key. `bundled rules skipped (unusable rules
   listing)` means the server's rule listing could not be read. `root <id> not found on this server`
-  means the root was never created there.
+  means the root was never created there. `closure-note guidance still asks for file lists or test counts: run /manage-schemas edit to adopt the current standard.` is appended to the SessionStart line when a `session-tracking` or `implementation-notes` guidance in the config still asks for a file list, test results or pass/fail counts; the hook never edits the file.
 
 ---
 
@@ -647,7 +647,7 @@ queue --(start)--> work --(start)--> review --(start)--> terminal
 
 - **Keep it lean.** 2-3 required notes per phase is the practical maximum before agents find workarounds
 - **Queue gates = pre-work contract.** Requirements, design, root cause - filled before agents touch code
-- **Work gates = evidence of completion.** Implementation notes, test results - filled after implementation
+- **Work gates = evidence of completion.** Implementation notes (what the diff does not say), verification evidence - filled after implementation
 - **Review phase is optional.** Only add `role: review` notes for genuine deploy/verify/sign-off steps
 - **Optional notes are reminders.** `required: false` notes appear in `expectedNotes` without blocking
 - **Use `type` for schema selection, tags for categorization.** Tags never select a schema.
@@ -718,7 +718,7 @@ work_item_schemas:
       - key: implementation-notes
         role: work
         required: true
-        description: "What was built and why"
+        description: "Delta record: what the diff, git log and CI do not hold (deviations, decisions, not-done, gotchas)"
 ```
 
 > **manage-schemas write operations must preserve this block untouched** - see the create/edit/delete workflow docs in this skill folder.

@@ -34,7 +34,7 @@ code contradicts is blocking.
 **One findings register.** `review-checklist` is the item's findings register. Number each
 finding once there and refer to it by id from every other review note you fill. A note that
 needs to mention a finding writes `see B2`, never the finding again. Where the schema has no
-`review-checklist`, the first review note you fill is the register and the others cite it.
+`review-checklist`, the first review note you fill is the register and the others cite it. Beyond the findings register and the `AC n: met` lines, the only other content is one `Build state: <command> green|red at <sha>` line; walkthroughs that re-derive the code are never recorded.
 
 **Seat rule.** You fill only review-phase notes. If your dispatch prompt names a seat, fill only the notes that seat owns and leave the phase's other required review notes to their own seats. Never fill, edit, or back-fill implementer notes (`implementation-notes`), orchestrator notes (`session-tracking`, `delegation-metadata`) or test-author notes (`test-plan`, `test-manifest`). If one is missing or wrong, record it as a finding in your review note (e.g. the `test-independence-audit` verdict) and let the orchestrator route it.
 
