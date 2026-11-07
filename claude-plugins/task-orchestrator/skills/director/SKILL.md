@@ -13,7 +13,7 @@ bodies; coordinators and background agents do that and report back.
 
 Calling this skill entered director mode. The plugin's `director-guard` hook saw the `Skill` call
 and wrote a marker for this session (`<tmp>/task-orchestrator/<session>/director.json`). While the
-marker exists, the guard enforces the altitude rule below on every tool call of this session.
+marker exists, the guard enforces the altitude rule below on the tools it matches in this session (the built-in file and shell tools, foreground dispatch, and three reads on the orchestration connection); it does not see other MCP servers or the web tools.
 Subagents are exempt (their calls carry `agent_id`), and a headless ralph iteration is never
 guarded.
 

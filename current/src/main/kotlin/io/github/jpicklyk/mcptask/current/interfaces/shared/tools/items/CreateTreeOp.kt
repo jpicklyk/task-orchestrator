@@ -17,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.application.service.WorkTreeRequest
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeService
 import io.github.jpicklyk.mcptask.current.application.support.IdRef
+import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -96,6 +97,13 @@ private suspend fun WriteScope.createTree(
             // A new top-level root founds a new project: unrestricted scope or ADMIN only.
             if (!ctx.rootWritesAllowed) return Outcome.Err(rootWriteForbidden(ctx))
         }
+    }
+    // Every row the tree creates must stay inside the tag scope; an Attach root is an existing row, scope-checked above.
+    if (attachId == null) {
+        (ScopeGuard.checkTagWrite(ctx.scope, null, joinTags(req.root.tags)) as? Outcome.Err)?.let { return it }
+    }
+    for (child in req.children) {
+        (ScopeGuard.checkTagWrite(ctx.scope, null, joinTags(child.tags)) as? Outcome.Err)?.let { return it }
     }
     val caller = ClaimHolder.resolve(ctx.principal.claim, ctx.seat?.assignmentId)
     val request =

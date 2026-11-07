@@ -1726,7 +1726,17 @@ class ItemsWriteTreeTest {
                 "alpha"
             )
             assertUntouched(k, before, counts)
-            k.callScoped(tagScoped, twTree(twRoot("Under"), extra = listOf("parentId" to jstr(c1.toString())))).okResult()
+            k
+                .callScoped(
+                    tagScoped,
+                    twTree(
+                        twRoot("Under", extra = listOf("tags" to strings("alpha"))),
+                        extra =
+                            listOf(
+                                "parentId" to jstr(c1.toString())
+                            )
+                    )
+                ).okResult()
             assertEquals(
                 counts.getValue("work_items") + 1,
                 k.tableCounts().getValue("work_items"),

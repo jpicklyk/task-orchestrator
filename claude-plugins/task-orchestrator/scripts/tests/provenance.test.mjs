@@ -24,7 +24,7 @@ test('S13: FIELD_ORDER, TAIL_ORDER, STRUCTURED_RE match the frozen declaration',
     'adapter', 'run', 'seats', 'model', 'isolation', 'agents', 'tokens', 'duration',
     'deferred', 'in-run-edges', 'orchestrator-turns',
   ])
-  assert.deepEqual(TAIL_ORDER, ['substituted', 'model-source', 'journal'])
+  assert.deepEqual(TAIL_ORDER, ['substituted', 'model-source', 'journal', 'efforts', 'effort-source', 'effort-substituted'])
   assert.equal(STRUCTURED_RE.source, '^adapter=\\S+( [a-z-]+=\\S+)+$')
 })
 
@@ -216,6 +216,40 @@ test('O6: a CRLF-terminated first line still parses as structured (not {legacy:t
   assert.notDeepEqual(fields, { legacy: true })
   assert.equal(fields.run, 'r-1')
   assert.equal(formatProvenance(fields), line, 'the parsed fields must format back to the CRLF-stripped line')
+})
+
+// ── efforts= tail: the assigned effort per seat, parser round-trip ──────────────────────────────
+
+test('efforts: formatProvenance renders efforts=<seat>:<effort>,... after journal= and parseProvenance reads it back as [{seat, effort}]', () => {
+  const line = formatProvenance({
+    adapter: 'claude-workflow', run: 'r-1', seats: [{ seat: 'planner', model: 'opus' }, { seat: 'implementer', model: 'sonnet' }],
+    model: 'sonnet', isolation: 'worktree:/wt', agents: 2, tokens: 1, duration: 1, deferred: 0, inRunEdges: 0, orchestratorTurns: 1,
+    modelSource: 'self-report', journal: '/tmp/j.log', efforts: [{ seat: 'planner', effort: 'high' }, { seat: 'implementer', effort: 'medium' }],
+  })
+  assert.ok(line.endsWith(' journal=/tmp/j.log efforts=planner:high,implementer:medium'), line)
+  assert.match(line, STRUCTURED_RE)
+  const fields = parseProvenance(line)
+  assert.deepEqual(fields.efforts, [{ seat: 'planner', effort: 'high' }, { seat: 'implementer', effort: 'medium' }])
+  assert.equal(formatProvenance(fields), line)
+})
+
+test('efforts: effort-source= and effort-substituted= follow efforts= and round-trip through parse/format', () => {
+  const line = formatProvenance({
+    adapter: 'claude-workflow', run: 'r-1', seats: [{ seat: 'implementer', model: 'sonnet' }], model: 'sonnet', isolation: 'worktree:/wt',
+    agents: 1, tokens: 1, duration: 1, deferred: 0, inRunEdges: 0, orchestratorTurns: 1, modelSource: 'meta',
+    efforts: [{ seat: 'implementer', effort: 'medium' }], effortSource: 'transcript', effortSubstituted: [{ seat: 'implementer', requested: 'high' }],
+  })
+  assert.ok(line.endsWith(' efforts=implementer:medium effort-source=transcript effort-substituted=implementer:high'), line)
+  const fields = parseProvenance(line)
+  assert.equal(fields.effortSource, 'transcript')
+  assert.deepEqual(fields.effortSubstituted, [{ seat: 'implementer', requested: 'high' }])
+  assert.equal(formatProvenance(fields), line)
+})
+
+test('efforts: an absent or empty efforts list renders no efforts= token', () => {
+  const base = { adapter: 'claude-agent', run: 'r-1', seats: [{ seat: 'planner', model: 'opus' }], model: 'opus', isolation: 'worktree:/wt', agents: 1, tokens: 1, duration: 1, deferred: 0, inRunEdges: 0, orchestratorTurns: 1 }
+  assert.ok(!formatProvenance(base).includes('efforts='))
+  assert.ok(!formatProvenance({ ...base, efforts: [] }).includes('efforts='))
 })
 
 // ── doc-sync: read the example line from session-retrospective/SKILL.md at test time ───────────

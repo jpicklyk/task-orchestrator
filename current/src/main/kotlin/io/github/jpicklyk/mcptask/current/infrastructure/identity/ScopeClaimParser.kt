@@ -7,72 +7,91 @@ import java.util.UUID
  * Parses the `scope` / `to_scope` claim shared by the bearer-token secret file and JWKS JWTs
  * into an [AccessScope], failing closed on any malformed shape instead of silently widening access.
  *
- * The raw input is untyped ([Any]?) because both callers reduce to the same Map/List/scalar
- * shapes: the bearer YAML loader passes the raw, UNCAST `tokenMap["scope"]` value, and the JWKS
- * verifier passes the JSON object from `claims.getJSONObjectClaim("to_scope")`. Callers must not
- * pre-cast with `as? Map`: that turned a scalar `scope:` into null, i.e. unrestricted.
+ * The input is the CONTAINER that holds the claim plus the claim's key, not the claim's value: a
+ * value alone cannot tell an absent key from a present-but-null one, and only an absent key may mean
+ * unrestricted. The bearer YAML loader passes the token entry map with `"scope"`, the JWKS verifier
+ * passes `claims.claims` with `"to_scope"`.
  *
- * Rules (frozen by the planning seat's diagnosis note, decisions D2-D5, D10):
- * - `null` (absent) scope means fully unrestricted: [AccessScope.unrestricted].
- * - A non-null scope that is not a `Map` is malformed.
- * - Any key inside the scope map other than `root_ids` / `tags_include` is malformed — every
- *   scope key is a restriction (see [AccessScope]), so silently ignoring an unrecognized key
- *   (e.g. a `root_id` typo) would silently widen access.
- * - `root_ids`: null/absent -> unrestricted (`null`). A `List<String>` where every element parses
- *   via [UUID.fromString] -> that set. Anything else (scalar, empty list, non-string element,
+ * Rules:
+ * - The key is absent: [AccessScope.unrestricted]. This is the only way to be unrestricted.
+ * - The key is present with a null value, a non-`Map` value or an empty map: malformed. A present
+ *   scope is a restriction, so an empty one is an operator mistake, never a widening.
+ * - Any key inside the scope map other than `root_ids` / `tags_include` is malformed: every scope
+ *   key is a restriction (see [AccessScope]), so silently ignoring an unrecognized key (e.g. a
+ *   `root_id` typo) would silently widen access.
+ * - `root_ids`: absent -> unrestricted (`null`). A `List<String>` where every element parses via
+ *   [UUID.fromString] -> that set. Anything else (null, scalar, empty list, non-string element,
  *   null element, invalid UUID) is malformed. No coercion, no narrowing of a mixed list.
- * - `tags_include`: null/absent -> `emptySet()`. A `List<String>` where every element is
- *   non-blank -> that set (kept verbatim, no trim/case-fold). `[]` -> `emptySet()` (no tag
- *   constraint; this is the canonical, documented form). Anything else (scalar, non-string
- *   element, blank element) is malformed.
+ * - `tags_include`: absent -> `emptySet()` (no tag constraint). A `List<String>` where every
+ *   element is non-blank -> that set (kept verbatim, no trim/case-fold). Anything else (null,
+ *   scalar, empty list, non-string element, blank element) is malformed.
  *
- * @throws IllegalArgumentException naming the offending key path (`scope`, `scope.root_ids`, or
- *   `scope.tags_include`, or an unknown key name). The message never includes credential
- *   material (callers must not pass credential values into this parser).
+ * @throws IllegalArgumentException starting with the offending key path (`scope`, `scope.root_ids`,
+ *   `scope.tags_include`) and ending with the remedy (`delete the key`) where one applies. The
+ *   message never includes credential material.
  */
 internal object ScopeClaimParser {
     private val ALLOWED_KEYS = setOf("root_ids", "tags_include")
 
-    fun parse(raw: Any?): AccessScope {
-        if (raw == null) {
+    fun parse(
+        container: Map<*, *>,
+        key: String,
+    ): AccessScope {
+        if (!container.containsKey(key)) {
             return AccessScope.unrestricted()
         }
 
+        val raw =
+            container[key]
+                ?: throw IllegalArgumentException(
+                    "$key must not be null: a present scope is a restriction. To grant unrestricted access, delete the key.",
+                )
         val map =
             raw as? Map<*, *>
                 ?: throw IllegalArgumentException(
-                    "scope must be a mapping with optional 'root_ids'/'tags_include' keys, got: " +
-                        raw::class.simpleName,
+                    "$key must be a mapping with optional 'root_ids'/'tags_include' keys, got: " +
+                        raw::class.simpleName +
+                        ". To grant unrestricted access, delete the key.",
                 )
+        if (map.isEmpty()) {
+            throw IllegalArgumentException(
+                "$key must not be empty: a present scope is a restriction. To grant unrestricted access, delete the key.",
+            )
+        }
 
         val unknownKeys = map.keys.mapNotNull { it as? String }.filter { it !in ALLOWED_KEYS }
         val nonStringKeys = map.keys.filter { it !is String }
         if (unknownKeys.isNotEmpty() || nonStringKeys.isNotEmpty()) {
             val bad = (unknownKeys + nonStringKeys.map { it.toString() }).joinToString(", ")
             throw IllegalArgumentException(
-                "scope has unknown key(s): $bad. Only 'root_ids' and 'tags_include' are allowed.",
+                "$key has unknown key(s): $bad. Only 'root_ids' and 'tags_include' are allowed.",
             )
         }
 
-        val rootIds = parseRootIds(map["root_ids"])
-        val tagsInclude = parseTagsInclude(map["tags_include"])
+        val rootIds = parseRootIds(map, key)
+        val tagsInclude = parseTagsInclude(map, key)
 
         return AccessScope.principal(rootIds = rootIds, tagsInclude = tagsInclude)
     }
 
-    private fun parseRootIds(raw: Any?): Set<UUID>? {
-        if (raw == null) return null
+    private fun parseRootIds(
+        scope: Map<*, *>,
+        scopeKey: String,
+    ): Set<UUID>? {
+        val path = "$scopeKey.root_ids"
+        if (!scope.containsKey("root_ids")) return null
 
         val list =
-            raw as? List<*>
+            scope["root_ids"] as? List<*>
                 ?: throw IllegalArgumentException(
-                    "scope.root_ids must be a list of UUID strings (or omitted/null for unrestricted), got: " +
-                        raw::class.simpleName,
+                    "$path must be a list of UUID strings, got: " +
+                        (scope["root_ids"]?.let { it::class.simpleName } ?: "null") +
+                        ". To leave root ids unrestricted, delete the key.",
                 )
 
         if (list.isEmpty()) {
             throw IllegalArgumentException(
-                "scope.root_ids must not be an empty list — omit the key (or set it to null) for unrestricted access.",
+                "$path must not be an empty list. To leave root ids unrestricted, delete the key.",
             )
         }
 
@@ -81,39 +100,50 @@ internal object ScopeClaimParser {
                 val str =
                     element as? String
                         ?: throw IllegalArgumentException(
-                            "scope.root_ids contains a non-string element: '$element'.",
+                            "$path contains a non-string element: '$element'.",
                         )
                 try {
                     UUID.fromString(str)
                 } catch (e: IllegalArgumentException) {
                     throw IllegalArgumentException(
-                        "scope.root_ids contains an invalid UUID '$str': ${e.message}",
+                        "$path contains an invalid UUID '$str': ${e.message}",
                     )
                 }
             }.toSet()
     }
 
-    private fun parseTagsInclude(raw: Any?): Set<String> {
-        if (raw == null) return emptySet()
+    private fun parseTagsInclude(
+        scope: Map<*, *>,
+        scopeKey: String,
+    ): Set<String> {
+        val path = "$scopeKey.tags_include"
+        if (!scope.containsKey("tags_include")) return emptySet()
 
         val list =
-            raw as? List<*>
+            scope["tags_include"] as? List<*>
                 ?: throw IllegalArgumentException(
-                    "scope.tags_include must be a list of strings (or omitted/null), got: " +
-                        raw::class.simpleName +
-                        ". If this came from unquoted YAML (e.g. 'yes'/'on'/'no'), quote it.",
+                    "$path must be a list of strings, got: " +
+                        (scope["tags_include"]?.let { it::class.simpleName } ?: "null") +
+                        ". To leave tags unrestricted, delete the key. " +
+                        "If this came from unquoted YAML (e.g. 'yes'/'on'/'no'), quote it.",
                 )
+
+        if (list.isEmpty()) {
+            throw IllegalArgumentException(
+                "$path must not be an empty list. To leave tags unrestricted, delete the key.",
+            )
+        }
 
         return list
             .map { element ->
                 val str =
                     element as? String
                         ?: throw IllegalArgumentException(
-                            "scope.tags_include contains a non-string element: '$element'. " +
+                            "$path contains a non-string element: '$element'. " +
                                 "If this came from unquoted YAML (e.g. 'yes'/'on'/'no'), quote it.",
                         )
                 if (str.isBlank()) {
-                    throw IllegalArgumentException("scope.tags_include contains a blank tag.")
+                    throw IllegalArgumentException("$path contains a blank tag.")
                 }
                 str
             }.toSet()

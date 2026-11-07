@@ -128,7 +128,7 @@ export function fakeAgent(script = {}, { manual = false } = {}) {
   async function agent(prompt, opts = {}) {
     if (opts.isolation) throw new Error('fakeAgent: opts.isolation is not allowed')
     checkSchema(opts.schema)
-    const label = opts.label
+    const label = baseLabel(opts.label)
     const call = { label, opts, prompt, t0: nextTick(), t1: null }
     calls.push(call)
     const n = calls.filter((c) => c.label === label).length - 1
@@ -181,6 +181,14 @@ export function fakeAgent(script = {}, { manual = false } = {}) {
       return Array.from(pendingByKey.values()).map((p) => p.call.label)
     },
   }
+}
+
+/**
+ * baseLabel(label) -> the label without its trailing ' [<model>/<effort>]' dispatch tag. Every
+ * workflow script appends that tag for display; tests key scripts and assertions by the base.
+ */
+export function baseLabel(label) {
+  return typeof label === 'string' ? label.replace(/ \[[^\]]*\]$/, '') : label
 }
 
 /** fakeParallel(thunks) -> Promise.all with each thunk's rejection mapped to null. */

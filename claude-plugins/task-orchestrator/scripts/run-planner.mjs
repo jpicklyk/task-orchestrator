@@ -11,9 +11,10 @@
 // run-planner-lib.mjs stays pure.
 //
 // run-exec-lib.mjs adds rows to the subcommand table below: next, prompt, stage-result,
-// scan-declarations, verify, notes-audit, provenance, review-prompt, reseat, run-ops, follow-ups, report, review-args.
+// scan-declarations, verify, notes-audit, dispatch-meta, provenance, review-prompt, reseat, run-ops, follow-ups, report, review-args.
 
-import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -268,6 +269,36 @@ const EXEC_IO = {
       return [];
     }
   },
+  // walkMeta(dir) -> [{path, mtimeMs}] for every '*.meta.json' under dir (bounded depth), the
+  // files Claude Code writes beside subagent transcripts; an unreadable dir contributes nothing.
+  walkMeta(dir) {
+    const out = [];
+    const walk = (d, depth) => {
+      if (depth > 8) return;
+      let entries;
+      try {
+        entries = readdirSync(d, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const e of entries) {
+        const p = join(d, e.name);
+        if (e.isDirectory()) walk(p, depth + 1);
+        else if (e.isFile() && e.name.endsWith('.meta.json')) {
+          try {
+            out.push({ path: p, mtimeMs: statSync(p).mtimeMs });
+          } catch {
+            // skipped: vanished between listing and stat
+          }
+        }
+      }
+    };
+    walk(dir, 0);
+    return out;
+  },
+  homeDir() {
+    return homedir();
+  },
   loadCore() {
     return loadWaveCore({ pluginRoot: resolve(HERE, '..') });
   }
@@ -275,7 +306,7 @@ const EXEC_IO = {
 
 // ---------------------------------------------------------------------------------------
 // Subcommand table. run-exec-lib.mjs supplies: next, prompt, stage-result, scan-declarations,
-// verify, notes-audit, provenance, review-prompt, reseat, run-ops, follow-ups, report, review-args.
+// verify, notes-audit, dispatch-meta, provenance, review-prompt, reseat, run-ops, follow-ups, report, review-args.
 // ---------------------------------------------------------------------------------------
 const SUBCOMMANDS = {
   probe: runProbe,
@@ -289,6 +320,7 @@ const SUBCOMMANDS = {
   'scan-declarations': (args) => exec.EXEC_COMMANDS['scan-declarations'](args, EXEC_IO),
   verify: (args) => exec.EXEC_COMMANDS.verify(args, EXEC_IO),
   'notes-audit': (args) => exec.EXEC_COMMANDS['notes-audit'](args, EXEC_IO),
+  'dispatch-meta': (args) => exec.EXEC_COMMANDS['dispatch-meta'](args, EXEC_IO),
   provenance: (args) => exec.EXEC_COMMANDS.provenance(args, EXEC_IO),
   'review-prompt': (args) => exec.EXEC_COMMANDS['review-prompt'](args, EXEC_IO),
   reseat: (args) => exec.EXEC_COMMANDS.reseat(args, EXEC_IO),

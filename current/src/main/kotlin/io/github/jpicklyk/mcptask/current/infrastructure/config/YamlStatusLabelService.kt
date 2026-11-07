@@ -3,9 +3,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 import io.github.jpicklyk.mcptask.current.application.config.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.config.StatusLabelService
 import org.slf4j.LoggerFactory
-import org.yaml.snakeyaml.LoaderOptions
-import org.yaml.snakeyaml.Yaml
-import org.yaml.snakeyaml.constructor.SafeConstructor
 import java.io.FileReader
 import java.nio.file.Path
 
@@ -109,7 +106,7 @@ class YamlStatusLabelService private constructor(
         }
 
         return try {
-            val yaml = Yaml(SafeConstructor(LoaderOptions()))
+            val yaml = YamlLoaders.tolerant()
             FileReader(path.toFile()).use { reader ->
                 val root =
                     yaml.load<Map<String, Any>>(reader) ?: run {

@@ -248,9 +248,19 @@ run report instead.
    `tokens=see:<firstItemShort>` (likewise `duration=`) on every other item, so per-item sums never
    multiply the run total. **Method B:** pass `--usage` only if a per-item file exists
    (`{"items": {"<short>": {"tokens": N, "duration": N}}}`); omit it otherwise (tokens/duration read
-   `unknown`). Pass `--meta-dir` when per-seat `*.meta.json` files with the actually-reported model
-   exist (gives `model-source` other than `self-report`); otherwise the line falls back to each
-   stage's self-reported `modelReported`. A bound plan appends `server-run=<uuid>` after the fixed
+   `unknown`). First run `node "<helper>" dispatch-meta --plan <plan> > <scratchpad>/run-wave/<runId>/dispatch-meta.json`
+   and pass that file as `--meta <file>`: Claude Code writes an `agent-<id>.meta.json` beside every
+   subagent transcript whose `description` is the dispatch label, and the command matches those to this
+   plan's `<seat>:<short>` labels (display tag stripped, newest match per label) and reads from each
+   transcript the model id and the effort its assistant turns actually ran at. By default it scans
+   every session under `~/.claude/projects`; `--session-dir <dir>` limits it to one session folder and
+   `--since <epoch-ms>` drops older agents. With it the line carries the observed model
+   (`model-source=meta`) and observed effort (`efforts=<seat>:<effort>,...` with
+   `effort-source=transcript`; `assigned` when a seat fell back to the plan's dispatch effort, `mixed`
+   when both occur), and `effort-substituted=<seat>:<requested>,...` names each seat whose observed
+   effort differs from the assigned one. Without it the line falls back to each stage's self-reported
+   `modelReported` and the assigned effort. `--meta-dir <dir>` still accepts hand-made `*.meta.json`
+   files of the same `{label, model, effort?}` shape. A bound plan appends `server-run=<uuid>` after the fixed
    fields. This line is what the session-retrospective skill's structured-provenance parser reads —
    do not hand-write it, and do not reorder its fields.
 

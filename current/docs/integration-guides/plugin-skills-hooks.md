@@ -430,7 +430,7 @@ advance(ops=[{ "op": "transition", "itemId": "<item-UUID>", "trigger": "start" }
 
 This moves the item into the subagent's phase (queue to work, or work to review). The result element carries `newRole`, `expectedNotes` and `guidanceKey`. When the context already shows your phase, do not send `start`: take the guidance from that context and begin. For any other role (blocked, terminal, or a phase past yours), do not send `start`: stop and report the role.
 
-**Reading the answer.** Every result is an envelope: branch on `ok` and on the element's `error.code` and `error.kind` (and `retryAfterMs` when present). A `gate_blocked` answer means a required note is missing; it says nothing about where the item is. Stop and report the missing notes. A transient code (`resource_unavailable`, `claim_held`) is not an already-in-phase signal: stop, report the code and `retryAfterMs`, and do not retry or spin. Any other code means the item is not in your phase: stop and report it.
+**Reading the answer.** Every result is an envelope: branch on `ok` and on the element's `error.code` and `error.kind` (and `retryAfterMs` when present). A `gate_blocked` answer means a required note is missing; it says nothing about where the item is. Stop and report the missing notes. A transient or shedding code (such as `resource_unavailable`) is not an already-in-phase signal: stop, report the code and `retryAfterMs`, and do not retry or spin. Any other code means the item is not in your phase: stop and report it.
 
 A non-entry seat or a read-only agent skips this step entirely — it does its assigned work and fills only the notes its own seat owns, without transitioning the item.
 
