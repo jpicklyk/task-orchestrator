@@ -430,7 +430,7 @@ advance(ops=[{ "op": "transition", "itemId": "<item-UUID>", "trigger": "start" }
 
 This moves the item into the subagent's phase (queue to work, or work to review). The result element carries `newRole`, `expectedNotes` and `guidanceKey`. When the context already shows your phase, do not send `start`: take the guidance from that context and begin. For any other role (blocked, terminal, or a phase past yours), do not send `start`: stop and report the role.
 
-**Reading the answer.** Every result is an envelope: branch on `ok` and on the element's `error.code` and `error.kind` (and `retryAfterMs` when present). A `gate_blocked` answer means a required note is missing; it says nothing about where the item is. Stop and report the missing notes. A transient code (`resource_unavailable`, `claim_held`) is not an already-in-phase signal: stop, report the code and `retryAfterMs`, and do not retry or spin. Any other code means the item is not in your phase: stop and report it.
+**Reading the answer.** Every result is an envelope: branch on `ok` and on the element's `error.code` and `error.kind` (and `retryAfterMs` when present). A `gate_blocked` answer means a required note is missing; it says nothing about where the item is. Stop and report the missing notes. A transient or shedding code (such as `resource_unavailable`) is not an already-in-phase signal: stop, report the code and `retryAfterMs`, and do not retry or spin. Any other code means the item is not in your phase: stop and report it.
 
 A non-entry seat or a read-only agent skips this step entirely — it does its assigned work and fills only the notes its own seat owns, without transitioning the item.
 
@@ -466,7 +466,7 @@ If `guidanceKey` is absent, all required notes are filled. Proceed to step 6. Ot
 
 **6. Return results:**
 
-Commit all changes with a descriptive message. Report: (1) files changed with line counts, (2) test results summary, (3) any blockers. The orchestrator handles the terminal transition.
+Commit all changes with a descriptive message. Report: (1) deviations, decisions, not-done items and gotchas (the delta record), (2) the `Verified:` line, (3) any blockers. The orchestrator handles the terminal transition.
 
 ### Key rules
 
@@ -512,7 +512,7 @@ A `blocks` edge reads "from blocks to": the middleware and Redis items block the
 
 **6. Each subagent:**
 - Reads the item's role with `items_read` `context`, then sends `advance` `transition` `start` — queue to work
-- Reads `guidanceKey` (resolved via `items_read` `select: "schema"`) — fills `implementation-notes` and `session-tracking` notes
+- Reads `guidanceKey` (resolved via `items_read` `select: "schema"`) — fills `implementation-notes` and `session-tracking` notes (both are delta records: what the diff, log and CI do not hold)
 - Commits changes
 - Returns to the orchestrator
 

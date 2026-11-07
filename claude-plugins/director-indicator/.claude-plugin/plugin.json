@@ -1,0 +1,15 @@
+{
+  "name": "director-indicator",
+  "version": "0.1.0",
+  "description": "Makes a Task Orchestrator director-mode session unmistakable: a `director` footer label, a tinted desktop backdrop and enter/exit toasts (early-access function-hooks API)",
+  "author": { "name": "Jeff Picklyk" },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "backdrop": {
+      "type": "boolean",
+      "title": "Director backdrop",
+      "description": "Tint the desktop app's backdrop while this session is in director mode. The footer label and toasts show either way.",
+      "default": true
+    }
+  }
+}

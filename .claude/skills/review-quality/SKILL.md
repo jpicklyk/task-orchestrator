@@ -73,9 +73,9 @@ once per wave (dispatch contract, "Who runs gradle"); a reviewer re-running it a
 Gradle per item and no information.
 
 Read the recorded build state: the Review scoping slot's "Build state reviewers rely on"
-line, the orchestrator's `session-tracking` note, or the `test-manifest` VERIFY line (which
-cites scoped classes, not a suite count). Record the count, the pass/fail breakdown and the
-SHA it was taken at.
+line, the orchestrator's `session-tracking` `Verified:` line, or the `test-manifest` VERIFY line
+(which cites scoped classes, not a suite count). Record one line,
+`Build state: <command> green|red at <sha>`, with no test tally.
 
 **If no build state is recorded, or it is for an older SHA than the diff under review:**
 that is a blocking finding — say so and stop; do not run the suite to fill the gap.
@@ -240,8 +240,10 @@ Every review must end with a clear verdict:
   manifest makes a passing suite untrustworthy. The item must go back for fixes before
   it can advance. List every blocking issue.
 - **Pass with observations** — no blocking issues, but simplification findings or
-  minor test quality concerns worth addressing. The item can advance, but the
-  observations should be tracked for follow-up.
+  minor test quality concerns worth addressing. The item can advance; the orchestrator
+  disposes each observation at child close as `fixed <sha>` (only a concrete failure in
+  behaviour the item added or changed, per run-wave `post-run.md` Step 5 "Observation
+  triage"), `follow-up <item-id>` or `accepted: <reason>`.
 
 ### Findings Format
 

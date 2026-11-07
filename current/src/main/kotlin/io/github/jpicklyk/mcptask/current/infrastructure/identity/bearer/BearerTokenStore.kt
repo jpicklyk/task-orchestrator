@@ -5,12 +5,10 @@ import io.github.jpicklyk.mcptask.current.application.api.Principal
 import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
 import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlLoaders
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.DIRECTOR_CREDENTIAL_PROFILE
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.ScopeClaimParser
 import org.slf4j.LoggerFactory
-import org.yaml.snakeyaml.LoaderOptions
-import org.yaml.snakeyaml.Yaml
-import org.yaml.snakeyaml.constructor.SafeConstructor
 import java.io.FileReader
 import java.time.Instant
 import java.time.format.DateTimeParseException
@@ -58,7 +56,7 @@ class BearerTokenStore(
             )
         }
 
-        val yaml = Yaml(SafeConstructor(LoaderOptions()))
+        val yaml = YamlLoaders.strict()
         val root: Map<String, Any> =
             try {
                 (
@@ -70,7 +68,7 @@ class BearerTokenStore(
                 throw e
             } catch (e: Exception) {
                 throw IllegalArgumentException(
-                    "Failed to parse API token file '$filePath': ${e.message}",
+                    "Failed to parse API token file '$filePath': ${YamlLoaders.describe(e)}",
                 )
             }
 
@@ -143,7 +141,7 @@ class BearerTokenStore(
                     id = tokenId,
                     kind = parseKind(tokenId, tokenMap["kind"]),
                     proofStatus = ProofStatus.ISSUED,
-                    scope = parseScope(tokenId, tokenMap["scope"]),
+                    scope = parseScope(tokenId, tokenMap),
                     capabilities = parseCapabilities(tokenId, tokenMap["capabilities"]),
                 )
             result[HashBytes(hashBytes)] =
@@ -217,7 +215,7 @@ class BearerTokenStore(
         val unknownKeys = tokenMap.keys.map { it.toString() }.filter { it !in ALLOWED_ENTRY_KEYS }
         if (unknownKeys.isNotEmpty()) {
             throw IllegalArgumentException(
-                "API token file: token '$tokenId' has unknown key(s): ${unknownKeys.joinToString(", ")}. " +
+                "API token file: token '$tokenId' has unknown key(s): ${unknownKeys.joinToString(", ") { redactKey(it) }}. " +
                     "Allowed keys: ${ALLOWED_ENTRY_KEYS.joinToString(", ")}.",
             )
         }
@@ -226,10 +224,10 @@ class BearerTokenStore(
     /** Parses the `scope` block from the token map via [ScopeClaimParser], failing startup on malformed shapes. */
     private fun parseScope(
         tokenId: String,
-        rawScope: Any?,
+        tokenMap: Map<*, *>,
     ): AccessScope =
         try {
-            ScopeClaimParser.parse(rawScope)
+            ScopeClaimParser.parse(tokenMap, "scope")
         } catch (e: IllegalArgumentException) {
             throw IllegalArgumentException("API token file: token '$tokenId' ${e.message}")
         }
@@ -314,6 +312,11 @@ class BearerTokenStore(
 
     companion object {
         /** Recognized keys for a single token entry; anything else fails startup (see D6). */
+        private val HEX_KEY = Regex("[0-9a-fA-F]{32,}")
+
+        /** A key that is entirely 32 or more hex characters may be a pasted digest or secret: never echo it. */
+        private fun redactKey(key: String): String = if (HEX_KEY.matches(key)) "<hex-looking key redacted, ${key.length} chars>" else key
+
         private val ALLOWED_ENTRY_KEYS =
             setOf("id", "description", "token_sha256", "expires_at", "scope", "capabilities", "kind", "profile")
     }

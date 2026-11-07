@@ -55,15 +55,16 @@ work_item_schemas:
         required: true
         description: "Session context — what was done, how it went, and anything the retrospective should know."
         guidance: |
-          Record what happened during implementation. Structure:
-          - **Outcome**: success | partial | failure
-          - **Files changed**: list with brief rationale
-          - **Deviations**: anything that differed from the plan
-          - **Friction**: tool errors, roundtrips, workarounds, API confusion (type + description)
-          - **Gate interactions**: note fill attempts, gate failures encountered
-          - **Observations**: anything worth tracking for process improvement
-          - **Test results**: pass/fail counts, new tests added
-          Keep it factual and concise — this feeds the session retrospective.
+          Closure record for the retrospective: only what the diff, git log and CI do not already hold. Lines, in this order:
+          `Outcome: success | partial | failure` (on an item with a review phase write `Outcome: implemented, review pending` and end the body with `Review: pending - verdict in <review-note key>`; `success` is reserved for items with no review phase);
+          `Commits: <sha or range>` (one line; never a file list, the commits name their files);
+          `Verified: <command> green at <sha> | not run (<why>)` (one line; never test counts, CI holds them);
+          `Deviations: <what differed from the plan and why> | none`;
+          `Friction: <type: description>, ... | none` (tool errors, round-trips, workarounds, API confusion);
+          `Observations: <process signal worth a trend>` (omit when none);
+          `Follow-ups: see orchestrator-confirmation` (never per-finding dispositions here).
+          Lines the run tooling adds (`run-wave:` pointer fallback, `**Live-owed**:`) stay as they are.
+          A clean item is five short lines. Target ~300-800 characters; the 2000 maxLength is a backstop, not a goal.
 ```
 
 The note is the **single source of truth** for what happened on each item. The retrospective reads these notes with `notes_read` `list` (`role: "work"`, `keys: ["session-tracking"]`) per item rather than re-deriving from the transcript. Gate enforcement guarantees the data exists.
@@ -291,7 +292,7 @@ The skill scores the run across **five dimensions**:
 
 | Dimension | What it checks | Score type |
 |-----------|---------------|-----------|
-| Schema effectiveness | For each item: did required notes get filled? Are they sized appropriately (50-500 tokens for status notes)? | Fraction filled appropriately |
+| Schema effectiveness | For each item: did required notes get filled? Do work notes say something the diff, log and CI do not (scored on derivability)? | Fraction filled appropriately |
 | Delegation alignment | Cross-references `delegation-metadata` notes against the model table (haiku/sonnet/opus by task type) | Fraction matching expected model |
 | Note effectiveness | Compares queue-phase specs to work-phase implementation notes for "deviated", "unexpected", "wrong" signals | Qualitative (effective / mixed / ineffective) |
 | Plan-to-execution | Items created >1h after the root = ad-hoc additions; items still in queue under the root = skipped | Fraction reaching terminal |

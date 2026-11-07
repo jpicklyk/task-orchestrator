@@ -51,9 +51,6 @@ class ApiAuthConfigLoaderJwksSchemeTest {
             tokens:
               - id: dashboard
                 token_sha256: "$hash"
-                scope:
-                  root_ids: null
-                  tags_include: []
                 capabilities:
                   - read
             """.trimIndent()

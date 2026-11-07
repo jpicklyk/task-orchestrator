@@ -118,80 +118,6 @@ class BearerScopeFailClosedTest {
         assertTrue(principal.scope.tagsInclude.isEmpty(), "S3a: an absent scope key must carry no tag constraint")
     }
 
-    @Test
-    fun `S3b bare scope key (YAML null) is unrestricted`() {
-        val hash = sha256Hex("s3b-bare-scope")
-        val yaml =
-            """
-            version: 1
-            tokens:
-              - id: bare-scope
-                token_sha256: "$hash"
-                scope:
-                capabilities:
-                  - read
-            """.trimIndent()
-        val path = writeYaml(content = yaml)
-        val principal =
-            BearerTokenStore(path)
-                .loadWithEntries()
-                .values
-                .first()
-                .principal
-        assertNull(principal.scope.rootIds, "S3b: a bare (YAML-null) scope key must be unrestricted (D4)")
-        assertTrue(principal.scope.tagsInclude.isEmpty(), "S3b: a bare scope key must carry no tag constraint")
-    }
-
-    @Test
-    fun `S3c empty scope map is unrestricted`() {
-        val hash = sha256Hex("s3c-empty-map")
-        val yaml =
-            """
-            version: 1
-            tokens:
-              - id: empty-scope-map
-                token_sha256: "$hash"
-                scope: {}
-                capabilities:
-                  - read
-            """.trimIndent()
-        val path = writeYaml(content = yaml)
-        val principal =
-            BearerTokenStore(path)
-                .loadWithEntries()
-                .values
-                .first()
-                .principal
-        assertNull(principal.scope.rootIds, "S3c: scope: {} must be unrestricted (D5)")
-        assertTrue(principal.scope.tagsInclude.isEmpty(), "S3c: scope: {} must carry no tag constraint")
-    }
-
-    @Test
-    fun `S3d explicit null root_ids with empty tags_include is unrestricted`() {
-        val hash = sha256Hex("s3d-null-and-empty")
-        val yaml =
-            """
-            version: 1
-            tokens:
-              - id: null-and-empty
-                token_sha256: "$hash"
-                scope:
-                  root_ids: null
-                  tags_include: []
-                capabilities:
-                  - read
-            """.trimIndent()
-        val path = writeYaml(content = yaml)
-        val principal =
-            BearerTokenStore(path)
-                .loadWithEntries()
-                .values
-                .first()
-                .principal
-        assertNull(principal.scope.rootIds, "S3d: explicit null root_ids must be unrestricted (D4)")
-        assertTrue(principal.scope.tagsInclude.isEmpty(), "S3d: tags_include: [] is the canonical no-constraint form (D3)")
-    }
-
     // -------------------------------------------------------------------------
     // S10 -- failure: malformed root_ids shapes fail startup
     // -------------------------------------------------------------------------
@@ -207,7 +133,6 @@ class BearerScopeFailClosedTest {
                 token_sha256: "$hash"
                 scope:
                   root_ids: "11111111-1111-1111-1111-111111111111"
-                  tags_include: []
                 capabilities:
                   - read
             """.trimIndent()
@@ -228,7 +153,6 @@ class BearerScopeFailClosedTest {
                 token_sha256: "$hash"
                 scope:
                   root_ids: []
-                  tags_include: []
                 capabilities:
                   - read
             """.trimIndent()
@@ -263,7 +187,6 @@ class BearerScopeFailClosedTest {
                   - id: bad-tags
                     token_sha256: "$hash"
                     scope:
-                      root_ids: null
                       tags_include: $tagsIncludeYamlValue
                     capabilities:
                       - read
@@ -312,7 +235,6 @@ class BearerScopeFailClosedTest {
                 scope:
                   root_id:
                     - "$u2"
-                  tags_include: []
                 capabilities:
                   - read
             """.trimIndent()
@@ -335,8 +257,6 @@ class BearerScopeFailClosedTest {
               - id: bad-entry-key
                 token_sha256: "$hash"
                 scopes:
-                  root_ids: null
-                  tags_include: []
                 capabilities:
                   - read
             """.trimIndent()
@@ -360,7 +280,6 @@ class BearerScopeFailClosedTest {
                 token_sha256: "$hash"
                 scope:
                   root_ids: "11111111-1111-1111-1111-111111111111"
-                  tags_include: []
                 capabilities:
                   - read
             """.trimIndent()
@@ -393,16 +312,12 @@ class BearerScopeFailClosedTest {
             tokens:
               - id: first-good
                 token_sha256: "$hash1"
-                scope:
-                  root_ids: null
-                  tags_include: []
                 capabilities:
                   - read
               - id: second-bad
                 token_sha256: "$hash2"
                 scope:
                   root_ids: "11111111-1111-1111-1111-111111111111"
-                  tags_include: []
                 capabilities:
                   - read
             """.trimIndent()
@@ -430,7 +345,6 @@ class BearerScopeFailClosedTest {
                   root_ids:
                     - "$u1"
                     - "$u1"
-                  tags_include: []
                 capabilities:
                   - read
             """.trimIndent()
@@ -462,7 +376,6 @@ class BearerScopeFailClosedTest {
                 scope:
                   root_ids:
                     - "$upper"
-                  tags_include: []
                 capabilities:
                   - read
             """.trimIndent()
@@ -490,7 +403,6 @@ class BearerScopeFailClosedTest {
               - id: probe-yes
                 token_sha256: "$hash"
                 scope:
-                  root_ids: null
                   tags_include: [yes]
                 capabilities:
                   - read
@@ -514,7 +426,6 @@ class BearerScopeFailClosedTest {
                 token_sha256: "$hash"
                 scope:
                   root_ids: "{11111111-1111-1111-1111-111111111111}"
-                  tags_include: []
                 capabilities:
                   - read
             """.trimIndent()
@@ -538,7 +449,6 @@ class BearerScopeFailClosedTest {
                 scope:
                   root_ids:
                     - " 11111111-1111-1111-1111-111111111111"
-                  tags_include: []
                 capabilities:
                   - read
             """.trimIndent()
@@ -562,7 +472,6 @@ class BearerScopeFailClosedTest {
                 scope:
                   ROOT_IDS:
                     - "11111111-1111-1111-1111-111111111111"
-                  tags_include: []
                 capabilities:
                   - read
             """.trimIndent()
@@ -586,7 +495,6 @@ class BearerScopeFailClosedTest {
                 scope:
                   root_ids:
                     - - "11111111-1111-1111-1111-111111111111"
-                  tags_include: []
                 capabilities:
                   - read
             """.trimIndent()
@@ -608,7 +516,6 @@ class BearerScopeFailClosedTest {
               - id: probe-map-tags
                 token_sha256: "$hash"
                 scope:
-                  root_ids: null
                   tags_include:
                     a: b
                 capabilities:
@@ -620,29 +527,5 @@ class BearerScopeFailClosedTest {
             ex.message!!.contains("tags_include"),
             "Probe: tags_include must be a list -- a map is malformed per D3. Got: ${ex.message}",
         )
-    }
-
-    @Test
-    fun `Probe -- bare scope with YAML tilde null is unrestricted`() {
-        val hash = sha256Hex("probe-tilde")
-        val yaml =
-            """
-            version: 1
-            tokens:
-              - id: probe-tilde
-                token_sha256: "$hash"
-                scope: ~
-                capabilities:
-                  - read
-            """.trimIndent()
-        val path = writeYaml(content = yaml)
-        val principal =
-            BearerTokenStore(path)
-                .loadWithEntries()
-                .values
-                .first()
-                .principal
-        assertNull(principal.scope.rootIds, "Probe: scope: ~ (YAML null) must mean unrestricted, same as an absent scope")
-        assertTrue(principal.scope.tagsInclude.isEmpty(), "Probe: scope: ~ must carry no tag constraint")
     }
 }

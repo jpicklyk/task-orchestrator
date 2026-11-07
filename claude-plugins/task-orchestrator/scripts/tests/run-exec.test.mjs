@@ -856,6 +856,36 @@ test('S13: run-exec-lib provenance() defaults model-source to self-report and ad
   assert.match(line, /orchestrator-turns=2\b/)
 })
 
+test('efforts: provenance() records each stage dispatch effort as efforts=<seat>:<effort> and omits the token when no stage sets one', () => {
+  const { doc, item, result } = provenanceFixture('r-test-0010')
+  const none = provenance({ core: realCore(), doc, result, method: 'A', turns: 1 })[item.id]
+  assert.ok(!none.includes('efforts='), none)
+  const stages = doc.args.items[0].stages.map((s) => (s.seat === 'implementer' ? { ...s, dispatch: { ...s.dispatch, effort: 'high' } } : s))
+  const withEffort = { ...doc, args: { ...doc.args, items: [{ ...doc.args.items[0], stages }] } }
+  const line = provenance({ core: realCore(), doc: withEffort, result, method: 'A', turns: 1 })[item.id]
+  assert.match(line, / efforts=implementer:high(\s|$)/, line)
+  assert.match(line, / effort-source=assigned(\s|$)/, 'no meta effort -> the plan dispatch effort is recorded as assigned')
+  assert.ok(!line.includes('effort-substituted='), line)
+  assert.ok(line.indexOf('model-source=') < line.indexOf('efforts='), 'efforts= is a tail after model-source=')
+})
+
+test('efforts: a meta entry with an observed effort wins over the dispatch effort, sets effort-source=transcript and lists the mismatch under effort-substituted=', () => {
+  const { doc, item, result } = provenanceFixture('r-test-0011')
+  const stages = doc.args.items[0].stages.map((s) => (s.seat === 'implementer' ? { ...s, dispatch: { ...s.dispatch, effort: 'high' } } : s))
+  const withEffort = { ...doc, args: { ...doc.args, items: [{ ...doc.args.items[0], stages }] } }
+  const meta = { 'implementer:aaaaaaaa': { label: 'implementer:aaaaaaaa', model: 'sonnet', modelId: 'claude-sonnet-5-5', effort: 'medium', effortSource: 'transcript' } }
+  const line = provenance({ core: realCore(), doc: withEffort, result, method: 'A', turns: 1, meta })[item.id]
+  assert.match(line, / efforts=implementer:medium(\s|$)/, line)
+  assert.match(line, / effort-source=transcript(\s|$)/, line)
+  assert.match(line, / effort-substituted=implementer:high(\s|$)/, line)
+  const same = { 'implementer:aaaaaaaa': { ...meta['implementer:aaaaaaaa'], effort: 'high' } }
+  const agree = provenance({ core: realCore(), doc: withEffort, result, method: 'A', turns: 1, meta: same })[item.id]
+  assert.ok(!agree.includes('effort-substituted='), agree)
+  const planner = { 'planner:aaaaaaaa': { label: 'planner:aaaaaaaa', model: 'opus', effort: 'high' } }
+  const mixed = provenance({ core: realCore(), doc: withEffort, result, method: 'A', turns: 1, meta: planner })[item.id]
+  assert.match(mixed, / efforts=planner:high,implementer:high effort-source=mixed(\s|$)/, mixed)
+})
+
 test('S13: run-exec-lib provenance() uses adapter=claude-agent for method B', () => {
   const { doc, item, result } = provenanceFixture('r-test-0008')
   const lines = provenance({ core: realCore(), doc, result, method: 'B', turns: 1 })

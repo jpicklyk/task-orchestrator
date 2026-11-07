@@ -120,13 +120,13 @@ work_item_schemas:
       - key: implementation-notes
         role: work
         required: true
-        description: "Context handoff for downstream agents — deviations, surprises, decisions."
-        guidance: "Document decisions not in the feature-summary. Focus on what downstream agents need: deviations, API surprises, wrong assumptions, patterns affecting dependent work."
+        description: "Cross-child record - decisions, merges, carry-ins and deferrals no child's notes hold."
+        guidance: "Cross-child record only: what no child's notes can hold. `Decisions:` ordering or interface choices made between children; `Merges:` a shared-worktree merge that changed a child's behaviour after its review (what, which child, sha); `Carry-ins:` findings routed between children (from -> to, child ids); `Deferred:` scope deliberately left to a follow-up feature (item id). Never re-list the children's commits, files, test counts or findings; each child's notes and `orchestrator-confirmation` hold them. When nothing crossed child boundaries, the whole body is the one line `No cross-child decisions; each child's notes stand alone.` and that satisfies the gate. Target ~300-1200 characters; the 3000 maxLength is a backstop, not a goal."
       - key: session-tracking
         role: work
         required: true
         description: "Session context — what was done, how it went, anything the retrospective should know."
-        guidance: "Record: Outcome (success/partial/failure), files changed with rationale, deviations from plan, friction (tool errors, roundtrips), test results (pass/fail counts, new tests added)."
+        guidance: "Closure record for the retrospective: only what the diff, git log and CI do not already hold. Lines, in this order: `Outcome: success | partial | failure` (on an item with a review phase write `Outcome: implemented, review pending` and end the body with `Review: pending - verdict in <review-note key>`; `success` is reserved for items with no review phase); `Commits: <sha or range>` (one line; never a file list, the commits name their files); `Verified: <command> green at <sha> | not run (<why>)` (one line; never test counts, CI holds them); `Deviations: <what differed from the plan and why> | none`; `Friction: <type: description>, ... | none` (tool errors, round-trips, workarounds, API confusion); `Observations: <process signal worth a trend>` (omit when none); `Follow-ups: see orchestrator-confirmation` (never per-finding dispositions here). Lines the run tooling adds (`run-wave:` pointer fallback, `**Live-owed**:`) stay as they are. A clean item is five short lines. Target ~300-800 characters; the 2000 maxLength is a backstop, not a goal."
       - key: review-checklist
         role: review
         required: true
@@ -150,13 +150,13 @@ Show this schema to the user:
       - key: implementation-notes
         role: work
         required: true
-        description: "Context handoff — what changed, deviations from diagnosis, patterns to apply."
-        guidance: "Document what changed and why. Note if root cause differed from diagnosis, patterns for similar code paths, edge cases discovered."
+        description: "Delta record - deviations from the diagnosis, root-cause match, defect-class sites left."
+        guidance: "A delta record for the next reader, not a change log: the diff, git log and CI already hold what changed, where, and whether tests pass. Sections, each omitted when empty: `Deviations:` where the code departs from the diagnosis and why (a conflict handed to a decision goes under `## Deviations requested`); `Decisions:` choices the plan did not make, each with the rejected option in one clause, and whether the root cause matched the diagnosis (if not, what it was); `Not done:` scope left out or verification not run, each with the reason, and every defect-class site from the diagnosis that was left, with why; `Gotchas:` what a reader of the diff would misread (an ordering constraint, a seam added for tests, a shared helper the change now leans on). Never: per-file narration of the change, commit lists beyond one `Commits: <sha or range>` line, acceptance criteria restated as met, test counts. When nothing applies, the whole body is the one line `No deviations; nothing a reader of the diff would miss.` and that satisfies the gate. In a fix cycle (-a<n> seat), rewrite this note in full to describe the current state; replace superseded text rather than appending an amendment section, and keep history to a final 'Amendments:' list with one line per A<n> (what changed, commit SHA). Target ~300-1200 characters; the 3000 maxLength is a backstop, not a goal."
       - key: session-tracking
         role: work
         required: true
         description: "Session context for retrospective."
-        guidance: "Record: Outcome, files changed, deviations from diagnosis, friction, test results."
+        guidance: "Closure record for the retrospective: only what the diff, git log and CI do not already hold. Lines, in this order: `Outcome: success | partial | failure` (on an item with a review phase write `Outcome: implemented, review pending` and end the body with `Review: pending - verdict in <review-note key>`; `success` is reserved for items with no review phase); `Commits: <sha or range>` (one line; never a file list, the commits name their files); `Verified: <command> green at <sha> | not run (<why>)` (one line; never test counts, CI holds them); `Deviations: <what differed from the plan and why> | none`; `Friction: <type: description>, ... | none` (tool errors, round-trips, workarounds, API confusion); `Observations: <process signal worth a trend>` (omit when none); `Follow-ups: see orchestrator-confirmation` (never per-finding dispositions here). Lines the run tooling adds (`run-wave:` pointer fallback, `**Live-owed**:`) stay as they are. A clean item is five short lines. Target ~300-800 characters; the 2000 maxLength is a backstop, not a goal."
       - key: review-checklist
         role: review
         required: true
@@ -205,7 +205,7 @@ Ask the user the following questions (use `AskUserQuestion` for structured input
 - For each note, ask: "Should this note have a skill framework? If so, what skill name?" (a project skill, plugin skill, or Claude Code built-in — e.g., `security-review` for security gates)
 
 **Question 5:** "What must be documented *after* implementation (work phase)?"
-- Prompt with examples: implementation summary, test results, files changed
+- Prompt with examples: deviations from the plan, decisions the plan did not make, the verification command and result
 - Aim for 1-3 notes
 
 **Question 6 (if review phase):** "What must be documented/verified before closing (review phase)?"
@@ -238,13 +238,13 @@ For YAML format reference and field rules, see `references/config-format.md` in 
 
 Apply these four disciplines when writing `guidance` values for any note — whether from a template customization or from-scratch Q&A:
 
-1. **Lead with the consumer.** Open with who reads this note and what they need from it. Example: "This note is read by the review agent. They need to know which files changed and whether the implementation matches the specification."
+1. **Lead with the consumer.** Open with who reads this note and what they need from it. Example: "This note is read by the review agent. They need to know where the implementation departs from the specification and why."
 
 2. **Structure over prose.** If the note covers 3 or more topics, use bold section headers (`**Header**`) rather than a prose paragraph. Agents and reviewers scan — they don't read walls of text.
 
-3. **Concrete over generic.** Specify the actual verification action, not the category. "State which files changed and the specific function modified" instead of "describe the approach." "Name specific test scenarios for happy paths and failure paths" instead of "add tests."
+3. **Concrete over generic.** Specify the actual verification action, not the category. "Name the function and condition the change touches" instead of "describe the approach." "Name specific test scenarios for happy paths and failure paths" instead of "add tests."
 
-4. **Session-tracking prompt.** If the schema includes a work phase, ask: "Most schemas include a session-tracking note (work phase) for retrospective analysis. Add one? [Yes/No]" If yes, use this standard guidance: `"Record: Outcome (success/partial/failure), files changed with rationale, deviations from plan, friction (tool errors, roundtrips), test results (pass/fail counts, new tests added)."`
+4. **Session-tracking prompt.** If the schema includes a work phase, ask: "Most schemas include a session-tracking note (work phase) for retrospective analysis. Add one? [Yes/No]" If yes, use this standard guidance: ``Closure record for the retrospective: only what the diff, git log and CI do not already hold. Lines, in this order: `Outcome: success | partial | failure` (on an item with a review phase write `Outcome: implemented, review pending` and end the body with `Review: pending - verdict in <review-note key>`; `success` is reserved for items with no review phase); `Commits: <sha or range>` (one line; never a file list, the commits name their files); `Verified: <command> green at <sha> | not run (<why>)` (one line; never test counts, CI holds them); `Deviations: <what differed from the plan and why> | none`; `Friction: <type: description>, ... | none` (tool errors, round-trips, workarounds, API confusion); `Observations: <process signal worth a trend>` (omit when none); `Follow-ups: see orchestrator-confirmation` (never per-finding dispositions here). Lines the run tooling adds (`run-wave:` pointer fallback, `**Live-owed**:`) stay as they are. A clean item is five short lines. Target ~300-800 characters; the 2000 maxLength is a backstop, not a goal.``
 
 ---
 

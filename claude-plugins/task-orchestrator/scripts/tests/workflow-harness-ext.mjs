@@ -14,7 +14,7 @@
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { coreSlice } from './workflow-harness.mjs'
+import { coreSlice, baseLabel } from './workflow-harness.mjs'
 
 /**
  * loadCoreNamed(path, names) -> object keyed by `names`, built the same way B1's loadCore
@@ -100,7 +100,7 @@ export function autoAgent(responder, { order = 'fifo' } = {}) {
   async function agent(prompt, opts = {}) {
     if (opts.isolation) throw new Error('autoAgent: opts.isolation is not allowed')
     checkSchemaShape(opts.schema)
-    const call = { label: opts.label, opts, prompt, t0: nextTick(), t1: null }
+    const call = { label: baseLabel(opts.label), opts, prompt, t0: nextTick(), t1: null }
     calls.push(call)
     return new Promise((resolve, reject) => {
       queue.push({ call, resolve, reject })

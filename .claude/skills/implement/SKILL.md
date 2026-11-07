@@ -372,7 +372,15 @@ gradle" table for this; never paste a suite command into a seat prompt.
 
 The checked-in lock helper (`references/gradle-locked.ps1`) enforces the seat rows: it refuses
 `:current:test`, `:current:ktlintCheck` and `--rerun-tasks` unless `TO_GRADLE_OWNER=orchestrator`
-is set inline on the call, which only the orchestrator's own invocations do. Evidence for the
+is set inline on the call, which only the orchestrator's own invocations do. The lock is a directory
+carrying `owner.json` (holder pid, start time, acquire time), taken by renaming a staged copy into
+place so it is never ownerless. A waiter prints `LOCK HELD by pid <p> since <iso>` while it waits
+and reclaims the lock (`LOCK RECLAIMED: <reason>`) when that pid is dead or reused. With no readable
+`owner.json` (absent or unparseable) it reclaims once the directory is older than
+`TO_GRADLE_LOCK_STALE_MINUTES` (default 30); an `owner.json` that cannot be read counts as a live
+holder, and a live holder is never reclaimed by age. In a mixed-version wave, worktrees on an old
+base can reclaim or delete each other's locks until every worktree carries this fix. Evidence for
+the
 rule: on `release/4.0` every seat was running the forced suite (~8,000 tests, 7+ minutes each) so
 a 1-4 hour item spent an hour or more in Gradle (retrospectives `7e698694`, `462a33bb`).
 
@@ -438,8 +446,10 @@ dispatch. No `/simplify` pass. **Exception — a Direct-tier `bug-fix` carrying
 `needs-test-author`:** follow Step 4b's Direct-tier test-first-then-fix sequence
 (test-plan frozen at queue → regression test observed red → fix → green) instead of
 implementing first. Fill the `session-tracking` note (required by both
-`quick-fix` and `default` schemas) with a brief summary of what changed and test
-results. Advance (`start`): to review, or to terminal when the schema has no review phase
+`quick-fix` and `default` schemas) as a delta record per its schema guidance: outcome, the
+`Commits:` line, the `Verified:` line, deviations and friction (for `quick-fix`, one short
+paragraph on what the fix was and why that way, then those lines). No file list and no test
+counts. Advance (`start`): to review, or to terminal when the schema has no review phase
 (`quick-fix`); Step 5 reads `newRole`:
 `advance` `transition` with `trigger: "start"`.
 
@@ -910,8 +920,8 @@ The review agent:
    recorded the build state in the Review scoping slot. On Direct tier the orchestrator reviews
    inline after its own run. On Delegated tier the orchestrator runs `:current:test` and
    `:current:ktlintCheck` (Step 4's "Verification commands" - a PR with failing lint will not
-   merge) and records count, result and SHA in its own `session-tracking` before dispatching the
-   reviewer, which takes those numbers from there per `review-quality` Area 1.
+   merge) and records the `Verified:` line (command, result, SHA) in its own `session-tracking`
+   before dispatching the reviewer, which reads the build state from there per `review-quality` Area 1.
 5. Evaluates plan alignment, test quality, and simplification
 6. **On items carrying `needs-test-author`, additionally:**
    - **Two-range ownership check:** confirm the impl-range/author-range disjointness recorded
@@ -946,15 +956,19 @@ The review agent:
 | Verdict | Action |
 |---------|--------|
 | **Pass** | Proceed to Step 6 |
-| **Pass with observations** | Proceed to Step 6; dispose observations per Dispositions at child close |
+| **Pass with observations** | Proceed to Step 6; dispose observations per Dispositions at child close (`fixed` only under run-wave `post-run.md` Step 5 "Observation triage") |
 | **Fail — blocking issues** | Stop and report to the user with the full findings. Do not attempt to fix autonomously — bring the human into the loop. |
 
 Once the user rules a fix on a run-wave item whose run closed at handoff, the fix cycle follows the numbered recipe in run-wave `post-run.md` Step 5 "Fallback", which also finalizes the item's `session-tracking`.
 
 **Dispositions at child close.** When a child's review returns Pass or Pass with observations,
-write the child's `orchestrator-confirmation` before advancing it: one line per O# (follow-up
-item created first, or `accepted: <reason>`), `N of N disposed`. Nothing is left for the parent
-review to carry.
+write the child's `orchestrator-confirmation` before advancing it: one line per O# as `fixed <sha>`,
+`follow-up <item-id>` (the item created first) or `accepted: <reason>`, `N of N disposed`. Nothing
+is left for the parent review to carry. `fixed` is bounded by run-wave `post-run.md` Step 5
+"Observation triage": only a concrete failure in behaviour the item added or changed, one
+`implementer-a<n>` (or `test-author-a<n>`) seat scoped to the finding ids, no planner amendment, no
+re-review unless the fix changes behaviour beyond the finding; the Fail recipe is for blocking
+findings only.
 
 Review failures surface issues that may indicate systemic problems worth learning
 from. Automatically retrying hides these signals.
@@ -1123,8 +1137,10 @@ For Parallel-tier features with a shared feature worktree:
 check needing a refreshed plugin cache or a user opt-in counts as done here; it is split off after the
 merge, step 8):
 
-1. Fill the parent's `implementation-notes` and `session-tracking` notes (aggregating
-   across children - distributed-tracking pattern works as today; under the coordinator token
+1. Fill the parent's `implementation-notes` (cross-child content only, per the
+   `feature-implementation` schema guidance: decisions between children, post-review merges, routed
+   findings, deferred scope, or the one-line empty form) and `session-tracking` (the run record,
+   per the `session-tracked` guidance; the children's notes are not re-listed) - under the coordinator token
    while the parent is a member of an open run; final content written once, in confirmed past tense;
    the only re-edits are the ones run-wave `references/post-run.md` Step 3 sanctions, and the step 8
    post-merge live acceptance line is written as that file's Step 7b (d) says).
@@ -1234,8 +1250,8 @@ merge, step 8):
 - **No PR-body staleness.** The PR body is authored once, after the feature is done,
   describing what actually shipped.
 - **Aggregate retrospective material.** Distributed `session-tracking` notes across
-  children plus parent-level aggregation gives clean retro input (validated by retro
-  `a7f6024f`).
+  children plus the parent's run record give clean retro input (validated by retro
+  `a7f6024f`); the parent's `implementation-notes` stays cross-child only.
 
 Local `main` always tracks `origin/main` — no divergence, no `reset --hard` needed.
 

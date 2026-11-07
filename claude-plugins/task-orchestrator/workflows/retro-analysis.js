@@ -43,10 +43,21 @@ function pickCandidate(cands) {
 }
 
 /** agentOpts(plan, key, base) -> base merged with model/effort from plan.models[key]/plan.efforts[key] when set */
+/**
+ * dispatchTag({model?, effort?}) -> '[<model>/<effort>]' | '[<model>]' | '[inherit]'. The label
+ * suffix that shows the assigned model and effort wherever the label is displayed (the workflow
+ * pane, the background-task list); 'inherit' makes an unset model visible instead of silent.
+ */
+function dispatchTag(d) {
+  const model = d && d.model ? d.model : 'inherit'
+  return d && d.effort ? `[${model}/${d.effort}]` : `[${model}]`
+}
+
 function agentOpts(plan, key, base) {
   const opts = Object.assign({}, base)
   if (plan.models && plan.models[key]) opts.model = plan.models[key]
   if (plan.efforts && plan.efforts[key]) opts.effort = plan.efforts[key]
+  opts.label = `${base.label} ${dispatchTag(opts)}`
   return opts
 }
 

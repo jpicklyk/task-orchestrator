@@ -31,3 +31,6 @@ ownership.
 - Fill notes with `notes_write` `upsert`, using the note keys your dispatch names for your seat. `note_owned_by_other` is final (no takeover is possible): log it as a finding.
 - The only sanctioned way for an in-phase seat to stop the item is the `runs_write` `raise` that
   your dispatch names. Without one, report the blocker in your return instead.
+- **End the seat on its own.** `runs_write` `end_seat` is sent alone, as the last task-orchestrator
+  call, and only after the result of your final `notes_write` has been read as ok. Never batch it with
+  a write. If a write failed, report it and leave the seat open for the orchestrator.

@@ -1358,7 +1358,11 @@ export function notesAudit(doc, observed, itemIds, opts) {
  * deferred = result.deferred.length + args.deferred.length. in-run-edges =
  * doc.meta.inRunEdges.length. orchestrator-turns = turns. substituted lists seats whose meta
  * model differs from stage.dispatch.model. model-source is 'meta' only when every seat's
- * model came from meta, else 'self-report'.
+ * model came from meta, else 'self-report'. efforts lists one seat:effort per seat: the meta
+ * entry's effort (observed in the seat's transcript by collectDispatchMeta) when present, else the
+ * stage dispatch effort (assigned); omitted when neither exists. effort-source is 'transcript'
+ * when every listed effort came from meta, 'assigned' when none did, else 'mixed'.
+ * effort-substituted lists seats whose observed effort differs from the assigned one.
  */
 export function provenance({ core, doc, result, method, turns, usage, meta, journal, extraSeats, item: onlyItem }) {
   const out = {}
@@ -1372,6 +1376,10 @@ export function provenance({ core, doc, result, method, turns, usage, meta, jour
     const resultStages = (resItem && resItem.stages && resItem.stages.length > 0) ? resItem.stages : item.stages
     const seats = []
     const substituted = []
+    const efforts = []
+    const effortSubstituted = []
+    let anyEffortMeta = false
+    let anyEffortAssigned = false
     let anyFromMeta = false
     let anySelfReport = false
 
@@ -1391,6 +1399,15 @@ export function provenance({ core, doc, result, method, turns, usage, meta, jour
         anySelfReport = true
       }
       seats.push({ seat, model })
+      const assignedEffort = stageDef.dispatch && stageDef.dispatch.effort
+      if (metaEntry && metaEntry.effort) {
+        efforts.push({ seat, effort: metaEntry.effort })
+        anyEffortMeta = true
+        if (assignedEffort && assignedEffort !== metaEntry.effort) effortSubstituted.push({ seat, requested: assignedEffort })
+      } else if (assignedEffort) {
+        efforts.push({ seat, effort: assignedEffort })
+        anyEffortAssigned = true
+      }
       const requested = stageDef.dispatch && stageDef.dispatch.model
       if (requested && model !== requested) substituted.push({ seat, requested })
     }
@@ -1427,6 +1444,11 @@ export function provenance({ core, doc, result, method, turns, usage, meta, jour
     if (substituted.length > 0) fields.substituted = substituted
     fields.modelSource = anyFromMeta && !anySelfReport ? 'meta' : 'self-report'
     if (journal) fields.journal = journal
+    if (efforts.length > 0) {
+      fields.efforts = efforts
+      fields.effortSource = anyEffortMeta && !anyEffortAssigned ? 'transcript' : (anyEffortMeta ? 'mixed' : 'assigned')
+    }
+    if (effortSubstituted.length > 0) fields.effortSubstituted = effortSubstituted
     if (doc.args.serverRunId) fields.extra = { 'server-run': doc.args.serverRunId }
 
     out[item.id] = formatProvenance(fields)
@@ -1654,6 +1676,14 @@ function runHints(doc, phase) {
  *   end-seats one runs_write end_seat per still-active member seat in opts.seats (runs_read seats
  *             data); outcome done/failed/abandoned from opts.result's stage status; the coordinator
  *             row and ended rows are skipped; tokenFiles[i] names the seat's token file.
+ *   adopt-notes re-creates the pre-filled planner-stage notes under the planner seat, after assign.
+ *             opts.notes is a JSON object keyed by item id (full or short) whose value is an array of
+ *             notes_read get data objects ({key, role, body, owner:{id, seat?}, version}) for the keys of
+ *             that item's planner-v1 stage. A note already owned by the stage's seat is skipped; any other
+ *             yields {op:'delete', itemId, key, expectedVersion: note.version} then {op:'upsert', itemId, key, role, body, expectedVersion:0}.
+ *             tokenFiles[i]: the upsert goes under the stage's seat token file; the delete under the same
+ *             file on a seat-aware schema, null (token-less) when the item has an implicitOwner stage. opts.item (short or full id) renders only
+ *             that item (an id matching no plan item throws); an unresolved seat token file throws.
  *   close     runs_write close {runId, reason: closeReason(opts.result, opts.reason)}.
  * Throws 'invalid args: ...' on bad input.
  */
@@ -1756,11 +1786,51 @@ export function runOps(core, doc, opts = {}) {
     }
     return { tool: 'runs_write', ops, tokenFiles }
   }
+  if (phase === 'adopt-notes') {
+    requireBound(doc)
+    const { plan } = resolvePlan(core, doc)
+    const observed = opts.notes
+    if (!observed || typeof observed !== 'object' || Array.isArray(observed)) {
+      throw new Error('invalid args: adopt-notes needs --notes <json object keyed by item id>')
+    }
+    const ops = []
+    const tokenFiles = []
+    const only = opts.item ? findItem(plan, opts.item) : null
+    for (const item of plan.items) {
+      if (only && item !== only) continue
+      const stage = item.stages.find((s) => s.output === 'planner-v1')
+      if (!stage) continue
+      const id = item.id.toLowerCase()
+      const hit = Object.keys(observed).find((k) => {
+        const kk = String(k).toLowerCase()
+        return kk.length >= 8 && id.startsWith(kk)
+      })
+      if (hit === undefined) continue
+      const list = observed[hit]
+      if (!Array.isArray(list)) throw new Error(`invalid args: --notes[${hit}] must be an array of notes`)
+      const seatless = item.stages.some((s) => s.implicitOwner === true)
+      const file = core.seatTokenFile(plan, item, stage)
+      const keys = Array.isArray(stage.notes) ? stage.notes : []
+      for (const note of list) {
+        if (!note || typeof note.key !== 'string' || !keys.includes(note.key)) continue
+        if (note.owner && note.owner.seat === stage.seat) continue
+        if (typeof note.body !== 'string') throw new Error(`invalid args: note ${note.key} of ${hit} has no string body`)
+        if (!file) throw new Error(`invalid args: no token file resolves for seat ${stage.seat} of item ${item.short}; adopt-notes never renders a token-less upsert`)
+        const del = { op: 'delete', itemId: item.id, key: note.key }
+        if (Number.isInteger(note.version)) del.expectedVersion = note.version
+        ops.push(del)
+        tokenFiles.push(seatless ? null : file)
+        ops.push({ op: 'upsert', itemId: item.id, key: note.key, role: note.role, body: note.body, expectedVersion: 0 })
+        tokenFiles.push(file)
+      }
+    }
+    return { tool: 'notes_write', ops, tokenFiles }
+  }
   if (phase === 'close') {
     const runId = requireBound(doc)
     return { tool: 'runs_write', ops: [{ op: 'close', runId, reason: closeReason(opts.result, opts.reason) }] }
   }
-  throw new Error(`invalid args: --phase must be open, assign, update, heartbeat, end-seats or close, got ${JSON.stringify(phase)}`)
+  throw new Error(`invalid args: --phase must be open, assign, adopt-notes, update, heartbeat, end-seats or close, got ${JSON.stringify(phase)}`)
 }
 
 // ---------------------------------------------------------------------------------------
@@ -2209,12 +2279,109 @@ function execRunOps(argv, io) {
     item: flagValue(argv, '--item'),
     seat: flagValue(argv, '--seat'),
     seats: read('--seats'),
+    notes: read('--notes'),
     usage: read('--usage'),
     result: resultDoc,
     reason: flagValue(argv, '--reason'),
     runPhase: flagValue(argv, '--run-phase'),
   })
   io.writeOut(JSON.stringify(out))
+  io.exit(0)
+}
+
+const DISPLAY_TAG_RE = / \[[^\]]*\]$/
+
+/** stripDisplayTag('implementer:abcd1234 [sonnet/high]') -> 'implementer:abcd1234'. */
+export function stripDisplayTag(label) {
+  return String(label).replace(DISPLAY_TAG_RE, '')
+}
+
+function modelAliasOf(meta, modelId) {
+  if (meta && typeof meta.model === 'string' && /^(haiku|sonnet|opus|fable)$/.test(meta.model)) return meta.model
+  const m = /claude-(haiku|sonnet|opus|fable)/.exec(modelId || (meta && meta.model) || '')
+  if (m) return m[1]
+  return (meta && meta.model) || 'unknown'
+}
+
+/**
+ * collectDispatchMeta({io, roots, labels, since?}) -> {[label]: {label, model, modelId, effort?,
+ * effortSource?, transcript, mtimeMs}}. Claude Code writes an 'agent-<id>.meta.json' beside every
+ * subagent transcript ('agent-<id>.jsonl') with the dispatch description (= the run-wave label,
+ * display tag included) and the model alias. For each root, io.walkMeta(root) lists those meta
+ * files with their mtime; a file whose stripped description is one of `labels` is read, the newest
+ * per label wins (re-dispatches of the same seat), and `since` (epoch ms) drops older files. The
+ * transcript's assistant lines carry the model id and the effort the turn ran at: effort is the
+ * most frequent value over those lines (ties -> the later value), modelId the last one seen; a
+ * missing or empty transcript leaves effort absent. Pure: io supplies walkMeta/readInput/readText.
+ */
+export function collectDispatchMeta({ io, roots, labels, since }) {
+  const wanted = new Set(labels || [])
+  const out = {}
+  for (const root of roots || []) {
+    for (const entry of io.walkMeta(root) || []) {
+      if (since !== undefined && entry.mtimeMs < since) continue
+      const meta = io.readInput(entry.path)
+      if (!meta || typeof meta.description !== 'string') continue
+      const label = stripDisplayTag(meta.description)
+      if (!wanted.has(label)) continue
+      const prev = out[label]
+      if (prev && prev.mtimeMs >= entry.mtimeMs) continue
+      const transcript = entry.path.replace(/\.meta\.json$/, '.jsonl')
+      const text = io.readText(transcript)
+      const counts = {}
+      let modelId = ''
+      for (const line of (text || '').split('\n')) {
+        if (!line.includes('"assistant"')) continue
+        let rec
+        try { rec = JSON.parse(line) } catch (e) { continue }
+        if (!rec || rec.type !== 'assistant') continue
+        if (typeof rec.effort === 'string' && rec.effort) counts[rec.effort] = (counts[rec.effort] || 0) + 1
+        if (rec.message && typeof rec.message.model === 'string') modelId = rec.message.model
+      }
+      let effort = ''
+      let best = 0
+      for (const [k, n] of Object.entries(counts)) {
+        if (n >= best) { best = n; effort = k }
+      }
+      const rec = { label, model: modelAliasOf(meta, modelId), modelId, transcript, mtimeMs: entry.mtimeMs }
+      if (effort) { rec.effort = effort; rec.effortSource = 'transcript' }
+      out[label] = rec
+    }
+  }
+  return out
+}
+
+/**
+ * dispatch-meta --plan <plan> [--session-dir <dir> | --projects-dir <dir>] [--since <epoch-ms>]
+ * -> {contract:'run-wave/dispatch-meta-v1', roots, wanted, matched, meta}. Labels are every
+ * '<seat>:<short>' of the plan's items. Default root: <home>/.claude/projects (every session).
+ * The printed document is what provenance --meta <file> reads.
+ */
+function execDispatchMeta(argv, io) {
+  const planPath = flagValue(argv, '--plan')
+  const doc = io.readInput(planPath)
+  if (!doc || !doc.args || !Array.isArray(doc.args.items)) {
+    io.fail(2, 'invalid args', `--plan ${planPath} could not be read or parsed as a plan`)
+    return
+  }
+  const labels = []
+  for (const item of doc.args.items) {
+    for (const s of item.stages || []) labels.push(`${s.seat}:${item.short}`)
+  }
+  const sessionDir = flagValue(argv, '--session-dir')
+  const projectsDir = flagValue(argv, '--projects-dir')
+  const roots = sessionDir ? [sessionDir] : [projectsDir || `${io.homeDir()}/.claude/projects`]
+  const sinceFlag = flagValue(argv, '--since')
+  let since
+  if (sinceFlag !== undefined) {
+    if (!/^\d+$/.test(sinceFlag)) {
+      io.fail(2, 'invalid args', '--since must be an epoch-milliseconds integer')
+      return
+    }
+    since = Number(sinceFlag)
+  }
+  const meta = collectDispatchMeta({ io, roots, labels, since })
+  io.writeOut(JSON.stringify({ contract: 'run-wave/dispatch-meta-v1', roots, wanted: labels.length, matched: Object.keys(meta).length, meta }))
   io.exit(0)
 }
 
@@ -2230,14 +2397,22 @@ function execProvenance(argv, io) {
   if (metaDir) {
     // O3: '<seat>:<short>.meta.json' is not a legal filename on NTFS (':' is reserved), so the
     // dir is listed and each *.meta.json file's own `label` field (frozen shape
-    // {label:'<seat>:<short>', model}) supplies the key instead of the filename.
+    // {label:'<seat>:<short>', model}) supplies the key instead of the filename. A label copied
+    // from the workflow pane carries the display tag ' [<model>/<effort>]'; it is stripped here.
     meta = {}
     const names = (io.listDir ? io.listDir(metaDir) : []).filter((n) => n.endsWith('.meta.json'))
     for (const name of names) {
       const p = `${metaDir}/${name}`.replace(/\\/g, '/')
       const parsed = io.readInput(p)
-      if (parsed && parsed.label) meta[parsed.label] = parsed
+      if (parsed && parsed.label) meta[String(parsed.label).replace(/ \[[^\]]*\]$/, '')] = parsed
     }
+  }
+  const metaFile = flagValue(argv, '--meta')
+  if (metaFile) {
+    // The dispatch-meta command's document ({meta: {...}}), or a bare {label: entry} map.
+    const parsed = io.readInput(metaFile)
+    const map = parsed && parsed.meta && typeof parsed.meta === 'object' ? parsed.meta : parsed
+    meta = Object.assign(meta || {}, map || {})
   }
   const extraFlag = flagValue(argv, '--extra-seats')
   const itemFlag = flagValue(argv, '--item')
@@ -2380,6 +2555,7 @@ export const EXEC_COMMANDS = {
   'scan-declarations': execScanDeclarations,
   verify: execVerify,
   'notes-audit': execNotesAudit,
+  'dispatch-meta': execDispatchMeta,
   provenance: execProvenance,
   'review-prompt': execReviewPrompt,
   reseat: execReseat,

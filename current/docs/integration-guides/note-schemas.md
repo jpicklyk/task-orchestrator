@@ -141,8 +141,8 @@ work_item_schemas:
       - key: implementation-notes
         role: work
         required: true
-        description: "What was built, deviations from the plan, decisions made."
-        guidance: "Document decisions not captured in the feature-summary. Focus on what downstream agents or reviewers need to know."
+        description: "Delta record: deviations from the plan, decisions made, scope not done, gotchas."
+        guidance: "Record only what the diff, git log and CI do not hold, and what downstream agents or reviewers need to know. When nothing applies, write one line: No deviations; nothing a reader of the diff would miss."
       - key: review-checklist
         role: review
         required: true

@@ -1581,11 +1581,21 @@ async function higherPriorityOutputs(plan, item, milestones) {
   return results
 }
 
+/**
+ * dispatchTag({model?, effort?}) -> '[<model>/<effort>]' | '[<model>]' | '[inherit]'. The label
+ * suffix that shows the assigned model and effort wherever the label is displayed (the workflow
+ * pane, the background-task list); 'inherit' makes an unset model visible instead of silent.
+ */
+function dispatchTag(d) {
+  const model = d && d.model ? d.model : 'inherit'
+  return d && d.effort ? `[${model}/${d.effort}]` : `[${model}]`
+}
+
 async function callSeat(plan, item, stage, outs, deps) {
   const prompt = seatPrompt(plan, item, stage, outs)
   const schema = envelopeSchema(stage.output, plan.outputSchemas, { enters: stage.enters })
   const opts = {
-    label: `${stage.seat}:${item.short}`,
+    label: `${stage.seat}:${item.short} ${dispatchTag(stage.dispatch)}`,
     phase: stage.phase === 'queue' ? 'Queue' : 'Work',
     schema,
   }

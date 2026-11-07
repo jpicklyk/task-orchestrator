@@ -61,6 +61,8 @@ Review applies only when the item's schema declares review-phase notes; otherwis
 
 **Always set `model` explicitly** on every Agent dispatch: defaulting wastes opus tokens or under-powers complex work.
 
+**Show the assignment in the dispatch `description`.** End every Agent `description` with ` [<model>/<effort>]` (`[<model>]` when no effort applies), for example `implementer:5fc03a84 [sonnet/high]`: the app's background-task list shows only that string, and the run-wave workflows put the same tag on their labels, so a reader can tell what each agent was assigned without opening it.
+
 ### Dispatching an item's phase owner
 
 This applies only to the agent that OWNS the phase being entered (the implementer entering work, the reviewer entering review), never to the test author, planning seats or the docs seat; those keep the Delegation table above.
@@ -121,4 +123,4 @@ If your project defines a `delegated` trait, apply it to Delegated and Parallel 
 {"tool": "items_write", "op": "update", "args": {"id": "4b7d0e19", "traits": ["needs-docs-accuracy-review", "delegated"]}}
 ```
 
-An update that changes `traits` is itself a pin point: the item is re-pinned to the current config (see [Schema pins](../../../../current/docs/config-reference.md#schema-pins)). Then, after each subagent returns, fill its `delegation-metadata` work note: model, isolation, a one-line rationale and a one-line outcome. The orchestrator fills this, not the subagent (only the orchestrator knows the dispatch details). On a member of an open run whose schema gives the key `seat: orchestrator`, send that upsert with the run's coordinator token; a seat never writes it. It feeds `/session-retrospective`'s delegation-alignment scoring; projects without the trait skip it.
+An update that changes `traits` is itself a pin point: the item is re-pinned to the current config (see [Schema pins](../../../../current/docs/config-reference.md#schema-pins)). Then, after each subagent returns, fill its `delegation-metadata` work note: model, effort when one was assigned, isolation, a one-line rationale and a one-line outcome. The orchestrator fills this, not the subagent (only the orchestrator knows the dispatch details). On a member of an open run whose schema gives the key `seat: orchestrator`, send that upsert with the run's coordinator token; a seat never writes it. It feeds `/session-retrospective`'s delegation-alignment scoring; projects without the trait skip it.

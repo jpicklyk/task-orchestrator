@@ -195,7 +195,7 @@ button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visibl
   <h2>What the retrospective reads and scores</h2>
   <p>It reads the <code>session-tracking</code> note on each item of the run (up to 20), plus the optional <code>delegation-metadata</code> note recording which model did the work. Then it scores five things.</p>
   <ul class="dims">
-    <li><h3>Schema effectiveness</h3><span class="q">Do the required notes exist at a sensible size? Under about 50 tokens is flagged as sparse.</span></li>
+    <li><h3>Schema effectiveness</h3><span class="q">Do the required notes exist? Work notes are scored on how much they say that the diff does not.</span></li>
     <li><h3>Delegation alignment</h3><span class="q">Did each task run on the model the delegation table expects?</span></li>
     <li><h3>Note effectiveness</h3><span class="q">Did the specs hold up? Work notes that say "deviated" or "assumption was wrong" flag a spec gap.</span></li>
     <li><h3>Plan-to-execution alignment</h3><span class="q">What share of planned items finished, and how many were added mid-run?</span></li>

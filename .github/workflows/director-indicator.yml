@@ -1,0 +1,53 @@
+name: Director Indicator Mod
+
+# Validates and tests claude-plugins/director-indicator with the real Claude Code CLI.
+# No secrets and no model calls: the shared gate script runs `claude plugin validate` and
+# `claude plugin test` against this mod's folder. Not a required check (a path-filtered
+# required check would hang PRs that do not touch these paths).
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'claude-plugins/director-indicator/**'
+      - 'scripts/ci/check-task-orchestrator-mod.mjs'
+      - '.github/workflows/director-indicator.yml'
+  pull_request:
+    branches: [main, 'release/**']
+    paths:
+      - 'claude-plugins/director-indicator/**'
+      - 'scripts/ci/check-task-orchestrator-mod.mjs'
+      - '.github/workflows/director-indicator.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Pinned on purpose: the mod draws the desktop `Backdrop` component, which the validator first
+  # knows in 2.1.317. On a moving `latest` the validator's note format or the kit API can change
+  # and turn CI red on unrelated PRs. Bump it deliberately, together with the mod, never to `latest`.
+  CLAUDE_CODE_VERSION: '2.1.317'
+
+jobs:
+  mod:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install the pinned Claude Code CLI
+        run: |
+          npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+          claude --version
+          claude --version | grep -F "${CLAUDE_CODE_VERSION}"
+
+      - name: Validate and test the mod
+        run: node scripts/ci/check-task-orchestrator-mod.mjs claude-plugins/director-indicator
