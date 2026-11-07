@@ -9,7 +9,7 @@ export const FIELD_ORDER = [
 ]
 
 /** Optional trailing tokens, in this order when present. */
-export const TAIL_ORDER = ['substituted', 'model-source', 'journal', 'efforts']
+export const TAIL_ORDER = ['substituted', 'model-source', 'journal', 'efforts', 'effort-source', 'effort-substituted']
 
 /** Matches a structured provenance line: 'adapter=<x>' followed by one or more 'key=value' tokens. */
 export const STRUCTURED_RE = /^adapter=\S+( [a-z-]+=\S+)+$/
@@ -31,7 +31,8 @@ function numberOrUnknown(v) {
  * formatProvenance(fields) -> one grammar line.
  * fields = {adapter, run, seats:[{seat, model}], model, isolation, agents, tokens, duration,
  * deferred, inRunEdges, orchestratorTurns, substituted?:[{seat, requested}], modelSource?,
- * journal?, efforts?:[{seat, effort}], extra?:{}}. FIELD_ORDER tokens first, then present
+ * journal?, efforts?:[{seat, effort}], effortSource?, effortSubstituted?:[{seat, requested}],
+ * extra?:{}}. FIELD_ORDER tokens first, then present
  * TAIL_ORDER tokens, then extra keys in insertion order. Values contain no spaces (backslashes
  * -> '/', spaces -> '%20'); seat:model, seat:requested and seat:effort pairs joined by ','.
  */
@@ -94,6 +95,13 @@ export function formatProvenance(fields) {
   if (Array.isArray(f.efforts) && f.efforts.length > 0) {
     const eff = f.efforts.map((s) => `${escapeValue(s.seat)}:${escapeValue(s.effort)}`).join(',')
     parts.push(`efforts=${eff}`)
+  }
+  if (f.effortSource) {
+    parts.push(`effort-source=${escapeValue(f.effortSource)}`)
+  }
+  if (Array.isArray(f.effortSubstituted) && f.effortSubstituted.length > 0) {
+    const sub = f.effortSubstituted.map((s) => `${escapeValue(s.seat)}:${escapeValue(s.requested)}`).join(',')
+    parts.push(`effort-substituted=${sub}`)
   }
 
   if (f.extra) {
@@ -173,6 +181,12 @@ export function parseProvenance(text) {
         break
       case 'efforts':
         fields.efforts = parsePairList(raw, 'effort')
+        break
+      case 'effort-source':
+        fields.effortSource = unescapeValue(raw)
+        break
+      case 'effort-substituted':
+        fields.effortSubstituted = parsePairList(raw, 'requested')
         break
       default:
         if (key in NUMERIC_KEYS) {

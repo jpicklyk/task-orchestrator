@@ -24,7 +24,7 @@ test('S13: FIELD_ORDER, TAIL_ORDER, STRUCTURED_RE match the frozen declaration',
     'adapter', 'run', 'seats', 'model', 'isolation', 'agents', 'tokens', 'duration',
     'deferred', 'in-run-edges', 'orchestrator-turns',
   ])
-  assert.deepEqual(TAIL_ORDER, ['substituted', 'model-source', 'journal', 'efforts'])
+  assert.deepEqual(TAIL_ORDER, ['substituted', 'model-source', 'journal', 'efforts', 'effort-source', 'effort-substituted'])
   assert.equal(STRUCTURED_RE.source, '^adapter=\\S+( [a-z-]+=\\S+)+$')
 })
 
@@ -230,6 +230,19 @@ test('efforts: formatProvenance renders efforts=<seat>:<effort>,... after journa
   assert.match(line, STRUCTURED_RE)
   const fields = parseProvenance(line)
   assert.deepEqual(fields.efforts, [{ seat: 'planner', effort: 'high' }, { seat: 'implementer', effort: 'medium' }])
+  assert.equal(formatProvenance(fields), line)
+})
+
+test('efforts: effort-source= and effort-substituted= follow efforts= and round-trip through parse/format', () => {
+  const line = formatProvenance({
+    adapter: 'claude-workflow', run: 'r-1', seats: [{ seat: 'implementer', model: 'sonnet' }], model: 'sonnet', isolation: 'worktree:/wt',
+    agents: 1, tokens: 1, duration: 1, deferred: 0, inRunEdges: 0, orchestratorTurns: 1, modelSource: 'meta',
+    efforts: [{ seat: 'implementer', effort: 'medium' }], effortSource: 'transcript', effortSubstituted: [{ seat: 'implementer', requested: 'high' }],
+  })
+  assert.ok(line.endsWith(' efforts=implementer:medium effort-source=transcript effort-substituted=implementer:high'), line)
+  const fields = parseProvenance(line)
+  assert.equal(fields.effortSource, 'transcript')
+  assert.deepEqual(fields.effortSubstituted, [{ seat: 'implementer', requested: 'high' }])
   assert.equal(formatProvenance(fields), line)
 })
 
