@@ -241,8 +241,9 @@ or a different lifecycle mode); guidance and description edits do not. `sample` 
 
 ## Parse modes
 
-The parser has two modes. Extraction is identical in both: the same document comes out of the same input. The mode
-only classifies a finding.
+The parser has two modes. They differ in two ways: the mode classifies a finding, and `STRICT` also rejects a mapping
+key repeated at any depth, where `MIGRATION` keeps the last value so a stored version stays readable. Otherwise
+extraction is identical: the same document comes out of the same input.
 
 | Mode | A former soft skip is | Used for |
 |------|-----------------------|----------|

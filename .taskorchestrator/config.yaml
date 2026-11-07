@@ -383,8 +383,8 @@ traits:
 #     description: "Single shared staging database — only one migration/test run at a time"
 #     defaultTtlSeconds: 3600
 #
-# Trait to merge INTO the existing `traits:` block above (a duplicate top-level key resolves last-wins and
-# silently drops every existing trait):
+# Trait to merge INTO the existing `traits:` block above (a duplicate top-level key is refused by `config`
+# `push` and `validate`):
 # traits:
 #   needs-staging-slot:
 #     resources:

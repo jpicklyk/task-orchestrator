@@ -46,15 +46,13 @@ class BearerTokenStoreTest {
         // trimIndent removes the 12-space common prefix. rootLine is a child of scope: (6 spaces
         // post-trim → 18 raw); expiresLine is a peer of scope: (4 spaces post-trim → 16 raw).
         val expiresLine = if (expiresAt != null) "\n                expires_at: \"$expiresAt\"" else ""
-        val rootLine = if (rootIds != null) "\n                  root_ids: [$rootIds]" else "\n                  root_ids: null"
+        val scopeBlock = if (rootIds != null) "\n                scope:\n                  root_ids: [$rootIds]" else ""
         return """
             version: 1
             tokens:
               - id: $tokenId
                 description: "Test token"
-                token_sha256: "$hash"
-                scope:$rootLine
-                  tags_include: []
+                token_sha256: "$hash"$scopeBlock
                 capabilities:
                   $capabilities$expiresLine
             """.trimIndent()
@@ -82,16 +80,10 @@ class BearerTokenStoreTest {
             tokens:
               - id: alpha
                 token_sha256: "$hash1"
-                scope:
-                  root_ids: null
-                  tags_include: []
                 capabilities:
                   - read
               - id: beta
                 token_sha256: "$hash2"
-                scope:
-                  root_ids: null
-                  tags_include: []
                 capabilities:
                   - read
                   - write-notes
@@ -123,9 +115,6 @@ class BearerTokenStoreTest {
             tokens:
               - id: super
                 token_sha256: "$hash"
-                scope:
-                  root_ids: null
-                  tags_include: []
                 capabilities:
                   - read
                   - write-notes
@@ -153,7 +142,6 @@ class BearerTokenStoreTest {
                 scope:
                   root_ids:
                     - "11111111-1111-1111-1111-111111111111"
-                  tags_include: []
                 capabilities:
                   - read
             """.trimIndent()
@@ -198,9 +186,6 @@ class BearerTokenStoreTest {
             tokens:
               - id: bad
                 token_sha256: "$shortHash"
-                scope:
-                  root_ids: null
-                  tags_include: []
                 capabilities:
                   - read
             """.trimIndent()
@@ -218,9 +203,6 @@ class BearerTokenStoreTest {
             tokens:
               - id: bad
                 token_sha256: "$longHash"
-                scope:
-                  root_ids: null
-                  tags_include: []
                 capabilities:
                   - read
             """.trimIndent()
@@ -239,9 +221,6 @@ class BearerTokenStoreTest {
             tokens:
               - id: bad
                 token_sha256: "$upperHex"
-                scope:
-                  root_ids: null
-                  tags_include: []
                 capabilities:
                   - read
             """.trimIndent()
@@ -259,9 +238,6 @@ class BearerTokenStoreTest {
             tokens:
               - id: bad
                 token_sha256: "$mixedHash"
-                scope:
-                  root_ids: null
-                  tags_include: []
                 capabilities:
                   - read
             """.trimIndent()
@@ -280,16 +256,10 @@ class BearerTokenStoreTest {
             tokens:
               - id: duplicate-id
                 token_sha256: "$hash1"
-                scope:
-                  root_ids: null
-                  tags_include: []
                 capabilities:
                   - read
               - id: duplicate-id
                 token_sha256: "$hash2"
-                scope:
-                  root_ids: null
-                  tags_include: []
                 capabilities:
                   - read
             """.trimIndent()
@@ -307,9 +277,6 @@ class BearerTokenStoreTest {
             tokens:
               - id: bad-expires
                 token_sha256: "$hash"
-                scope:
-                  root_ids: null
-                  tags_include: []
                 capabilities:
                   - read
                 expires_at: "not-a-date"
@@ -328,9 +295,6 @@ class BearerTokenStoreTest {
             tokens:
               - id: bad-cap
                 token_sha256: "$hash"
-                scope:
-                  root_ids: null
-                  tags_include: []
                 capabilities:
                   - superpower
             """.trimIndent()
@@ -348,9 +312,6 @@ class BearerTokenStoreTest {
             tokens:
               - id: some-token
                 token_sha256: "$hash"
-                scope:
-                  root_ids: null
-                  tags_include: []
                 capabilities:
                   - read
             """.trimIndent()
@@ -367,9 +328,6 @@ class BearerTokenStoreTest {
             version: 1
             tokens:
               - token_sha256: "$hash"
-                scope:
-                  root_ids: null
-                  tags_include: []
                 capabilities:
                   - read
             """.trimIndent()
@@ -385,9 +343,6 @@ class BearerTokenStoreTest {
             version: 1
             tokens:
               - id: some-token
-                scope:
-                  root_ids: null
-                  tags_include: []
                 capabilities:
                   - read
             """.trimIndent()
@@ -407,9 +362,6 @@ class BearerTokenStoreTest {
               - id: verbose
                 description: "$longDesc"
                 token_sha256: "$hash"
-                scope:
-                  root_ids: null
-                  tags_include: []
                 capabilities:
                   - read
             """.trimIndent()
@@ -433,9 +385,6 @@ class BearerTokenStoreTest {
             tokens:
               - id: expires-soon
                 token_sha256: "$hash"
-                scope:
-                  root_ids: null
-                  tags_include: []
                 capabilities:
                   - read
                 expires_at: "$pastExpiry"
@@ -459,9 +408,6 @@ class BearerTokenStoreTest {
             tokens:
               - id: valid
                 token_sha256: "$hash"
-                scope:
-                  root_ids: null
-                  tags_include: []
                 capabilities:
                   - read
                 expires_at: "$futureExpiry"
@@ -485,9 +431,6 @@ class BearerTokenStoreTest {
             tokens:
               - id: correct
                 token_sha256: "$hash"
-                scope:
-                  root_ids: null
-                  tags_include: []
                 capabilities:
                   - read
             """.trimIndent()

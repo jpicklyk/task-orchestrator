@@ -58,7 +58,6 @@ class ServerCompositionAnchorCheckTest {
                 "    scope:\n" +
                 "      root_ids:\n" +
                 anchors.joinToString("") { "        - \"$it\"\n" } +
-                "      tags_include: []\n" +
                 "    capabilities: [read]\n"
         )
         val env =

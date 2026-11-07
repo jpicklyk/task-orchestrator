@@ -57,7 +57,7 @@ import kotlin.test.assertTrue
  * it swapped.
  *
  * Domain invariants satisfied by construction: token-file fixtures come from one generator that emits a 64-hex lowercase SHA-256
- * of the raw token, a `scope` mapping with `root_ids: null` and `tags_include: []`, and unique ids, loaded through the real
+ * of the raw token, no `scope` key (an absent scope is unrestricted), and unique ids, loaded through the real
  * [BearerTokenStore]; JWT fixtures carry the configured issuer and audience, a whole-second `exp` inside the 24 h lifetime cap
  * and are signed with the key the mocked key provider publishes (the rejected-signature fixture reuses the key id with another
  * private key).
@@ -99,9 +99,6 @@ class TrustDecisionTest {
             mutableListOf(
                 "  - id: $id",
                 "    token_sha256: \"${sha256Hex(raw)}\"",
-                "    scope:",
-                "      root_ids: null",
-                "      tags_include: []",
                 "    capabilities: [read]",
             )
         if (expiresAt != null) lines += "    expires_at: \"$expiresAt\""

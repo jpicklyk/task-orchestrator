@@ -4,9 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.application.config.ConfigViolation
 import io.github.jpicklyk.mcptask.current.application.config.ParseMode
-import org.yaml.snakeyaml.LoaderOptions
-import org.yaml.snakeyaml.Yaml
-import org.yaml.snakeyaml.constructor.SafeConstructor
 
 /**
  * Shared [ConfigDocumentParser] implementation for attacker-reachable (pushed) per-root config
@@ -31,7 +28,7 @@ object YamlConfigDocumentParser : ConfigDocumentParser {
         mode: ParseMode,
     ): ConfigDocumentParser.Outcome =
         try {
-            val root = Yaml(SafeConstructor(LoaderOptions())).load<Map<String, Any>>(yaml)
+            val root = (if (mode == ParseMode.STRICT) YamlLoaders.strict() else YamlLoaders.tolerant()).load<Map<String, Any>>(yaml)
             if (root == null) {
                 ConfigDocumentParser.Outcome.Parsed(document = ConfigDocument.EMPTY, rawRoot = null)
             } else {
