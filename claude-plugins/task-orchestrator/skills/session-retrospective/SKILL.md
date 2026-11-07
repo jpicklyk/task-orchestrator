@@ -19,7 +19,7 @@ A retrospective is owed per **closed** run that is not marked `retro`. Two hooks
 - `retro-trigger` (PostToolUse on `runs_write`) acts only on a successful `op: close`.
 - `retro-backstop` (Stop) re-checks at the end of every turn, so a run closed elsewhere (another session, a subagent) is still found. A closed run is a confirmed boundary, so the backstop may dispatch as well as nudge.
 
-Both ask REST `runs_read` `list` with `unmarked: retro` and `endedSince = now - 24h`, and read each run's terminal count from `runs_read` `frontier` (`data.counts.terminal`), for at most 5 runs per pass. In mode `dispatch` with a terminal count at or above `dispatchThreshold` (default 3) they call `runs_write` `mark {runId, key: retro}` (REST only; first write wins, which is the cross-session dedupe; `marked: false` means another session won, so they stay silent) and emit the dispatch directive. Below the threshold, in `nudge` mode (the default), or when the mark fails, they nudge once per run per session and never mark. There is no cross-session marker file (the server mark is the dedupe); per-session state (recorded closes, runs already nudged) lives in `os.tmpdir()/task-orchestrator/<session>/retro.json`. A run whose frontier read fails is skipped that pass, and a close made by a subagent is recorded for the main session's backstop, not acted on. Without an API URL or a project rootId the backstop only nudges once per session, from the closes the trigger recorded.
+Both ask REST `runs_read` `list` with `unmarked: retro` and `endedSince = now - 24h`, and read each run's terminal count from `runs_read` `frontier` (`data.counts.terminal`), for at most 5 runs per pass. In mode `dispatch` with a terminal count at or above `dispatchThreshold` (default 3) they call `runs_write` `mark {runId, key: retro}` (REST only; first write wins, which is the cross-session dedupe; `marked: false` means another session won, so they stay silent) and emit the dispatch directive. A fix-cycle run (label `<runId>-a<n>`, the run a post-run fix cycle opens after the base run closed) always owes a retrospective in mode `dispatch`, whatever its terminal count: it often has one item, and the threshold would skip the only retrospective that sees the failure loop. Its directive names the base run, and that retrospective reports the base run's whole loop (Step 2, Fix-cycle cost). Below the threshold, in `nudge` mode (the default), or when the mark fails, they nudge once per run per session and never mark. There is no cross-session marker file (the server mark is the dedupe); per-session state (recorded closes, runs already nudged) lives in `os.tmpdir()/task-orchestrator/<session>/retro.json`. A run whose frontier read fails is skipped that pass, and a close made by a subagent is recorded for the main session's backstop, not acted on. Without an API URL or a project rootId the backstop only nudges once per session, from the closes the trigger recorded.
 
 `retro-ack.mjs` is the manual acknowledgement: `node retro-ack.mjs --run <id> [--run <id>]...` sends the same `runs_write` `mark {runId, key: retro}` over REST for each run (Step 8b calls it). It prints one line per id (`marked <id>`, `already marked <id>`, `mark failed <id>: <code>`, or `not marked <id>: no REST API configured`) and always exits 0.
 
@@ -129,7 +129,23 @@ beside the figures when `rewrites` is not small.
 adapter=claude-workflow run=r-20260928-b2d seats=planner:opus,implementer:sonnet,declarations-extractor:sonnet,test-author:sonnet,reviewer:opus model=sonnet isolation=worktree:.claude/worktrees/feat-b2-front-door agents=5 tokens=412800 duration=1860000 deferred=0 in-run-edges=1 orchestrator-turns=3
 ```
 
-Optional effort tails: `efforts=<seat>:<effort>,...` (`low`/`medium`/`high`/`xhigh`/`max`; a seat absent from it had none recorded), `effort-source=transcript|assigned|mixed` (`transcript`: read from the seat's own transcript, the effort it actually ran at; `assigned`: the plan's dispatch effort only, which proves nothing about the run), and `effort-substituted=<seat>:<requested>,...` (seats whose observed effort differs from the assigned one). `tokens=` / `duration=` may read `see:<short>`: the run total lives on that item, so count it once and never sum it per item (in the per-run table show the run's first-item value, never a `see:` reference). An optional second line `extra-seats=<seat>:<model>:<tokens>,...` lists seats dispatched outside the run; score each like a `seats=` pair, typing the seat after stripping a trailing fix-cycle suffix `-a<n>` (`reviewer-a1` scores as reviewer). **Legacy form:** free-form prose naming model and isolation, parsed as before; a run mixing both forms scores both.
+Optional effort tails: `efforts=<seat>:<effort>,...` (`low`/`medium`/`high`/`xhigh`/`max`; a seat absent from it had none recorded), `effort-source=transcript|assigned|mixed` (`transcript`: read from the seat's own transcript, the effort it actually ran at; `assigned`: the plan's dispatch effort only, which proves nothing about the run), and `effort-substituted=<seat>:<requested>,...` (seats whose observed effort differs from the assigned one). `tokens=` / `duration=` may read `see:<short>`: the run total lives on that item, so count it once and never sum it per item (in the per-run table show the run's first-item value, never a `see:` reference). An optional second line `extra-seats=<seat>:<model>:<tokens>:<effort>:<cause>,...` lists seats dispatched outside the run (an older three-field `<seat>:<model>:<tokens>` row has no effort or cause); score each like a `seats=` pair, typing the seat after stripping a trailing fix-cycle suffix `-a<n>` (`reviewer-a1` scores as reviewer). `cause` is `review`, `test`, `carry-in` or `breach`; `tokens` is the Agent-reported figure or the sum of the seat transcript's four usage meters, and `unknown` is a gap, never zero. **Legacy form:** free-form prose naming model and isolation, parsed as before; a run mixing both forms scores both.
+
+**Fix-cycle cost.** A failed review or test sends the fix to a fresh seat one effort level higher per cycle (post-run, Fix cycle), so the failure loop's cost is measured here. The loop is every seat of a cycle `A<n>`: the amending planner, the implementer, the test author and the re-review (the `-a<n>` rows with cause `review` or `test`, plus the re-review and amendment-planner rows of the same cycle). Carry-in and breach rows are reported separately and are not part of the loop. For a fix-cycle run (`<runId>-a<n>`), report the base run's whole loop: every cycle so far, read from the item's `delegation-metadata`. Write these figures into `session-metrics` (5c):
+
+| Figure | Source |
+|---|---|
+| Per cycle: item, cause, seats, model, effort, tokens, verdict | `extra-seats` rows; verdict from the re-review note or the `Review: <verdict> after A<n>` line |
+| Loop tokens and their share of the run's tokens | sum of loop rows over the run's `tokens=` plus every `extra-seats` row |
+| Pass rate by effort level and by class | cycles whose re-review passed, grouped by the cycle's effort and by the seat's class |
+| Items that reached the ceiling or the decision path | a cycle at the policy's `escalation.ceiling`, or a raised decision after one |
+| Seats with unknown tokens | `extra-seats` rows reading `unknown` |
+
+State how far to trust the figures: unknown-token seats are gaps, and runs from before effort and cause were recorded have three-field rows. Raise a finding (5b) when any of these holds; they are starting thresholds, to revisit after a few runs, and the lever is `escalation.ceiling` in the plugin's dispatch policy (setting it one level lower cuts the most expensive step):
+
+- Loop tokens exceed 25% of the run's tokens.
+- The loop's share rose across the last three retrospectives (from the `fix-cycle-cost` trend's evidence notes).
+- Cycles at `xhigh` pass no more often than cycles at `high`.
 
 ---
 
@@ -261,7 +277,7 @@ Check `ok` and `data.results[0].ok`; on a failure read `data.results[0].error.co
 The `session-retrospective` schema has four required notes: queue-phase `session-metrics`, `workflow-evaluation`, `improvement-signals`, and work-phase `actions-taken` (filled at 8b). Fill the three queue notes now as one `notes_write` call with three `upsert` elements (one shown):
 
 ```to-call
-{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<retro-uuid>", "key": "session-metrics", "role": "queue", "body": "<Step 3 quantitative data: item counts, outcomes, schema usage, token estimates, note-volume figures (work-role avgBytes, maxLength overruns)>"}}
+{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<retro-uuid>", "key": "session-metrics", "role": "queue", "body": "<Step 3 quantitative data: item counts, outcomes, schema usage, token estimates, note-volume figures (work-role avgBytes, maxLength overruns), fix-cycle cost figures (Step 2)>"}}
 ```
 
 `workflow-evaluation` holds the Step 3 per-dimension scores and findings; `improvement-signals` the Step 4 trend analysis (new, reinforced, proposals, and the scope classification of Step 7b). Check `data.results[i].ok` for all three.
@@ -281,6 +297,7 @@ Read `ok` and `data.results[0].newRole`. Do not complete yet: `actions-taken` de
 
 - **Recurrence:** upsert an evidence note `evidence-<YYYY-MM-DD>-<retro-short-id>` (role `work`; body = what happened, the retro item id, cost or impact) AND update the trend's `summary`: increment `Sessions: N` (from the 4.2 listing), set `Last seen: YYYY-MM-DD`, condense if drift warrants.
 - **New pattern:** create a trend item (below) with `Sessions: 1`, plus its first evidence note.
+- **Standing `fix-cycle-cost` trend:** every retrospective, whether or not the run had a fix cycle, adds one evidence note to the trend titled `trend: fix-cycle-cost - ...` (tag `delegation`; create it on first use) with the Step 2 fix-cycle figures (loop tokens, loop share, cycles by effort with pass rate, ceiling items, unknown-token seats; `no fix cycles` when there were none), and increments its `Sessions: N`. Its evidence notes are what the "share rose across three retrospectives" check reads. It graduates to a proposal only through a raised finding, not by its session count alone.
 - **Retire** (addressed, obsolete, superseded or accepted-environmental): `advance` `transition` with `trigger: "cancel"` and `summary: "archived: <reason>"`. `cancel` is gate-free; `statusLabel: cancelled` here means "retired from active watching". A cancelled trend leaves the 4.2 listing, which filters `role: "queue"`.
 - **Graduation** (Step 7 creates a proposal from this trend): record `GRADUATED -> proposal <short-id>` in the trend's `summary`; the role does not change.
 
@@ -317,7 +334,7 @@ Check `ok` and `data.results[0].ok`.
 
 ## Step 7 - Create Improvement Proposals
 
-**Skip entirely in dry-run mode.** For each trend created or updated in Step 6 with **Sessions >= 2**:
+**Skip entirely in dry-run mode.** For each trend created or updated in Step 6 with **Sessions >= 2** (the standing `fix-cycle-cost` trend counts only when this retrospective raised a fix-cycle finding and an earlier evidence note recorded one too):
 
 ### 7a. Find or create the proposals container
 Process-global like 5a: search `Improvement Proposals` unscoped (`items_read` `search`, `kinds: ["item"]`, as in 5a) and create it if missing (`type: "container"`, `tags: ["container"]`).

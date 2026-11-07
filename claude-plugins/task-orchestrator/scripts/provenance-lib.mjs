@@ -203,20 +203,41 @@ export function parseProvenance(text) {
 }
 
 /**
- * formatExtraSeats(list) -> 'extra-seats=<seat>:<model>:<tokens>,...' ('' for an empty/absent
- * list). list = [{seat, model, tokens}]; missing tokens -> 'unknown'. Goes on line 2 of a note.
+ * formatExtraSeats(list) -> 'extra-seats=<seat>:<model>:<tokens>[:<effort>:<cause>],...' ('' for
+ * an empty/absent list). list = [{seat, model, tokens, effort?, cause?}]; missing tokens ->
+ * 'unknown'. A row with an effort or a cause gets all five fields (a missing one -> 'unknown');
+ * a row with neither keeps the three-field form. Goes on line 2 of a note.
  */
 export function formatExtraSeats(list) {
   if (!Array.isArray(list) || list.length === 0) return ''
   return 'extra-seats=' + list
-    .map((s) => `${escapeValue(s.seat)}:${escapeValue(s.model)}:${numberOrUnknown(s.tokens)}`)
+    .map((s) => {
+      const base = `${escapeValue(s.seat)}:${escapeValue(s.model)}:${numberOrUnknown(s.tokens)}`
+      if (!s.effort && !s.cause) return base
+      return `${base}:${escapeValue(s.effort || 'unknown')}:${escapeValue(s.cause || 'unknown')}`
+    })
     .join(',')
 }
 
+/** A fix-cycle seat name: '<seat>-a<n>' with n >= 1. */
+export const FIX_CYCLE_SEAT_RE = /^(.+)-a([1-9][0-9]*)$/
+
 /**
- * parseExtraSeats(text) -> [{seat, model, tokens}]. Scans the lines AFTER the first for one
- * starting 'extra-seats='; [] when absent or text is not a string. tokens is a Number unless
- * 'unknown'. seat = before the first ':', tokens = after the last ':', model = between.
+ * fixCycleTokenWarnings(list) -> one warning string per fix-cycle row ('<seat>-a<n>') whose tokens
+ * are unknown: a missing figure is a gap in the failure-loop cost, never zero.
+ */
+export function fixCycleTokenWarnings(list) {
+  return (list || [])
+    .filter((s) => s && FIX_CYCLE_SEAT_RE.test(String(s.seat)) && numberOrUnknown(s.tokens) === 'unknown')
+    .map((s) => `extra-seats: fix-cycle seat ${s.seat} has unknown tokens (counted as a gap, not zero)`)
+}
+
+/**
+ * parseExtraSeats(text) -> [{seat, model, tokens, effort?, cause?}]. Scans the lines AFTER the
+ * first for one starting 'extra-seats='; [] when absent or text is not a string. tokens is a
+ * Number unless 'unknown'. A five-field row is seat:model:tokens:effort:cause; any other row is the
+ * three-field form: seat = before the first ':', tokens = after the last ':', model = between
+ * (effort and cause absent).
  */
 export function parseExtraSeats(text) {
   if (typeof text !== 'string') return []
@@ -228,6 +249,16 @@ export function parseExtraSeats(text) {
     .split(',')
     .filter((s) => s.length > 0)
     .map((s) => {
+      const parts = s.split(':')
+      if (parts.length === 5) {
+        return {
+          seat: unescapeValue(parts[0]),
+          model: unescapeValue(parts[1]),
+          tokens: parts[2] === 'unknown' ? 'unknown' : Number(parts[2]),
+          effort: unescapeValue(parts[3]),
+          cause: unescapeValue(parts[4]),
+        }
+      }
       const first = s.indexOf(':')
       const last = s.lastIndexOf(':')
       if (first === -1 || first === last) {

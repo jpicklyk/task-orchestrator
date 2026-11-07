@@ -240,7 +240,7 @@ export function contextOf(res) {
 // ---- the fake REST server -------------------------------------------------------------------
 
 /**
- * init.runs: [{ runId, rootId?, members?, terminal?, marks? }]. marks omitted -> the view carries no
+ * init.runs: [{ runId, rootId?, members?, terminal?, marks?, label? }]. marks omitted -> the view carries no
  * marks field; marks null -> marks: null.
  * init.behavior: {
  *   list: 'ok' | 'http500' | 'badjson' | 'hang',
@@ -280,6 +280,7 @@ export async function startFakeRuns(init = {}) {
       stalledSeats: 0,
       version: 2,
     };
+    if (typeof r.label === 'string') v.label = r.label;
     if ('marks' in r || server) {
       const base = r.marks && typeof r.marks === 'object' ? r.marks : {};
       v.marks = r.marks === null && !server ? null : { ...base, ...(server ?? {}) };

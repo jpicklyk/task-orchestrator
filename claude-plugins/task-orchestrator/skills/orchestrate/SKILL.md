@@ -52,6 +52,8 @@ Model and effort per kind of work come from the plugin's dispatch policy: load `
 
 **Always set `model` AND `effort` explicitly** on every Agent dispatch: an omitted `model` runs on the orchestrator's own model, and an omitted `effort` runs at the model's default (`dispatch-model-guard` denies both).
 
+**A fix after a failed test or review goes one effort level higher.** When a hand-dispatched implementer's or test author's work fails a test or a review and you send the fix back, dispatch a FRESH agent (not a `SendMessage` resume: a resumed agent keeps its effort) with the same model and the effort one level above the original dispatch, the policy's `escalate` rule: the n-th fix runs n levels up, capped at the policy's `escalation.ceiling` (`model-effort` states it). A failure past the ceiling is a decision for a person, not another cycle at the same effort. A late carry-in or a breach replacement is not a failure and keeps the original effort; reviewers never escalate. Inside a run, `reseat --cause` computes this for you (run-wave `post-run.md`).
+
 **Show the assignment in the dispatch `description`.** End every Agent `description` with ` [<model>/<effort>]`, for example `implementer:5fc03a84 [sonnet/high]`: the app's background-task list shows only that string, and the run-wave workflows put the same tag on their labels, so a reader can tell what each agent was assigned without opening it.
 
 ### Dispatching an item's phase owner

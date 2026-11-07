@@ -369,9 +369,16 @@ cap on cycles.
    not here. The ruling lists every existing test file it expects edited (planner-v1
    `existingTestEdits`) and the mutation red-proofs (within the item's budget) the fix must
    satisfy. Keep amendments terse: accumulated ones made a 50k `task-scope` in one run.
-2. **Implementer, then blind test author, by name**, each scoped to ruling `A<n>` only. The test
-   author appends its own `A<n>` section to `test-plan`/`test-manifest`; the planner does not touch
-   those keys, which the test-author seat owns.
+2. **Implementer, then blind test author, as fresh `<seat>-a<n>` seats, one effort level higher**,
+   each scoped to ruling `A<n>` only. Render each with `reseat ... --cause review` (`--cause test`
+   for a post-run or wave-build test failure sent back to the owning seat) and dispatch a fresh
+   Agent with the base stage's model and the `effort` the command returns, never a `SendMessage`
+   resume: a resumed subagent keeps its effort, so it cannot escalate. The effort rises one level
+   per cycle up to the policy's `escalation.ceiling`; when the output says `ceilingReached: true`
+   and that cycle fails too, the next step is the existing decision path (raise a blocking
+   decision), not another cycle at the same effort. The test author appends its own `A<n>` section
+   to `test-plan`/`test-manifest`; the planner does not touch those keys, which the test-author
+   seat owns.
 3. **Orchestrator runs the amendment's bug-fix revert, if it names one,** in a scratch copy, never
    the shared tree (same rule as Step 1), applying it as "Applying a mutation or a narrowest
    revert" above describes. The amendment's named budget mutations join the wave-boundary batch
@@ -381,8 +388,9 @@ cap on cycles.
 
 **Late carry-ins and orchestrator-originated fixes.** A carry-in that arrives after planning, or a
 fix the orchestrator originates, is applied through an amendment: seat `planner-a<n>` with the
-helper's `reseat` command (see Fallback below); it reads the carry-in and the cited source, writes
-the `A<n>` amendment with the exact text, and `implementer-a<n>` applies it. On an item with no
+helper's `reseat` command (`--cause carry-in`, see Fallback below); it reads the carry-in and the
+cited source, writes the `A<n>` amendment with the exact text, and `implementer-a<n>` applies it
+(also `--cause carry-in`: not a failure, so the effort stays at the base seat's). On an item with no
 planner stage, dispatch the amendment planner by hand and record it with `--extra-seats` (see
 below). The orchestrator states the obligation and its source, never the replacement prose. A seat
 applies orchestrator text verbatim only for a mechanical edit: a path, an id or a version string. A
@@ -398,8 +406,9 @@ finding id (`O#` from a review-checklist, `N#` from a docs-accuracy or similar r
 **Observation triage.** `fixed` is the exception, not the default. An observation is fixed before
 merge only when it names a concrete failure in behaviour this item added or changed: a race, a lost
 write, a wrong result on a stated input, a gate that lets the wrong thing through. A hardening,
-wording, test-depth or style observation is `follow-up` or `accepted`. The fix is one
-`implementer-a<n>` seat (`test-author-a<n>` when the finding is about the tests) scoped to the
+wording, test-depth or style observation is `follow-up` or `accepted`. The fix is one fresh
+`implementer-a<n>` seat (`test-author-a<n>` when the finding is about the tests), rendered with
+`reseat ... --cause review` and dispatched at the model and returned `effort`, scoped to the
 cited finding ids, with the review register as its ruling: no planner amendment is written, since
 the finding already carries the obligation and its `file:line` source, and the orchestrator's
 dispatch names the finding ids where the `reseat` prompt's FIX CYCLE line names an amendment. No
@@ -409,10 +418,12 @@ run (Fallback below). The Fail recipe above (four seats, an amendment, a re-revi
 findings only. Why: a wave whose two items both passed with observations spent about 80% of its own
 seat tokens on full A1 cycles (trend `b1b8e194`).
 
-**Fallback.** Resume-by-name works in Method B or when seats are dispatched by hand. Method A seats
-run inside the implement-wave Workflow and generally cannot be resumed after it ends; there, and for
-any seat that cannot be resumed, dispatch a fresh seat with id `<seat>-a<n>` (e.g. `planner-a1`, valid when the item has a planner stage)
-and the same scope, so the audit trail distinguishes the cycle. The server knows only schema seats,
+**Fallback.** Resume-by-name works in Method B or when seats are dispatched by hand, and is kept
+for the amending planner and the re-review; an escalated implementer or test-author cycle is always
+a fresh seat (step 2 above). Method A seats run inside the implement-wave Workflow and generally
+cannot be resumed after it ends; there, and for any seat that cannot be resumed, dispatch a fresh
+seat with id `<seat>-a<n>` (e.g. `planner-a1`, valid when the item has a planner stage) and the
+same scope, so the audit trail distinguishes the cycle. The server knows only schema seats,
 so a fix-cycle seat runs under its **base** seat's assignment: on a still-open run, first re-`assign`
 the base seat (`run-ops --phase assign --item <short> --seat <base seat>`, coordinator token; this
 supersedes the old assignment as attempt n+1) and write the new `seatToken` to the base seat's token
@@ -445,18 +456,27 @@ Render the seat's prompt with the helper's `reseat` command instead of writing i
 
 ```
 node "<helper>" reseat --plan <plan.json> --run <runId> --result <result.json> \
-  --item <short> --seat <seat>-a<n> [--declarations <file>] [--model <m>] [--tokens <n>] [--pre <sha>] [--assignment <uuid>]
+  --item <short> --seat <seat>-a<n> --cause review|test|carry-in|breach \
+  [--declarations <file>] [--model <m>] [--tokens <n>] [--pre <sha>] [--assignment <uuid>]
 ```
 
 `--seat` must be a stage seat of the item plus `-a<n>` (n >= 1, no leading zero); a reviewer seat
-is not reseated (use `review-prompt`). The prompt is the base stage's prompt under the `<seat>-a<n>`
+is not reseated (use `review-prompt`). `--cause` is required (missing or unknown exits 2): `review`
+for a review Fail or a `fixed` observation, `test` for a failed test sent back to the owning seat,
+`carry-in` for a late carry-in or orchestrator-originated fix, `breach` for a seat-breach
+replacement. Only `review` and `test` on an implementer or test-author base escalate: the output's
+`effort` is the base stage's dispatch effort raised one level per cycle and capped at the policy's
+`escalation.ceiling`; every other cause and base keeps the base effort. The output also carries
+`cause` and `ceilingReached` (true when the escalated cycle runs at the ceiling). Dispatch the seat
+with the Agent `effort` parameter set to that `effort`. At `xhigh` the prompt also tells the seat to
+stop and report once the checks pass. The prompt is the base stage's prompt under the `<seat>-a<n>`
 commit trailer, with no ENTRY block, the base seat's token file and END SEAT on a bound plan
 (`tokenFile` in the output), and a `FIX CYCLE A<n>` line. A test-author base on an item with a
 declarations stage needs declarations from the result or `--declarations <file>` (plain text;
 `none` or empty counts as absent), else the command exits 3 with `missingDeclaration:`. The output
 JSON carries a `result` copy with the seat appended to `items[].reseats`
-(`{seat, baseSeat, cycle, model, tokens, pre, assignment?}`; `pre` defaults to the item worktree's
-`HEAD`, is recorded once and never moves; `assignment` is the `assignmentId` the base seat's
+(`{seat, baseSeat, cycle, model, tokens, effort, cause, pre, assignment?}`; `pre` defaults to the item worktree's
+`HEAD`, is recorded once and never moves, and so are `effort` and `cause`; `assignment` is the `assignmentId` the base seat's
 re-`assign` answered): write it back to `result.json`. Verify then judges the
 test-author-before-implementer order only over item commits at or before the earliest recorded
 `pre`, so an implementer-after-author fix cycle is accepted; a `pre` outside the run's history is a
@@ -473,16 +493,22 @@ feature-task and bug-fix, no seat on feature-implementation).
 
 **Recording out-of-run seats.** Every seat dispatched outside the run for an item (re-review,
 fix-cycle `<seat>-a<n>`, amendment planner) is recorded by re-running
-`node "<helper>" provenance ... --item <short> --extra-seats <seat>:<model>:<tokens>,...` — with the
+`node "<helper>" provenance ... --item <short> --extra-seats <seat>:<model>:<tokens>[:<effort>:<cause>],...` — with the
 same flags as Step 3, including `--usage` under Method A (omitting it on the run's first item
 replaces the recorded run total with `tokens=unknown`) — and
 re-upserting that item's `delegation-metadata` (orchestrator-owned) under the coordinator token of
 the run holding the item (the still-open run, or the fix-cycle run before it closes; with no open run the
 write is refused, so report it) with the two-line output (grammar line, then `extra-seats=...`). The list is cumulative: each re-run passes
 every out-of-run seat so far. Take tokens from the Agent result's usage; use `unknown` if not
-reported. Seats recorded by `reseat` are read from the `reseats` ledger in `--result`, listed first,
+reported. With `--meta <dispatch-meta.json>`, a row whose tokens are `unknown` takes the sum of the
+four usage meters (input, cache write, cache read, output) from that seat's transcript
+(`dispatch-meta` matches `<seat>-a<n>:<short>` dispatch labels too); a fix-cycle row still
+`unknown` gets a `{warning}` line on stderr and counts as a gap in the retrospective, never as zero.
+Rows are `<seat>:<model>:<tokens>:<effort>:<cause>`; a three-field row (no effort or cause) still
+parses. Seats recorded by `reseat` are read from the `reseats` ledger in `--result`, listed first,
 so `--extra-seats` is only needed for seats `reseat` never saw (re-review, or an amendment planner on an item with no planner stage); a seat
-named in both takes the flag's model and tokens. `--item` alone now restricts the output to that
+named in both takes the flag's model and tokens, and keeps the ledger's effort and cause when the
+flag row has none. `--item` alone now restricts the output to that
 item; `--extra-seats` requires `--item`.
 
 ---
@@ -634,7 +660,8 @@ review-role parent, and the parent leaves review only by the explicit advance in
    re-numbered or "carried". The reviewer fills the parent's review-phase notes; the orchestrator
    never rewrites them.
 2. **On Fail**, the default fix path is a fix seat (a fresh `implementer-a<n>`, scoped to the
-   finding's file) against the PARENT feature: its dispatch prompt must name it a NON-ENTRY seat
+   finding's file, dispatched one effort level above the original implementer dispatch per
+   `orchestrate`'s hand-dispatch rule) against the PARENT feature: its dispatch prompt must name it a NON-ENTRY seat
    that never transitions the parent. In shared mode it commits on the feature branch; in per-item
    mode there is no feature branch, so the fix lands as its own small PR against the base branch
    and the re-check reads that PR's diff. Either way it carries a `Seat: implementer-a<n>` trailer

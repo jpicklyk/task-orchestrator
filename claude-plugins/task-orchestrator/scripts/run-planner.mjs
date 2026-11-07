@@ -248,6 +248,10 @@ const EXEC_IO = {
   writeOut(text) {
     emit(text);
   },
+  // warn(text): one {warning} JSON line on stderr; stdout and the exit code are unchanged.
+  warn(text) {
+    process.stderr.write(`${JSON.stringify({ warning: text })}\n`);
+  },
   fail(code, message, detail) {
     fail(code, message, detail);
   },

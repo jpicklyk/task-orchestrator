@@ -17,8 +17,11 @@
 // renders them.
 
 import { extractLastBalancedJson } from './ralph-lib.mjs'
-import { formatProvenance, formatExtraSeats, parseExtraSeats } from './provenance-lib.mjs'
+import { formatProvenance, formatExtraSeats, parseExtraSeats, fixCycleTokenWarnings, FIX_CYCLE_SEAT_RE } from './provenance-lib.mjs'
 import { formatCoordinatorReport, REPORT_EVENTS } from './lib/coordinator-report.mjs'
+// The dispatch policy is the one file read outside io: reseat escalates a fix cycle's effort with it.
+import { escalate, ceilingReached, forClass } from './lib/dispatch-policy.mjs'
+import { policyClassFor } from './run-planner-lib.mjs'
 
 export const STATE_CONTRACT = 'run-wave/state-v1'
 
@@ -501,7 +504,15 @@ function methodBReturn(core, plan, stage) {
 // reseat - out-of-run seats (breach replacements, -a<n> fix cycles)
 // ---------------------------------------------------------------------------------------
 
-const RESEAT_SEAT_RE = /^(.+)-a([1-9][0-9]*)$/
+const RESEAT_SEAT_RE = FIX_CYCLE_SEAT_RE
+
+/** reseat causes: only a review Fail or a test failure is a failure that escalates effort. */
+export const RESEAT_CAUSES = ['review', 'test', 'carry-in', 'breach']
+const ESCALATING_CAUSES = new Set(['review', 'test'])
+const ESCALATING_OUTPUTS = new Set(['implementer-v1', 'test-author-v1'])
+
+/** Anthropic's "stop and report when checks pass" line, added to a fix cycle that runs at xhigh. */
+export const XHIGH_STOP_LINE = 'When the checks pass, stop and report; do not start further review rounds.'
 
 function isAbsentDeclaration(text) {
   if (typeof text !== 'string') return true
@@ -511,22 +522,33 @@ function isAbsentDeclaration(text) {
 
 /**
  * reseat(core, doc, result, idOrShort, seat, opts) ->
- *   {ok:true, prompt, seat, baseSeat, cycle, tokenFile, result} | {ok:false, error}.
+ *   {ok:true, prompt, seat, baseSeat, cycle, cause, effort, ceilingReached, tokenFile, result}
+ *   | {ok:false, error}.
  * seat = '<stageSeat>-a<n>' (n >= 1, no leading zero; the base must be a non-reviewer stage seat
- * of the item). The prompt is core.seatPrompt over a clone of the base stage renamed to `seat`
- * with enters:false, outs from the result item's outputs (keyed by base seat), plus a FIX CYCLE
- * line (and the Method B addendum on Method B plans). opts = {declarations?, model?, tokens?, pre?,
- * assignment?}. On a bound run the reseat runs under the BASE seat's server assignment (the
+ * of the item). opts.cause is required, one of RESEAT_CAUSES. effort: for cause review|test on an
+ * implementer or test-author base, escalate(base effort, cycle) (one level per cycle, capped at the
+ * policy ceiling); otherwise the base effort. The base effort is the base stage's dispatch.effort,
+ * else its policy class effort. ceilingReached is true when an escalating cycle runs at the ceiling
+ * (a further failure goes to the decision path). The prompt is core.seatPrompt over a clone of the
+ * base stage renamed to `seat` with enters:false, outs from the result item's outputs (keyed by base
+ * seat), plus a FIX CYCLE line, XHIGH_STOP_LINE when an escalated cycle runs at xhigh, and the
+ * Method B addendum on Method B plans. opts = {cause, declarations?, model?, tokens?, pre?,
+ * assignment?, policyPath?}. On a bound run the reseat runs under the BASE seat's server assignment (the
  * orchestrator re-assigns the base seat first, which supersedes it as attempt n+1, and writes the new
  * token to the base seat's token file); the prompt names that file (tokenFile, null when unbound).
  * `result` in the return is a copy with items[i].reseats upserted {seat, baseSeat, cycle, model,
- * tokens, pre, assignment?}: model/tokens/assignment update only when passed, pre never moves; the
+ * tokens, effort, cause, pre, assignment?}: model/tokens/assignment update only when passed; pre,
+ * effort and cause are recorded once (effort/cause filled on an older row that lacks them); the
  * input is not mutated. Throws 'invalid args: ...' for argument errors; returns {ok:false} for a
  * missing declaration.
  */
 export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
   const m = RESEAT_SEAT_RE.exec(String(seat || ''))
   if (!m) throw new Error(`invalid args: seat ${seat} must be <stageSeat>-a<n> with n >= 1`)
+  const cause = opts.cause
+  if (!RESEAT_CAUSES.includes(cause)) {
+    throw new Error(`invalid args: cause ${cause === undefined ? '(missing)' : cause} must be one of ${RESEAT_CAUSES.join('|')}`)
+  }
   const baseSeat = m[1]
   const cycle = Number(m[2])
   const { plan } = resolvePlan(core, doc)
@@ -572,6 +594,13 @@ export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
   text += hasAmendmentsNote
     ? `\nFIX CYCLE A${cycle}: work only ruling A${cycle} in the item's amendments note and the blocking findings it cites. Commit your owned paths as soon as each fix is done (git commit --only -- <paths>) and revert only your own paths, never the whole tree.`
     : `\nFIX CYCLE A${cycle}: work only section "## Amendment A${cycle}" of the item's planning note and the blocking findings it cites. Commit your owned paths as soon as each fix is done (git commit --only -- <paths>) and revert only your own paths, never the whole tree.`
+
+  const baseEffort = (baseStage.dispatch && baseStage.dispatch.effort) ||
+    forClass(policyClassFor(baseSeat, baseStage.phase), opts.policyPath).effort
+  const escalates = ESCALATING_CAUSES.has(cause) && ESCALATING_OUTPUTS.has(baseStage.output)
+  const effort = escalates ? escalate(baseEffort, cycle, opts.policyPath) : baseEffort
+  const atCeiling = escalates ? ceilingReached(baseEffort, cycle, opts.policyPath) : false
+  if (escalates && effort === 'xhigh') text += `\n${XHIGH_STOP_LINE}`
   if (isMethodB(doc)) text += `\n${methodBReturn(core, plan, stage)}`
 
   const baseDispatch = baseStage.dispatch && baseStage.dispatch.model
@@ -584,6 +613,7 @@ export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
       seat, baseSeat, cycle,
       model: opts.model || baseDispatch || 'unknown',
       tokens: opts.tokens !== undefined && opts.tokens !== null ? opts.tokens : 'unknown',
+      effort, cause,
       pre: opts.pre || '',
     }
     if (opts.assignment) entry.assignment = opts.assignment
@@ -592,10 +622,15 @@ export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
     if (opts.model) entry.model = opts.model
     if (opts.tokens !== undefined && opts.tokens !== null) entry.tokens = opts.tokens
     if (opts.assignment) entry.assignment = opts.assignment
+    if (!entry.effort) entry.effort = effort
+    if (!entry.cause) entry.cause = cause
   }
   outItem.reseats = ledger
 
-  return { ok: true, prompt: text, seat, baseSeat, cycle, tokenFile: tokenFile || null, result: out }
+  return {
+    ok: true, prompt: text, seat, baseSeat, cycle, cause, effort, ceilingReached: atCeiling,
+    tokenFile: tokenFile || null, result: out,
+  }
 }
 
 /**
@@ -1364,8 +1399,12 @@ export function notesAudit(doc, observed, itemIds, opts) {
  * stage dispatch effort (assigned); omitted when neither exists. effort-source is 'transcript'
  * when every listed effort came from meta, 'assigned' when none did, else 'mixed'.
  * effort-substituted lists seats whose observed effort differs from the assigned one.
+ * extra-seats rows (ledger first, then extraSeats) carry seat:model:tokens:effort:cause; a row
+ * with unknown tokens takes meta['<seat>:<short>'].usage.total (the transcript's four usage
+ * meters) when present. Optional `warnings` (an array) receives one line per fix-cycle row whose
+ * tokens are still unknown (fixCycleTokenWarnings).
  */
-export function provenance({ core, doc, result, method, turns, usage, meta, journal, extraSeats, item: onlyItem }) {
+export function provenance({ core, doc, result, method, turns, usage, meta, journal, extraSeats, item: onlyItem, warnings }) {
   const out = {}
   if (extraSeats && extraSeats.length > 0 && !onlyItem) {
     throw new Error('provenance: extraSeats requires a single item (--item)')
@@ -1460,12 +1499,31 @@ export function provenance({ core, doc, result, method, turns, usage, meta, jour
     const target = findItem(plan, onlyItem)
     const line = out[target.id]
     const resTarget = resultByItemId.get(target.id)
-    const merged = ((resTarget && resTarget.reseats) || []).map((r) => ({ seat: r.seat, model: r.model, tokens: r.tokens }))
+    const merged = ((resTarget && resTarget.reseats) || []).map((r) => {
+      const row = { seat: r.seat, model: r.model, tokens: r.tokens }
+      if (r.effort) row.effort = r.effort
+      if (r.cause) row.cause = r.cause
+      return row
+    })
     for (const e of extraSeats || []) {
       const at = merged.findIndex((r) => r.seat === e.seat)
       if (at === -1) merged.push(e)
-      else merged[at] = e
+      else {
+        // The flag's model and tokens win; effort and cause the flag row lacks stay from the ledger.
+        const prev = merged[at]
+        const row = Object.assign({}, e)
+        if (!row.effort && prev.effort) row.effort = prev.effort
+        if (!row.cause && prev.cause) row.cause = prev.cause
+        merged[at] = row
+      }
     }
+    // Tokens the Agent result did not report come from the seat transcript's usage meters.
+    for (const row of merged) {
+      if (row.tokens !== undefined && row.tokens !== null && row.tokens !== 'unknown') continue
+      const m = meta && meta[`${row.seat}:${target.short}`]
+      if (m && m.usage && Number.isFinite(m.usage.total)) row.tokens = m.usage.total
+    }
+    if (Array.isArray(warnings)) warnings.push(...fixCycleTokenWarnings(merged))
     const extraLine = formatExtraSeats(merged)
     return { [target.id]: extraLine ? `${line}\n${extraLine}` : line }
   }
@@ -2305,6 +2363,25 @@ function modelAliasOf(meta, modelId) {
 }
 
 /**
+ * sumUsage(usages) -> {input, cacheWrite, cacheRead, output, total} over message.usage objects
+ * (input_tokens, cache_creation_input_tokens, cache_read_input_tokens, output_tokens); a missing
+ * or non-numeric meter counts 0. total is the sum of the four.
+ */
+export function sumUsage(usages) {
+  const n = (v) => (Number.isFinite(v) ? v : 0)
+  const out = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0, total: 0 }
+  for (const u of usages || []) {
+    if (!u || typeof u !== 'object') continue
+    out.input += n(u.input_tokens)
+    out.cacheWrite += n(u.cache_creation_input_tokens)
+    out.cacheRead += n(u.cache_read_input_tokens)
+    out.output += n(u.output_tokens)
+  }
+  out.total = out.input + out.cacheWrite + out.cacheRead + out.output
+  return out
+}
+
+/**
  * collectDispatchMeta({io, roots, labels, since?}) -> {[label]: {label, model, modelId, effort?,
  * effortSource?, transcript, mtimeMs}}. Claude Code writes an 'agent-<id>.meta.json' beside every
  * subagent transcript ('agent-<id>.jsonl') with the dispatch description (= the run-wave label,
@@ -2313,10 +2390,21 @@ function modelAliasOf(meta, modelId) {
  * per label wins (re-dispatches of the same seat), and `since` (epoch ms) drops older files. The
  * transcript's assistant lines carry the model id and the effort the turn ran at: effort is the
  * most frequent value over those lines (ties -> the later value), modelId the last one seen; a
- * missing or empty transcript leaves effort absent. Pure: io supplies walkMeta/readInput/readText.
+ * missing or empty transcript leaves effort absent. A fix-cycle label '<seat>-a<n>:<short>' is
+ * matched too when '<seat>:<short>' is wanted. usage = the four meters of message.usage summed over
+ * the assistant lines, one count per message.id (Claude Code repeats a message's usage on each of
+ * its content-block lines; the last line of an id wins): {input, cacheWrite, cacheRead, output,
+ * total}; absent when no line carries usage. Pure: io supplies walkMeta/readInput/readText.
  */
 export function collectDispatchMeta({ io, roots, labels, since }) {
   const wanted = new Set(labels || [])
+  const isWanted = (label) => {
+    if (wanted.has(label)) return true
+    const colon = label.lastIndexOf(':')
+    if (colon === -1) return false
+    const m = FIX_CYCLE_SEAT_RE.exec(label.slice(0, colon))
+    return Boolean(m) && wanted.has(`${m[1]}${label.slice(colon)}`)
+  }
   const out = {}
   for (const root of roots || []) {
     for (const entry of io.walkMeta(root) || []) {
@@ -2324,13 +2412,15 @@ export function collectDispatchMeta({ io, roots, labels, since }) {
       const meta = io.readInput(entry.path)
       if (!meta || typeof meta.description !== 'string') continue
       const label = stripDisplayTag(meta.description)
-      if (!wanted.has(label)) continue
+      if (!isWanted(label)) continue
       const prev = out[label]
       if (prev && prev.mtimeMs >= entry.mtimeMs) continue
       const transcript = entry.path.replace(/\.meta\.json$/, '.jsonl')
       const text = io.readText(transcript)
       const counts = {}
       let modelId = ''
+      const usageById = new Map()
+      let anon = 0
       for (const line of (text || '').split('\n')) {
         if (!line.includes('"assistant"')) continue
         let rec
@@ -2338,6 +2428,11 @@ export function collectDispatchMeta({ io, roots, labels, since }) {
         if (!rec || rec.type !== 'assistant') continue
         if (typeof rec.effort === 'string' && rec.effort) counts[rec.effort] = (counts[rec.effort] || 0) + 1
         if (rec.message && typeof rec.message.model === 'string') modelId = rec.message.model
+        const u = rec.message && rec.message.usage
+        if (u && typeof u === 'object') {
+          const id = typeof rec.message.id === 'string' && rec.message.id ? rec.message.id : `#${anon++}`
+          usageById.set(id, u)
+        }
       }
       let effort = ''
       let best = 0
@@ -2346,6 +2441,7 @@ export function collectDispatchMeta({ io, roots, labels, since }) {
       }
       const rec = { label, model: modelAliasOf(meta, modelId), modelId, transcript, mtimeMs: entry.mtimeMs }
       if (effort) { rec.effort = effort; rec.effortSource = 'transcript' }
+      if (usageById.size > 0) rec.usage = sumUsage(usageById.values())
       out[label] = rec
     }
   }
@@ -2419,6 +2515,7 @@ function execProvenance(argv, io) {
   const itemFlag = flagValue(argv, '--item')
   if (extraFlag !== undefined && !itemFlag) throw new Error('provenance: --extra-seats requires --item')
   const extraSeats = extraFlag !== undefined ? parseExtraSeats(`x\nextra-seats=${extraFlag}`) : undefined
+  const warnings = []
   const out = provenance({
     core, doc, result,
     method: flagValue(argv, '--method'),
@@ -2427,7 +2524,9 @@ function execProvenance(argv, io) {
     journal: flagValue(argv, '--journal'),
     extraSeats,
     item: itemFlag,
+    warnings,
   })
+  if (warnings.length > 0 && io.warn) for (const w of warnings) io.warn(w)
   io.writeOut(JSON.stringify(out))
   io.exit(0)
 }
@@ -2442,6 +2541,11 @@ function execReseat(argv, io) {
   const runId = flagValue(argv, '--run')
   if (!runId || runId !== doc.args.runId) {
     io.fail(2, 'invalid args', `--run ${runId} does not match the plan's runId`)
+    return
+  }
+  const cause = flagValue(argv, '--cause')
+  if (!RESEAT_CAUSES.includes(cause)) {
+    io.fail(2, 'invalid args', `reseat: --cause ${cause === undefined ? '(missing)' : cause} must be one of ${RESEAT_CAUSES.join('|')}`)
     return
   }
   const resultPath = flagValue(argv, '--result')
@@ -2477,6 +2581,7 @@ function execReseat(argv, io) {
     return
   }
   const out = reseat(core, doc, result, item, flagValue(argv, '--seat'), {
+    cause,
     declarations: declText,
     model: flagValue(argv, '--model'),
     tokens: tokensRaw === undefined ? undefined : (Number.isFinite(Number(tokensRaw)) ? Number(tokensRaw) : tokensRaw),

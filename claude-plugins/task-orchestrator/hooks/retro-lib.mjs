@@ -140,16 +140,23 @@ function isPlain(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
 
+/** fixCycleBaseRun('r-x-a2') -> 'r-x' (a fix-cycle run label's base run id); null for any other label. */
+export function fixCycleBaseRun(label) {
+  const m = /^(.+)-a[1-9][0-9]*$/.exec(typeof label === 'string' ? label : '');
+  return m ? m[1] : null;
+}
+
 /**
  * The shared run evaluation (trigger and backstop). Lists the root's closed runs not yet marked
  * `retro` (closed in the last 24 h), reads the terminal count of at most 5 of them, and for each:
  * dispatch mode and terminal >= threshold -> try to mark (first write wins); a run whose mark this call
  * wrote is won and dispatched; a lost race (marked false) is silent; a failed mark is nudged, never
- * dispatched unmarked. Everything else is nudged. Adds the nudged runs to `state.nudged` (the caller
- * persists). Returns { won: runId[], nudge: runId[] }; fail-open.
+ * dispatched unmarked. Everything else is nudged. A fix-cycle run (label '<runId>-a<n>') is marked in
+ * dispatch mode whatever its terminal count. Adds the nudged runs to `state.nudged` (the caller
+ * persists). Returns { won: runId[], nudge: runId[], fixCycle: {[runId]: baseRunLabel} }; fail-open.
  */
 export async function evaluateRuns({ rootId, config, state }) {
-  const out = { won: [], nudge: [] };
+  const out = { won: [], nudge: [], fixCycle: {} };
   try {
     const endedSince = new Date(Date.now() - LIST_WINDOW_MS).toISOString();
     const list = await callOp(
@@ -166,6 +173,8 @@ export async function evaluateRuns({ rootId, config, state }) {
       if (state.nudged.includes(view.runId)) continue;
       if (candidates.includes(view.runId)) continue;
       candidates.push(view.runId);
+      const base = fixCycleBaseRun(view.label);
+      if (base) out.fixCycle[view.runId] = base;
       if (candidates.length >= MAX_FRONTIER_RUNS) break;
     }
     if (candidates.length === 0) return out;
@@ -178,7 +187,9 @@ export async function evaluateRuns({ rootId, config, state }) {
       const f = frontiers[i];
       const terminal = f && f.ok === true && isPlain(f.data) && isPlain(f.data.counts) ? f.data.counts.terminal : undefined;
       if (typeof terminal !== 'number') return; // failed frontier read: skip this run this time
-      if (config.mode === 'dispatch' && terminal >= config.dispatchThreshold) toMark.push(runId);
+      // A fix-cycle run ('<runId>-a<n>') always owes a retrospective: it often has one item, so the
+      // terminal-count threshold would skip the only retrospective that sees the failure loop.
+      if (config.mode === 'dispatch' && (terminal >= config.dispatchThreshold || out.fixCycle[runId])) toMark.push(runId);
       else out.nudge.push(runId);
     });
 
@@ -218,9 +229,9 @@ export function directorConfig(config) {
 export function directiveFor(result, located, { director = false } = {}) {
   if (director) {
     const runs = [...result.won, ...result.nudge];
-    return runs.length > 0 ? buildDispatch(runs, dispatchAncestorId(located)) : null;
+    return runs.length > 0 ? buildDispatch(runs, dispatchAncestorId(located), result.fixCycle) : null;
   }
-  if (result.won.length > 0) return buildDispatch(result.won, dispatchAncestorId(located));
+  if (result.won.length > 0) return buildDispatch(result.won, dispatchAncestorId(located), result.fixCycle);
   if (result.nudge.length > 0) return buildNudge(result.nudge);
   return null;
 }
@@ -290,13 +301,20 @@ export function buildNudge(runIds) {
     `Consider running ${runCommands(list).join(' and ')} to capture learnings before the session ends. ${tail}`;
 }
 
-export function buildDispatch(runIds, ancestorId) {
+/**
+ * fixCycle ({[runId]: baseRunLabel}, optional): runs in `runIds` that are fix-cycle runs. Their
+ * retrospective reports the base run's whole failure loop, so the directive names each base run.
+ */
+export function buildDispatch(runIds, ancestorId, fixCycle) {
   const list = (runIds || []).filter(Boolean);
   const ancestor = ancestorId || 'none configured';
   const invoke = list.length === 0 ? '`/session-retrospective`' : runCommand(list);
   // The retrospective agent runs at the dispatch policy's `research` class.
   const { model, effort } = forClass('research');
-  return `Retrospective dispatch (mode: dispatch). Run ${list.join(', ')} closed. ` +
+  const loops = list.filter((id) => isPlain(fixCycle) && typeof fixCycle[id] === 'string').map((id) => `${id} (base run ${fixCycle[id]})`);
+  const loopNote = loops.length === 0 ? '' :
+    `Fix-cycle run(s) ${loops.join(', ')}: report the base run's whole fix loop (every -a<n> cycle so far) in the fix-cycle section. `;
+  return `Retrospective dispatch (mode: dispatch). Run ${list.join(', ')} closed. ${loopNote}` +
     `This directive is durable — act on it at the next run boundary: if background tasks or subagents ` +
     `are still running, hold it and dispatch only after the last of them completes and its results are ` +
     `processed. If further dispatch directives arrive while holding, merge them: dispatch ONE retrospective ` +
