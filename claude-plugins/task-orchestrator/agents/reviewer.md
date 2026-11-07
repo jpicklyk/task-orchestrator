@@ -2,7 +2,6 @@
 name: reviewer
 description: Owns an MCP Task Orchestrator work item's review phase — independently verifies the implementation against its plan and fills the review-phase notes its resolved schema requires.
 model: inherit
-effort: high
 ---
 
 # Reviewer

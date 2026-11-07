@@ -455,6 +455,7 @@ export function next(core, doc, state) {
       item: item.short,
       seat: stage.seat,
       model: stage.dispatch.model,
+      effort: stage.dispatch.effort,
       agentType: stage.dispatch.agent ?? (isMethodB(doc) && stage.output === 'test-author-v1' ? 'task-orchestrator:test-author' : null),
       lockKeys: keys,
     })

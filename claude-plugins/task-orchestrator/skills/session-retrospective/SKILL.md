@@ -139,9 +139,9 @@ Optional effort tails: `efforts=<seat>:<effort>,...` (`low`/`medium`/`high`/`xhi
 For each item, examine its notes (1b): which schema-required notes exist with non-empty content (queue and review notes; work-role notes are not scored by size, 3c scores them on content), and which items are missing required notes. **Score:** fraction of expected notes that exist with non-empty content.
 
 ### 3b. Delegation Alignment
-If `delegation-metadata` notes exist, cross-reference the expected model: `haiku` for MCP bulk ops, materialization and simple queries; `sonnet` for code reading, implementation and test writing; `opus` for architecture, complex tradeoffs and multi-file synthesis.
+If `delegation-metadata` notes exist, cross-reference the expected model: the model of the work's class in `task-orchestrator:model-effort` (a seat's resolved dispatch profile, when it set one, is the expectation instead).
 
-- Flag misalignments (opus for bulk ops, haiku for architecture), scored per seat delegation for a structured note (one score per `seat:model` pair).
+- Flag misalignments (a delegation run on a model other than its class's or its profile's), scored per seat delegation for a structured note (one score per `seat:model` pair).
 - A `substituted=` field is an allowlist substitution, not a misalignment. A `model-source=self-report` field is noted separately and not folded into the misalignment count.
 - Report effort beside model: list each `seat:model/effort` (from `efforts=`; `-` when unset) in the per-run table with its `effort-source`, and the distribution of efforts per seat type across runs. Effort is not scored against an expected value; flag it as a finding for 5b when a pattern stands out (a seat type always at `max`, a review seat below `medium`, an effort set on a seat whose model was substituted) so a trend can form over sessions. Every `effort-substituted=` entry is a dispatch-versus-runtime mismatch and is always a finding; a run whose lines all read `effort-source=assigned` is noted as "effort not observed" (the post-run `dispatch-meta` step was skipped).
 - **Score:** fraction of delegations matching the expected model. With no `delegation-metadata`, note "delegation metadata not recorded" and skip scoring.

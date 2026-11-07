@@ -1,7 +1,8 @@
 // run-planner-lib.mjs — pure planner core for the run-wave front door.
 //
 // No wall-clock reads, no non-deterministic randomness, no filesystem or process access, and
-// no CommonJS-style module loading of Node builtins.
+// no CommonJS-style module loading of Node builtins. The one read is the plugin's own
+// dispatch-policy.json, through lib/dispatch-policy.mjs (static, cached, deterministic).
 // Every function is a pure function of its arguments — the CLI (run-planner.mjs) supplies
 // the clock (`--now`), reads files, and writes stdout/stderr. This module never branches on
 // an item-type string; it only reads declared seats, dispatch tables and note schemas from
@@ -10,6 +11,7 @@
 // Contract: run-wave/snapshot-v1 in, implement-wave/args-v1 + run-wave/plan-doc-v1 out.
 
 import { isOrchestratorServerKey } from '../hooks/registration.mjs';
+import { forClass } from './lib/dispatch-policy.mjs';
 
 export const SNAPSHOT_CONTRACT = 'run-wave/snapshot-v1';
 export const PLAN_DOC_CONTRACT = 'run-wave/plan-doc-v1';
@@ -456,37 +458,43 @@ export function ownership(schema, phases) {
 }
 
 /**
- * resolveDispatch(schema, seat, phase, {enters, implicitOwner}, defaults) -> {agent|null, model, effort?}
- * Field-wise precedence: dispatchBySeat[phase][seat] -> dispatch[phase] (entry/implicit only)
- * -> defaults {queue, work, extractor:{model, effort}}. An explicit null agent is kept.
+ * policyClassFor(seat, phase) -> the dispatch-policy class a seat falls back to when neither its
+ * seat dispatch nor its phase dispatch names a value: planner -> planning, implementer ->
+ * implementation, test-author -> test-authoring, reviewer -> review, declarations-extractor ->
+ * extraction; any other seat takes its phase's class (queue -> planning, work -> implementation,
+ * review -> review).
  */
-export function resolveDispatch(schema, seat, phase, entryInfo = {}, defaults = {}) {
+const SEAT_CLASS = {
+  planner: 'planning',
+  implementer: 'implementation',
+  'test-author': 'test-authoring',
+  reviewer: 'review',
+  'declarations-extractor': 'extraction'
+};
+const PHASE_CLASS = { queue: 'planning', work: 'implementation', review: 'review' };
+export function policyClassFor(seat, phase) {
+  return SEAT_CLASS[seat] || PHASE_CLASS[phase] || 'implementation';
+}
+
+/**
+ * resolveDispatch(schema, seat, phase, {enters, implicitOwner}, policyFor?) -> {agent|null, model, effort}
+ * Field-wise precedence: dispatchBySeat[phase][seat] -> dispatch[phase] (entry/implicit only)
+ * -> the policy class for the seat (policyClassFor). policyFor(className) -> {model, effort}
+ * defaults to dispatch-policy.mjs forClass. An explicit null agent is kept; model and effort are
+ * always set (an explicit null in a trait still falls back to the class).
+ */
+export function resolveDispatch(schema, seat, phase, entryInfo = {}, policyFor = forClass) {
   const { enters, implicitOwner } = entryInfo;
   const bySeat = (schema && schema.dispatchBySeat && schema.dispatchBySeat[phase] && schema.dispatchBySeat[phase][seat]) || {};
   const eligibleForPhase = !!(enters || implicitOwner);
   const byPhase = eligibleForPhase ? ((schema && schema.dispatch && schema.dispatch[phase]) || {}) : {};
+  const def = policyFor(policyClassFor(seat, phase));
 
-  let def = {};
-  if (seat === 'declarations-extractor' && defaults.extractor) {
-    // defaults.extractor accepts either the object form {model, effort} or the design §3.4
-    // shorthand string form 'sonnet+low' (split on '+' -> {model:'sonnet', effort:'low'}).
-    if (typeof defaults.extractor === 'string') {
-      const [extractorModel, extractorEffort] = defaults.extractor.split('+');
-      def = extractorEffort ? { model: extractorModel, effort: extractorEffort } : { model: extractorModel };
-    } else {
-      def = defaults.extractor;
-    }
-  } else if (typeof defaults[phase] === 'string') {
-    def = { model: defaults[phase] };
-  } else if (defaults[phase] && typeof defaults[phase] === 'object') {
-    def = defaults[phase];
-  }
-
+  const pick = (field) => (bySeat[field] != null ? bySeat[field] : (byPhase[field] != null ? byPhase[field] : def[field]));
   const result = {};
-  result.agent = 'agent' in bySeat ? bySeat.agent : ('agent' in byPhase ? byPhase.agent : (def.agent ?? null));
-  result.model = 'model' in bySeat ? bySeat.model : ('model' in byPhase ? byPhase.model : def.model);
-  const effort = 'effort' in bySeat ? bySeat.effort : ('effort' in byPhase ? byPhase.effort : def.effort);
-  if (effort !== undefined) result.effort = effort;
+  result.agent = 'agent' in bySeat ? bySeat.agent : ('agent' in byPhase ? byPhase.agent : null);
+  result.model = pick('model');
+  result.effort = pick('effort');
   return result;
 }
 
@@ -523,7 +531,7 @@ function deriveRulesSkills(ownedKeys, allNotes, servedKeys) {
 /**
  * deriveStages(candidate, schemaEntry, ctx) -> {stages, orchestratorNotes, unownedRequired,
  *   schemaFree, hasReviewPhase, warnings, degradations, exclude:null|string}
- * ctx = {rulesServed:[{key,rulesVersion}], noteOwners:[{key, seat}], profile}
+ * ctx = {rulesServed:[{key,rulesVersion}], noteOwners:[{key, seat}]}
  * noteOwners are this item's notes whose owner seat notes_read list reported (owner.seat, shown only
  * when the caller may see attribution); a resumed work seat whose every owned note is owned by that
  * seat is skipped. A note with no owner row never skips a seat.
@@ -531,7 +539,6 @@ function deriveRulesSkills(ownedKeys, allNotes, servedKeys) {
 export function deriveStages(candidate, schemaEntry, ctx = {}) {
   const rulesServed = ctx.rulesServed || [];
   const noteOwners = ctx.noteOwners || [];
-  const profile = ctx.profile || {};
   const servedKeys = new Set(rulesServed.map((r) => r.key));
   const ownerSeatByKey = new Map(noteOwners.map((n) => [n.key, n.seat]));
   const warnings = [];
@@ -545,7 +552,7 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
       implicitOwner: true,
       notes: [],
       writes: true,
-      dispatch: resolveDispatch({}, 'implementer', 'work', { enters: true, implicitOwner: true }, profile.defaultModels || {}),
+      dispatch: resolveDispatch({}, 'implementer', 'work', { enters: true, implicitOwner: true }),
       output: 'implementer-v1'
     };
     warnings.push('/manage-schemas suggestion');
@@ -600,7 +607,6 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
       .map((n) => n.key);
   }
 
-  const defaults = profile.defaultModels || { queue: 'opus', work: 'sonnet', extractor: { model: 'sonnet', effort: 'low' } };
   const stages = [];
 
   if (seatAware) {
@@ -649,13 +655,13 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
           notes: [],
           rules: served ? ['declarations-extractor'] : [],
           skills: [],
-          dispatch: resolveDispatch(schema, 'declarations-extractor', 'work', {}, defaults),
+          dispatch: resolveDispatch(schema, 'declarations-extractor', 'work', {}),
           output: 'declarations-v1'
         });
       }
 
       const rulesSkills = deriveRulesSkills(seatNotes, notes, servedKeys);
-      const dispatch = resolveDispatch(schema, s.name, s.phase, { enters, implicitOwner: false }, defaults);
+      const dispatch = resolveDispatch(schema, s.name, s.phase, { enters, implicitOwner: false });
       const stage = {
         seat: s.name,
         phase: s.phase,
@@ -686,7 +692,7 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
         rules: rulesSkills.rules,
         skills: rulesSkills.skills,
         writes: false,
-        dispatch: resolveDispatch(schema, 'planner', 'queue', { enters: false, implicitOwner: true }, defaults),
+        dispatch: resolveDispatch(schema, 'planner', 'queue', { enters: false, implicitOwner: true }),
         output: 'planner-v1'
       };
       const plannerOptional = optionalOf(queueNotes, notes);
@@ -706,7 +712,7 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
       rules: rulesSkillsW.rules,
       skills: rulesSkillsW.skills,
       writes: true,
-      dispatch: resolveDispatch(schema, 'implementer', 'work', { enters: true, implicitOwner: true }, defaults),
+      dispatch: resolveDispatch(schema, 'implementer', 'work', { enters: true, implicitOwner: true }),
       output: 'implementer-v1'
     };
     const implementerOptional = optionalOf(workNotes, notes);
@@ -1303,8 +1309,7 @@ export function buildPlanDoc(snap, opts = {}) {
     const schemaEntry = (snap.schemas || {})[c.id];
     derivedById[c.id] = deriveStages(c, schemaEntry, {
       rulesServed: snap.rulesServed || [],
-      noteOwners: (snap.noteOwners || {})[c.id] || [],
-      profile
+      noteOwners: (snap.noteOwners || {})[c.id] || []
     });
   }
 
@@ -1477,6 +1482,9 @@ export function buildPlanDoc(snap, opts = {}) {
   }
 
   warnings.push(...sharedFileWarnings);
+  if (profile && typeof profile === 'object' && 'defaultModels' in profile) {
+    warnings.push('profile.defaultModels is ignored: stage model and effort come from dispatch-policy.json');
+  }
   for (const e of liveKnownRed(profile, now).expired) warnings.push(`knownRed ${e.test} expired ${e.expires}`);
 
   const estAgents = finalIds.reduce((sum, id) => sum + ((derivedById[id].stages || []).length), 0);

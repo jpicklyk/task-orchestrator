@@ -2,7 +2,7 @@
 // coordinator-tiers.mjs - the director's coordinator tiers and their launch profiles. Pure at
 // import; the CLI runs only when this file is the entry point.
 //
-//   node coordinator-tiers.mjs profile --tier N [--budget-usd X] [--model M] [--prompt-file F]
+//   node coordinator-tiers.mjs profile --tier N [--budget-usd X] [--model M] [--effort E] [--prompt-file F]
 //
 // prints launchProfile(N, ...) as JSON. The director probes its own tool list with the same rule
 // selectTier uses (see skills/director/references/coordinator-tiers.md).
@@ -10,6 +10,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { forClass } from './lib/dispatch-policy.mjs';
 
 /** Tiers 1-4 in preference order: what each needs and where its coordinator runs. */
 export const TIERS = Object.freeze([
@@ -52,9 +53,14 @@ export function selectTier({ tools = [], claudeCli = false } = {}) {
  * carries crossSessionInbound, so the director sets it in desktop settings and checks it with
  * get_settings before launch. Tier 3 requires `opts.budgetUsd` (a finite number > 0) and
  * `opts.prompt` (a non-empty string), checked in that order; any tier outside 1-4 throws.
+ * Model and effort (tiers 1 and 3) default to the dispatch policy's `coordinator` class; a
+ * non-empty `opts.model` / `opts.effort` overrides each.
  */
 export function launchProfile(tier, opts = {}) {
-  const o = opts && typeof opts === 'object' ? opts : {};
+  const given = opts && typeof opts === 'object' ? opts : {};
+  const cls = (tier === 1 || tier === 3) ? forClass('coordinator') : {};
+  const pick = (v, d) => (v !== undefined && v !== null && v !== '' ? v : d);
+  const o = { ...given, model: pick(given.model, cls.model), effort: pick(given.effort, cls.effort) };
   switch (tier) {
     case 1:
       return {
@@ -81,7 +87,7 @@ export function launchProfile(tier, opts = {}) {
         throw new Error('tier 3 needs prompt: a non-empty string (pass --prompt-file)');
       }
       const argv = ['claude', '-p', o.prompt, '--allowedTools', 'Workflow', '--max-budget-usd', String(budget)];
-      if (o.model !== undefined && o.model !== null && o.model !== '') argv.push('--model', o.model);
+      argv.push('--model', o.model, '--effort', o.effort);
       return { tier: 3, argv };
     }
     case 4:
@@ -102,6 +108,7 @@ function parseArgs(argv) {
     if (a === '--tier') out.tier = Number(next());
     else if (a === '--budget-usd') out.budgetUsd = Number(next());
     else if (a === '--model') out.model = next();
+    else if (a === '--effort') out.effort = next();
     else if (a === '--prompt-file') out.promptFile = next();
     else throw new Error(`unknown argument: ${a}`);
   }
@@ -111,7 +118,7 @@ function parseArgs(argv) {
 function main(argv) {
   const [cmd, ...rest] = argv;
   if (cmd !== 'profile') {
-    process.stderr.write('usage: coordinator-tiers.mjs profile --tier N [--budget-usd X] [--model M] [--prompt-file F]\n');
+    process.stderr.write('usage: coordinator-tiers.mjs profile --tier N [--budget-usd X] [--model M] [--effort E] [--prompt-file F]\n');
     return 2;
   }
   try {
@@ -119,6 +126,7 @@ function main(argv) {
     const opts = {};
     if (a.budgetUsd !== undefined) opts.budgetUsd = a.budgetUsd;
     if (a.model !== undefined) opts.model = a.model;
+    if (a.effort !== undefined) opts.effort = a.effort;
     if (a.promptFile !== undefined) opts.prompt = readFileSync(a.promptFile, 'utf-8');
     process.stdout.write(JSON.stringify(launchProfile(a.tier, opts), null, 2) + '\n');
     return 0;

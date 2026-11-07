@@ -10,6 +10,7 @@ import os from 'os';
 import { readSection, scalar, inlineScalar } from './yaml-lite.mjs';
 import { sessionMarkerPath, readMarker, writeMarker } from './lib/markers.mjs';
 import { callOp, apiBaseUrl } from './lib/api-client.mjs';
+import { forClass } from '../scripts/lib/dispatch-policy.mjs';
 
 const VALID_MODES = ['nudge', 'dispatch', 'off'];
 const DEFAULT_MODE = 'nudge';
@@ -293,12 +294,14 @@ export function buildDispatch(runIds, ancestorId) {
   const list = (runIds || []).filter(Boolean);
   const ancestor = ancestorId || 'none configured';
   const invoke = list.length === 0 ? '`/session-retrospective`' : runCommand(list);
+  // The retrospective agent runs at the dispatch policy's `research` class.
+  const { model, effort } = forClass('research');
   return `Retrospective dispatch (mode: dispatch). Run ${list.join(', ')} closed. ` +
     `This directive is durable — act on it at the next run boundary: if background tasks or subagents ` +
     `are still running, hold it and dispatch only after the last of them completes and its results are ` +
     `processed. If further dispatch directives arrive while holding, merge them: dispatch ONE retrospective ` +
     `covering the union of their runs. Dispatch exactly ONE background retrospective via the Agent tool: ` +
-    `subagent_type "general-purpose", model "sonnet", run_in_background true, prompt: invoke ` +
+    `subagent_type "general-purpose", model "${model}", effort "${effort}", run_in_background true, prompt: invoke ` +
     `${invoke}, project ancestorId ${ancestor}, work ONLY from durable MCP ` +
     `state (session-tracking + delegation-metadata notes, schema config, agent-observation items — no ` +
     `conversation context), write the retrospective into the process-global 'Session Retrospectives' ` +

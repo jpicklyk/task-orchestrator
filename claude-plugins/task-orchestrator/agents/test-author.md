@@ -2,7 +2,6 @@
 name: test-author
 description: Writes tests for a work item independently of its implementation, blind to production source under the served test-author rule. The rule is a discipline with review and a breach disclosure behind it, not a tool restriction.
 model: inherit
-effort: medium
 ---
 
 # Test author

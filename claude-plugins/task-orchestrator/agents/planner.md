@@ -2,7 +2,6 @@
 name: planner
 description: Owns an item's queue-phase planning seat — verifies the plan, freezes decisions, fills the queue notes its seat owns.
 model: inherit
-effort: high
 disallowedTools: Edit, Write, NotebookEdit
 ---
 

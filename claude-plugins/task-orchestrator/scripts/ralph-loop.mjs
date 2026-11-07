@@ -52,6 +52,7 @@ import {
     redactTokens,
     seatTokenFilePath,
     firstOpResult,
+    iterationDispatch,
 } from "./ralph-lib.mjs";
 import { callOp, apiBaseUrl } from "../hooks/lib/api-client.mjs";
 import { locateConfig } from "../hooks/config-locator.mjs";
@@ -88,7 +89,6 @@ const DEFAULTS = {
     errorBudget: 2,
     budget: 5, // USD per iteration
     ttl: 1800, // seconds (30 min)
-    model: "sonnet",
     maxContinuations: 2, // resume attempts for a marker-less clean exit; 0 disables
     idleBudget: 3, // consecutive idle selections tolerated before exiting
     iterationTimeout: DEFAULT_ITERATION_TIMEOUT_SECONDS,
@@ -106,7 +106,8 @@ try {
             budget: { type: "string", default: String(DEFAULTS.budget) },
             ttl: { type: "string", default: String(DEFAULTS.ttl) },
             "heartbeat-interval": { type: "string" },
-            model: { type: "string", default: DEFAULTS.model },
+            model: { type: "string" },
+            effort: { type: "string" },
             "base-ref": { type: "string", default: "origin/main" },
             "cleanup-on-terminal": { type: "boolean", default: true },
             "no-cleanup": { type: "boolean", default: false },
@@ -146,6 +147,7 @@ const cfg = {
     budget: parseFloatStrict(values.budget, "budget"),
     ttl: parseIntStrict(values.ttl, "ttl"),
     model: values.model,
+    effort: values.effort,
     baseRef: values["base-ref"],
     // --no-cleanup overrides --cleanup-on-terminal (compatibility with both forms)
     cleanupOnTerminal: values["no-cleanup"] ? false : values["cleanup-on-terminal"],
@@ -217,7 +219,7 @@ if (cfg.dryRun) {
         seat_token_file: seatTokenFilePath(cfg.scratchDir, 1),
         ttl: String(cfg.ttl),
     });
-    const args = buildIterationArgs({ worktreeName: `ralph-${pid}-<ts>-1`, cfg, prompt });
+    const args = buildIterationArgs({ worktreeName: `ralph-${pid}-<ts>-1`, cfg: { ...cfg, ...iterationDispatch({ model: cfg.model, effort: cfg.effort, attempt: 1 }) }, prompt });
     const shown = args.slice(0, -1).map(quoteArg);
     shown.push(`<iteration prompt: ${prompt.length} chars rendered from skills/ralph/iteration-prompt.md>`);
     console.log(formatPreflight());
@@ -479,7 +481,7 @@ while (stats.iterations < cfg.max && !shuttingDown && !stats.exitReason) {
 
     let result;
     try {
-        result = await runOneIteration({ iterIndex, itemId, title, tokenFile });
+        result = await runOneIteration({ iterIndex, itemId, title, tokenFile, attempt: seat.attempt });
     } finally {
         stopHeartbeat(heartbeat);
     }
@@ -819,7 +821,10 @@ function applyEffect(effect, outcome, itemId) {
     }
 }
 
-async function runOneIteration({ iterIndex, itemId, title, tokenFile }) {
+async function runOneIteration({ iterIndex, itemId, title, tokenFile, attempt }) {
+    // Model and effort for this iteration: the flags as given, else the policy's implementation
+    // class, escalated one level per earlier attempt of this seat (assign answers `attempt`).
+    const iterCfg = { ...cfg, ...iterationDispatch({ model: cfg.model, effort: cfg.effort, attempt }) };
     // The worktree is created by `claude --worktree=<name>` at spawn. A unique temp name avoids
     // collisions under concurrent loops; it is renamed to ralph-<short-uuid>-<iter> afterwards.
     const tempWorktreeName = `ralph-${pid}-${Date.now()}-${iterIndex}`;
@@ -832,9 +837,9 @@ async function runOneIteration({ iterIndex, itemId, title, tokenFile }) {
     const env = buildIterationEnv(process.env, { seatTokenFile: tokenFile });
     const deadline = Date.now() + cfg.iterationTimeout * 1000;
 
-    say(`\n-- Iteration ${iterIndex}/${cfg.max} - item ${itemId.slice(0, 8)}${title} - worktree: ${tempWorktreeName} --`);
+    say(`\n-- Iteration ${iterIndex}/${cfg.max} - item ${itemId.slice(0, 8)}${title} - worktree: ${tempWorktreeName} - ${iterCfg.model}/${iterCfg.effort}${Number.isInteger(attempt) && attempt > 1 ? ` (attempt ${attempt})` : ""} --`);
 
-    let currentArgs = buildIterationArgs({ worktreeName: tempWorktreeName, cfg, prompt });
+    let currentArgs = buildIterationArgs({ worktreeName: tempWorktreeName, cfg: iterCfg, prompt });
     let currentCwd; // undefined for the initial spawn (--worktree=... creates it)
     let continuationsUsed = 0;
     let spentUsd = 0;
@@ -877,7 +882,7 @@ async function runOneIteration({ iterIndex, itemId, title, tokenFile }) {
         continuationsUsed++;
         say(`  -> no RALPH_OUTCOME marker; resuming session ${envelope.session_id} (continuation ${continuationsUsed}/${cfg.maxContinuations}, $${decision.remainingUsd.toFixed(2)} remaining)`);
         currentCwd = resumeCwd(tempWorktreeName);
-        currentArgs = buildResumeArgs({ sessionId: envelope.session_id, cfg, remainingBudget: decision.remainingUsd, message: RESUME_MESSAGE });
+        currentArgs = buildResumeArgs({ sessionId: envelope.session_id, cfg: iterCfg, remainingBudget: decision.remainingUsd, message: RESUME_MESSAGE });
     }
     if (shuttingDown && !timedOut && !error && !parsed.markerFound) {
         parsed.outcome = { status: "error", code: "interrupted", reason: `interrupted (${shuttingDown.sig})` };
@@ -1037,6 +1042,7 @@ function quoteArg(arg) {
 // -- Output formatting --------------------------------------------------------
 
 function formatPreflight() {
+    const firstDispatch = iterationDispatch({ model: cfg.model, effort: cfg.effort, attempt: 1 });
     const cleanupDesc = cfg.cleanupOnTerminal
         ? `smart (remove worktrees with no uncommitted changes / no commits ahead of ${cfg.baseRef}; preserve all others)`
         : "off (--no-cleanup)";
@@ -1048,7 +1054,7 @@ function formatPreflight() {
   Root:          ${rootId}
   Filter:        ${cfg.filter || "(any ready queue item)"}
   Members:       ${cfg.items.length ? cfg.items.join(", ") : "(added as picked)"}
-  Model:         ${cfg.model}
+  Model:         ${firstDispatch.model} / effort ${firstDispatch.effort}${cfg.effort ? "" : " (one level higher per retry of a seat)"}
   Max iter:      ${cfg.max}
   Breakers:      ${cfg.gateBudget} consecutive gate failures | ${cfg.errorBudget} consecutive errors | ${cfg.idleBudget} consecutive idles
   Per iter:      $${cfg.budget} USD cap | ${cfg.ttl}s claim TTL (heartbeat every ${cfg.heartbeatInterval}s) | ${cfg.iterationTimeout}s timeout
@@ -1169,7 +1175,10 @@ Options:
                              (default: ttl/2, range 1 to ttl-1)
   --iteration-timeout <s>    Kill an iteration after this many seconds: SIGTERM,
                              then SIGKILL 10s later (default: ${DEFAULTS.iterationTimeout})
-  --model <name>             Model for the iteration agent (default: ${DEFAULTS.model})
+  --model <name>             Model for the iteration agent (default: the dispatch
+                             policy's implementation class)
+  --effort <level>           Effort for the iteration agent (default: the class effort,
+                             one level higher per retry of the seat)
   --base-ref <ref>           Upstream ref for the cleanup "ahead of base" check
                              (default: origin/main)
   --cleanup-on-terminal      Smart-cleanup worktrees after terminal outcomes (default: true)

@@ -8,7 +8,7 @@ that coordinator lives. `scripts/coordinator-tiers.mjs` holds the rule and the p
   it equals it or ends with `__` plus it (so `mcp__ccd_session__start_session` matches
   `start_session`, and `start_session_v2` does not).
 - `launchProfile(tier, opts)` returns the launch profile below.
-- `node scripts/coordinator-tiers.mjs profile --tier N [--budget-usd X] [--model M] [--prompt-file F]`
+- `node scripts/coordinator-tiers.mjs profile --tier N [--budget-usd X] [--model M] [--effort E] [--prompt-file F]`
   prints it as JSON. A coordinator or background agent runs this, never the director session (the
   guard denies `node` there).
 
@@ -18,7 +18,7 @@ The director probes its own tool list with the same rule, once per entry, withou
 |------|-------|-------------|----------------|
 | 1 | `start_session` and `SendMessage` (or `send_message`) | A separate desktop session | `start_session` with `initiation: "user_asked"`, `context: "fresh"`, `model`, `effort`, `permission_mode`; output style set after start; `crossSessionInbound: "accept"`; talk with `SendMessage` |
 | 2 | `Workflow` | A background coordinator agent; the director makes the one `Workflow` call | `task-orchestrator:implement-wave` with `args.altitudeSafe: true` |
-| 3 | The `claude` CLI on the host | A headless `claude -p` process, or `node scripts/ralph-loop.mjs` (a queue drain), started by a background agent | `claude -p <prompt> --allowedTools Workflow --max-budget-usd <X> [--model <M>]`, never `--bare` |
+| 3 | The `claude` CLI on the host | A headless `claude -p` process, or `node scripts/ralph-loop.mjs` (a queue drain), started by a background agent | `claude -p <prompt> --allowedTools Workflow --max-budget-usd <X> --model <M> --effort <E>`, never `--bare` |
 | 4 | Nothing above | None: the run executes inline | `inline: true` with the altitude warning |
 
 Tiers 1 and 2 need a director entered through the `/task-orchestrator:director` skill in a normal
@@ -27,7 +27,9 @@ nor `start_session`, so it probes tier 3 or 4.
 
 ## Tier 1: desktop session
 
-`start_session` takes `model`, `effort` and `permission_mode`. Set the output style after the
+`start_session` takes `model`, `effort` and `permission_mode`. For tiers 1 and 3, model and effort
+default to the dispatch policy's `coordinator` class (see `task-orchestrator:model-effort`); a given
+value overrides each. Set the output style after the
 session starts, with `set_session_output_style`.
 
 No probed `start_session` parameter carries `crossSessionInbound`. Before launching, ask the user to
@@ -66,8 +68,7 @@ seats consume planner output in-process. Decisions land between runs.
 
 ## Tier 3: headless claude -p
 
-The argv is `claude -p <prompt> --allowedTools Workflow --max-budget-usd <X>`, plus `--model <M>`
-when given. `launchProfile(3)` throws unless `budgetUsd` is a finite number greater than 0, then
+The argv is `claude -p <prompt> --allowedTools Workflow --max-budget-usd <X> --model <M> --effort <E>`. `launchProfile(3)` throws unless `budgetUsd` is a finite number greater than 0, then
 throws unless `prompt` is a non-empty string (the CLI exits non-zero without `--prompt-file`).
 
 - The background agent that starts the process plans first (run-wave Steps 0-5a with

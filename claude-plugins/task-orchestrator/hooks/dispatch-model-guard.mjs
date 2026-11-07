@@ -1,12 +1,14 @@
 #!/usr/bin/env node
-// Dispatch Model Guard Hook — PreToolUse on the Agent tool. Denies a dispatch whose
-// tool_input.model is absent (or empty/whitespace/non-string), because the shipped agents use
-// `model: inherit` and an omitted model silently runs the subagent on the caller's own model.
-// The deny reason tells the caller how to retry. The value is NOT validated: the Agent tool owns that.
+// Dispatch Model Guard Hook - PreToolUse on the Agent tool. Denies a dispatch whose
+// tool_input.model or tool_input.effort is absent (or empty/whitespace/non-string): the shipped
+// agents use `model: inherit` and carry no `effort`, so an omitted model silently runs the subagent
+// on the caller's own model and an omitted effort runs it at the model's default.
+// The deny reason names what is missing and tells the caller how to retry. The values are NOT
+// validated: the Agent tool owns that.
 //
 // Gates, in order (each emits `{}`): unreadable/non-JSON stdin -> tool_name not Agent -> headless
-// iteration -> no located config -> orchestration mode off -> model present.
-// A director session is still guarded (its dispatches must pass `model` too).
+// iteration -> no located config -> orchestration mode off -> model and effort present.
+// A director session is still guarded (its dispatches must pass `model` and `effort` too).
 // Active in `workflow` (default, also absent/invalid) and `schema` modes; the reason text differs.
 // Fail-open: any throw yields `{}` and exit 0.
 
@@ -16,17 +18,20 @@ import { isHeadlessIteration } from './execution-mode.mjs';
 import { locateConfig } from './config-locator.mjs';
 import { parseOrchestrationConfig } from './orchestration-lib.mjs';
 
-const RULE =
-  'Task Orchestrator dispatch rule: every Agent dispatch must pass `model` explicitly. The shipped agents use `model: inherit`, so omitting it silently runs the subagent on your own model. Retry the same call (keep `subagent_type`, `description`, `prompt`) with `model` set.';
 const OFF_POINTER = 'Set `mode: off` under `extensions.claude-code.orchestration` in .taskorchestrator/config.yaml to disable this guard.';
 
-const WORKFLOW_REASON = `${RULE} Use the item's dispatch profile \`model\` (from the \`advance\` result or \`items_read\` \`context\`) when it has one. Otherwise use the delegation table: \`haiku\` for MCP bulk ops, materialization, and simple queries; \`sonnet\` for code reading, implementation, and test writing; \`opus\` for architecture, complex tradeoffs, and multi-file synthesis (see \`task-orchestrator:orchestrate\`). ${OFF_POINTER}`;
+function rule(missing) {
+  const names = missing.map((f) => `\`${f}\``).join(' and ');
+  return `Task Orchestrator dispatch rule: every Agent dispatch must pass \`model\` and \`effort\` explicitly. The shipped agents use \`model: inherit\` and carry no \`effort\`, so omitting them silently runs the subagent on your own model at the model's default effort. This call is missing ${names}. Retry the same call (keep \`subagent_type\`, \`description\`, \`prompt\`) with ${names} set.`;
+}
 
-const SCHEMA_REASON = `${RULE} Use the dispatch profile \`model\` for the item (\`dispatch\` / \`dispatchBySeat\` from the \`advance\` result or \`items_read\` \`context\`), or otherwise a model you choose explicitly for the work. ${OFF_POINTER}`;
+const WORKFLOW_TAIL = `Use the item's dispatch profile \`model\` and \`effort\` (from the \`advance\` result or \`items_read\` \`context\`) when it has them. Otherwise use the class of the work in the dispatch policy (\`task-orchestrator:model-effort\`). ${OFF_POINTER}`;
 
-function hasModel(toolInput) {
-  const m = toolInput && typeof toolInput === 'object' ? toolInput.model : undefined;
-  return typeof m === 'string' && m.trim().length > 0;
+const SCHEMA_TAIL = `Use the dispatch profile \`model\` and \`effort\` for the item (\`dispatch\` / \`dispatchBySeat\` from the \`advance\` result or \`items_read\` \`context\`), or otherwise values you choose explicitly for the work. ${OFF_POINTER}`;
+
+function present(toolInput, field) {
+  const v = toolInput && typeof toolInput === 'object' ? toolInput[field] : undefined;
+  return typeof v === 'string' && v.trim().length > 0;
 }
 
 function main() {
@@ -38,12 +43,13 @@ function main() {
   if (!loc || loc.scope === 'none' || typeof loc.text !== 'string' || !loc.text) return {};
   const mode = parseOrchestrationConfig(loc.text).mode;
   if (mode === 'off') return {};
-  if (hasModel(input.tool_input)) return {};
+  const missing = ['model', 'effort'].filter((f) => !present(input.tool_input, f));
+  if (missing.length === 0) return {};
   return {
     hookSpecificOutput: {
       hookEventName: 'PreToolUse',
       permissionDecision: 'deny',
-      permissionDecisionReason: mode === 'schema' ? SCHEMA_REASON : WORKFLOW_REASON,
+      permissionDecisionReason: `${rule(missing)} ${mode === 'schema' ? SCHEMA_TAIL : WORKFLOW_TAIL}`,
     },
   };
 }

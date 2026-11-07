@@ -615,8 +615,8 @@ suppressed (`blocked: gate`, reason `review-pending`), so finishing a child neve
 review-role parent, and the parent leaves review only by the explicit advance in item 4.
 
 1. **Dispatch one feature reviewer.** The parent is in review (Step 5 "Wave parent review").
-   Dispatch one `task-orchestrator:reviewer` with an explicit `model`: the model the parent's
-   review dispatch profile names, else `opus`. Range: the merged diff of the feature's owned files,
+   Dispatch one `task-orchestrator:reviewer` with an explicit `model` and `effort`: the values the
+   parent's review dispatch profile names, else the `review` class (`task-orchestrator:model-effort`). Range: the merged diff of the feature's owned files,
    pathspec = the union of the children's owned files (the reviewer also runs `git diff --stat
    <range>` over the WHOLE range, without the pathspec, and flags any off-scope change; this
    whole-range check applies in shared mode, while in per-item mode compare each child PR's merged
