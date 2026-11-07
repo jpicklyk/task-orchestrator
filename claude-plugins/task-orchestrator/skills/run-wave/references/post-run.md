@@ -391,9 +391,23 @@ keeps its orchestrator disposition line, which states the obligation and source 
 
 **Dispositions at child close.** When a child's review returns Pass or Pass with observations,
 write the child's `orchestrator-confirmation` before advancing it: one line per non-blocking
-finding id (`O#` from a review-checklist, `N#` from a docs-accuracy or similar review; follow-up
-item created first, or `accepted: <reason>`), `N of N disposed`. Nothing is left for the parent
-review to carry.
+finding id (`O#` from a review-checklist, `N#` from a docs-accuracy or similar review) as
+`fixed <sha>`, `follow-up <item-id>` (the item created first) or `accepted: <reason>`, ending
+`N of N disposed`. Nothing is left for the parent review to carry.
+
+**Observation triage.** `fixed` is the exception, not the default. An observation is fixed before
+merge only when it names a concrete failure in behaviour this item added or changed: a race, a lost
+write, a wrong result on a stated input, a gate that lets the wrong thing through. A hardening,
+wording, test-depth or style observation is `follow-up` or `accepted`. The fix is one
+`implementer-a<n>` seat (`test-author-a<n>` when the finding is about the tests) scoped to the
+cited finding ids, with the review register as its ruling: no planner amendment is written, since
+the finding already carries the obligation and its `file:line` source, and the orchestrator's
+dispatch names the finding ids where the `reseat` prompt's FIX CYCLE line names an amendment. No
+re-review follows unless the fix changes behaviour beyond the finding, in which case the original
+reviewer re-checks that diff only. On a closed run the seat still runs under its own `<runId>-a<n>`
+run (Fallback below). The Fail recipe above (four seats, an amendment, a re-review) is for blocking
+findings only. Why: a wave whose two items both passed with observations spent about 80% of its own
+seat tokens on full A1 cycles (trend `b1b8e194`).
 
 **Fallback.** Resume-by-name works in Method B or when seats are dispatched by hand. Method A seats
 run inside the implement-wave Workflow and generally cannot be resumed after it ends; there, and for

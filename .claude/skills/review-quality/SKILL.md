@@ -240,8 +240,10 @@ Every review must end with a clear verdict:
   manifest makes a passing suite untrustworthy. The item must go back for fixes before
   it can advance. List every blocking issue.
 - **Pass with observations** — no blocking issues, but simplification findings or
-  minor test quality concerns worth addressing. The item can advance, but the
-  observations should be tracked for follow-up.
+  minor test quality concerns worth addressing. The item can advance; the orchestrator
+  disposes each observation at child close as `fixed <sha>` (only a concrete failure in
+  behaviour the item added or changed, per run-wave `post-run.md` Step 5 "Observation
+  triage"), `follow-up <item-id>` or `accepted: <reason>`.
 
 ### Findings Format
 

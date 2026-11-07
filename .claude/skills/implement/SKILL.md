@@ -956,15 +956,19 @@ The review agent:
 | Verdict | Action |
 |---------|--------|
 | **Pass** | Proceed to Step 6 |
-| **Pass with observations** | Proceed to Step 6; dispose observations per Dispositions at child close |
+| **Pass with observations** | Proceed to Step 6; dispose observations per Dispositions at child close (`fixed` only under run-wave `post-run.md` Step 5 "Observation triage") |
 | **Fail — blocking issues** | Stop and report to the user with the full findings. Do not attempt to fix autonomously — bring the human into the loop. |
 
 Once the user rules a fix on a run-wave item whose run closed at handoff, the fix cycle follows the numbered recipe in run-wave `post-run.md` Step 5 "Fallback", which also finalizes the item's `session-tracking`.
 
 **Dispositions at child close.** When a child's review returns Pass or Pass with observations,
-write the child's `orchestrator-confirmation` before advancing it: one line per O# (follow-up
-item created first, or `accepted: <reason>`), `N of N disposed`. Nothing is left for the parent
-review to carry.
+write the child's `orchestrator-confirmation` before advancing it: one line per O# as `fixed <sha>`,
+`follow-up <item-id>` (the item created first) or `accepted: <reason>`, `N of N disposed`. Nothing
+is left for the parent review to carry. `fixed` is bounded by run-wave `post-run.md` Step 5
+"Observation triage": only a concrete failure in behaviour the item added or changed, one
+`implementer-a<n>` (or `test-author-a<n>`) seat scoped to the finding ids, no planner amendment, no
+re-review unless the fix changes behaviour beyond the finding; the Fail recipe is for blocking
+findings only.
 
 Review failures surface issues that may indicate systemic problems worth learning
 from. Automatically retrying hides these signals.
