@@ -302,8 +302,7 @@ The last two rows keep every commit on the branch accounted for: a reviewer diff
 would otherwise meet docs and fixture-repair commits with no owner and read them as a boundary
 violation.
 
-Build state reviewers rely on: `<:current:test N tests / 0 failed and :current:ktlintCheck green
-at <sha> — the orchestrator's one wave run>`. Reviewers run no gradle — see the Compile self-check slot's "Who runs gradle" table.
+Build state reviewers rely on: `Build state: <:current:test and :current:ktlintCheck> green|red at <sha>` (no tally; the orchestrator's one wave run). Reviewers run no gradle — see the Compile self-check slot's "Who runs gradle" table.
 
 Seat token (reviewer): `<token file path from the dispatch, or "none (hand-dispatch outside a run)">`. A dispatch-issued token goes in the top-level `seatToken` of EVERY call this seat makes, reads included; it is never printed, committed, copied into a prompt or written to a note. A call answered `unauthenticated` means the seat was superseded or ended: halt and write nothing more. A hand-dispatch outside a run carries none.
 Pre-merge red-proof results (orchestrator-run in a scratch worktree, item tests only: the bug-fix

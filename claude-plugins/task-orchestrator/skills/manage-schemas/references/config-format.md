@@ -197,7 +197,7 @@ operating-rule TEXT, not just a skill invocation. This is a second, independent 
   server rule that was customized on purpose; to make it stop, put that rule in the workspace's
   `.taskorchestrator/rules/` so the workspace copy owns the key. `bundled rules skipped (unusable rules
   listing)` means the server's rule listing could not be read. `root <id> not found on this server`
-  means the root was never created there. `closure-note guidance predates 4.1: run /manage-schemas edit to adopt the current standard.` is appended to the SessionStart line when a `session-tracking` or `implementation-notes` guidance in the config still asks for a file list, test results or pass/fail counts; the hook never edits the file.
+  means the root was never created there. `closure-note guidance still asks for file lists or test counts: run /manage-schemas edit to adopt the current standard.` is appended to the SessionStart line when a `session-tracking` or `implementation-notes` guidance in the config still asks for a file list, test results or pass/fail counts; the hook never edits the file.
 
 ---
 

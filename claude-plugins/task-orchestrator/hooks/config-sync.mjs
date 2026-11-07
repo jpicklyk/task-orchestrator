@@ -672,7 +672,7 @@ async function main() {
   // SessionStart only: nudge once per firing when closure-note guidance predates the delta-record
   // standard. Reads the bytes already located; never edits the file.
   if (!isFileChanged && legacyClosureGuidance(bytes.toString('utf8'))) {
-    finalLine += ' closure-note guidance predates 4.1: run /manage-schemas edit to adopt the current standard.';
+    finalLine += ' closure-note guidance still asks for file lists or test counts: run /manage-schemas edit to adopt the current standard.';
   }
   emit(finalLine, isFileChanged, rejected);
 }

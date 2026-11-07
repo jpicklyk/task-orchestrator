@@ -1859,7 +1859,7 @@ test('AC8: an unreachable API -> reason plus the base URL, no status', async () 
 
 // ---- closure-note legacy guidance nudge (a20be83b) -----------------------------------------------------------------
 
-const NUDGE = ' closure-note guidance predates 4.1: run /manage-schemas edit to adopt the current standard.';
+const NUDGE = ' closure-note guidance still asks for file lists or test counts: run /manage-schemas edit to adopt the current standard.';
 const { legacyClosureGuidance } = configSyncModule;
 
 const schemaWith = (key, guidanceLines, { indent = '        ' } = {}) =>
@@ -1903,11 +1903,11 @@ test('legacy nudge: SessionStart line ends with the nudge, canonical text does n
     assert.equal(res.status, 0, res.stderr);
     assert.ok(lineOf(res).endsWith(NUDGE), lineOf(res));
     const fc = await runHook(legacy.dir, stub.url, { event: 'FileChanged' });
-    assert.ok(!lineOf(fc).includes('predates 4.1'), lineOf(fc));
+    assert.ok(!lineOf(fc).includes('still asks for file lists'), lineOf(fc));
   });
   await withStub({ config: cfg(canonical) }, async (stub) => {
     const res = await runHook(canonical.dir, stub.url);
-    assert.ok(!lineOf(res).includes('predates 4.1'), lineOf(res));
+    assert.ok(!lineOf(res).includes('still asks for file lists'), lineOf(res));
   });
 });
 
