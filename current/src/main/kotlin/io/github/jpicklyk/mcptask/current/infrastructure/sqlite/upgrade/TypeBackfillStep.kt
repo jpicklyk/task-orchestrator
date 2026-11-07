@@ -6,13 +6,11 @@ import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepKind
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepPhase
 import io.github.jpicklyk.mcptask.current.application.upgrade.LegacyTypeInference
+import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlLoaders
 import org.jetbrains.exposed.v1.core.LongColumnType
 import org.jetbrains.exposed.v1.core.VarCharColumnType
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.slf4j.LoggerFactory
-import org.yaml.snakeyaml.LoaderOptions
-import org.yaml.snakeyaml.Yaml
-import org.yaml.snakeyaml.constructor.SafeConstructor
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -113,7 +111,7 @@ class TypeBackfillStep(
             source: String = "config document"
         ): LegacyTypeInference.Layer? =
             try {
-                val root = Yaml(SafeConstructor(LoaderOptions())).load<Any?>(yaml)
+                val root = YamlLoaders.tolerant().load<Any?>(yaml)
                 if (root !is Map<*, *>) {
                     if (root != null) logger.warn("type-backfill: {} is not a YAML map; treated as no layer", source)
                     null

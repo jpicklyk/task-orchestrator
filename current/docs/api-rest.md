@@ -95,20 +95,24 @@ tokens:
 - `profile` — optional; the only value is `director` (trimmed, case-insensitive), which confines the token to
   `POST /api/v1/ops/director/{tool}` (§20a): on any other path, `GET /api/v1/events` included, it answers
   `403 forbidden` with `detail: {scope: "capability", required: "director"}`. Any other value fails startup.
-- `scope` — optional; when present must be a mapping with only `root_ids` and/or `tags_include`
-  keys (any other key, including a typo, fails startup)
-  - `scope.root_ids` — a list of root-item UUID strings, or absent/`null` for unrestricted access. Every
+- `scope` — optional; **only an absent key is unrestricted**. When present it must be a non-empty mapping
+  with only `root_ids` and/or `tags_include` keys (any other key, including a typo, fails startup). `scope: null`,
+  `scope: ~` and `scope: {}` fail startup naming the token and the remedy (`delete the key`)
+  - `scope.root_ids` — a list of root-item UUID strings, or absent for no root restriction. Every
     listed id must be a depth-0 project root: a token whose anchor names an existing item that is not a root
     fails startup, naming the token id and the anchor (`token '<id>' scope.root_ids anchor <uuid> is not a depth-0 root`).
     An anchor that does not exist yet is accepted and admits nothing until the root is created. A JWT whose
     `to_scope.root_ids`/scope claim names an existing non-root is unauthenticated (`401`), with one WARN per `sub`.
     An empty list `[]` is **rejected at startup** — root scope is the isolation boundary, so `[]`
-    cannot mean "every root"; omit the key (or set it `null`) instead.
-  - `scope.tags_include` — a list of non-blank tag strings, or absent/`null`/`[]` for no tag
-    constraint (`[]` is the canonical unrestricted form here, unlike `root_ids`)
+    cannot mean "every root"; delete the key instead. `root_ids: null` is rejected the same way.
+  - `scope.tags_include` — a non-empty list of non-blank tag strings, or absent for no tag
+    constraint. `tags_include: null` and `tags_include: []` fail startup; delete the key instead
   - Any malformed shape (a scalar instead of a list, a non-string or blank element, an unquoted
     YAML boolean like `yes`/`on`) fails startup with `IllegalArgumentException` naming the token id
     and the key path — never silently falls back to unrestricted
+  - A key repeated anywhere in the file, at any depth (for example two `scope:` blocks on one token), fails
+    startup instead of the last one winning. A YAML parse error names the key and line only, never the file
+    content, so a digest or token pasted into the file is not echoed
   - A token entry itself only accepts the keys `id`, `description`, `token_sha256`, `expires_at`,
     `scope`, `capabilities`, `kind`, `profile` — an unrecognized entry key (e.g. a `scopes:` typo) also fails startup
 - `expires_at` — optional token expiry; expired tokens are rejected at lookup time
@@ -142,9 +146,12 @@ custom claims the issuer sets:
 
 - `to_scope` — optional; when present must be a JSON object with only `root_ids` and/or
   `tags_include` keys, following the same fail-closed rules as the bearer `scope` block above
-  (absent/`null` means unrestricted; `root_ids: []` is malformed and rejected; `tags_include`
-  absent/`null`/`[]` means no tag constraint; any other shape, or an unrecognized key inside
-  `to_scope`, is malformed). A malformed `to_scope` makes verification fail closed — the whole
+  (only an absent claim is unrestricted; `to_scope: null`, `{}`, `root_ids: null` or `[]` and
+  `tags_include: null` or `[]` are malformed and rejected; `root_ids` and `tags_include` absent
+  mean no restriction; any other shape, or an unrecognized key inside
+  `to_scope`, is malformed). A key repeated anywhere in the verified payload, at any depth, also
+  rejects the token (`401 invalid_token`), so a duplicated nested `to_scope` member cannot shadow
+  the first. A malformed `to_scope` makes verification fail closed — the whole
   JWT is rejected with `401 invalid_token`, not just the scope claim; a WARN is logged naming the
   claim path (never the JWT itself).
 - `to_capabilities` — optional list of capability strings (see §2); absent or empty defaults to
@@ -190,7 +197,7 @@ API_ALLOW_UNAUTHENTICATED=true
 
 Setting `API_AUTH_MODE=none` alone still fails startup with an error naming the confirm flag. Setting `API_ALLOW_UNAUTHENTICATED=true` alone (with `bearer`/`jwks`) is silently ignored — it only takes effect combined with `none`.
 
-When both are set, every request — with or without an `Authorization` header — runs as the one `local` principal: `ADMIN` capability (implies all others), unrestricted scope (`root_ids: null`), kind `agent` and proof status `none`. No token is required or checked. Audit records attribute writes to the bare id `local` (verifier `local`), the same principal stdio and `/mcp` local mode use, so every caller of such a server shares claims and note ownership.
+When both are set, every request — with or without an `Authorization` header — runs as the one `local` principal: `ADMIN` capability (implies all others), unrestricted scope (no root restriction), kind `agent` and proof status `none`. No token is required or checked. Audit records attribute writes to the bare id `local` (verifier `local`), the same principal stdio and `/mcp` local mode use, so every caller of such a server shares claims and note ownership.
 
 > **SECURITY — loopback only.** This mode has NO authentication whatsoever: anyone who can reach the port has full read/write/delete access to every item, note, and per-root config, on `/mcp` as well as `/api/v1`. Use it only on a server bound to `127.0.0.1` (or otherwise network-fenced) for a single-user local setup — e.g. the config-sync hook talking to a local HTTP-transport server. Never set both keys on a server reachable from an untrusted network. The server logs a loud `SECURITY:` warning at startup when this mode is active.
 

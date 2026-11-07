@@ -236,7 +236,8 @@ per subject. Verified tokens and an unavailable key set (answered 503, WARN once
 **API JWT claim defects and verifier faults.** A token that verifies but carries a defective custom
 claim logs one WARN on the `JwksApiVerifier` logger: `API JWT claim defect: claim=<claim>
 reason=<code> action=<rejected|ignored> suppressed=<n>`. The pairs are a closed set of constants:
-`to_scope` `not_object` or `malformed` (rejected), `to_kind` `not_string` or `unknown_value`
+`to_scope` `not_object` or `malformed` (rejected), `payload` `duplicate_key` (rejected: an object key
+repeated at any depth of the verified payload), `to_kind` `not_string` or `unknown_value`
 (rejected), `to_capabilities` `not_string_list` or `unknown_value` (ignored; one line per token
 however many elements were dropped). An unexpected fault in the verification pipeline logs `JWT
 verification fault: reason=internal suppressed=<n>` on the same logger. Each key
@@ -499,8 +500,9 @@ See [api-rest.md §1](api-rest.md#1-authentication) for the full YAML format. Ke
 - `token_sha256` must be a 64-char lowercase hex SHA-256 digest of the plaintext token
 - `capabilities` grant specific operations: `read`, `write-notes`, `write-items`, `advance`, `manage-dependencies`, `write-config`, `write-docs`, `runs`, `decide`, `admin` (`docs_write` needs `write-docs`; `write-config` no longer grants it)
 - `kind` (optional, default `service`) is `human`, `agent` or `service`; `profile: director` (optional) confines the token to `POST /api/v1/ops/director/{tool}` — see [api-rest.md §1](api-rest.md#1-authentication)
-- `scope.root_ids` restricts access to specific project trees (absent/`null` = unrestricted; an empty
-  list `[]` fails startup rather than meaning unrestricted — omit the key instead). Every listed id must
+- `scope.root_ids` restricts access to specific project trees (only an absent `scope` or `root_ids` key is
+  unrestricted; `null` and an empty list `[]` fail startup rather than meaning unrestricted — delete the key
+  instead, and a key repeated anywhere in the file fails startup too). Every listed id must
   be a depth-0 project root: an existing non-root anchor fails startup naming the token id and the anchor
   (a JWT carrying one is a `401`, with one WARN per `sub`), and an anchor that does not exist yet is accepted
   and admits nothing until the root is created. `scope` itself
