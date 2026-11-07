@@ -1676,6 +1676,14 @@ function runHints(doc, phase) {
  *   end-seats one runs_write end_seat per still-active member seat in opts.seats (runs_read seats
  *             data); outcome done/failed/abandoned from opts.result's stage status; the coordinator
  *             row and ended rows are skipped; tokenFiles[i] names the seat's token file.
+ *   adopt-notes re-creates the pre-filled planner-stage notes under the planner seat, after assign.
+ *             opts.notes is a JSON object keyed by item id (full or short) whose value is an array of
+ *             notes_read get data objects ({key, role, body, owner:{id, seat?}, version}) for the keys of
+ *             that item's planner-v1 stage. A note already owned by the stage's seat is skipped; any other
+ *             yields {op:'delete', itemId, key, expectedVersion: note.version} then {op:'upsert', itemId, key, role, body, expectedVersion:0}.
+ *             tokenFiles[i]: the upsert goes under the stage's seat token file; the delete under the same
+ *             file on a seat-aware schema, null (token-less) when the item has an implicitOwner stage. opts.item (short or full id) renders only
+ *             that item (an id matching no plan item throws); an unresolved seat token file throws.
  *   close     runs_write close {runId, reason: closeReason(opts.result, opts.reason)}.
  * Throws 'invalid args: ...' on bad input.
  */
@@ -1778,11 +1786,51 @@ export function runOps(core, doc, opts = {}) {
     }
     return { tool: 'runs_write', ops, tokenFiles }
   }
+  if (phase === 'adopt-notes') {
+    requireBound(doc)
+    const { plan } = resolvePlan(core, doc)
+    const observed = opts.notes
+    if (!observed || typeof observed !== 'object' || Array.isArray(observed)) {
+      throw new Error('invalid args: adopt-notes needs --notes <json object keyed by item id>')
+    }
+    const ops = []
+    const tokenFiles = []
+    const only = opts.item ? findItem(plan, opts.item) : null
+    for (const item of plan.items) {
+      if (only && item !== only) continue
+      const stage = item.stages.find((s) => s.output === 'planner-v1')
+      if (!stage) continue
+      const id = item.id.toLowerCase()
+      const hit = Object.keys(observed).find((k) => {
+        const kk = String(k).toLowerCase()
+        return kk.length >= 8 && id.startsWith(kk)
+      })
+      if (hit === undefined) continue
+      const list = observed[hit]
+      if (!Array.isArray(list)) throw new Error(`invalid args: --notes[${hit}] must be an array of notes`)
+      const seatless = item.stages.some((s) => s.implicitOwner === true)
+      const file = core.seatTokenFile(plan, item, stage)
+      const keys = Array.isArray(stage.notes) ? stage.notes : []
+      for (const note of list) {
+        if (!note || typeof note.key !== 'string' || !keys.includes(note.key)) continue
+        if (note.owner && note.owner.seat === stage.seat) continue
+        if (typeof note.body !== 'string') throw new Error(`invalid args: note ${note.key} of ${hit} has no string body`)
+        if (!file) throw new Error(`invalid args: no token file resolves for seat ${stage.seat} of item ${item.short}; adopt-notes never renders a token-less upsert`)
+        const del = { op: 'delete', itemId: item.id, key: note.key }
+        if (Number.isInteger(note.version)) del.expectedVersion = note.version
+        ops.push(del)
+        tokenFiles.push(seatless ? null : file)
+        ops.push({ op: 'upsert', itemId: item.id, key: note.key, role: note.role, body: note.body, expectedVersion: 0 })
+        tokenFiles.push(file)
+      }
+    }
+    return { tool: 'notes_write', ops, tokenFiles }
+  }
   if (phase === 'close') {
     const runId = requireBound(doc)
     return { tool: 'runs_write', ops: [{ op: 'close', runId, reason: closeReason(opts.result, opts.reason) }] }
   }
-  throw new Error(`invalid args: --phase must be open, assign, update, heartbeat, end-seats or close, got ${JSON.stringify(phase)}`)
+  throw new Error(`invalid args: --phase must be open, assign, adopt-notes, update, heartbeat, end-seats or close, got ${JSON.stringify(phase)}`)
 }
 
 // ---------------------------------------------------------------------------------------
@@ -2231,6 +2279,7 @@ function execRunOps(argv, io) {
     item: flagValue(argv, '--item'),
     seat: flagValue(argv, '--seat'),
     seats: read('--seats'),
+    notes: read('--notes'),
     usage: read('--usage'),
     result: resultDoc,
     reason: flagValue(argv, '--reason'),

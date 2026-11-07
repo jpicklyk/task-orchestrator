@@ -60,3 +60,6 @@ you owe once you do.
   your output, commits and notes.
 - **Notes.** Fill notes with `notes_write` `upsert`; its answer is `{id, version, created?, warning?}` only. `items_read` `context` names the owed keys (`gateStatus.missingBySeat`, `missing`) and `guidanceKey` (the first unfilled required note with guidance); the guidance text itself comes from `items_read` `schema` with `fields: ["guidance"]`. `note_owned_by_other` (it names the `ownerSeat` when the owner is a seat) is final: that note belongs to another seat
   and cannot be taken over, so log a finding instead.
+- **End the seat on its own.** `runs_write` `end_seat` is sent alone, as the last task-orchestrator
+  call, and only after the result of your final `notes_write` has been read as ok. Never batch it with
+  a write. If a write failed, report it and leave the seat open for the orchestrator.

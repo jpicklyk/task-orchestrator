@@ -39,7 +39,7 @@ A plan with no `adoptedBy` is still pending. `docs_read` `get` with `kind: "plan
 {"tool": "items_read", "select": "schema", "args": {"itemId": "4b7d0e19", "fields": ["guidance"]}}
 ```
 
-   `data` is `{schemaFree: true}` for a schema-free item. Otherwise fill each required queue note (`feature-summary`, `task-scope`, ...) from the plan, in one `notes_write` call with an `upsert` element per note.
+   `data` is `{schemaFree: true}` for a schema-free item. Otherwise fill each required queue note (`feature-summary`, `task-scope`, ...) from the plan, in one `notes_write` call with an `upsert` element per note. Keep pre-filling planner-stage notes: run-wave adopts them under the planner seat after assign (`run-ops --phase adopt-notes`), so a later run does not recreate them by hand.
    - **`feature-implementation` root:** keep `feature-summary` lean (under 2k chars): goal in 2-3 sentences, a findings-to-tasks table mapping plan findings to the child items just created, the dependency edges between them, and a pointer to non-goals. Alternatives, blast radius, risk flags and test strategy go in each child's `task-scope`.
    - **Test owner flag.** Detect seats from the `items_read` `schema` answer (`seats`). For each seat-aware item that lists no test-author seat and whose spec note names test files or test commands, show one FYI line: `test owner: <short> lists tests without needs-test-author - add the trait (preferred) or drop the tests; run-wave stops a seat-aware item after its planner (a seat-less item is not stopped; its implementer gets a TESTS ARE YOURS line instead)`. Never add the trait automatically.
 
