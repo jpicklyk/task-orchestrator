@@ -91,6 +91,8 @@ dependencies {
     // JSON Schema 2020-12 structural validation of config documents (infrastructure adapter only). The Jackson BOM
     // pins its transitive Jackson artifacts to a patched release (see libs.versions.toml).
     implementation(platform(libs.jackson.bom))
+    // JwksApiVerifier scans the verified JWT payload with STRICT_DUPLICATE_DETECTION; the BOM above pins the version.
+    implementation(libs.jackson.core)
     implementation(libs.json.schema.validator)
 
     // Ktor BOM — version-aligns all ktor-* artifacts with the SDK's transitive Ktor

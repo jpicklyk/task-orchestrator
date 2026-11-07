@@ -116,7 +116,13 @@ class JwtVerifier(
             }
 
         return checkClaims(claims)
-            ?: JwtVerdict.Verified(claims = claims, kid = kid, alg = alg.name, cacheState = cacheState)
+            ?: JwtVerdict.Verified(
+                claims = claims,
+                payload = signedJWT.payload.toString(),
+                kid = kid,
+                alg = alg.name,
+                cacheState = cacheState
+            )
     }
 
     /**

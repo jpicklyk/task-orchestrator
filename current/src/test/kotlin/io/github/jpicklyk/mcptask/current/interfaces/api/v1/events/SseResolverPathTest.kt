@@ -129,9 +129,6 @@ class SseResolverPathTest {
             mutableListOf(
                 "  - id: $id",
                 "    token_sha256: \"${sha256Hex(raw)}\"",
-                "    scope:",
-                "      root_ids: null",
-                "      tags_include: []",
                 "    capabilities: $capabilities",
             )
         if (expiresAt != null) lines += "    expires_at: \"$expiresAt\""

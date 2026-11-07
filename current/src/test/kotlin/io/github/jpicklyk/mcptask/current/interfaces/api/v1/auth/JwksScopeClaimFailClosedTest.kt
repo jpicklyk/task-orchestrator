@@ -182,11 +182,11 @@ class JwksScopeClaimFailClosedTest {
         }
 
     // -------------------------------------------------------------------------
-    // S3 -- happy: every absent/empty form of to_scope is unrestricted
+    // S3 -- happy: an absent to_scope is unrestricted (present-but-empty forms are rejected, see JwksApiVerifierPayloadScanTest)
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S3 absent or empty to_scope forms are all unrestricted`(): Unit =
+    fun `S3 absent to_scope is unrestricted`(): Unit =
         runTest {
             val verifier = JwksApiVerifier(defaultConfig, rsaMockCache())
 
@@ -195,30 +195,6 @@ class JwksScopeClaimFailClosedTest {
             assertNotNull(principalA, "S3a: no to_scope claim must still verify")
             assertNull(principalA!!.scope.rootIds, "S3a: absent to_scope must be unrestricted")
             assertTrue(principalA.scope.tagsInclude.isEmpty(), "S3a: absent to_scope must carry no tag constraint")
-
-            // S3b: to_scope present but an empty map.
-            val claimsB = buildClaims(extraClaims = mapOf("to_scope" to emptyMap<String, Any>()))
-            val principalB = verifier.verify(signRsa(claimsB))
-            assertNotNull(principalB, "S3b: to_scope: {} must still verify")
-            assertNull(principalB!!.scope.rootIds, "S3b: to_scope: {} must be unrestricted (D5)")
-            assertTrue(principalB.scope.tagsInclude.isEmpty(), "S3b: to_scope: {} must carry no tag constraint")
-
-            // S3c: to_scope present with explicit null root_ids and tags_include.
-            val claimsC =
-                buildClaims(
-                    extraClaims = mapOf("to_scope" to mapOf<String, Any?>("root_ids" to null, "tags_include" to null)),
-                )
-            val principalC = verifier.verify(signRsa(claimsC))
-            assertNotNull(principalC, "S3c: explicit-null root_ids/tags_include must still verify")
-            assertNull(principalC!!.scope.rootIds, "S3c: explicit null root_ids must be unrestricted (D4)")
-            assertTrue(principalC.scope.tagsInclude.isEmpty(), "S3c: explicit null tags_include must carry no tag constraint (D4)")
-
-            // S3d: to_scope present with only an empty tags_include list (root_ids absent).
-            val claimsD = buildClaims(extraClaims = mapOf("to_scope" to mapOf("tags_include" to emptyList<String>())))
-            val principalD = verifier.verify(signRsa(claimsD))
-            assertNotNull(principalD, "S3d: to_scope with only tags_include: [] must still verify")
-            assertNull(principalD!!.scope.rootIds, "S3d: root_ids absent must be unrestricted")
-            assertTrue(principalD.scope.tagsInclude.isEmpty(), "S3d: tags_include: [] is the canonical no-constraint form (D3)")
         }
 
     // -------------------------------------------------------------------------
@@ -233,7 +209,7 @@ class JwksScopeClaimFailClosedTest {
                 buildClaims(
                     extraClaims =
                         mapOf(
-                            "to_scope" to mapOf("root_ids" to listOf(u1), "tags_include" to emptyList<String>()),
+                            "to_scope" to mapOf("root_ids" to listOf(u1)),
                             "some_other_claim" to "whatever",
                         ),
                 )

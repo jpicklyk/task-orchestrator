@@ -87,7 +87,9 @@ An element may carry an `idempotencyKey`: a repeated key replays the stored resu
 Placement (depth, root) is computed from the parent row inside the write unit; an item is created in `queue`, or
 lifecycle-free (no role) when its type's base schema is `lifecycle: none`, and there is no role field (use
 `advance`). A `terminal` parent under `auto` lifecycle accepts no new children and no reparent onto it
-(`invalid_transition`). See `config-reference.md` "Lifecycle-free items".
+(`invalid_transition`). A depth-0 item with an open or paused run is refused a move under another item with
+`invalid_request` (the run's `rootId` would name a non-root); close its runs first. See `config-reference.md`
+"Lifecycle-free items".
 
 | Op | Result (`results[i]`) |
 |---|---|
@@ -145,14 +147,16 @@ that blocked an unapplied cascade (`not_claim_holder`, `seat_forbidden`, `gate_b
 **Errors.** `invalid_request` / `unknown_parameter` (decoding; pointers like `/ops/0/type`), `not_found`,
 `ambiguous_id` (an 8-hex prefix matching several items), `version_conflict`, `cycle_detected` (reparent under a
 descendant), `schema_violation` (undeclared or blank `type`, undeclared trait; `detail.availableTypes` /
-`availableTraits`), `invalid_transition` (closed parent), `forbidden` (scope), `unavailable` (a per-root config fault:
+`availableTraits`), `invalid_transition` (closed parent), `invalid_request` (also a reparent of a root with an open or paused run), `forbidden` (scope), `unavailable` (a per-root config fault:
 kind `shedding`, `retryAfterMs`). A `properties` object carrying a `traits` key is `invalid_request` on `properties`
 (`traits` is its own field).
 
 **Scope.** Every item an element touches is checked against the caller's scope before any write: the target of
 `update` and `delete`, a `parentId` (create) or the new parent (a reparent). A root create is `forbidden` under a root
-scope (the new id cannot be a listed root) and, under a tag scope, needs a listed tag in `tags`; `clear: ["parentId"]`
-under a root scope is allowed only when the item itself is a listed root. Under a restricted scope an id that
+scope (the new id cannot be a listed root) and under a tag scope, and so is moving an item to the top level
+(`clear: ["parentId"]` on a non-root item), unless the caller holds `admin`; clearing the parent of an item that already
+is a root is a no-op. Under a tag scope the tags a write produces are checked too: a `create` needs a listed tag in `tags`,
+and an `update` that sends `tags` may add or remove only listed tags and must keep one (`forbidden`, scope `tag`). Under a restricted scope an id that
 resolves to nothing the caller may see is `forbidden` (scope is no existence oracle), and an ambiguous prefix lists only
 the candidates the scope admits (the shared `items_read` "Ids" rule, Q32).
 
@@ -210,8 +214,9 @@ already-adopted document (`duplicate`, kind `document`), an anchor miss (`invali
 `not_found`.
 
 **Scope.** The whole tree hangs under one anchor, which is the only check: `root.id` (attach) or `parentId` must be
-admitted; a top-level root create is `forbidden` under a root scope and, under a tag scope, needs a listed tag in
-`root.tags`. A `docRef.rootId` is never looked up: it is matched against the tree's own root, so a foreign or
+admitted; a top-level root create is `forbidden` under a root scope or a tag scope (unless the caller holds `admin`). Under a
+tag scope every row the tree creates, a created root and each child, needs a listed tag in its `tags` (`forbidden`, scope
+`tag`); an attached root is an existing row and is not tag-checked again. A `docRef.rootId` is never looked up: it is matched against the tree's own root, so a foreign or
 unknown id is the same `invalid_request` on `/docRef/rootId`.
 
 #### `complete_tree`

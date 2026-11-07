@@ -190,7 +190,6 @@ class ScopeAnchorValidationTest {
                     "    scope:\n" +
                     "      root_ids:\n" +
                     "        - \"$childC\"\n" +
-                    "      tags_include: []\n" +
                     "    capabilities: [read]\n"
             )
             val entries = BearerTokenStore(file.absolutePath).loadWithEntries()

@@ -7,9 +7,6 @@ import io.github.jpicklyk.mcptask.current.application.config.GlobalConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.ConfigFileSource
 import io.github.jpicklyk.mcptask.current.infrastructure.security.configFingerprint
 import org.slf4j.LoggerFactory
-import org.yaml.snakeyaml.LoaderOptions
-import org.yaml.snakeyaml.Yaml
-import org.yaml.snakeyaml.constructor.SafeConstructor
 import java.nio.file.Path
 
 /**
@@ -81,7 +78,7 @@ class GlobalConfigFile(
 
         val root =
             try {
-                val yaml = Yaml(SafeConstructor(LoaderOptions()))
+                val yaml = YamlLoaders.tolerant()
                 yaml.load<Any?>(String(bytes, Charsets.UTF_8))
             } catch (e: Exception) {
                 throw IllegalArgumentException(
