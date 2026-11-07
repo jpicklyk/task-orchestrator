@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Plugin
+
+- Retrospective and run-wave closure notes: `session-tracking` no longer records files changed or test totals, the retrospective scores work-role notes by a derivability sample instead of token bands, and it reports the work-role `avgBytes` and `maxLength` overruns.
+
 ## [4.0.0] - 2026-11-07
 
 ### Upgrading from 3.x

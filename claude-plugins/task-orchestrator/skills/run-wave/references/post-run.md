@@ -232,7 +232,7 @@ If one of the item's plan stages lists `session-tracking` in `stages[].notes` (a
 implicit implementer owns it), skip `session-tracking` for that item and record its outcome in the
 run report instead.
 
-1. **`session-tracking`** — outcome per item, files touched, deviations from the plan, and
+1. **`session-tracking`** — outcome per item, commits, verified line, deviations from the plan, and
    Friction (the declarations-scan hit count from Method B step 4, any Step 0 fallback taken in
    `SKILL.md`, any `verify`/notes-audit failure, a failed usage report). Write this **after**
    verify and the notes audit have run, in confirmed past tense — not as a speculative "pending
