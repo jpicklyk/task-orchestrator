@@ -16,6 +16,7 @@ const KEYS = [
   'protocol.read-only-agent',
   'commit-discipline',
   'review-scoping',
+  'closure-notes',
 ];
 const BUNDLED_DIR = fileURLToPath(new URL('../../bundled-rules/', import.meta.url));
 const REPO_ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
@@ -24,7 +25,7 @@ const REPO_RULES_DIR = join(REPO_ROOT, '.taskorchestrator', 'rules');
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
 const manifest = JSON.parse(readFileSync(join(BUNDLED_DIR, 'manifest.json'), 'utf-8'));
 
-test('bundled-rules holds exactly the five rule files and the manifest names exactly those keys', () => {
+test('bundled-rules holds exactly the six rule files and the manifest names exactly those keys', () => {
   const mdKeys = readdirSync(BUNDLED_DIR)
     .filter((f) => f.endsWith('.md'))
     .map((f) => f.slice(0, -3))

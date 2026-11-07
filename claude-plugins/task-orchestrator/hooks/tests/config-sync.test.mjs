@@ -186,6 +186,7 @@ const BUNDLED_KEYS = [
   'protocol.read-only-agent',
   'commit-discipline',
   'review-scoping',
+  'closure-notes',
 ];
 const PROTOCOL_BUNDLED_KEYS = BUNDLED_KEYS.filter((k) => k.startsWith('protocol.'));
 function bundledNormalizedBytes(key) {
@@ -1222,7 +1223,7 @@ test('S7 probe (AC5): sequential - one docs_write in flight at a time, protocol.
     const res = await runHook(dir, stub.url);
     assert.equal(res.status, 0, res.stderr);
     const slugs = stub.upserts().map(putKeyOf);
-    assert.equal(slugs.length, 7, slugs.join(','));
+    assert.equal(slugs.length, 8, slugs.join(','));
     assert.deepEqual(new Set(slugs.slice(0, 3)), new Set(PROTOCOL_BUNDLED_KEYS), `protocol keys first: ${slugs}`);
     assert.deepEqual(stub.tools().slice(0, 2), ['config', 'docs_read']);
   });
@@ -1251,7 +1252,7 @@ test('S7 probe (AC5): the hash compare is on LF-normalized bytes - a CRLF rule w
     const res = await runHook(dir, stub.url);
     assert.equal(res.status, 0, res.stderr);
     assert.equal(stub.upserts().length, 0);
-    assert.ok(lineOf(res).includes('6 in sync.'), lineOf(res)); // 1 workspace + 5 bundled
+    assert.ok(lineOf(res).includes('7 in sync.'), lineOf(res)); // 1 workspace + 6 bundled
   });
 });
 
@@ -1286,7 +1287,7 @@ test('S7 probe (AC5): docs_read list follows page.next - a rule on page two coun
     assert.equal(lists[1].cursor, '2');
     for (const l of lists) assert.deepEqual({ select: l.select, rootId: l.rootId, kind: l.kind, limit: l.limit }, { select: 'list', rootId: 'root-pages', kind: 'rule', limit: 200 });
     assert.equal(stub.upserts().length, 0, JSON.stringify(stub.upserts()));
-    assert.ok(lineOf(res).includes('6 in sync.'), lineOf(res));
+    assert.ok(lineOf(res).includes('7 in sync.'), lineOf(res));
   });
 });
 
@@ -1355,13 +1356,13 @@ test('S13 (AC5): an upsert version_conflict is failed (version_conflict) and not
 
 // ---- bundled rules: S16 --------------------------------------------------------------------------------------------------
 
-test('S16 (AC5): no workspace rules, none on the server - all five bundled rules pushed with normalized bundled bytes and expectedVersion 0', async () => {
+test('S16 (AC5): no workspace rules, none on the server - all six bundled rules pushed with normalized bundled bytes and expectedVersion 0', async () => {
   const { dir, configState } = inSyncProject('root-s16');
   await withStub({ config: configState, seedBundled: false }, async (stub) => {
     const res = await runHook(dir, stub.url);
     assert.equal(res.status, 0, res.stderr);
     const ups = stub.upserts();
-    assert.equal(ups.length, 5);
+    assert.equal(ups.length, 6);
     assert.deepEqual(new Set(ups.map(putKeyOf)), new Set(BUNDLED_KEYS));
     for (const u of ups) {
       assert.equal(u.kind, 'rule');
@@ -1373,13 +1374,13 @@ test('S16 (AC5): no workspace rules, none on the server - all five bundled rules
   });
 });
 
-test('S16 (AC5): an unknown server hash for a bundled key is never overwritten; the other four are pushed and the key is named', async () => {
+test('S16 (AC5): an unknown server hash for a bundled key is never overwritten; the other five are pushed and the key is named', async () => {
   const { dir, configState } = inSyncProject('root-s16b');
   await withStub({ config: configState, seedBundled: false, docs: { 'commit-discipline': { hash: 'a'.repeat(64), version: 5 } } }, async (stub) => {
     const res = await runHook(dir, stub.url);
     assert.equal(res.status, 0, res.stderr);
     const slugs = stub.upserts().map(putKeyOf);
-    assert.equal(slugs.length, 4);
+    assert.equal(slugs.length, 5);
     assert.ok(!slugs.includes('commit-discipline'));
     assert.ok(lineOf(res).includes('kept unrecognized server copy: commit-discipline'), lineOf(res));
   });
@@ -1408,7 +1409,7 @@ test('75f0e354 S15 (AC5): listing elements that are null / non-object / lack a s
     const res = await runHook(dir, stub.url);
     assert.equal(res.status, 0, res.stderr);
     assert.equal(stub.upserts().length, 0);
-    assert.ok(lineOf(res).includes('5 in sync.'), lineOf(res));
+    assert.ok(lineOf(res).includes('6 in sync.'), lineOf(res));
     assert.ok(!lineOf(res).includes('unusable'), lineOf(res));
   });
 });
@@ -1503,14 +1504,14 @@ test('S16 (AC5): FileChanged pushes workspace rules only - no bundled sync', asy
 
 // ---- replay against a stateful server ------------------------------------------------------------------------------------
 
-test('probe: replay against the stateful stub - run one syncs config and six rules, run two pushes and upserts nothing', async () => {
+test('probe: replay against the stateful stub - run one syncs config and seven rules, run two pushes and upserts nothing', async () => {
   const dir = tmpConfigDir();
   writeConfig(dir, projectConfigText('root-replay'));
   writeRuleFile(dir, 'aaa.md', 'Replay rule.\r\n');
   await withStub({ seedBundled: false }, async (stub) => {
     const first = await runHook(dir, stub.url);
     assert.equal(first.status, 0, first.stderr);
-    assert.equal(stub.upserts().length, 6);
+    assert.equal(stub.upserts().length, 7);
     assert.equal(stub.configOps().filter((o) => o.op === 'push').length, 1);
     const before = stub.calls.length;
     const second = await runHook(dir, stub.url);
@@ -1518,7 +1519,7 @@ test('probe: replay against the stateful stub - run one syncs config and six rul
     const delta = stub.calls.slice(before);
     assert.deepEqual(delta.map((c) => c.tool), ['config', 'docs_read'], 'run two: a get and a listing only');
     assert.ok(lineOf(second).includes('already in sync'), lineOf(second));
-    assert.ok(lineOf(second).includes('Rules: 6 in sync.'), lineOf(second));
+    assert.ok(lineOf(second).includes('Rules: 7 in sync.'), lineOf(second));
   });
 });
 
@@ -1549,7 +1550,7 @@ test('S15 / 75f0e354 S9 + S13 (AC5, AC6) SessionStart: shared 8000ms budget - pr
     assert.ok(deferred, `deferral clause missing: ${line}`);
     const pushed = line.match(/pushed (\d+)/);
     const x = pushed ? Number(pushed[1]) : 0;
-    assert.equal(x + Number(deferred[1]), 13, `pushed ${x} + deferred ${deferred[1]} must cover all 13 rules: ${line}`);
+    assert.equal(x + Number(deferred[1]), 14, `pushed ${x} + deferred ${deferred[1]} must cover all 14 rules: ${line}`);
     assert.ok(slugs.length === x || slugs.length === x + 1, `server received ${slugs.length} upserts, hook reports ${x} pushed`);
     const lastArrival = Math.max(...stub.calls.map((c) => c.at)) - started;
     assert.ok(lastArrival < 8000 + 1000, `nothing may be sent once the budget is spent (last request at +${lastArrival}ms)`);
@@ -1854,4 +1855,66 @@ test('AC8: an unreachable API -> reason plus the base URL, no status', async () 
   const { dir } = makeProject('root-ac8b');
   const res = await runHook(dir, UNREACHABLE_API_URL);
   assert.ok(lineOf(res).includes(`from ${UNREACHABLE_API_URL})`), lineOf(res));
+});
+
+// ---- closure-note legacy guidance nudge (a20be83b) -----------------------------------------------------------------
+
+const NUDGE = ' closure-note guidance predates 4.1: run /manage-schemas edit to adopt the current standard.';
+const { legacyClosureGuidance } = configSyncModule;
+
+const schemaWith = (key, guidanceLines, { indent = '        ' } = {}) =>
+  ['work_item_schemas:', '  feature-task:', '    notes:', `      - key: ${key}`, '        role: work', '        required: true', ...guidanceLines.map((l) => indent + l)].join('\n') + '\n';
+
+test('legacyClosureGuidance: old file-list and test-result wording is legacy', () => {
+  const oldA = schemaWith('session-tracking', ['guidance: "Record what was done. **Files changed**: list each file."']);
+  assert.equal(legacyClosureGuidance(oldA), true);
+  const oldQuick = schemaWith('implementation-notes', ['guidance: |', '  Quick fix.', '  Include the test pass/fail count and file(s) changed.']);
+  assert.equal(legacyClosureGuidance(oldQuick), true);
+  assert.equal(legacyClosureGuidance(schemaWith('session-tracking', ['guidance: >', '  Give the test results.'])), true);
+});
+
+test('legacyClosureGuidance: the canonical wording and non-closure keys are not legacy', () => {
+  assert.equal(legacyClosureGuidance(schemaWith('session-tracking', ['guidance: "Outcome, Commits, Verified lines; never pass/fail counts."'])), false);
+  assert.equal(legacyClosureGuidance(schemaWith('implementation-notes', ['guidance: |', '  Record Deviations and Gotchas; no pass/fail counts.'])), false);
+  assert.equal(legacyClosureGuidance(schemaWith('review-checklist', ['guidance: "List files changed and test results."'])), false);
+});
+
+test('legacyClosureGuidance: a trait note entry is scanned and blank lines or comments do not end a block', () => {
+  const trait = ['traits:', '  session-tracked:', '    notes:', '      - key: session-tracking', '        guidance: |', '          First line.', '', '# comment', '          Files changed go here.', ''].join('\n');
+  assert.equal(legacyClosureGuidance(trait), true);
+  // the next entry's guidance does not leak into the closure entry
+  const two = ['notes:', '  - key: session-tracking', '    guidance: "fine"', '  - key: other', '    guidance: "files changed"', ''].join('\n');
+  assert.equal(legacyClosureGuidance(two), false);
+});
+
+test('legacyClosureGuidance: malformed or non-string input yields false', () => {
+  assert.equal(legacyClosureGuidance(undefined), false);
+  assert.equal(legacyClosureGuidance(null), false);
+  assert.equal(legacyClosureGuidance('::: not yaml \u0000 - key: session-tracking\n   guidance'), false);
+  assert.equal(legacyClosureGuidance(''), false);
+});
+
+test('legacy nudge: SessionStart line ends with the nudge, canonical text does not, FileChanged never does', async () => {
+  const legacy = makeProject('root-nudge', { extra: schemaWith('session-tracking', ['guidance: "List the files changed."']) });
+  const canonical = makeProject('root-nudge-ok', { extra: schemaWith('session-tracking', ['guidance: "Outcome and Verified lines; never pass/fail counts."']) });
+  const cfg = (p) => ({ version: 1, fingerprint: p.fp });
+  await withStub({ config: cfg(legacy) }, async (stub) => {
+    const res = await runHook(legacy.dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(lineOf(res).endsWith(NUDGE), lineOf(res));
+    const fc = await runHook(legacy.dir, stub.url, { event: 'FileChanged' });
+    assert.ok(!lineOf(fc).includes('predates 4.1'), lineOf(fc));
+  });
+  await withStub({ config: cfg(canonical) }, async (stub) => {
+    const res = await runHook(canonical.dir, stub.url);
+    assert.ok(!lineOf(res).includes('predates 4.1'), lineOf(res));
+  });
+});
+
+test('legacy nudge: no config file prints nothing', async () => {
+  const dir = tmpConfigDir();
+  const { env } = hermeticEnv({ AGENT_CONFIG_DIR: dir, TASK_ORCHESTRATOR_API_URL: 'http://127.0.0.1:1' });
+  const res = await runScript(HOOK, { cwd: dir, env, input: eventInput('SessionStart', join(dir, '.taskorchestrator', 'config.yaml')) });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), '');
 });

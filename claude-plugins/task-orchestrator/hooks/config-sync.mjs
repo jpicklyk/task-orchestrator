@@ -147,6 +147,49 @@ export function isTargetConfigPath(filePath) {
   return filePath.replace(/\\/g, '/').endsWith('.taskorchestrator/config.yaml');
 }
 
+/**
+ * True when a `session-tracking` or `implementation-notes` note entry (a `- key: ...` list entry in
+ * any schema or trait) carries guidance that still asks for a file list or test results: the
+ * phrases `files changed`, `file(s) changed`, `test results`, or `pass/fail` not directly preceded
+ * by `no ` or `never `. A small line scanner, not a YAML parse: blank lines and column-0 comments
+ * never end a block. Any exception yields false.
+ */
+export function legacyClosureGuidance(text) {
+  try {
+    const legacy = /files changed|file\(s\) changed|test results|(?<!\b(?:no|never) )pass\/fail/i;
+    const lines = String(text).replace(/\r\n?/g, '\n').split('\n');
+    const indentOf = (l) => l.length - l.trimStart().length;
+    const skippable = (l) => l.trim() === '' || l.trimStart().startsWith('#');
+    for (let i = 0; i < lines.length; i++) {
+      const m = /^(\s*)-\s+key:\s*["']?(session-tracking|implementation-notes)["']?\s*(#.*)?$/.exec(lines[i]);
+      if (!m) continue;
+      const keyIndent = m[1].length + 2;
+      for (let j = i + 1; j < lines.length; j++) {
+        const l = lines[j];
+        if (skippable(l)) continue;
+        if (indentOf(l) < keyIndent) break; // next entry or a shallower key
+        if (indentOf(l) !== keyIndent) continue;
+        const g = /^guidance:\s*(.*)$/.exec(l.trimStart());
+        if (!g) continue;
+        const value = [g[1]];
+        for (let k = j + 1; k < lines.length; k++) {
+          if (lines[k].trim() === '' || lines[k].trimStart().startsWith('#')) {
+            if (lines[k].trim() === '' || indentOf(lines[k]) > keyIndent) value.push(lines[k]);
+            continue;
+          }
+          if (indentOf(lines[k]) <= keyIndent) break;
+          value.push(lines[k]);
+        }
+        if (legacy.test(value.join(' '))) return true;
+        break;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 // FileChanged is not documented to accept hookSpecificOutput.additionalContext, and a
 // mismatched hookEventName is invalid, so that event surfaces the status line as a top-level
 // systemMessage; so does a rejected config on either event. SessionStart output is otherwise unchanged.
@@ -625,7 +668,13 @@ async function main() {
     rulesSummary = `sync failed - ${err?.message ?? err}`;
   }
 
-  emit(rulesSummary ? `${configLine} Rules: ${rulesSummary}` : configLine, isFileChanged, rejected);
+  let finalLine = rulesSummary ? `${configLine} Rules: ${rulesSummary}` : configLine;
+  // SessionStart only: nudge once per firing when closure-note guidance predates the delta-record
+  // standard. Reads the bytes already located; never edits the file.
+  if (!isFileChanged && legacyClosureGuidance(bytes.toString('utf8'))) {
+    finalLine += ' closure-note guidance predates 4.1: run /manage-schemas edit to adopt the current standard.';
+  }
+  emit(finalLine, isFileChanged, rejected);
 }
 
 // Only auto-run when invoked directly as a hook (`node config-sync.mjs`), not when imported

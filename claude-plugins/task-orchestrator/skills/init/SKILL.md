@@ -269,7 +269,7 @@ Then run Rule seeding.
 
 ## Rule seeding (both modes)
 
-The plugin ships these rules in `<plugin root>/bundled-rules/`: `protocol.entry-seat`, `protocol.in-phase-seat`, `protocol.read-only-agent`, `commit-discipline`, `review-scoping`, plus a `manifest.json` mapping each key to the list of hashes ever shipped, current one last. Config-sync's policy per key: absent on the server -> push; a known older hash -> overwrite; any other hash -> never touched.
+The plugin ships these rules in `<plugin root>/bundled-rules/`: `protocol.entry-seat`, `protocol.in-phase-seat`, `protocol.read-only-agent`, `commit-discipline`, `review-scoping`, `closure-notes`, plus a `manifest.json` mapping each key to the list of hashes ever shipped, current one last. Config-sync's policy per key: absent on the server -> push; a known older hash -> overwrite; any other hash -> never touched.
 
 **REST path** (an API URL resolves: `TASK_ORCHESTRATOR_API_URL`, a `client.json`, project-level or user-level, or an http(s) MCP registration). Run the hook by hand with stdin closed so it behaves as SessionStart:
 

@@ -23,6 +23,14 @@ Display the current schema in full:
 
 ---
 
+## Legacy Closure-Note Guidance
+
+After reading `.taskorchestrator/config.yaml`, scan the `guidance` of every `session-tracking` and `implementation-notes` note, in schemas and in traits. A guidance is legacy when it matches, case-insensitively, `files changed`, `file(s) changed`, `test results`, or `pass/fail` not directly preceded by `no ` or `never `.
+
+If there are hits, list each one (schema or trait, note key) and offer to replace it with the current standard: the `session-tracking` text is `create-workflow.md` -> `### Guidance Generation Rules`, rule 4; the `implementation-notes` and parent texts come from `example-schemas.md` (cite by file and section, do not copy the text here). Ask via `AskUserQuestion`. Apply only on a yes, then run the Cross-Schema Duplication Check for that key. A no leaves the file untouched.
+
+---
+
 ## Determine Change Type
 
 Ask via `AskUserQuestion`:
