@@ -56,7 +56,7 @@ import kotlin.test.assertTrue
  * claim, the right token, a fresh clock) and does resolve, so a resolver that always returned null fails the pair.
  *
  * Domain invariants satisfied by construction: token-file fixtures are built by one generator that emits a 64-hex lowercase
- * SHA-256 of the raw token, a `scope` mapping with `root_ids: null` and `tags_include: []`, and unique ids; JWT fixtures carry
+ * SHA-256 of the raw token, no `scope` key (an absent scope is unrestricted), and unique ids; JWT fixtures carry
  * the configured issuer and audience, a whole-second `exp` inside the 24h lifetime cap, and are signed with the key the mocked
  * key provider publishes.
  */
@@ -98,9 +98,6 @@ class CredentialResolverTest {
             mutableListOf(
                 "  - id: $id",
                 "    token_sha256: \"${sha256Hex(raw)}\"",
-                "    scope:",
-                "      root_ids: null",
-                "      tags_include: []",
             )
         if (capabilities != null) lines += "    capabilities: $capabilities"
         if (expiresAt != null) lines += "    expires_at: \"$expiresAt\""
