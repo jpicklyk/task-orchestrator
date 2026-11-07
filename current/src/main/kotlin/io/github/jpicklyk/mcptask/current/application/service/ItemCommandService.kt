@@ -380,6 +380,11 @@ class ItemCommandService(
                         return Outcome.Err(ItemCommandErrors.hierarchyLookupFailed(target, LegacyFaults.message(e)))
                     }
                 if (chain.any { it.id == existing.id }) return Outcome.Err(ItemCommandErrors.cycle(existing.id, target))
+                // A root with an open or paused run cannot be re-parented: the run's rootId would name a non-root.
+                if (existing.parentId == null) {
+                    val openRuns = openRunsOnRoot(existing.id)
+                    if (openRuns > 0) return Outcome.Err(ItemCommandErrors.rootHasOpenRuns(existing.id, openRuns))
+                }
                 facts = parentFacts(parent)
             }
             val decision = policy.evaluate(snapshotOf(existing), Trigger.Structural.Reparent(facts))
@@ -1032,14 +1037,14 @@ object ItemCommandErrors {
                 )
         )
 
-    /** A root delete refused because [openRuns] runs on it are still open or paused (close them first). */
+    /** A root delete or re-parent refused because [openRuns] runs on it are still open or paused (close them first). */
     fun rootHasOpenRuns(
         rootId: UUID,
         openRuns: Int
     ): DomainError =
         DomainError(
             code = ErrorCode.INVALID_REQUEST,
-            message = "Root $rootId has $openRuns open run(s); close them before deleting the root",
+            message = "Root $rootId has $openRuns open run(s); close them before deleting or re-parenting the root",
             detail = ErrorDetail.InvalidRequest(listOf(FieldViolation(FIELD_ITEM_ID, "root has $openRuns open runs", rootId.toString())))
         )
 

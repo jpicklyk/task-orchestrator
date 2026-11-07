@@ -117,7 +117,7 @@ class RootCreateUnderScopeTest {
             assertEquals(5, k.all().size)
 
             // control: a parent carrying the tag still admits a child (judged on the parent)
-            val id = k.callScoped(tagScoped, createOp("UnderC1", c1)).okId()
+            val id = k.callScoped(tagScoped, JsonObject(createOp("UnderC1", c1) + ("tags" to strings("alpha")))).okId()
             assertEquals(c1, assertNotNull(k.item(id)).parentId)
         }
 
@@ -128,7 +128,7 @@ class RootCreateUnderScopeTest {
             val before = k.snapshot()
             assertForbidden(k.callScoped(rootAndTagScoped, rootCreate("Both", "alpha")).errorAt(), "root", r1.toString())
             assertEquals(before, k.snapshot())
-            val id = k.callScoped(rootAndTagScoped, createOp("UnderC2", c2)).okId()
+            val id = k.callScoped(rootAndTagScoped, JsonObject(createOp("UnderC2", c2) + ("tags" to strings("alpha")))).okId()
             assertEquals(c2, assertNotNull(k.item(id)).parentId, "control: an in-scope tagged parent admits the child")
         }
 
@@ -160,7 +160,11 @@ class RootCreateUnderScopeTest {
             val plain = twTree(twRoot("NewTree"), listOf(twChild("c")))
             assertForbidden(k.callScoped(rootScoped, plain).errorAt(), "root", r1.toString())
 
-            val tagged = twTree(twRoot("TaggedTree", extra = listOf("tags" to strings("alpha"))), listOf(twChild("c")))
+            val tagged =
+                twTree(
+                    twRoot("TaggedTree", extra = listOf("tags" to strings("alpha"))),
+                    listOf(twChild("c", extra = listOf("tags" to strings("alpha"))))
+                )
             assertForbidden(k.callScoped(tagScoped, tagged).errorAt(), "root", "")
             assertForbidden(k.callScoped(rootScoped, tagged).errorAt(), "root", r1.toString())
             assertEquals(before, k.snapshot(), "no work_items, notes, dependencies or events row changed")

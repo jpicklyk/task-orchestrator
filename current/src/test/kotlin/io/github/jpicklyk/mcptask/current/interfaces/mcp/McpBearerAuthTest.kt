@@ -377,9 +377,6 @@ class McpBearerAuthTest {
             "version: 1\ntokens:\n" +
                 "  - id: $id\n" +
                 "    token_sha256: \"${McpAuthHttpFixture.sha256(raw).joinToString("") { "%02x".format(it) }}\"\n" +
-                "    scope:\n" +
-                "      root_ids: null\n" +
-                "      tags_include: []\n" +
                 "    capabilities: [read]\n" +
                 "    profile: director\n"
         )

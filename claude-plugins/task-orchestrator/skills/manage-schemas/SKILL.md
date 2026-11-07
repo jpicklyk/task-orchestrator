@@ -244,7 +244,7 @@ Needs a `project.rootId` (rollback is a server operation on the root's stored ve
 ```
 
 **Duplicate schema key in config file**
-- Cause: YAML allows duplicate keys but only the last one is used
+- Cause: a key is repeated in the document; `config` `push` and `validate` and the boot import reject it
 - Solution: Check for duplicate entries under `work_item_schemas:` and merge them
 
 **Changes to a server file not taking effect**
