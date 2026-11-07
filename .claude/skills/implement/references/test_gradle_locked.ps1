@@ -153,6 +153,14 @@ try {
         Make-Lock $c (Owner-Json $holder.Id $holder.StartTime (Get-Date)) 0
         $h = Start-Child $c
         Check 'S3 prints LOCK HELD by pid <holder> within 15 s' (Wait-Text $h "LOCK HELD by pid $($holder.Id)" 15) (Get-Text $h)
+        $held = [regex]::Match((Get-Text $h), "LOCK HELD by pid $($holder.Id) since (\S+)")
+        Check 'S3 LOCK HELD carries a since <iso> part' $held.Success (Get-Text $h)
+        $sinceOk = $false
+        if ($held.Success) {
+            $sinceT = [datetimeoffset]::MinValue
+            $sinceOk = ($held.Groups[1].Value -match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}') -and [datetimeoffset]::TryParse($held.Groups[1].Value, [ref]$sinceT)
+        }
+        Check 'S3 since part is an ISO-8601 timestamp' $sinceOk "since=$($held.Groups[1].Value)"
         Check 'S3 stub has not run while holder is alive' (-not (Test-Path $c.RanLog))
         $holder.Kill($true)
         $holder.WaitForExit()
@@ -184,7 +192,9 @@ try {
         Make-Lock $c $null 0
         $h = Start-Child $c @{ TO_GRADLE_LOCK_STALE_MINUTES = '1' }
         Check 'S6a prints LOCK HELD within 10 s' (Wait-Text $h 'LOCK HELD' 10) (Get-Text $h)
-        Check 'S6a stub not run' (-not (Test-Path $c.RanLog))
+        Start-Sleep -Seconds 10
+        Check 'S6a stub not run across the full 10 s window' (-not (Test-Path $c.RanLog))
+        Check 'S6a no reclaim across the window' (-not ((Get-Text $h) -match 'LOCK RECLAIMED'))
         Stop-Tree $h
     }
     Run-Case 'S6b ownerless lock older than the bound is reclaimed' {
@@ -221,11 +231,33 @@ try {
         $c = New-Case 'S9'
         $h = Start-Child $c @{ STUB_REPLACE_OWNER = '1' }
         Check 'S9 finished' (Wait-Child $h 60)
+        Check 'S9 EXIT=0 last line' ((Get-ExitLine $h) -eq 0) (Get-Text $h)
         Check 'S9 lock dir left in place' (Test-Path $c.Lock)
-        if (Test-Path $c.Owner) {
-            $o = Get-Content $c.Owner -Raw | ConvertFrom-Json
-            Check 'S9 foreign owner.json untouched' ($o.pid -eq 999999)
+        Check 'S9 owner.json still present' (Test-Path $c.Owner)
+        $foreign = $null
+        if (Test-Path $c.Owner) { $foreign = (Get-Content $c.Owner -Raw | ConvertFrom-Json).pid }
+        Check 'S9 foreign owner.json untouched (pid 999999)' ($foreign -eq 999999) "pid=$foreign"
+    }
+
+    Run-Case 'S11 unreadable owner.json (held FileShare.None) counts as a live holder' {
+        $c = New-Case 'S11'
+        Make-Lock $c $null 0
+        $fs = [IO.File]::Open($c.Owner, 'CreateNew', 'Write', 'None')
+        try {
+            $bytes = [Text.Encoding]::ASCII.GetBytes((Owner-Json $PID (Get-Date).AddMinutes(-6) (Get-Date).AddMinutes(-5)))
+            $fs.Write($bytes, 0, $bytes.Length)
+            $fs.Flush()
+            (Get-Item $c.Lock).CreationTimeUtc = (Get-Date).ToUniversalTime().AddMinutes(-5)
+            $h = Start-Child $c @{ TO_GRADLE_LOCK_STALE_MINUTES = '1' }
+            Check 'S11 prints LOCK HELD by pid unknown within 10 s' (Wait-Text $h 'LOCK HELD by pid unknown' 10) (Get-Text $h)
+            Start-Sleep -Seconds 5
+            Check 'S11 no LOCK RECLAIMED while owner.json is unreadable' (-not ((Get-Text $h) -match 'LOCK RECLAIMED')) (Get-Text $h)
+            Check 'S11 stub not run' (-not (Test-Path $c.RanLog))
+            Check 'S11 waiter still waiting' (-not $h.Proc.HasExited)
+            Stop-Tree $h
         }
+        finally { $fs.Dispose() }
+        Check 'S11 lock dir never taken from the holder' (Test-Path $c.Lock)
     }
 
     Run-Case 'S10 gated task without TO_GRADLE_OWNER is refused, no lock created' {
