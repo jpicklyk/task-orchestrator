@@ -23,21 +23,9 @@ Verification status:
 - Recommended: the task-orchestrator plugin 4.0.0. It supplies the early-exit side of the dedupe flags and the 4.0 command hooks the mod's hooks stand in for.
 - Optional, for live updates: the server's REST API enabled, and `curl` on `PATH`. See [Live updates](#live-updates).
 
-## Opt in
+## Loading (dev-only)
 
-Marketplace install, after the existing `marketplace add` from the [root README](../../README.md):
-
-```
-/plugin install task-orchestrator-mod@task-orchestrator-marketplace
-```
-
-To disable it:
-
-```
-/plugin disable task-orchestrator-mod@task-orchestrator-marketplace
-```
-
-From a checkout on disk:
+This mod is an unreleased, in-repo experiment. It is not listed in the marketplace and has no `/plugin install` path. It loads only from a checkout on disk:
 
 ```
 claude --plugin-dir <repo>/claude-plugins/task-orchestrator-mod
@@ -47,7 +35,7 @@ On the desktop app, where no flag can be passed, set `CLAUDE_CODE_PLUGIN_DIRS` i
 
 Headless `claude -p` and `claude plugin test` need `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`.
 
-Do not load the marketplace copy and a disk copy at the same time.
+Do not load two copies at the same time.
 
 The marketplace install path has not yet been confirmed end to end. If your build needs an extra enable step, it is not described here.
 

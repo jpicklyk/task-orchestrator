@@ -11,7 +11,7 @@ forced cache refresh — see "Plugin Discovery and Cache Refresh" below. No vers
 | Plugin | Directory | Current Version |
 |--------|-----------|-----------------|
 | `task-orchestrator` | `claude-plugins/task-orchestrator/` | `4.0.0` |
-| `task-orchestrator-mod` | `claude-plugins/task-orchestrator-mod/` | `0.2.0` |
+| `task-orchestrator-mod` | `claude-plugins/task-orchestrator-mod/` | `0.2.0` (not listed in the marketplace; dev-only via `--plugin-dir`) |
 | `director-indicator` | `claude-plugins/director-indicator/` | `0.1.0` |
 
 > Updated automatically by `/prepare-release`. Do not bump manually.
@@ -89,11 +89,11 @@ blocks (`{tool, select|op, args, profile?}`) validated against the catalog.
 
 ## Mod plugin: loading and refresh
 
-`task-orchestrator-mod` is an opt-in plugin of in-process function hooks (see its [README](task-orchestrator-mod/README.md) and [CLAUDE.md](task-orchestrator-mod/CLAUDE.md)). It has no skills, only the runtime commands `/to-graph` and `/to-band`, so it has no skill-trigger conflicts.
+`task-orchestrator-mod` is an in-repo experiment of in-process function hooks (see its [README](task-orchestrator-mod/README.md) and [CLAUDE.md](task-orchestrator-mod/CLAUDE.md)). It is NOT listed in `.claude-plugin/marketplace.json` and has no public install path: it loads only from a checkout, dev-only, via `--plugin-dir` or `CLAUDE_CODE_PLUGIN_DIRS`. It has no skills, only the runtime commands `/to-graph` and `/to-band`, so it has no skill-trigger conflicts.
 
-- A marketplace install uses the same version-keyed cache and the same `rm -rf` + `marketplace update` refresh as above, with the same lazy re-extract.
-- For development, skip the cache: `--plugin-dir` or `CLAUDE_CODE_PLUGIN_DIRS` watch the folder, and a save reloads the module. A reload re-runs `register` and `session.start` and resets module variables; `$.state` and `$.store` survive.
+- There is no marketplace copy to refresh, so the version-keyed cache and `marketplace update` steps above do not apply to it.
+- Loading, from a checkout: `--plugin-dir` or `CLAUDE_CODE_PLUGIN_DIRS` watch the folder, and a save reloads the module. A reload re-runs `register` and `session.start` and resets module variables; `$.state` and `$.store` survive.
 - A plugin-authoring dev-mods folder is a COPY, not a link. Re-sync it after edits and check it with `diff -rq`. The "Enable hot reloading?" answer is the switch.
-- Never load two copies at once (marketplace plus dev).
+- Never load two copies at once (two dev folders, or a dev folder plus a stale cached copy).
 
 `director-indicator` ([README](director-indicator/README.md)) is a second, standalone mod with the same loading and refresh rules. It shares no code or state with `task-orchestrator-mod`; keep it that way (a feature for one never lands in the other). Its CI is `.github/workflows/director-indicator.yml`, running the same gate script on its folder with a CLI pinned at 2.1.317 (the `Backdrop` component).

@@ -313,12 +313,6 @@ The plugin adds workflow automation on top of the MCP server: skills, hooks, and
 
 The MCP server works without the plugin. The plugin makes it seamless with Claude Code.
 
-**Optional mod (early access):** [task-orchestrator-mod](claude-plugins/task-orchestrator-mod/README.md) is a separate, opt-in plugin of in-process function hooks: a live work-graph pane, an in-flight band and status line, and in-process retrospective, phase-guard and call-shape hooks. It relies on an early-access Claude Code API and is best paired with a current task-orchestrator plugin.
-
-```
-/plugin install task-orchestrator-mod@task-orchestrator-marketplace
-```
-
 **Optional mod (early access):** [director-indicator](claude-plugins/director-indicator/README.md) marks a director-mode session on the session itself: a `director` footer label, an amber desktop backdrop and enter/exit toasts, keyed to the director guard's marker. Standalone; it shares nothing with the graph mod.
 
 ```
