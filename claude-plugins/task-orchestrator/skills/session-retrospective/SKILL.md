@@ -118,7 +118,7 @@ From `delegation-metadata` notes extract model per delegation (haiku, sonnet, op
 {"tool": "report", "select": "notes", "args": {"rootId": "<rootId>", "groupBy": "noteKey", "since": "<window start>"}, "profile": "director"}
 ```
 
-Compute three figures: the review role's share of total bytes, the `review-checklist` `avgBytes`, and the largest `maxBytes` of any note key. Compare them with the 2026-11-02 baseline (review share 31%, review-checklist average 6.5 KB, largest note 37 KB) and record the three figures in the `session-metrics` note (5c). Also compute two note-volume figures: the work role's `avgBytes` from the same `groupBy` role call (baseline 1127 bytes on 2026-11-07, target under 800) and the overrun count, the number of note keys whose `maxBytes` (from the `groupBy` noteKey call) exceeds that key's `maxLength` in the resolved schema; record both in `session-metrics` (5c). The `maxLength` cap is advisory under the default `warn` mode (`reject` refuses the write) and counts characters while `maxBytes` counts bytes, so bytes approximate characters for ASCII bodies. Basis caveat:
+Compute three figures: the review role's share of total bytes, the `review-checklist` `avgBytes`, and the largest `maxBytes` of any note key. Compare them with the 2026-11-02 baseline (review share 31%, review-checklist average 6.5 KB, largest note 37 KB) and record the three figures in the `session-metrics` note (5c). Also compute two note-volume figures: the work role's `avgBytes` from the same `groupBy` role call (baseline 1127 bytes on 2026-11-07, target under 800) and the overrun count, the number of note keys whose `maxBytes` (from the `groupBy` noteKey call) exceeds that key's `maxLength` in the resolved schema; record both in `session-metrics` (5c). The `maxLength` cap is advisory under the default `warn` mode (`reject` refuses the write). Basis caveat:
 `report` `notes` counts every `note.upserted` write (a rewrite counts again, `avgBytes` is per write),
 while the baseline measured final note bodies once, so a run with many rewrites reads higher; say so
 beside the figures when `rewrites` is not small.
@@ -136,7 +136,7 @@ adapter=claude-workflow run=r-20260928-b2d seats=planner:opus,implementer:sonnet
 ## Step 3 - Evaluate Across Dimensions
 
 ### 3a. Schema Effectiveness
-For each item, examine its notes (1b): which schema-required notes exist with non-empty content; whether each exists with non-empty content (queue and review notes; work-role notes are not scored by size, 3c scores them on content); items missing required notes. **Score:** fraction of expected notes that exist with non-empty content.
+For each item, examine its notes (1b): which schema-required notes exist with non-empty content (queue and review notes; work-role notes are not scored by size, 3c scores them on content), and which items are missing required notes. **Score:** fraction of expected notes that exist with non-empty content.
 
 ### 3b. Delegation Alignment
 If `delegation-metadata` notes exist, cross-reference the expected model: `haiku` for MCP bulk ops, materialization and simple queries; `sonnet` for code reading, implementation and test writing; `opus` for architecture, complex tradeoffs and multi-file synthesis.
