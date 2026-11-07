@@ -574,10 +574,10 @@ for the phase being dispatched INTO: if the orchestrator already called `advance
 the queue profile, not work's, so read `items_read` `schema` (`itemId`)'s per-phase
 `dispatch.work` map instead. When that profile names an `agent`, dispatch with
 `subagent_type = dispatch.agent`. Regardless of whether `agent` is set, still pass `model`
-explicitly — `dispatch.model` if set, else the table above. `effort` has no Agent-tool parameter;
-in Claude Code it applies only through the dispatched agent's own frontmatter, so a profile's
-`effort` is advisory unless `agent` names a definition carrying that `effort` — to change effort,
-point `agent` at a definition with that effort.
+explicitly — `dispatch.model` if set, else the table above. Pass `dispatch.effort`, when set, on
+the Agent tool's own `effort` parameter (Claude Code v2.1.292+); it overrides the dispatched
+agent's frontmatter `effort`. With no profile `effort`, omit the parameter and the frontmatter
+applies.
 
 **After implementation agents return:**
 

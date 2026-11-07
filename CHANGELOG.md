@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Plugin
+
+- Corrected the dispatch docs: a profile's `effort` goes on the Agent tool's own `effort` parameter (Claude Code v2.1.292+) and overrides the agent definition's frontmatter. It is no longer advisory on a hand dispatch; run-wave Method B seats still get only their frontmatter.
+
 ## [4.0.0] - 2026-11-07
 
 ### Upgrading from 3.x
