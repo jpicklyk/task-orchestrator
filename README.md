@@ -313,10 +313,10 @@ The plugin adds workflow automation on top of the MCP server: skills, hooks, and
 
 The MCP server works without the plugin. The plugin makes it seamless with Claude Code.
 
-**Optional mod (early access):** [director-indicator](claude-plugins/director-indicator/README.md) marks a director-mode session on the session itself: a `director` footer label, an amber desktop backdrop and enter/exit toasts, keyed to the director guard's marker. Standalone; it shares nothing with the graph mod.
+**Optional mod (early access):** [orchestration-mode](claude-plugins/orchestration-mode/README.md) shows which orchestration mode a session is in, on the session itself: an `Orchestration Mode director` footer label, a live run board above the prompt, an amber desktop backdrop and enter/exit toasts, keyed to the director guard's marker. Standalone; it shares nothing with the graph mod.
 
 ```
-/plugin install director-indicator@task-orchestrator-marketplace
+/plugin install orchestration-mode@task-orchestrator-marketplace
 ```
 
 Illustrated: [Runs and Decisions](https://jpicklyk.github.io/task-orchestrator/field-guide/runs-and-decisions.html) steps through a server run, its seat tokens, run limits and decisions. [Orchestrating a Run](https://jpicklyk.github.io/task-orchestrator/field-guide/orchestrating-a-run.html) follows one feature from request to finished items. [Improvement Loop](https://jpicklyk.github.io/task-orchestrator/field-guide/improvement-loop.html) shows how friction noticed during work becomes a reviewed config change.

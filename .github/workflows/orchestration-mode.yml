@@ -1,6 +1,6 @@
-name: Director Indicator Mod
+name: Orchestration Mode Mod
 
-# Validates and tests claude-plugins/director-indicator with the real Claude Code CLI.
+# Validates and tests claude-plugins/orchestration-mode with the real Claude Code CLI.
 # No secrets and no model calls: the shared gate script runs `claude plugin validate` and
 # `claude plugin test` against this mod's folder. Not a required check (a path-filtered
 # required check would hang PRs that do not touch these paths).
@@ -9,15 +9,15 @@ on:
   push:
     branches: ['**']
     paths:
-      - 'claude-plugins/director-indicator/**'
+      - 'claude-plugins/orchestration-mode/**'
       - 'scripts/ci/check-task-orchestrator-mod.mjs'
-      - '.github/workflows/director-indicator.yml'
+      - '.github/workflows/orchestration-mode.yml'
   pull_request:
     branches: [main, 'release/**']
     paths:
-      - 'claude-plugins/director-indicator/**'
+      - 'claude-plugins/orchestration-mode/**'
       - 'scripts/ci/check-task-orchestrator-mod.mjs'
-      - '.github/workflows/director-indicator.yml'
+      - '.github/workflows/orchestration-mode.yml'
   workflow_dispatch:
 
 permissions:
@@ -50,4 +50,4 @@ jobs:
           claude --version | grep -F "${CLAUDE_CODE_VERSION}"
 
       - name: Validate and test the mod
-        run: node scripts/ci/check-task-orchestrator-mod.mjs claude-plugins/director-indicator
+        run: node scripts/ci/check-task-orchestrator-mod.mjs claude-plugins/orchestration-mode
