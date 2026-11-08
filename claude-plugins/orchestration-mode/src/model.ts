@@ -40,9 +40,13 @@ export function isDirectorSkillCall(skill: unknown): boolean {
   return typeof skill === 'string' && skill.trim() === DIRECTOR_SKILL
 }
 
-/** The footer modes with `director` appended once. */
-export function footerModes(modes: readonly string[]): string[] {
-  return modes.includes(LABEL) ? [...modes] : [...modes, LABEL]
+/** The footer label's fixed part; the mode's name follows it in bold. */
+export const FOOTER_PREFIX = 'Orchestration Mode: '
+/** The native labels that precede ours in the footer slot, joined as the engine joins them. */
+export function footerLead(modes: readonly string[]): string {
+  const others = modes.filter(mode => mode !== LABEL)
+
+  return others.length > 0 ? `${others.join(' & ')} & ` : ''
 }
 
 /** `14:02` in the local clock for an ISO instant; undefined for anything else. */
@@ -64,13 +68,8 @@ export function enterToast(since: string): string {
 
 export const EXIT_TOAST = 'Director mode off'
 
-/**
- * The mode's name, and the status line pinned under the prompt while on. The engine draws every
- * plugin's status line as `<plugin name> <text>`, so the plugin is named `orchestration-mode` and the
- * text is the mode alone: the footer reads `orchestration-mode director`.
- */
+/** The mode's name, drawn in bold after FOOTER_PREFIX in the prompt footer's mode slot while on. */
 export const MODE_LABEL = 'director'
-export const STATUS_LINE = MODE_LABEL
 
 /** The backdrop's glass: a warm amber tint so the window reads as "director" at a glance. */
 export const GLASS = { blur: 14, tint: '#7c4a03', opacity: 0.42 } as const

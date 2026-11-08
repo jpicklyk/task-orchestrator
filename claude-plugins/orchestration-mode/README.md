@@ -2,7 +2,7 @@
 
 An opt-in Claude Code mod that shows which Task Orchestrator **orchestration mode** a session is in, on the session itself. Today there is one mode, **director** (`/task-orchestrator:director`): with several desktop sessions open it is easy to forget which ones are running the board, and this plugin makes it unmistakable:
 
-- **Footer label.** The status line under the prompt reads `orchestration-mode director` while the mode is on. (The engine draws every plugin's status line as the plugin's name followed by its text, which is why the plugin is named for the concept and the text is the mode alone.)
+- **Footer label.** `Orchestration Mode: director` joins the dim mode labels at the right of the prompt footer (where `focus` and `memory paused` appear), drawn in the engine's own footer slot so it looks native, on the terminal and the desktop app.
 - **Run board.** A band above the prompt, bordered in amber: the title, a bar of members done over members in all across the open and paused runs, and the totals (`runs 1 open · decisions 0 · blocked 3`), then one row per run (at most three): `done/total`, the run's name, its phase pipeline (`q2 → w1 → r0 → ✓1`, with `blocked n` when any member is blocked), its seats (`in flight 1 (1 stalled) · ready 1 · waiting 1`) and a chip when it needs a look (`COORD STALLED`, or `PAUSED run-budget`). Red marks a stalled seat or coordinator. Token spend joins each row above 120 columns. The board refreshes every 30 seconds and after every turn.
 - **Desktop backdrop.** The desktop app's backdrop turns a warm amber with a faint `DIRECTOR` watermark while the mode is on, so the window reads as "director" at a glance even from a thumbnail. Turn it off in the plugin's settings (`backdrop: false`) to keep only the label, board and toasts.
 - **Toasts.** `Director mode on since 14:02` when the mode starts, `Director mode off` when it ends.
@@ -34,7 +34,7 @@ The mod writes nothing but its own `$.state` values (`director`: `{ since } | nu
 
 ## Desktop app notes
 
-The desktop app's Code tab (as of 2.1.317) draws the band above the prompt and the status line, but not the prompt footer's `SessionMode` labels or a plugin `Backdrop`: the `SessionMode` hook and the backdrop are in place for the builds that do draw them, and the terminal draws the footer label today.
+The desktop app's Code tab (as of 2.1.317) draws the band above the prompt and the footer label, the latter only as a tree returned from the `SessionMode` hook (a rewrite of its `modes` list reaches the terminal alone). It does not draw a plugin `Backdrop`; the backdrop is in place for the builds that do.
 
 ## Developing
 

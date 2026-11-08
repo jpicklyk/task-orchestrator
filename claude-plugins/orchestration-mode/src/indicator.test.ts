@@ -7,7 +7,7 @@ import {
   decisionCounts,
   enterToast,
   envelopeData,
-  footerModes,
+  footerLead,
   formatTokens,
   isDirectorSkillCall,
   listTotal,
@@ -33,18 +33,12 @@ const FOOTER = {
   props: { modes: ['focus'] },
 } as const
 
-test('the footer gains `director` while the marker state is on', async ($, on) => {
+test('the footer slot draws `Orchestration Mode: director` after the native labels while on', async ($, on) => {
   on('state.get', () => ({ value: { value: { since: '2026-11-07T14:02:00.000Z' }, version: 1 } }))
-  // Stands for the engine: draws whatever modes reach it.
-  on('ui.render', ($, e) => {
-    const { Text } = $.ui.resolve(e)
-
-    return h(Text, null, (e.props as { modes: readonly string[] }).modes.join(' & '))
-  })
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...FOOTER, surface })
-    expect((await ui.find({ type: 'Text', text: /director/ }))?.text).toBe('focus & director')
+    expect((await ui.find({ type: 'Text', text: /Orchestration Mode/ }))?.text).toBe('focus & Orchestration Mode: director')
     await ui.unmount()
   }
 })
@@ -79,9 +73,9 @@ test('temp dir follows os.tmpdir() precedence and drops a trailing separator', a
 })
 
 test('pure helpers', async () => {
-  expect(footerModes(['focus'])).toEqual(['focus', 'director'])
-  expect(footerModes(['director'])).toEqual(['director'])
-  expect(footerModes([])).toEqual(['director'])
+  expect(footerLead(['focus'])).toBe('focus & ')
+  expect(footerLead(['focus', 'director'])).toBe('focus & ')
+  expect(footerLead([])).toBe('')
   expect(isDirectorSkillCall(' task-orchestrator:director ')).toBe(true)
   expect(isDirectorSkillCall('task-orchestrator:work-summary')).toBe(false)
   expect(isDirectorSkillCall(undefined)).toBe(false)

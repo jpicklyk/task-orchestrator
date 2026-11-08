@@ -26,18 +26,19 @@ import {
   DEFAULT_API_URL,
   DIRECTOR_SERVER,
   EXIT_TOAST,
+  FOOTER_PREFIX,
   GLASS,
   MAX_RUN_ROWS,
   MIN_BAND_COLUMNS,
   MIN_REFRESH_GAP_MS,
+  MODE_LABEL,
   REFRESH_MS,
-  STATUS_LINE,
   backdropSvg,
   boardProgress,
   decisionCounts,
   enterToast,
   envelopeData,
-  footerModes,
+  footerLead,
   formatTokens,
   isDirectorSkillCall,
   listItems,
@@ -193,7 +194,6 @@ async function reconcile($: EngineInterface, source: string): Promise<void> {
   if (active && current === null) {
     const next = await update($, director, enter)
     await showBackdrop($)
-    $.ui.status(STATUS_LINE)
     $.ui.toast(enterToast(next?.since ?? new Date().toISOString()))
     startTicker($)
     await refreshBoard($, true)
@@ -202,11 +202,9 @@ async function reconcile($: EngineInterface, source: string): Promise<void> {
     await update($, director, leave)
     await update($, board, () => null)
     await clearBackdrop($)
-    $.ui.status(undefined)
     $.ui.toast(EXIT_TOAST)
   } else if (active) {
     await showBackdrop($)
-    $.ui.status(STATUS_LINE)
     startTicker($)
     await refreshBoard($)
   }
@@ -239,12 +237,18 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
     return next(e)
   })
 
-  // The dim mode labels at the right of the prompt footer: add `director` while on. Reading the
-  // atom here subscribes the footer, so the write in reconcile redraws it.
+  // The prompt footer's mode slot (where `focus` and `memory paused` go): while on, draw the label
+  // there as a tree, `Orchestration Mode: director`, after any native labels. A tree is what the
+  // desktop app draws; a rewrite of `modes` reaches only the terminal. Reading the atom here
+  // subscribes the footer, so the write in reconcile redraws it.
   on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
     if ((await read($, director)) === null) return next(e)
+    const { Text } = $.ui.resolve(e)
 
-    return next({ ...e, props: { ...e.props, modes: footerModes(e.props.modes) } })
+    return Text({
+      dimColor: true,
+      children: [footerLead(e.props.modes), FOOTER_PREFIX, Text({ bold: true, children: MODE_LABEL })],
+    })
   })
 
   // The band directly above the prompt: the mode row, then one row per open or paused run. Hidden
