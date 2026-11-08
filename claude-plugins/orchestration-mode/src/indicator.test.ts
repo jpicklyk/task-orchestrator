@@ -3,27 +3,29 @@ import { expect, test } from 'claude-code/testing'
 import type { Board, BoardRun, FocusBoard } from '../types'
 import {
   backdropSvg,
+  blockedByCell,
+  blockerOf,
   boardProgress,
   closedRunIds,
+  containerLine,
   coordinatorFromMarker,
   coordinatorFromOpen,
   decisionCounts,
   enterToast,
   envelopeData,
   focusBlocked,
-  focusDetail,
   focusFromGet,
   focusParent,
   focusProgress,
-  focusRowCell,
   footerLead,
   footerModes,
   formatTokens,
-  graphTitle,
+  graphCounts,
+  graphDetail,
   isDirectorSkillCall,
+  itemLead,
   listTotal,
   markerPath,
-  modeDetail,
   pausedCell,
   phaseCell,
   progressBar,
@@ -31,7 +33,7 @@ import {
   restData,
   restToolUrl,
   runFromList,
-  runName,
+  runLabel,
   sameId,
   sanitizeKey,
   seatsCell,
@@ -83,11 +85,30 @@ async function shown($: any, site: object, pattern: RegExp): Promise<string | un
   return found?.text
 }
 
+/** Every Text a mount of `site` shows, in order. */
+async function texts($: any, site: object): Promise<string[]> {
+  const ui = await $.ui.mount({ ...site, surface: 'desktop' })
+  const found = await ui.findAll({ type: 'Text' })
+  await ui.unmount()
+
+  return found.map((t: { text: string }) => t.text)
+}
+
+/** Lets the background work a TO call started finish: the hook hands the result back before it observes. */
+const settle = () => new Promise<void>(resolve => setTimeout(resolve, 100))
+
 /** A REST envelope body. */
 const ok = (data: unknown) => ({ value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ ok: true, data }) } })
 
-/** The server the board reads stand for: every list empty, items by id from `items`, runs from `runs`. */
-function server(items: Record<string, unknown>, runs: Record<string, unknown> = {}) {
+/**
+ * The server the board reads stand for: items by id from `items`, runs from `runs`, an overview per
+ * anchor and a blocked list per ancestor from `lists`; every other list empty.
+ */
+function server(
+  items: Record<string, unknown>,
+  runs: Record<string, unknown> = {},
+  lists: { overview?: Record<string, unknown[]>; blocked?: Record<string, unknown[]> } = {},
+) {
   return (_: unknown, e: { url: string; init?: { body?: unknown } }) => {
     const body = JSON.parse(String(e.init?.body ?? '{}')) as Record<string, string>
     if (e.url.endsWith('/runs_read') && body.select === 'get') return ok(runs[body.runId ?? ''] ?? { status: 'open' })
@@ -97,6 +118,13 @@ function server(items: Record<string, unknown>, runs: Record<string, unknown> = 
         ? { value: { status: 404, ok: false, headers: {}, text: '{"ok":false,"error":{"code":"not_found","message":"no"}}' } }
         : ok(item)
     }
+    const listed =
+      e.url.endsWith('/items_read') && body.select === 'overview'
+        ? lists.overview?.[body.anchorId ?? '']
+        : e.url.endsWith('/items_read') && body.select === 'blocked'
+          ? lists.blocked?.[body.ancestorId ?? '']
+          : undefined
+    if (listed !== undefined) return ok({ items: listed, page: { total: listed.length } })
 
     return ok({ items: [], page: { total: 0 } })
   }
@@ -130,12 +158,28 @@ const FRONTIER = {
 }
 
 const RUN = withFrontier(runFromList(LISTED) as BoardRun, FRONTIER)
-const RUN_BOARD: Board = { at: '2026-11-07T14:02:00.000Z', runs: [RUN], decisions: { open: 2, overdue: 1 }, blocked: 3 }
+const RUN_BOARD: Board = { at: '2026-11-07T14:02:00.000Z', runs: [RUN], decisions: { open: 2, overdue: 1 } }
 const COORD = { runId: RUN_ID, label: 'wave-8', since: 'x', source: 'tool' }
 
-test('the footer names the roster modes that are on: none, one, or both joined with &', async ($, on) => {
+/** A feature with a task under it, as the server answers them. */
+const FEATURE = {
+  id: 'd99e4f7a-0000',
+  parentId: 'ce064d2c-0000',
+  depth: 1,
+  type: 'feature-implementation',
+  title: 'Model and effort policy',
+  statusLabel: 'in-progress',
+  role: 'work',
+}
+const TASK = { id: '8da6e710-0000', parentId: 'd99e4f7a-0000', depth: 2, type: 'feature-task', title: 'A task', role: 'queue' }
+const FEATURE_LISTS = {
+  overview: { 'd99e4f7a-0000': [{ id: '8da6e710', role: 'queue', childCounts: {} }, { id: '29fe3b41', role: 'terminal', childCounts: {} }] },
+  blocked: { 'd99e4f7a-0000': [{ id: '8da6e710', blockers: [{ id: '95c660e2-617b', satisfied: false }] }] },
+}
+
+test('the footer always names the mode: orchestrator at rest, else the roster modes joined with &', async ($, on) => {
   const cases = [
-    { values: { director: null, coordinator: null }, modes: undefined },
+    { values: { director: null, coordinator: null }, modes: 'orchestrator' },
     { values: { director: { since: '2026-11-07T14:02:00.000Z' }, coordinator: null }, modes: 'director' },
     { values: { director: null, coordinator: COORD }, modes: 'coordinator' },
     { values: { director: { since: 'x' }, coordinator: COORD }, modes: 'director & coordinator' },
@@ -151,14 +195,10 @@ test('the footer names the roster modes that are on: none, one, or both joined w
     values = c.values
     for (const surface of ['terminal', 'desktop'] as const) {
       const ui = await $.ui.mount({ ...FOOTER, surface })
-      if (c.modes === undefined) {
-        expect((await ui.find({ type: 'Text' }))?.text).toBe('engine')
-        expect(await ui.find({ type: 'Text', text: /Orchestration Mode/ })).toBe(undefined)
-      } else {
-        expect((await ui.find({ type: 'Text', text: /Orchestration Mode/ }))?.text).toBe('Orchestration Mode')
-        expect((await ui.find({ type: 'Text', text: /director|coordinator/ }))?.text).toBe(c.modes)
-        expect((await ui.find({ type: 'Text', text: /focus/ }))?.text).toBe('focus &')
-      }
+      expect(await ui.find({ type: 'Text', text: /engine/ })).toBe(undefined)
+      expect((await ui.find({ type: 'Text', text: /Orchestration Mode/ }))?.text).toBe('Orchestration Mode')
+      expect((await ui.find({ type: 'Text', text: /orchestrator|director|coordinator/ }))?.text).toBe(c.modes)
+      expect((await ui.find({ type: 'Text', text: /focus/ }))?.text).toBe('focus &')
       await ui.unmount()
     }
   }
@@ -176,16 +216,12 @@ test('the footer label `Orchestration Mode director` follows the native labels w
   }
 })
 
-test('the footer is left alone while off', async ($, on) => {
+test('at rest the footer reads `Orchestration Mode orchestrator`, alone when no native label stands', async ($, on) => {
   on('state.get', () => ({ value: { value: null, version: 1 } }))
-  on('ui.render', ($, e) => {
-    const { Text } = $.ui.resolve(e)
 
-    return h(Text, null, (e.props as { modes: readonly string[] }).modes.join(' & '))
-  })
-
-  const ui = await $.ui.mount({ ...FOOTER, surface: 'desktop' })
-  expect((await ui.find({ type: 'Text' }))?.text).toBe('focus')
+  const ui = await $.ui.mount({ ...FOOTER, props: { modes: [] }, surface: 'desktop' })
+  const all = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  expect(all).toEqual(['Orchestration Mode', 'orchestrator'])
   await ui.unmount()
 })
 
@@ -206,18 +242,15 @@ test("a runs_write open makes the session the run's coordinator; closing that ru
       op === 'open' ? { runId: RUN_ID, label: 'wave-8', status: 'open', coordinatorToken: 'coord-secret' } : { runId: RUN_ID, status: 'closed' },
     ),
   )
-  on('ui.render', ($, e) => {
-    const { Text } = $.ui.resolve(e)
-
-    return h(Text, null, 'engine')
-  })
 
   await $.tool.call({ tool: RUN_TOOL, ops: [{ op: 'open', rootId: 'ce064d2c', label: 'wave-8', items: [] }] })
-  expect(await shown($, FOOTER, /coordinator|engine/)).toBe('coordinator')
+  await settle()
+  expect(await shown($, FOOTER, /coordinator|orchestrator/)).toBe('coordinator')
   expect(toasts.includes('Coordinator of run wave-8')).toBe(true)
 
   await $.tool.call({ tool: 'mcp__mcp-task-orchestrator-director__runs_write', ops: [{ op: 'close', runId: 'a51588a2', reason: 'completed' }] })
-  expect(await shown($, FOOTER, /coordinator|engine/)).toBe('engine')
+  await settle()
+  expect(await shown($, FOOTER, /coordinator|orchestrator/)).toBe('orchestrator')
   expect(toasts.includes('Run wave-8 closed')).toBe(true)
 })
 
@@ -233,12 +266,14 @@ test("a subagent's TO calls move neither the mode nor the focus", async ($, on) 
   })
 
   await $.tool.call({ tool: RUN_TOOL, ops: [{ op: 'open', rootId: 'ce064d2c' }], agentId: 'seat-1' })
+  await settle()
   await $.tool.call({ tool: NOTES_TOOL, ops: [{ op: 'upsert', itemId: 'd8999287', key: 'k', role: 'work', body: '' }], agentId: 'seat-1' })
-  expect(await shown($, FOOTER, /coordinator|engine/)).toBe('engine')
+  await settle()
+  expect(await shown($, FOOTER, /coordinator|orchestrator/)).toBe('orchestrator')
   expect(await shown($, BAND, /Band item|engine/)).toBe('engine')
 })
 
-test('a touched item moves the focus to its top-most ancestor below the project root; /to-band hides and shows it', async ($, on) => {
+test('a touched task draws the graph, its feature and the task itself; /to-band hides and shows the band', async ($, on) => {
   const stored: Record<string, unknown> = {}
   const toasts: string[] = []
   on('store.set', (_, e) => {
@@ -249,13 +284,7 @@ test('a touched item moves the focus to its top-most ancestor below the project 
     toasts.push(e.text)
     return { value: undefined }
   })
-  on(
-    'http.fetch',
-    server({
-      '8da6e710': { id: '8da6e710-0000', parentId: 'd99e4f7a-0000', depth: 2, title: 'A task', role: 'terminal' },
-      'd99e4f7a-0000': { id: 'd99e4f7a-0000', parentId: 'ce064d2c-0000', depth: 1, title: 'Model and effort policy', role: 'work' },
-    }),
-  )
+  on('http.fetch', server({ '8da6e710': TASK, '8da6e710-0000': TASK, 'd99e4f7a-0000': FEATURE }, {}, FEATURE_LISTS))
   on('tool.call', answerWrites(() => ({})))
   on('ui.render', ($, e) => {
     const { Text } = $.ui.resolve(e)
@@ -265,20 +294,42 @@ test('a touched item moves the focus to its top-most ancestor below the project 
 
   expect(await shown($, BAND, /Model and|engine/)).toBe('engine')
   await $.tool.call({ tool: NOTES_TOOL, ops: [{ op: 'upsert', itemId: '8da6e710', key: 'k', role: 'work', body: '' }] })
-  expect(await shown($, BAND, /Model and|engine/)).toBe('Model and effort policy')
-  expect(await shown($, BAND, /^0\/1$/)).toBe('0/1')
-  expect(await shown($, BAND, /^in progress|^work/)).toBe('work · blocked 0')
+  await settle()
+  expect(await texts($, BAND)).toEqual([
+    // Line 1: the feature the task belongs to.
+    'Model and effort policy',
+    ' · feature-implementation · in-progress',
+    // Line 2: the feature's subtree with the feature itself, then the non-zero blocked count.
+    '▰▰▰▱▱▱▱▱',
+    '1/3',
+    'q1 → w1 → r0 → ✓1 · blocked 1',
+    // Line 3: the task this session touched.
+    '8da6e710 · feature-task · queue · ',
+    'A task',
+    ' · blocked by 95c660e2',
+  ])
 
   const hidden = await $.command.run({ command: 'to-band' })
   expect(hidden.text).toBe('Band hidden')
   expect(await shown($, BAND, /Model and|engine/)).toBe('engine')
-  expect(await shown($, FOOTER, /Orchestration Mode|engine/)).toBe('engine')
+  expect(await shown($, FOOTER, /orchestrator|engine/)).toBe('orchestrator')
 
   const back = await $.command.run({ command: 'to-band' })
   expect(back.text).toBe('Band shown')
   expect(await shown($, BAND, /Model and|engine/)).toBe('Model and effort policy')
   expect(toasts.filter(t => t.startsWith('Band'))).toEqual(['Band hidden', 'Band shown'])
   expect(stored).toEqual({})
+})
+
+test('a lone leaf below the root names itself on line 1 and draws no line 3', async ($, on) => {
+  const leaf = { id: 'd8999287-71c9', parentId: 'ce064d2c-0000', depth: 1, type: 'plugin-change', title: 'Band item', statusLabel: 'in-progress', role: 'work' }
+  on('ui.toast', () => ({ value: undefined }))
+  on('http.fetch', server({ d8999287: leaf, 'd8999287-71c9': leaf }))
+  on('tool.call', answerWrites(() => ({})))
+
+  await $.tool.call({ tool: NOTES_TOOL, ops: [{ op: 'upsert', itemId: 'd8999287', key: 'k', role: 'work', body: '' }] })
+  await settle()
+  expect(await texts($, BAND)).toEqual(['Band item', ' · plugin-change · in-progress', '▱▱▱▱▱▱▱▱', '0/1', 'q0 → w1 → r0 → ✓0'])
 })
 
 test('the band toggle is per session: a fresh session starts from userConfig band, never from the store', async ($, on) => {
@@ -295,7 +346,9 @@ test('the band toggle is per session: a fresh session starts from userConfig ban
   })
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await settle()
   await $.tool.call({ tool: NOTES_TOOL, ops: [{ op: 'upsert', itemId: 'd99e4f7a-0000', key: 'k', role: 'work', body: '' }] })
+  await settle()
   expect(await shown($, BAND, /Model and|engine/)).toBe('Model and effort policy')
 })
 
@@ -319,19 +372,22 @@ test('the TO hook hands back the result as answered, and ignores an errored or d
 
   answer = { isError: true, result: opened, text: JSON.stringify(opened) }
   const errored = await $.tool.call(open)
+  await settle()
   expect(errored.isError).toBe(true)
-  expect(await shown($, FOOTER, /coordinator|engine/)).toBe('engine')
+  expect(await shown($, FOOTER, /coordinator|orchestrator/)).toBe('orchestrator')
 
   answer = { deny: 'no runs here' }
   await $.tool.call(open)
-  expect(await shown($, FOOTER, /coordinator|engine/)).toBe('engine')
+  await settle()
+  expect(await shown($, FOOTER, /coordinator|orchestrator/)).toBe('orchestrator')
   expect(toasts).toEqual([])
 
   answer = { result: opened, text: JSON.stringify(opened) }
   const ran = await $.tool.call(open)
+  await settle()
   expect(ran.result).toEqual(opened)
   expect(ran.text).toBe(JSON.stringify(opened))
-  expect(await shown($, FOOTER, /coordinator|engine/)).toBe('coordinator')
+  expect(await shown($, FOOTER, /coordinator|orchestrator/)).toBe('coordinator')
 })
 
 test('closing the run does not clear a coordinator that came from the marker', async ($, on) => {
@@ -359,15 +415,17 @@ test('closing the run does not clear a coordinator that came from the marker', a
   })
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  expect(await shown($, FOOTER, /coordinator|engine/)).toBe('coordinator')
+  await settle()
+  expect(await shown($, FOOTER, /coordinator|orchestrator/)).toBe('coordinator')
   expect(toasts.includes('Coordinator of run wave-8')).toBe(true)
 
   await $.tool.call({ tool: RUN_TOOL, ops: [{ op: 'close', runId: RUN_ID, reason: 'completed' }] })
-  expect(await shown($, FOOTER, /coordinator|engine/)).toBe('coordinator')
+  await settle()
+  expect(await shown($, FOOTER, /coordinator|orchestrator/)).toBe('coordinator')
   expect(toasts.includes('Run wave-8 closed')).toBe(false)
 })
 
-test('the band draws the run graph under its name, and nothing while hidden or with no graph', async ($, on) => {
+test('a run with nothing touched draws its facts and the progress; hidden or with no graph, nothing', async ($, on) => {
   let values: Record<string, unknown> = { board: RUN_BOARD, bandHidden: false, focus: null }
   on('state.get', seedState(() => values))
   on('ui.render', ($, e) => {
@@ -378,11 +436,20 @@ test('the band draws the run graph under its name, and nothing while hidden or w
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...BAND, surface })
-    expect((await ui.find({ type: 'Text', text: /^run / }))?.text).toBe('run wave-8')
-    expect(await ui.find({ type: 'Text', text: /DIRECTOR MODE/ })).toBe(undefined)
-    expect((await ui.find({ type: 'Text', text: /^runs 1 open/ }))?.text).toBe('runs 1 open · decisions 2 (1 overdue) · blocked 3')
+    expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toEqual([
+      'run wave-8 open',
+      ' · COORD STALLED',
+      ' · in flight 2 (1 stalled) · ready 1 · waiting 1',
+      '▰▰▱▱▱▱▱▱',
+      '1/5',
+      'q2 → w1 → r0 → ✓1 · blocked 1 · decisions 2 (1 overdue)',
+    ])
+    expect(await ui.find({ type: 'Text', text: /orchestration-mode|DIRECTOR MODE/ })).toBe(undefined)
     await ui.unmount()
   }
+  expect(await shown($, { ...BAND, props: { ...BAND.props, bodyColumns: 130 } }, /tok$/)).toBe(
+    ' · in flight 2 (1 stalled) · ready 1 · waiting 1 · 1.3M tok',
+  )
 
   values = { board: RUN_BOARD, bandHidden: true }
   expect(await shown($, BAND, /run wave-8|engine/)).toBe('engine')
@@ -391,32 +458,60 @@ test('the band draws the run graph under its name, and nothing while hidden or w
   expect(await shown($, BAND, /run wave-8|engine/)).toBe('engine')
 })
 
-test('the band draws the focus graph with no run open', async ($, on) => {
+test('the focus view draws container, progress and item, and a short band drops line 3, then line 2', async ($, on) => {
   const graph: FocusBoard = {
     itemId: 'd99e4f7a-0000',
-    title: 'Model and effort policy',
-    label: 'in-progress',
     counts: { queue: 1, work: 1, review: 0, blocked: 0, terminal: 2 },
     blocked: 1,
-    firstBlocked: { id: '6e91c19b', blocker: 'd8999287' },
+    container: { itemId: 'd99e4f7a-0000', title: 'Model and effort policy', type: 'feature-implementation', label: 'in-progress' },
+    touched: { itemId: '6e91c19b-0000', title: 'A task with a long title that the frame truncates', type: 'feature-task', label: 'queue', blockedBy: 'd8999287' },
   }
+  const touched = { itemId: '6e91c19b-0000', title: 'A task', type: 'feature-task', label: 'queue' }
+  let maxRows = 6
   on(
     'state.get',
     seedState(() => ({
       board: { ...RUN_BOARD, runs: [], focus: graph },
       bandHidden: false,
-      focus: { itemId: 'd99e4f7a', title: 'Model and effort policy', since: 'x' },
+      focus: { itemId: 'd99e4f7a', title: 'Model and effort policy', since: 'x', touched },
     })),
   )
+  const band = () => ({ ...BAND, props: { ...BAND.props, maxRows } })
 
   for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await $.ui.mount({ ...BAND, surface })
-    expect((await ui.find({ type: 'Text', text: /^Model and/ }))?.text).toBe('Model and effort policy')
-    expect((await ui.find({ type: 'Text', text: /^2\/4$/ }))?.text).toBe('2/4')
-    expect((await ui.find({ type: 'Text', text: /^q1/ }))?.text).toBe('q1 → w1 → r0 → ✓2 · blocked 1 · decisions 2 (1 overdue)')
-    expect((await ui.find({ type: 'Text', text: /^in-progress/ }))?.text).toBe('in-progress · blocked 1: 6e91c19b waits on d8999287')
+    const ui = await $.ui.mount({ ...band(), surface })
+    expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toEqual([
+      'Model and effort policy',
+      ' · feature-implementation · in-progress',
+      '▰▰▰▰▱▱▱▱',
+      '2/4',
+      'q1 → w1 → r0 → ✓2 · blocked 1 · decisions 2 (1 overdue)',
+      '6e91c19b · feature-task · queue · ',
+      'A task with a long title that the frame truncates',
+      ' · blocked by d8999287',
+    ])
     await ui.unmount()
   }
+
+  maxRows = 4
+  const two = await texts($, band())
+  expect(two).toEqual([
+    'Model and effort policy',
+    ' · feature-implementation · in-progress',
+    '▰▰▰▰▱▱▱▱',
+    '2/4',
+    'q1 → w1 → r0 → ✓2 · blocked 1 · decisions 2 (1 overdue)',
+  ])
+  maxRows = 3
+  const one = await texts($, band())
+  expect(one).toEqual(['Model and effort policy', ' · feature-implementation · in-progress'])
+})
+
+test('before the first read the band names the focus and the touched item around a loading progress line', async ($, on) => {
+  const touched = { itemId: '6e91c19b-0000', title: 'A task', type: 'feature-task', label: 'queue' }
+  on('state.get', seedState(() => ({ board: null, bandHidden: false, focus: { itemId: 'd99e4f7a', title: 'F', since: 'x', touched } })))
+
+  expect(await texts($, BAND)).toEqual(['F', 'loading', '6e91c19b · feature-task · queue · ', 'A task'])
 })
 
 test('the band stays off with userConfig band false', { options: { band: false } }, async ($, on) => {
@@ -451,10 +546,10 @@ test('pure helpers', async () => {
   expect(footerLead(['focus'])).toBe('focus & ')
   expect(footerLead(['focus', 'director', 'coordinator'])).toBe('focus & ')
   expect(footerLead([])).toBe('')
-  expect(footerModes([])).toBe('')
+  expect(footerModes([])).toBe('orchestrator')
   expect(footerModes(['director'])).toBe('director')
   expect(footerModes(['coordinator', 'director'])).toBe('director & coordinator')
-  expect(footerModes(['implementer', 'ralph'])).toBe('')
+  expect(footerModes(['implementer', 'ralph'])).toBe('orchestrator')
   expect(isDirectorSkillCall(' task-orchestrator:director ')).toBe(true)
   expect(isDirectorSkillCall('task-orchestrator:work-summary')).toBe(false)
   expect(isDirectorSkillCall(undefined)).toBe(false)
@@ -557,7 +652,7 @@ test('the focus walk climbs parentId to depth 1, at most six hops', async () => 
   expect(focusFromGet({ title: 'no id' })).toBe(null)
 })
 
-test('focus progress, blocked work, detail and the graph name', async () => {
+test('focus progress, blocked work and the line helpers', async () => {
   const overview = {
     anchor: { id: 'f1' },
     items: [
@@ -566,33 +661,86 @@ test('focus progress, blocked work, detail and the graph name', async () => {
       { id: 'c', role: 'blocked', childCounts: {} },
     ],
   }
-  const counts = focusProgress(overview)
-  expect(counts).toEqual({ queue: 2, work: 1, review: 0, blocked: 1, terminal: 2 })
+  // The focus itself counts too.
+  expect(focusProgress(overview, 'work')).toEqual({ queue: 2, work: 2, review: 0, blocked: 1, terminal: 2 })
+  expect(focusProgress(overview)).toEqual({ queue: 2, work: 1, review: 0, blocked: 1, terminal: 2 })
   expect(focusProgress({ items: [] }, 'review')).toEqual({ queue: 0, work: 0, review: 1, blocked: 0, terminal: 0 })
   expect(focusProgress(undefined)).toEqual({ queue: 0, work: 0, review: 0, blocked: 0, terminal: 0 })
   const blocked = focusBlocked({
-    items: [{ id: '6e91c19b', blockers: [{ id: 'ff08e631-x', satisfied: true }, { id: 'd8999287-71c9', satisfied: false }] }],
+    items: [
+      { id: '6e91c19b', blockers: [{ id: 'ff08e631-x', satisfied: true }, { id: 'd8999287-71c9', satisfied: false }] },
+      { id: '3851441D', blockers: [{ id: '95c660e2-617b', satisfied: false }] },
+    ],
     page: { total: 3 },
   })
-  expect(blocked).toEqual({ total: 3, first: { id: '6e91c19b', blocker: 'd8999287' } })
-  expect(focusBlocked({ items: [], page: { total: 0 } })).toEqual({ total: 0 })
-  const graph: FocusBoard = { itemId: 'f1', title: 'Feature', label: 'in-progress', counts, blocked: 3, firstBlocked: blocked.first }
-  const board: Board = { at: 'x', runs: [], decisions: { open: 2, overdue: 1 }, blocked: 5, focus: graph }
-  expect(focusDetail(board, graph)).toBe('q2 → w1 → r0 → ✓2 · blocked 3 · decisions 2 (1 overdue)')
-  expect(focusDetail(board, { ...graph, blocked: null })).toBe('q2 → w1 → r0 → ✓2 · blocked 1 · decisions 2 (1 overdue)')
-  expect(focusDetail(null, graph)).toBe('board loading')
-  expect(focusDetail(board, null)).toBe('board loading')
-  expect(focusRowCell(graph)).toBe('in-progress · blocked 3: 6e91c19b waits on d8999287')
-  expect(focusRowCell({ ...graph, blocked: 0, firstBlocked: undefined })).toBe('in-progress · blocked 0')
-  expect(focusRowCell({ ...graph, label: '', blocked: null })).toBe('no phase')
-  expect(graphTitle([RUN], undefined)).toBe('run wave-8')
-  expect(graphTitle([RUN, { ...RUN, id: 'p' }], undefined)).toBe('run wave-8 +1')
-  expect(graphTitle([{ ...RUN, label: '' }], undefined)).toBe('run Band demo wave')
-  expect(graphTitle([], 'A focus title that is far too long')).toBe('A focus title that is f…')
-  expect(graphTitle([], undefined)).toBe('')
+  expect(blocked).toEqual({ total: 3, blockers: { '6e91c19b': 'd8999287', '3851441d': '95c660e2' } })
+  expect(blockerOf(blocked.blockers, '6e91c19b-0000-full')).toBe('d8999287')
+  expect(blockerOf(blocked.blockers, 'ffffffff')).toBe(undefined)
+  expect(focusBlocked({ items: [], page: { total: 0 } })).toEqual({ total: 0, blockers: {} })
+  expect(itemLead({ itemId: 'd8999287-71c9-4b30', title: 't', type: 'plugin-change', label: 'in-progress' })).toBe(
+    'd8999287 · plugin-change · in-progress',
+  )
+  expect(itemLead({ itemId: 'd8999287', title: 't', type: '', label: 'work' })).toBe('d8999287 · work')
+  expect(blockedByCell('95c660e2-617b-49ef')).toBe('blocked by 95c660e2')
 })
 
-test('a run row is built from the list item and its frontier', async () => {
+test('line 1: counts across the runs or the focus, only the non-zero extras', async () => {
+  const paused: BoardRun = { ...RUN, id: 'p', status: 'paused', pauseReason: 'attempt-cap', stalled: 0, coordinatorStalled: false }
+  const board: Board = { at: 'x', runs: [RUN, paused], decisions: { open: 2, overdue: 1 } }
+  expect(graphCounts(board)).toEqual({
+    counts: { queue: 4, work: 2, review: 0, blocked: 2, terminal: 2 },
+    done: 2,
+    total: 10,
+    blocked: 2,
+    attention: true,
+  })
+  expect(graphCounts({ ...board, runs: [paused] }).attention).toBe(false)
+  expect(graphDetail(board)).toBe('q4 → w2 → r0 → ✓2 · blocked 2 · decisions 2 (1 overdue)')
+  const calm: Board = { at: 'x', runs: [{ ...RUN, counts: { ...RUN.counts, blocked: 0 } }], decisions: { open: 0, overdue: 0 } }
+  expect(graphDetail(calm)).toBe('q2 → w1 → r0 → ✓1')
+  const focusOnly: Board = {
+    at: 'x',
+    runs: [],
+    decisions: null,
+    focus: { itemId: 'f', counts: { queue: 1, work: 0, review: 0, blocked: 0, terminal: 1 }, blocked: 0, container: null, touched: null },
+  }
+  expect(graphCounts(focusOnly)).toEqual({ counts: focusOnly.focus?.counts, done: 1, total: 2, blocked: 0, attention: false })
+  expect(graphDetail(focusOnly)).toBe('q1 → w0 → r0 → ✓1')
+  expect(graphDetail(null)).toBe('loading')
+  expect(graphDetail({ ...board, error: 'http 502: no JSON body' })).toBe('board unavailable: http 502: no JSON body')
+  expect(boardProgress(board)).toEqual({ done: 2, total: 10 })
+  expect(boardProgress(null)).toEqual({ done: 0, total: 0 })
+  expect(progressBar(2, 10)).toBe('▰▰▱▱▱▱▱▱')
+  expect(progressBar(0, 0)).toBe('▱▱▱▱▱▱▱▱')
+  expect(progressBar(5, 4, 4)).toBe('▰▰▰▰')
+  expect(decisionCounts({ items: [{ status: 'open', overdue: true }, { status: 'acknowledged' }, { status: 'answered' }] })).toEqual({
+    open: 2,
+    overdue: 1,
+  })
+  expect(listTotal({ items: [{}, {}], page: { total: 7 } })).toBe(7)
+  expect(listTotal({ items: [{}, {}] })).toBe(2)
+})
+
+test('line 2: the container, then the run facts', async () => {
+  const feature = { itemId: 'f', title: 'Phase 4 plan', type: 'feature-implementation', label: 'in-progress' }
+  expect(containerLine(null, [], 100)).toBe(null)
+  expect(containerLine(feature, [], 100)).toEqual({ name: 'Phase 4 plan', lead: 'feature-implementation · in-progress', chip: undefined, tail: '' })
+  expect(containerLine(feature, [RUN], 130)).toEqual({
+    name: 'Phase 4 plan',
+    lead: 'feature-implementation · in-progress · run wave-8 open',
+    chip: { text: 'COORD STALLED', color: 'error' },
+    tail: 'in flight 2 (1 stalled) · ready 1 · waiting 1 · 1.3M tok',
+  })
+  const paused: BoardRun = { ...RUN, id: 'p', status: 'paused', pauseReason: 'run-budget' }
+  expect(containerLine(null, [paused], 100)?.chip).toEqual({ text: 'PAUSED run-budget', color: 'warning' })
+  expect(containerLine(null, [RUN, { ...RUN, id: 'r2' }], 100)?.lead).toBe('2 runs open')
+  expect(containerLine(null, [RUN, paused], 100)?.lead).toBe('2 runs, 1 open, 1 paused')
+  expect(containerLine(null, [{ ...RUN, label: 'a label far too long for the line two cell' }], 100)?.lead).toBe(
+    'run a label far too long fo… open',
+  )
+})
+
+test('a run is built from the list item and its frontier', async () => {
   expect(runFromList({ ...LISTED, status: 'closed' })).toBe(null)
   const listed = runFromList(LISTED)
   expect(listed?.status).toBe('open')
@@ -604,9 +752,10 @@ test('a run row is built from the list item and its frontier', async () => {
   expect(run.inFlight).toBe(2)
   expect(run.waiting).toBe(1)
   expect(run.stalled).toBe(1)
-  expect(runName(run)).toBe('Band demo wave')
-  expect(runName({ ...run, title: 'A title that is far too long for one cell' })).toBe('A title that is far too…')
-  expect(runName({ ...run, title: '', label: '' })).toBe('a51588a2')
+  expect(runLabel(run)).toBe('wave-8')
+  expect(runLabel({ ...run, label: '' })).toBe('Band demo wave')
+  expect(runLabel({ ...run, label: '', title: 'A title that is far too long for one cell' })).toBe('A title that is far too…')
+  expect(runLabel({ ...run, title: '', label: '' })).toBe('a51588a2')
   expect(phaseCell(run.counts)).toBe('q2 → w1 → r0 → ✓1 · blocked 1')
   expect(phaseCell({ ...run.counts, blocked: 0 })).toBe('q2 → w1 → r0 → ✓1')
   expect(seatsCell(run)).toBe('in flight 2 (1 stalled) · ready 1 · waiting 1')
@@ -616,25 +765,4 @@ test('a run row is built from the list item and its frontier', async () => {
   expect(formatTokens(run.tokens)).toBe('1.3M')
   expect(formatTokens(26_400)).toBe('26k')
   expect(formatTokens(12)).toBe('12')
-})
-
-test('the mode row: bar, totals, and the loading and fault states', async () => {
-  const run = withFrontier(runFromList(LISTED) as BoardRun, FRONTIER)
-  const paused: BoardRun = { ...run, id: 'p', status: 'paused', pauseReason: 'attempt-cap' }
-  const board: Board = { at: '2026-11-07T14:02:00.000Z', runs: [run, paused], decisions: { open: 2, overdue: 1 }, blocked: 3 }
-  expect(boardProgress(board)).toEqual({ done: 2, total: 10 })
-  expect(boardProgress(null)).toEqual({ done: 0, total: 0 })
-  expect(progressBar(2, 10)).toBe('▰▰▱▱▱▱▱▱')
-  expect(progressBar(0, 0)).toBe('▱▱▱▱▱▱▱▱')
-  expect(progressBar(5, 4, 4)).toBe('▰▰▰▰')
-  expect(modeDetail(board)).toBe('runs 1 open, 1 paused · decisions 2 (1 overdue) · blocked 3')
-  expect(modeDetail({ ...board, runs: [run], decisions: { open: 0, overdue: 0 }, blocked: null })).toBe('runs 1 open · decisions 0')
-  expect(modeDetail(null)).toBe('board loading')
-  expect(modeDetail({ ...board, error: 'http 502: no JSON body' })).toBe('board unavailable: http 502: no JSON body')
-  expect(decisionCounts({ items: [{ status: 'open', overdue: true }, { status: 'acknowledged' }, { status: 'answered' }] })).toEqual({
-    open: 2,
-    overdue: 1,
-  })
-  expect(listTotal({ items: [{}, {}], page: { total: 7 } })).toBe(7)
-  expect(listTotal({ items: [{}, {}] })).toBe(2)
 })

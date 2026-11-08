@@ -1,7 +1,7 @@
 // Pure helpers for the orchestration-mode mod. No `$`, no atoms: indicator.ts feeds these values and
 // draws what they return, so they are unit-testable with the plugin test kit alone.
 
-import type { Board, BoardRun, CoordinatorState, FocusBoard, PhaseCounts } from '../types'
+import type { Board, BoardRun, CoordinatorState, ItemFacts, PhaseCounts } from '../types'
 
 /** The skill whose Skill tool call enters (or, with args `off`, leaves) director mode. */
 export const DIRECTOR_SKILL = 'task-orchestrator:director'
@@ -93,11 +93,14 @@ export function modesOn(on: readonly string[]): ModeEntry[] {
   return MODES.filter(mode => on.includes(mode.name))
 }
 
-/** The footer's mode text: the roster modes that are on joined with ` & `; '' when none is. */
+/** The mode a session is in when no roster mode is on, named in the footer at rest. */
+export const REST_MODE = 'orchestrator'
+
+/** The footer's mode text: the roster modes that are on joined with ` & `; `orchestrator` when none is. */
 export function footerModes(on: readonly string[]): string {
-  return modesOn(on)
-    .map(mode => mode.name)
-    .join(' & ')
+  const names = modesOn(on).map(mode => mode.name)
+
+  return names.length > 0 ? names.join(' & ') : REST_MODE
 }
 
 /** The native labels that precede ours in the footer slot, joined as the engine joins them. */
@@ -345,9 +348,9 @@ export function cut(text: string, max = 24): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text
 }
 
-/** The run's short name: the title cut to `max` characters, else the label, else the id prefix. */
-export function runName(run: BoardRun, max = 24): string {
-  return cut(run.title || run.label || run.id.slice(0, 8), max)
+/** The run's short name on the container line: its label, else its title, else the id prefix, cut to `max`. */
+export function runLabel(run: BoardRun, max = 24): string {
+  return cut(run.label || run.title || run.id.slice(0, 8), max)
 }
 
 /** The seats cell: `in flight 2 · ready 1 · waiting 1`, with the stall count when any. */
@@ -357,7 +360,7 @@ export function seatsCell(run: BoardRun): string {
   return [flight, `ready ${run.ready}`, `waiting ${run.waiting}`].join(' · ')
 }
 
-/** The paused run's cell in place of its bar: `PAUSED run-budget`. */
+/** The paused run's chip: `PAUSED run-budget`. */
 export function pausedCell(run: BoardRun): string {
   return run.pauseReason ? `PAUSED ${run.pauseReason}` : 'PAUSED'
 }
@@ -379,42 +382,112 @@ function decisionsCell(d: { open: number; overdue: number }): string {
   return d.overdue > 0 ? `decisions ${d.open} (${d.overdue} overdue)` : `decisions ${d.open}`
 }
 
-/** The dim text after the title on the runs view: the board's totals, or why there are none. */
-export function modeDetail(board: Board): string {
-  if (board === null) return 'board loading'
+// ---------------------------------------------------------------------------------------------
+// The band's three lines: the container, the progress, the work item this session touched.
+// ---------------------------------------------------------------------------------------------
+
+const zero = (): PhaseCounts => ({ queue: 0, work: 0, review: 0, blocked: 0, terminal: 0 })
+
+/**
+ * Line 2's numbers: the phase counts across every member (the runs' members, else the focus subtree
+ * with the focus itself), done over total, the blocked count, and whether a seat or a coordinator is
+ * stalled (the bar turns red).
+ */
+export function graphCounts(board: Board): { counts: PhaseCounts; done: number; total: number; blocked: number; attention: boolean } {
+  const runs = board?.runs ?? []
+  if (runs.length > 0) {
+    const counts = zero()
+    for (const run of runs) for (const r of ROLES) counts[r] += run.counts[r]
+
+    return {
+      counts,
+      done: counts.terminal,
+      total: runTotal(counts),
+      blocked: counts.blocked,
+      attention: runs.some(run => run.stalled > 0 || run.coordinatorStalled),
+    }
+  }
+  const counts = board?.focus?.counts ?? zero()
+
+  return { counts, done: counts.terminal, total: runTotal(counts), blocked: board?.focus?.blocked ?? counts.blocked, attention: false }
+}
+
+/**
+ * Line 2's text after the bar: the pipeline `q2 → w1 → r1 → ✓3`, then only the counts that are not
+ * zero (`blocked 1`, `decisions 2 (1 overdue)`); `loading` before the first read, the fault after a
+ * failed one.
+ */
+export function graphDetail(board: Board): string {
+  if (board === null) return 'loading'
   if (board.error !== undefined) return `board unavailable: ${board.error}`
-  const parts: string[] = []
-  const open = board.runs.filter(r => r.status === 'open').length
-  const paused = board.runs.length - open
-  parts.push(paused > 0 ? `runs ${open} open, ${paused} paused` : `runs ${open} open`)
-  if (board.decisions !== null) parts.push(decisionsCell(board.decisions))
-  if (board.blocked !== null) parts.push(`blocked ${board.blocked}`)
+  const { counts, blocked } = graphCounts(board)
+  const parts = [phaseCell({ ...counts, blocked: 0 })]
+  if (blocked > 0) parts.push(`blocked ${blocked}`)
+  if (board.decisions !== null && board.decisions.open > 0) parts.push(decisionsCell(board.decisions))
 
   return parts.join(' · ')
 }
 
-// ---------------------------------------------------------------------------------------------
-// The graph's name, and the focus item: the graph this session drives when no run is open.
-// ---------------------------------------------------------------------------------------------
-
-/**
- * The band's title cell: `run <label|title>` for the runs view (with `+N` for the other runs),
- * else the focus title; cut to `max`. Empty when there is neither.
- */
-export function graphTitle(runs: readonly BoardRun[], focusTitle: string | undefined, max = 24): string {
-  const first = runs[0]
-  if (first !== undefined) {
-    const name = first.label || first.title || first.id.slice(0, 8)
-    const more = runs.length > 1 ? ` +${runs.length - 1}` : ''
-
-    return cut(`run ${name}`, max - more.length) + more
-  }
-
-  return cut(focusTitle ?? '', max)
+/** Line 1, the container: `name`, then dim cells, a coloured chip, then dim run facts. Null when there is none. */
+export type ContainerLine = {
+  name?: string
+  lead: string
+  chip?: { text: string; color: 'warning' | 'error' }
+  tail: string
 }
 
+/**
+ * Line 1: the root of the work the graph belongs to. The container's name, type and phase label, then,
+ * with a run open, `run <label> <status>` (or `2 runs open`), the first run's chip, its seats and, at
+ * 120 columns or more, its tokens. Null with no container and no run.
+ */
+export function containerLine(container: ItemFacts | null | undefined, runs: readonly BoardRun[], columns: number): ContainerLine | null {
+  const first = runs[0]
+  if ((container === null || container === undefined) && first === undefined) return null
+  const lead = container ? [container.type, container.label] : []
+  if (first !== undefined) {
+    const open = runs.filter(run => run.status === 'open').length
+    const paused = runs.length - open
+    if (runs.length === 1) lead.push(`run ${runLabel(first)} ${first.status}`)
+    else lead.push(paused > 0 ? `${runs.length} runs, ${open} open, ${paused} paused` : `${runs.length} runs open`)
+  }
+  const chip =
+    first === undefined
+      ? undefined
+      : first.status === 'paused'
+        ? { text: pausedCell(first), color: 'warning' as const }
+        : first.coordinatorStalled
+          ? { text: 'COORD STALLED', color: 'error' as const }
+          : undefined
+  const tail = first === undefined ? [] : [seatsCell(first), ...(columns >= 120 ? [`${formatTokens(first.tokens)} tok`] : [])]
+
+  return {
+    name: container?.title || undefined,
+    lead: lead.filter(cell => cell !== '').join(' · '),
+    chip,
+    tail: tail.join(' · '),
+  }
+}
+
+/** Line 3's dim lead before the title: `d8999287 · plugin-change · in-progress`. */
+export function itemLead(item: ItemFacts): string {
+  return [item.itemId.slice(0, 8), item.type, item.label].filter(cell => cell !== '').join(' · ')
+}
+
+/** Line 3's blocker cell: `blocked by 95c660e2`. */
+export function blockedByCell(blocker: string): string {
+  return `blocked by ${blocker.slice(0, 8)}`
+}
+
+/** One separator between band cells. */
+export const SEP = ' · '
+
+// ---------------------------------------------------------------------------------------------
+// The focus walk: the top-most item below the project root of the item this session touched.
+// ---------------------------------------------------------------------------------------------
+
 /** One item as the focus walk needs it, from an `items_read` `get` result's `data`. */
-export type FocusItem = { id: string; parentId: string | null; depth: number; title: string; label: string; role: string }
+export type FocusItem = { id: string; parentId: string | null; depth: number; title: string; type: string; label: string; role: string }
 
 /** The focus walk's view of an `items_read` `get` result; null for anything without an id. */
 export function focusFromGet(data: unknown): FocusItem | null {
@@ -426,9 +499,15 @@ export function focusFromGet(data: unknown): FocusItem | null {
     parentId: typeof data.parentId === 'string' && data.parentId !== '' ? data.parentId : null,
     depth: typeof data.depth === 'number' ? data.depth : 0,
     title: str(data.title),
+    type: str(data.type),
     label: str(data.statusLabel) || role,
     role,
   }
+}
+
+/** The facts a band line shows of an item. */
+export function itemFacts(item: FocusItem): ItemFacts {
+  return { itemId: item.id, title: item.title, type: item.type, label: item.label }
 }
 
 /** The most `parentId` hops the focus walk takes before it settles on where it got to. */
@@ -442,8 +521,11 @@ export function focusParent(item: FocusItem): string | null {
   return item.depth <= 1 ? null : item.parentId
 }
 
-/** A focus walk's result: the focus item, and every id the walk read on the way (the start id too). */
-export type FocusWalk = { item: FocusItem; walked: string[] }
+/**
+ * A focus walk's result: the focus item, the touched item itself (the walk's first read), and every
+ * id the walk read on the way (the start id too).
+ */
+export type FocusWalk = { item: FocusItem; start: FocusItem; walked: string[] }
 
 /**
  * Walks from `startId` up `parentId` to the focus item (focusParent), reading each hop through `get`
@@ -466,6 +548,7 @@ export async function resolveFocus(
     return null
   }
   if (item === null) return null
+  const start = item
   walked.push(item.id)
   for (let hop = 0; hop < maxHops; hop++) {
     const parent = focusParent(item)
@@ -473,7 +556,7 @@ export async function resolveFocus(
     const cached = known(parent)
     if (cached !== undefined) {
       walked.push(parent)
-      return { item: cached, walked }
+      return { item: cached, start, walked }
     }
     let next: FocusItem | null
     try {
@@ -486,7 +569,7 @@ export async function resolveFocus(
     walked.push(next.id)
   }
 
-  return { item, walked }
+  return { item, start, walked }
 }
 
 /** True when two item or run ids name the same thing: one is a case-insensitive prefix of the other. */
@@ -501,61 +584,44 @@ export function sameId(a: string, b: string): boolean {
 const ROLES = ['queue', 'work', 'review', 'blocked', 'terminal'] as const
 
 /**
- * The focus graph's phase counts from an `items_read` `overview` `{anchorId}` result: each child
- * counted in its own role plus its subtree's `childCounts`. A focus item with no children counts as
- * one member in its own role (`selfRole`).
+ * The focus graph's phase counts from an `items_read` `overview` `{anchorId}` result: the focus
+ * itself in its own role (`selfRole`), then each child in its role plus its subtree's `childCounts`.
  */
 export function focusProgress(overview: unknown, selfRole = ''): PhaseCounts {
-  const counts: PhaseCounts = { queue: 0, work: 0, review: 0, blocked: 0, terminal: 0 }
-  const children = listItems(overview)
-  for (const child of children) {
+  const counts = zero()
+  const self = ROLES.find(r => r === selfRole)
+  if (self !== undefined) counts[self] += 1
+  for (const child of listItems(overview)) {
     const role = ROLES.find(r => r === child.role)
     if (role !== undefined) counts[role] += 1
     const below = isObj(child.childCounts) ? child.childCounts : {}
     for (const r of ROLES) counts[r] += num(below[r])
   }
-  if (children.length === 0) {
-    const role = ROLES.find(r => r === selfRole)
-    if (role !== undefined) counts[role] = 1
-  }
 
   return counts
 }
 
-/** The blocked work under the focus, from an `items_read` `blocked` `{ancestorId}` result. */
-export function focusBlocked(data: unknown): { total: number; first?: { id: string; blocker?: string } } {
-  const items = listItems(data)
-  const total = listTotal(data)
-  const head = items[0]
-  if (head === undefined || typeof head.id !== 'string') return { total }
-  const blockers = Array.isArray(head.blockers) ? head.blockers.filter(isObj) : []
-  const open = blockers.find(b => b.satisfied !== true) ?? blockers[0]
-  const blocker = open !== undefined && typeof open.id === 'string' ? open.id.slice(0, 8) : undefined
-
-  return { total, first: { id: head.id.slice(0, 8), blocker } }
-}
-
-/** The dim text after the title on the focus view: `q1 → w2 → r0 → ✓3 · blocked 1 · decisions 2`. */
-export function focusDetail(board: Board, focus: FocusBoard | null | undefined): string {
-  if (board === null || focus === null || focus === undefined) return 'board loading'
-  if (board.error !== undefined) return `board unavailable: ${board.error}`
-  const parts = [phaseCell({ ...focus.counts, blocked: 0 })]
-  parts.push(`blocked ${focus.blocked ?? focus.counts.blocked}`)
-  if (board.decisions !== null) parts.push(decisionsCell(board.decisions))
-
-  return parts.join(' · ')
-}
-
-/** The focus row: the item's own phase label, then its blocked work with the first blocked item. */
-export function focusRowCell(focus: FocusBoard): string {
-  const parts = [focus.label || 'no phase']
-  if (focus.blocked !== null) {
-    const first = focus.firstBlocked
-    const who = first === undefined ? '' : first.blocker ? `: ${first.id} waits on ${first.blocker}` : `: ${first.id}`
-    parts.push(`blocked ${focus.blocked}${who}`)
+/**
+ * The blocked work under the focus, from an `items_read` `blocked` `{ancestorId}` result: the total,
+ * and the first unsatisfied blocker (8-character id) of each listed item, by the listed item's id.
+ */
+export function focusBlocked(data: unknown): { total: number; blockers: Record<string, string> } {
+  const blockers: Record<string, string> = {}
+  for (const item of listItems(data)) {
+    if (typeof item.id !== 'string') continue
+    const all = Array.isArray(item.blockers) ? item.blockers.filter(isObj) : []
+    const open = all.find(b => b.satisfied !== true) ?? all[0]
+    if (open !== undefined && typeof open.id === 'string') blockers[item.id.toLowerCase()] = open.id.slice(0, 8)
   }
 
-  return parts.join(' · ')
+  return { total: listTotal(data), blockers }
+}
+
+/** The blocker `focusBlocked` found for `itemId`, matched by id prefix either way. */
+export function blockerOf(blockers: Record<string, string>, itemId: string): string | undefined {
+  for (const [id, blocker] of Object.entries(blockers)) if (sameId(id, itemId)) return blocker
+
+  return undefined
 }
 
 // ---------------------------------------------------------------------------------------------

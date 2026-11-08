@@ -21,7 +21,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions, Timer, ToolCallResult } from 'claude-code'
 
-import type { Board, BoardRun, CoordinatorState, DirectorState, FocusBoard, FocusState } from '../types'
+import type { Board, BoardRun, CoordinatorState, DirectorState, FocusBoard, FocusState, ItemFacts } from '../types'
 import type { FocusItem } from './model.ts'
 import {
   BACKDROP_ALT,
@@ -37,9 +37,12 @@ import {
   MIN_BAND_COLUMNS,
   MIN_REFRESH_GAP_MS,
   REFRESH_MS,
+  SEP,
   backdropSvg,
-  boardProgress,
+  blockedByCell,
+  blockerOf,
   closedRunIds,
+  containerLine,
   coordinatorFromMarker,
   coordinatorFromOpen,
   coordinatorToast,
@@ -47,22 +50,18 @@ import {
   enterToast,
   envelopeData,
   focusBlocked,
-  focusDetail,
   focusFromGet,
   focusProgress,
-  focusRowCell,
   footerLead,
   footerModes,
-  formatTokens,
-  graphTitle,
+  graphCounts,
+  graphDetail,
   isDirectorSkillCall,
+  itemFacts,
+  itemLead,
   listItems,
-  listTotal,
   markerPath,
-  modeDetail,
   modesOn,
-  pausedCell,
-  phaseCell,
   progressBar,
   resolveFocus,
   restData,
@@ -70,10 +69,7 @@ import {
   runClosedToast,
   runFromList,
   runIsClosed,
-  runName,
-  runTotal,
   sameId,
-  seatsCell,
   tmpDir,
   toolBase,
   toolEnvelope,
@@ -104,6 +100,8 @@ let backdropMode: string | null = null
 let ticker: Timer | null = null
 let lastRefreshAt = 0
 let refreshing = false
+/** A refresh still running after this long is taken as hung (a read that never answers) and no longer blocks the next. */
+const REFRESH_STALE_MS = 60_000
 /** A forced refresh asked for while one ran: run it once that one ends. */
 let refreshAgain = false
 /**
@@ -112,6 +110,8 @@ let refreshAgain = false
  */
 const resolvedFocus = new Map<string, FocusItem>()
 /** Failed `runs_read` `get` reads in a row of the coordinated run; at the cap the mode is cleared. */
+/** Touched item id (lowercase) to that item as its walk first read it (line 3's facts until the board reads it). */
+const touchedItems = new Map<string, FocusItem>()
 let coordReadFailures = 0
 const MAX_COORD_READ_FAILURES = 3
 
@@ -197,24 +197,40 @@ async function directorRead($: EngineInterface, tool: string, args: Record<strin
   return restData(response.status, response.text)
 }
 
-/** The focus graph: the item itself, its subtree's phase counts and the blocked work under it. */
+/**
+ * The focus graph: the focus item, its subtree's phase counts (itself included), the blocked work
+ * under it, its container (line 1) and the touched item as it stands now (line 3).
+ */
 async function readFocus($: EngineInterface, current: NonNullable<FocusState>): Promise<FocusBoard> {
   const quiet = (p: Promise<unknown>): Promise<unknown> => p.catch(() => undefined)
-  const [item, overview, blockedData] = await Promise.all([
+  const touchedIsFocus = sameId(current.touched.itemId, current.itemId)
+  const [item, overview, blockedData, touchedData] = await Promise.all([
     quiet(directorRead($, 'items_read', { select: 'get', itemId: current.itemId })),
     quiet(directorRead($, 'items_read', { select: 'overview', anchorId: current.itemId, limit: 200 })),
-    quiet(directorRead($, 'items_read', { select: 'blocked', ancestorId: current.itemId, limit: 20 })),
+    quiet(directorRead($, 'items_read', { select: 'blocked', ancestorId: current.itemId, limit: 50 })),
+    touchedIsFocus ? Promise.resolve(undefined) : quiet(directorRead($, 'items_read', { select: 'get', itemId: current.touched.itemId })),
   ])
   const self = focusFromGet(item)
   const blocked = blockedData === undefined ? undefined : focusBlocked(blockedData)
+  // The focus is the container when it has children (an ancestor of the touched item always has);
+  // a childless focus below depth 1 (a walk that settled early) hands the line to its parent; a lone
+  // leaf below the root is its own container.
+  const hasChildren = !touchedIsFocus || listItems(overview).length > 0
+  let container: ItemFacts | null = self === null ? null : itemFacts(self)
+  if (self !== null && !hasChildren && self.depth >= 2 && self.parentId !== null) {
+    const parent = focusFromGet(await quiet(directorRead($, 'items_read', { select: 'get', itemId: self.parentId })))
+    if (parent !== null) container = itemFacts(parent)
+  }
+  const touchedNow = touchedIsFocus ? self : focusFromGet(touchedData)
+  const touched = touchedNow === null ? current.touched : itemFacts(touchedNow)
+  const blockedBy = blocked === undefined ? undefined : blockerOf(blocked.blockers, touched.itemId)
 
   return {
     itemId: current.itemId,
-    title: self?.title || current.title,
-    label: self?.label ?? '',
     counts: focusProgress(overview, self?.role),
     blocked: blocked?.total ?? null,
-    firstBlocked: blocked?.first,
+    container,
+    touched: blockedBy === undefined ? touched : { ...touched, blockedBy },
   }
 }
 
@@ -227,13 +243,13 @@ async function clearCoordinator($: EngineInterface, label: string): Promise<void
 }
 
 /**
- * Reads the board (open and paused runs with their frontiers, decisions waiting, blocked work, and,
- * with no run, the focus graph) and stores it, which redraws the band. Faults land in `board.error`
+ * Reads the board (open and paused runs with their frontiers, decisions waiting, and, once a TO call
+ * named an item, the focus graph) and stores it, which redraws the band. Faults land in `board.error`
  * and keep the last read. Skipped while the band is off or hidden and no run is coordinated.
  */
 async function refreshBoard($: EngineInterface, force = false): Promise<void> {
   const now = Date.now()
-  if (refreshing) {
+  if (refreshing && now - lastRefreshAt < REFRESH_STALE_MS) {
     if (force) refreshAgain = true
     return
   }
@@ -272,27 +288,20 @@ async function refreshBoard($: EngineInterface, force = false): Promise<void> {
       coordReadFailures = 0
     }
     let decisions: { open: number; overdue: number } | null = null
-    let blocked: number | null = null
     try {
       decisions = decisionCounts(await directorRead($, 'runs_read', { select: 'decisions', limit: 50 }))
     } catch {
       // decisions stay unknown
     }
-    try {
-      blocked = listTotal(await directorRead($, 'items_read', { select: 'blocked' }))
-    } catch {
-      // blocked stays unknown
-    }
     const current = await read($, focus)
-    const focusBoard = runs.length === 0 && current !== null ? await readFocus($, current) : null
-    await update($, board, () => ({ at: new Date().toISOString(), runs, decisions, blocked, focus: focusBoard }))
+    const focusBoard = current !== null ? await readFocus($, current) : null
+    await update($, board, () => ({ at: new Date().toISOString(), runs, decisions, focus: focusBoard }))
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     await update($, board, prev => ({
       at: new Date().toISOString(),
       runs: prev?.runs ?? [],
       decisions: prev?.decisions ?? null,
-      blocked: prev?.blocked ?? null,
       focus: prev?.focus ?? null,
       error: message,
     }))
@@ -352,10 +361,16 @@ async function reconcile($: EngineInterface): Promise<void> {
   await refreshBoard($, turnedOn)
 }
 
-/** Moves the focus to the top-most item below the project root of `itemId`, walked once per id. */
+/**
+ * Records `itemId` as the touched item (line 3) and moves the focus to its top-most ancestor below
+ * the project root (lines 1 and 2).
+ */
 async function focusOn($: EngineInterface, itemId: string): Promise<void> {
-  let target = resolvedFocus.get(itemId.toLowerCase())
-  if (target === undefined) {
+  const key = itemId.toLowerCase()
+  let target = resolvedFocus.get(key)
+  let touched = touchedItems.get(key)
+  if (target === undefined || touched === undefined) {
+    // Walked once per id; a sibling's walk stops at the first ancestor an earlier walk resolved.
     const walk = await resolveFocus(
       itemId,
       id => directorRead($, 'items_read', { select: 'get', itemId: id }),
@@ -364,11 +379,14 @@ async function focusOn($: EngineInterface, itemId: string): Promise<void> {
     )
     if (walk === null) return
     target = walk.item
+    touched = walk.start
     for (const id of walk.walked) resolvedFocus.set(id.toLowerCase(), walk.item)
+    touchedItems.set(key, walk.start)
+    touchedItems.set(walk.start.id.toLowerCase(), walk.start)
   }
   const current = await read($, focus)
-  if (current !== null && sameId(current.itemId, target.id)) return
-  const next = { itemId: target.id, title: target.title, since: new Date().toISOString() }
+  if (current !== null && sameId(current.itemId, target.id) && sameId(current.touched.itemId, touched.id)) return
+  const next = { itemId: target.id, title: target.title, since: new Date().toISOString(), touched: itemFacts(touched) }
   await update($, focus, () => next)
   await refreshBoard($, true)
 }
@@ -400,6 +418,15 @@ async function observeCall($: EngineInterface, tool: string, input: Record<strin
 }
 
 export function registerOrchestrationMode(on: On, options: PluginOptions): void {
+  // A fresh start for this load: a refresh or a cache left by an earlier load holds nothing here.
+  refreshing = false
+  refreshAgain = false
+  lastRefreshAt = 0
+  ticker = null
+  backdropMode = null
+  coordReadFailures = 0
+  resolvedFocus.clear()
+  touchedItems.clear()
   backdropWanted = options.backdrop !== false
   bandWanted = options.band !== false
   apiUrl = typeof options.apiUrl === 'string' ? options.apiUrl.trim() : DEFAULT_API_URL
@@ -476,15 +503,15 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
     return next(e)
   })
 
-  // The prompt footer's mode slot (where `focus` and `memory paused` go): while a roster mode is on,
-  // draw the label there as a tree, styled like the native `Fable 5.1 Medium` pair beside it (the
-  // label in the text colour at the model name's weight, the modes dim), after any native labels. A
-  // tree is what the desktop app draws; a rewrite of `modes` reaches only the terminal. Sibling cells
-  // in a centred row, not nested text, so the baseline matches the neighbours. Reading the atoms
-  // here subscribes the footer, so a mode change redraws it.
-  on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
+  // The prompt footer's mode slot (where `focus` and `memory paused` go), dedicated to the mode and
+  // always drawn: `Orchestration Mode orchestrator` at rest, else the roster modes that are on. Styled
+  // like the native `Fable 5.1 Medium` pair beside it (the label in the text colour at the model
+  // name's weight, the modes dim), after any native labels. A tree is what the desktop app draws; a
+  // rewrite of `modes` reaches only the terminal. Sibling cells in a centred row, not nested text, so
+  // the baseline matches the neighbours. Reading the atoms here subscribes the footer, so a mode
+  // change redraws it.
+  on('ui.render', { component: 'SessionMode' }, async ($, e) => {
     const modes = footerModes(modeNames(await read($, director), await read($, coordinator)))
-    if (modes === '') return next(e)
     const { Box, Text } = $.ui.resolve(e)
     const lead = footerLead(e.props.modes)
 
@@ -500,124 +527,107 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
     })
   })
 
-  // The band directly above the prompt, in every mode: the graph's name, its bar and totals, then
-  // one row per open or paused run, or, with no run, one row for the focus item. Not drawn with no
-  // run and no focus, while hidden (`/to-band`) or off (userConfig `band`), while a survey holds the
-  // band, and on a very narrow body.
+  // The band directly above the prompt, in every mode, one line per layer and never more than three:
+  // 1 the container, the root of the work being done (its name full width, type, phase, and the run
+  // facts when a run is open), 2 the progress (bar, done/total, pipeline, the non-zero blocked and
+  // decisions counts), 3 the work item this session last touched (left out when it is the container
+  // itself, a lone leaf). A short band drops line 3, then line 2, never line 1. Not drawn with no run
+  // and no touched item, while hidden (`/to-band`) or off (userConfig `band`), while a survey holds
+  // the band, and on a very narrow body.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (!bandWanted || (await read($, bandHidden))) return next(e)
     if (e.props.hasSurvey || e.props.bodyColumns < MIN_BAND_COLUMNS) return next(e)
     const current = await read($, board)
     const focused = await read($, focus)
-    const allRuns = current?.runs ?? []
-    if (allRuns.length === 0 && focused === null) return next(e)
-    const columns = e.props.bodyColumns
+    const runs = current?.runs ?? []
+    if (runs.length === 0 && focused === null) return next(e)
     const { Box, Text } = $.ui.resolve(e)
 
-    const titleCell = (title: string) =>
-      Box({ key: 'title', flexShrink: 0, children: [Text({ color: 'warning', bold: true, children: title })] })
-    const barCell = (done: number, total: number, attention: boolean) =>
-      total > 0
-        ? [
-            Box({
-              key: 'bar',
-              flexShrink: 0,
-              gap: 1,
-              children: [
-                Text({ color: attention ? 'error' : 'success', children: progressBar(done, total) }),
-                Text({ dimColor: true, tabular: true, children: `${done}/${total}` }),
-              ],
-            }),
-          ]
-        : []
-    const frame = (rows: ReturnType<typeof Box>[]) =>
-      Box({ flexDirection: 'column', paddingX: 1, borderStyle: 'round', borderColor: 'warning', children: rows })
+    // The focus graph read for this focus, if the board has caught up with it.
+    const graph = focused !== null && current?.focus && sameId(current.focus.itemId, focused.itemId) ? current.focus : null
+    const loading = current === null || (runs.length === 0 && graph === null && current.error === undefined)
+    const shown: Board = loading ? null : { ...current, focus: graph }
 
-    if (allRuns.length === 0 && focused !== null) {
-      // The focus view: the focus item's graph, read while no run is open.
-      const graph = current?.focus && sameId(current.focus.itemId, focused.itemId) ? current.focus : null
-      const total = graph === null ? 0 : runTotal(graph.counts)
-      const rows = [
-        Box({
-          key: 'mode',
-          flexDirection: 'row',
-          gap: 2,
-          children: [
-            titleCell(graphTitle([], graph?.title || focused.title)),
-            ...barCell(graph?.counts.terminal ?? 0, total, false),
-            Text({ dimColor: true, wrap: 'truncate', children: focusDetail(current, graph) }),
-          ],
-        }),
-        ...(graph !== null && e.props.maxRows > 3
+    // Until the board has read the focus, line 1 names it from what the walk saw.
+    const fallback: ItemFacts | null =
+      focused === null
+        ? null
+        : sameId(focused.touched.itemId, focused.itemId)
+          ? focused.touched
+          : { itemId: focused.itemId, title: focused.title, type: '', label: '' }
+    const containerFacts = graph !== null ? graph.container : fallback
+
+    // Line 1: the container, with the first run's facts when a run is open.
+    const container = containerLine(containerFacts, runs, e.props.bodyColumns)
+    const line1 =
+      container === null
+        ? null
+        : Box({
+            key: 'container',
+            flexDirection: 'row',
+            children: [
+              ...(container.name !== undefined ? [Text({ color: 'warning', bold: true, wrap: 'truncate', children: container.name })] : []),
+              ...(container.lead !== ''
+                ? [Text({ dimColor: true, wrap: 'truncate', children: container.name !== undefined ? SEP + container.lead : container.lead })]
+                : []),
+              ...(container.chip !== undefined
+                ? [Text({ color: container.chip.color, bold: true, wrap: 'truncate', children: SEP + container.chip.text })]
+                : []),
+              ...(container.tail !== '' ? [Text({ dimColor: true, wrap: 'truncate', children: SEP + container.tail })] : []),
+            ],
+          })
+
+    // Line 2: the progress and summary.
+    const { done, total, attention } = graphCounts(shown)
+    const line2 = Box({
+      key: 'graph',
+      flexDirection: 'row',
+      gap: 1,
+      children: [
+        ...(total > 0
           ? [
               Box({
-                key: 'focus',
-                flexDirection: 'row',
-                gap: 2,
+                key: 'bar',
+                flexShrink: 0,
+                gap: 1,
                 children: [
-                  Text({
-                    color: (graph.blocked ?? 0) > 0 ? 'warning' : undefined,
-                    dimColor: (graph.blocked ?? 0) === 0,
-                    wrap: 'truncate',
-                    children: focusRowCell(graph),
-                  }),
+                  Text({ color: attention ? 'error' : 'success', children: progressBar(done, total) }),
+                  Text({ dimColor: true, tabular: true, children: `${done}/${total}` }),
                 ],
               }),
             ]
           : []),
-      ]
+        Text({ dimColor: true, tabular: true, wrap: 'truncate', children: graphDetail(shown) }),
+      ],
+    })
 
-      return frame(rows)
-    }
+    // Line 3: the item this session last touched, as the board last read it.
+    const touched: (ItemFacts & { blockedBy?: string }) | null =
+      focused === null ? null : graph?.touched && sameId(graph.touched.itemId, focused.touched.itemId) ? graph.touched : focused.touched
+    const isContainer = touched !== null && containerFacts !== null && sameId(touched.itemId, containerFacts.itemId)
+    const blockedBy = touched?.blockedBy
+    const line3 =
+      touched === null || isContainer
+        ? null
+        : Box({
+            key: 'item',
+            flexDirection: 'row',
+            children: [
+              Box({ flexShrink: 0, children: [Text({ dimColor: true, children: itemLead(touched) + SEP })] }),
+              Text({ color: 'text', wrap: 'truncate', children: touched.title }),
+              ...(blockedBy !== undefined
+                ? [Box({ flexShrink: 0, children: [Text({ color: 'error', children: SEP + blockedByCell(blockedBy) })] })]
+                : []),
+            ],
+          })
 
-    // The runs view. The border takes two rows and the mode row one; the rest go to runs.
-    const runRows = Math.max(0, Math.min(MAX_RUN_ROWS, e.props.maxRows - 3))
-    const runs = allRuns.slice(0, runRows)
-    const progress = boardProgress(current)
-    const anyAttention = runs.some(run => run.stalled > 0 || run.coordinatorStalled)
-    const rows = [
-      // The mode row: the graph's name, the board-wide bar, then the totals.
-      Box({
-        key: 'mode',
-        flexDirection: 'row',
-        gap: 2,
-        children: [
-          titleCell(graphTitle(allRuns, undefined)),
-          ...barCell(progress.done, progress.total, anyAttention),
-          Text({ dimColor: true, wrap: 'truncate', children: modeDetail(current) }),
-        ],
-      }),
-      // One row per run: name, the phase pipeline, the seats, then the chip that needs a look.
-      ...runs.map(run => {
-        const total = runTotal(run.counts)
-        const attention = run.stalled > 0 || run.coordinatorStalled
-        const chip = run.status === 'paused' ? pausedCell(run) : run.coordinatorStalled ? 'COORD STALLED' : undefined
+    // The border takes two rows; past that, drop line 3 first, then line 2, never line 1.
+    const room = Math.max(1, e.props.maxRows - 2)
+    const rows = line1 === null ? [line2] : [line1]
+    if (line1 !== null && room >= 2) rows.push(line2)
+    if (line3 !== null && rows.length < room) rows.push(line3)
 
-        return Box({
-          key: run.id,
-          flexDirection: 'row',
-          gap: 2,
-          children: [
-            Box({
-              flexShrink: 0,
-              gap: 1,
-              children: [
-                Text({ dimColor: true, tabular: true, children: `${run.counts.terminal}/${total}` }),
-                Text({ bold: true, children: runName(run) }),
-              ],
-            }),
-            Box({ flexShrink: 0, children: [Text({ dimColor: true, children: phaseCell(run.counts) })] }),
-            Text({ color: attention ? 'error' : undefined, dimColor: !attention, wrap: 'truncate', children: seatsCell(run) }),
-            ...(chip !== undefined
-              ? [Box({ flexShrink: 0, children: [Text({ color: run.status === 'paused' ? 'warning' : 'error', bold: true, children: chip })] })]
-              : []),
-            ...(columns >= 120 ? [Box({ flexShrink: 0, children: [Text({ dimColor: true, children: `${formatTokens(run.tokens)} tok` })] })] : []),
-          ],
-        })
-      }),
-    ]
-
-    return frame(rows)
+    return Box({ flexDirection: 'column', paddingX: 1, borderStyle: 'round', borderColor: 'warning', children: rows })
   })
 
   // The desktop backdrop this plugin set for director mode: an amber gradient with a faint DIRECTOR

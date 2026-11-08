@@ -1,7 +1,7 @@
 {
   "name": "orchestration-mode",
   "version": "0.1.0",
-  "description": "Task Orchestrator in the session itself: a band above the prompt with the progression of the graph this session drives (open runs, else the item it is working on), toggleable with /to-band; a footer label for the modes you see in a session of your own (director, coordinator); a tinted desktop backdrop and toasts (early-access function-hooks API)",
+  "description": "Task Orchestrator in the session itself: a band above the prompt with the progression of the graph this session drives (its container, progress and current item; open runs, else the item it is working on), toggleable with /to-band; a footer label always naming the mode (orchestrator at rest, director, coordinator); a tinted desktop backdrop and toasts (early-access function-hooks API)",
   "author": {
     "name": "Jeff Picklyk"
   },
