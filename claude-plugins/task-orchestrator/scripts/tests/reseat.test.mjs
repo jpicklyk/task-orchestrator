@@ -43,7 +43,7 @@ function realCore() {
 }
 
 function callReseat(core, doc, result, idOrShort, seat, opts) {
-  return execLib.reseat(core, doc, result, idOrShort, seat, opts)
+  return execLib.reseat(core, doc, result, idOrShort, seat, { cause: 'review', ...opts })
 }
 
 // ── fixtures ────────────────────────────────────────────────────────────────────────────────────
@@ -139,7 +139,7 @@ function writeJson(dir, name, obj) {
 }
 
 function cliBase(planPath, resultPath, seat, extra = []) {
-  return ['reseat', '--plan', planPath, '--run', RUN_ID, '--result', resultPath, '--item', SHORT, '--seat', seat, ...extra]
+  return ['reseat', '--plan', planPath, '--run', RUN_ID, '--result', resultPath, '--item', SHORT, '--seat', seat, '--cause', 'review', ...extra]
 }
 
 // ── S1: implementer-a1 prompt ───────────────────────────────────────────────────────────────────
@@ -215,7 +215,7 @@ test('S2: the returned result gains one reseats entry; the input result is not m
   const out = callReseat(realCore(), doc, input, SHORT, 'implementer-a1', { pre: C2 })
   assert.equal(out.ok, true)
   assert.deepEqual(out.result.items[0].reseats, [
-    { seat: 'implementer-a1', baseSeat: 'implementer', cycle: 1, model: 'sonnet', tokens: 'unknown', pre: C2 },
+    { seat: 'implementer-a1', baseSeat: 'implementer', cycle: 1, model: 'sonnet', tokens: 'unknown', effort: out.effort, cause: 'review', pre: C2 },
   ])
   assert.deepEqual(input, before, 'input result must be unchanged')
   assert.notEqual(out.result, input)
@@ -397,9 +397,9 @@ test('S12 (CLI): each invalid argument exits 2 with an "invalid args" error on s
   for (const seat of ['implementer','implementer-a0', 'implementer-a01', 'implementer-A1', 'implementer-a', 'reviewer-a1']) {
     cases.push([`seat ${seat}`, cliBase(planPath, resultPath, seat, ['--pre', C2])])
   }
-  cases.push(['unknown item', ['reseat', '--plan', planPath, '--run', RUN_ID, '--result', resultPath, '--item', 'zzzzzzzz', '--seat', 'implementer-a1', '--pre', C2]])
-  cases.push(['run mismatch', ['reseat', '--plan', planPath, '--run', 'r-different', '--result', resultPath, '--item', SHORT, '--seat', 'implementer-a1', '--pre', C2]])
-  cases.push(['no --result', ['reseat', '--plan', planPath, '--run', RUN_ID, '--item', SHORT, '--seat', 'implementer-a1', '--pre', C2]])
+  cases.push(['unknown item', ['reseat', '--plan', planPath, '--run', RUN_ID, '--result', resultPath, '--item', 'zzzzzzzz', '--seat', 'implementer-a1', '--cause', 'review', '--pre', C2]])
+  cases.push(['run mismatch', ['reseat', '--plan', planPath, '--run', 'r-different', '--result', resultPath, '--item', SHORT, '--seat', 'implementer-a1', '--cause', 'review', '--pre', C2]])
+  cases.push(['no --result', ['reseat', '--plan', planPath, '--run', RUN_ID, '--item', SHORT, '--seat', 'implementer-a1', '--cause', 'review', '--pre', C2]])
   cases.push(['--declarations on implementer-a1', cliBase(planPath, resultPath, 'implementer-a1', ['--declarations', declPath, '--pre', C2])])
   for (const [label, argv] of cases) {
     const res = runCli(argv)

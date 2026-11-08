@@ -28,9 +28,12 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
 
 - `profile` — the parsed `.taskorchestrator/run-profile.json`, or `{}` when the file is absent.
   `plan` applies the project-profile defaults itself (`worktreeRoot`, `branchPrefix`, `maxItems`,
-  `defaultModels`, `review`) and carries `appendOnlyFiles` (repo-relative glob patterns, canonicalised
+  `review`) and carries `appendOnlyFiles` (repo-relative glob patterns, canonicalised
   into `args.project.appendOnlyFiles`; see post-run.md) — the skill never fills those defaults in by hand before writing the
   snapshot.
+  Stage `dispatch` model and effort never come from the profile: the seat's dispatch, then the
+  phase's, then its `dispatch-policy.json` class (see `task-orchestrator:model-effort`). A profile
+  that still carries `defaultModels` gets one plan warning and the key is ignored.
 - `probe` — the verbatim JSON the `probe` subcommand prints (`pluginVersion`, `phase0Hooks`,
   `hookMarkers`, `workflowSizeGuideline`, `allow`, `serverCompat`, and whatever else it emits — copy
   it as-is, do not curate the fields). Required. `chooseEntry` reads `probe.phase0Hooks` for entry

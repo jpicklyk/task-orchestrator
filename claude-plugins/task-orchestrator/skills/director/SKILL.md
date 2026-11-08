@@ -62,7 +62,7 @@ This is the whole tool budget of a director session:
 | `deps_read` | Dependency `list` / `graph` when a blocker needs explaining |
 | `Agent` | Background only (`run_in_background: true`), with `model` set |
 | `SendMessage`, `ListAgents` | Talk to coordinators and other sessions |
-| `Skill` | Re-invoke this skill, or `off` |
+| `Skill` | Re-invoke this skill, or `off`; may also load `task-orchestrator:model-effort` |
 | `PushNotification` | Tell the user a decision is waiting when they are away |
 
 The five MCP tools come from the director connection. Anything else (notes, items writes,

@@ -11,6 +11,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
 
 import { TIERS, selectTier, launchProfile } from '../coordinator-tiers.mjs'
+import { forClass } from '../lib/dispatch-policy.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const MODULE = join(HERE, '..', 'coordinator-tiers.mjs')
@@ -110,13 +111,14 @@ test('S2: matching is case-sensitive and the send alternative is also suffix-mat
 test('S3: tier 3 argv is the headless non-bare Workflow-only command with the budget cap', () => {
   const p = launchProfile(3, { prompt: 'p', budgetUsd: 5 })
   assert.equal(p.tier, 3)
-  assert.deepEqual(p.argv, ['claude', '-p', 'p', '--allowedTools', 'Workflow', '--max-budget-usd', '5'])
+  const c = forClass('coordinator')
+  assert.deepEqual(p.argv, ['claude', '-p', 'p', '--allowedTools', 'Workflow', '--max-budget-usd', '5', '--model', c.model, '--effort', c.effort])
   assert.ok(!p.argv.includes('--bare'))
 })
 
 test('S3: a model option appends --model <model> and the command stays non-bare', () => {
   const p = launchProfile(3, { prompt: 'p', budgetUsd: 2.5, model: 'sonnet' })
-  assert.deepEqual(p.argv, ['claude', '-p', 'p', '--allowedTools', 'Workflow', '--max-budget-usd', '2.5', '--model', 'sonnet'])
+  assert.deepEqual(p.argv, ['claude', '-p', 'p', '--allowedTools', 'Workflow', '--max-budget-usd', '2.5', '--model', 'sonnet', '--effort', forClass('coordinator').effort])
   assert.ok(!p.argv.includes('--bare'))
 })
 
@@ -136,7 +138,8 @@ test('S3 probe: budgetUsd absent, 0, negative, NaN, Infinity or a string throws 
 })
 
 test('S3 probe: a tiny positive budget is accepted and rendered with String()', () => {
-  assert.deepEqual(launchProfile(3, { prompt: 'p', budgetUsd: 0.01 }).argv.slice(-2), ['--max-budget-usd', '0.01'])
+  const a = launchProfile(3, { prompt: 'p', budgetUsd: 0.01 }).argv
+  assert.equal(a[a.indexOf('--max-budget-usd') + 1], '0.01')
 })
 
 // ---- S4 other tiers ----
@@ -227,4 +230,14 @@ test('purity: importing the module prints nothing and runs no subcommand', () =>
 test('A1 O6: CLI profile --tier 3 --budget-usd 5 with no --prompt-file exits non-zero', () => {
   const r = cli(['profile', '--tier', '3', '--budget-usd', '5'])
   assert.notEqual(r.status, 0)
+})
+
+test('policy: tier 1 and tier 3 default model and effort to the coordinator class', () => {
+  const c = forClass('coordinator')
+  const p1 = launchProfile(1, {})
+  assert.equal(p1.startSession.model, c.model)
+  assert.equal(p1.startSession.effort, c.effort)
+  const a = launchProfile(3, { prompt: 'p', budgetUsd: 1, effort: 'low' }).argv
+  assert.equal(a[a.indexOf('--model') + 1], c.model)
+  assert.equal(a[a.indexOf('--effort') + 1], 'low')
 })

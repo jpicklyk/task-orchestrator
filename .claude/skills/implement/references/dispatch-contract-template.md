@@ -105,7 +105,7 @@ oracles, and the public signatures tests compile against>`.
 
 ## Planning seat return template
 
-One `opus` agent per stream returns this block verbatim (field names fixed; `none` is a valid
+One `planning`-class agent (`task-orchestrator:model-effort`) per stream returns this block verbatim (field names fixed; `none` is a valid
 value for any field except `main-files`/`test-files`, and `defect-class-siblings` may say `none`
 only with the sweep that found none). Field semantics: `/implement` SKILL.md
 Step 3, "Planning seat" subsection — prose describes, this states.
@@ -180,12 +180,13 @@ points here instead of restating it):
 
 One row per stream. The listed files are that agent's ENTIRE writable scope; anything absent
 belongs to another agent or to the orchestrator. **Impl model** is not a free choice for a
-seat-aware item: copy it from the item's resolved `dispatchBySeat` (implementer seat), and change
-it by applying a model-selection trait (`/implement` Step 1), never by editing this column alone.
+seat-aware item: copy model and effort from the item's resolved `dispatchBySeat` (implementer seat),
+else the `implementation` class, and change them by applying a model-selection trait (`/implement`
+Step 1), never by editing this column alone.
 
 | Stream | Item | Impl model | Production files owned (src/main unless noted) | New test files (author-owned) | Declared edits to EXISTING test files (author-owned) |
 |---|---|---|---|---|---|
-| `<stream>` | `<short-uuid>` | `<sonnet\|opus>` | `<path (the specific change, so a reader can tell scope from a filename)>` | `<path>` | `<path + the exact edit, e.g. "IdempotencyToolsTest.kt — delete the superseded swallow-asserting test at ~615-650 only" — or "none">` |
+| `<stream>` | `<short-uuid>` | `<model>/<effort>` | `<path (the specific change, so a reader can tell scope from a filename)>` | `<path>` | `<path + the exact edit, e.g. "IdempotencyToolsTest.kt — delete the superseded swallow-asserting test at ~615-650 only" — or "none">` |
 
 The last column is the ONLY way an author may touch a file it did not create: a contract change
 that invalidates an existing test is declared here, named down to the edit, before dispatch —

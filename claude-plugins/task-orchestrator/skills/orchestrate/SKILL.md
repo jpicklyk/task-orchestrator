@@ -37,7 +37,7 @@ Classify every piece of work into a tier before starting; the tier decides how m
 |------|--------|-----------|----------|
 | Plan mode | skip | optional | required |
 | Queue notes | none required | fill per schema | fill per schema |
-| Implementation | orchestrator inline, no subagent, no delegation table | single subagent | parallel worktree agents |
+| Implementation | orchestrator inline, no subagent, no delegation metadata | single subagent | parallel worktree agents |
 | Review | inline (orchestrator) | separate agent | separate agent |
 
 Review applies only when the item's schema declares review-phase notes; otherwise work advances straight to terminal. Detect it from `newRole` in the `advance` result and skip review dispatch.
@@ -48,24 +48,17 @@ Review applies only when the item's schema declares review-phase notes; otherwis
 
 ## Delegation
 
-> **Project convention, not a plugin requirement.** The model assignments and the write-batching
-> threshold below are tuned for this repository. Treat them as defaults and adjust to your own
-> model availability and tooling; what transfers is the *principle* (match model to task weight,
-> keep the orchestrator's context lean), not the table values.
+Model and effort per kind of work come from the plugin's dispatch policy: load `task-orchestrator:model-effort` for its class table (bulk writes, implementation, planning, review and the rest) and the rules for raising or lowering effort.
 
-| Task type | Model |
-|-----------|-------|
-| Bulk MCP writes, materialization, simple queries | `haiku` |
-| Code reading, implementation, test writing | `sonnet` |
-| Architecture, complex tradeoffs, multi-file synthesis | `opus` |
+**Always set `model` AND `effort` explicitly** on every Agent dispatch: an omitted `model` runs on the orchestrator's own model, and an omitted `effort` runs at the model's default (`dispatch-model-guard` denies both).
 
-**Always set `model` explicitly** on every Agent dispatch: defaulting wastes opus tokens or under-powers complex work.
+**A fix after a failed test or review goes one effort level higher.** When a hand-dispatched implementer's or test author's work fails a test or a review and you send the fix back, dispatch a FRESH agent (not a `SendMessage` resume: a resumed agent keeps its effort) with the same model and the effort one level above the original dispatch, the policy's `escalate` rule: the n-th fix runs n levels up, capped at the policy's `escalation.ceiling` (`model-effort` states it). A failure past the ceiling is a decision for a person, not another cycle at the same effort. A late carry-in or a breach replacement is not a failure and keeps the original effort; reviewers never escalate. Inside a run, `reseat --cause` computes this for you (run-wave `post-run.md`).
 
-**Show the assignment in the dispatch `description`.** End every Agent `description` with ` [<model>/<effort>]` (`[<model>]` when no effort applies), for example `implementer:5fc03a84 [sonnet/high]`: the app's background-task list shows only that string, and the run-wave workflows put the same tag on their labels, so a reader can tell what each agent was assigned without opening it.
+**Show the assignment in the dispatch `description`.** End every Agent `description` with ` [<model>/<effort>]`, for example `implementer:5fc03a84 [sonnet/high]`: the app's background-task list shows only that string, and the run-wave workflows put the same tag on their labels, so a reader can tell what each agent was assigned without opening it.
 
 ### Dispatching an item's phase owner
 
-This applies only to the agent that OWNS the phase being entered (the implementer entering work, the reviewer entering review), never to the test author, planning seats or the docs seat; those keep the Delegation table above.
+This applies only to the agent that OWNS the phase being entered (the implementer entering work, the reviewer entering review), never to the test author, planning seats or the docs seat; those take their class from `task-orchestrator:model-effort`.
 
 Read the profile for the phase you dispatch INTO, not the item's current phase:
 
@@ -81,17 +74,17 @@ Read the profile for the phase you dispatch INTO, not the item's current phase:
 {"tool": "items_read", "select": "schema", "args": {"itemId": "4b7d0e19"}}
 ```
 
-When the profile names an `agent`, dispatch with `subagent_type` set to it. Whether or not `agent` is set, ALWAYS pass `model` explicitly: `dispatch.model` if the profile sets one, otherwise the Delegation table's value (or your own judgment in `schema` mode). Every shipped agent (implementer, reviewer, planner, test-author, director) ships `model: inherit`, and Claude Code resolves the per-invocation Agent-tool `model` first, then the agent's frontmatter, where `inherit` means the main conversation's model. Omitting `model` silently runs the phase owner on the orchestrator's own model.
+When the profile names an `agent`, dispatch with `subagent_type` set to it. Whether or not `agent` is set, ALWAYS pass `model` and `effort` explicitly: the profile's value for each when it sets one, otherwise the value of the work's class in `task-orchestrator:model-effort`. Every shipped agent (implementer, reviewer, planner, test-author, director) ships `model: inherit`, and Claude Code resolves the per-invocation Agent-tool `model` first, then the agent's frontmatter, where `inherit` means the main conversation's model. Omitting `model` silently runs the phase owner on the orchestrator's own model.
 
-`effort` has no Agent-tool parameter. In Claude Code it is honored only through the dispatched agent definition's own frontmatter `effort`, so a profile's `effort` is advisory unless `agent` names a definition carrying it; to change effort, point `agent` at a definition with that effort. This rule covers the phase OWNER only; auxiliary dispatches on the same item (test author under `needs-test-author`, planning seats, the docs seat) keep the Delegation table.
+Pass the effort on the Agent tool's own `effort` parameter, with or without an `agent`. The shipped agent definitions carry no `effort` of their own, so an omitted parameter runs at the model's default. `CLAUDE_CODE_EFFORT_LEVEL` and organization caps outrank the parameter. Auxiliary dispatches on the same item (test author under `needs-test-author`, planning seats, the docs seat) use the same rule with their own class.
 
-For a **seat-aware** item (its schema declares `seats`), read every seat's profile, test author and planning seats included, from the resolved `dispatchBySeat`; it supersedes the Delegation table for those seats. A model-selecting seat-only override wins whatever the trait order (see [Seat dispatch precedence](../../../../current/docs/config-reference.md#seat-dispatch-precedence)). To change a pinned `model`, change it through the project's config traits, not by overriding it at dispatch time.
+For a **seat-aware** item (its schema declares `seats`), read every seat's profile, test author and planning seats included, from the resolved `dispatchBySeat`; it supersedes the class values for those seats. A model-selecting seat-only override wins whatever the trait order (see [Seat dispatch precedence](../../../../current/docs/config-reference.md#seat-dispatch-precedence)). To change a pinned `model`, change it through the project's config traits, not by overriding it at dispatch time.
 
 Before dispatching a seat at a feature or wave parent, branch on the parent's role with the pre-dispatch recipe in `/task-orchestrator:schema-workflow` ("Pre-dispatch recipe: a seat at a parent"): never a reviewer at a work-role parent.
 
 ### Batching and prompts
 
-**Project convention (workflow mode only; in `schema` mode batch by ordinary judgment): avoid 3 or more write calls in a single turn.** One `ops[]` call carries many writes (`items_write`, `notes_write`, `deps_write` and `advance` all take an array), so batch the writes into one call before delegating. Parallelized reads (`items_read` `context` plus `overview`) are fine and encouraged. Delegate bulk write work that cannot be batched to the Agent tool with `model: "haiku"` to keep the orchestrator context lean.
+**Project convention (workflow mode only; in `schema` mode batch by ordinary judgment): avoid 3 or more write calls in a single turn.** One `ops[]` call carries many writes (`items_write`, `notes_write`, `deps_write` and `advance` all take an array), so batch the writes into one call before delegating. Parallelized reads (`items_read` `context` plus `overview`) are fine and encouraged. Delegate bulk write work that cannot be batched to the Agent tool at the `bulk` class to keep the orchestrator context lean.
 
 Delegation prompts must include entity ids and full context; subagents start fresh.
 

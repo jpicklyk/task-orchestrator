@@ -80,5 +80,48 @@ for (const path of targets) {
   }
 }
 
+// ---- dispatch-policy table: rendered from dispatch-policy.json into the model-effort skill ----
+// The JSON is the only place a value is edited; the skill's marked region is generated, never hand-edited.
+{
+  const policy = JSON.parse(readFileSync(resolve(scriptDir, '../dispatch-policy.json'), 'utf8'));
+  const rows = Object.entries(policy.classes).map(
+    ([name, c]) => `| \`${name}\` | ${c.model} | ${c.effort} | ${c.use} |`,
+  );
+  const models = Object.entries(policy.models).map(([k, v]) => `${k} = ${v}`).join(', ');
+  const table =
+    '| Class | Model | Effort | Use |\n|---|---|---|---|\n' + rows.join('\n') + '\n\n' +
+    `Checked ${policy.checked} against ${models}. Automatic escalation ceiling: \`${policy.escalation.ceiling}\`.\n`;
+  const pBegin = '<!-- BEGIN GENERATED:dispatch-policy';
+  const pEnd = '<!-- END GENERATED:dispatch-policy';
+  const skillPath = resolve(scriptDir, '../skills/model-effort/SKILL.md');
+  if (!existsSync(skillPath)) {
+    console.error(`ERROR: consumer missing: ${skillPath}`);
+    failures++;
+  } else {
+    const raw = readFileSync(skillPath, 'utf8');
+    const text = norm(raw);
+    const bi = text.indexOf(pBegin);
+    const ei = text.indexOf(pEnd);
+    const bl = bi === -1 ? -1 : text.indexOf('\n', bi);
+    if (bi === -1 || ei === -1 || bl === -1 || ei <= bl) {
+      console.error(`ERROR: markers not found or malformed in ${skillPath}`);
+      failures++;
+    } else {
+      const rebuilt = text.slice(0, bl + 1) + table + text.slice(ei);
+      if (rebuilt !== text) {
+        if (check) {
+          console.error(`OUT OF SYNC: ${skillPath} - run: node claude-plugins/task-orchestrator/_fragments/generate.mjs`);
+          failures++;
+        } else {
+          const eol = raw.includes('\r\n') ? '\r\n' : '\n';
+          writeFileSync(skillPath, eol === '\n' ? rebuilt : rebuilt.replace(/\n/g, eol));
+          console.log(`updated: ${skillPath}`);
+          changed++;
+        }
+      }
+    }
+  }
+}
+
 if (failures > 0) process.exit(1);
 if (!check) console.log(changed === 0 ? 'all consumers already in sync' : `${changed} file(s) updated`);
