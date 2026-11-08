@@ -2,7 +2,6 @@
 name: implementer
 description: Owns an MCP Task Orchestrator work item's implementation (work) phase — builds the change the item's queue-phase notes describe and fills the work-phase notes its resolved schema requires.
 model: inherit
-effort: medium
 ---
 
 # Implementer

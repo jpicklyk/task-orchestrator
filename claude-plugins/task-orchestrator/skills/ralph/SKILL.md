@@ -65,7 +65,8 @@ Set sensible loop bounds. Show defaults and let the user adjust.
   Iteration timeout:        2700s (45 min)
   Claim TTL per iteration:  1800s (30 min)
   Run budget:               none         (tokens / USD / attempts per seat)
-  Model:                    sonnet
+  Model and effort:         the policy's implementation class
+                            (effort one level higher per retry of a seat)
   Cleanup on terminal:      smart (remove if no commits/changes; preserve otherwise)
   Resume continuations:     2 per iteration (0 disables)
 
@@ -75,13 +76,15 @@ Set sensible loop bounds. Show defaults and let the user adjust.
 If the user adjusts, capture the overrides. Common patterns:
 - High-volume drain: `--max 30`
 - Low-confidence run: `--gate-budget 1 --error-budget 1`
-- Architecture-heavy items: `--model opus --budget 15 --iteration-timeout 5400`
+- Architecture-heavy items: `--model <the implementation-complex class model> --budget 15 --iteration-timeout 5400`
 - Cap the whole run's spend on the server side: `--run-budget-usd 40` (or `--run-budget-tokens <n>`); the run pauses on a budget decision when it is reached
 - Stop re-seating a struggling item: `--max-attempts 2`
 - Drain an exact list of items: `--items <id>,<id>,...`
 - Drain another project's queue: `--root <rootId>`
 - Preserve every worktree (debugging-heavy session): `--no-cleanup`
 - Disable resume-on-marker-less-exit: `--max-continuations 0`
+
+The iteration's model and effort come from the `implementation` class in the plugin's dispatch policy (see `task-orchestrator:model-effort`), and the driver passes both to `claude -p` as `--model` and `--effort`. When the assign result reports `attempt` > 1 (the run already seated this item before), the effort is raised one level per earlier attempt, up to the policy's escalation ceiling. `--model` and `--effort` override the class; an explicit `--effort` is used as given and never raised.
 
 There is no run budget unless one of `--run-budget-tokens`, `--run-budget-usd` or `--max-attempts` is passed. The removed `--actor` flag is gone for good: the server records the principal of every call, and each iteration acts under its own seat.
 
@@ -125,8 +128,7 @@ Print the exact command to run. The user copies and pastes it.
     --max 10 \
     --budget 5 \
     --ttl 1800 \
-    --iteration-timeout 2700 \
-    --model sonnet
+    --iteration-timeout 2700
 
   -> Opens one run on the project root; closes it when the loop ends
   -> Per iteration: one implementer seat, claimed under its seat token, then
@@ -277,7 +279,7 @@ $ARGUMENTS = "type=quick-fix"
 
 **Step 1** parses the filter: `type=quick-fix`; the project root scopes it.
 
-**Step 2** uses defaults (max=10, budgets=3/2, $5/iter, 45 min timeout, sonnet).
+**Step 2** uses defaults (max=10, budgets=3/2, $5/iter, 45 min timeout, the implementation class).
 
 **Step 3** shows 7 ready items, oldest first.
 

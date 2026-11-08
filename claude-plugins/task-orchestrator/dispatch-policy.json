@@ -1,0 +1,26 @@
+{
+  "checked": "2026-11-07",
+  "models": {
+    "opus": "Opus 5.5",
+    "sonnet": "Sonnet 5.5",
+    "haiku": "Haiku 5.5",
+    "fable": "Fable 5.1"
+  },
+  "escalation": {
+    "ceiling": "xhigh",
+    "levels": ["low", "medium", "high", "xhigh", "max"]
+  },
+  "classes": {
+    "coordinator": { "model": "opus", "effort": "medium", "use": "Run and wave coordinators, orchestration sessions" },
+    "planning": { "model": "opus", "effort": "high", "use": "Planner seats, specifications, task scope" },
+    "planning-high-stakes": { "model": "fable", "effort": "high", "use": "Architecture decisions and other high-stakes planning" },
+    "implementation": { "model": "sonnet", "effort": "medium", "use": "Well-specified implementation work" },
+    "implementation-complex": { "model": "opus", "effort": "medium", "use": "Complex or cross-cutting implementation" },
+    "test-authoring": { "model": "sonnet", "effort": "medium", "use": "Independent test authors" },
+    "review": { "model": "opus", "effort": "high", "use": "Reviewer seats and defect search" },
+    "review-high-stakes": { "model": "fable", "effort": "high", "use": "Review of high-stakes changes" },
+    "research": { "model": "sonnet", "effort": "medium", "use": "Read-only research and exploration" },
+    "bulk": { "model": "haiku", "effort": "medium", "use": "Bulk writes and other checkable mechanical work" },
+    "extraction": { "model": "sonnet", "effort": "low", "use": "Extractors and retrospective data pulls" }
+  }
+}

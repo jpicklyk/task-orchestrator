@@ -204,7 +204,7 @@ function reseatDoc(mutate) {
 }
 
 const reseatOf = (doc, result, seat) =>
-  execLib.reseat(loadWaveCore(), doc, result, 'aaaaaaaa', seat, seat.startsWith('test-author') ? { pre: 'c'.repeat(40), declarations: 'export function f(x)' } : { pre: 'c'.repeat(40) })
+  execLib.reseat(loadWaveCore(), doc, result, 'aaaaaaaa', seat, seat.startsWith('test-author') ? { cause: 'review', pre: 'c'.repeat(40), declarations: 'export function f(x)' } : { cause: 'review', pre: 'c'.repeat(40) })
 
 test('S7: with an amendments note owned by the planner stage the fix-cycle line names the ruling, not a section', () => {
   const { doc, result } = reseatDoc((list) => { list.find((s) => s.seat === 'planner').notes = ['amendments'] })

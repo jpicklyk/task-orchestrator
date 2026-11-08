@@ -39,7 +39,6 @@ function baseSnapshot(overrides = {}) {
             worktreeRoot: ".claude/worktrees",
             branchPrefix: { shared: "feat/", perItem: "fix/" },
             maxItems: 5,
-            defaultModels: { queue: "opus", work: "sonnet", extractor: { model: "sonnet", effort: "low" } },
         },
         git: { originMain: "e77c3e95", repoRoot: "/repo", worktrees: {} },
         probe: { phase0Hooks: true, pluginVersion: "3.8.0", workflowSizeGuideline: "medium" },

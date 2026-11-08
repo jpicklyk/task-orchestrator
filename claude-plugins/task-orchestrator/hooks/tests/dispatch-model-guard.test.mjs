@@ -1,5 +1,5 @@
 // Tests for hooks/dispatch-model-guard.mjs. Existing-surface cases keep their oracle (the guard denies an
-// Agent dispatch without a model unless the mode is off / headless / no config). Item 8cd79bc0 scenario S9
+// Agent dispatch without a model (and, since the model-effort policy, without an effort) unless the mode is off / headless / no config). Item 8cd79bc0 scenario S9
 // adds, from task-scope AC1 and AC7: the mode is read from extensions.claude-code.orchestration (a
 // top-level `orchestration:` block is ignored); the deny reasons name 4.0 tools instead of 3.x ones (no
 // bare RETIRED_3X_TOOLS name); gating and deny shape are otherwise unchanged - in particular a director
@@ -106,25 +106,49 @@ function assertNoRetiredNames(reason, label) {
   }
 }
 
-test('workflow mode, no model -> deny naming the table', () => {
-  const r = reasonOf(run(BASE, agentCall()));
-  for (const s of ['model', 'haiku', 'sonnet', 'opus', 'orchestrate']) assert.ok(r.includes(s), s);
+test('workflow mode, no model -> deny pointing at the dispatch policy skill', () => {
+  const r = reasonOf(run(BASE, agentCall({ effort: 'e' })));
+  for (const s of ['model', 'effort', 'model-effort']) assert.ok(r.includes(s), s);
 });
 
-test('model present -> {}', () => {
-  assert.deepEqual(run(BASE, agentCall({ model: 'sonnet' })), {});
+test('model and effort present -> {}', () => {
+  assert.deepEqual(run(BASE, agentCall({ model: 'm', effort: 'e' })), {});
 });
 
 test('empty, whitespace, null, number model -> deny', () => {
   for (const m of ['', '   ', null, 5]) {
-    reasonOf(run(BASE, agentCall({ model: m })));
+    reasonOf(run(BASE, agentCall({ model: m, effort: 'e' })));
   }
+});
+
+test('AC4: a model without effort -> deny naming effort as missing', () => {
+  const r = reasonOf(run(BASE, agentCall({ model: 'm' })));
+  assert.match(r, /missing `effort`/);
+  assert.doesNotMatch(r, /missing `model`/);
+});
+
+test('AC4: empty, whitespace, null, number effort -> deny', () => {
+  for (const e of ['', '   ', null, 5]) {
+    assert.match(reasonOf(run(BASE, agentCall({ model: 'm', effort: e }))), /missing `effort`/);
+  }
+});
+
+test('AC4: neither model nor effort -> one deny naming both', () => {
+  assert.match(reasonOf(run(BASE, agentCall())), /missing `model` and `effort`/);
+});
+
+test('AC4: the effort requirement has the same exemptions as model (off, headless, no config)', () => {
+  const call = agentCall({ model: 'm' });
+  assert.deepEqual(run(ext('off'), call), {});
+  assert.deepEqual(run(BASE, call, { TASK_ORCHESTRATOR_MODE: 'headless-iteration' }), {});
+  assert.deepEqual(run(null, call), {});
+  reasonOf(run(ext('schema'), call));
 });
 
 test('S9: schema mode (extensions.claude-code.orchestration), no model -> deny mentioning dispatch profile, no table', () => {
   const r = reasonOf(run(ext('schema'), agentCall()));
   assert.match(r, /dispatch/);
-  assert.ok(!r.includes('haiku'));
+  assert.ok(!r.includes('model-effort'));
 });
 
 test('S9: mode off (block, inline, any case) under extensions.claude-code -> {}', () => {
@@ -148,7 +172,7 @@ test('S9: the extensions value wins when both placements are present', () => {
 
 test('invalid mode -> deny with workflow reason', () => {
   const r = reasonOf(run(ext('bogus'), agentCall()));
-  assert.ok(r.includes('haiku'));
+  assert.ok(r.includes('model-effort'));
   assert.equal(r, reasonOf(run(BASE, agentCall())));
 });
 
@@ -166,12 +190,13 @@ test('headless iteration -> {}', () => {
   assert.deepEqual(run(BASE, agentCall(), { TASK_ORCHESTRATOR_MODE: 'headless-iteration' }), {});
 });
 
-test('S9: a director session is still guarded - no model is denied, a model passes', () => {
+test('S9: a director session is still guarded - no model is denied, a model and effort pass', () => {
   const fx = fixture(BASE);
   plantDirector(fx, 'dir-session');
   const input = (toolInput) => agentCall(toolInput, { session_id: 'dir-session' });
   reasonOf(exec(fx, input()));
-  assert.deepEqual(exec(fx, input({ model: 'sonnet' })), {});
+  assert.deepEqual(exec(fx, input({ model: 'm', effort: 'e' })), {});
+  reasonOf(exec(fx, input({ model: 'm' })));
   const schemaFx = fixture(ext('schema'));
   plantDirector(schemaFx, 'dir-session');
   reasonOf(exec(schemaFx, input()));

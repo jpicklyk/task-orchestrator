@@ -13,6 +13,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ERROR_KINDS } from "../hooks/lib/tool-names.mjs";
+import { forClass, escalate } from "./lib/dispatch-policy.mjs";
 
 /**
  * Absolute path to the iteration system prompt appended to every iteration via
@@ -23,6 +24,26 @@ export const ITERATION_SYSTEM_PROMPT_PATH = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     "../skills/ralph/iteration-system-prompt.md",
 );
+
+/**
+ * The model and effort one iteration runs at. Both default to the dispatch policy's
+ * `implementation` class; a retry of the seat (the assign result's `attempt` > 1) runs one effort
+ * level higher per earlier attempt, capped at the policy's escalation ceiling. An explicit
+ * `--model` / `--effort` flag wins as given and is never escalated.
+ */
+export function iterationDispatch({ model, effort, attempt } = {}, policy = { forClass, escalate }) {
+    const base = policy.forClass("implementation");
+    const cycle = Number.isInteger(attempt) && attempt > 1 ? attempt - 1 : 0;
+    return {
+        model: model || base.model,
+        effort: effort || policy.escalate(base.effort, cycle),
+    };
+}
+
+/** `--effort <level>` when the iteration cfg names one, else nothing. */
+function effortArgs(cfg) {
+    return cfg && cfg.effort ? ["--effort", cfg.effort] : [];
+}
 
 /**
  * Settings JSON shared by the initial and resume spawns. Pins the output style
@@ -59,6 +80,7 @@ export function buildIterationArgs({
         "json",
         "--model",
         cfg.model,
+        ...effortArgs(cfg),
         prompt,
     ];
 }
@@ -291,7 +313,7 @@ export function decideContinuation({
 
 /**
  * Build the argv for a resume continuation: same `--append-system-prompt-file` /
- * `--settings` / `--model` / `--output-format` / `--permission-mode` as the initial
+ * `--settings` / `--model` / `--effort` / `--output-format` / `--permission-mode` as the initial
  * iteration spawn (the system prompt is passed again because it is unverified whether
  * a resumed session retains it),
  * `--resume <sessionId>` in place of `--worktree=<name>` - a resume must
@@ -324,6 +346,7 @@ export function buildResumeArgs({
         "json",
         "--model",
         cfg.model,
+        ...effortArgs(cfg),
         message,
     ];
 }

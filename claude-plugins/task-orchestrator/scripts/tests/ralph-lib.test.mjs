@@ -45,8 +45,10 @@ import {
     redactTokens,
     seatTokenFilePath,
     firstOpResult,
+    iterationDispatch,
 } from "../ralph-lib.mjs";
 import { ERROR_KINDS } from "../../hooks/lib/tool-names.mjs";
+import { forClass, escalate } from "../lib/dispatch-policy.mjs";
 
 // ── parseOutcome / marker parsing ──────────────────────────────────────────
 
@@ -325,6 +327,38 @@ test("G1: buildIterationArgs shape", () => {
     assert.equal(flagVal(args, "--permission-mode"), "bypassPermissions");
     assert.equal(args[args.length - 1], "do it");
     assert.ok(!args.some((a) => String(a).includes("ralph-iteration")));
+});
+
+// -- iteration model and effort (dispatch policy) ---------------------------
+
+test("AC3: iterationDispatch defaults to the implementation class on a first attempt", () => {
+    const cls = forClass("implementation");
+    assert.deepEqual(iterationDispatch({}), cls);
+    assert.deepEqual(iterationDispatch({ attempt: 1 }), cls);
+});
+
+test("AC3: iterationDispatch raises effort one level per earlier attempt, capped by the policy", () => {
+    const base = forClass("implementation").effort;
+    assert.equal(iterationDispatch({ attempt: 2 }).effort, escalate(base, 1));
+    assert.notEqual(iterationDispatch({ attempt: 2 }).effort, base);
+    assert.equal(iterationDispatch({ attempt: 3 }).effort, escalate(base, 2));
+    assert.equal(iterationDispatch({ attempt: 50 }).effort, escalate(base, 49));
+});
+
+test("AC3: an explicit --model / --effort wins and is never escalated", () => {
+    const d = iterationDispatch({ model: "m-x", effort: "e-x", attempt: 4 });
+    assert.deepEqual(d, { model: "m-x", effort: "e-x" });
+    assert.equal(iterationDispatch({ model: "m-x", attempt: 1 }).effort, forClass("implementation").effort);
+});
+
+test("AC3: initial and resume argv pass --effort when the iteration cfg names one", () => {
+    const cfg = { budget: 5, model: "sonnet", effort: "high" };
+    const a = buildIterationArgs({ worktreeName: "wt-1", cfg, prompt: "do it" });
+    const r = buildResumeArgs({ sessionId: "s", cfg, remainingBudget: 2, message: "m" });
+    assert.equal(flagVal(a, "--effort"), "high");
+    assert.equal(flagVal(r, "--effort"), "high");
+    assert.equal(a[a.length - 1], "do it");
+    assert.equal(r[r.length - 1], "m");
 });
 
 test("G3: initial and resume argv carry identical system-prompt and settings values", () => {

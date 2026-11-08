@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Dispatch Hint Hook — PostToolUse on advance. For each transition that landed in `work` or
 // `review`, injects one line telling the dispatcher the item's phase-level dispatch profile
-// (agent / model / effort) and that `model` must be passed explicitly on the Agent dispatch.
+// (agent / model / effort) and that `model` and `effort` must be passed explicitly on the Agent
+// dispatch. A value the profile does not set reads `class default` (the work's dispatch-policy
+// class, see task-orchestrator:model-effort) in workflow mode and `unset` in schema mode.
 // The profile is already in the advance response (`results[i].dispatch`), so there is no server
 // round-trip. The result is read through lib/envelope.mjs; a 3.x-shaped (`legacy`) result hints
 // nothing and emits the one-time legacy-shape warning as a systemMessage.
@@ -26,11 +28,10 @@ function str(v) {
 function lineFor(entry, mode) {
   const d = entry.dispatch && typeof entry.dispatch === 'object' ? entry.dispatch : {};
   const agent = str(d.agent) ?? 'none';
-  const model = str(d.model) ?? (mode === 'schema' ? 'unset' : 'table default');
-  const effort = str(d.effort);
-  return `↳ ${entry.itemId} now in ${entry.newRole}; dispatch profile: agent=${agent} model=${model}${
-    effort ? ` effort=${effort}` : ''
-  } - pass model explicitly`;
+  const fallback = mode === 'schema' ? 'unset' : 'class default';
+  const model = str(d.model) ?? fallback;
+  const effort = str(d.effort) ?? fallback;
+  return `↳ ${entry.itemId} now in ${entry.newRole}; dispatch profile: agent=${agent} model=${model} effort=${effort} - pass model and effort explicitly`;
 }
 
 function main() {
