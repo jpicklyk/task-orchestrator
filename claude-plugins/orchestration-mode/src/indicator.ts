@@ -22,11 +22,11 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions, Timer, ToolCallResult } from 'claude-code'
 
 import type { Board, BoardRun, CoordinatorState, DirectorState, FocusBoard, FocusState } from '../types'
+import type { FocusItem } from './model.ts'
 import {
   BACKDROP_ALT,
   BACKDROP_HEIGHT,
   BACKDROP_WIDTH,
-  BAND_HIDDEN_KEY,
   BAND_HIDDEN_TOAST,
   BAND_SHOWN_TOAST,
   DEFAULT_API_URL,
@@ -106,8 +106,14 @@ let lastRefreshAt = 0
 let refreshing = false
 /** A forced refresh asked for while one ran: run it once that one ends. */
 let refreshAgain = false
-/** Touched item id (lowercase) to the focus item it resolved to, so each id is walked once. */
-const resolvedFocus = new Map<string, { id: string; title: string }>()
+/**
+ * Item id (lowercase) to the focus item it resolves to: the touched id and every ancestor its walk
+ * read, so each id is walked once and a sibling stops at the first shared ancestor.
+ */
+const resolvedFocus = new Map<string, FocusItem>()
+/** Failed `runs_read` `get` reads in a row of the coordinated run; at the cap the mode is cleared. */
+let coordReadFailures = 0
+const MAX_COORD_READ_FAILURES = 3
 
 /** The roster mode names that are on, from the two mode atoms' values. */
 const modeNames = (dir: DirectorState, coord: CoordinatorState): string[] => [
@@ -214,6 +220,7 @@ async function readFocus($: EngineInterface, current: NonNullable<FocusState>): 
 
 /** Leaves coordinator mode: state, toast, backdrop. */
 async function clearCoordinator($: EngineInterface, label: string): Promise<void> {
+  coordReadFailures = 0
   await update($, coordinator, () => null)
   $.ui.toast(runClosedToast(label))
   await syncBackdrop($, true)
@@ -249,15 +256,20 @@ async function refreshBoard($: EngineInterface, force = false): Promise<void> {
         .slice(0, MAX_RUN_ROWS)
         .map(async run => withFrontier(run, await directorRead($, 'runs_read', { select: 'frontier', runId: run.id }))),
     )
-    // The coordinated run, gone from the open and paused lists: clear the mode once it reads closed.
+    // The coordinated run, gone from the open and paused lists: clear the mode once it reads closed,
+    // once the server says it does not exist, or after MAX_COORD_READ_FAILURES failed reads in a row.
     if (coord !== null && coord.source === 'tool' && !listedAll.some(run => sameId(run.id, coord.runId))) {
       try {
-        if (runIsClosed(await directorRead($, 'runs_read', { select: 'get', runId: coord.runId }))) {
-          await clearCoordinator($, coord.label)
-        }
-      } catch {
-        // unknown: keep the mode until a read says closed
+        const closed = runIsClosed(await directorRead($, 'runs_read', { select: 'get', runId: coord.runId }))
+        coordReadFailures = 0
+        if (closed) await clearCoordinator($, coord.label)
+      } catch (err) {
+        const notFound = err instanceof Error && err.message.startsWith('not_found')
+        coordReadFailures += 1
+        if (notFound || coordReadFailures >= MAX_COORD_READ_FAILURES) await clearCoordinator($, coord.label)
       }
+    } else {
+      coordReadFailures = 0
     }
     let decisions: { open: number; overdue: number } | null = null
     let blocked: number | null = null
@@ -295,9 +307,13 @@ async function refreshBoard($: EngineInterface, force = false): Promise<void> {
 
 function startTicker($: EngineInterface): void {
   if (ticker !== null) return
-  ticker = $.clock.every(REFRESH_MS, () => {
-    void refreshBoard($)
-  })
+  try {
+    ticker = $.clock.every(REFRESH_MS, () => {
+      void refreshBoard($)
+    })
+  } catch {
+    // no timer: the board still refreshes at turn end and on a focus or mode change
+  }
 }
 
 /**
@@ -338,13 +354,17 @@ async function reconcile($: EngineInterface): Promise<void> {
 
 /** Moves the focus to the top-most item below the project root of `itemId`, walked once per id. */
 async function focusOn($: EngineInterface, itemId: string): Promise<void> {
-  const key = itemId.toLowerCase()
-  let target = resolvedFocus.get(key)
+  let target = resolvedFocus.get(itemId.toLowerCase())
   if (target === undefined) {
-    const item = await resolveFocus(itemId, id => directorRead($, 'items_read', { select: 'get', itemId: id }))
-    if (item === null) return
-    target = { id: item.id, title: item.title }
-    resolvedFocus.set(key, target)
+    const walk = await resolveFocus(
+      itemId,
+      id => directorRead($, 'items_read', { select: 'get', itemId: id }),
+      undefined,
+      id => resolvedFocus.get(id.toLowerCase()),
+    )
+    if (walk === null) return
+    target = walk.item
+    for (const id of walk.walked) resolvedFocus.set(id.toLowerCase(), walk.item)
   }
   const current = await read($, focus)
   if (current !== null && sameId(current.itemId, target.id)) return
@@ -359,14 +379,17 @@ async function observeCall($: EngineInterface, tool: string, input: Record<strin
     const envelope = toolEnvelope(ran)
     const opened = coordinatorFromOpen(input, envelope, new Date().toISOString())
     if (opened !== null) {
+      coordReadFailures = 0
       await update($, coordinator, () => opened)
       $.ui.toast(coordinatorToast(opened.label))
       await syncBackdrop($, false)
       await refreshBoard($, true)
       return
     }
+    // Only a coordinator this session's own open made: a marker-sourced one follows its marker,
+    // which reconcile would read back on at turn end.
     const coord = await read($, coordinator)
-    if (coord !== null && closedRunIds(input, envelope).some(id => sameId(id, coord.runId))) {
+    if (coord !== null && coord.source === 'tool' && closedRunIds(input, envelope).some(id => sameId(id, coord.runId))) {
       await clearCoordinator($, coord.label)
       await refreshBoard($, true)
     }
@@ -391,27 +414,17 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
     } catch {
       // no command this session; the band still follows userConfig `band`
     }
-    try {
-      const stored = await $.store.get(BAND_HIDDEN_KEY)
-      await update($, bandHidden, () => stored === true)
-    } catch {
-      // the band stays as it stands
-    }
     await reconcile($)
 
     return next(e)
   })
 
-  // `/to-band`: hide or show the band for this session, remembered in $.store across reloads and
-  // resumes. The footer label is not affected.
+  // `/to-band`: hide or show the band for this session. The choice lives in this session's $.state
+  // only, so it survives a reload and a resume; userConfig `band` is the default for every session,
+  // and a fresh session starts from it. The footer label is not affected.
   on('command.run', { command: 'to-band' }, async ($, e) => {
     if (!bandWanted) return { text: 'The band is off in the plugin settings (band: false).' }
     const hidden = await update($, bandHidden, prev => !prev)
-    try {
-      await $.store.set(BAND_HIDDEN_KEY, hidden)
-    } catch {
-      // this session only
-    }
     const text = hidden ? BAND_HIDDEN_TOAST : BAND_SHOWN_TOAST
     $.ui.toast(text)
     if (!hidden) await refreshBoard($, true)
@@ -447,11 +460,9 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
     async ($, e, next) => {
       const ran = await next(e)
       if (e.agentId !== undefined || ran.deny !== undefined || ran.isError === true) return ran
-      try {
-        await observeCall($, e.tool, e as unknown as Record<string, unknown>, ran)
-      } catch {
-        // the call's result stands whatever the mod made of it
-      }
+      // In the background: the model gets its result now, whatever the board reads take (a slow or
+      // hung REST server never holds a TO call). The call's result stands whatever the mod made of it.
+      void observeCall($, e.tool, e as unknown as Record<string, unknown>, ran).catch(() => undefined)
 
       return ran
     },

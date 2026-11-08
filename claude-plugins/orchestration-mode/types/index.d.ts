@@ -1,6 +1,6 @@
 // The plugin's $.state contract (plugin.json `types`). The engine checks every key the module names.
-// `$.store` holds one key beside these, `bandHidden` (boolean), the `/to-band` choice kept across
-// reloads and resumes; the `bandHidden` atom below mirrors it so the band redraws on a toggle.
+// `bandHidden` is the `/to-band` choice for this session only (it survives a reload and a resume);
+// userConfig `band` is the default for every session, and the mod keeps nothing in `$.store`.
 
 /** Director mode is on since this ISO instant; null while off. */
 export type DirectorState = { since: string } | null

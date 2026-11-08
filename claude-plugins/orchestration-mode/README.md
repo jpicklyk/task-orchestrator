@@ -34,7 +34,7 @@ It needs the `task-orchestrator` plugin, whose `director-guard` hook keeps the m
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `band` | `true` | Draw the band above the prompt. `/to-band` hides or shows it for a session and remembers the choice (in the plugin's store, so it survives a reload and a resume); the footer label is not affected. |
+| `band` | `true` | Draw the band above the prompt; this is the default for every session. `/to-band` hides or shows the band for this session (the choice survives a reload); a fresh session starts from `band` again. The footer label is not affected. |
 | `backdrop` | `true` | Tint the desktop app's backdrop while director or coordinator mode is on. |
 | `apiUrl` | `http://localhost:3003` | Base URL of the server's REST API; the band reads `POST <apiUrl>/api/v1/ops/director/<tool>` (the REST twin of the director profile's `runs_read` and `items_read`). Leave it empty to read over the `mcp-task-orchestrator-director` MCP connection instead (a stdio server has no REST API). |
 
@@ -47,7 +47,7 @@ The band goes over REST by default because the reads are the mod's own, on a tim
 - **Focus.** The item a TO call names is walked up `parentId` (`items_read` `get`, at most six hops, once per item id) to the top-most item below the project root.
 - A call made inside a subagent (it carries an agent id) is ignored, so a seat's calls never move the mode or the focus of the session that dispatched it.
 
-The mod writes nothing but its own `$.state` values (`director`, `coordinator`, `focus`, `bandHidden`, `board`) and the one `$.store` key `bandHidden`.
+The mod writes nothing but its own `$.state` values (`director`, `coordinator`, `focus`, `bandHidden`, `board`); it keeps nothing in `$.store`.
 
 ## Desktop app notes
 
@@ -60,6 +60,6 @@ claude plugin validate claude-plugins/orchestration-mode
 node scripts/ci/check-task-orchestrator-mod.mjs claude-plugins/orchestration-mode
 ```
 
-The second command is the CI gate: validate, the `=?` unresolved-matcher check, a source scan of `on(...)` matchers, then `claude plugin test`. The tests stand for the engine beneath the plugin (`http.fetch`, `store.set`, `ui.toast` and `tool.call` answered by the test), so they cover the footer for zero, one and two modes, coordinator detection from an `open` result and its close, a subagent's calls being ignored, the focus walk, `/to-band`, the band's runs and focus views and its hidden and off states, and the pure helpers in `src/model.ts`. The marker probe (`fs`, `env`, `session`) is covered live.
+The second command is the CI gate: validate, the `=?` unresolved-matcher check, a source scan of `on(...)` matchers, then `claude plugin test`. The tests stand for the engine beneath the plugin (`http.fetch`, `ui.toast` and `tool.call` answered by the test), so they cover the footer for zero, one and two modes, coordinator detection from an `open` result and its close, a subagent's calls being ignored, the focus walk, `/to-band`, the band's runs and focus views and its hidden and off states, and the pure helpers in `src/model.ts`. The marker probe (`fs`, `env`, `session`) is covered live.
 
 Rules that hold here as in every mod: matchers are literals in the registering file (`src/indicator.ts`), `$` never leaves that file, and the atoms are declared beside their reads and writes.

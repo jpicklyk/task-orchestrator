@@ -271,15 +271,100 @@ test('a touched item moves the focus to its top-most ancestor below the project 
 
   const hidden = await $.command.run({ command: 'to-band' })
   expect(hidden.text).toBe('Band hidden')
-  expect(stored.bandHidden).toBe(true)
   expect(await shown($, BAND, /Model and|engine/)).toBe('engine')
   expect(await shown($, FOOTER, /Orchestration Mode|engine/)).toBe('engine')
 
   const back = await $.command.run({ command: 'to-band' })
   expect(back.text).toBe('Band shown')
-  expect(stored.bandHidden).toBe(false)
   expect(await shown($, BAND, /Model and|engine/)).toBe('Model and effort policy')
   expect(toasts.filter(t => t.startsWith('Band'))).toEqual(['Band hidden', 'Band shown'])
+  expect(stored).toEqual({})
+})
+
+test('the band toggle is per session: a fresh session starts from userConfig band, never from the store', async ($, on) => {
+  on('store.get', () => ({ value: true }))
+  on('command.register', () => ({ value: { command: 'to-band' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('http.fetch', server({ 'd99e4f7a-0000': { id: 'd99e4f7a-0000', depth: 1, title: 'Model and effort policy', role: 'work' } }))
+  on('tool.call', answerWrites(() => ({})))
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return h(Text, null, 'engine')
+  })
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.tool.call({ tool: NOTES_TOOL, ops: [{ op: 'upsert', itemId: 'd99e4f7a-0000', key: 'k', role: 'work', body: '' }] })
+  expect(await shown($, BAND, /Model and|engine/)).toBe('Model and effort policy')
+})
+
+test('the TO hook hands back the result as answered, and ignores an errored or denied call', async ($, on) => {
+  const opened = { ok: true, data: { results: [{ ok: true, runId: RUN_ID, label: 'wave-8', coordinatorToken: 't' }], summary: { ok: 1, failed: 0 } } }
+  const toasts: string[] = []
+  let answer: Record<string, unknown> = {}
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  on('ui.backdrop', () => ({ value: { isDrawn: true, requestId: 'backdrop' } }))
+  on('http.fetch', server({}))
+  on('tool.call', () => answer as never)
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return h(Text, null, 'engine')
+  })
+  const open = { tool: RUN_TOOL, ops: [{ op: 'open', rootId: 'ce064d2c', label: 'wave-8' }] }
+
+  answer = { isError: true, result: opened, text: JSON.stringify(opened) }
+  const errored = await $.tool.call(open)
+  expect(errored.isError).toBe(true)
+  expect(await shown($, FOOTER, /coordinator|engine/)).toBe('engine')
+
+  answer = { deny: 'no runs here' }
+  await $.tool.call(open)
+  expect(await shown($, FOOTER, /coordinator|engine/)).toBe('engine')
+  expect(toasts).toEqual([])
+
+  answer = { result: opened, text: JSON.stringify(opened) }
+  const ran = await $.tool.call(open)
+  expect(ran.result).toEqual(opened)
+  expect(ran.text).toBe(JSON.stringify(opened))
+  expect(await shown($, FOOTER, /coordinator|engine/)).toBe('coordinator')
+})
+
+test('closing the run does not clear a coordinator that came from the marker', async ($, on) => {
+  const toasts: string[] = []
+  on('env.get', (_, e) => ({ value: e.name === 'TMPDIR' ? '/tmp' : undefined }))
+  on('session.id', () => ({ value: 's1' }))
+  on('ui.status', () => ({ value: undefined }))
+  on('clock.every', () => ({ value: undefined }))
+  // The engine resolves the path before the hook sees it (an absolute path on Windows), so match its tail.
+  on('fs.exists', (_, e) => ({ value: /task-orchestrator[\\/]s1[\\/]coordinator\.json$/.test(e.path) }))
+  on('fs.read', () => ({ value: JSON.stringify({ runId: RUN_ID, label: 'wave-8' }) }))
+  on('command.register', () => ({ value: { command: 'to-band' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  on('ui.backdrop', () => ({ value: { isDrawn: true, requestId: 'backdrop' } }))
+  on('http.fetch', server({}))
+  on('tool.call', answerWrites(() => ({ runId: RUN_ID, status: 'closed' })))
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return h(Text, null, 'engine')
+  })
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  expect(await shown($, FOOTER, /coordinator|engine/)).toBe('coordinator')
+  expect(toasts.includes('Coordinator of run wave-8')).toBe(true)
+
+  await $.tool.call({ tool: RUN_TOOL, ops: [{ op: 'close', runId: RUN_ID, reason: 'completed' }] })
+  expect(await shown($, FOOTER, /coordinator|engine/)).toBe('coordinator')
+  expect(toasts.includes('Run wave-8 closed')).toBe(false)
 })
 
 test('the band draws the run graph under its name, and nothing while hidden or with no graph', async ($, on) => {
@@ -440,11 +525,31 @@ test('the focus walk climbs parentId to depth 1, at most six hops', async () => 
     if (!(id in items)) throw new Error('not_found: no')
     return items[id]
   }
-  expect((await resolveFocus('t3', get))?.id).toBe('f1')
+  expect((await resolveFocus('t3', get))?.item.id).toBe('f1')
   expect(reads).toEqual(['t3', 't2', 'f1'])
-  expect((await resolveFocus('f1', get))?.title).toBe('Feature')
+  expect((await resolveFocus('f1', get))?.item.title).toBe('Feature')
   expect(await resolveFocus('missing', get)).toBe(null)
-  expect((await resolveFocus('t3', get, 1))?.id).toBe('t2')
+  expect((await resolveFocus('t3', get, 1))?.item.id).toBe('t2')
+
+  // Every id the walk read is reported, so a cache can answer the shared ancestors.
+  expect((await resolveFocus('t3', get))?.walked).toEqual(['t3', 't3', 't2', 'f1'])
+  // An ancestor an earlier walk resolved ends the walk there with no further read.
+  const feature = focusFromGet(items.f1)
+  reads.length = 0
+  const sibling = await resolveFocus('t3', get, undefined, id => (id === 't2' && feature !== null ? feature : undefined))
+  expect(sibling?.item.id).toBe('f1')
+  expect(reads).toEqual(['t3'])
+
+  // The default cap is six hops: a depth-9 item settles on its depth-3 ancestor after seven reads.
+  const chain: Record<string, unknown> = {}
+  for (let d = 2; d <= 9; d++) chain[`d${d}`] = { id: `d${d}`, parentId: `d${d - 1}`, depth: d, title: `depth ${d}`, role: 'work' }
+  const chainReads: string[] = []
+  const deep = await resolveFocus('d9', async id => {
+    chainReads.push(id)
+    return chain[id]
+  })
+  expect(deep?.item.id).toBe('d3')
+  expect(chainReads.length).toBe(7)
   expect(focusFromGet({ id: 'root', depth: 0, title: 'Project', role: 'work' })?.parentId).toBe(null)
   expect(focusParent({ id: 'x', parentId: 'p', depth: 1, title: '', label: '', role: '' })).toBe(null)
   expect(focusParent({ id: 'x', parentId: 'p', depth: 4, title: '', label: '', role: '' })).toBe('p')

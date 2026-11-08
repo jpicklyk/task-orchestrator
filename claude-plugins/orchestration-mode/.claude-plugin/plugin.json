@@ -10,7 +10,7 @@
     "band": {
       "type": "boolean",
       "title": "Graph band",
-      "description": "Draw the band above the prompt with the progression of the graph this session drives, in every mode. /to-band hides or shows it for a session; the footer label shows either way.",
+      "description": "Draw the band above the prompt with the progression of the graph this session drives, in every mode; the default for every session. /to-band hides the band for this session (survives a reload); the footer label shows either way.",
       "default": true
     },
     "backdrop": {

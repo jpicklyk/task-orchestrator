@@ -119,10 +119,8 @@ export function runClosedToast(label: string): string {
 
 export const BAND_HIDDEN_TOAST = 'Band hidden'
 export const BAND_SHOWN_TOAST = 'Band shown'
-/** The slash command that toggles the band for this session (`/to-band`). */
+/** The slash command that hides or shows the band for this session (`/to-band`). */
 export const BAND_COMMAND = 'to-band'
-/** The `$.store` key that remembers the toggle across reloads and resumes. */
-export const BAND_HIDDEN_KEY = 'bandHidden'
 
 /**
  * The backdrop drawing: an amber gradient with a faint repeated DIRECTOR watermark. Sized in
@@ -335,7 +333,7 @@ export function formatTokens(n: number): string {
   return String(Math.max(0, Math.round(n)))
 }
 
-/** The phase pipeline cell: `q1 > w2 > r0 > done 3`, with ` · blocked 1` when any member is blocked. */
+/** The phase pipeline cell: `q1 → w2 → r0 → ✓3`, with ` · blocked 1` when any member is blocked. */
 export function phaseCell(counts: PhaseCounts): string {
   const cell = `q${counts.queue} → w${counts.work} → r${counts.review} → ✓${counts.terminal}`
 
@@ -444,26 +442,39 @@ export function focusParent(item: FocusItem): string | null {
   return item.depth <= 1 ? null : item.parentId
 }
 
+/** A focus walk's result: the focus item, and every id the walk read on the way (the start id too). */
+export type FocusWalk = { item: FocusItem; walked: string[] }
+
 /**
  * Walks from `startId` up `parentId` to the focus item (focusParent), reading each hop through `get`
  * (an `items_read` `get` returning its `data`), at most `maxHops` hops; past that, the item it
- * reached. Null when the first read fails or answers no item; a later failed hop settles on the
+ * reached. `known` answers an id an earlier walk already resolved, which ends this walk there with
+ * no read. Null when the first read fails or answers no item; a later failed hop settles on the
  * last item read.
  */
 export async function resolveFocus(
   startId: string,
   get: (itemId: string) => Promise<unknown>,
   maxHops = MAX_FOCUS_HOPS,
-): Promise<FocusItem | null> {
+  known: (itemId: string) => FocusItem | undefined = () => undefined,
+): Promise<FocusWalk | null> {
+  const walked = [startId]
   let item: FocusItem | null
   try {
     item = focusFromGet(await get(startId))
   } catch {
     return null
   }
-  for (let hop = 0; item !== null && hop < maxHops; hop++) {
+  if (item === null) return null
+  walked.push(item.id)
+  for (let hop = 0; hop < maxHops; hop++) {
     const parent = focusParent(item)
     if (parent === null) break
+    const cached = known(parent)
+    if (cached !== undefined) {
+      walked.push(parent)
+      return { item: cached, walked }
+    }
     let next: FocusItem | null
     try {
       next = focusFromGet(await get(parent))
@@ -472,9 +483,10 @@ export async function resolveFocus(
     }
     if (next === null) break
     item = next
+    walked.push(next.id)
   }
 
-  return item
+  return { item, walked }
 }
 
 /** True when two item or run ids name the same thing: one is a case-insensitive prefix of the other. */
@@ -523,7 +535,7 @@ export function focusBlocked(data: unknown): { total: number; first?: { id: stri
   return { total, first: { id: head.id.slice(0, 8), blocker } }
 }
 
-/** The dim text after the title on the focus view: `q1 > w2 > r0 > done 3 · blocked 1 · decisions 2`. */
+/** The dim text after the title on the focus view: `q1 → w2 → r0 → ✓3 · blocked 1 · decisions 2`. */
 export function focusDetail(board: Board, focus: FocusBoard | null | undefined): string {
   if (board === null || focus === null || focus === undefined) return 'board loading'
   if (board.error !== undefined) return `board unavailable: ${board.error}`
