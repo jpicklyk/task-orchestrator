@@ -3,7 +3,7 @@
 An opt-in Claude Code mod that puts Task Orchestrator on the session itself. With several desktop sessions open it is easy to lose track of which graph each one is driving and which ones run the board; this plugin shows both:
 
 - **The band.** Above the prompt, bordered in amber, in every mode (a plain orchestrator session included): the progression of the graph this session drives, one line per layer and never more than three. **Line 1, the container**: the root of the work being done, its name in full (bold amber, cut only at the frame), then its type and phase (`Phase 4 plan · feature-implementation · in-progress`), and, with a run open, the run (`run wave-8 open`, or `2 runs open` and the first run), a chip when it needs a look (`COORD STALLED`, `PAUSED run-budget`), its seats (`in flight 2 (1 stalled) · ready 1 · waiting 1`) and, from 120 columns, its tokens (`1.3M tok`). **Line 2, the progress**: a bar of members done over members in all (red when a seat or coordinator is stalled), `3/8`, the pipeline `q2 → w1 → r1 → ✓3`, then only the counts that are not zero (`blocked 1`, `decisions 2 (1 overdue)`). **Line 3, the current item**: the item this session last touched, `d8999287 · plugin-change · in-progress`, its title in full (cut at the frame), and `blocked by <id>` in red when it waits. The graph is the open or paused runs when there are any, else the **focus**: the top-most item below the project root of the last item this session touched (a write through `items_write`, `advance`, `notes_write` or `deps_write`, or an `items_read` naming an `itemId`); its container is the focus when it has children, and a lone leaf below the root is its own container (line 3 is then left out, its facts already on line 1). A run with nothing touched shows lines 1 and 2; a short band drops line 3, then line 2, never line 1. With no run and nothing touched, no band is drawn. It refreshes every 30 seconds, after every turn, and when the focus moves.
-- **Footer label.** Always drawn, dedicated to the mode: `Orchestration Mode orchestrator` at rest, else the modes below that are on (`director`, `coordinator`, `director & coordinator`). It joins the labels at the right of the prompt footer, drawn in the engine's own mode slot (where `focus` and `memory paused` appear) and styled like the `Fable 5.1 Medium` pair beside it.
+- **Footer label.** Always drawn, dedicated to the mode: `TO orchestrator` at rest, else the modes below that are on (`director`, `coordinator`, `director & coordinator`). It joins the labels at the right of the prompt footer, drawn in the engine's own mode slot (where `focus` and `memory paused` appear) and styled like the `Fable 5.1 Medium` pair beside it.
 - **Desktop backdrop.** The desktop app's backdrop takes the glass of the first mode that is on: warm amber with a faint `DIRECTOR` watermark for director, a cool blue for coordinator. Turn it off in the plugin's settings (`backdrop: false`).
 - **Toasts.** `Director mode on since 14:02` / `Director mode off`, `Coordinator of run wave-8` / `Run wave-8 closed`, and `Band hidden` / `Band shown`.
 
@@ -20,7 +20,7 @@ The footer names only the modes a user sees in a session of their own:
 | Coordinator | a session that opened a run (tier 1: a desktop session the director started) | `coordinator` |
 | Seats, ralph, workflow coordinators | background agents and headless processes | never (never a visible session) |
 
-Both can be on at once (`Orchestration Mode director & coordinator`).
+Both can be on at once (`TO director & coordinator`).
 
 ## Install
 

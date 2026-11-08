@@ -15,6 +15,7 @@ import {
   envelopeData,
   focusBlocked,
   focusFromGet,
+  focusValue,
   focusParent,
   focusProgress,
   footerLead,
@@ -196,7 +197,7 @@ test('the footer always names the mode: orchestrator at rest, else the roster mo
     for (const surface of ['terminal', 'desktop'] as const) {
       const ui = await $.ui.mount({ ...FOOTER, surface })
       expect(await ui.find({ type: 'Text', text: /engine/ })).toBe(undefined)
-      expect((await ui.find({ type: 'Text', text: /Orchestration Mode/ }))?.text).toBe('Orchestration Mode')
+      expect((await ui.find({ type: 'Text', text: /^TO$/ }))?.text).toBe('TO')
       expect((await ui.find({ type: 'Text', text: /orchestrator|director|coordinator/ }))?.text).toBe(c.modes)
       expect((await ui.find({ type: 'Text', text: /focus/ }))?.text).toBe('focus &')
       await ui.unmount()
@@ -204,24 +205,24 @@ test('the footer always names the mode: orchestrator at rest, else the roster mo
   }
 })
 
-test('the footer label `Orchestration Mode director` follows the native labels while director mode is on', async ($, on) => {
+test('the footer label `TO director` follows the native labels while director mode is on', async ($, on) => {
   on('state.get', seedState(() => ({ director: { since: '2026-11-07T14:02:00.000Z' } })))
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...FOOTER, surface })
-    expect((await ui.find({ type: 'Text', text: /Orchestration Mode/ }))?.text).toBe('Orchestration Mode')
+    expect((await ui.find({ type: 'Text', text: /^TO$/ }))?.text).toBe('TO')
     expect((await ui.find({ type: 'Text', text: /^director$/ }))?.text).toBe('director')
     expect((await ui.find({ type: 'Text', text: /focus/ }))?.text).toBe('focus &')
     await ui.unmount()
   }
 })
 
-test('at rest the footer reads `Orchestration Mode orchestrator`, alone when no native label stands', async ($, on) => {
+test('at rest the footer reads `TO orchestrator`, alone when no native label stands', async ($, on) => {
   on('state.get', () => ({ value: { value: null, version: 1 } }))
 
   const ui = await $.ui.mount({ ...FOOTER, props: { modes: [] }, surface: 'desktop' })
   const all = (await ui.findAll({ type: 'Text' })).map(t => t.text)
-  expect(all).toEqual(['Orchestration Mode', 'orchestrator'])
+  expect(all).toEqual(['TO', 'orchestrator'])
   await ui.unmount()
 })
 
@@ -650,6 +651,11 @@ test('the focus walk climbs parentId to depth 1, at most six hops', async () => 
   expect(focusParent({ id: 'x', parentId: 'p', depth: 4, title: '', label: '', role: '' })).toBe('p')
   expect(focusFromGet({ id: 'f1', statusLabel: 'in-progress', role: 'work' })?.label).toBe('in-progress')
   expect(focusFromGet({ title: 'no id' })).toBe(null)
+  // A focus written before `touched` existed (the atom survives a reload) is its own touched item.
+  expect(focusValue({ itemId: 'f1', title: 'Feature', since: 't' })).toEqual({ itemId: 'f1', title: 'Feature', since: 't', touched: { itemId: 'f1', title: 'Feature', type: '', label: '' } })
+  expect(focusValue({ itemId: 'f1', title: 'Feature', since: 't', touched: { itemId: 'c1', title: 'Child', type: 'task', label: 'queue' } })?.touched.itemId).toBe('c1')
+  expect(focusValue(null)).toBe(null)
+  expect(focusValue({ title: 'no id' })).toBe(null)
 })
 
 test('focus progress, blocked work and the line helpers', async () => {

@@ -51,6 +51,7 @@ import {
   envelopeData,
   focusBlocked,
   focusFromGet,
+  focusValue,
   focusProgress,
   footerLead,
   footerModes,
@@ -293,7 +294,7 @@ async function refreshBoard($: EngineInterface, force = false): Promise<void> {
     } catch {
       // decisions stay unknown
     }
-    const current = await read($, focus)
+    const current = focusValue(await read($, focus))
     const focusBoard = current !== null ? await readFocus($, current) : null
     await update($, board, () => ({ at: new Date().toISOString(), runs, decisions, focus: focusBoard }))
   } catch (err) {
@@ -384,7 +385,7 @@ async function focusOn($: EngineInterface, itemId: string): Promise<void> {
     touchedItems.set(key, walk.start)
     touchedItems.set(walk.start.id.toLowerCase(), walk.start)
   }
-  const current = await read($, focus)
+  const current = focusValue(await read($, focus))
   if (current !== null && sameId(current.itemId, target.id) && sameId(current.touched.itemId, touched.id)) return
   const next = { itemId: target.id, title: target.title, since: new Date().toISOString(), touched: itemFacts(touched) }
   await update($, focus, () => next)
@@ -504,7 +505,7 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
   })
 
   // The prompt footer's mode slot (where `focus` and `memory paused` go), dedicated to the mode and
-  // always drawn: `Orchestration Mode orchestrator` at rest, else the roster modes that are on. Styled
+  // always drawn: `TO orchestrator` at rest, else the roster modes that are on. Styled
   // like the native `Fable 5.1 Medium` pair beside it (the label in the text colour at the model
   // name's weight, the modes dim), after any native labels. A tree is what the desktop app draws; a
   // rewrite of `modes` reaches only the terminal. Sibling cells in a centred row, not nested text, so
@@ -538,7 +539,7 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
     if (!bandWanted || (await read($, bandHidden))) return next(e)
     if (e.props.hasSurvey || e.props.bodyColumns < MIN_BAND_COLUMNS) return next(e)
     const current = await read($, board)
-    const focused = await read($, focus)
+    const focused = focusValue(await read($, focus))
     const runs = current?.runs ?? []
     if (runs.length === 0 && focused === null) return next(e)
     const { Box, Text } = $.ui.resolve(e)

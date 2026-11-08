@@ -1,7 +1,7 @@
 // Pure helpers for the orchestration-mode mod. No `$`, no atoms: indicator.ts feeds these values and
 // draws what they return, so they are unit-testable with the plugin test kit alone.
 
-import type { Board, BoardRun, CoordinatorState, ItemFacts, PhaseCounts } from '../types'
+import type { Board, BoardRun, CoordinatorState, FocusState, ItemFacts, PhaseCounts } from '../types'
 
 /** The skill whose Skill tool call enters (or, with args `off`, leaves) director mode. */
 export const DIRECTOR_SKILL = 'task-orchestrator:director'
@@ -39,7 +39,7 @@ export function isDirectorSkillCall(skill: unknown): boolean {
 }
 
 /** The footer label, drawn like the model name beside it; the modes follow it, dim like the effort. */
-export const FOOTER_PREFIX = 'Orchestration Mode'
+export const FOOTER_PREFIX = 'TO'
 
 /** `14:02` in the local clock for an ISO instant; undefined for anything else. */
 export function clockTime(since: string): string | undefined {
@@ -573,6 +573,25 @@ export async function resolveFocus(
 }
 
 /** True when two item or run ids name the same thing: one is a case-insensitive prefix of the other. */
+/**
+ * The focus as this version reads it: a value written before `touched` existed (the atom survives a
+ * reload and a resume) gets the focus itself as its touched item, and a value with no item is null.
+ */
+export function focusValue(value: unknown): NonNullable<FocusState> | null {
+  if (value === null || typeof value !== 'object') return null
+  const v = value as { itemId?: unknown; title?: unknown; since?: unknown; touched?: unknown }
+  if (typeof v.itemId !== 'string' || v.itemId === '') return null
+  const title = typeof v.title === 'string' ? v.title : v.itemId
+  const since = typeof v.since === 'string' ? v.since : ''
+  const touched = v.touched as Partial<ItemFacts> | undefined
+  const facts: ItemFacts =
+    touched !== undefined && touched !== null && typeof touched.itemId === 'string'
+      ? { itemId: touched.itemId, title: typeof touched.title === 'string' ? touched.title : touched.itemId, type: typeof touched.type === 'string' ? touched.type : '', label: typeof touched.label === 'string' ? touched.label : '' }
+      : { itemId: v.itemId, title, type: '', label: '' }
+
+  return { itemId: v.itemId, title, since, touched: facts }
+}
+
 export function sameId(a: string, b: string): boolean {
   if (a === '' || b === '') return false
   const x = a.toLowerCase()
