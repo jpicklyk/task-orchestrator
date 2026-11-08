@@ -77,22 +77,40 @@ function seedState(values: () => Record<string, unknown>) {
   }
 }
 
-/** The text of the first Text a mount of `site` on the desktop shows that matches `pattern`. */
-async function shown($: any, site: object, pattern: RegExp): Promise<string | undefined> {
-  const ui = await $.ui.mount({ ...site, surface: 'desktop' })
-  const found = await ui.find({ type: 'Text', text: pattern })
-  await ui.unmount()
+/**
+ * The leaf texts of a mount, in order: a Text that nests other Texts (line 1 is one, so the frame
+ * cuts it as a whole) reports the join of its children, which is dropped here.
+ */
+function leaves(found: readonly { text: string }[]): string[] {
+  const all = found.map(t => t.text)
 
-  return found?.text
+  return all.filter((text, i) => {
+    let joined = ''
+    for (let k = i + 1; k < all.length; k++) {
+      joined += all[k]
+      if (joined === text) return false
+      if (joined.length >= text.length) break
+    }
+    return true
+  })
 }
 
-/** Every Text a mount of `site` shows, in order. */
+/** The first leaf text a mount of `site` on the desktop shows that matches `pattern`. */
+async function shown($: any, site: object, pattern: RegExp): Promise<string | undefined> {
+  const ui = await $.ui.mount({ ...site, surface: 'desktop' })
+  const found = leaves(await ui.findAll({ type: 'Text' }))
+  await ui.unmount()
+
+  return found.find(text => pattern.test(text))
+}
+
+/** Every leaf Text a mount of `site` shows, in order. */
 async function texts($: any, site: object): Promise<string[]> {
   const ui = await $.ui.mount({ ...site, surface: 'desktop' })
   const found = await ui.findAll({ type: 'Text' })
   await ui.unmount()
 
-  return found.map((t: { text: string }) => t.text)
+  return leaves(found)
 }
 
 /** Lets the background work a TO call started finish: the hook hands the result back before it observes. */
@@ -221,7 +239,7 @@ test('at rest the footer reads `TO orchestrator`, alone when no native label sta
   on('state.get', () => ({ value: { value: null, version: 1 } }))
 
   const ui = await $.ui.mount({ ...FOOTER, props: { modes: [] }, surface: 'desktop' })
-  const all = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  const all = leaves(await ui.findAll({ type: 'Text' }))
   expect(all).toEqual(['TO', 'orchestrator'])
   await ui.unmount()
 })
@@ -317,7 +335,7 @@ test('a touched task draws the graph, its feature and the task itself; /to-band 
 
   const back = await $.command.run({ command: 'to-band' })
   expect(back.text).toBe('Band shown')
-  expect(await shown($, BAND, /Model and|engine/)).toBe('Model and effort policy')
+  expect(await shown($, BAND, /^Model and effort policy$|engine/)).toBe('Model and effort policy')
   expect(toasts.filter(t => t.startsWith('Band'))).toEqual(['Band hidden', 'Band shown'])
   expect(stored).toEqual({})
 })
@@ -350,7 +368,7 @@ test('the band toggle is per session: a fresh session starts from userConfig ban
   await settle()
   await $.tool.call({ tool: NOTES_TOOL, ops: [{ op: 'upsert', itemId: 'd99e4f7a-0000', key: 'k', role: 'work', body: '' }] })
   await settle()
-  expect(await shown($, BAND, /Model and|engine/)).toBe('Model and effort policy')
+  expect(await shown($, BAND, /^Model and effort policy$|engine/)).toBe('Model and effort policy')
 })
 
 test('the TO hook hands back the result as answered, and ignores an errored or denied call', async ($, on) => {
@@ -437,7 +455,7 @@ test('a run with nothing touched draws its facts and the progress; hidden or wit
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...BAND, surface })
-    expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toEqual([
+    expect(leaves(await ui.findAll({ type: 'Text' }))).toEqual([
       'run wave-8 open',
       ' · COORD STALLED',
       ' · in flight 2 (1 stalled) · ready 1 · waiting 1',
@@ -481,7 +499,7 @@ test('the focus view draws container, progress and item, and a short band drops 
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...band(), surface })
-    expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toEqual([
+    expect(leaves(await ui.findAll({ type: 'Text' }))).toEqual([
       'Model and effort policy',
       ' · feature-implementation · in-progress',
       '▰▰▰▰▱▱▱▱',

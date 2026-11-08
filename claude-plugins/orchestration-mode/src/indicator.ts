@@ -567,24 +567,19 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
         : Box({
             key: 'container',
             flexDirection: 'row',
-            // The name keeps its width and the facts after it give way first (a hundred times
-            // readier to shrink), so a long title is cut only once the facts are gone.
+            // One truncating text, the facts nested after the name: the frame cuts the line from its
+            // end, so the name stands in full until nothing but it is left. A nested row overflows
+            // the frame on the desktop app instead of being cut.
             children: [
-              ...(container.name !== undefined
-                ? [Box({ key: 'name', flexShrink: 1, children: [Text({ color: 'warning', bold: true, wrap: 'truncate', children: container.name })] })]
-                : []),
-              Box({
-                key: 'facts',
-                flexDirection: 'row',
-                flexShrink: 100,
+              Text({
+                wrap: 'truncate',
                 children: [
+                  ...(container.name !== undefined ? [Text({ color: 'warning', bold: true, children: container.name })] : []),
                   ...(container.lead !== ''
-                    ? [Text({ dimColor: true, wrap: 'truncate', children: container.name !== undefined ? SEP + container.lead : container.lead })]
+                    ? [Text({ dimColor: true, children: container.name !== undefined ? SEP + container.lead : container.lead })]
                     : []),
-                  ...(container.chip !== undefined
-                    ? [Text({ color: container.chip.color, bold: true, wrap: 'truncate', children: SEP + container.chip.text })]
-                    : []),
-                  ...(container.tail !== '' ? [Text({ dimColor: true, wrap: 'truncate', children: SEP + container.tail })] : []),
+                  ...(container.chip !== undefined ? [Text({ color: container.chip.color, bold: true, children: SEP + container.chip.text })] : []),
+                  ...(container.tail !== '' ? [Text({ dimColor: true, children: SEP + container.tail })] : []),
                 ],
               }),
             ],
