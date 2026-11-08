@@ -863,3 +863,102 @@ test('run-pointers: a seat-less schema with an optional run-pointers work note p
   assert.ok(item.orchestratorNotes.includes('run-pointers'), 'planned into orchestratorNotes')
   assert.equal(item.stages.some((st) => (st.notes || []).includes('run-pointers')), false, 'no stage holds the key')
 })
+
+// ============================================================================================
+// adopt-notes (item 533315bf): pre-filled planner notes re-created under the planner seat
+// ============================================================================================
+
+function observedNote(key, seat, body = `body of ${key}`) {
+  return { key, role: 'queue', body, version: 2, owner: seat ? { id: 'local', seat } : { id: 'local' } }
+}
+function adoptFiles(w, observed, mutate) {
+  const doc = JSON.parse(JSON.stringify(w.bound))
+  if (mutate) mutate(doc)
+  const planPath = writeJson(w.dir, 'adopt-plan.json', doc)
+  const notesPath = writeJson(w.dir, 'adopt-notes.json', observed)
+  return ['adopt-notes', ['--notes', notesPath], planPath]
+}
+
+test('adopt-notes AC1/AC2: a token-less note renders delete+upsert (body, expectedVersion 0); seat-less delete is token-less, upsert is under the planner token file', () => {
+  const w = boundDoc()
+  const [phase, extra, planPath] = adoptFiles(w, { [A]: [observedNote('specification', null, 'SPEC A')] })
+  const out = ops(planPath, phase, extra)
+  assert.equal(out.tool, 'notes_write')
+  assert.deepEqual(out.ops, [
+    { op: 'delete', itemId: A, key: 'specification', expectedVersion: 2 },
+    { op: 'upsert', itemId: A, key: 'specification', role: 'queue', body: 'SPEC A', expectedVersion: 0 },
+  ])
+  assert.equal(out.tokenFiles[0], null)
+  assert.match(canonPath(out.tokenFiles[1]), /tokens\/aaaaaaaa\.planner\.token$/)
+  assert.equal(hasKeyDeep(out, 'seatToken'), false)
+})
+
+test('adopt-notes AC1: a note already owned by the planner seat is skipped; unknown keys and absent items are ignored; short ids match', () => {
+  const w = boundDoc()
+  const [phase, extra, planPath] = adoptFiles(w, {
+    [A]: [observedNote('specification', 'planner'), observedNote('not-a-stage-key', null)],
+    bbbbbbbb: [observedNote('specification', null, 'SPEC B')],
+  })
+  const out = ops(planPath, phase, extra)
+  assert.equal(out.ops.length, 2)
+  assert.equal(out.ops[0].itemId, B)
+  assert.equal(out.ops[1].body, 'SPEC B')
+})
+
+test('adopt-notes AC2: on a seat-aware schema (no implicitOwner stage) the delete goes under the planner token file too', () => {
+  const w = boundDoc()
+  const [phase, extra, planPath] = adoptFiles(w, { [A]: [observedNote('specification', null)] }, (doc) => {
+    for (const it of doc.args.items) for (const s of it.stages) delete s.implicitOwner
+  })
+  const out = ops(planPath, phase, extra)
+  assert.equal(out.tokenFiles.length, 2)
+  assert.equal(out.tokenFiles[0], out.tokenFiles[1])
+  assert.match(canonPath(out.tokenFiles[0]), /aaaaaaaa\.planner\.token$/)
+})
+
+test('adopt-notes: a non-string body, a missing --notes and an unbound plan are invalid args (exit 2)', () => {
+  const w = boundDoc()
+  const bad = adoptFiles(w, { [A]: [{ key: 'specification', role: 'queue', body: 5, owner: { id: 'local' } }] })
+  assert.equal(runCli(['run-ops', '--plan', bad[2], '--phase', 'adopt-notes', ...bad[1]]).status, 2)
+  assert.equal(runCli(['run-ops', '--plan', w.boundPath, '--phase', 'adopt-notes']).status, 2)
+  const p = planDoc()
+  const notesPath = writeJson(p.dir, 'n.json', {})
+  assert.equal(runCli(['run-ops', '--plan', p.planPath, '--phase', 'adopt-notes', '--notes', notesPath]).status, 2)
+})
+
+test('adopt-notes A1/O1: the delete carries expectedVersion from the observed note version; the upsert keeps expectedVersion 0', () => {
+  const w = boundDoc()
+  const note = { ...observedNote('specification', null), version: 7 }
+  const [phase, extra, planPath] = adoptFiles(w, { [A]: [note] })
+  const out = ops(planPath, phase, extra)
+  assert.equal(out.ops[0].op, 'delete')
+  assert.equal(out.ops[0].expectedVersion, 7)
+  assert.equal(out.ops[1].expectedVersion, 0)
+})
+
+test('adopt-notes A1/O2: an unresolved planner token file with a note to adopt exits 2 naming the item and seat; no token-less upsert is rendered', () => {
+  const w = boundDoc()
+  const [phase, extra, planPath] = adoptFiles(w, { [A]: [observedNote('specification', null)] }, (doc) => {
+    for (const s of doc.args.items.find((i) => i.id === A).stages) if (s.output === 'planner-v1') s.inserted = true
+  })
+  const res = runCli(['run-ops', '--plan', planPath, '--phase', phase, ...extra])
+  assert.equal(res.status, 2, `${res.status} ${res.stdout}`)
+  assert.ok(res.stderr.includes('aaaaaaaa') && res.stderr.includes('planner'), res.stderr)
+  assert.equal(res.stdout.trim(), '')
+})
+
+test('adopt-notes A1/O3: --item renders only that item; an id matching no plan item exits 2', () => {
+  const w = boundDoc()
+  const [phase, extra, planPath] = adoptFiles(w, {
+    [A]: [observedNote('specification', null, 'SPEC A')],
+    [B]: [observedNote('specification', null, 'SPEC B')],
+  })
+  const all = ops(planPath, phase, extra)
+  assert.deepEqual([...new Set(all.ops.map((o) => o.itemId))].sort(), [A, B].sort())
+  const one = ops(planPath, phase, [...extra, '--item', 'bbbbbbbb'])
+  assert.equal(one.ops.length, 2)
+  assert.ok(one.ops.every((o) => o.itemId === B))
+  const bad = runCli(['run-ops', '--plan', planPath, '--phase', phase, ...extra, '--item', 'deadbeef'])
+  assert.equal(bad.status, 2, `${bad.status} ${bad.stdout}`)
+  assert.ok(bad.stderr.includes('deadbeef'))
+})

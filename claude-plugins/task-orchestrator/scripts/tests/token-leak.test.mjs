@@ -231,12 +231,14 @@ test('S12 (run-ops): no phase output carries a seeded token or a seatToken key',
     contract: 'implement-wave/result-v1', started: true, runId: w.bound.args.runId, serverRunId: SERVER_RUN,
     items: [], refused: [], deferred: [],
   })
+  const notes = writeJson(w.dir, 'notes.json', { [A]: [{ key: 'specification', role: 'queue', body: 'pre-filled', version: 2, owner: { id: 'local' } }] })
   const invocations = {
     open: ['--phase', 'open'],
     assign: ['--phase', 'assign'],
     'assign-one': ['--phase', 'assign', '--item', 'aaaaaaaa', '--seat', 'planner'],
     heartbeat: ['--phase', 'heartbeat', '--usage', usage],
     'end-seats': ['--phase', 'end-seats', '--seats', seats, '--result', result],
+    'adopt-notes': ['--phase', 'adopt-notes', '--notes', notes],
     close: ['--phase', 'close', '--result', result],
     'close-cancelled': ['--phase', 'close', '--reason', 'cancelled'],
   }

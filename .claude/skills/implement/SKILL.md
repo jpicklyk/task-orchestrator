@@ -372,7 +372,15 @@ gradle" table for this; never paste a suite command into a seat prompt.
 
 The checked-in lock helper (`references/gradle-locked.ps1`) enforces the seat rows: it refuses
 `:current:test`, `:current:ktlintCheck` and `--rerun-tasks` unless `TO_GRADLE_OWNER=orchestrator`
-is set inline on the call, which only the orchestrator's own invocations do. Evidence for the
+is set inline on the call, which only the orchestrator's own invocations do. The lock is a directory
+carrying `owner.json` (holder pid, start time, acquire time), taken by renaming a staged copy into
+place so it is never ownerless. A waiter prints `LOCK HELD by pid <p> since <iso>` while it waits
+and reclaims the lock (`LOCK RECLAIMED: <reason>`) when that pid is dead or reused. With no readable
+`owner.json` (absent or unparseable) it reclaims once the directory is older than
+`TO_GRADLE_LOCK_STALE_MINUTES` (default 30); an `owner.json` that cannot be read counts as a live
+holder, and a live holder is never reclaimed by age. In a mixed-version wave, worktrees on an old
+base can reclaim or delete each other's locks until every worktree carries this fix. Evidence for
+the
 rule: on `release/4.0` every seat was running the forced suite (~8,000 tests, 7+ minutes each) so
 a 1-4 hour item spent an hour or more in Gradle (retrospectives `7e698694`, `462a33bb`).
 
@@ -948,15 +956,19 @@ The review agent:
 | Verdict | Action |
 |---------|--------|
 | **Pass** | Proceed to Step 6 |
-| **Pass with observations** | Proceed to Step 6; dispose observations per Dispositions at child close |
+| **Pass with observations** | Proceed to Step 6; dispose observations per Dispositions at child close (`fixed` only under run-wave `post-run.md` Step 5 "Observation triage") |
 | **Fail — blocking issues** | Stop and report to the user with the full findings. Do not attempt to fix autonomously — bring the human into the loop. |
 
 Once the user rules a fix on a run-wave item whose run closed at handoff, the fix cycle follows the numbered recipe in run-wave `post-run.md` Step 5 "Fallback", which also finalizes the item's `session-tracking`.
 
 **Dispositions at child close.** When a child's review returns Pass or Pass with observations,
-write the child's `orchestrator-confirmation` before advancing it: one line per O# (follow-up
-item created first, or `accepted: <reason>`), `N of N disposed`. Nothing is left for the parent
-review to carry.
+write the child's `orchestrator-confirmation` before advancing it: one line per O# as `fixed <sha>`,
+`follow-up <item-id>` (the item created first) or `accepted: <reason>`, `N of N disposed`. Nothing
+is left for the parent review to carry. `fixed` is bounded by run-wave `post-run.md` Step 5
+"Observation triage": only a concrete failure in behaviour the item added or changed, one
+`implementer-a<n>` (or `test-author-a<n>`) seat scoped to the finding ids, no planner amendment, no
+re-review unless the fix changes behaviour beyond the finding; the Fail recipe is for blocking
+findings only.
 
 Review failures surface issues that may indicate systemic problems worth learning
 from. Automatically retrying hides these signals.
