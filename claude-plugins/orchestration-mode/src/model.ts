@@ -40,8 +40,8 @@ export function isDirectorSkillCall(skill: unknown): boolean {
   return typeof skill === 'string' && skill.trim() === DIRECTOR_SKILL
 }
 
-/** The footer label's fixed part; the mode's name follows it in bold. */
-export const FOOTER_PREFIX = 'Orchestration Mode: '
+/** The footer label, drawn like the model name beside it; the mode's name follows it, dim like the effort. */
+export const FOOTER_PREFIX = 'Orchestration Mode'
 /** The native labels that precede ours in the footer slot, joined as the engine joins them. */
 export function footerLead(modes: readonly string[]): string {
   const others = modes.filter(mode => mode !== LABEL)
@@ -68,7 +68,7 @@ export function enterToast(since: string): string {
 
 export const EXIT_TOAST = 'Director mode off'
 
-/** The mode's name, drawn in bold after FOOTER_PREFIX in the prompt footer's mode slot while on. */
+/** The mode's name, drawn dim after FOOTER_PREFIX in the prompt footer's mode slot while on. */
 export const MODE_LABEL = 'director'
 
 /** The backdrop's glass: a warm amber tint so the window reads as "director" at a glance. */

@@ -313,7 +313,7 @@ The plugin adds workflow automation on top of the MCP server: skills, hooks, and
 
 The MCP server works without the plugin. The plugin makes it seamless with Claude Code.
 
-**Optional mod (early access):** [orchestration-mode](claude-plugins/orchestration-mode/README.md) shows which orchestration mode a session is in, on the session itself: an `Orchestration Mode: director` footer label, a live run board above the prompt, an amber desktop backdrop and enter/exit toasts, keyed to the director guard's marker. Standalone; it shares nothing with the graph mod.
+**Optional mod (early access):** [orchestration-mode](claude-plugins/orchestration-mode/README.md) shows which orchestration mode a session is in, on the session itself: an `Orchestration Mode director` footer label, a live run board above the prompt, an amber desktop backdrop and enter/exit toasts, keyed to the director guard's marker. Standalone; it shares nothing with the graph mod.
 
 ```
 /plugin install orchestration-mode@task-orchestrator-marketplace

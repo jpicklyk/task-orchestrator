@@ -38,7 +38,9 @@ test('the footer slot draws `Orchestration Mode: director` after the native labe
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...FOOTER, surface })
-    expect((await ui.find({ type: 'Text', text: /Orchestration Mode/ }))?.text).toBe('focus & Orchestration Mode: director')
+    expect((await ui.find({ type: 'Text', text: /Orchestration Mode/ }))?.text).toBe('Orchestration Mode')
+    expect((await ui.find({ type: 'Text', text: /^director$/ }))?.text).toBe('director')
+    expect((await ui.find({ type: 'Text', text: /focus/ }))?.text).toBe('focus &')
     await ui.unmount()
   }
 })

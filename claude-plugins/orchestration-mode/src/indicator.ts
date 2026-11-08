@@ -241,16 +241,25 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
   })
 
   // The prompt footer's mode slot (where `focus` and `memory paused` go): while on, draw the label
-  // there as a tree, `Orchestration Mode: director`, after any native labels. A tree is what the
-  // desktop app draws; a rewrite of `modes` reaches only the terminal. Reading the atom here
-  // subscribes the footer, so the write in reconcile redraws it.
+  // there as a tree, styled like the native `Fable 5.1 Medium` pair beside it (the label in the text
+  // colour at the model name's weight, the mode dim), after any native labels. A tree is what the
+  // desktop app draws; a rewrite of `modes` reaches only the terminal. Sibling cells in a centred
+  // row, not nested text, so the baseline matches the neighbours. Reading the atom here subscribes
+  // the footer, so the write in reconcile redraws it.
   on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
     if ((await read($, director)) === null) return next(e)
-    const { Text } = $.ui.resolve(e)
+    const { Box, Text } = $.ui.resolve(e)
+    const lead = footerLead(e.props.modes)
 
-    return Text({
-      dimColor: true,
-      children: [footerLead(e.props.modes), FOOTER_PREFIX, Text({ bold: true, children: MODE_LABEL })],
+    return Box({
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 1,
+      children: [
+        ...(lead === '' ? [] : [Text({ dimColor: true, children: lead.trimEnd() })]),
+        Text({ color: 'text', weight: 'semibold', children: FOOTER_PREFIX }),
+        Text({ color: 'subtle', children: MODE_LABEL }),
+      ],
     })
   })
 
