@@ -1,22 +1,28 @@
 {
   "name": "orchestration-mode",
   "version": "0.1.0",
-  "description": "Shows which Task Orchestrator orchestration mode this session is in (today: director): a footer label, a run board above the prompt, a tinted desktop backdrop and enter/exit toasts (early-access function-hooks API)",
+  "description": "Task Orchestrator in the session itself: a band above the prompt with the progression of the graph this session drives (open runs, else the item it is working on), toggleable with /to-band; a footer label for the modes you see in a session of your own (director, coordinator); a tinted desktop backdrop and toasts (early-access function-hooks API)",
   "author": {
     "name": "Jeff Picklyk"
   },
   "types": "./types/index.d.ts",
   "userConfig": {
+    "band": {
+      "type": "boolean",
+      "title": "Graph band",
+      "description": "Draw the band above the prompt with the progression of the graph this session drives, in every mode. /to-band hides or shows it for a session; the footer label shows either way.",
+      "default": true
+    },
     "backdrop": {
       "type": "boolean",
-      "title": "Director backdrop",
-      "description": "Tint the desktop app's backdrop while this session is in director mode. The footer label and toasts show either way.",
+      "title": "Mode backdrop",
+      "description": "Tint the desktop app's backdrop while this session is in director or coordinator mode. The footer label and toasts show either way.",
       "default": true
     },
     "apiUrl": {
       "type": "string",
       "title": "Task Orchestrator REST API URL",
-      "description": "Base URL of the server's REST API; the band's run board reads POST <apiUrl>/api/v1/ops/director/<tool>. Leave empty to read over the director MCP connection instead (stdio servers).",
+      "description": "Base URL of the server's REST API; the band reads POST <apiUrl>/api/v1/ops/director/<tool>. Leave empty to read over the director MCP connection instead (stdio servers).",
       "default": "http://localhost:3003"
     }
   }
