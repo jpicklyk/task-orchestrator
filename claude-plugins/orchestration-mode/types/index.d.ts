@@ -46,6 +46,10 @@ export type FocusBoard = {
   itemId: string
   /** Phase counts of the focus subtree, the focus itself included. */
   counts: PhaseCounts
+  /** The focus item's own role, for the phase pipeline a focus with no children shows. */
+  role?: string
+  /** True when the focus has children: line 2 then shows its subtree's bar and counts, else its own phases. */
+  hasChildren?: boolean
   /** Blocked work under the focus (`items_read` `blocked` total); null when the read failed. */
   blocked: number | null
   /** Line 1: the focus when it has children, else its parent below the project root, else the lone leaf itself. */

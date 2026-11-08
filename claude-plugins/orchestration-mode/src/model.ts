@@ -1,7 +1,7 @@
 // Pure helpers for the orchestration-mode mod. No `$`, no atoms: indicator.ts feeds these values and
 // draws what they return, so they are unit-testable with the plugin test kit alone.
 
-import type { Board, BoardRun, CoordinatorState, FocusState, ItemFacts, PhaseCounts } from '../types'
+import type { Board, BoardRun, CoordinatorState, FocusBoard, FocusState, ItemFacts, PhaseCounts } from '../types'
 
 /** The skill whose Skill tool call enters (or, with args `off`, leaves) director mode. */
 export const DIRECTOR_SKILL = 'task-orchestrator:director'
@@ -343,9 +343,9 @@ export function phaseCell(counts: PhaseCounts): string {
   return counts.blocked > 0 ? `${cell} · blocked ${counts.blocked}` : cell
 }
 
-/** `text` cut to `max` characters with an ellipsis. */
+/** `text` cut to `max` characters with an ellipsis (never after a space). */
 export function cut(text: string, max = 24): string {
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text
+  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text
 }
 
 /** The run's short name on the container line: its label, else its title, else the id prefix, cut to `max`. */
@@ -412,61 +412,156 @@ export function graphCounts(board: Board): { counts: PhaseCounts; done: number; 
   return { counts, done: counts.terminal, total: runTotal(counts), blocked: board?.focus?.blocked ?? counts.blocked, attention: false }
 }
 
-/**
- * Line 2's text after the bar: the pipeline `q2 → w1 → r1 → ✓3`, then only the counts that are not
- * zero (`blocked 1`, `decisions 2 (1 overdue)`); `loading` before the first read, the fault after a
- * failed one.
- */
-export function graphDetail(board: Board): string {
-  if (board === null) return 'loading'
-  if (board.error !== undefined) return `board unavailable: ${board.error}`
-  const { counts, blocked } = graphCounts(board)
-  const parts = [phaseCell({ ...counts, blocked: 0 })]
-  if (blocked > 0) parts.push(`blocked ${blocked}`)
-  if (board.decisions !== null && board.decisions.open > 0) parts.push(decisionsCell(board.decisions))
+/** How a band cell is drawn: the container title, dim facts, plain text, the lit phase, or a colour. */
+export type Tone = 'title' | 'dim' | 'text' | 'lit' | 'success' | 'error' | 'errorBold' | 'warningBold'
 
-  return parts.join(' · ')
+/** One run of text on a band line; a separator before it is part of its text, so it goes with it. */
+export type Cell = { text: string; tone: Tone }
+
+/** The gap between the groups of line 2 (facts, bar, counts) and between line 3's lead and title. */
+export const GAP = '   '
+
+/** The cells a band line has in its frame: the body less the round border and the one-cell padding each side. */
+export function bandWidth(bodyColumns: number): number {
+  return Math.max(1, bodyColumns - 4)
 }
 
-/** Line 1, the container: `name`, then dim cells, a coloured chip, then dim run facts. Null when there is none. */
-export type ContainerLine = {
-  name?: string
-  lead: string
-  chip?: { text: string; color: 'warning' | 'error' }
-  tail: string
+/** The cells a line of `cells` takes. */
+export function cellsWidth(cells: readonly Cell[]): number {
+  return cells.reduce((n, cell) => n + cell.text.length, 0)
 }
 
 /**
- * Line 1: the root of the work the graph belongs to. The container's name, type and phase label, then,
- * with a run open, `run <label> <status>` (or `2 runs open`), the first run's chip, its seats and, at
- * 120 columns or more, its tokens. Null with no container and no run.
+ * Cuts a line to `width` itself (the desktop app wraps a long Text whatever its `wrap` says, so no
+ * line may rely on the frame): drops cells from the end first, down to the `elastic` one, then ends
+ * that one with an ellipsis. A line whose cells before the elastic one are already too wide keeps
+ * only the elastic cell, cut to fit.
  */
-export function containerLine(container: ItemFacts | null | undefined, runs: readonly BoardRun[], columns: number): ContainerLine | null {
+export function fitCells(cells: readonly Cell[], width: number, elastic = 0): Cell[] {
+  const out = cells.filter(cell => cell.text !== '')
+  while (cellsWidth(out) > width && out.length > elastic + 1) out.pop()
+  const over = cellsWidth(out) - width
+  const target = out[elastic]
+  if (over <= 0 || target === undefined) return out
+  const room = target.text.length - over
+  if (room >= 2) {
+    out[elastic] = { ...target, text: cut(target.text, room) }
+
+    return out
+  }
+
+  return [{ ...target, text: cut(target.text.replace(/^[\s·]+/, ''), Math.max(1, width)) }]
+}
+
+const PHASE_ROLES = ['queue', 'work', 'review', 'terminal'] as const
+const PHASE_NAMES = ['queue', 'work', 'review', 'done'] as const
+
+/**
+ * An item's own phase pipeline with the current phase lit: `queue → ◉ work → review → done`. The
+ * four phases of the role sequence (the `get` the band reads cannot tell an item without a review
+ * phase); a blocked item lights none and adds `◉ blocked`.
+ */
+export function phasePipeline(role: string, prefix = ''): Cell[] {
+  const at = PHASE_ROLES.findIndex(r => r === role)
+  if (at < 0) {
+    const cells: Cell[] = [{ text: prefix + PHASE_NAMES.join(' → '), tone: 'dim' }]
+    if (role === 'blocked') cells.push({ text: `${SEP}◉ blocked`, tone: 'lit' })
+
+    return cells
+  }
+  const before = PHASE_NAMES.slice(0, at)
+  const after = PHASE_NAMES.slice(at + 1)
+
+  const cells: Cell[] = [
+    ...(before.length > 0 || prefix !== '' ? [{ text: prefix + before.map(name => `${name} → `).join(''), tone: 'dim' as const }] : []),
+    { text: `◉ ${PHASE_NAMES[at]}`, tone: 'lit' },
+    ...(after.length > 0 ? [{ text: after.map(name => ` → ${name}`).join(''), tone: 'dim' as const }] : []),
+  ]
+
+  return cells.filter(cell => cell.text !== '')
+}
+
+/** `2 runs open`, or `3 runs, 2 open, 1 paused`. */
+function runsCell(runs: readonly BoardRun[]): string {
   const first = runs[0]
-  if ((container === null || container === undefined) && first === undefined) return null
-  const lead = container ? [container.type, container.label] : []
-  if (first !== undefined) {
-    const open = runs.filter(run => run.status === 'open').length
-    const paused = runs.length - open
-    if (runs.length === 1) lead.push(`run ${runLabel(first)} ${first.status}`)
-    else lead.push(paused > 0 ? `${runs.length} runs, ${open} open, ${paused} paused` : `${runs.length} runs open`)
-  }
-  const chip =
-    first === undefined
-      ? undefined
-      : first.status === 'paused'
-        ? { text: pausedCell(first), color: 'warning' as const }
-        : first.coordinatorStalled
-          ? { text: 'COORD STALLED', color: 'error' as const }
-          : undefined
-  const tail = first === undefined ? [] : [seatsCell(first), ...(columns >= 120 ? [`${formatTokens(first.tokens)} tok`] : [])]
+  if (first === undefined) return ''
+  if (runs.length === 1) return `run ${runLabel(first)} ${first.status}`
+  const open = runs.filter(run => run.status === 'open').length
+  const paused = runs.length - open
 
-  return {
-    name: container?.title || undefined,
-    lead: lead.filter(cell => cell !== '').join(' · '),
-    chip,
-    tail: tail.join(' · '),
+  return paused > 0 ? `${runs.length} runs, ${open} open, ${paused} paused` : `${runs.length} runs open`
+}
+
+/**
+ * Line 1, the container: the root of the work alone, in full (bold amber), then, with a run open, the
+ * run (`run wave-8 open`, or `2 runs open`), the first run's chip (`PAUSED <reason>`, `COORD STALLED`),
+ * its seats and, at 120 columns or more, its tokens. Unfitted; null with no container and no run.
+ */
+export function line1Cells(container: ItemFacts | null | undefined, runs: readonly BoardRun[], columns: number): Cell[] | null {
+  const first = runs[0]
+  const title = container?.title ?? ''
+  if (title === '' && first === undefined) return null
+  const cells: Cell[] = title === '' ? [] : [{ text: title, tone: 'title' }]
+  if (first !== undefined) {
+    const sep = (): string => (cells.length > 0 ? SEP : '')
+    cells.push({ text: sep() + runsCell(runs), tone: 'dim' })
+    if (first.status === 'paused') cells.push({ text: SEP + pausedCell(first), tone: 'warningBold' })
+    else if (first.coordinatorStalled) cells.push({ text: `${SEP}COORD STALLED`, tone: 'errorBold' })
+    for (const part of seatsCell(first).split(SEP)) cells.push({ text: SEP + part, tone: 'dim' })
+    if (columns >= 120) cells.push({ text: `${SEP}${formatTokens(first.tokens)} tok`, tone: 'dim' })
   }
+
+  return cells
+}
+
+/**
+ * Line 2, the progress: the container's dim type and phase, then, for a graph with members (a run, or
+ * a focus with children), the bar, `done/total` and the counts pipeline; for a focus with no children,
+ * its type and its own phase pipeline. Then only the non-zero `blocked N` and `decisions N (k overdue)`.
+ * `loading` before the first read, the fault after a failed one. Unfitted.
+ */
+export function line2Cells(board: Board, container: ItemFacts | null | undefined, graph: FocusBoard | null): Cell[] {
+  const runs = board?.runs ?? []
+  const leaf = runs.length === 0 && graph !== null && !(graph.hasChildren ?? runTotal(graph.counts) > 1)
+  const facts = container ? (leaf ? [container.type] : [container.type, container.label]).filter(cell => cell !== '').join(SEP) : ''
+  const cells: Cell[] = facts === '' ? [] : [{ text: facts, tone: 'dim' }]
+  const gap = (): string => (cells.length > 0 ? GAP : '')
+  if (board === null) return [...cells, { text: `${gap()}loading`, tone: 'dim' }]
+  if (board.error !== undefined) return [...cells, { text: `${gap()}board unavailable: ${board.error}`, tone: 'dim' }]
+  const { counts, done, total, blocked, attention } = graphCounts(board)
+  if (leaf) cells.push(...phasePipeline(graph?.role ?? '', cells.length > 0 ? SEP : ''))
+  else {
+    if (total > 0) {
+      cells.push({ text: gap() + progressBar(done, total), tone: attention ? 'error' : 'success' })
+      cells.push({ text: ` ${done}/${total}`, tone: 'dim' })
+    }
+    cells.push({ text: gap() + phaseCell({ ...counts, blocked: 0 }), tone: 'dim' })
+  }
+  if (blocked > 0) cells.push({ text: `${SEP}blocked ${blocked}`, tone: 'dim' })
+  if (board.decisions !== null && board.decisions.open > 0) cells.push({ text: SEP + decisionsCell(board.decisions), tone: 'dim' })
+
+  return cells
+}
+
+/** The shortest a line 3 title is cut to before its `blocked by` cell is dropped instead. */
+const MIN_ITEM_TITLE = 12
+
+/**
+ * Line 3, the current item, fitted to `width`: `d8999287 · plugin-change · in-progress`, the title,
+ * then `blocked by <id>` in red. The title gives way first (an ellipsis), down to a dozen cells; past
+ * that the blocker cell goes and the title takes the room.
+ */
+export function line3Cells(item: ItemFacts & { blockedBy?: string }, width: number): Cell[] {
+  const lead: Cell = { text: itemLead(item), tone: 'dim' }
+  const title: Cell = { text: GAP + item.title, tone: 'text' }
+  if (item.blockedBy !== undefined) {
+    const blocker: Cell = { text: SEP + blockedByCell(item.blockedBy), tone: 'error' }
+    const room = width - lead.text.length - blocker.text.length
+    if (title.text.length <= room) return [lead, title, blocker]
+    if (room >= GAP.length + MIN_ITEM_TITLE) return [lead, { ...title, text: cut(title.text, room) }, blocker]
+  }
+
+  return fitCells([lead, title], width, 1)
 }
 
 /** Line 3's dim lead before the title: `d8999287 · plugin-change · in-progress`. */

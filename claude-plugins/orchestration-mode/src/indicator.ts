@@ -22,7 +22,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions, Timer, ToolCallResult } from 'claude-code'
 
 import type { Board, BoardRun, CoordinatorState, DirectorState, FocusBoard, FocusState, ItemFacts } from '../types'
-import type { FocusItem } from './model.ts'
+import type { Cell, FocusItem } from './model.ts'
 import {
   BACKDROP_ALT,
   BACKDROP_HEIGHT,
@@ -37,17 +37,16 @@ import {
   MIN_BAND_COLUMNS,
   MIN_REFRESH_GAP_MS,
   REFRESH_MS,
-  SEP,
   backdropSvg,
-  blockedByCell,
+  bandWidth,
   blockerOf,
   closedRunIds,
-  containerLine,
   coordinatorFromMarker,
   coordinatorFromOpen,
   coordinatorToast,
   decisionCounts,
   enterToast,
+  fitCells,
   envelopeData,
   focusBlocked,
   focusFromGet,
@@ -55,15 +54,14 @@ import {
   focusProgress,
   footerLead,
   footerModes,
-  graphCounts,
-  graphDetail,
   isDirectorSkillCall,
   itemFacts,
-  itemLead,
+  line1Cells,
+  line2Cells,
+  line3Cells,
   listItems,
   markerPath,
   modesOn,
-  progressBar,
   resolveFocus,
   restData,
   restToolUrl,
@@ -229,6 +227,8 @@ async function readFocus($: EngineInterface, current: NonNullable<FocusState>): 
   return {
     itemId: current.itemId,
     counts: focusProgress(overview, self?.role),
+    role: self?.role ?? '',
+    hasChildren,
     blocked: blocked?.total ?? null,
     container,
     touched: blockedBy === undefined ? touched : { ...touched, blockedBy },
@@ -529,12 +529,14 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
   })
 
   // The band directly above the prompt, in every mode, one line per layer and never more than three:
-  // 1 the container, the root of the work being done (its name full width, type, phase, and the run
-  // facts when a run is open), 2 the progress (bar, done/total, pipeline, the non-zero blocked and
-  // decisions counts), 3 the work item this session last touched (left out when it is the container
-  // itself, a lone leaf). A short band drops line 3, then line 2, never line 1. Not drawn with no run
-  // and no touched item, while hidden (`/to-band`) or off (userConfig `band`), while a survey holds
-  // the band, and on a very narrow body.
+  // 1 the container, the root of the work being done (its title alone, then the run facts when a run
+  // is open), 2 the progress (the container's type and phase, then the bar, done/total and counts
+  // pipeline of a graph with members, or a lone item's own phase pipeline, then the non-zero blocked
+  // and decisions counts), 3 the work item this session last touched (left out when it is the
+  // container itself). Every line is cut here to the frame's width: the desktop app wraps a long Text
+  // whatever its `wrap` says. A short band drops line 3, then line 2, never line 1. Not drawn with no
+  // run and no touched item, while hidden (`/to-band`) or off (userConfig `band`), while a survey
+  // holds the band, and on a very narrow body.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (!bandWanted || (await read($, bandHidden))) return next(e)
     if (e.props.hasSurvey || e.props.bodyColumns < MIN_BAND_COLUMNS) return next(e)
@@ -543,6 +545,7 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
     const runs = current?.runs ?? []
     if (runs.length === 0 && focused === null) return next(e)
     const { Box, Text } = $.ui.resolve(e)
+    const width = bandWidth(e.props.bodyColumns)
 
     // The focus graph read for this focus, if the board has caught up with it.
     const graph = focused !== null && current?.focus && sameId(current.focus.itemId, focused.itemId) ? current.focus : null
@@ -559,75 +562,42 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
     // A board saved by an earlier version carries no container: the walk's facts stand in.
     const containerFacts = graph?.container ?? fallback
 
-    // Line 1: the container, with the first run's facts when a run is open.
-    const container = containerLine(containerFacts, runs, e.props.bodyColumns)
-    const line1 =
-      container === null
-        ? null
-        : Box({
-            key: 'container',
-            flexDirection: 'row',
-            // One truncating text, the facts nested after the name: the frame cuts the line from its
-            // end, so the name stands in full until nothing but it is left. A nested row overflows
-            // the frame on the desktop app instead of being cut.
-            children: [
-              Text({
-                wrap: 'truncate',
-                children: [
-                  ...(container.name !== undefined ? [Text({ color: 'warning', bold: true, children: container.name })] : []),
-                  ...(container.lead !== ''
-                    ? [Text({ dimColor: true, children: container.name !== undefined ? SEP + container.lead : container.lead })]
-                    : []),
-                  ...(container.chip !== undefined ? [Text({ color: container.chip.color, bold: true, children: SEP + container.chip.text })] : []),
-                  ...(container.tail !== '' ? [Text({ dimColor: true, children: SEP + container.tail })] : []),
-                ],
-              }),
-            ],
-          })
+    // One line: a row holding one Text, its cells nested, already cut to the frame.
+    const tone = (cell: Cell) => {
+      switch (cell.tone) {
+        case 'title':
+          return Text({ color: 'warning', bold: true, children: cell.text })
+        case 'text':
+          return Text({ color: 'text', children: cell.text })
+        case 'lit':
+          return Text({ color: 'text', bold: true, children: cell.text })
+        case 'success':
+          return Text({ color: 'success', children: cell.text })
+        case 'error':
+          return Text({ color: 'error', children: cell.text })
+        case 'errorBold':
+          return Text({ color: 'error', bold: true, children: cell.text })
+        case 'warningBold':
+          return Text({ color: 'warning', bold: true, children: cell.text })
+        default:
+          return Text({ dimColor: true, children: cell.text })
+      }
+    }
+    const line = (key: string, cells: Cell[]) =>
+      Box({ key, flexDirection: 'row', children: [Text({ wrap: 'truncate', children: cells.map(tone) })] })
 
-    // Line 2: the progress and summary.
-    const { done, total, attention } = graphCounts(shown)
-    const line2 = Box({
-      key: 'graph',
-      flexDirection: 'row',
-      gap: 1,
-      children: [
-        ...(total > 0
-          ? [
-              Box({
-                key: 'bar',
-                flexShrink: 0,
-                gap: 1,
-                children: [
-                  Text({ color: attention ? 'error' : 'success', children: progressBar(done, total) }),
-                  Text({ dimColor: true, tabular: true, children: `${done}/${total}` }),
-                ],
-              }),
-            ]
-          : []),
-        Text({ dimColor: true, tabular: true, wrap: 'truncate', children: graphDetail(shown) }),
-      ],
-    })
+    // Line 1: the container's title alone, then the first run's facts, which give way first.
+    const head = line1Cells(containerFacts, runs, e.props.bodyColumns)
+    const line1 = head === null ? null : line('container', fitCells(head, width))
+
+    // Line 2: the container's type and phase, then the progress and the non-zero counts.
+    const line2 = line('graph', fitCells(line2Cells(shown, containerFacts, graph), width))
 
     // Line 3: the item this session last touched, as the board last read it.
     const touched: (ItemFacts & { blockedBy?: string }) | null =
       focused === null ? null : graph?.touched && sameId(graph.touched.itemId, focused.touched.itemId) ? graph.touched : focused.touched
     const isContainer = touched !== null && containerFacts !== null && sameId(touched.itemId, containerFacts.itemId)
-    const blockedBy = touched?.blockedBy
-    const line3 =
-      touched === null || isContainer
-        ? null
-        : Box({
-            key: 'item',
-            flexDirection: 'row',
-            children: [
-              Box({ flexShrink: 0, children: [Text({ dimColor: true, children: itemLead(touched) + SEP })] }),
-              Text({ color: 'text', wrap: 'truncate', children: touched.title }),
-              ...(blockedBy !== undefined
-                ? [Box({ flexShrink: 0, children: [Text({ color: 'error', children: SEP + blockedByCell(blockedBy) })] })]
-                : []),
-            ],
-          })
+    const line3 = touched === null || isContainer ? null : line('item', line3Cells(touched, width))
 
     // The border takes two rows; past that, drop line 3 first, then line 2, never line 1.
     const room = Math.max(1, e.props.maxRows - 2)

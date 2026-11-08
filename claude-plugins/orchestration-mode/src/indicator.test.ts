@@ -3,15 +3,17 @@ import { expect, test } from 'claude-code/testing'
 import type { Board, BoardRun, FocusBoard } from '../types'
 import {
   backdropSvg,
+  bandWidth,
   blockedByCell,
   blockerOf,
   boardProgress,
+  cellsWidth,
   closedRunIds,
-  containerLine,
   coordinatorFromMarker,
   coordinatorFromOpen,
   decisionCounts,
   enterToast,
+  fitCells,
   envelopeData,
   focusBlocked,
   focusFromGet,
@@ -22,12 +24,15 @@ import {
   footerModes,
   formatTokens,
   graphCounts,
-  graphDetail,
   isDirectorSkillCall,
   itemLead,
+  line1Cells,
+  line2Cells,
+  line3Cells,
   listTotal,
   markerPath,
   pausedCell,
+  phasePipeline,
   phaseCell,
   progressBar,
   resolveFocus,
@@ -292,7 +297,7 @@ test("a subagent's TO calls move neither the mode nor the focus", async ($, on) 
   expect(await shown($, BAND, /Band item|engine/)).toBe('engine')
 })
 
-test('a touched task draws the graph, its feature and the task itself; /to-band hides and shows the band', async ($, on) => {
+test('a touched task draws its feature, the progress and the task itself; /to-band hides and shows the band', async ($, on) => {
   const stored: Record<string, unknown> = {}
   const toasts: string[] = []
   on('store.set', (_, e) => {
@@ -315,16 +320,17 @@ test('a touched task draws the graph, its feature and the task itself; /to-band 
   await $.tool.call({ tool: NOTES_TOOL, ops: [{ op: 'upsert', itemId: '8da6e710', key: 'k', role: 'work', body: '' }] })
   await settle()
   expect(await texts($, BAND)).toEqual([
-    // Line 1: the feature the task belongs to.
+    // Line 1: the feature the task belongs to, its title alone.
     'Model and effort policy',
-    ' · feature-implementation · in-progress',
-    // Line 2: the feature's subtree with the feature itself, then the non-zero blocked count.
-    '▰▰▰▱▱▱▱▱',
-    '1/3',
-    'q1 → w1 → r0 → ✓1 · blocked 1',
+    // Line 2: its type and phase, the subtree with the feature itself, the non-zero blocked count.
+    'feature-implementation · in-progress',
+    '   ▰▰▰▱▱▱▱▱',
+    ' 1/3',
+    '   q1 → w1 → r0 → ✓1',
+    ' · blocked 1',
     // Line 3: the task this session touched.
-    '8da6e710 · feature-task · queue · ',
-    'A task',
+    '8da6e710 · feature-task · queue',
+    '   A task',
     ' · blocked by 95c660e2',
   ])
 
@@ -340,7 +346,7 @@ test('a touched task draws the graph, its feature and the task itself; /to-band 
   expect(stored).toEqual({})
 })
 
-test('a lone leaf below the root names itself on line 1 and draws no line 3', async ($, on) => {
+test('a lone leaf names itself on line 1 and shows its own phase pipeline, no bar and no line 3', async ($, on) => {
   const leaf = { id: 'd8999287-71c9', parentId: 'ce064d2c-0000', depth: 1, type: 'plugin-change', title: 'Band item', statusLabel: 'in-progress', role: 'work' }
   on('ui.toast', () => ({ value: undefined }))
   on('http.fetch', server({ d8999287: leaf, 'd8999287-71c9': leaf }))
@@ -348,7 +354,24 @@ test('a lone leaf below the root names itself on line 1 and draws no line 3', as
 
   await $.tool.call({ tool: NOTES_TOOL, ops: [{ op: 'upsert', itemId: 'd8999287', key: 'k', role: 'work', body: '' }] })
   await settle()
-  expect(await texts($, BAND)).toEqual(['Band item', ' · plugin-change · in-progress', '▱▱▱▱▱▱▱▱', '0/1', 'q0 → w1 → r0 → ✓0'])
+  expect(await texts($, BAND)).toEqual(['Band item', 'plugin-change', ' · queue → ', '◉ work', ' → review → done'])
+})
+
+test('a long title is cut to the frame with an ellipsis, so no band line can wrap', async ($, on) => {
+  const title = 'orchestration-mode: graph-progression band (toggleable) and visible-mode footer (director, coordinator)'
+  const leaf = { id: 'd8999287-71c9', parentId: 'ce064d2c-0000', depth: 1, type: 'plugin-change', title, statusLabel: 'in-progress', role: 'work' }
+  on('ui.toast', () => ({ value: undefined }))
+  on('http.fetch', server({ d8999287: leaf, 'd8999287-71c9': leaf }))
+  on('tool.call', answerWrites(() => ({})))
+
+  await $.tool.call({ tool: NOTES_TOOL, ops: [{ op: 'upsert', itemId: 'd8999287', key: 'k', role: 'work', body: '' }] })
+  await settle()
+  for (const bodyColumns of [100, 50]) {
+    const lines = await texts($, { ...BAND, props: { ...BAND.props, bodyColumns } })
+    expect(lines[0]).toBe(title.slice(0, bodyColumns - 5).trimEnd() + '…')
+    expect(lines[0]?.length).toBe(bodyColumns - 4)
+    expect(lines.slice(1).join('')).toBe('plugin-change · queue → ◉ work → review → done')
+  }
 })
 
 test('the band toggle is per session: a fresh session starts from userConfig band, never from the store', async ($, on) => {
@@ -458,17 +481,19 @@ test('a run with nothing touched draws its facts and the progress; hidden or wit
     expect(leaves(await ui.findAll({ type: 'Text' }))).toEqual([
       'run wave-8 open',
       ' · COORD STALLED',
-      ' · in flight 2 (1 stalled) · ready 1 · waiting 1',
+      ' · in flight 2 (1 stalled)',
+      ' · ready 1',
+      ' · waiting 1',
       '▰▰▱▱▱▱▱▱',
-      '1/5',
-      'q2 → w1 → r0 → ✓1 · blocked 1 · decisions 2 (1 overdue)',
+      ' 1/5',
+      '   q2 → w1 → r0 → ✓1',
+      ' · blocked 1',
+      ' · decisions 2 (1 overdue)',
     ])
     expect(await ui.find({ type: 'Text', text: /orchestration-mode|DIRECTOR MODE/ })).toBe(undefined)
     await ui.unmount()
   }
-  expect(await shown($, { ...BAND, props: { ...BAND.props, bodyColumns: 130 } }, /tok$/)).toBe(
-    ' · in flight 2 (1 stalled) · ready 1 · waiting 1 · 1.3M tok',
-  )
+  expect(await shown($, { ...BAND, props: { ...BAND.props, bodyColumns: 130 } }, /tok$/)).toBe(' · 1.3M tok')
 
   values = { board: RUN_BOARD, bandHidden: true }
   expect(await shown($, BAND, /run wave-8|engine/)).toBe('engine')
@@ -496,41 +521,34 @@ test('the focus view draws container, progress and item, and a short band drops 
     })),
   )
   const band = () => ({ ...BAND, props: { ...BAND.props, maxRows } })
+  // At 96 cells the decisions count is the cell line 2 gives up, and line 3 cuts its title.
+  const progress = ['feature-implementation · in-progress', '   ▰▰▰▰▱▱▱▱', ' 2/4', '   q1 → w1 → r0 → ✓2', ' · blocked 1']
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...band(), surface })
     expect(leaves(await ui.findAll({ type: 'Text' }))).toEqual([
       'Model and effort policy',
-      ' · feature-implementation · in-progress',
-      '▰▰▰▰▱▱▱▱',
-      '2/4',
-      'q1 → w1 → r0 → ✓2 · blocked 1 · decisions 2 (1 overdue)',
-      '6e91c19b · feature-task · queue · ',
-      'A task with a long title that the frame truncates',
+      ...progress,
+      '6e91c19b · feature-task · queue',
+      '   A task with a long title that the frame…',
       ' · blocked by d8999287',
     ])
     await ui.unmount()
   }
+  const wide = await texts($, { ...band(), props: { ...band().props, bodyColumns: 130 } })
+  expect(wide.includes(' · decisions 2 (1 overdue)')).toBe(true)
 
   maxRows = 4
-  const two = await texts($, band())
-  expect(two).toEqual([
-    'Model and effort policy',
-    ' · feature-implementation · in-progress',
-    '▰▰▰▰▱▱▱▱',
-    '2/4',
-    'q1 → w1 → r0 → ✓2 · blocked 1 · decisions 2 (1 overdue)',
-  ])
+  expect(await texts($, band())).toEqual(['Model and effort policy', ...progress])
   maxRows = 3
-  const one = await texts($, band())
-  expect(one).toEqual(['Model and effort policy', ' · feature-implementation · in-progress'])
+  expect(await texts($, band())).toEqual(['Model and effort policy'])
 })
 
 test('before the first read the band names the focus and the touched item around a loading progress line', async ($, on) => {
   const touched = { itemId: '6e91c19b-0000', title: 'A task', type: 'feature-task', label: 'queue' }
   on('state.get', seedState(() => ({ board: null, bandHidden: false, focus: { itemId: 'd99e4f7a', title: 'F', since: 'x', touched } })))
 
-  expect(await texts($, BAND)).toEqual(['F', 'loading', '6e91c19b · feature-task · queue · ', 'A task'])
+  expect(await texts($, BAND)).toEqual(['F', 'loading', '6e91c19b · feature-task · queue', '   A task'])
 })
 
 test('the band stays off with userConfig band false', { options: { band: false } }, async ($, on) => {
@@ -708,9 +726,10 @@ test('focus progress, blocked work and the line helpers', async () => {
   expect(blockedByCell('95c660e2-617b-49ef')).toBe('blocked by 95c660e2')
 })
 
-test('line 1: counts across the runs or the focus, only the non-zero extras', async () => {
+test('line 2: the counts across the runs or the focus, only the non-zero extras', async () => {
   const paused: BoardRun = { ...RUN, id: 'p', status: 'paused', pauseReason: 'attempt-cap', stalled: 0, coordinatorStalled: false }
   const board: Board = { at: 'x', runs: [RUN, paused], decisions: { open: 2, overdue: 1 } }
+  const feature = { itemId: 'f', title: 'Phase 4 plan', type: 'feature-implementation', label: 'in-progress' }
   expect(graphCounts(board)).toEqual({
     counts: { queue: 4, work: 2, review: 0, blocked: 2, terminal: 2 },
     done: 2,
@@ -719,19 +738,44 @@ test('line 1: counts across the runs or the focus, only the non-zero extras', as
     attention: true,
   })
   expect(graphCounts({ ...board, runs: [paused] }).attention).toBe(false)
-  expect(graphDetail(board)).toBe('q4 → w2 → r0 → ✓2 · blocked 2 · decisions 2 (1 overdue)')
-  const calm: Board = { at: 'x', runs: [{ ...RUN, counts: { ...RUN.counts, blocked: 0 } }], decisions: { open: 0, overdue: 0 } }
-  expect(graphDetail(calm)).toBe('q2 → w1 → r0 → ✓1')
-  const focusOnly: Board = {
-    at: 'x',
-    runs: [],
-    decisions: null,
-    focus: { itemId: 'f', counts: { queue: 1, work: 0, review: 0, blocked: 0, terminal: 1 }, blocked: 0, container: null, touched: null },
+  expect(line2Cells(board, feature, null)).toEqual([
+    { text: 'feature-implementation · in-progress', tone: 'dim' },
+    { text: '   ▰▰▱▱▱▱▱▱', tone: 'error' },
+    { text: ' 2/10', tone: 'dim' },
+    { text: '   q4 → w2 → r0 → ✓2', tone: 'dim' },
+    { text: ' · blocked 2', tone: 'dim' },
+    { text: ' · decisions 2 (1 overdue)', tone: 'dim' },
+  ])
+  const calm: Board = { at: 'x', runs: [{ ...RUN, counts: { ...RUN.counts, blocked: 0 }, stalled: 0, coordinatorStalled: false }], decisions: { open: 0, overdue: 0 } }
+  expect(line2Cells(calm, null, null).map(c => c.text)).toEqual(['▰▰▱▱▱▱▱▱', ' 1/4', '   q2 → w1 → r0 → ✓1'])
+  expect(line2Cells(calm, null, null)[0]?.tone).toBe('success')
+  const container: FocusBoard = {
+    itemId: 'f',
+    counts: { queue: 1, work: 0, review: 0, blocked: 0, terminal: 1 },
+    hasChildren: true,
+    role: 'work',
+    blocked: 0,
+    container: feature,
+    touched: null,
   }
-  expect(graphCounts(focusOnly)).toEqual({ counts: focusOnly.focus?.counts, done: 1, total: 2, blocked: 0, attention: false })
-  expect(graphDetail(focusOnly)).toBe('q1 → w0 → r0 → ✓1')
-  expect(graphDetail(null)).toBe('loading')
-  expect(graphDetail({ ...board, error: 'http 502: no JSON body' })).toBe('board unavailable: http 502: no JSON body')
+  const focusOnly: Board = { at: 'x', runs: [], decisions: null, focus: container }
+  expect(graphCounts(focusOnly)).toEqual({ counts: container.counts, done: 1, total: 2, blocked: 0, attention: false })
+  expect(line2Cells(focusOnly, feature, container).map(c => c.text)).toEqual([
+    'feature-implementation · in-progress',
+    '   ▰▰▰▰▱▱▱▱',
+    ' 1/2',
+    '   q1 → w0 → r0 → ✓1',
+  ])
+  // A focus with no children shows its type and its own phases, never a bar of one.
+  const leafItem = { itemId: 'l', title: 'Leaf', type: 'plugin-change', label: 'in-progress' }
+  const leaf: FocusBoard = { ...container, counts: { queue: 0, work: 1, review: 0, blocked: 0, terminal: 0 }, hasChildren: false, container: leafItem }
+  expect(line2Cells({ ...focusOnly, focus: leaf }, leafItem, leaf).map(c => c.text).join('')).toBe('plugin-change · queue → ◉ work → review → done')
+  // A board saved before `hasChildren` existed: one member is a leaf, more are a container.
+  const { hasChildren: _h, role: _r, ...old } = leaf
+  expect(line2Cells({ ...focusOnly, focus: old }, leafItem, old).map(c => c.text).join('')).toBe('plugin-change · queue → work → review → done')
+  expect(line2Cells(null, feature, null).map(c => c.text)).toEqual(['feature-implementation · in-progress', '   loading'])
+  expect(line2Cells(null, null, null).map(c => c.text)).toEqual(['loading'])
+  expect(line2Cells({ ...board, error: 'http 502: no JSON body' }, null, null).map(c => c.text)).toEqual(['board unavailable: http 502: no JSON body'])
   expect(boardProgress(board)).toEqual({ done: 2, total: 10 })
   expect(boardProgress(null)).toEqual({ done: 0, total: 0 })
   expect(progressBar(2, 10)).toBe('▰▰▱▱▱▱▱▱')
@@ -745,23 +789,64 @@ test('line 1: counts across the runs or the focus, only the non-zero extras', as
   expect(listTotal({ items: [{}, {}] })).toBe(2)
 })
 
-test('line 2: the container, then the run facts', async () => {
+test('a leaf phase pipeline lights the current phase', async () => {
+  const text = (role: string) => phasePipeline(role).map(c => c.text).join('')
+  const lit = (role: string) => phasePipeline(role).filter(c => c.tone === 'lit').map(c => c.text)
+  expect(text('queue')).toBe('◉ queue → work → review → done')
+  expect(text('work')).toBe('queue → ◉ work → review → done')
+  expect(text('review')).toBe('queue → work → ◉ review → done')
+  expect(text('terminal')).toBe('queue → work → review → ◉ done')
+  expect(lit('work')).toEqual(['◉ work'])
+  expect(text('blocked')).toBe('queue → work → review → done · ◉ blocked')
+  expect(lit('blocked')).toEqual([' · ◉ blocked'])
+  expect(text('')).toBe('queue → work → review → done')
+  expect(phasePipeline('queue', ' · ').map(c => c.text)).toEqual([' · ', '◉ queue', ' → work → review → done'])
+})
+
+test('line 1: the title alone, then the run facts', async () => {
   const feature = { itemId: 'f', title: 'Phase 4 plan', type: 'feature-implementation', label: 'in-progress' }
-  expect(containerLine(null, [], 100)).toBe(null)
-  expect(containerLine(feature, [], 100)).toEqual({ name: 'Phase 4 plan', lead: 'feature-implementation · in-progress', chip: undefined, tail: '' })
-  expect(containerLine(feature, [RUN], 130)).toEqual({
-    name: 'Phase 4 plan',
-    lead: 'feature-implementation · in-progress · run wave-8 open',
-    chip: { text: 'COORD STALLED', color: 'error' },
-    tail: 'in flight 2 (1 stalled) · ready 1 · waiting 1 · 1.3M tok',
-  })
+  expect(line1Cells(null, [], 100)).toBe(null)
+  expect(line1Cells(feature, [], 100)).toEqual([{ text: 'Phase 4 plan', tone: 'title' }])
+  expect(line1Cells(feature, [RUN], 130)).toEqual([
+    { text: 'Phase 4 plan', tone: 'title' },
+    { text: ' · run wave-8 open', tone: 'dim' },
+    { text: ' · COORD STALLED', tone: 'errorBold' },
+    { text: ' · in flight 2 (1 stalled)', tone: 'dim' },
+    { text: ' · ready 1', tone: 'dim' },
+    { text: ' · waiting 1', tone: 'dim' },
+    { text: ' · 1.3M tok', tone: 'dim' },
+  ])
   const paused: BoardRun = { ...RUN, id: 'p', status: 'paused', pauseReason: 'run-budget' }
-  expect(containerLine(null, [paused], 100)?.chip).toEqual({ text: 'PAUSED run-budget', color: 'warning' })
-  expect(containerLine(null, [RUN, { ...RUN, id: 'r2' }], 100)?.lead).toBe('2 runs open')
-  expect(containerLine(null, [RUN, paused], 100)?.lead).toBe('2 runs, 1 open, 1 paused')
-  expect(containerLine(null, [{ ...RUN, label: 'a label far too long for the line two cell' }], 100)?.lead).toBe(
+  expect(line1Cells(null, [paused], 100)?.[1]).toEqual({ text: ' · PAUSED run-budget', tone: 'warningBold' })
+  expect(line1Cells(null, [RUN, { ...RUN, id: 'r2' }], 100)?.[0]?.text).toBe('2 runs open')
+  expect(line1Cells(null, [RUN, paused], 100)?.[0]?.text).toBe('2 runs, 1 open, 1 paused')
+  expect(line1Cells(null, [{ ...RUN, label: 'a label far too long for the line two cell' }], 100)?.[0]?.text).toBe(
     'run a label far too long fo… open',
   )
+})
+
+test('every line is cut to the frame: cells from the end first, then the title ends in an ellipsis', async () => {
+  expect(bandWidth(100)).toBe(96)
+  const title = 'orchestration-mode: graph-progression band (toggleable) and visible-mode footer (director, coordinator)'
+  const head = line1Cells({ itemId: 'd', title, type: 'plugin-change', label: 'in-progress' }, [RUN], 100) ?? []
+  // The run facts go first, then the title is cut.
+  const fitted = fitCells(head, 96)
+  expect(fitted).toEqual([{ text: 'orchestration-mode: graph-progression band (toggleable) and visible-mode footer (director, coor…', tone: 'title' }])
+  expect(cellsWidth(fitted)).toBe(96)
+  const short = fitCells(line1Cells({ itemId: 'd', title: 'Phase 4 plan', type: '', label: '' }, [RUN], 100) ?? [], 50)
+  expect(short.map(c => c.text)).toEqual(['Phase 4 plan', ' · run wave-8 open', ' · COORD STALLED'])
+  expect(cellsWidth(short) <= 50).toBe(true)
+  // Line 3: the title gives way before the blocker; past a dozen cells the blocker goes.
+  const item = { itemId: '6e91c19b-0000', title: 'A task with a long title that the frame truncates', type: 'feature-task', label: 'queue', blockedBy: 'd8999287' }
+  expect(line3Cells(item, 96).map(c => c.text)).toEqual(['6e91c19b · feature-task · queue', '   A task with a long title that the frame…', ' · blocked by d8999287'])
+  expect(line3Cells(item, 60).map(c => c.text)).toEqual(['6e91c19b · feature-task · queue', '   A task with a long title…'])
+  expect(cellsWidth(line3Cells(item, 60))).toBe(59)
+  expect(line3Cells({ ...item, blockedBy: undefined }, 200).map(c => c.text)).toEqual([
+    '6e91c19b · feature-task · queue',
+    '   A task with a long title that the frame truncates',
+  ])
+  // Too narrow for the cells before the elastic one: that one alone, cut.
+  expect(fitCells([{ text: 'a long lead cell', tone: 'dim' }, { text: '   title', tone: 'text' }], 6, 1)).toEqual([{ text: 'title', tone: 'text' }])
 })
 
 test('a run is built from the list item and its frontier', async () => {
