@@ -215,7 +215,10 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
   apiUrl = typeof options.apiUrl === 'string' ? options.apiUrl.trim() : DEFAULT_API_URL
 
   // A resume or reload: the marker may already exist while $.state is empty or the backdrop is gone.
+  // A status line pinned by an earlier version of this plugin outlives a reload (the engine keeps it
+  // until the plugin clears it), so clear it: the footer label is drawn in the mode slot instead.
   on('session.start', async ($, e, next) => {
+    $.ui.status(undefined)
     await reconcile($, 'session.start')
 
     return next(e)
