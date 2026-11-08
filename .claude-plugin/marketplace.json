@@ -16,16 +16,35 @@
       "homepage": "https://github.com/jpicklyk/task-orchestrator",
       "repository": "https://github.com/jpicklyk/task-orchestrator",
       "license": "MIT",
-      "keywords": ["task-management", "project-management", "workflow", "mcp", "ai-orchestration", "claude-code", "ai-agents", "workflow-enforcement", "model-context-protocol", "quality-gates"],
+      "keywords": [
+        "task-management",
+        "project-management",
+        "workflow",
+        "mcp",
+        "ai-orchestration",
+        "claude-code",
+        "ai-agents",
+        "workflow-enforcement",
+        "model-context-protocol",
+        "quality-gates"
+      ],
       "category": "productivity",
-      "tags": ["tasks", "features", "projects", "dependencies", "workflows", "mcp-server", "ai-coding"],
+      "tags": [
+        "tasks",
+        "features",
+        "projects",
+        "dependencies",
+        "workflows",
+        "mcp-server",
+        "ai-coding"
+      ],
       "source": "./claude-plugins/task-orchestrator",
       "strict": true
     },
     {
-      "name": "director-indicator",
+      "name": "orchestration-mode",
       "version": "0.1.0",
-      "description": "Opt-in Claude Code mod that marks a Task Orchestrator director-mode session: a director footer label, a tinted desktop backdrop and enter/exit toasts (early-access function-hooks API)",
+      "description": "Opt-in Claude Code mod that shows which Task Orchestrator orchestration mode a session is in (today: director): a footer label, a live run board above the prompt, a tinted desktop backdrop and enter/exit toasts (early-access function-hooks API)",
       "author": {
         "name": "Jeff Picklyk",
         "url": "https://github.com/jpicklyk"
@@ -40,6 +59,7 @@
         "mcp",
         "claude-code",
         "director",
+        "orchestration",
         "function-hooks"
       ],
       "category": "productivity",
@@ -49,7 +69,7 @@
         "mcp-server",
         "early-access"
       ],
-      "source": "./claude-plugins/director-indicator",
+      "source": "./claude-plugins/orchestration-mode",
       "strict": true
     }
   ]
