@@ -39,7 +39,7 @@ const PRINCIPLE_AGENT_OWNED = `**Agent-owned phases** - a delegated agent enters
 
 const PRINCIPLE_FEATURE_CLOSURE = `**Close a multi-child feature through one feature-level review** - once every child is terminal, the parent feature gets ONE review while in \`review\`. Every finding is disposed in the parent's \`orchestrator-confirmation\` note as \`fixed <sha|PR>\`, \`follow-up <item-id>\` (an existing item only) or \`accepted: <reason>\`; a blocking finding can only be \`fixed\`. Fixes are made by a non-entry seat on the parent, and the same reviewer re-checks (a fresh seat if it cannot resume). The note ends \`N of N disposed\`. A parent in \`review\` never cascades to terminal: complete it explicitly once the review passes.`;
 
-const MODEL_LINE = `Always pass \`model\` explicitly on every Agent dispatch - the shipped agents use \`model: inherit\`, so omitting it silently runs the phase owner on your own model (a guard denies the dispatch otherwise).`;
+const MODEL_LINE = `Always pass \`model\` and \`effort\` explicitly on every Agent dispatch - the shipped agents use \`model: inherit\` and carry no \`effort\`, so omitting them silently runs the phase owner on your own model at the model's default effort (a guard denies the dispatch otherwise). Values: the item's dispatch profile, else the work's class in \`task-orchestrator:model-effort\`.`;
 
 const RETROSPECTIVE = `## Retrospective
 

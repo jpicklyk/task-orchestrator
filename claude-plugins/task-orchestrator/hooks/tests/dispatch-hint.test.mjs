@@ -89,7 +89,7 @@ test('single work transition with agent+model -> one line', () => {
   const out = run(BASE, call([ok(A, 'work', { agent: 'task-orchestrator:implementer', model: 'sonnet' })]));
   assert.equal(
     ctx(out),
-    `↳ ${A} now in work; dispatch profile: agent=task-orchestrator:implementer model=sonnet - pass model explicitly`,
+    `↳ ${A} now in work; dispatch profile: agent=task-orchestrator:implementer model=sonnet effort=class default - pass model and effort explicitly`,
   );
 });
 
@@ -180,17 +180,17 @@ test('S4 probe: results absent, null or [] -> {}', () => {
 
 test('no dispatch key -> agent=none and mode-aware model fallback', () => {
   const wf = ctx(run(BASE, call([ok(A, 'work')])));
-  assert.match(wf, /agent=none model=table default - pass model explicitly$/);
+  assert.match(wf, /agent=none model=class default effort=class default - pass model and effort explicitly$/);
   const sc = ctx(run(`${BASE}extensions:\n  claude-code:\n    orchestration:\n      mode: schema\n`, call([ok(A, 'work')])));
-  assert.match(sc, /agent=none model=unset - pass model explicitly$/);
-  assert.ok(!sc.includes('table default'));
+  assert.match(sc, /agent=none model=unset effort=unset - pass model and effort explicitly$/);
+  assert.ok(!sc.includes('class default'));
 });
 
-test('effort token only when present', () => {
+test('effort is always shown: the profile value, else the mode-aware fallback', () => {
   const withE = ctx(run(BASE, call([ok(A, 'review', { agent: 'r', model: 'opus', effort: 'high' })])));
-  assert.match(withE, /model=opus effort=high - pass model explicitly$/);
+  assert.match(withE, /model=opus effort=high - pass model and effort explicitly$/);
   const without = ctx(run(BASE, call([ok(A, 'review', { agent: 'r', model: 'opus' })])));
-  assert.ok(!without.includes('effort='));
+  assert.match(without, /model=opus effort=class default - pass model and effort explicitly$/);
 });
 
 test('mode off, headless, no config -> {}', () => {

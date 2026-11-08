@@ -205,7 +205,7 @@ test('S12 (Method B): no seeded token in any prompt, the state after every stage
 
   // reseat prompt (out-of-run fix seat) through the CLI
   const resultPath = writeJson(w.dir, 'result.json', result)
-  const reseat = runCli(['reseat', '--plan', w.boundPath, '--run', w.bound.args.runId, '--result', resultPath, '--item', 'aaaaaaaa', '--seat', 'implementer-a1', '--pre', 'e77c3e95', '--assignment', '3d594650-3436-4a25-b9f8-9d3c9f3f3f11'])
+  const reseat = runCli(['reseat', '--plan', w.boundPath, '--run', w.bound.args.runId, '--result', resultPath, '--item', 'aaaaaaaa', '--seat', 'implementer-a1', '--cause', 'review', '--pre', 'e77c3e95', '--assignment', '3d594650-3436-4a25-b9f8-9d3c9f3f3f11'])
   assert.equal(reseat.status, 0, reseat.stderr)
   surfaces.reseat = reseat.stdout
 

@@ -122,6 +122,44 @@ for (const c of THRESHOLD_CASES) {
   });
 }
 
+// ---- fix-cycle runs: a '<runId>-a<n>' run close always owes a retrospective (29fe3b41 AC4) -------
+
+test('fix-cycle: a run labelled <runId>-a1 with 1 terminal item dispatches under threshold 3 and names the base run', async () => {
+  const run = { ...runFixture(1, { terminal: 1, members: 1 }), label: 'r-2026-11-07-a1' };
+  await withFixture({ config: cfg('dispatch', 3), runs: [run] }, async ({ trigger, fake }) => {
+    const res = await trigger(closePayload(sid('fc1'), rid(1)));
+    assert.equal(res.status, 0);
+    const text = contextOf(res);
+    assert.ok(text?.includes(DISPATCH), res.stdout);
+    assert.ok(text.includes(`/session-retrospective --run ${rid(1)}`), text);
+    assert.ok(text.includes('base run r-2026-11-07'), text);
+    assert.ok(text.includes('whole fix loop'), text);
+    assert.equal(fake.isMarked(rid(1)), true);
+  });
+});
+
+test('fix-cycle control: the same run with a plain label (or none) under threshold 3 is only nudged', async () => {
+  for (const label of ['r-2026-11-07', 'r-2026-11-07-a0', undefined]) {
+    const run = { ...runFixture(1, { terminal: 1, members: 1 }), ...(label ? { label } : {}) };
+    await withFixture({ config: cfg('dispatch', 3), runs: [run] }, async ({ trigger, fake }) => {
+      const res = await trigger(closePayload(sid('fc0'), rid(1)));
+      const text = contextOf(res);
+      assert.ok(text?.includes(NUDGE), `${label}: ${res.stdout}`);
+      assert.equal(fake.isMarked(rid(1)), false, String(label));
+    });
+  }
+});
+
+test('fix-cycle: mode nudge still nudges a fix-cycle run (only the threshold is bypassed)', async () => {
+  const run = { ...runFixture(1, { terminal: 1, members: 1 }), label: 'r-x-a2' };
+  await withFixture({ config: cfg('nudge', 3), runs: [run] }, async ({ trigger, fake }) => {
+    const res = await trigger(closePayload(sid('fc2'), rid(1)));
+    const text = contextOf(res);
+    assert.ok(text?.includes(NUDGE), res.stdout);
+    assert.equal(fake.isMarked(rid(1)), false);
+  });
+});
+
 test('S2: mode nudge never marks, however many terminal members the run has', async () => {
   await withFixture({ config: cfg('nudge', 3), runs: [runFixture(1, { terminal: 10 })] }, async ({ trigger, fake }) => {
     const res = await trigger(closePayload(sid('s2nudge'), rid(1)));

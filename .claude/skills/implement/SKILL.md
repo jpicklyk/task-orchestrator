@@ -302,9 +302,9 @@ happens **before** `advance` `transition` with `trigger: "start"` moves the item
 distinct seat from Step 4b's **test author** seat, which writes test code and fills
 `test-manifest` at work phase — see Step 4b's intro for the two-seat distinction.
 
-**Planning seat (Parallel tier, one `opus` agent per stream).** Under `/task-orchestrator:run-wave`
+**Planning seat (Parallel tier, one `planning`-class agent per stream).** Under `/task-orchestrator:run-wave`
 this becomes the run plan's `planner-v1` stage — it mirrors the same eight fields below, dispatched
-by the run rather than by hand; the field table stays the semantics either way. Dispatch one `opus`
+by the run rather than by hand; the field table stays the semantics either way. Dispatch one planning-class
 agent per stream after child items are materialized (post-plan-workflow) and before Step 4's
 implementer dispatch — this is the concrete, per-stream instantiation of the planning seat named
 above.
@@ -501,7 +501,8 @@ Agent(
   Do NOT run :current:test or :current:ktlintCheck — the orchestrator owns full build
   verification.
   """,
-  model="sonnet",  // or dispatch.model when the item's resolved profile sets one — see "Model selection" above
+  model="<dispatch.model, else the implementation class>",  // see "Model selection" below
+  effort="<dispatch.effort, else the implementation class>",
   subagent_type="<dispatch.agent when the item's resolved profile names one, else general-purpose>"
   // NOTE: no isolation parameter — agents share the feature worktree
 )
@@ -563,19 +564,12 @@ This sweep is part of the orchestrator's verification step between waves, not th
 implementing agent's responsibility — agents are file-scoped and can't see the full
 fixture surface.
 
-**Model selection — always set `model` explicitly on every Agent dispatch.** Under
-`/task-orchestrator:run-wave`, `dispatchBySeat` already resolves model per seat and this table is
-the fallback for dispatches the run plan doesn't cover:
+**Model selection - always set `model` and `effort` explicitly on every Agent dispatch.** Under
+`/task-orchestrator:run-wave`, `dispatchBySeat` already resolves both per seat; for dispatches the
+run plan doesn't cover, use the work's class from `task-orchestrator:model-effort`.
 
-| Agent purpose | Model |
-|--------------|-------|
-| Implementation (production code only) | `model="sonnet"` |
-| Independent test authoring (Step 4b) | `model="sonnet"` |
-| Architecture, complex multi-file synthesis | `model="opus"` |
-| MCP bulk ops, materialization | `model="haiku"` |
-
-Omitting `model` causes the agent to inherit the orchestrator's model (typically
-opus), wasting tokens on sonnet-eligible implementation work.
+Omitting `model` causes the agent to inherit the orchestrator's model, and omitting `effort` runs it
+at the model's default (`dispatch-model-guard` denies both).
 
 When dispatching an item's phase owner (implementer on work, reviewer on review), read the profile
 for the phase being dispatched INTO: if the orchestrator already called `advance`, its
@@ -584,10 +578,10 @@ for the phase being dispatched INTO: if the orchestrator already called `advance
 the queue profile, not work's, so read `items_read` `schema` (`itemId`)'s per-phase
 `dispatch.work` map instead. When that profile names an `agent`, dispatch with
 `subagent_type = dispatch.agent`. Regardless of whether `agent` is set, still pass `model`
-explicitly — `dispatch.model` if set, else the table above. `effort` has no Agent-tool parameter;
-in Claude Code it applies only through the dispatched agent's own frontmatter, so a profile's
-`effort` is advisory unless `agent` names a definition carrying that `effort` — to change effort,
-point `agent` at a definition with that effort.
+explicitly — `dispatch.model` if set, else the work's class from `task-orchestrator:model-effort`.
+Likewise always pass `effort` on the Agent tool's own `effort` parameter: `dispatch.effort` if set,
+else the class's effort. The agent definitions declare no `effort`, so an omitted value runs at the
+model's default and `dispatch-model-guard` denies the call.
 
 **After implementation agents return:**
 

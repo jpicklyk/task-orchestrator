@@ -14,6 +14,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { forClass } from "../lib/dispatch-policy.mjs";
 
 import {
     SNAPSHOT_CONTRACT,
@@ -56,7 +57,8 @@ function runCli(args, { input } = {}) {
 }
 
 const NOW = "2026-09-28T12:00:00Z";
-const DISPATCH_DEFAULTS = { queue: "opus", work: "sonnet", extractor: { model: "sonnet", effort: "low" } };
+// Stage dispatch falls back to the dispatch-policy class for the seat; oracles read the policy.
+const cls = (name) => forClass(name);
 
 // ── Snapshot-building helpers (fixture invariants: constructed literals must satisfy
 //    validateSnapshot's schema by construction; the shipped fixtures are used where they fit). ──
@@ -81,7 +83,6 @@ function baseSnapshot(overrides = {}) {
             worktreeRoot: ".claude/worktrees",
             branchPrefix: { shared: "feat/", perItem: "fix/" },
             maxItems: 5,
-            defaultModels: { queue: "opus", work: "sonnet", extractor: { model: "sonnet", effort: "low" } },
         },
         git: { originMain: "e77c3e95", repoRoot: "/repo", worktrees: {} },
         probe: { phase0Hooks: true, pluginVersion: "3.8.0", workflowSizeGuideline: "medium" },
@@ -375,31 +376,32 @@ test("S4 / P9: run-planner-lib.mjs contains no per-type name branches", () => {
 test("S5: resolveDispatch — dispatchBySeat wins for a non-entry seat (live 01bb5ffb test-author)", () => {
     const snap = loadFixture("unowned-note.json");
     const schemaEntry = snap.schemas["01bb5ffb-56f8-4886-ab2e-2659627e35a9"];
-    const result = resolveDispatch(schemaEntry, "test-author", "work", { enters: false, implicitOwner: false }, DISPATCH_DEFAULTS);
-    assert.deepEqual(result, { agent: null, model: "sonnet" });
+    const result = resolveDispatch(schemaEntry, "test-author", "work", { enters: false, implicitOwner: false });
+    assert.deepEqual(result, { agent: null, model: "sonnet", effort: cls("test-authoring").effort });
 });
 
 test("S5: resolveDispatch — dispatch[phase] applies only to the entry/implicitOwner seat", () => {
     const schemaEntry = bugFixLikeSchema();
-    const entrySeatResult = resolveDispatch(schemaEntry, "implementer", "work", { enters: true, implicitOwner: false }, DISPATCH_DEFAULTS);
+    const entrySeatResult = resolveDispatch(schemaEntry, "implementer", "work", { enters: true, implicitOwner: false });
     assert.equal(entrySeatResult.agent, "task-orchestrator:implementer");
-    assert.equal(entrySeatResult.model, "sonnet"); // from defaults.work, dispatch.work has no model
+    assert.equal(entrySeatResult.model, cls("implementation").model); // policy class, dispatch.work has no model
+    assert.equal(entrySeatResult.effort, cls("implementation").effort);
 
     // A non-entry, non-implicit-owner seat must NOT inherit dispatch[phase].agent.
-    const otherSeatResult = resolveDispatch(schemaEntry, "orchestrator", "work", { enters: false, implicitOwner: false }, DISPATCH_DEFAULTS);
+    const otherSeatResult = resolveDispatch(schemaEntry, "orchestrator", "work", { enters: false, implicitOwner: false });
     assert.notEqual(otherSeatResult.agent, "task-orchestrator:implementer");
 });
 
-test("S5: resolveDispatch falls back to defaults when neither dispatchBySeat nor dispatch[phase] applies; model always set", () => {
+test("S5: resolveDispatch falls back to the policy class when neither dispatchBySeat nor dispatch[phase] applies; model always set", () => {
     const schemaEntry = { status: "ok" }; // no dispatch/dispatchBySeat at all
-    const result = resolveDispatch(schemaEntry, "planner", "queue", { enters: false, implicitOwner: false }, DISPATCH_DEFAULTS);
-    assert.equal(result.model, "opus"); // defaults.queue
+    const result = resolveDispatch(schemaEntry, "planner", "queue", { enters: false, implicitOwner: false });
+    assert.deepEqual({ model: result.model, effort: result.effort }, cls("planning")); // planner -> planning
     assert.ok(result.agent === null || result.agent === undefined);
 });
 
 test("S5: resolveDispatch preserves an explicit null agent from dispatchBySeat", () => {
     const schemaEntry = { dispatchBySeat: { work: { "test-author": { agent: null, model: "sonnet" } } } };
-    const result = resolveDispatch(schemaEntry, "test-author", "work", { enters: false, implicitOwner: false }, DISPATCH_DEFAULTS);
+    const result = resolveDispatch(schemaEntry, "test-author", "work", { enters: false, implicitOwner: false });
     assert.equal(result.agent, null);
     assert.equal(result.model, "sonnet");
 });
@@ -998,21 +1000,21 @@ function schemaWithSeat(seatExtra, noteExtra) {
 test("S20: extractor is NOT inserted when readsExclude is present but no owned note has skill:test-author", () => {
     const candidate = { id: "z1", short: "z1000000", title: "Z", priority: "high", complexity: 1, type: "scratch-x", role: "queue", parentId: null, traits: [], hasChildren: false, source: "ready" };
     const schemaEntry = schemaWithSeat({ readsExclude: ["implementation-notes"] }, {});
-    const result = deriveStages(candidate, schemaEntry, { rulesServed: [{ key: "declarations-extractor", rulesVersion: "1" }], noteOwners: [], profile: { defaultModels: DISPATCH_DEFAULTS } });
+    const result = deriveStages(candidate, schemaEntry, { rulesServed: [{ key: "declarations-extractor", rulesVersion: "1" }], noteOwners: [] });
     assert.ok(!result.stages.some((s) => s.seat === "declarations-extractor"));
 });
 
 test("S20: extractor is NOT inserted when a note has skill:test-author but readsExclude is empty", () => {
     const candidate = { id: "z2", short: "z2000000", title: "Z", priority: "high", complexity: 1, type: "scratch-x", role: "queue", parentId: null, traits: [], hasChildren: false, source: "ready" };
     const schemaEntry = schemaWithSeat({}, { skill: "test-author" });
-    const result = deriveStages(candidate, schemaEntry, { rulesServed: [{ key: "declarations-extractor", rulesVersion: "1" }], noteOwners: [], profile: { defaultModels: DISPATCH_DEFAULTS } });
+    const result = deriveStages(candidate, schemaEntry, { rulesServed: [{ key: "declarations-extractor", rulesVersion: "1" }], noteOwners: [] });
     assert.ok(!result.stages.some((s) => s.seat === "declarations-extractor"));
 });
 
 test("S20: extractor IS inserted when both readsExclude is non-empty AND the seat owns a skill:test-author note", () => {
     const candidate = { id: "z3", short: "z3000000", title: "Z", priority: "high", complexity: 1, type: "scratch-x", role: "queue", parentId: null, traits: [], hasChildren: false, source: "ready" };
     const schemaEntry = schemaWithSeat({ readsExclude: ["implementation-notes"] }, { skill: "test-author" });
-    const result = deriveStages(candidate, schemaEntry, { rulesServed: [{ key: "declarations-extractor", rulesVersion: "1" }], noteOwners: [], profile: { defaultModels: DISPATCH_DEFAULTS } });
+    const result = deriveStages(candidate, schemaEntry, { rulesServed: [{ key: "declarations-extractor", rulesVersion: "1" }], noteOwners: [] });
     assert.ok(result.stages.some((s) => s.seat === "declarations-extractor" && s.inserted === true));
 });
 
@@ -1332,7 +1334,6 @@ test("(2) deriveStages on a fully-resumed item (every seat's notes already writt
     const result = deriveStages(candidate, schemaEntry, {
         rulesServed: [{ key: "declarations-extractor", rulesVersion: "1" }],
         noteOwners: fullyResumedNoteOwners(),
-        profile: { defaultModels: DISPATCH_DEFAULTS },
     });
     assert.deepEqual(result.stages, []);
     assert.equal(result.exclude, "nothing to run");
@@ -1383,7 +1384,6 @@ function placeholderProfile() {
         worktreeRoot: ".claude/worktrees",
         branchPrefix: { shared: "feat/", perItem: "fix/" },
         maxItems: 5,
-        defaultModels: DISPATCH_DEFAULTS,
     };
 }
 
@@ -1464,31 +1464,42 @@ test("(3) per-item mode: <worktree> is left literal for seats to substitute (no 
     assert.equal(doc.args.project.scratchDir, `${scratchpadRoot}/run-wave/${doc.args.runId}`);
 });
 
-// ── (4) profile.defaultModels.extractor accepts both the string form 'sonnet+low' and the
-//        object form {model,effort}; both yield the extractor stage's dispatch {model:'sonnet',
-//        effort:'low'}. [Appendix C default-object literal: extractor:{model:'sonnet',effort:'low'}]
+// ── (4) the extractor stage takes the extraction class; a profile still carrying defaultModels
+//        gets one warning and the key is ignored; every stage dispatch carries model AND effort.
 
-function extractorDispatchFor(defaultModelsExtractor) {
+test("(4) the declarations-extractor stage dispatch is the extraction policy class", () => {
     const snap = mixedTypesFixture();
     const candidate = snap.candidates[0];
     const schemaEntry = snap.schemas[candidate.id];
-    const profile = { ...snap.profile, defaultModels: { ...snap.profile.defaultModels, extractor: defaultModelsExtractor } };
-    const result = deriveStages(candidate, schemaEntry, { rulesServed: snap.rulesServed, noteOwners: [], profile });
+    const result = deriveStages(candidate, schemaEntry, { rulesServed: snap.rulesServed, noteOwners: [] });
     const extractor = result.stages.find((s) => s.seat === "declarations-extractor");
     assert.ok(extractor, "extractor stage must be present");
-    return extractor.dispatch;
-}
-
-test("(4) profile defaultModels.extractor: string form 'sonnet+low' yields {model:'sonnet',effort:'low'}", () => {
-    const dispatch = extractorDispatchFor("sonnet+low");
-    assert.equal(dispatch.model, "sonnet");
-    assert.equal(dispatch.effort, "low");
+    assert.deepEqual({ model: extractor.dispatch.model, effort: extractor.dispatch.effort }, cls("extraction"));
 });
 
-test("(4) profile defaultModels.extractor: object form {model,effort} yields the same {model:'sonnet',effort:'low'}", () => {
-    const dispatch = extractorDispatchFor({ model: "sonnet", effort: "low" });
-    assert.equal(dispatch.model, "sonnet");
-    assert.equal(dispatch.effort, "low");
+test("(4) a profile carrying defaultModels gets one warning and its values are ignored", () => {
+    const snap = mixedTypesFixture();
+    const plain = buildPlanDoc(snap, { now: NOW });
+    const legacy = buildPlanDoc({ ...snap, profile: { ...snap.profile, defaultModels: { queue: "haiku", work: "haiku", extractor: "haiku+max" } } }, { now: NOW });
+    assert.equal(plain.ok, true);
+    assert.equal(legacy.ok, true);
+    const hits = legacy.doc.meta.warnings.filter((w) => w.includes("defaultModels"));
+    assert.equal(hits.length, 1, JSON.stringify(legacy.doc.meta.warnings));
+    assert.ok(!plain.doc.meta.warnings.some((w) => w.includes("defaultModels")));
+    assert.deepEqual(legacy.doc.args.items.map((i) => i.stages.map((s) => s.dispatch)), plain.doc.args.items.map((i) => i.stages.map((s) => s.dispatch)));
+});
+
+test("(4) AC2: every stage dispatch in every fixture plan carries a model and an effort", () => {
+    for (const name of ["independent-two.json", "mixed-types.json", "schema-free.json", "per-item-overlap.json", "in-run-edge-shared.json"]) {
+        const res = buildPlanDoc(loadFixture(name), { now: NOW });
+        assert.equal(res.ok, true, `${name}: ${JSON.stringify(res.errors)}`);
+        for (const item of res.doc.args.items) {
+            for (const stage of item.stages) {
+                assert.equal(typeof stage.dispatch.model, "string", `${name} ${stage.seat} model`);
+                assert.equal(typeof stage.dispatch.effort, "string", `${name} ${stage.seat} effort`);
+            }
+        }
+    }
 });
 
 // ── (5) classifyEdge's cross-run reason names the blocker's 8-hex short, never the full UUID.
@@ -1520,7 +1531,7 @@ test("(6) O1: a note owned by a DIFFERENT seat does not skip this item's impleme
 
 test("(7) O9: resolveDispatch's agent is strictly null (never undefined) when the profile declares agent: null", () => {
     const schemaEntry = { dispatchBySeat: { work: { "test-author": { agent: null, model: "sonnet" } } } };
-    const result = resolveDispatch(schemaEntry, "test-author", "work", { enters: false, implicitOwner: false }, DISPATCH_DEFAULTS);
+    const result = resolveDispatch(schemaEntry, "test-author", "work", { enters: false, implicitOwner: false });
     assert.equal(result.agent, null);
     assert.notEqual(result.agent, undefined);
     assert.ok(Object.prototype.hasOwnProperty.call(result, "agent"), "agent key must be present on the result, not omitted");

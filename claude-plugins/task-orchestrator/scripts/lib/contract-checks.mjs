@@ -263,3 +263,60 @@ export function checkToCall(value, catalog) {
   }
   return errors;
 }
+
+// ---------------------------------------------------------------------------------------------------
+// Dispatch literals
+
+const DISPATCH_VALUE = '(?:haiku|sonnet|opus|fable|low|medium|high|xhigh|max)(?![A-Za-z0-9_-])';
+// A dispatch value is spelled as `model: "x"`, `effort: 'x'`, `model=x`, `--model x`, `--effort=x` or an
+// argv pair `'--effort', 'x'`; the bare alias or level words in prose do not match.
+const DISPATCH_RES = [
+  new RegExp(String.raw`(?<![A-Za-z0-9_-])(model|effort)["']?\s*[:=]\s*["'` + '`' + String.raw`]?` + DISPATCH_VALUE, 'g'),
+  new RegExp(String.raw`--(model|effort)(?:[ =]|["'],\s*)["'` + '`' + String.raw`]?` + DISPATCH_VALUE, 'g'),
+  // keyword, whitespace, quoted value: `model "sonnet"`
+  new RegExp(String.raw`(?<![A-Za-z0-9_-])(model|effort)\s+["']` + DISPATCH_VALUE, 'g'),
+];
+
+// The scan's own source and the allow-list necessarily spell the shapes.
+const DISPATCH_SELF_EXEMPT = new Set(['scripts/lib/contract-checks.mjs', 'scripts/lib/dispatch-literals-allowlist.json']);
+
+/** dispatchLiteralsInLine(line) -> the dispatch-value spellings found in one line (exported for tests). */
+export function dispatchLiteralsInLine(line) {
+  return dispatchLiterals(line);
+}
+
+function dispatchLiterals(line) {
+  const found = [];
+  for (const re of DISPATCH_RES) for (const m of line.matchAll(re)) found.push(m[0]);
+  return found;
+}
+
+/**
+ * Scans the plugin for a model alias or effort level used as a dispatch value outside
+ * dispatch-policy.json. The allow-list is a two-way ratchet: a row whose file or text is gone fails.
+ * @param {{pluginRoot: string, dirs: string[], allowlist: {file: string, text: string, comment?: string}[]}} args
+ * @returns {{violations: {file: string, line: number, literal: string}[], stale: {file: string, reason: string}[]}}
+ */
+export function scanDispatchLiterals({ pluginRoot, dirs, allowlist }) {
+  const rows = allowlist || [];
+  const violations = [];
+  const stale = [];
+  const files = [];
+  for (const dir of dirs) walk(join(pluginRoot, dir), files);
+  for (const abs of files) {
+    const file = toPosix(relative(pluginRoot, abs));
+    if (DISPATCH_SELF_EXEMPT.has(file)) continue;
+    const allowed = rows.filter((r) => r.file === file).map((r) => r.text);
+    readText(abs).split('\n').forEach((line, idx) => {
+      if (allowed.some((text) => line.includes(text))) return;
+      for (const literal of dispatchLiterals(line)) violations.push({ file, line: idx + 1, literal });
+    });
+  }
+  for (const r of rows) {
+    const abs = join(pluginRoot, r.file);
+    if (!existsSync(abs) || !readText(abs).split('\n').some((line) => line.includes(r.text) && dispatchLiterals(line).length > 0)) {
+      stale.push({ file: r.file, reason: `allow-list text not found or holds no dispatch literal: ${r.text}` });
+    }
+  }
+  return { violations, stale };
+}
