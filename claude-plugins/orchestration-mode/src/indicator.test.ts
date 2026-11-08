@@ -110,8 +110,8 @@ async function shown($: any, site: object, pattern: RegExp): Promise<string | un
 }
 
 /** Every leaf Text a mount of `site` shows, in order. */
-async function texts($: any, site: object): Promise<string[]> {
-  const ui = await $.ui.mount({ ...site, surface: 'desktop' })
+async function texts($: any, site: object, surface: 'terminal' | 'desktop' = 'desktop'): Promise<string[]> {
+  const ui = await $.ui.mount({ ...site, surface })
   const found = await ui.findAll({ type: 'Text' })
   await ui.unmount()
 
@@ -366,12 +366,16 @@ test('a long title is cut to the frame with an ellipsis, so no band line can wra
 
   await $.tool.call({ tool: NOTES_TOOL, ops: [{ op: 'upsert', itemId: 'd8999287', key: 'k', role: 'work', body: '' }] })
   await settle()
+  // The terminal's cells are the width: the mod cuts the line to them.
   for (const bodyColumns of [100, 50]) {
-    const lines = await texts($, { ...BAND, props: { ...BAND.props, bodyColumns } })
+    const lines = await texts($, { ...BAND, props: { ...BAND.props, bodyColumns } }, 'terminal')
     expect(lines[0]).toBe(title.slice(0, bodyColumns - 5).trimEnd() + '…')
     expect(lines[0]?.length).toBe(bodyColumns - 4)
     expect(lines.slice(1).join('')).toBe('plugin-change · queue → ◉ work → review → done')
   }
+  // The desktop's font is proportional: the line goes over whole and the surface cuts it at the frame.
+  const desktop = await texts($, { ...BAND, props: { ...BAND.props, bodyColumns: 50 } })
+  expect(desktop[0]).toBe(title)
 })
 
 test('the band toggle is per session: a fresh session starts from userConfig band, never from the store', async ($, on) => {
@@ -524,24 +528,29 @@ test('the focus view draws container, progress and item, and a short band drops 
   // At 96 cells the decisions count is the cell line 2 gives up, and line 3 cuts its title.
   const progress = ['feature-implementation · in-progress', '   ▰▰▰▰▱▱▱▱', ' 2/4', '   q1 → w1 → r0 → ✓2', ' · blocked 1']
 
-  for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await $.ui.mount({ ...band(), surface })
-    expect(leaves(await ui.findAll({ type: 'Text' }))).toEqual([
-      'Model and effort policy',
-      ...progress,
-      '6e91c19b · feature-task · queue',
-      '   A task with a long title that the frame…',
-      ' · blocked by d8999287',
-    ])
-    await ui.unmount()
-  }
-  const wide = await texts($, { ...band(), props: { ...band().props, bodyColumns: 130 } })
+  // The terminal cuts by cells; the desktop gets every cell whole and cuts at the frame itself.
+  expect(await texts($, band(), 'terminal')).toEqual([
+    'Model and effort policy',
+    ...progress,
+    '6e91c19b · feature-task · queue',
+    '   A task with a long title that the frame…',
+    ' · blocked by d8999287',
+  ])
+  expect(await texts($, band())).toEqual([
+    'Model and effort policy',
+    ...progress,
+    ' · decisions 2 (1 overdue)',
+    '6e91c19b · feature-task · queue',
+    '   A task with a long title that the frame truncates',
+    ' · blocked by d8999287',
+  ])
+  const wide = await texts($, { ...band(), props: { ...band().props, bodyColumns: 130 } }, 'terminal')
   expect(wide.includes(' · decisions 2 (1 overdue)')).toBe(true)
 
   maxRows = 4
-  expect(await texts($, band())).toEqual(['Model and effort policy', ...progress])
+  expect(await texts($, band(), 'terminal')).toEqual(['Model and effort policy', ...progress])
   maxRows = 3
-  expect(await texts($, band())).toEqual(['Model and effort policy'])
+  expect(await texts($, band(), 'terminal')).toEqual(['Model and effort policy'])
 })
 
 test('before the first read the band names the focus and the touched item around a loading progress line', async ($, on) => {

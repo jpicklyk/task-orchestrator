@@ -545,7 +545,11 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
     const runs = current?.runs ?? []
     if (runs.length === 0 && focused === null) return next(e)
     const { Box, Text } = $.ui.resolve(e)
-    const width = bandWidth(e.props.bodyColumns)
+    // The terminal's cells are the width, so each line is cut to them here. The desktop app draws
+    // a proportional font, where a cell count under-uses the frame: there every line is handed
+    // over whole and the surface cuts it at the frame's edge (`truncate-end`).
+    const desktop = e.surface === 'desktop'
+    const width = desktop ? Number.MAX_SAFE_INTEGER : bandWidth(e.props.bodyColumns)
 
     // The focus graph read for this focus, if the board has caught up with it.
     const graph = focused !== null && current?.focus && sameId(current.focus.itemId, focused.itemId) ? current.focus : null
@@ -584,7 +588,7 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
       }
     }
     const line = (key: string, cells: Cell[]) =>
-      Box({ key, flexDirection: 'row', children: [Text({ wrap: 'truncate', children: cells.map(tone) })] })
+      Box({ key, flexDirection: 'row', overflow: 'hidden', children: [Text({ wrap: desktop ? 'truncate-end' : 'truncate', children: cells.map(tone) })] })
 
     // Line 1: the container's title alone, then the first run's facts, which give way first.
     const head = line1Cells(containerFacts, runs, e.props.bodyColumns)
