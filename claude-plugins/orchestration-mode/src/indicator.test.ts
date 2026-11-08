@@ -67,6 +67,7 @@ const BAND = {
 
 const RUN_TOOL = 'mcp__mcp-task-orchestrator__runs_write'
 const NOTES_TOOL = 'mcp__mcp-task-orchestrator__notes_write'
+const READ_TOOL = 'mcp__mcp-task-orchestrator__items_read'
 const RUN_ID = 'a51588a2-ee3a-448a-961d-846b137dd5fe'
 
 /**
@@ -333,6 +334,11 @@ test('a touched task draws its feature, the progress and the task itself; /to-ba
     '   A task',
     ' · blocked by 95c660e2',
   ])
+
+  // A read of the feature itself (an overview while the task is in hand) keeps the task on line 3.
+  await $.tool.call({ tool: READ_TOOL, select: 'context', itemId: 'd99e4f7a-0000' })
+  await settle()
+  expect((await texts($, BAND)).slice(-3)).toEqual(['8da6e710 · feature-task · queue', '   A task', ' · blocked by 95c660e2'])
 
   const hidden = await $.command.run({ command: 'to-band' })
   expect(hidden.text).toBe('Band hidden')

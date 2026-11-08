@@ -387,6 +387,9 @@ async function focusOn($: EngineInterface, itemId: string): Promise<void> {
   }
   const current = focusValue(await read($, focus))
   if (current !== null && sameId(current.itemId, target.id) && sameId(current.touched.itemId, touched.id)) return
+  // A touch of the container the session is already in (an overview or context read of the feature
+  // while a child is in hand) keeps the child on line 3; only a touch of another item moves it.
+  if (current !== null && sameId(current.itemId, target.id) && sameId(touched.id, target.id)) return
   const next = { itemId: target.id, title: target.title, since: new Date().toISOString(), touched: itemFacts(touched) }
   await update($, focus, () => next)
   await refreshBoard($, true)
