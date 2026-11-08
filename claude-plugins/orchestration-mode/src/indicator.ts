@@ -556,7 +556,8 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
         : sameId(focused.touched.itemId, focused.itemId)
           ? focused.touched
           : { itemId: focused.itemId, title: focused.title, type: '', label: '' }
-    const containerFacts = graph !== null ? graph.container : fallback
+    // A board saved by an earlier version carries no container: the walk's facts stand in.
+    const containerFacts = graph?.container ?? fallback
 
     // Line 1: the container, with the first run's facts when a run is open.
     const container = containerLine(containerFacts, runs, e.props.bodyColumns)
@@ -566,15 +567,26 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
         : Box({
             key: 'container',
             flexDirection: 'row',
+            // The name keeps its width and the facts after it give way first (a hundred times
+            // readier to shrink), so a long title is cut only once the facts are gone.
             children: [
-              ...(container.name !== undefined ? [Text({ color: 'warning', bold: true, wrap: 'truncate', children: container.name })] : []),
-              ...(container.lead !== ''
-                ? [Text({ dimColor: true, wrap: 'truncate', children: container.name !== undefined ? SEP + container.lead : container.lead })]
+              ...(container.name !== undefined
+                ? [Box({ key: 'name', flexShrink: 1, children: [Text({ color: 'warning', bold: true, wrap: 'truncate', children: container.name })] })]
                 : []),
-              ...(container.chip !== undefined
-                ? [Text({ color: container.chip.color, bold: true, wrap: 'truncate', children: SEP + container.chip.text })]
-                : []),
-              ...(container.tail !== '' ? [Text({ dimColor: true, wrap: 'truncate', children: SEP + container.tail })] : []),
+              Box({
+                key: 'facts',
+                flexDirection: 'row',
+                flexShrink: 100,
+                children: [
+                  ...(container.lead !== ''
+                    ? [Text({ dimColor: true, wrap: 'truncate', children: container.name !== undefined ? SEP + container.lead : container.lead })]
+                    : []),
+                  ...(container.chip !== undefined
+                    ? [Text({ color: container.chip.color, bold: true, wrap: 'truncate', children: SEP + container.chip.text })]
+                    : []),
+                  ...(container.tail !== '' ? [Text({ dimColor: true, wrap: 'truncate', children: SEP + container.tail })] : []),
+                ],
+              }),
             ],
           })
 
