@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Bumped Exposed from 1.2.0 to 1.6.1 and Google Tink from 1.18.0 to 1.24.0.** Routine refresh; no advisory is open against the old or the new versions. No schema or wire change.
+
 ## [4.0.0] - 2026-11-07
 
 ### Upgrading from 3.x

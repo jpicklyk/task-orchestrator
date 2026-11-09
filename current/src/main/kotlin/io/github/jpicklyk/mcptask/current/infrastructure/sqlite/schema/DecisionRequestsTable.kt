@@ -22,7 +22,7 @@ object DecisionRequestsTable : Table("decision_requests") {
     val dedupeKey = text("dedupe_key")
     val scopeKey = text("scope_key")
     val question = text("question")
-    val options = text("options")
+    val optionsJson = text("options")
     val recommended = text("recommended").nullable()
     val links = text("links").nullable()
     val context = text("context").nullable()
