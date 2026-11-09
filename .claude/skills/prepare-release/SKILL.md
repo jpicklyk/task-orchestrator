@@ -380,6 +380,54 @@ Never write "addresses CVE-X" in a commit, changelog, PR body, or note without c
 If the audit finds a live CVE or a materially stale pin, land the dependency fix as **its own PR
 before** cutting the release — do not fold it into the release commit.
 
+**Changelog cross-check (both directions):**
+
+The drafted section is checked against the merged work before the PR opens, never after the tag.
+Step 4 wrote the section from commit subjects; this step reads the code. Two inputs:
+
+```bash
+# Every PR merged since the last tag (first-parent = one line per squash merge)
+git log --first-parent --format='%h %cs %s' <LAST_TAG>..HEAD > /tmp/prs.txt
+# This release's section only, header to next header
+awk -v ver="X.Y.Z" 'index($0, "## [" ver "]") == 1 {c=1; next} c && index($0, "## [") == 1 {exit} c' CHANGELOG.md > /tmp/section.md
+```
+
+For a major release landing (X1), `<LAST_TAG>..HEAD` on `main` misses the long-lived branch: add
+`git log --format='%h %cs %s' $(git merge-base <LAST_TAG> origin/release/N.0)..origin/release/N.0` to
+`/tmp/prs.txt`, and treat the 3.x-line commits on `main` as in scope too (a reader upgrading from the
+last tag sees only this section; the release/3.x `[Unreleased]` is not where they look).
+
+1. **Shipped but not written.** Classify every PR in `/tmp/prs.txt` as COVERED (name the bullet),
+   INTERNAL (tests, CI, chores, this repo's own `.claude/skills` or dogfood config, docs that change
+   no behaviour) or MISSING. A MISSING PR with a user-visible change gets a bullet in the fitting
+   subsection. `git show <sha> -- CHANGELOG.md` shows the bullet the PR itself intended, which is
+   usually the right text.
+2. **Written but not shipped, or wrong.** For every bullet that names an identifier (env var, tool,
+   select or op, note key, migration, data step, hook or script name, REST route, flag, default
+   value, cap, count), grep it in `current/src/main` or `claude-plugins/`. A bullet whose identifier
+   does not exist, or whose default, cap, count or list disagrees with the code, is corrected to the
+   code, not the other way round.
+3. **Merge-round deletions.** A `CHANGELOG.md` conflict resolution can drop a bullet both sides kept.
+   List every bullet a merge since the last tag removed and confirm each one was meant to go:
+
+   ```bash
+   git log --format='%h %s' <LAST_TAG>..HEAD -- CHANGELOG.md | while read sha rest; do
+     git show "$sha" -- CHANGELOG.md | grep '^-- ' | sed "s/^/$sha /"
+   done
+   ```
+
+   A removed bullet whose feature still ships is restored verbatim (for 4.0.0 the #669 merge round
+   dropped two live Plugin bullets, found only by the post-tag sweep).
+4. **Placement.** Plugin behaviour sits under `### Plugin`, server fixes under `### Fixed`; a removal is
+   a Removed bullet or a `Breaking:` Plugin line, not a clause inside a Changed bullet.
+
+Over about 40 PRs, run steps 1 and 2 as two subagents (one per direction) with `/tmp/prs.txt` and
+`/tmp/section.md` as their only inputs and a table as their only output, then verify every reported
+defect against the code before editing: in the 4.0.0 sweep three of fifteen reported defects were
+wrong. Fixes go into the release commit (Step 8d, amend before push). When the section was cut and
+merged earlier (a major release's P26-style version-bump PR), they go in their own docs PR before
+the tag, as #671 and #672 did for 4.0.0.
+
 ---
 
 ## Step 10 — Create the PR
@@ -691,4 +739,5 @@ session start. This is a step to run after publishing, not part of the release P
 - Do not bump plugin versions outside of the release workflow
 - Do not squash the major-release landing PR
 - Do not tag before the ruleset edit and the merge commit are on `main`
+- Do not open the release PR before the Step 9 changelog cross-check has run both directions and the merge-round deletion list is empty or explained
 - Do not leave GitHub's auto-generated PR-title list as the final release notes — overwrite the GitHub Release body with the curated `CHANGELOG.md` section (Step 11g)
