@@ -53,7 +53,7 @@ class SqliteDecisionRequestStore(
                 it[DecisionRequestsTable.dedupeKey] = decision.dedupeKey
                 it[DecisionRequestsTable.scopeKey] = decision.scopeKey
                 it[DecisionRequestsTable.question] = decision.question
-                it[DecisionRequestsTable.options] = encodeOptions(decision.options)
+                it[DecisionRequestsTable.optionsJson] = encodeOptions(decision.options)
                 it[DecisionRequestsTable.recommended] = decision.recommended
                 it[DecisionRequestsTable.links] = encodeLinks(decision.links)
                 it[DecisionRequestsTable.context] = decision.context
@@ -240,7 +240,7 @@ class SqliteDecisionRequestStore(
             dedupeKey = row[DecisionRequestsTable.dedupeKey],
             scopeKey = row[DecisionRequestsTable.scopeKey],
             question = row[DecisionRequestsTable.question],
-            options = decodeOptions(row[DecisionRequestsTable.options]),
+            options = decodeOptions(row[DecisionRequestsTable.optionsJson]),
             recommended = row[DecisionRequestsTable.recommended],
             links = decodeLinks(row[DecisionRequestsTable.links]),
             context = row[DecisionRequestsTable.context],

@@ -13,7 +13,7 @@ ktor = "3.6.1"
 
 # Database
 sqlite = "3.54.1.0"
-exposed = "1.2.0"
+exposed = "1.6.1"
 flyway = "11.8.2"
 hikaricp = "7.1.0"
 
@@ -59,7 +59,7 @@ nimbusJoseJwt = "10.10"
 bouncyCastle = "1.86"
 
 # Google Tink (runtime — required by nimbus-jose-jwt Ed25519Verifier for EdDSA support)
-googleTink = "1.18.0"
+googleTink = "1.24.0"
 
 # Linting
 ktlint = "12.1.2"
