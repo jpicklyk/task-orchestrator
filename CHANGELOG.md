@@ -7,10 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- **Bumped Exposed from 1.2.0 to 1.6.1 and Google Tink from 1.18.0 to 1.24.0.** Routine refresh; no advisory is open against the old or the new versions. No schema or wire change.
-
 ## [4.0.0] - 2026-11-07
 
 ### Upgrading from 3.x
@@ -194,6 +190,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`session-start` warns when hooks and tools target different servers**: one line when the REST URL from the env var or a `client.json` differs from the MCP registration's origin.
 - **Plugin skills, agents, bundled protocol rules and hook-injected text are corrected for the 4.0 tool surface.** Call shapes, response fields (for example where the guidance text comes from), and seat, run and coordinator-token semantics now match the server, and the retrospective trigger is run-based and read from the `extensions.claude-code` config key. `run-wave`'s `--claim` mode is removed: a claim cannot pass between seats.
 - **The illustrated field guide, new since 3.16.0, teaches 4.0.** The guide under `docs/field-guide` is linked from the README and the wiki home, and every plate describes the 4.0 server: type-only schema selection, one trait order, stored and versioned config with schema pins, the gate order, status labels, error envelope and kinds, conditional cascades, lifecycle modes, tool profiles, the REST ops route, (principal, seat) identity, run-based retrospectives and the `extensions.claude-code` keys. The simulators follow the server's rules. A new plate, Runs and Decisions, covers server runs, coordinator and seat tokens, run limits, decisions and director mode; Orchestrating a Run and Improvement Loop move to plates 9 and 10 (their page URLs are unchanged).
+- **Bumped Exposed from 1.2.0 to 1.6.1 and Google Tink from 1.18.0 to 1.24.0.** Routine refresh; no advisory is open against the old or the new versions. No schema or wire change.
 
 ### Removed
 
