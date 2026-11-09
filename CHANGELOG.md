@@ -330,6 +330,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Pre-tag security fixes (#658).** Tag-scoped writes are checked against the item's resulting tags, a present-but-empty or duplicated credential scope key fails closed, and a depth-0 root with an open or paused run cannot be re-parented; the behaviour is described under Upgrading from 3.x and Fixed.
 - **Dependencies updated.** logback 1.5.38 takes the shipped `logback-core` past CVE-2026-9828 and CVE-2026-10532. Ktor 3.6.1 and nimbus-jose-jwt 10.10 are current. Bouncy Castle 1.86 is used only by tests, so its advisories (CVE-2025-14813, CVE-2026-0636, CVE-2026-5598, CVE-2026-8763, CVE-2026-13506) never reached the image.
+- **Bumped `sqlite-jdbc` from 3.53.4.0 to 3.54.1.0** (bundles SQLite 3.54.1, was 3.53.4). SQLite 3.54.0 fixes CVE-2026-119371, CVE-2026-119372, CVE-2026-119373, CVE-2026-119374, CVE-2026-119375, CVE-2026-119376, CVE-2026-119377, CVE-2026-119378, CVE-2026-119379 and CVE-2026-119591, among them two FTS5 heap buffer overflows (the search index is FTS5), WAL page-cache disclosure and expression-depth limit bypasses.
 
 ## [3.16.0] - 2026-10-02
 
