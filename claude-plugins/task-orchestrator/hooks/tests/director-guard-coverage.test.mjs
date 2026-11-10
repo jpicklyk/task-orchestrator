@@ -224,7 +224,7 @@ test('S10: group 1 matches the file, shell, agent and workflow tools and not Sen
   assert.ok(!re.test('ListAgents'));
 });
 
-test('S10: group 2 is the builder-shaped matcher for docs_read, items_read and notes_read on any task-orchestrator server', () => {
+test('S10: group 2 is the builder-shaped matcher for config, docs_read, items_read, notes_read and runs_read on any task-orchestrator server', () => {
   const cfg = JSON.parse(readFileSync(HOOKS_CONFIG_PATH, 'utf8'));
   const group2 = cfg.hooks.PreToolUse.find((g) => g.matcher === GROUP2_MATCHER && g.hooks.some((h) => h.command.includes('director-guard.mjs')));
   assert.ok(group2, 'group 2 present');

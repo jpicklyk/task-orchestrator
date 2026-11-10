@@ -2,6 +2,8 @@
 // BLIND author: written from the frozen diagnosis and test-plan notes, the supplied declarations and the
 // existing director-guard tests. Oracles: the item's acceptance criteria AC1-AC8, the director SKILL.md
 // altitude rule, coordinator-tiers.md (the host UI tools), and the golden runs_read.director.json select set.
+// Review R1 additions (ruling fix-decisions-r1): the allow-list is seven bare names (get_settings and
+// set_session_output_style join the five), O2 cross-server bare-name allow, O8 gh flag spellings.
 // Harness: guardDecision(input, { env, director }) for decisions; the hook process against a synthetic temp
 // root with a planted marker for the end-to-end scenario, so no real marker path is touched.
 
@@ -50,6 +52,10 @@ const HOST_DENY_TOOLS = [
   'mcp__computer-use__screenshot',
   'mcp__ccd_session_mgmt__search_session_transcripts',
   'mcp__to__notes_read',
+  // Review R1: host tools that sit next to an allowed one but are not on the list stay denied.
+  'mcp__ccd_settings__set_setting',
+  'mcp__ccd_session_mgmt__set_session_title',
+  'mcp__ccd_session_mgmt__set_session_model',
 ];
 const HOST_ALLOW_TOOLS = [
   'mcp__ccd_session__start_session',
@@ -57,7 +63,14 @@ const HOST_ALLOW_TOOLS = [
   'mcp__ccd_turn__update_plan',
   'mcp__ccd_turn__wrap_up',
   'mcp__ccd_session__mark_chapter',
+  // Review R1 (B1): the tier-1 launch profile calls these two.
+  'mcp__ccd_settings__get_settings',
+  'mcp__ccd_session_mgmt__set_session_output_style',
 ];
+const ALLOWED_HOST_NAMES = [
+  'start_session', 'send_message', 'update_plan', 'wrap_up', 'mark_chapter', 'get_settings', 'set_session_output_style',
+];
+const HOST_SERVERS = ['terminal', 'ccd_session', 'ccd_session_mgmt', 'ccd_settings', 'ccd_turn', 'computer-use', 'to', 'e773fde7-78fe-4237-be9f-d0d3a7e2057b'];
 const CONTENT_TOOL_NAMES = ['WebFetch', 'WebSearch', 'ReadMcpResourceTool', 'ReadMcpResourceDirTool'];
 
 const tracked = [];
@@ -88,16 +101,44 @@ test('S1: a host MCP tool (terminal, file store, computer use, session transcrip
 
 // ---- S2: the host allow-list ---------------------------------------------------------------------
 
-test('S2: the five director host tools are allowed by bare name on any host server', () => {
+test('S2: the seven director host tools are allowed by bare name on any host server', () => {
   for (const t of HOST_ALLOW_TOOLS) allows(call(t, {}), t);
 });
 
-test('S2: a bare name that merely contains or extends an allowed name is denied', () => {
-  for (const t of ['mcp__ccd_session__start_session_v2', 'mcp__x__xstart_session', 'mcp__x__list_sessions']) denies(call(t, {}), t);
+test('S2 R1: get_settings and set_session_output_style are allowed under the marker on any host server', () => {
+  for (const server of HOST_SERVERS) {
+    allows(call(`mcp__${server}__get_settings`, {}), `${server} get_settings`);
+    allows(call(`mcp__${server}__set_session_output_style`, { style: 'x' }), `${server} set_session_output_style`);
+  }
 });
 
-test('S2: DIRECTOR_HOST_MCP_ALLOW is frozen and is exactly the five names', () => {
-  assert.deepEqual([...DIRECTOR_HOST_MCP_ALLOW].sort(), ['mark_chapter', 'send_message', 'start_session', 'update_plan', 'wrap_up']);
+test('S2 R1 O2: the bare-name allow applies across servers, so mcp__terminal__start_session is allowed', () => {
+  allows(call('mcp__terminal__start_session', {}), 'mcp__terminal__start_session');
+  for (const server of HOST_SERVERS) {
+    for (const name of ALLOWED_HOST_NAMES) allows(call(`mcp__${server}__${name}`, {}), `${server} ${name}`);
+  }
+});
+
+test('S2: a bare name that merely contains or extends an allowed name is denied', () => {
+  for (const t of [
+    'mcp__ccd_session__start_session_v2', 'mcp__x__xstart_session', 'mcp__x__list_sessions',
+    'mcp__x__get_settings_all', 'mcp__x__xget_settings', 'mcp__x__get_setting',
+    'mcp__x__set_session_output_styles', 'mcp__x__xset_session_output_style', 'mcp__x__set_session_output',
+  ]) denies(call(t, {}), t);
+});
+
+test('S2 R1: a host tool next to an allowed one but not on the list is still denied (set_setting, set_session_title, set_session_model)', () => {
+  for (const t of ['mcp__ccd_settings__set_setting', 'mcp__ccd_session_mgmt__set_session_title', 'mcp__ccd_session_mgmt__set_session_model']) {
+    denies(call(t, {}), t);
+    denies(call(t, { value: 'x' }), t + ' with input');
+  }
+});
+
+test('S2: DIRECTOR_HOST_MCP_ALLOW is frozen and is exactly the seven names', () => {
+  assert.deepEqual(
+    [...DIRECTOR_HOST_MCP_ALLOW].sort(),
+    ['get_settings', 'mark_chapter', 'send_message', 'set_session_output_style', 'start_session', 'update_plan', 'wrap_up'],
+  );
   assert.ok(Object.isFrozen(DIRECTOR_HOST_MCP_ALLOW));
 });
 
@@ -172,6 +213,32 @@ test('S5: gh pr view / list reading comments, reviews, the browser or a free-for
   }
 });
 
+// Review R1 O8. Oracles: the ruling names --repo=x allowed and -R=x denied; for the list filters the evidence is the
+// public contract text (hooks README director-guard row, CHANGELOG Unreleased Plugin entry: "gh pr view and gh pr list
+// take only operands, -R, listing filters and --json ...") and the gh CLI reference, where -d/--draft, -S/--search and
+// --app are the filters of gh pr list.
+test('S5 R1 O8: --repo=x is allowed on gh pr view and gh pr list', () => {
+  for (const c of ['gh pr view 12 --repo=x', 'gh pr view --repo=x 12', 'gh pr list --repo=x']) {
+    assert.equal(bashAllowed(c), true, c);
+    allows(cmd(c), c);
+  }
+});
+
+// Fails if the guard accepted an equals-attached short flag: -R=x would then be allowed.
+test('S5 R1 O8: -R=x is denied on gh pr view and gh pr list', () => {
+  for (const c of ['gh pr view 12 -R=x', 'gh pr view -R=x 12', 'gh pr list -R=x']) {
+    assert.equal(bashAllowed(c), false, c);
+    denies(cmd(c), c);
+  }
+});
+
+test('S5 R1 O8: gh pr list -d, --search <v> and --app=<v> are listing filters and are allowed', () => {
+  for (const c of ['gh pr list -d', 'gh pr list --search is:open', 'gh pr list --app=dependabot', 'gh pr list -d --state open --json number']) {
+    assert.equal(bashAllowed(c), true, c);
+    allows(cmd(c), c);
+  }
+});
+
 test('S5: GH_PR_JSON_FIELDS is frozen and holds status and body fields but no comment or review field', () => {
   assert.ok(Object.isFrozen(GH_PR_JSON_FIELDS));
   for (const f of ['state', 'body', 'mergeStateStatus', 'number', 'title']) assert.ok(GH_PR_JSON_FIELDS.includes(f), f);
@@ -240,6 +307,14 @@ test('S8: no marker, a subagent (agent_id) or the headless env lets every new de
     assert.equal(decide(i, { director: false }), null, 'no marker ' + JSON.stringify(i));
     assert.equal(decide({ ...i, agent_id: 'a1' }), null, 'agent_id ' + JSON.stringify(i));
     assert.equal(decide(i, { env: { TASK_ORCHESTRATOR_MODE: 'headless-iteration' } }), null, 'headless ' + JSON.stringify(i));
+  }
+});
+
+test('S8 R1: without the marker, in a subagent or in the headless env every host tool passes, allow-listed or not', () => {
+  for (const t of [...HOST_DENY_TOOLS, ...HOST_ALLOW_TOOLS]) {
+    assert.equal(decide(call(t, {}), { director: false }), null, 'no marker ' + t);
+    assert.equal(decide(call(t, {}, { agent_id: 'a1' })), null, 'agent_id ' + t);
+    assert.equal(decide(call(t, {}), { env: { TASK_ORCHESTRATOR_MODE: 'headless-iteration' } }), null, 'headless ' + t);
   }
 });
 
@@ -329,6 +404,9 @@ test('S10: through the hook process, host, web, config and foreign Skill calls d
   ];
   for (const i of denyInputs) assert.deepEqual(exec(i), {}, 'control, no marker: ' + i.tool_name);
   assert.deepEqual(exec(e2eCall('mcp__ccd_session__start_session', {})), {}, 'no marker, allow-listed host tool');
+  for (const t of ['mcp__ccd_settings__get_settings', 'mcp__ccd_session_mgmt__set_session_output_style']) {
+    assert.deepEqual(exec(e2eCall(t, {})), {}, 'no marker, ' + t);
+  }
   plant();
   for (const i of denyInputs) {
     const out = exec(i);
@@ -337,6 +415,12 @@ test('S10: through the hook process, host, web, config and foreign Skill calls d
     assert.ok(out.hookSpecificOutput.permissionDecisionReason.startsWith(REASON_PREFIX), i.tool_name);
   }
   assert.deepEqual(exec(e2eCall('mcp__ccd_session__start_session', {})), {}, 'allow-listed host tool passes under the marker');
+  for (const t of ['mcp__ccd_settings__get_settings', 'mcp__ccd_session_mgmt__set_session_output_style', 'mcp__terminal__start_session']) {
+    assert.deepEqual(exec(e2eCall(t, {})), {}, 'allow-listed host tool passes under the marker: ' + t);
+  }
+  const out = exec(e2eCall('mcp__ccd_settings__set_setting', {}));
+  assert.equal(out.hookSpecificOutput.permissionDecision, 'deny', 'a host tool next to an allowed one is still denied under the marker');
+  assert.ok(out.hookSpecificOutput.permissionDecisionReason.startsWith(REASON_PREFIX));
 });
 
 test('S10: Skill director off under the marker passes and removes the marker', () => {
@@ -387,7 +471,9 @@ test('probe: unusable tool_input denies for each guarded tool, while an allow-li
   for (const tool of ['mcp__terminal__read_terminal', 'WebFetch', CONFIG, RUNS_READ, 'Skill', 'Workflow']) {
     for (const ti of [null, 'x']) denies({ tool_name: tool, tool_input: ti, session_id: 's' }, `${tool} ${JSON.stringify(ti)}`);
   }
-  for (const ti of [null, 'x']) allows({ tool_name: 'mcp__ccd_session__start_session', tool_input: ti, session_id: 's' }, `start_session ${JSON.stringify(ti)}`);
+  for (const t of HOST_ALLOW_TOOLS) {
+    for (const ti of [null, 'x']) allows({ tool_name: t, tool_input: ti, session_id: 's' }, `${t} ${JSON.stringify(ti)}`);
+  }
 });
 
 test('probe: a repeated --json flag cannot smuggle comments past the allow-list, in any spelling', () => {
