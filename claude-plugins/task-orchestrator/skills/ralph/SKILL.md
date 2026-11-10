@@ -85,7 +85,7 @@ If the user adjusts, capture the overrides. Common patterns:
 
 The iteration's model and effort come from the `implementation` class in the plugin's dispatch policy (see `task-orchestrator:model-effort`), and the driver passes both to `claude -p` as `--model` and `--effort`. When the assign result reports `attempt` > 1 (the run already seated this item before), the effort is raised one level per earlier attempt, up to the policy's escalation ceiling. `--model` and `--effort` override the class; an explicit `--effort` is used as given and never raised.
 
-There is no run cap unless `--max-attempts` is passed. The `--run-budget-tokens` and `--run-budget-usd` flags were removed in 4.0.1 (passing one exits 64), as was the `--actor` flag: the server records the principal of every call, and each iteration acts under its own seat.
+There is no run cap unless `--max-attempts` is passed. The `--actor` flag was removed (passing it exits 64): the server records the principal of every call, and each iteration acts under its own seat.
 
 ---
 
