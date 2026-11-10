@@ -1429,6 +1429,8 @@ export function provenance({ core, doc, result, method, turns, meta, journal, ex
     throw new Error('provenance: extraSeats requires a single item (--item)')
   }
   const resultByItemId = new Map((result.items || []).map((r) => [r.id, r]))
+  // On the --item path only the selected item warns about its unmetered seats.
+  const warnItemId = onlyItem ? findItem(resolvePlan(core, doc).plan, onlyItem).id : undefined
 
   for (const item of doc.args.items) {
     const resItem = resultByItemId.get(item.id)
@@ -1467,7 +1469,7 @@ export function provenance({ core, doc, result, method, turns, meta, journal, ex
         for (const key of Object.keys(itemMeters)) itemMeters[key] += seatUsage[key]
       } else {
         allMetered = false
-        if (Array.isArray(warnings)) warnings.push(`provenance: ${item.short} seat ${seat} has no transcript meters (a gap, not zero)`)
+        if (Array.isArray(warnings) && (warnItemId === undefined || warnItemId === item.id)) warnings.push(`provenance: ${item.short} seat ${seat} has no transcript meters (a gap, not zero)`)
       }
       const assignedEffort = stageDef.dispatch && stageDef.dispatch.effort
       if (metaEntry && metaEntry.effort) {

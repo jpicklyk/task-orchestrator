@@ -955,6 +955,19 @@ test('meters: a seat missing from meta reads unknown, is named in a warning and 
   assert.deepEqual(warnings, ['provenance: bbbbbbbb seat implementer has no transcript meters (a gap, not zero)'])
 })
 
+test('meters: --item X prints no gap warning for another item\'s unmetered seat', () => {
+  const { doc, a, b, result } = twoItemProvenance('r-test-0107')
+  const meta = { 'implementer:aaaaaaaa': { model: 'sonnet', usage: U(1, 2, 3, 4) } }
+  const forA = []
+  const outA = provenance({ core: realCore(), doc, result, method: 'A', turns: 1, meta, item: 'aaaaaaaa', warnings: forA })
+  assert.deepEqual(Object.keys(outA), [a.id])
+  assert.deepEqual(forA, [])
+  const forB = []
+  provenance({ core: realCore(), doc, result, method: 'A', turns: 1, meta, item: 'bbbbbbbb', warnings: forB })
+  assert.deepEqual(forB, ['provenance: bbbbbbbb seat implementer has no transcript meters (a gap, not zero)'])
+  assert.ok(b.id)
+})
+
 test('meters: with two seats one unmetered seat makes tokens and meters unknown but keeps the metered seat in seat-meters', () => {
   const { doc, item, result } = provenanceFixture('r-test-0104')
   const stagesOut = result.items[0].stages

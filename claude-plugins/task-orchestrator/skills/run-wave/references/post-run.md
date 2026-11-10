@@ -240,8 +240,7 @@ run report instead.
    file reads `<seat>:unknown`, makes `tokens` and `meters` `unknown`, and prints a stderr warning
    `provenance: <short> seat <seat> has no transcript meters (a gap, not zero)`: a warned seat is a gap, never zero;
    fix it (re-run `dispatch-meta` without `--since`, or check the dispatch label) before you upsert, or
-   upsert and report the gap. `--usage` is retired: the helper ignores it with a stderr warning and exit 0, so a
-   stale command does not fail. With the meta file the line carries the observed model
+   upsert and report the gap. With the meta file the line carries the observed model
    (`model-source=meta`) and observed effort (`efforts=<seat>:<effort>,...` with
    `effort-source=transcript`; `assigned` when a seat fell back to the plan's dispatch effort, `mixed`
    when both occur), and `effort-substituted=<seat>:<requested>,...` names each seat whose observed
@@ -481,7 +480,7 @@ feature-task and bug-fix, no seat on feature-implementation).
 **Recording out-of-run seats.** Every seat dispatched outside the run for an item (re-review,
 fix-cycle `<seat>-a<n>`, amendment planner) is recorded by re-running `dispatch-meta` (so the new transcripts are
 in the file) and then
-`node "<helper>" provenance ... --item <short> --meta <dispatch-meta.json> [--extra-seats <seat>:<model>[:<effort>:<cause>],...]` — with the
+`node "<helper>" provenance ... --item <short> --meta <dispatch-meta.json> [--extra-seats <seat>:<model>[:unknown:<effort>:<cause>],...]` - with the
 same flags as Step 3 — and
 re-upserting that item's `delegation-metadata` (orchestrator-owned) under the coordinator token of
 the run holding the item (the still-open run, or the fix-cycle run before it closes; with no open run the
@@ -498,7 +497,8 @@ flag. A row's tokens are the non-cached sum (input + cache write + output) and t
 sixth field: `<seat>:<model>:<tokens>:<effort>:<cause>:<input>/<cacheWrite>/<cacheRead>/<output>` (a missing effort or
 cause reads `unknown`). A seat with no transcript meters reads `unknown` (a five- or three-field row without meters) and
 prints a stderr warning, a gap in the retrospective and never zero; a tokens figure passed in the ledger or in
-`--extra-seats` is ignored with its own warning. Rows written before 4.0.1 (five or three fields) still parse.
+`--extra-seats` is ignored with its own warning (the flag row keeps the tokens field positional: write `unknown`, and
+the field is ignored whenever meta has the seat). Rows written before 4.0.1 (five or three fields) still parse.
 Seats recorded by `reseat` are read from the `reseats` ledger in `--result`, listed first,
 so `--extra-seats` is only needed for seats `reseat` never saw (re-review, or an amendment planner on an item with no planner stage); a seat
 named in both takes the flag's model, and keeps the ledger's effort and cause when the
