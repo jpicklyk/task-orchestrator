@@ -457,7 +457,7 @@ replacement. Only `review` and `test` on an implementer or test-author base esca
 with the Agent `effort` parameter set to that `effort`. At the escalation ceiling the prompt also tells the seat to
 stop and report once the checks pass. The prompt is the base stage's prompt under the `<seat>-a<n>`
 commit trailer, with no ENTRY block, the base seat's token file and END SEAT on a bound plan
-(`tokenFile` in the output), and a `FIX CYCLE A<n>` line. A test-author base on an item with a
+(`tokenFile` in the output), and a `FIX CYCLE A<n>` line that ends with a rewrite-in-full instruction for each of `implementation-notes` and `test-manifest` the base stage owns (replace superseded text, no per-cycle section, history only as a final `Amendments:` list; a base owning neither gets none). A test-author base on an item with a
 declarations stage needs declarations from the result or `--declarations <file>` (plain text;
 `none` or empty counts as absent), else the command exits 3 with `missingDeclaration:`. The output
 JSON carries a `result` copy with the seat appended to `items[].reseats`

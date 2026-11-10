@@ -885,3 +885,58 @@ test('D11 (CLI): reseat --assignment <id> records the id in the ledger row; with
   const bare = JSON.parse(without.stdout).result.items[0].reseats[0]
   assert.equal(Object.values(bare).includes(ASSIGNMENT), false, 'fixture condition: the id appears only when passed')
 })
+
+// ── item d0c4f620: the FIX CYCLE line tells a seat to rewrite the notes its base stage owns ────────
+
+const IMPL_REWRITE = 'Rewrite implementation-notes in full so it describes the final state'
+const MANIFEST_REWRITE = 'Rewrite test-manifest in full so it describes the final state'
+
+function fixCycleLine(prompt) {
+  return prompt.split('\n').find((l) => l.startsWith('FIX CYCLE A'))
+}
+
+function ownedNotesDoc(owned) {
+  const list = stageList()
+  for (const [seat, notes] of Object.entries(owned)) list.find((s) => s.seat === seat).notes = notes
+  return makeDoc({ list }).doc
+}
+
+test('d0c4f620: implementer-a1 owning implementation-notes gets the rewrite sentence on the FIX CYCLE line (planning-note variant)', () => {
+  const doc = ownedNotesDoc({ implementer: ['implementation-notes'] })
+  const out = callReseat(realCore(), doc, makeResult(doc), SHORT, 'implementer-a1', { pre: C2 })
+  assert.equal(out.ok, true, JSON.stringify(out))
+  const line = fixCycleLine(out.prompt)
+  assert.ok(line.includes(IMPL_REWRITE), line)
+  assert.ok(line.includes('closure-notes') && line.includes('Amendments:') && line.includes('A<n>'), line)
+  assert.equal(line.includes('test-manifest'), false, line)
+  assert.equal(/\bactor\b|amendments note|## Amendment A1[^"]/i.test(line.replace('"## Amendment A1"', '')), false, line)
+})
+
+test('d0c4f620: the amendments-note variant carries the same sentence on the same line', () => {
+  const doc = ownedNotesDoc({ implementer: ['implementation-notes'], planner: ['amendments'] })
+  const out = callReseat(realCore(), doc, makeResult(doc), SHORT, 'implementer-a1', { pre: C2 })
+  assert.equal(out.ok, true, JSON.stringify(out))
+  const line = fixCycleLine(out.prompt)
+  assert.ok(line.includes("ruling A1 in the item's amendments note"), line)
+  assert.ok(line.includes(IMPL_REWRITE), line)
+})
+
+test('d0c4f620: test-author-a1 owning test-manifest gets the test-manifest sentence without the closure-notes clause', () => {
+  const doc = ownedNotesDoc({ 'test-author': ['test-manifest'] })
+  const out = callReseat(realCore(), doc, makeResult(doc, makeOutputs({ 'declarations-extractor': { declarations: 'export function f(x)', harnessPointers: 'p', gaps: 'none' } })), SHORT, 'test-author-a1', { pre: C2 })
+  assert.equal(out.ok, true, JSON.stringify(out))
+  const line = fixCycleLine(out.prompt)
+  assert.ok(line.includes(MANIFEST_REWRITE), line)
+  assert.equal(line.includes('closure-notes'), false, line)
+  assert.equal(line.includes('implementation-notes'), false, line)
+})
+
+test('d0c4f620: a base owning neither note (planner, implementer with no notes) gets no rewrite sentence', () => {
+  const doc = ownedNotesDoc({ planner: ['specification'], implementer: [] })
+  for (const seat of ['planner-a1', 'implementer-a1']) {
+    const out = callReseat(realCore(), doc, makeResult(doc), SHORT, seat, { pre: C2 })
+    assert.equal(out.ok, true, JSON.stringify(out))
+    assert.equal(out.prompt.includes('Rewrite '), false, seat)
+    assert.ok(fixCycleLine(out.prompt).endsWith('never the whole tree.'), seat)
+  }
+})

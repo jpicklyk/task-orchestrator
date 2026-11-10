@@ -522,6 +522,24 @@ function isAbsentDeclaration(text) {
 }
 
 /**
+ * The note-rewrite sentence of a fix-cycle prompt, keyed on the notes the BASE stage owns (never on the
+ * seat name), so a seat is never told to write a note another seat owns. One sentence per owned key among
+ * implementation-notes then test-manifest; '' when the base owns neither. closure-notes governs only
+ * implementation-notes, so the test-manifest sentence leaves that clause out.
+ */
+function noteRewriteSentence(baseStage) {
+  const owned = Array.isArray(baseStage.notes) ? baseStage.notes : []
+  let out = ''
+  if (owned.includes('implementation-notes')) {
+    out += " Rewrite implementation-notes in full so it describes the final state: replace superseded text, drop every section the closure-notes rule bans (the previous seat's included), add no per-cycle section, and keep history to a final Amendments: list with one line per A<n> (what changed, commit SHA)."
+  }
+  if (owned.includes('test-manifest')) {
+    out += ' Rewrite test-manifest in full so it describes the final state: replace superseded text, add no per-cycle section, and keep history to a final Amendments: list with one line per A<n> (what changed, commit SHA).'
+  }
+  return out
+}
+
+/**
  * reseat(core, doc, result, idOrShort, seat, opts) ->
  *   {ok:true, prompt, seat, baseSeat, cycle, cause, effort, ceilingReached, tokenFile, result}
  *   | {ok:false, error}.
@@ -532,7 +550,8 @@ function isAbsentDeclaration(text) {
  * else its policy class effort. ceilingReached is true when an escalating cycle runs at the ceiling
  * (a further failure goes to the decision path). The prompt is core.seatPrompt over a clone of the
  * base stage renamed to `seat` with enters:false, outs from the result item's outputs (keyed by base
- * seat), plus a FIX CYCLE line, CEILING_STOP_LINE when an escalated cycle runs at the policy escalation ceiling, and the
+ * seat), plus a FIX CYCLE line (ending with a rewrite-in-full instruction for each of implementation-notes and
+ * test-manifest the base stage owns), CEILING_STOP_LINE when an escalated cycle runs at the policy escalation ceiling, and the
  * Method B addendum on Method B plans. opts = {cause, declarations?, model?, tokens?, pre?,
  * assignment?, policyPath?}. On a bound run the reseat runs under the BASE seat's server assignment (the
  * orchestrator re-assigns the base seat first, which supersedes it as attempt n+1, and writes the new
@@ -592,9 +611,10 @@ export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
   let text = core.seatPrompt(promptPlan, item, stage, outs)
   if (tokenFile) text += `\n${reseatTokenPart(plan, baseStage, tokenFile)}`
   const hasAmendmentsNote = (item.stages || []).some((st) => Array.isArray(st.notes) && st.notes.includes('amendments'))
+  const rewriteSentence = noteRewriteSentence(baseStage)
   text += hasAmendmentsNote
-    ? `\nFIX CYCLE A${cycle}: work only ruling A${cycle} in the item's amendments note and the blocking findings it cites. Commit your owned paths as soon as each fix is done (git commit --only -- <paths>) and revert only your own paths, never the whole tree.`
-    : `\nFIX CYCLE A${cycle}: work only section "## Amendment A${cycle}" of the item's planning note and the blocking findings it cites. Commit your owned paths as soon as each fix is done (git commit --only -- <paths>) and revert only your own paths, never the whole tree.`
+    ? `\nFIX CYCLE A${cycle}: work only ruling A${cycle} in the item's amendments note and the blocking findings it cites. Commit your owned paths as soon as each fix is done (git commit --only -- <paths>) and revert only your own paths, never the whole tree.${rewriteSentence}`
+    : `\nFIX CYCLE A${cycle}: work only section "## Amendment A${cycle}" of the item's planning note and the blocking findings it cites. Commit your owned paths as soon as each fix is done (git commit --only -- <paths>) and revert only your own paths, never the whole tree.${rewriteSentence}`
 
   const baseEffort = (baseStage.dispatch && baseStage.dispatch.effort) ||
     forClass(policyClassFor(baseSeat, baseStage.phase), opts.policyPath).effort
