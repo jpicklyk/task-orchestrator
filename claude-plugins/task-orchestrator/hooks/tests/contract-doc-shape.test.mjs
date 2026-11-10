@@ -160,12 +160,12 @@ test('S11: non-object values and unknown top-level keys are errors', () => {
 });
 
 test('S11: nested keys of an object arg are checked against the entry dotted children (budget.* on runs_write open)', () => {
-  const base = { rootId: '58facb39', budget: { tokens: 1000, costUsd: 1.5 } };
+  const base = { rootId: '58facb39', budget: { attemptsPerSeat: 3, maxActiveSeats: 2 } };
   assert.deepEqual(checkToCall({ tool: 'runs_write', op: 'open', args: base }, CATALOG), []);
-  const bad = checkToCall({ tool: 'runs_write', op: 'open', args: { rootId: '58facb39', budget: { tokens: 1, bogus: 2 } } }, CATALOG);
+  const bad = checkToCall({ tool: 'runs_write', op: 'open', args: { rootId: '58facb39', budget: { attemptsPerSeat: 1, bogus: 2 } } }, CATALOG);
   assert.ok(bad.some((e) => e.includes('bogus')), JSON.stringify(bad));
   // dotted keys are catalog fields, not top-level arg keys
-  const dotted = checkToCall({ tool: 'runs_write', op: 'open', args: { rootId: '58facb39', 'budget.tokens': 1 } }, CATALOG);
+  const dotted = checkToCall({ tool: 'runs_write', op: 'open', args: { rootId: '58facb39', 'budget.attemptsPerSeat': 1 } }, CATALOG);
   assert.ok(dotted.length >= 1, 'a dotted name is not a top-level arg');
 });
 

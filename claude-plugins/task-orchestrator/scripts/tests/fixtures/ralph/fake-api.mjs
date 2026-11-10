@@ -18,8 +18,8 @@
 // on the Claim", api-reference.md advance / runs_write / runs_read references and the Error catalog):
 //   - a claim keeps its holder and expiry; a claim of a TERMINAL item is invalid_transition{fromRole: terminal}
 //     (the old fake granted any claim, which hid the post-terminal usage report bug);
-//   - heartbeat never takes an item: not_claim_holder unless the caller holds an unexpired claim; usage is recorded
-//     per assignment (the highest reported value is kept) and summed into the run's usage;
+//   - heartbeat never takes an item: not_claim_holder unless the caller holds an unexpired claim;
+//     a heartbeat carrying usage is refused invalid_request (usage reporting was removed in 4.0.1);
 //   - transition `complete` is the holder's move: it lands the item in terminal and clears the claim; a terminal
 //     item answers invalid_transition{fromRole: terminal};
 //   - runs_read get serves the run view (status, pauseReason, terminalReason, usage);
@@ -130,11 +130,7 @@ export async function startFakeApi(opts = {}) {
   function view() {
     const r = st.run
     const seats = [...st.seats.values()]
-    const usage = {
-      reportedTokens: seats.reduce((n, x) => n + (x.usage?.tokens ?? 0), 0),
-      reportedCostUsd: seats.reduce((n, x) => n + (x.usage?.costUsd ?? 0), 0),
-      observedTokens: 0,
-    }
+    const usage = { observedTokens: 0 }
     const v = { runId: r.runId, rootId: r.rootId, label: r.label, title: r.title, status: r.status, budget: r.budget, hints: r.hints, usage, members: r.members.size, activeSeats: activeSeats().length, version: 1 }
     if (r.status === 'paused') v.pauseReason = r.pauseReason
     if (r.status === 'closed') {
@@ -317,15 +313,10 @@ export async function startFakeApi(opts = {}) {
           const extra = verdict.retryAfterMs !== undefined ? { retryAfterMs: verdict.retryAfterMs } : {}
           return elementError(verdict.code, verdict.detail, extra)
         }
+        // 4.0.1 (e74ff75e): heartbeat usage was removed; the server refuses a heartbeat that carries one
+        if (op.usage !== undefined) return elementError('invalid_request', { fields: [{ field: `/ops/${idx}/usage`, reason: 'heartbeat usage was removed in 4.0.1' }] })
         // workflow-guide "Heartbeat Pattern": a heartbeat never takes an item - not_claim_holder unless the caller holds the live claim
         if (!claimLive(item) || item.claim.holder !== caller.token) return elementError('not_claim_holder', { itemId })
-        if (op.usage !== undefined) {
-          const u = op.usage
-          const ok = u && typeof u === 'object' && ['tokens', 'costUsd'].every((k) => u[k] === undefined || (typeof u[k] === 'number' && u[k] >= 0))
-          if (!ok) return elementError('invalid_request', { fields: [{ field: `/ops/${idx}/usage`, reason: '{tokens, costUsd} of non-negative numbers' }] })
-          const prev = caller.seat.usage ?? { tokens: 0, costUsd: 0 }
-          caller.seat.usage = { tokens: Math.max(prev.tokens, u.tokens ?? 0), costUsd: Math.max(prev.costUsd, u.costUsd ?? 0) }
-        }
         const now = new Date()
         const expiresAtMs = now.getTime() + (op.ttlSeconds ?? 900) * ttlUnitMs
         item.claim.expiresAtMs = expiresAtMs

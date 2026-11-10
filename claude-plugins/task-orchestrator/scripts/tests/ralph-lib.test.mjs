@@ -41,7 +41,6 @@ import {
     renderOutcomeTable,
     endSeatOutcome,
     loopEffect,
-    buildUsageOps,
     redactTokens,
     seatTokenFilePath,
     firstOpResult,
@@ -613,18 +612,15 @@ test("S1: hints are a map of string to string (api-reference runs_write open), s
     assert.equal(op.hints.pid, "4242");
 });
 
-test("S1: --run-budget-usd 12.5 alone sends budget {costUsd: 12.5}", () => {
-    assert.deepEqual(buildRunOpenOp({ ...openBase, runBudgetUsd: 12.5 }).budget, { costUsd: 12.5 });
+test("S1: runBudgetUsd and runBudgetTokens are ignored - alone they send no budget at all", () => {
+    assert.equal("budget" in buildRunOpenOp({ ...openBase, runBudgetUsd: 12.5 }), false);
+    assert.equal("budget" in buildRunOpenOp({ ...openBase, runBudgetTokens: 1000 }), false);
 });
 
-test("S1: --run-budget-tokens alone sends budget {tokens}, --max-attempts alone sends budget {attemptsPerSeat}", () => {
-    assert.deepEqual(buildRunOpenOp({ ...openBase, runBudgetTokens: 1000 }).budget, { tokens: 1000 });
+test("S1: --max-attempts alone sends budget {attemptsPerSeat}; the removed run budgets never join it, and never maxActiveSeats", () => {
     assert.deepEqual(buildRunOpenOp({ ...openBase, maxAttempts: 3 }).budget, { attemptsPerSeat: 3 });
-});
-
-test("S1: all three budget flags together, and never maxActiveSeats", () => {
     const budget = buildRunOpenOp({ ...openBase, runBudgetTokens: 1000, runBudgetUsd: 12.5, maxAttempts: 3 }).budget;
-    assert.deepEqual(budget, { tokens: 1000, costUsd: 12.5, attemptsPerSeat: 3 });
+    assert.deepEqual(budget, { attemptsPerSeat: 3 });
     assert.equal("maxActiveSeats" in budget, false);
 });
 
@@ -901,39 +897,6 @@ test("S10 D7: a skip effect carries skipCode and retryAfterMs for the skip list"
     assert.equal(e.effect, "skip");
     assert.equal(e.skipCode, "resource_unavailable");
     assert.equal(e.retryAfterMs, 45000);
-});
-
-// -- S11: buildUsageOps (TS D11) --
-
-const FULL_USAGE = { total_cost_usd: 1.25, usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 10, cache_read_input_tokens: 5 } };
-
-test("S11 D11: buildUsageOps -> [claim, heartbeat{usage}, release] for the item, claim carrying ttlSeconds", () => {
-    const ops = buildUsageOps({ itemId: "aaaa1111", ttlSeconds: 120, envelope: FULL_USAGE });
-    assert.equal(ops.length, 3);
-    assert.deepEqual(ops[0], { op: "claim", itemId: "aaaa1111", ttlSeconds: 120 });
-    assert.equal(ops[1].op, "heartbeat");
-    assert.equal(ops[1].itemId, "aaaa1111");
-    assert.equal(ops[1].usage.costUsd, 1.25);
-    assert.deepEqual(ops[2], { op: "release", itemId: "aaaa1111" });
-});
-
-test("S11 D11: heartbeat usage.tokens is a whole count between input+output and all four counters summed", () => {
-    const tokens = buildUsageOps({ itemId: "aaaa1111", ttlSeconds: 120, envelope: FULL_USAGE })[1].usage.tokens;
-    assert.ok(Number.isInteger(tokens));
-    assert.ok(tokens >= 150 && tokens <= 165, `tokens ${tokens}`);
-});
-
-test("S11 D11: usage without total_cost_usd leaves costUsd out of the heartbeat usage", () => {
-    const ops = buildUsageOps({ itemId: "aaaa1111", ttlSeconds: 120, envelope: { usage: FULL_USAGE.usage } });
-    assert.equal(ops[1].usage.costUsd, undefined);
-    assert.ok(ops[1].usage.tokens >= 150);
-});
-
-test("S11 D11: an envelope with neither total_cost_usd nor usage reports nothing", () => {
-    for (const envelope of [{}, { result: "x" }]) {
-        const ops = buildUsageOps({ itemId: "aaaa1111", ttlSeconds: 120, envelope });
-        assert.ok(ops == null || ops.length === 0, "nothing to report -> no ops");
-    }
 });
 
 // -- redactTokens (TS AC5) --

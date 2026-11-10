@@ -219,7 +219,6 @@ test('S12 (Method B): no seeded token in any prompt, the state after every stage
 
 test('S12 (run-ops): no phase output carries a seeded token or a seatToken key', () => {
   const w = seedWorld()
-  const usage = writeJson(w.dir, 'usage.json', { tokens: 1200, costUsd: 0.5 })
   const seats = writeJson(w.dir, 'seats.json', {
     runId: SERVER_RUN,
     seats: [
@@ -236,7 +235,6 @@ test('S12 (run-ops): no phase output carries a seeded token or a seatToken key',
     open: ['--phase', 'open'],
     assign: ['--phase', 'assign'],
     'assign-one': ['--phase', 'assign', '--item', 'aaaaaaaa', '--seat', 'planner'],
-    heartbeat: ['--phase', 'heartbeat', '--usage', usage],
     'end-seats': ['--phase', 'end-seats', '--seats', seats, '--result', result],
     'adopt-notes': ['--phase', 'adopt-notes', '--notes', notes],
     close: ['--phase', 'close', '--result', result],

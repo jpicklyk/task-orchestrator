@@ -245,7 +245,7 @@ test('S9 AC2/AC7: the generated table is the only outcome text - the two prompts
 
 test('S9 AC10: SKILL.md documents the new flags, the principal / private-scratch-dir / killed-driver troubleshooting, and no longer calls ancestorId preview-only', () => {
   const text = read(SKILL)
-  for (const flag of ['--iteration-timeout', '--run-budget-tokens', '--run-budget-usd', '--max-attempts', '--root', '--items', '--scratch-dir', '--claude-bin']) {
+  for (const flag of ['--iteration-timeout', '--max-attempts', '--root', '--items', '--scratch-dir', '--claude-bin']) {
     assert.ok(text.includes(flag), `SKILL.md documents ${flag}`)
   }
   assert.ok(/principal/i.test(text), 'D2: the principal requirement')

@@ -108,32 +108,6 @@ test('S15: batch-complete outcome table lists seat_forbidden and unauthenticated
 
 // ---- S16: post-run.md -------------------------------------------------------------------------------------
 
-test('S16: post-run Step 7 sends the usage heartbeat before it closes the run', () => {
-  const step7 = between(POST_RUN, '## Step 7 ', '## Step 7a')
-  assert.match(step7, /heartbeat/i, 'Step 7 sends the heartbeat')
-  assert.ok(step7.search(/heartbeat/i) < step7.indexOf('--phase close'), 'the heartbeat comes before the close')
-})
-
-// Oracle: the frozen test-plan S16 requires the Step 7 section itself to carry the command (`--phase heartbeat`
-// with `--item`), not a back-reference to Step 0a.
-test('S16: post-run Step 7 section carries the heartbeat command with --phase heartbeat and --item', () => {
-  const step7 = between(POST_RUN, '## Step 7 ', '## Step 7a')
-  assert.ok(step7.includes('--phase heartbeat'), 'Step 7 carries --phase heartbeat')
-  assert.ok(step7.includes('--item'), 'Step 7 names --item')
-})
-
-test('S16: post-run Step 0a names the review phase as the condition that moves the heartbeat out of Step 0a', () => {
-  const step0a = between(POST_RUN, '## Step 0a', '## Step 0b')
-  assert.match(step0a, /review/i)
-  assert.ok(step0a.includes('usage.json'), 'Step 0a still writes usage.json')
-})
-
-test('S16: post-run Step 0a states the residual wave-parent start risk with a paused report', () => {
-  const step0a = between(POST_RUN, '## Step 0a', '## Step 0b')
-  assert.ok(step0a.includes('run_paused'), 'the residual names run_paused')
-  assert.ok(step0a.includes('paused'), 'the residual names the paused report')
-})
-
 // ---- S17: run-wave SKILL.md ---------------------------------------------------------------------------------
 
 test('S17: run-wave Step 5a row tells the coordinator not to launch after a failed assign element', () => {
