@@ -111,6 +111,12 @@ const REFRESH_STALE_MS = 60_000
 /** A forced refresh asked for while one ran: run it once that one ends. */
 let refreshAgain = false
 /**
+ * A touched item whose stored focus this load has not walked, to walk again once the running refresh
+ * ends, and the touched ids walked again this load (each once, so it can never loop).
+ */
+let rewalkAfter: string | undefined
+const rewalked = new Set<string>()
+/**
  * Item id (lowercase) to the focus item it resolves to: the touched id and every ancestor its walk
  * read, so each id is walked once and a sibling stops at the first shared ancestor.
  */
@@ -310,6 +316,14 @@ async function refreshBoard($: EngineInterface, force = false): Promise<void> {
       coordReadFailures = 0
     }
     const focusBoard = current !== null ? await readFocus($, current) : null
+    // The stored focus is a cache of a walk; the touched item's id is the fact. A focus this load has not walked
+    // (stored before a reload or a resume, maybe by an earlier version of the walk rule) is walked again from the
+    // touched item once this read lands, at most once per touched item and load (focusOn redraws if it moved).
+    const touchedKey = current?.touched.itemId.toLowerCase()
+    if (touchedKey !== undefined && !resolvedFocus.has(touchedKey) && !rewalked.has(touchedKey)) {
+      rewalked.add(touchedKey)
+      rewalkAfter = current?.touched.itemId
+    }
     // Each member an agent works on keeps its colour from read to read (see assignColours).
     const working = runs.flatMap(run => (run.members ?? []).filter(m => m.status === 'working').map(m => colourKey(run.id, m.id)))
     const present = runs.flatMap(run => (run.members ?? []).map(m => colourKey(run.id, m.id)))
@@ -330,7 +344,10 @@ async function refreshBoard($: EngineInterface, force = false): Promise<void> {
     }))
   } finally {
     refreshing = false
-    if (refreshAgain) {
+    const again = rewalkAfter
+    rewalkAfter = undefined
+    if (again !== undefined) void focusOn($, again)
+    else if (refreshAgain) {
       refreshAgain = false
       void refreshBoard($, true)
     }

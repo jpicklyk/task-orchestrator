@@ -433,6 +433,48 @@ test('a task under a backlog bucket focuses its own feature; the bucket touched 
   expect(touchedBucket.includes('2 planned · 1 done')).toBe(true)
 })
 
+test('a stored focus is walked again from its touched item once a load: a bucket an earlier version stored moves to the feature', async ($, on) => {
+  const bucket = { id: 'babac430-0000', parentId: 'ce064d2c-0000', depth: 1, type: 'container', tags: ['container'], title: 'Bugs', statusLabel: 'done', role: 'work' }
+  const fix = { id: 'efccb63a-0000', parentId: 'babac430-0000', depth: 2, type: 'feature-implementation', title: '4.0.1 fix', role: 'work' }
+  // The session's state as the earlier walk left it: the bucket as the focus, the feature as the touched item.
+  const held: Record<string, { value: unknown; version: number }> = {
+    bandHidden: { value: false, version: 1 },
+    focus: { value: { itemId: bucket.id, title: 'Bugs', since: 'x', touched: { itemId: fix.id, title: '4.0.1 fix', type: 'feature-implementation', label: 'work' } }, version: 1 },
+  }
+  on('state.get', (_: unknown, e: { plugin: string; key: string }, next: (e: unknown) => unknown) =>
+    e.plugin === PLUGIN ? { value: held[e.key] ?? { value: undefined, version: 0 } } : next(e),
+  )
+  on('state.set', (_: unknown, e: { plugin: string; key: string; value: unknown }, next: (e: unknown) => unknown) => {
+    if (e.plugin !== PLUGIN) return next(e)
+    const version = (held[e.key]?.version ?? 0) + 1
+    held[e.key] = { value: e.value, version }
+
+    return { value: { isSet: true, version } }
+  })
+  on('ui.toast', () => ({ value: undefined }))
+  on(
+    'http.fetch',
+    server({ [bucket.id]: bucket, [fix.id]: fix }, {}, {
+      overview: {
+        [fix.id]: [{ id: '240116c3', role: 'work', childCounts: {} }],
+        [bucket.id]: [{ id: 'efccb63a', role: 'work', childCounts: { work: 1 } }],
+      },
+    }),
+  )
+  on('tool.call', answerWrites(() => ({})))
+
+  on('command.register', () => ({ value: { command: 'to-band' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+
+  // A reload or a resume (session.start) refreshes the board, which reads the stored focus, then walks the touched
+  // item again.
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await settle()
+  await settle()
+  expect((held.focus?.value as { itemId?: string } | undefined)?.itemId).toBe(fix.id)
+  expect((await texts($, BAND))[0]).toBe('4.0.1 fix')
+})
+
 test('the band toggle is per session: a fresh session starts from userConfig band, never from the store', async ($, on) => {
   on('store.get', () => ({ value: true }))
   on('command.register', () => ({ value: { command: 'to-band' } }))
