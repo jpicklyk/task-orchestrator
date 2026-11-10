@@ -426,10 +426,10 @@ async function focusOn($: EngineInterface, itemId: string): Promise<void> {
   }
   const current = focusValue(await read($, focus))
   if (current !== null && sameId(current.itemId, target.id) && sameId(current.touched.itemId, touched.id)) return
-  // A touch of the container the session is already in (an overview or context read of the feature
-  // while a child is in hand) keeps the child on line 3; only a touch of another item moves it.
+  // A write to the container the session is already in (a note on the feature while a child is in
+  // hand) keeps the child on line 3; only a write to another item moves it.
   if (current !== null && sameId(current.itemId, target.id) && sameId(touched.id, target.id)) return
-  const next = { itemId: target.id, title: target.title, since: new Date().toISOString(), touched: itemFacts(touched) }
+  const next = { itemId: target.id, title: target.title, since: new Date().toISOString(), touched: itemFacts(touched), by: 'write' as const }
   await update($, focus, () => next)
   await refreshBoard($, true)
 }
@@ -494,6 +494,9 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
   // until the plugin clears it), so clear it: the footer label is drawn in the mode slot instead.
   on('session.start', async ($, e, next) => {
     $.ui.status(undefined)
+    // A focus a read set (an earlier version moved the focus on an `items_read` naming an item) is not this
+    // session's work: drop it on load. A focus a write set carries `by: 'write'`.
+    await update($, focus, prev => (prev !== null && prev !== undefined && prev.by === 'write' ? prev : null))
     try {
       await $.command.register({ name: 'to-band', description: 'Show or hide the Task Orchestrator band above the prompt' })
     } catch {
@@ -537,9 +540,7 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
         'mcp__mcp-task-orchestrator__advance',
         'mcp__mcp-task-orchestrator__notes_write',
         'mcp__mcp-task-orchestrator__deps_write',
-        'mcp__mcp-task-orchestrator__items_read',
         'mcp__mcp-task-orchestrator__runs_write',
-        'mcp__mcp-task-orchestrator-director__items_read',
         'mcp__mcp-task-orchestrator-director__runs_write',
       ],
     },

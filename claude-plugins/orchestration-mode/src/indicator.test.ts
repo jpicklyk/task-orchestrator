@@ -347,8 +347,12 @@ test('a touched task draws its feature, the progress and the task itself; /to-ba
   ])
   expect(await shown($, BAND, /never/)).toBe(undefined)
 
-  // A read of the feature itself (an overview while the task is in hand) keeps the task on line 3.
-  await $.tool.call({ tool: READ_TOOL, select: 'context', itemId: 'd99e4f7a-0000' })
+  // A write to the feature itself (a note on it while the task is in hand) keeps the task on line 3; a read of
+  // another item moves nothing.
+  await $.tool.call({ tool: NOTES_TOOL, ops: [{ op: 'upsert', itemId: 'd99e4f7a-0000', key: 'k', role: 'work', body: '' }] })
+  await settle()
+  expect((await texts($, BAND)).slice(-3)).toEqual(['8da6e710 · feature-task · queue', '   A task', ' · blocked by 95c660e2'])
+  await $.tool.call({ tool: READ_TOOL, select: 'context', itemId: '29fe3b41' })
   await settle()
   expect((await texts($, BAND)).slice(-3)).toEqual(['8da6e710 · feature-task · queue', '   A task', ' · blocked by 95c660e2'])
 
@@ -439,7 +443,7 @@ test('a stored focus is walked again from its touched item once a load: a bucket
   // The session's state as the earlier walk left it: the bucket as the focus, the feature as the touched item.
   const held: Record<string, { value: unknown; version: number }> = {
     bandHidden: { value: false, version: 1 },
-    focus: { value: { itemId: bucket.id, title: 'Bugs', since: 'x', touched: { itemId: fix.id, title: '4.0.1 fix', type: 'feature-implementation', label: 'work' } }, version: 1 },
+    focus: { value: { itemId: bucket.id, title: 'Bugs', since: 'x', touched: { itemId: fix.id, title: '4.0.1 fix', type: 'feature-implementation', label: 'work' }, by: 'write' }, version: 1 },
   }
   on('state.get', (_: unknown, e: { plugin: string; key: string }, next: (e: unknown) => unknown) =>
     e.plugin === PLUGIN ? { value: held[e.key] ?? { value: undefined, version: 0 } } : next(e),
@@ -463,6 +467,11 @@ test('a stored focus is walked again from its touched item once a load: a bucket
   )
   on('tool.call', answerWrites(() => ({})))
 
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return h(Text, null, 'engine')
+  })
   on('command.register', () => ({ value: { command: 'to-band' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
 
@@ -473,6 +482,13 @@ test('a stored focus is walked again from its touched item once a load: a bucket
   await settle()
   expect((held.focus?.value as { itemId?: string } | undefined)?.itemId).toBe(fix.id)
   expect((await texts($, BAND))[0]).toBe('4.0.1 fix')
+
+  // A focus with no `by: 'write'` (an earlier version also moved the focus on a read) is dropped on load: no band.
+  held.focus = { value: { itemId: fix.id, title: '4.0.1 fix', since: 'x', touched: { itemId: fix.id, title: '4.0.1 fix', type: '', label: '' } }, version: 9 }
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await settle()
+  expect(held.focus?.value ?? null).toBe(null)
+  expect(await shown($, BAND, /4\.0\.1|engine/)).toBe('engine')
 })
 
 test('the band toggle is per session: a fresh session starts from userConfig band, never from the store', async ($, on) => {
@@ -765,8 +781,9 @@ test('coordinator detection: the open element with a token, a close of the run, 
 })
 
 test('the touched item of a TO call', async () => {
-  expect(touchedItemId('mcp__mcp-task-orchestrator__items_read', { select: 'get', itemId: 'abc12345' })).toBe('abc12345')
-  expect(touchedItemId('mcp__mcp-task-orchestrator-director__items_read', { select: 'overview' })).toBe(undefined)
+  // A read touches nothing: looking at an item (a status check, another session's work) never makes it the focus.
+  expect(touchedItemId('mcp__mcp-task-orchestrator__items_read', { select: 'get', itemId: 'abc12345' })).toBe(undefined)
+  expect(touchedItemId('mcp__mcp-task-orchestrator-director__items_read', { select: 'context', itemId: 'abc12345' })).toBe(undefined)
   expect(touchedItemId('mcp__mcp-task-orchestrator__advance', { ops: [{ op: 'transition', itemId: 'i1', trigger: 'start' }] })).toBe('i1')
   expect(touchedItemId('mcp__mcp-task-orchestrator__items_write', { ops: [{ op: 'update', id: 'i2' }] })).toBe('i2')
   expect(touchedItemId('mcp__mcp-task-orchestrator__items_write', { ops: [{ op: 'create', parentId: 'p1', title: 't' }] })).toBe('p1')
@@ -1250,16 +1267,22 @@ test("another session's run never reaches this session's band, even one scoped t
     return h(Text, null, 'engine')
   })
 
+  // A read of the feature (looking at another session's work) is no focus: no band.
   await $.tool.call({ tool: READ_TOOL, select: 'context', itemId: 'd99e4f7a' })
+  await settle()
+  expect(await shown($, BAND, /Model and|engine/)).toBe('engine')
+
+  // A write to it is.
+  await $.tool.call({ tool: NOTES_TOOL, ops: [{ op: 'upsert', itemId: 'd99e4f7a', key: 'k', role: 'work', body: '' }] })
   await settle()
   let band = await texts($, BAND)
   expect(band[0]).toBe('Model and effort policy')
   expect(band.some(text => /theirs/.test(text))).toBe(false)
 
-  // A run another session runs over this session's focus (the same feature) is still not this session's: a read
-  // of the feature, or of its task, claims nothing.
+  // A run another session runs over this session's focus (the same feature) is still not this session's: a write
+  // to its task claims nothing either.
   runs = listed
-  await $.tool.call({ tool: READ_TOOL, select: 'context', itemId: '8da6e710' })
+  await $.tool.call({ tool: NOTES_TOOL, ops: [{ op: 'upsert', itemId: '8da6e710', key: 'k', role: 'work', body: '' }] })
   await settle()
   band = await texts($, BAND)
   expect(band[0]).toBe('Model and effort policy')

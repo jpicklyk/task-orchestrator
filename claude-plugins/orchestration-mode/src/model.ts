@@ -1201,13 +1201,13 @@ const firstId = (o: Obj): string | undefined => {
 }
 
 /**
- * The item a TO call touched: `items_read` names it by its top-level `itemId`; the writes
- * (`items_write`, `advance`, `notes_write`, `deps_write`) by the first op's `itemId`, `id`, `from`,
- * `to` or, for a create, `parentId`, else a top-level one. Undefined for any other call.
+ * The item a TO call touched: a write (`items_write`, `advance`, `notes_write`, `deps_write`) names it
+ * by the first op's `itemId`, `id`, `from`, `to` or, for a create, `parentId`, else a top-level one.
+ * Undefined for any other call: a read touches nothing, so a session that only looks at an item (a
+ * status check, another session's work) never makes it its focus.
  */
 export function touchedItemId(tool: string, input: Obj): string | undefined {
   const base = toolBase(tool)
-  if (base === 'items_read') return typeof input.itemId === 'string' && input.itemId !== '' ? input.itemId : undefined
   if (!(ITEM_TOOLS as readonly string[]).includes(base)) return undefined
   const ops = Array.isArray(input.ops) ? input.ops.filter(isObj) : []
   for (const op of ops) {

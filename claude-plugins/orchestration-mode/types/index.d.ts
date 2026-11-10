@@ -20,7 +20,11 @@ export type ItemFacts = { itemId: string; title: string; type: string; label: st
  * session touched, `touched` is that touched item itself, as its walk read it. Null until a TO call
  * names an item.
  */
-export type FocusState = { itemId: string; title: string; since: string; touched: ItemFacts } | null
+/**
+ * The session's focus: the touched item (the fact) and the focus its walk reached (a cache, walked again each load).
+ * `by: 'write'` marks a focus a write set; a load drops one without it (an earlier version also moved it on a read).
+ */
+export type FocusState = { itemId: string; title: string; since: string; touched: ItemFacts; by?: 'write' } | null
 
 /** Members per phase. */
 export type PhaseCounts = { queue: number; work: number; review: number; blocked: number; terminal: number }
