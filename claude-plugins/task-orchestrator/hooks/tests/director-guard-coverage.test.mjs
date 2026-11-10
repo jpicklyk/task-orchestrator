@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { directorMarkerPath } from '../execution-mode.mjs';
-import { orchestratorToolMatcher } from '../registration.mjs';
+import { orchestratorToolMatcher, hostToolMatcher } from '../registration.mjs';
 import { checkMatchers } from '../../scripts/lib/contract-checks.mjs';
 import { REASON_PREFIX, SHELL_TOOLS, DIRECTOR_ITEMS_READ_SELECTS, bashAllowed, guardDecision } from '../director-guard.mjs';
 
@@ -37,8 +37,8 @@ const ITEMS_READ_DIRECTOR = 'mcp__mcp-task-orchestrator-director__items_read';
 const PLUGIN_DOCS_READ = 'mcp__plugin_x_task-orchestrator__docs_read';
 const IMPLEMENT_WAVE = 'task-orchestrator:implement-wave';
 
-const GROUP1_MATCHER = 'Skill|Read|Edit|Write|Bash|PowerShell|Monitor|Agent|Grep|Glob|NotebookEdit|Workflow';
-const GROUP2_MATCHER = '^mcp__.*task-orchestrator.*__(docs_read|items_read|notes_read)$';
+const GROUP1_MATCHER = 'Skill|Read|Edit|Write|Bash|PowerShell|Monitor|Agent|Grep|Glob|NotebookEdit|Workflow|WebFetch|WebSearch|ReadMcpResourceTool|ReadMcpResourceDirTool';
+const GROUP2_MATCHER = orchestratorToolMatcher(['config', 'docs_read', 'items_read', 'notes_read', 'runs_read']);
 
 const tracked = [];
 function tmp(prefix) {
@@ -198,17 +198,17 @@ test('S9 ratchet: every SHELL_TOOLS member is matched by the guard group and eve
 
 // ---- S10: hooks-config registration ----------------------------------------------------------
 
-test('S10: hooks-config registers exactly two guard groups, both fail-closed, with the declared matchers', () => {
+test('S10: hooks-config registers exactly three guard groups, all fail-closed, with the declared matchers', () => {
   const cfg = JSON.parse(readFileSync(HOOKS_CONFIG_PATH, 'utf8'));
   const groups = cfg.hooks.PreToolUse.filter((g) => g.hooks.some((h) => h.command.includes('director-guard.mjs')));
-  assert.equal(groups.length, 2);
+  assert.equal(groups.length, 3);
   for (const g of groups) {
     assert.equal(g.hooks.length, 1);
     assert.equal(g.hooks[0].onFailure, 'block');
     assert.equal(g.hooks[0].timeout, 5);
   }
-  assert.deepEqual(groups.map((g) => g.matcher).sort(), [GROUP1_MATCHER, GROUP2_MATCHER].sort());
-  assert.equal((JSON.stringify(cfg).match(/director-guard\.mjs/g) || []).length, 2);
+  assert.deepEqual(groups.map((g) => g.matcher).sort(), [GROUP1_MATCHER, GROUP2_MATCHER, hostToolMatcher()].sort());
+  assert.equal((JSON.stringify(cfg).match(/director-guard\.mjs/g) || []).length, 3);
 });
 
 test('S10: group 1 matches the file, shell, agent and workflow tools and not SendMessage or ListAgents', () => {
@@ -217,7 +217,7 @@ test('S10: group 1 matches the file, shell, agent and workflow tools and not Sen
   assert.ok(group1, 'group 1 present');
   assert.ok(group1.hooks.some((h) => h.command.includes('director-guard.mjs')));
   const re = matcherRe(group1.matcher);
-  for (const t of ['Skill', 'Read', 'Edit', 'Write', 'Bash', 'PowerShell', 'Monitor', 'Agent', 'Grep', 'Glob', 'NotebookEdit', 'Workflow']) {
+  for (const t of ['Skill', 'Read', 'Edit', 'Write', 'Bash', 'PowerShell', 'Monitor', 'Agent', 'Grep', 'Glob', 'NotebookEdit', 'Workflow', 'WebFetch', 'WebSearch', 'ReadMcpResourceTool', 'ReadMcpResourceDirTool']) {
     assert.ok(re.test(t), t);
   }
   assert.ok(!re.test('SendMessage'));
@@ -226,9 +226,9 @@ test('S10: group 1 matches the file, shell, agent and workflow tools and not Sen
 
 test('S10: group 2 is the builder-shaped matcher for docs_read, items_read and notes_read on any task-orchestrator server', () => {
   const cfg = JSON.parse(readFileSync(HOOKS_CONFIG_PATH, 'utf8'));
-  const group2 = cfg.hooks.PreToolUse.find((g) => g.matcher.startsWith('^mcp__') && g.hooks.some((h) => h.command.includes('director-guard.mjs')));
+  const group2 = cfg.hooks.PreToolUse.find((g) => g.matcher === GROUP2_MATCHER && g.hooks.some((h) => h.command.includes('director-guard.mjs')));
   assert.ok(group2, 'group 2 present');
-  assert.equal(group2.matcher, orchestratorToolMatcher(['docs_read', 'items_read', 'notes_read']));
+  assert.equal(group2.matcher, orchestratorToolMatcher(['config', 'docs_read', 'items_read', 'notes_read', 'runs_read']));
   const re = matcherRe(group2.matcher);
   for (const t of [NOTES_READ, DOCS_READ, ITEMS_READ, PLUGIN_DOCS_READ, ITEMS_READ_DIRECTOR]) assert.ok(re.test(t), t);
   for (const t of ['mcp__other__notes_read', NOTES_READ + '_x', 'mcp__mcp-task-orchestrator__notes_write', 'mcp__mcp-task-orchestrator__advance']) {
@@ -312,9 +312,9 @@ test('probe: a Workflow name with a leading or trailing space does not count as 
   denies(call('Workflow', { name: IMPLEMENT_WAVE + ' ', args: { altitudeSafe: true } }));
 });
 
-test('probe: a tool whose name only starts like notes_read is not guarded', () => {
+test('probe: a task-orchestrator tool whose name only starts like notes_read is not guarded; a host server tool of that name is denied', () => {
   allows(call(NOTES_READ + '_x', { select: 'get' }));
-  allows(call('mcp__other__notes_read', { select: 'get' }));
+  denies(call('mcp__other__notes_read', { select: 'get' }));
 });
 
 test('probe: unusable tool_input (null or a string) denies for each new tool, fail closed', () => {

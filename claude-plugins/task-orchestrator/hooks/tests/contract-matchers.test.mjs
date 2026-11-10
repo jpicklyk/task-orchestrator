@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { checkMatchers, RETIRED_3X_TOOLS } from '../../scripts/lib/contract-checks.mjs';
-import { orchestratorToolMatcher, SERVER_SEGMENT_TOKEN } from '../registration.mjs';
+import { orchestratorToolMatcher, hostToolMatcher, SERVER_SEGMENT_TOKEN } from '../registration.mjs';
 
 const PLUGIN = fileURLToPath(new URL('../../', import.meta.url)).replace(/[/]$/, '');
 const GOLDEN_DIR = join(PLUGIN, '..', '..', 'current', 'src', 'test', 'resources', 'golden', 'tools');
@@ -65,6 +65,7 @@ test('S6: every server-token matcher names only orchestration-profile tools, no 
     for (const entry of entries) {
       const m = entry.matcher;
       assert.ok(!m.includes('mcp__mcp-task-orchestrator__'), `${event} matcher "${m}" hard-codes the server name`);
+      if (m === hostToolMatcher()) continue; // negative lookahead for host servers, not a server-token tool matcher
       if (!m.includes(SERVER_SEGMENT_TOKEN)) continue;
       tokenMatchers += 1;
       for (const tool of toolsOfMatcher(m)) {
