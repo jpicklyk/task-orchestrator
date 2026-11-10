@@ -69,7 +69,7 @@ The five MCP tools come from the director connection. Anything else (notes, item
 `advance`, config, and `runs_write` `open`) is a coordinator's job.
 
 Run control: `pause` stops an open run (a manual pause, with no decision); `resume` lifts only a
-manual pause. A run paused on a `run-budget` or `attempt-cap` decision is lifted only by answering
+manual pause. A run paused on an `attempt-cap` decision is lifted only by answering
 that decision (`extend`, `allow_one`, `skip_item`) or by `close`; `resume` on it answers
 `invalid_run_state`. `close` ends a run whatever its pause; a `completed` close is refused while a
 seat is still active, and a close leaves open decisions open (its result lists `openDecisions`).
@@ -108,7 +108,7 @@ Run these in order and render one compact board. Every call below uses the direc
 {"tool": "runs_read", "select": "list", "args": {"status": "paused", "limit": 20}, "profile": "director"}
 ```
 
-Show `pauseReason` on each paused run: a budget or attempt pause waits for its decision. No open
+Show `pauseReason` on each paused run: an attempt pause waits for its decision. No open
 or paused run: say so in one line, still show the decisions (step 3) and the blocked work (step 5),
 and stop.
 
@@ -159,7 +159,7 @@ Decisions waiting: 2 (1 overdue)
   [d-91bc] no run   question low   "Pick retry strategy"
 Runs: 1 open, 1 paused
   7c41 "W8 plugin"  ready 3  inFlight 2  waiting 1   spend 1.2M tok   stalled 0
-  9d02 "W9 docs"    PAUSED run-budget (d-5e10)
+  9d02 "W9 docs"    PAUSED attempt-cap (d-5e10)
 Blocked: 2
   8aee "Director skill" blocked by dependency 4440ff65
   b31c "Api guard"      answered, needs resume (d-77aa)
@@ -190,12 +190,10 @@ user's rationale:
 {"tool": "runs_write", "op": "answer", "args": {"decisionId": "3f2a9c1e", "option": "approve", "rationale": "Migration reviewed; table recreation is safe."}, "profile": "director"}
 ```
 
-A run-budget or attempt-cap decision is answered with these options (the amount is in `context.dimension`, whole
-tokens or US dollars):
+An attempt-cap decision is answered with these options:
 
 | Class | Options |
 |---|---|
-| `run-budget` | `extend` (with `amount`) or `stop` |
 | `attempt-cap` | `allow_one`, `skip_item` or `stop` |
 
 Before answering, check the class: `answerers: human-only` cannot be answered from this session
@@ -220,7 +218,7 @@ Withdraw a decision the run no longer needs (for example the user cancelled that
 Withdraw succeeds only for a decision this principal raised without a seat, or under the coordinator
 token of the decision's run. On stdio or an unauthenticated local-mode server every caller is the one
 `local` principal, so there "this principal raised" covers every decision raised without a seat.
-Nobody can withdraw a server-raised run-budget or attempt-cap decision.
+Nobody can withdraw a server-raised attempt-cap decision.
 For a seat's decision, `SendMessage` the run's coordinator to withdraw it, or answer it.
 `decision_closed` means someone already answered or withdrew it: refresh the board.
 
@@ -263,7 +261,7 @@ after idle), read the run that woke you. A message starting `TO report:` is a co
 read below, then Answering. In a tier-2 hand-off: on `planned` with `needs: approve launch`, get the
 user's approval; then call `Workflow` with the returned `args` and `SendMessage` the coordinator
 `launched` with the call's task id, run id and script path; on the task notification, send it the
-result JSON verbatim plus the usage figures (tokens, duration, cost when given).
+result JSON verbatim.
 
 ```to-call
 {"tool": "runs_read", "select": "get", "args": {"runId": "7c41e0a2"}, "profile": "director"}

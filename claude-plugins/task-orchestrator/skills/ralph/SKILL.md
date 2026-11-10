@@ -64,7 +64,7 @@ Set sensible loop bounds. Show defaults and let the user adjust.
   Per-iteration USD cap:    $5           (the hard stop)
   Iteration timeout:        2700s (45 min)
   Claim TTL per iteration:  1800s (30 min)
-  Run budget:               none         (tokens / USD / attempts per seat)
+  Run budget:               none         (attempts per seat only)
   Model and effort:         the policy's implementation class
                             (effort one level higher per retry of a seat)
   Cleanup on terminal:      smart (remove if no commits/changes; preserve otherwise)
@@ -77,7 +77,6 @@ If the user adjusts, capture the overrides. Common patterns:
 - High-volume drain: `--max 30`
 - Low-confidence run: `--gate-budget 1 --error-budget 1`
 - Architecture-heavy items: `--model <the implementation-complex class model> --budget 15 --iteration-timeout 5400`
-- Cap the whole run's spend on the server side: `--run-budget-usd 40` (or `--run-budget-tokens <n>`); the run pauses on a budget decision when it is reached
 - Stop re-seating a struggling item: `--max-attempts 2`
 - Drain an exact list of items: `--items <id>,<id>,...`
 - Drain another project's queue: `--root <rootId>`
@@ -86,7 +85,7 @@ If the user adjusts, capture the overrides. Common patterns:
 
 The iteration's model and effort come from the `implementation` class in the plugin's dispatch policy (see `task-orchestrator:model-effort`), and the driver passes both to `claude -p` as `--model` and `--effort`. When the assign result reports `attempt` > 1 (the run already seated this item before), the effort is raised one level per earlier attempt, up to the policy's escalation ceiling. `--model` and `--effort` override the class; an explicit `--effort` is used as given and never raised.
 
-There is no run budget unless one of `--run-budget-tokens`, `--run-budget-usd` or `--max-attempts` is passed. The removed `--actor` flag is gone for good: the server records the principal of every call, and each iteration acts under its own seat.
+There is no run cap unless `--max-attempts` is passed. The `--run-budget-tokens` and `--run-budget-usd` flags were removed in 4.0.1 (passing one exits 64), as was the `--actor` flag: the server records the principal of every call, and each iteration acts under its own seat.
 
 ---
 
@@ -141,8 +140,7 @@ Print the exact command to run. The user copies and pastes it.
   -> An iteration that outlives --iteration-timeout is killed and counted as an error
   -> Final summary lists outcomes, the run, and preserved worktrees
 
-  Optional flags: --root <rootId>, --items <id,...>, --run-budget-tokens <n>,
-  --run-budget-usd <usd>, --max-attempts <n>, --scratch-dir <dir>, --claude-bin <path>
+  Optional flags: --root <rootId>, --items <id,...>, --max-attempts <n>, --scratch-dir <dir>, --claude-bin <path>
 
   For autonomous cadence (re-run every 30 min until empty):
     /loop 30m node claude-plugins/task-orchestrator/scripts/ralph-loop.mjs --filter "tag=bug-fix priority=high"
@@ -226,7 +224,7 @@ The iteration agent emits `RALPH_OUTCOME: {...}` as its final message, with an o
 
 The seat's end follows the final status: `ready-to-complete` (once the driver's `complete` lands, reported as `terminal`) and `terminal` end it `done`; `gate-blocked` and `skip` end it `abandoned`; `error` (including a timeout or spawn error) ends it `failed`. Every exit path ends any active seat before it closes the run (`completed`, or `cancelled` on SIGINT/SIGTERM). A paused run is never closed by the driver, and a run closed elsewhere is not closed again. An `end_seat` that fails leaves the seat active until `close`, where `completed` falls back to `cancelled`.
 
-**Usage handshake.** Entering terminal clears the claim, and the server records a seat's usage only under a held claim. So the iteration stops at `ready-to-complete`; the driver sends `heartbeat` with the final `usage`, then `transition` `complete`, both under the seat token (a transient answer on `complete` is retried up to 3 times). A legacy `terminal` outcome reports no usage and prints `usage-unreported`, so `--run-budget-usd` does not count it. Between claim and the end of the iteration the driver also heartbeats the claim every `--heartbeat-interval` seconds (default half of `--ttl`), so a long iteration outlives the TTL. **Skip-listing.** An item whose iteration ends `gate-blocked` or `error` is skip-listed for the rest of the loop.
+**Complete handshake.** Entering terminal clears the claim, so the iteration stops at `ready-to-complete`; the driver sends `transition` `complete` under the seat token (a transient answer is retried up to 3 times). Between claim and the end of the iteration the driver also heartbeats the claim every `--heartbeat-interval` seconds (default half of `--ttl`), so a long iteration outlives the TTL. **Skip-listing.** An item whose iteration ends `gate-blocked` or `error` is skip-listed for the rest of the loop.
 
 **Which items ralph can drain.** Ralph drains only types the `implementer` seat can carry to terminal. On a seat-aware schema (such as this repository's `bug-fix`) the review and orchestrator steps belong to other seats, so those iterations end `gate-blocked`.
 
@@ -291,7 +289,7 @@ node claude-plugins/task-orchestrator/scripts/ralph-loop.mjs \
   --max 10
 ```
 
-User runs it. The driver opens one run. Per iteration it selects the oldest ready item, assigns it an implementer seat, claims it under the seat token, and spawns a fresh `claude -p --worktree=ralph-<id>` whose prompt names the item and the token file. The agent reads the item's context, invokes `/schema-workflow` to drive it through whatever phases its schema declares, commits changes, and exits with the `ready-to-complete` marker; the driver reports usage, sends the `complete` transition and ends the seat.
+User runs it. The driver opens one run. Per iteration it selects the oldest ready item, assigns it an implementer seat, claims it under the seat token, and spawns a fresh `claude -p --worktree=ralph-<id>` whose prompt names the item and the token file. The agent reads the item's context, invokes `/schema-workflow` to drive it through whatever phases its schema declares, commits changes, and exits with the `ready-to-complete` marker; the driver sends the `complete` transition and ends the seat.
 
 5 iterations later: 3 terminal, 1 gate-blocked (a required note couldn't be filled), 1 errored (test failure unrelated to the fix). Loop exits when consecutive gate failures hit the budget (3) or nothing is ready - whichever comes first - and closes the run.
 
@@ -323,7 +321,7 @@ User: "ralph everything in tech debt, but stop at $30"
 node claude-plugins/task-orchestrator/scripts/ralph-loop.mjs \
   --filter "parentId=89d02e32" \
   --max 20 \
-  --run-budget-usd 30
+  --max-attempts 3
 ```
 
 When the run's reported spend reaches $30 the server pauses the run on a budget decision; the next assign answers `run_paused`. The driver does not close the run: it prints the pause reason and decision once, then polls the run every 30s until a director or human answers the pause decision (the loop continues; a manual pause is resumed instead) or closes the run (the loop exits 0).

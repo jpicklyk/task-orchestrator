@@ -32,31 +32,10 @@ result passes scrubbed outputs, so a fix-cycle prompt shows `decisions: none` an
 test-author reseat `--declarations`.
 
 `runs_read(select:"get", runId:<serverRunId>)` shows the run's status: a `paused` run (`pauseReason`
-budget, attempts or manual) is reported now: send one `paused` report (`report --event paused
+attempts or manual) is reported now: send one `paused` report (`report --event paused
 --run <run.json>`, with `runs_read` `get` saved as `run.json`), and one `decision` report for the
 stages stopped `awaiting_decision` (their `decisionId`s are in `result.json`). Post-run work that
 needs no new seat continues, and the run closes as usual.
-
----
-
-## Step 0a — Report usage
-
-Method A: write the Workflow task notification's usage to `<scratchpad>/run-wave/<runId>/usage.json`
-as `{"tokens": N, "duration": N}` (add `"costUsd": N` when the notification reports a cost).
-That file is always written here, but the heartbeat is SENT here only when no run item has a review
-phase (Step 4 sends no `start`, Step 5 assigns no reviewer). Otherwise it is sent at Step 7, after the
-Step 0b re-sweep and just before `close`, because a heartbeat that crosses the budget pauses the run
-and the later `start` and reviewer `assign` would answer `run_paused`. Residual: a Step 5 wave-parent
-`start` under the coordinator token can still answer `run_paused` after a Step 0a heartbeat crossed
-the budget; report it (`paused`), and a non-member parent may be started token-less.
-`node "<helper>" run-ops --plan <plan> --phase heartbeat --usage <usage.json>` renders an `advance`
-call `[claim(first item), heartbeat{usage: {tokens, costUsd?}}, release]`; add `--item <short>` to
-claim a named item instead (at Step 7 use the first item Step 4 sent `start` for: it is in review,
-so not terminal). Send it under the coordinator token (a heartbeat's `usage` needs a seat token and
-a held claim, so the coordinator claims that member for the length of this one call). This reports the run total once:
-the server keeps the highest value per seat. Any element error is Friction, never retried, and never
-blocks the close. A success carrying `paused: {decisionId}` means the report crossed the run budget:
-surface the decision (at Step 7 it is reported with `openDecisions` in the `closed` report). Method B: report the same way when a run total is known; otherwise skip.
 
 ---
 
@@ -234,7 +213,7 @@ run report instead.
 
 1. **`session-tracking`** — outcome per item, commits, verified line, deviations from the plan, and
    Friction (the declarations-scan hit count from Method B step 4, any Step 0 fallback taken in
-   `SKILL.md`, any `verify`/notes-audit failure, a failed usage report). Write this **after**
+   `SKILL.md`, any `verify`/notes-audit failure, a failed notes audit). Write this **after**
    verify and the notes audit have run, in confirmed past tense — not as a speculative "pending
    verification" draft you intend to edit later. When the item's schema has a review phase (a
    review-role note, or a review trait such as `needs-docs-accuracy-review`), the confirmed state
@@ -571,11 +550,7 @@ process requires:
 ## Step 7 — Close and loop
 
 Once the review hand-off (Step 5) is dispatched or handed off, any review seats of this run have
-been swept (Step 0b again), and any immediate human checkpoints (Step 6) are surfaced, send the usage
-heartbeat now when Step 0a deferred it (any run item has a review phase): `node "<helper>" run-ops
---plan <plan> --phase heartbeat --usage <usage.json> --item <short>`, where `<short>` is the first item
-Step 4 sent `start` for (it is in review, so not terminal). Send it under the coordinator token, then
-close the run: `node "<helper>" run-ops --plan <plan> --phase close --result <result.json>` renders
+been swept (Step 0b again), and any immediate human checkpoints (Step 6) are surfaced, close the run: `node "<helper>" run-ops --plan <plan> --phase close --result <result.json>` renders
 `{op: "close", runId, reason}` — `completed` when the result says `started: true`, `failed` when it
 says `started: false` or the launch threw (no result); pass `--reason cancelled` for an explicit user
 stop or `--reason abandoned` for a Resume re-plan of an unrecoverable run (any other `--reason` exits

@@ -57,9 +57,8 @@ snapshot reads note bodies. So the work splits into five steps:
    makes implement-wave return the altitude-safe result: `rollup` counts, item and stage statuses,
    commit SHAs, file lists, note keys and seat-raised `decisionId`s, with every reason cut to 120
    characters and `redProofShape` cut to 200, and no other seat prose.
-4. On the task notification, the director sends the coordinator the result JSON verbatim and the
-   usage figures (tokens, duration, `costUsd` when given). The coordinator writes `result.json` and
-   `usage.json` and runs post-run (Step 0 saves and verifies the safe result the same way as a full
+4. On the task notification, the director sends the coordinator the result JSON verbatim. The
+   coordinator writes `result.json` and runs post-run (Step 0 saves and verifies the safe result the same way as a full
    one; the prose is in the seats' notes).
 5. The coordinator reports per "Coordinator reports" below.
 

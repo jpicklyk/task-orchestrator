@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **run-wave: provenance records each seat's transcript meters instead of the run notification figure.** `run-planner provenance` now reads every seat's input, cache write, cache read and output meters from `dispatch-meta` for both methods and writes one measure on every line: `tokens` is the non-cached sum, with `meters=` and `seat-meters=` tails and six-field `extra-seats` rows carrying the four meters. `see:<short>` and the Workflow notification figure are gone, `duration` reads `unknown`, a seat without a transcript reads `unknown` with a stderr warning (never zero), `--usage` is ignored with a warning, and `dispatch-meta` also matches `planner-a<n>` and `reviewer-a<n>` labels. Notes written before this change still parse.
 - **run-wave: seats that own `implementation-notes` or `session-tracking` now receive the `closure-notes` rule.** The run planner derived a stage's rules only from the `skill:` of the notes it owns, and no note names `closure-notes`, so a generic workflow seat (no `dispatch.agent`) never got the rule. `deriveRulesSkills` now adds it once whenever the server serves it (#676).
 
+### Plugin
+
+- **Plugin: every usage-report path is removed with the server's heartbeat usage and run token and cost budgets.** `run-wave` post-run no longer writes `usage.json` or sends a usage heartbeat (Step 0a and the Step 7 heartbeat are gone), `run-ops --phase heartbeat` and `--usage` are removed, and `run-ops --phase open` sends only `attemptsPerSeat` and `maxActiveSeats` as the run `budget`. `plan` warns once per key when a profile sets `runBudget.tokens` or `runBudget.costUsd` (ignored; `maxActiveSeats` still applies). `ralph-loop` drops `--run-budget-tokens` and `--run-budget-usd` (now exit 64, like `--actor`) and no longer reports usage before the `complete` transition; the ralph, run-wave, director, init and manage-schemas docs no longer describe token or cost budgets (#677).
+
 ## [4.0.0] - 2026-11-07
 
 ### Upgrading from 3.x

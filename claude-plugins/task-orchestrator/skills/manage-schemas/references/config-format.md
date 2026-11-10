@@ -1045,12 +1045,10 @@ The top-level `runs:` block (server file or per-root document, resolved per fiel
 | Key | Type | Meaning |
 |---|---|---|
 | `stall_after` | integer seconds, 1 or more | How long a seat or coordinator may go unseen before it reads as stalled (default 600) |
-| `budgets.tokens` | integer, 1 or more | Ceiling on a run's token budget |
-| `budgets.cost_usd` | number above 0 | Ceiling on a run's cost |
 | `budgets.attempts_per_seat` | integer, 1 or more | Ceiling on attempts one seat may make on one item |
 | `budgets.max_active_seats` | integer, 1 or more | Ceiling on seats active at once |
 
-An absent ceiling means unlimited; a run's own budget may only lower a ceiling.
+An absent ceiling means unlimited; a run's own budget may only lower a ceiling. The run token and cost ceilings were removed in 4.0.1; a config that still sets them loads with a warning and the keys have no effect.
 
 ## Decision Classes (`decision_classes:`)
 
