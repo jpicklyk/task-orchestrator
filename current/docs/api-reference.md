@@ -62,7 +62,7 @@ REST-only members included. The `runs_read` and `runs_write` tool descriptions a
 | `docs_read` | Documents | Read | Get a document or one version, list, history and links (4.0 envelope) |
 | `advance` | Workflow | Write | Phase transitions (cascade and gate enforcement) and claim ownership: ops `transition`, `claim`, `release`, `heartbeat` |
 | `config` | System | Write/Read | Per-root config (get, history, push, validate, rollback, reset), the effective resolved view, and rule text: ops of one 4.0 tool, orchestration profile only |
-| `report` | Reports | Read | Aggregate reports: `usage` (call-log calls, errors, bytes, tokens, latency, retries and replays per group over a window), `gates` (rejected transitions per note key, type, trait or error code), `notes` (note upserts: writes, rewrites and bytes per role, key, seat, type, principal kind or day), `contention` (claim and lease acquire, reject, expire and release counts per resource) and `waste` (redundant reads, over-fetch, reads with no later write, empty `next`, related follow-through and lifecycle-free rejections as ratios) and `rollup` (one subtree or one run: items per role, blocked, transitions, notes written and call cost, plus a run's decisions, seats, attempts); director profile only on MCP |
+| `report` | Reports | Read | Aggregate reports: `usage` (call-log calls, errors, bytes, tokens, latency, retries and replays per group over a window), `gates` (rejected transitions per note key, type, trait or error code), `notes` (note upserts: writes, rewrites and bytes per role, key, seat, type, principal kind or day), `contention` (claim and lease acquire, reject, expire and release counts per resource) and `waste` (redundant reads, over-fetch, reads with no later write, empty `next`, related follow-through and lifecycle-free rejections as ratios) and `rollup` (one subtree or one run: items per role, blocked, transitions, notes written and call cost, plus a run's decisions, seats and attempts); director profile only on MCP |
 | `runs_read` | Runs | Read | Get one run, list runs (newest first; `status`, `rootId`, `endedSince`, `unmarked`) or read a run's frontier (ready, in-flight and waiting members); orchestration and director profiles (`seats`: orchestration only) |
 | `runs_write` | Runs | Write | Open, update, close, pause, resume, assign and end seats, raise, ack, answer and withdraw decisions, and mark runs: ops of one 4.0 tool; `mark` is REST only |
 
@@ -2101,7 +2101,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`,
 
 ## Category: Runs
 
-A run is a bounded, budgeted pass over a set of member items of one root. The run tools are 4.0 registry tools: the request is
+A run is a bounded pass over a set of member items of one root. The run tools are 4.0 registry tools: the request is
 the envelope request and every answer is the response envelope. Each field is documented once in the tool's own schema
 (`describe: true`).
 
