@@ -70,7 +70,7 @@ The five MCP tools come from the director connection. Anything else (notes, item
 
 Run control: `pause` stops an open run (a manual pause, with no decision); `resume` lifts only a
 manual pause. A run paused on an `attempt-cap` decision is lifted only by answering
-that decision (`extend`, `allow_one`, `skip_item`) or by `close`; `resume` on it answers
+that decision (`allow_one`, `skip_item`, `stop`) or by `close`; `resume` on it answers
 `invalid_run_state`. `close` ends a run whatever its pause; a `completed` close is refused while a
 seat is still active, and a close leaves open decisions open (its result lists `openDecisions`).
 
@@ -132,7 +132,7 @@ come from the `decision` read when you answer.
 {"tool": "runs_read", "select": "decisions", "args": {"rootId": "ce064d2c", "limit": 50}, "profile": "director"}
 ```
 
-4. The rollup per open or paused run (counts, spend, stalls). This is one of the two bodies you may read:
+4. The rollup per open or paused run (counts, stalls). This is one of the two bodies you may read:
 
 ```to-call
 {"tool": "report", "select": "rollup", "args": {"runId": "7c41e0a2"}, "profile": "director"}
@@ -161,7 +161,7 @@ Decisions waiting: 2 (1 overdue)
   [d-3f2a] run 7c41 deviation high "Approve schema change?"   OVERDUE
   [d-91bc] no run   question low   "Pick retry strategy"
 Runs: 1 open, 1 paused
-  7c41 "W8 plugin"  ready 3  inFlight 2  waiting 1   spend 1.2M tok   stalled 0
+  7c41 "W8 plugin"  ready 3  inFlight 2  waiting 1   stalled 0
   9d02 "W9 docs"    PAUSED attempt-cap (d-5e10)
 Blocked: 2
   8aee "Director skill" blocked by dependency 4440ff65

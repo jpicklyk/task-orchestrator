@@ -115,7 +115,7 @@ Omit a line when its field is empty.
 
 **`seat_forbidden`.** The item is a member of an open or paused run whose schema declares seats, and the caller may not send that trigger. `detail.allowedSeats` names who may (it always starts with `coordinator`). The run's coordinator resends with its coordinator token as top-level `seatToken`; otherwise leave the transition to the run, and never retry it token-less. This also covers `resume` of a decision-blocked run member: the coordinator sends it with its token, and a member seat may resume only if its seat `transitions:` list `resume`. Or close the run first.
 
-**`run_paused`.** A `start` under a token of a run paused on its budget or attempt limit. Read `detail.pauseReason` and `detail.pauseDecisionId`; the answer comes through the director board. Do not retry.
+**`run_paused`.** A `start` under a token of a run paused on its attempt limit or by a manual pause. Read `detail.pauseReason` and `detail.pauseDecisionId` (absent on a manual pause); the answer comes through the director board. Do not retry.
 
 **Blocked by a dependency (`dependency_unmet`).** Find the blockers; advance them first, then this item appears in their `unblocked`:
 

@@ -1062,7 +1062,7 @@ decision_classes:
     expires_after: 86400
 ```
 
-- Built-in classes: `run-budget` and `attempt-cap` (raised by the server only), `deviation` and `question`. A built-in entry in config overrides it field by field.
+- Built-in classes: `run-budget` and `attempt-cap` (raised by the server only; `run-budget` is legacy, raised only by 4.0.0 and still answerable on stored rows with `extend` and no amount, or `stop`), `deviation` and `question`. A built-in entry in config overrides it field by field.
 - Merge: a per-root entry replaces the server entry of the same name as a whole.
 - The limit classes (`run-budget`, `attempt-cap`) may be raised to `human-only` but are never `any-actor`; a push that lowers them is rejected at `/decision_classes/<name>/answerers`.
 - A `human-only` class cannot be answered on a stdio server: every caller there is the `local` agent principal.

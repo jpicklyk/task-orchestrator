@@ -35,10 +35,11 @@ Raise with `block: true` so the item blocks as `awaiting_decision` in the same u
 ## 3. Declared classes
 
 The built-in classes are `deviation` and `question`; `run-budget` and `attempt-cap` are raised by
-the server only. A custom class must be declared under `decision_classes:` in config, or the raise
-fails `invalid_request /class`. See `/task-orchestrator:manage-schemas` (Decision classes). A class
-with `answerers: human-only` cannot be answered over stdio: the answer needs a credential of kind
-`human`.
+the server only, and `run-budget` is legacy: raised only by 4.0.0 and still answerable on stored
+rows (`extend` with no amount, or `stop`). A custom class must be declared under
+`decision_classes:` in config, or the raise fails `invalid_request /class`. See
+`/task-orchestrator:manage-schemas` (Decision classes). A class with `answerers: human-only` cannot
+be answered over stdio: the answer needs a credential of kind `human`.
 
 ## 4. Resume only when answered
 

@@ -174,7 +174,7 @@ After the script finishes (the user reports back with the summary, or pastes the
 | `Exit reason: error budget exhausted` | Inspect last error; likely repo/build/network issue affecting all iterations |
 | `Exit reason: idle budget exhausted` | Matches exist but stayed claimed, blocked or skip-listed; re-run later |
 | `Exit reason: run closed elsewhere` | A director or human closed the run while the loop was working or waiting (exit 0; the driver sends no close) |
-| `run paused ...` (a status line, not an exit) | The run hit its budget or attempt cap (or was paused by hand). The loop ends the seat and polls the run every 30s; it carries on once a director or human answers the pause decision (or resumes a manual pause), and exits 0 if they close the run |
+| `run paused ...` (a status line, not an exit) | The run hit its attempt cap (or was paused by hand). The loop ends the seat and polls the run every 30s; it carries on once a director or human answers the pause decision (or resumes a manual pause), and exits 0 if they close the run |
 
 For preserved worktrees from gate-blocked or errored iterations:
 
@@ -309,9 +309,9 @@ The `/loop` skill schedules it. Every hour, the script runs, opening a fresh run
 
 ---
 
-### Example 3: One-shot drain of a specific container under a spend cap
+### Example 3: One-shot drain of a specific container with an attempt cap
 
-User: "ralph everything in tech debt, but stop at $30"
+User: "ralph everything in tech debt, but give up on an item after 3 attempts"
 
 **Step 1** searches for "Tech Debt", finds container `89d02e32`. Filter resolves to `parentId=89d02e32`.
 
@@ -324,7 +324,7 @@ node claude-plugins/task-orchestrator/scripts/ralph-loop.mjs \
   --max-attempts 3
 ```
 
-When the run's reported spend reaches $30 the server pauses the run on a budget decision; the next assign answers `run_paused`. The driver does not close the run: it prints the pause reason and decision once, then polls the run every 30s until a director or human answers the pause decision (the loop continues; a manual pause is resumed instead) or closes the run (the loop exits 0).
+When an item would need a fourth attempt, the server pauses the run on an attempt-cap decision and that assign answers `run_paused`. The driver does not close the run: it prints the pause reason and decision once, then polls the run every 30s until a director or human answers the pause decision (the loop continues; a manual pause is resumed instead) or closes the run (the loop exits 0).
 
 ---
 
@@ -420,7 +420,7 @@ Solution: The iteration must collect any results itself, fill notes, and emit th
 
 **Why a Node script, not bash.** Cross-platform - every Claude Code install has Node. Stdlib-only - no `npm install`, no plugin dependencies. Targets Node 18+ to match Claude Code's own minimum.
 
-**Why one run per loop, one seat per iteration.** A run gives the drain a server-side boundary: membership, an optional budget, attempt caps, and one place a director or human can pause or close it. Each iteration gets its own `implementer` seat and claims the item under that seat's token before the agent starts, so the iteration is the claim holder for its transitions and note writes, and ending the seat on every outcome (timeout and crash included) frees the claim at once instead of leaving it to run out its TTL.
+**Why one run per loop, one seat per iteration.** A run gives the drain a server-side boundary: membership, attempt caps, and one place a director or human can pause or close it. Each iteration gets its own `implementer` seat and claims the item under that seat's token before the agent starts, so the iteration is the claim holder for its transitions and note writes, and ending the seat on every outcome (timeout and crash included) frees the claim at once instead of leaving it to run out its TTL.
 
 **Why the driver selects and claims, not the iteration.** Selection with `items_read next` plus a per-loop skip list keeps contended items out of the way: a `claim_held` or `resource_unavailable` item is skipped for its `retryAfterMs` and the next selection picks a different one, with no release and no spin. Claiming before the spawn means the seat token, not the agent, owns the claim.
 
