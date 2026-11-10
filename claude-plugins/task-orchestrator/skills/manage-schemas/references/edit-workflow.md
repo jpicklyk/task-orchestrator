@@ -16,7 +16,7 @@ Display the current schema in full:
 | # | Key | Role | Required | Description |
 |---|-----|------|----------|-------------|
 | 1 | diagnosis | queue | yes | Reproduction, root cause, and fix approach |
-| 2 | implementation-notes | work | yes | What changed; deviations from the diagnosis |
+| 2 | implementation-notes | work | yes | Delta record - deviations from the diagnosis, root-cause match, defect-class sites left |
 | 3 | review-checklist | review | yes | Quality gate — fix alignment, test quality, simplification |
 | 4 | session-tracking | work | yes | Session context — what was done and how it went |
 ```

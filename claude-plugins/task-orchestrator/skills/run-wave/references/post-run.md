@@ -211,9 +211,17 @@ If one of the item's plan stages lists `session-tracking` in `stages[].notes` (a
 implicit implementer owns it), skip `session-tracking` for that item and record its outcome in the
 run report instead.
 
-1. **`session-tracking`** — outcome per item, commits, verified line, deviations from the plan, and
-   Friction (the declarations-scan hit count from Method B step 4, any Step 0 fallback taken in
-   `SKILL.md`, any `verify`/notes-audit failure, a failed notes audit). Write this **after**
+1. **`session-tracking`** — the line formats of closure-notes rule 2 (the bundled `closure-notes`
+   rule), one line each, in this order: `Outcome:`; `Commits:` one sha or one range (never a file
+   list, never two shas); `Verified: <command> green at <sha> | not run (<why>)` (one line, never test
+   or pass/fail counts); `Deviations: <what and why> | none`; `Friction: <type: description>, ... | none`;
+   `Observations:` (omit when there are none); `Follow-ups: see orchestrator-confirmation`.
+   The item's `Friction:` keeps only what is specific to that item: its declarations-scan hit count
+   from Method B step 4, its own `verify`/notes-audit failure, a write refused on that item.
+   Run-level friction (any `SKILL.md` Step 0 fallback F0-F6, Method B degradations, no git remote, a
+   missing seat, CRLF, a refusal that hit every item) is recorded once: in the Step 7 report and,
+   when the run has a feature parent, in that parent's `session-tracking` at Step 7b finalization.
+   Never repeat it on each item. Write this **after**
    verify and the notes audit have run, in confirmed past tense — not as a speculative "pending
    verification" draft you intend to edit later. When the item's schema has a review phase (a
    review-role note, or a review trait such as `needs-docs-accuracy-review`), the confirmed state

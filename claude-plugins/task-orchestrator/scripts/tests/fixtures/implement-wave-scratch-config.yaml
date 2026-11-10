@@ -28,7 +28,7 @@ work_item_schemas:
         role: work
         required: true
         seat: implementer
-        description: "What changed and deviations from the diagnosis."
+        description: "Delta record - deviations from the diagnosis, root-cause match, defect-class sites left."
         guidance: "Document deviations from the diagnosed fix and any pattern to apply elsewhere."
         maxLength: 3000
 

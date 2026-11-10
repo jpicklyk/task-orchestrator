@@ -30,6 +30,20 @@ test('run-wave post-run no longer asks for files touched', () => {
   assert.ok(!POST_RUN.includes('files touched'), 'post-run.md must not contain "files touched"');
 });
 
+test('run-wave post-run Step 3 teaches the closure-notes line formats and run friction once', () => {
+  const start = POST_RUN.indexOf('## Step 3');
+  const end = POST_RUN.indexOf('\n## ', start + 1);
+  const step3 = POST_RUN.slice(start, end);
+  for (const needle of ['green at <sha>', 'closure-notes', 'once']) {
+    assert.ok(step3.includes(needle), 'post-run Step 3 must contain "' + needle + '"');
+  }
+});
+
+test('manage-schemas edit-workflow no longer teaches a change-log description', () => {
+  const edit = read('skills', 'manage-schemas', 'references', 'edit-workflow.md');
+  assert.ok(!edit.includes('What changed;'), 'edit-workflow.md must not contain "What changed;"');
+});
+
 test('field guide plate 10 no longer states the token-band sparse rule', (t) => {
   if (!existsSync(PLATE_10)) {
     t.skip('field guide sources are absent (plugin cache)');

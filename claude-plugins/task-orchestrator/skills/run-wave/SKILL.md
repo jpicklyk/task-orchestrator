@@ -143,8 +143,9 @@ then `.taskorchestrator/config.yaml`).
 | F6 | Allow rules present | `probe.allow` (`{workflow, mcp, bashGit, bashNode}`) | warn: "this run will pause at the first un-allowed seat tool call in manual/accept-edits mode"; list the specific missing allow entries; **never** edit `.claude/settings.json` yourself |
 | F7 | Open run already exists | `runs_read(select:"list", rootId, status:"open")` (and `status:"paused"`), keeping the runs whose `hints.plan` is a plan id (`r-…`) of this skill; or the target's (parent or single item's) pointer line `run-wave: <runId> run=<uuid8>` (in its `run-pointers` note, else its `session-tracking`) | an open or paused run found → `runs_read` `get`, `frontier` and `seats` for it, then go straight to the **Resume matrix** below instead of Steps 1–3 |
 
-Report every fallback you took (F0/F1/F2/F3/F6) in the run's eventual `session-tracking` Friction
-section — a silent fallback is a degradation the user should be able to see later.
+Report every fallback you took (F0/F1/F2/F3/F6) once, as run-level friction (post-run Step 3: the
+Step 7 report and the feature parent's `session-tracking`), not on each item — a silent fallback is a
+degradation the user should be able to see later.
 
 ---
 
