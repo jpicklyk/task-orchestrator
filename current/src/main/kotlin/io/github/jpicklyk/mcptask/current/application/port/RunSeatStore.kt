@@ -6,12 +6,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.RunSeatOutcome
 import java.time.Instant
 import java.util.UUID
 
-/** The usage summed over every assignment of one run (ended ones included): [tokens] and [costMicroUsd] (micro-USD). */
-data class RunUsageTotals(
-    val tokens: Long,
-    val costMicroUsd: Long
-)
-
 /**
  * A seat assignment found by its token, with a server-derived hint: [runLimited] is true when its run has any budget
  * field set (so a limit check can matter) and defaults conservative (true) wherever the hint is not known.
@@ -71,19 +65,6 @@ interface RunSeatStore : RunSeatPort {
         id: UUID,
         at: Instant
     )
-
-    /**
-     * Keeps the higher of the stored and the reported value for each of [tokens] and [costMicro] (a null field is left
-     * as stored). Returns the stored row, or null when there is none.
-     */
-    suspend fun recordUsage(
-        id: UUID,
-        tokens: Long?,
-        costMicro: Long?
-    ): RunSeat?
-
-    /** The sum over every assignment of [runId], ended ones and the coordinator included, of its kept usage. */
-    suspend fun usageTotals(runId: UUID): RunUsageTotals
 
     /**
      * The assignments of [runId], oldest first (`assigned_at`, then id): only those on [itemId] when given, and only

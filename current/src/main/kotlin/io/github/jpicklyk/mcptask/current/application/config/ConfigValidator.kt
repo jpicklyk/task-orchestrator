@@ -286,14 +286,13 @@ class ConfigValidator(
     companion object {
         private val SERVER_ONLY_KEYS = listOf("resources")
 
-        /** The integer-valued `runs.budgets` ceilings; `cost_usd` is the one decimal ceiling. */
-        private val RUN_INTEGER_CEILINGS = listOf("tokens", "attempts_per_seat", "max_active_seats")
-        private const val RUN_COST_CEILING = "cost_usd"
+        /** The `runs.budgets` ceilings that are checked: both are integers. `tokens` and `cost_usd` were removed in 4.0.1. */
+        private val RUN_INTEGER_CEILINGS = listOf("attempts_per_seat", "max_active_seats")
 
         /**
          * The value rules of the top-level `runs:` block [raw]: it is a mapping; `stall_after` is an integer greater
-         * than 0; `budgets` is a mapping whose ceilings are each greater than 0 (`tokens`, `attempts_per_seat` and
-         * `max_active_seats` integers, `cost_usd` a number in US dollars). Unknown keys are not reported here (the
+         * than 0; `budgets` is a mapping whose ceilings are each greater than 0 (`attempts_per_seat` and
+         * `max_active_seats`, integers; the removed `tokens` and `cost_usd` keys are not checked). Unknown keys are not reported here (the
          * parser and the structural schema report them). The parser reports the same findings with the same paths and
          * reasons, so a strict validation lists each once.
          */
@@ -310,18 +309,9 @@ class ConfigValidator(
                 } else {
                     for (key in RUN_INTEGER_CEILINGS) {
                         if (!budgets.containsKey(key)) continue
-                        val max = if (key == "tokens") Long.MAX_VALUE else Int.MAX_VALUE.toLong()
-                        if (!isPositiveInteger(budgets[key], max)) {
+                        if (!isPositiveInteger(budgets[key], Int.MAX_VALUE.toLong())) {
                             out.add(ConfigViolation(pointer("runs", "budgets", key), "$key must be an integer greater than 0"))
                         }
-                    }
-                    if (budgets.containsKey(RUN_COST_CEILING) && !isPositiveCost(budgets[RUN_COST_CEILING])) {
-                        out.add(
-                            ConfigViolation(
-                                pointer("runs", "budgets", RUN_COST_CEILING),
-                                "$RUN_COST_CEILING must be a number greater than 0 (US dollars)"
-                            )
-                        )
                     }
                 }
             }
@@ -426,27 +416,6 @@ class ConfigValidator(
                 is java.math.BigInteger -> value.signum() > 0 && value.bitLength() < 64 && value.toLong() <= max
                 else -> false
             }
-
-        /** True when [value] is a finite number of US dollars greater than 0 that converts to at least one micro-USD. */
-        fun isPositiveCost(value: Any?): Boolean = costMicroUsd(value)?.let { it > 0 } == true
-
-        /** [value] (US dollars) in micro-USD, rounded half-up, or null when it is not a finite number in the Long range. */
-        fun costMicroUsd(value: Any?): Long? {
-            if (value !is Number || value is Byte) return null
-            if (value is Double && !value.isFinite()) return null
-            if (value is Float && !value.isFinite()) return null
-            return try {
-                java.math
-                    .BigDecimal(value.toString())
-                    .movePointRight(6)
-                    .setScale(0, java.math.RoundingMode.HALF_UP)
-                    .longValueExact()
-            } catch (e: ArithmeticException) {
-                null
-            } catch (e: NumberFormatException) {
-                null
-            }
-        }
 
         /** Builds an RFC 6901 JSON Pointer from unescaped path [segments]. */
         fun pointer(vararg segments: String): String = segments.joinToString("") { "/" + escape(it) }

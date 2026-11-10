@@ -89,16 +89,11 @@ private suspend fun WriteScope.assignSeat(
                 )
             )
         }
-    val paused =
-        when (val r = env.runLimits.checkBudget(run.id)) {
-            is Outcome.Ok -> r.value
-            is Outcome.Err -> return r
-        }
     return Outcome.Ok(
         buildJsonObject {
             put("assignmentId", issued.seat.id.toString())
             put("seatToken", issued.token)
             put("attempt", issued.seat.attempt)
-        }.withPaused(paused)
+        }
     )
 }

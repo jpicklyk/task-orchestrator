@@ -226,7 +226,7 @@ class SeatService(
         }
 
     // -------------------------------------------------------------------------
-    // token resolution, liveness, usage, reads
+    // token resolution, liveness, reads
     // -------------------------------------------------------------------------
 
     /**
@@ -261,25 +261,6 @@ class SeatService(
             Outcome.Ok(Unit)
         }
     }
-
-    /**
-     * Records the absolute usage a seat reported (task-scope D9): per field, the higher of the stored and the reported
-     * value is kept. The run's `reported_tokens` / `reported_cost_micro` are then set to the SUM over every assignment
-     * of the run, ended ones included (R27), without bumping the run's version. Joins the caller's unit.
-     */
-    suspend fun reportUsage(
-        assignmentId: UUID,
-        tokens: Long?,
-        costMicroUsd: Long?
-    ): Outcome<RunSeat?> =
-        unitOfWork.write(OP_USAGE) {
-            val seat = store.recordUsage(assignmentId, tokens, costMicroUsd)
-            if (seat != null) {
-                val totals = store.usageTotals(seat.runId)
-                stores.runStore().setReportedUsage(seat.runId, totals.tokens, totals.costMicroUsd)
-            }
-            Outcome.Ok(seat)
-        }
 
     /** The assignments of [runId], oldest first: on [itemId] only when given, ended ones only when [includeEnded]. */
     suspend fun list(
@@ -322,7 +303,6 @@ class SeatService(
         private const val OP_ASSIGN = "SeatService.assign"
         private const val OP_END = "SeatService.endSeat"
         private const val OP_TOUCH = "SeatService.touch"
-        private const val OP_USAGE = "SeatService.reportUsage"
 
         private const val FIELD_SEAT = "/seat"
         private const val FIELD_ITEM_ID = "/itemId"

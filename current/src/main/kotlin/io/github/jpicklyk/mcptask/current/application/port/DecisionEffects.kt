@@ -13,14 +13,10 @@ fun interface DecisionEffects {
     suspend fun onAnswered(decision: DecisionRequest)
 
     /**
-     * What the answer service calls: [onAnswered] with the answer's extend [amount] (null when the answer carried none).
-     * A returned error refuses the answer (the whole answer unit rolls back and the caller gets the error). The default
-     * runs [onAnswered] and accepts.
+     * What the answer service calls. A returned error refuses the answer (the whole answer unit rolls back and the
+     * caller gets the error). The default runs [onAnswered] and accepts.
      */
-    suspend fun onAnswered(
-        decision: DecisionRequest,
-        amount: Double?
-    ): DomainError? {
+    suspend fun onAnsweredOrRefuse(decision: DecisionRequest): DomainError? {
         onAnswered(decision)
         return null
     }

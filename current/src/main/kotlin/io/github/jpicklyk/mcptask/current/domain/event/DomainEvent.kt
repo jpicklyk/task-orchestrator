@@ -825,12 +825,10 @@ sealed class DomainEvent {
                 "dedupeKey" to dedupeKey
             )
 
-        /** A budget as `{tokens, costMicroUsd, attemptsPerSeat, maxActiveSeats}` (unset fields null), or null. */
+        /** A budget as `{attemptsPerSeat, maxActiveSeats}` (unset fields null), or null. */
         private fun budgetPayload(budget: RunBudget?): Map<String, Any?>? =
             budget?.let {
                 mapOf(
-                    "tokens" to it.tokens,
-                    "costMicroUsd" to it.costMicroUsd,
                     "attemptsPerSeat" to it.attemptsPerSeat,
                     "maxActiveSeats" to it.maxActiveSeats
                 )

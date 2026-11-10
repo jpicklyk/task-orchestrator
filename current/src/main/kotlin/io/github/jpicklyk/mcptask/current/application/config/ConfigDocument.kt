@@ -94,7 +94,7 @@ data class ConfigDocument(
  * The top-level `runs:` block. In one document a null field means "this document does not set it" (a layering caller
  * falls through to the next layer); [LayeredConfig.runsConfig] resolves each field separately and applies the
  * defaults only when no layer sets it: [stallAfterSeconds] 600, every budget ceiling unlimited. Budgets are opt-in:
- * a null [budgets] (or a null field inside it) never caps anything. `cost_usd` is held in micro-USD.
+ * a null [budgets] (or a null field inside it) never caps anything. The removed 4.0.0 `tokens` and `cost_usd` keys are not held.
  */
 data class RunsConfig(
     val stallAfterSeconds: Int? = null,

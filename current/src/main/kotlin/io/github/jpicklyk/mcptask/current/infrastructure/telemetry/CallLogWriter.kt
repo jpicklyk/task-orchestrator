@@ -44,7 +44,7 @@ import kotlin.time.TimeSource
  *
  * Observed run spend (R27): when [runStore] is given, each batch unit also adds the `response_tokens_est` of the rows actually inserted, per
  * `run_id`, into `runs.observed_tokens` (one version-free UPDATE per distinct run; duplicate, refused, run-less and
- * estimate-less rows add nothing). The writer only writes the counter; it never runs a budget check (the next token-carrying write does).
+ * estimate-less rows add nothing). The writer only writes the counter; nothing enforces it.
  */
 class CallLogWriter(
     private val unitOfWork: UnitOfWork,

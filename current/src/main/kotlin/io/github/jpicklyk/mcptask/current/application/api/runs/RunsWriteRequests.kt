@@ -31,14 +31,12 @@ enum class RunCloseReason(
 @Serializable
 @Doc("A run budget. Every field is optional; an unset field is unlimited. On update a field can only be lowered or newly set.")
 data class RunBudgetRequest(
-    @Doc("Token limit.") val tokens: Long? = null,
-    @Doc("Cost limit in US dollars, a decimal such as 12.5.") val costUsd: Double? = null,
     @Doc("Most attempts one seat may take.") val attemptsPerSeat: Int? = null,
     @Doc("Most seats active at once.") val maxActiveSeats: Int? = null
 )
 
 private const val BUDGET_DOC =
-    "Run budget: tokens, costUsd, attemptsPerSeat, maxActiveSeats; absent means no cap. On open it may not exceed a " +
+    "Run budget: attemptsPerSeat, maxActiveSeats; absent means no cap. On open it may not exceed a " +
         "configured ceiling; on update a field can only be lowered or newly set."
 private const val HINTS_DOC = "Short structured coordinator hints, string to string. On update they replace the stored hints."
 private const val ITEM_DOC = "Item id: a UUID or a hex prefix of 8 to 32 characters."
@@ -174,9 +172,7 @@ data class RunsAnswerRequest(
     @Doc(DECISION_ID_DOC) val decisionId: IdRef,
     @Doc("Key of the chosen option.") val option: String? = null,
     @Doc("Free-form answer, at most 1000 characters; freeform classes only.") val text: String? = null,
-    @Doc("Why this answer, at most 1000 characters.") val rationale: String? = null,
-    @Doc("run-budget extend only: how much to add, in the breached dimension (whole tokens, or US dollars).")
-    val amount: Double? = null
+    @Doc("Why this answer, at most 1000 characters.") val rationale: String? = null
 )
 
 /** `runs_write withdraw`: withdraws a pending decision. */

@@ -45,17 +45,15 @@ enum class RunTerminalReason(
 }
 
 /**
- * A run budget, or a set of configured budget ceilings. Every field is optional and a null field means unlimited:
- * budgets are opt-in and the server never invents a cap. [costMicroUsd] is in millionths of a US dollar.
+ * A run budget, or a set of configured budget ceilings: the attempt and seat caps. Every field is optional and a null
+ * field means unlimited: caps are opt-in and the server never invents one.
  */
 data class RunBudget(
-    val tokens: Long? = null,
-    val costMicroUsd: Long? = null,
     val attemptsPerSeat: Int? = null,
     val maxActiveSeats: Int? = null
 ) {
     /** True when no field is set (the budget limits nothing). */
-    val isUnlimited: Boolean get() = tokens == null && costMicroUsd == null && attemptsPerSeat == null && maxActiveSeats == null
+    val isUnlimited: Boolean get() = attemptsPerSeat == null && maxActiveSeats == null
 }
 
 /**
@@ -82,8 +80,6 @@ data class Run(
     val coordinatorSeenAt: Instant? = null,
     val stallAfterSeconds: Int,
     val budget: RunBudget? = null,
-    val reportedTokens: Long = 0,
-    val reportedCostMicroUsd: Long = 0,
     val observedTokens: Long = 0,
     val hints: Map<String, String> = emptyMap(),
     val marks: Map<String, Instant> = emptyMap(),

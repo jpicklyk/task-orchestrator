@@ -60,7 +60,7 @@ private suspend fun WriteScope.updateRun(
             is Outcome.Err -> return r
         }
     val budget =
-        when (val r = RunsSupport.budget(req.budget, "/budget")) {
+        when (val r = RunsSupport.budget(req.budget)) {
             is Outcome.Ok -> r.value
             is Outcome.Err -> return r
         }

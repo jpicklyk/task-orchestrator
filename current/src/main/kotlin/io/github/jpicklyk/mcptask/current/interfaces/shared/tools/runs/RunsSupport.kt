@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.RunRefs
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunBudgetRequest
-import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.support.IdRef
@@ -65,21 +64,9 @@ internal object RunsSupport {
         return RunView.of(run, members.count { it in visible }, seats.filter { it.itemId == null || it.itemId in visible }, now)
     }
 
-    /** The request budget as a domain budget (dollars to micro-USD); `invalid_request` on [field] for a cost that is not a number of dollars. */
-    fun budget(
-        request: RunBudgetRequest?,
-        field: String
-    ): Outcome<RunBudget?> {
-        if (request == null) return Outcome.Ok(null)
-        var micro: Long? = null
-        if (request.costUsd != null) {
-            micro = ConfigValidator.costMicroUsd(request.costUsd)
-            if (micro == null) {
-                return Outcome.Err(invalid("$field/costUsd", "must be a finite number of US dollars", request.costUsd.toString()))
-            }
-        }
-        return Outcome.Ok(RunBudget(request.tokens, micro, request.attemptsPerSeat, request.maxActiveSeats))
-    }
+    /** The request budget as a domain budget. */
+    fun budget(request: RunBudgetRequest?): Outcome<RunBudget?> =
+        Outcome.Ok(request?.let { RunBudget(it.attemptsPerSeat, it.maxActiveSeats) })
 
     /** An `invalid_request` on one JSON-pointer [field]. */
     fun invalid(
@@ -105,7 +92,7 @@ internal object RunsSupport {
 
     /**
      * Rewrites the field names of a service `invalid_request` as JSON pointers (`items[0]` becomes `/items/0`,
-     * `budget.costMicroUsd` becomes `/budget/costUsd`): the wire never shows micro-USD or index brackets. Other
+     * `budget.attemptsPerSeat` becomes `/budget/attemptsPerSeat`): the wire never shows index brackets. Other
      * errors pass through.
      */
     fun <T> wire(outcome: Outcome<T>): Outcome<T> {
@@ -117,7 +104,7 @@ internal object RunsSupport {
 
     private fun pointer(field: String): String {
         if (field.startsWith("/")) return field
-        val plain = field.replace("costMicroUsd", "costUsd").replace('[', '.').replace("]", "")
+        val plain = field.replace('[', '.').replace("]", "")
         return "/" + plain.replace('.', '/')
     }
 }

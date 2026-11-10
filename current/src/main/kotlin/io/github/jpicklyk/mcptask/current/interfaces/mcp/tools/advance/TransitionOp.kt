@@ -29,8 +29,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.DecisionLoader
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.runLimits
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.withPaused
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -148,16 +146,7 @@ private suspend fun WriteScope.runTransition(
     return when (outcome) {
         is AdvanceOutcome.Failure -> Outcome.Err(AdvanceSupport.rooted(outcome.failure.error))
         is AdvanceOutcome.Success -> {
-            val paused =
-                if (seat == null) {
-                    null
-                } else {
-                    when (val checked = env.runLimits.checkBudget(seat.runId, seat.runLimited)) {
-                        is Outcome.Err -> return checked
-                        is Outcome.Ok -> checked.value
-                    }
-                }
-            Outcome.Ok(element(env, ctx, item, outcome.result).withPaused(paused))
+            Outcome.Ok(element(env, ctx, item, outcome.result))
         }
     }
 }

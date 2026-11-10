@@ -16,7 +16,7 @@ import kotlinx.serialization.serializer
 /**
  * `report rollup` (plans R16 and R28): one object, no page, pointers and counts only (short ids, never note bodies).
  * `data` is `{scope, window, itemCounts, blocked, transitions, notes, cost}` on an anchor; a run rollup adds `run`,
- * `decisions`, `seats`, `attempts`, `budget` and `blocked.byReason` (plus `blocked.resumable` and `blocked.dwellMs` when
+ * `decisions`, `seats`, `attempts` and `blocked.byReason` (plus `blocked.resumable` and `blocked.dwellMs` when
  * non-zero). A null section is omitted.
  */
 internal val reportRollupSelect =
@@ -37,9 +37,8 @@ internal val reportRollupSelect =
                 "the window); transitions and notes count the events stamped with the run, cost {basis: run} the calls " +
                 "stamped with it (a lower bound). Adds run {status, terminalReason, openedAt, closedAt}, decisions {open, " +
                 "byClass, bySeverity (overdue reads one step up)}, seats {active, stalled (at most 5, silent longest first), " +
-                "count}, attempts {total, max} and budget {used, limit, basis: enforced, breaches, extends} (tokens, from the " +
-                "run row; breaches counts its run-budget decisions, extends those answered extend, both omitted when zero). A " +
-                "closed run answers the snapshot stored at close. resumable and dwellMs are omitted when zero or empty. " +
+                "count} and attempts {total, max}. A closed run answers the snapshot stored at close. resumable and dwellMs are " +
+                "omitted when zero or empty. " +
                 "Ids are 8-character short ids. A tag-scoped credential is forbidden; a root-scoped one counts " +
                 "only calls of its roots (anchorId) or sees only runs of its roots (runId).",
         profiles = director(),
@@ -161,18 +160,6 @@ internal fun rollupJson(report: RollupReport): JsonObject =
                 buildJsonObject {
                     put("total", attempts.total)
                     put("max", attempts.max)
-                }
-            )
-        }
-        report.budget?.let { budget ->
-            put(
-                "budget",
-                buildJsonObject {
-                    put("used", budget.used)
-                    budget.limit?.let { put("limit", it) }
-                    put("basis", budget.basis)
-                    if (budget.breaches != 0) put("breaches", budget.breaches)
-                    if (budget.extends != 0) put("extends", budget.extends)
                 }
             )
         }

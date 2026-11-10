@@ -17,7 +17,6 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
@@ -111,19 +110,6 @@ class SqliteRunStore(
         if (tokens == 0L) return
         databaseManager.writeTx("RunStore.addObservedTokens") {
             RunsTable.update({ RunsTable.id eq runId }) { it[RunsTable.observedTokens] = RunsTable.observedTokens + tokens }
-        }
-    }
-
-    override suspend fun setReportedUsage(
-        runId: UUID,
-        tokens: Long,
-        costMicroUsd: Long
-    ) {
-        databaseManager.writeTx("RunStore.setReportedUsage") {
-            RunsTable.update({ RunsTable.id eq runId }) {
-                it[RunsTable.reportedTokens] = tokens
-                it[RunsTable.reportedCostMicro] = costMicroUsd
-            }
         }
     }
 
@@ -272,8 +258,6 @@ class SqliteRunStore(
         it[RunsTable.coordinatorSeenAt] = run.coordinatorSeenAt
         it[RunsTable.stallAfterSeconds] = run.stallAfterSeconds
         it[RunsTable.budget] = encodeBudget(run.budget)
-        it[RunsTable.reportedTokens] = run.reportedTokens
-        it[RunsTable.reportedCostMicro] = run.reportedCostMicroUsd
         it[RunsTable.observedTokens] = run.observedTokens
         it[RunsTable.hints] =
             run.hints.takeIf { h -> h.isNotEmpty() }?.let { h -> JsonObject(h.mapValues { (_, v) -> JsonPrimitive(v) }).toString() }
@@ -308,8 +292,6 @@ class SqliteRunStore(
             coordinatorSeenAt = row[RunsTable.coordinatorSeenAt],
             stallAfterSeconds = row[RunsTable.stallAfterSeconds],
             budget = decodeBudget(row[RunsTable.budget]),
-            reportedTokens = row[RunsTable.reportedTokens],
-            reportedCostMicroUsd = row[RunsTable.reportedCostMicro],
             observedTokens = row[RunsTable.observedTokens],
             hints = decodeObject(row[RunsTable.hints]).mapValues { (_, v) -> (v as? JsonPrimitive)?.contentOrNull.orEmpty() },
             marks =
@@ -328,8 +310,6 @@ class SqliteRunStore(
         fun encodeBudget(budget: RunBudget?): String? {
             if (budget == null || budget.isUnlimited) return null
             return buildJsonObject {
-                budget.tokens?.let { put("tokens", it) }
-                budget.costMicroUsd?.let { put("costMicroUsd", it) }
                 budget.attemptsPerSeat?.let { put("attemptsPerSeat", it) }
                 budget.maxActiveSeats?.let { put("maxActiveSeats", it) }
             }.toString()
@@ -339,10 +319,9 @@ class SqliteRunStore(
             val obj = decodeObject(text)
             if (obj.isEmpty()) return null
 
-            fun long(key: String): Long? = (obj[key] as? JsonPrimitive)?.longOrNull
-
             fun int(key: String): Int? = (obj[key] as? JsonPrimitive)?.intOrNull
-            return RunBudget(long("tokens"), long("costMicroUsd"), int("attemptsPerSeat"), int("maxActiveSeats"))
+            // A 4.0.0 row may still carry tokens/costMicroUsd; they are ignored (nothing enforces them).
+            return RunBudget(int("attemptsPerSeat"), int("maxActiveSeats")).takeUnless { it.isUnlimited }
         }
 
         fun decodeObject(text: String?): JsonObject {

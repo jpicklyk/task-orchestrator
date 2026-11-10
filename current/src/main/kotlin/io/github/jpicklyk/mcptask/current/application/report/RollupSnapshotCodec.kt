@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.report
 
 import io.github.jpicklyk.mcptask.current.application.port.AttemptCounts
-import io.github.jpicklyk.mcptask.current.application.port.BudgetFacts
 import io.github.jpicklyk.mcptask.current.application.port.DecisionCounts
 import io.github.jpicklyk.mcptask.current.application.port.RunHeader
 import io.github.jpicklyk.mcptask.current.application.port.StalledSeat
@@ -139,18 +138,6 @@ object RollupSnapshotCodec {
                     }
                 )
             }
-            report.budget?.let { budget ->
-                put(
-                    "budget",
-                    buildJsonObject {
-                        put("used", budget.used)
-                        budget.limit?.let { put("limit", it) }
-                        put("basis", budget.basis)
-                        if (budget.breaches != 0) put("breaches", budget.breaches)
-                        if (budget.extends != 0) put("extends", budget.extends)
-                    }
-                )
-            }
         }
 
     /** The report stored as [text] (JSON), or null when it is not a well-formed stored rollup. */
@@ -252,17 +239,7 @@ object RollupSnapshotCodec {
                         count = s.int("count")
                     )
                 },
-            attempts = o.optObj("attempts")?.let { AttemptCounts(it.int("total"), it.int("max")) },
-            budget =
-                o.optObj("budget")?.let { b ->
-                    BudgetFacts(
-                        used = b.long("used"),
-                        limit = b.optPrimitive("limit")?.long,
-                        basis = b.string("basis"),
-                        breaches = b.optPrimitive("breaches")?.int ?: 0,
-                        extends = b.optPrimitive("extends")?.int ?: 0
-                    )
-                }
+            attempts = o.optObj("attempts")?.let { AttemptCounts(it.int("total"), it.int("max")) }
         )
     }
 

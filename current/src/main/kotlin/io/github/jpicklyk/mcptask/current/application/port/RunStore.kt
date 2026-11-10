@@ -43,16 +43,6 @@ interface RunStore {
         tokens: Long
     )
 
-    /**
-     * Sets `reported_tokens` and `reported_cost_micro` of [runId] to the summed seat reports [tokens] and [costMicroUsd],
-     * WITHOUT bumping the version. A missing run is a no-op.
-     */
-    suspend fun setReportedUsage(
-        runId: UUID,
-        tokens: Long,
-        costMicroUsd: Long
-    )
-
     /** The member item ids of [runId], oldest membership first. */
     suspend fun members(runId: UUID): List<UUID>
 

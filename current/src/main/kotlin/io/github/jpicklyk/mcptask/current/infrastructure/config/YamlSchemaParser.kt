@@ -170,6 +170,13 @@ internal object YamlSchemaParser {
         "schema_resolution was removed in 4.0 and has no effect; schemas resolve by one fixed precedence rule " +
             "(per-root type, server type, per-root default, server default)"
 
+    /** The advisory a document carrying a removed 4.0.0 run budget key gets, formatted with the key; the key has no effect. */
+    fun runBudgetKeyRemovedWarning(key: String): String =
+        "runs.budgets.$key was removed in 4.0.1 and has no effect; run token and cost budgets are no longer enforced"
+
+    /** The `runs.budgets` keys 4.0.1 removed: still declared (the structural schema forbids extra keys), never applied. */
+    private val REMOVED_RUN_BUDGET_KEYS = listOf("tokens", "cost_usd")
+
     /** Recognized `note_limits.mode` values. */
     private val VALID_NOTE_LIMITS_MODES = setOf("warn", "reject")
 
@@ -1546,6 +1553,10 @@ internal object YamlSchemaParser {
                         warnings.soft(ptr("runs", "budgets", key.toString()), "Unknown key 'runs.budgets.$key'; ignoring")
                     }
                 }
+                // Advisory, not soft: a soft finding is an error in STRICT mode, and a removed key must still push.
+                for (key in REMOVED_RUN_BUDGET_KEYS) {
+                    if (budgetsRaw.containsKey(key)) warnings.advisory(ptr("runs", "budgets", key), runBudgetKeyRemovedWarning(key))
+                }
 
                 fun valid(key: String): Any? =
                     if (budgetsRaw.containsKey(key) &&
@@ -1556,8 +1567,6 @@ internal object YamlSchemaParser {
                         null
                     }
                 RunBudget(
-                    tokens = (valid("tokens") as? Number)?.toLong(),
-                    costMicroUsd = valid("cost_usd")?.let { ConfigValidator.costMicroUsd(it) },
                     attemptsPerSeat = (valid("attempts_per_seat") as? Number)?.toInt(),
                     maxActiveSeats = (valid("max_active_seats") as? Number)?.toInt(),
                 ).takeUnless { it.isUnlimited }

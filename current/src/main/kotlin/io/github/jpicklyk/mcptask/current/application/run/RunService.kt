@@ -61,7 +61,7 @@ import java.util.UUID
  *
  * ## Limits (R27)
  *
- * [pauseForLimit] pauses an OPEN run for a budget or attempts limit with its pause decision; only an answer to that
+ * [pauseForLimit] pauses an OPEN run for an attempts limit (a 4.0.0 budget pause still loads) with its pause decision; only an answer to that
  * decision lifts it ([resumeAfterDecision], driven by `RunDecisionEffects`) or a close. The checks themselves live in
  * `RunLimits`.
  */
@@ -243,18 +243,13 @@ class RunService(
         }
 
     /**
-     * Resumes run [runId] after its pause decision [decisionId] was answered (R27). [extendTokens] and
-     * [extendCostMicroUsd], when positive, raise the pinned budget's matching limit by that much (an `extend`, which may
-     * exceed the configured ceiling: its answerer is a director or a human; the sum saturates at [Long.MAX_VALUE]), and
-     * [removeItem], when given, leaves the run (`skip_item`). Records `run.updated` when the budget or the membership
-     * changed, then `run.resumed`. Returns null and changes nothing unless the run is PAUSED by exactly [decisionId] (a
+     * Resumes run [runId] after its pause decision [decisionId] was answered (R27). [removeItem], when given, leaves the
+     * run (`skip_item`). Records `run.updated` when the membership changed, then `run.resumed`. Returns null and changes nothing unless the run is PAUSED by exactly [decisionId] (a
      * decision whose run has since closed or resumed has nothing left to resume).
      */
     suspend fun resumeAfterDecision(
         runId: UUID,
         decisionId: UUID,
-        extendTokens: Long = 0,
-        extendCostMicroUsd: Long = 0,
         removeItem: UUID? = null
     ): Outcome<Run?> =
         unitOfWork.write(OP_RESUME_DECISION) {
@@ -267,15 +262,13 @@ class RunService(
                 } else {
                     emptyList()
                 }
-            val newBudget = extended(run.budget, extendTokens, extendCostMicroUsd)
             val stored =
                 runs.update(
-                    run.copy(status = RunStatus.OPEN, pauseReason = null, pauseDecisionId = null, budget = newBudget),
+                    run.copy(status = RunStatus.OPEN, pauseReason = null, pauseDecisionId = null),
                     run.version
                 ) ?: return@write err(conflictAfterRead(runId, run.version))
-            val budgetChanged = newBudget != run.budget
-            if (budgetChanged || removed.isNotEmpty()) {
-                events.record(DomainEvent.RunUpdated(runId, run.rootId, emptyList(), removed, budgetChanged = budgetChanged))
+            if (removed.isNotEmpty()) {
+                events.record(DomainEvent.RunUpdated(runId, run.rootId, emptyList(), removed, budgetChanged = false))
             }
             events.record(DomainEvent.RunResumed(runId, run.rootId))
             Outcome.Ok(stored)
@@ -303,24 +296,6 @@ class RunService(
         run: Run,
         decisionId: UUID
     ): Boolean = run.status == RunStatus.PAUSED && run.pauseDecisionId == decisionId
-
-    /** [budget] with [tokens] and [costMicroUsd] added to its matching limits (a limit that is not set stays unset). */
-    private fun extended(
-        budget: RunBudget?,
-        tokens: Long,
-        costMicroUsd: Long
-    ): RunBudget? {
-        if (budget == null || (tokens <= 0 && costMicroUsd <= 0)) return budget
-        return budget.copy(
-            tokens = budget.tokens?.let { if (tokens > 0) saturatingAdd(it, tokens) else it },
-            costMicroUsd = budget.costMicroUsd?.let { if (costMicroUsd > 0) saturatingAdd(it, costMicroUsd) else it }
-        )
-    }
-
-    private fun saturatingAdd(
-        a: Long,
-        b: Long
-    ): Long = if (a > Long.MAX_VALUE - b) Long.MAX_VALUE else a + b
 
     // -------------------------------------------------------------------------
     // close
@@ -485,13 +460,6 @@ class RunService(
         return if (violations.isEmpty()) null else invalidFields(violations, "Run label or title is too long")
     }
 
-    /** [micro] micro-USD as decimal US dollars, the way the cost field is expressed on the wire. */
-    private fun usd(micro: Long): String =
-        java.math.BigDecimal
-            .valueOf(micro, 6)
-            .stripTrailingZeros()
-            .toPlainString()
-
     /** Fields of [budget] that are not positive, or exceed the matching configured ceiling of [ceilings]. */
     private fun budgetViolations(
         budget: RunBudget,
@@ -508,12 +476,9 @@ class RunService(
             if (value <= 0) {
                 out += FieldViolation("budget.$name", "must be greater than 0", value.toString())
             } else if (ceiling != null && value > ceiling) {
-                val shown = if (name == "costMicroUsd") usd(ceiling) else ceiling.toString()
-                out += FieldViolation("budget.$name", "exceeds the configured ceiling $shown", value.toString())
+                out += FieldViolation("budget.$name", "exceeds the configured ceiling $ceiling", value.toString())
             }
         }
-        check("tokens", budget.tokens, ceilings?.tokens)
-        check("costMicroUsd", budget.costMicroUsd, ceilings?.costMicroUsd)
         check("attemptsPerSeat", budget.attemptsPerSeat?.toLong(), ceilings?.attemptsPerSeat?.toLong())
         check("maxActiveSeats", budget.maxActiveSeats?.toLong(), ceilings?.maxActiveSeats?.toLong())
         return out
@@ -535,8 +500,6 @@ class RunService(
                 out += FieldViolation("budget.$name", "can only be lowered (pinned $pinned)", value.toString())
             }
         }
-        check("tokens", current?.tokens, requested.tokens)
-        check("costMicroUsd", current?.costMicroUsd, requested.costMicroUsd)
         check("attemptsPerSeat", current?.attemptsPerSeat?.toLong(), requested.attemptsPerSeat?.toLong())
         check("maxActiveSeats", current?.maxActiveSeats?.toLong(), requested.maxActiveSeats?.toLong())
         return out
@@ -547,8 +510,6 @@ class RunService(
         requested: RunBudget
     ): RunBudget? =
         RunBudget(
-            tokens = requested.tokens ?: current?.tokens,
-            costMicroUsd = requested.costMicroUsd ?: current?.costMicroUsd,
             attemptsPerSeat = requested.attemptsPerSeat ?: current?.attemptsPerSeat,
             maxActiveSeats = requested.maxActiveSeats ?: current?.maxActiveSeats
         ).takeUnless { it.isUnlimited }
