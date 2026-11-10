@@ -14,7 +14,7 @@
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
-import { SERVER_SEGMENT_TOKEN, orchestratorToolMatcher } from '../../hooks/registration.mjs';
+import { SERVER_SEGMENT_TOKEN, hostToolMatcher, orchestratorToolMatcher } from '../../hooks/registration.mjs';
 
 /** The 3.x tool names that no longer exist. */
 export const RETIRED_3X_TOOLS = Object.freeze([
@@ -55,6 +55,7 @@ export function checkMatchers(hooksConfig, allowedTools) {
     for (const entry of entries || []) {
       const matcher = entry && entry.matcher;
       if (typeof matcher !== 'string' || !matcher.includes(SERVER_SEGMENT_TOKEN)) continue;
+      if (matcher === hostToolMatcher()) continue; // names the token only inside a negative lookahead
       const m = MATCHER_RE.exec(matcher);
       if (!m) {
         problems.push({ event, matcher, tool: null, reason: 'matcher is not in the registration.mjs builder shape' });

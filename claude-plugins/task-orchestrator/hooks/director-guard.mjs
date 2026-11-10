@@ -12,7 +12,10 @@
 //    denied outright, docs_read and notes_read on any task-orchestrator server are denied, items_read
 //    is allowed only for the director selects (get, list, overview, blocked) or `describe: true`,
 //    Workflow is allowed only for `task-orchestrator:implement-wave` with an object `args` carrying
-//    `altitudeSafe: true`, Bash is denied unless
+//    `altitudeSafe: true` and no `scriptPath` or `resumeFromRunId`, config is denied, runs_read is
+//    allowed only for DIRECTOR_RUNS_READ_SELECTS, WebFetch, WebSearch and the MCP resource readers
+//    are denied, Skill is allowed only for DIRECTOR_SKILL_ALLOW, every host MCP tool (a name
+//    without `task-orchestrator`) is denied unless its bare name is in DIRECTOR_HOST_MCP_ALLOW, Bash is denied unless
 //    every segment starts with a DIRECTOR_BASH_ALLOW entry and, for `git log`, `git status` and
 //    `git branch`, every later token is on that command's flag allow-list or is a plain operand
 //    (so no patch, diff or file output), and Agent is denied unless `run_in_background === true`. SendMessage and ListAgents are never denied, a call carrying
@@ -38,7 +41,30 @@ export const DIRECTOR_BASH_ALLOW = Object.freeze(['git status', 'git log', 'git 
 /** Every deny reason starts with this. */
 export const REASON_PREFIX = 'Director altitude rule:';
 
+/** Skills a director session may call: the director skill itself and the model-effort reference. */
+export const DIRECTOR_SKILL_ALLOW = Object.freeze([...DIRECTOR_SKILL_NAMES, 'task-orchestrator:model-effort']);
+
+/**
+ * Bare names (the segment after the last `__`) of host MCP tools a director session may call: the
+ * coordinator tiers' session tools and the desktop UI tools. None reads a file, a shell or a screen.
+ */
+export const DIRECTOR_HOST_MCP_ALLOW = Object.freeze(['start_session', 'send_message', 'update_plan', 'wrap_up', 'mark_chapter']);
+
+/** The runs_read selects a director session may use (the director profile set). */
+export const DIRECTOR_RUNS_READ_SELECTS = Object.freeze(['get', 'list', 'frontier', 'decisions', 'decision']);
+
+/** The `gh pr view` / `gh pr list` --json fields a director session may request: status and metadata, plus `body`. */
+export const GH_PR_JSON_FIELDS = Object.freeze([
+  'additions', 'assignees', 'author', 'autoMergeRequest', 'baseRefName', 'baseRefOid', 'body', 'changedFiles',
+  'closed', 'closedAt', 'createdAt', 'deletions', 'headRefName', 'headRefOid', 'headRepository',
+  'headRepositoryOwner', 'id', 'isCrossRepository', 'isDraft', 'labels', 'maintainerCanModify', 'mergeCommit',
+  'mergeStateStatus', 'mergeable', 'mergedAt', 'mergedBy', 'milestone', 'number', 'potentialMergeCommit',
+  'projectItems', 'reviewDecision', 'reviewRequests', 'state', 'statusCheckRollup', 'title', 'updatedAt', 'url',
+]);
+
 const NEVER_DENIED = new Set(['SendMessage', 'ListAgents']);
+/** Tools that fetch a page or an MCP resource and return its content; always denied. */
+const CONTENT_TOOLS = new Set(['WebFetch', 'WebSearch', 'ReadMcpResourceTool', 'ReadMcpResourceDirTool']);
 const FILE_TOOLS = new Set(['Read', 'Edit', 'Write', 'Grep', 'Glob', 'NotebookEdit']);
 
 /** Tools that run a shell command and return its output. Bash keeps the bashAllowed allow-list; the rest deny. */
@@ -51,7 +77,8 @@ export const DIRECTOR_ITEMS_READ_SELECTS = Object.freeze(['get', 'list', 'overvi
 /** The only workflow that honours `altitudeSafe`. */
 const ALTITUDE_SAFE_WORKFLOW = 'task-orchestrator:implement-wave';
 
-const MCP_NAME = /^mcp__.*task-orchestrator.*__(docs_read|items_read|notes_read)$/;
+const MCP_NAME = /^mcp__.*task-orchestrator.*__(config|docs_read|items_read|notes_read|runs_read)$/;
+const HOST_TOKEN = 'task-orchestrator';
 
 const REMEDY =
   'Delegate the work through a background `Agent` (`run_in_background: true`) or `SendMessage` to a coordinator, or leave director mode with `/task-orchestrator:director off`.';
@@ -87,6 +114,8 @@ export function bashAllowed(command) {
     if (entry === 'git log') return tokens.every(gitLogTokenAllowed);
     if (entry === 'git status') return tokens.every(gitStatusTokenAllowed);
     if (entry === 'git branch') return gitBranchListingOnly(tokens);
+    if (entry === 'gh pr view') return ghPrTokensAllowed(tokens, false);
+    if (entry === 'gh pr list') return ghPrTokensAllowed(tokens, true);
     return true;
   });
 }
@@ -152,6 +181,58 @@ function gitBranchListingOnly(tokens) {
   return true;
 }
 
+/** `gh pr` flags that take one following value, on both `view` and `list`. */
+const GH_VALUE_FLAGS = new Set(['-R', '--repo']);
+/** `gh pr list` only: value flags and boolean flags (long and short). */
+const GH_LIST_VALUE_FLAGS = new Set([
+  '-s', '--state', '-L', '--limit', '-B', '--base', '-H', '--head', '-A', '--author', '-a', '--assignee',
+  '-l', '--label', '-S', '--search', '--app',
+]);
+const GH_LIST_BOOL_FLAGS = new Set(['-d', '--draft']);
+
+/** True when a `--json` value is a non-empty comma list whose every field is in GH_PR_JSON_FIELDS. */
+function ghJsonFieldsAllowed(value) {
+  return value !== '' && value.split(',').every((f) => GH_PR_JSON_FIELDS.includes(f));
+}
+
+/**
+ * R6, the `gh pr view` / `gh pr list` allow-list: operands, `-R`/`--repo` (one value), `--json` (one
+ * value or `=`, every field allowed) and, for list, the listing filters. Any other flag (`-c`,
+ * `--comments`, `--web`, `--jq`, `--template`, a bare `--json`) denies.
+ */
+function ghPrTokensAllowed(tokens, isList) {
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (isOperand(t)) continue;
+    const eq = t.indexOf('=');
+    const name = eq === -1 ? t : t.slice(0, eq);
+    const inline = eq === -1 ? null : t.slice(eq + 1);
+    if (name === '--json') {
+      if (inline !== null) {
+        if (!ghJsonFieldsAllowed(inline)) return false;
+        continue;
+      }
+      const next = tokens[i + 1];
+      if (next === undefined || next.startsWith('-') || !ghJsonFieldsAllowed(next)) return false;
+      i++;
+      continue;
+    }
+    if (GH_VALUE_FLAGS.has(name) || (isList && GH_LIST_VALUE_FLAGS.has(name))) {
+      if (inline !== null) {
+        if (!name.startsWith('--') || inline === '') return false;
+        continue;
+      }
+      const next = tokens[i + 1];
+      if (next === undefined || next.startsWith('-')) return false;
+      i++;
+      continue;
+    }
+    if (isList && inline === null && GH_LIST_BOOL_FLAGS.has(name)) continue;
+    return false;
+  }
+  return true;
+}
+
 function denyReason(tool, detail) {
   return `${REASON_PREFIX} a director session does not call \`${tool}\` (${detail}). ${REMEDY}`;
 }
@@ -170,7 +251,12 @@ export function guardDecision(input, { env = process.env, director } = {}) {
   const inDirector =
     typeof director === 'boolean' ? director : typeof director === 'function' ? director(input) === true : isDirectorSession(input);
   if (!inDirector) return null;
-  if (tool === 'Skill') return null;
+  if (tool === 'Skill') {
+    const skill = toolInputOf(input).skill;
+    if (typeof skill === 'string' && DIRECTOR_SKILL_ALLOW.includes(skill.trim())) return null;
+    return denyReason('Skill', `only ${DIRECTOR_SKILL_ALLOW.map((e) => `\`${e}\``).join(', ')} run; leave director mode with \`/task-orchestrator:director off\` to run another skill`);
+  }
+  if (CONTENT_TOOLS.has(tool)) return denyReason(tool, 'a fetch or resource read that returns page or file content');
   if (FILE_TOOLS.has(tool)) return denyReason(tool, 'the director never opens a file');
   if (SHELL_TOOL_SET.has(tool) && tool !== 'Bash') return denyReason(tool, 'a shell command can print any file; only `Bash` with a read-only allow-listed command runs');
   if (tool === 'Bash') {
@@ -184,17 +270,29 @@ export function guardDecision(input, { env = process.env, director } = {}) {
   }
   if (tool === 'Workflow') {
     const ti = toolInputOf(input);
-    if (ti.name === ALTITUDE_SAFE_WORKFLOW && isPlainObject(ti.args) && ti.args.altitudeSafe === true) return null;
-    return denyReason('Workflow', `only \`${ALTITUDE_SAFE_WORKFLOW}\` with an object \`args\` carrying \`altitudeSafe: true\` runs`);
+    const resumes = Object.hasOwn(ti, 'scriptPath') || Object.hasOwn(ti, 'resumeFromRunId');
+    if (!resumes && ti.name === ALTITUDE_SAFE_WORKFLOW && isPlainObject(ti.args) && ti.args.altitudeSafe === true) return null;
+    return denyReason('Workflow', `only \`${ALTITUDE_SAFE_WORKFLOW}\` with an object \`args\` carrying \`altitudeSafe: true\` runs, and never with a \`scriptPath\` or \`resumeFromRunId\` (a resume goes to the coordinator)`);
   }
   const mcp = typeof tool === 'string' ? MCP_NAME.exec(tool) : null;
   if (mcp !== null) {
+    if (mcp[1] === 'config') return denyReason(tool, 'config returns rules and config documents');
+    if (mcp[1] === 'runs_read') {
+      const ti = toolInputOf(input);
+      if (ti.describe === true || (typeof ti.select === 'string' && DIRECTOR_RUNS_READ_SELECTS.includes(ti.select))) return null;
+      return denyReason(tool, `only the ${DIRECTOR_RUNS_READ_SELECTS.map((e) => `\`${e}\``).join(', ')} selects run`);
+    }
     if (mcp[1] === 'items_read') {
       const ti = toolInputOf(input);
       if (ti.describe === true || (typeof ti.select === 'string' && DIRECTOR_ITEMS_READ_SELECTS.includes(ti.select))) return null;
       return denyReason(tool, `only the ${DIRECTOR_ITEMS_READ_SELECTS.map((e) => `\`${e}\``).join(', ')} selects run`);
     }
     return denyReason(tool, 'a read that can return a note or document body');
+  }
+  if (typeof tool === 'string' && tool.startsWith('mcp__') && !tool.includes(HOST_TOKEN)) {
+    const bare = tool.slice(tool.lastIndexOf('__') + 2);
+    if (DIRECTOR_HOST_MCP_ALLOW.includes(bare)) return null;
+    return denyReason(tool, 'a host MCP tool can read files, a shell or a screen; only the session and desktop UI tools run');
   }
   return null;
 }

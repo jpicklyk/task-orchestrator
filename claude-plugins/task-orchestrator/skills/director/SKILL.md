@@ -13,7 +13,7 @@ bodies; coordinators and background agents do that and report back.
 
 Calling this skill entered director mode. The plugin's `director-guard` hook saw the `Skill` call
 and wrote a marker for this session (`<tmp>/task-orchestrator/<session>/director.json`). While the
-marker exists, the guard enforces the altitude rule below on the tools it matches in this session (the built-in file and shell tools, foreground dispatch, and three reads on the orchestration connection); it does not see other MCP servers or the web tools.
+marker exists, the guard enforces the altitude rule below on the tools it matches in this session: the built-in file, shell, web (`WebFetch`, `WebSearch`) and MCP-resource tools, foreground dispatch, `Skill` and `Workflow`, the reads on the orchestration connection, and every host MCP tool (terminal, file store, computer use and the like), which is denied unless it is `start_session`, `send_message` or a desktop UI tool (`update_plan`, `wrap_up`, `mark_chapter`).
 Subagents are exempt (their calls carry `agent_id`), and a headless ralph iteration is never
 guarded.
 
@@ -83,9 +83,12 @@ on. Confirm they are in your tool list; do not edit `.mcp.json` from here.
 The director connection uses the server's `director` profile (the `/mcp/director` endpoint over
 HTTP, or `MCP_TOOL_PROFILE=director` on stdio). That profile has no note-body read at all, so on
 that connection the server enforces the rule. In a normal session the orchestration connection
-stays registered, and the guard enforces the rule there too: `notes_read` and `docs_read` are denied,
-and `items_read` is allowed only with the `get`, `list`, `overview` and `blocked` selects (or
-`describe: true`). Other tools on that connection are not covered. Use the hardened entry (below)
+stays registered, and the guard enforces the rule there too: `config`, `notes_read` and `docs_read` are denied,
+`items_read` is allowed only with the `get`, `list`, `overview` and `blocked` selects, and `runs_read` only with
+`get`, `list`, `frontier`, `decisions` and `decision` (both also with `describe: true`). `Skill` runs only the director
+skill and `task-orchestrator:model-effort`; another skill needs `/task-orchestrator:director off`. The limit: the guard
+recognises the orchestration connection by `task-orchestrator` in its server key, so a server registered under a key
+without that word is treated as a host server and denied outright under the marker. Use the hardened entry (below)
 when enforcement matters.
 
 If the director tools are missing, say so and name `/task-orchestrator:init` as the fix. Until
