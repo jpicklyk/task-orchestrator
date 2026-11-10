@@ -24,7 +24,7 @@ test('S13: FIELD_ORDER, TAIL_ORDER, STRUCTURED_RE match the frozen declaration',
     'adapter', 'run', 'seats', 'model', 'isolation', 'agents', 'tokens', 'duration',
     'deferred', 'in-run-edges', 'orchestrator-turns',
   ])
-  assert.deepEqual(TAIL_ORDER, ['substituted', 'model-source', 'journal', 'efforts', 'effort-source', 'effort-substituted'])
+  assert.deepEqual(TAIL_ORDER, ['substituted', 'model-source', 'journal', 'efforts', 'effort-source', 'effort-substituted', 'meters', 'seat-meters'])
   assert.equal(STRUCTURED_RE.source, '^adapter=\\S+( [a-z-]+=\\S+)+$')
 })
 
@@ -317,4 +317,52 @@ test('S16: a line without server-run parses to no extra key for it (absent is no
   const line = 'adapter=claude-workflow run=r-1 seats=planner:opus model=opus isolation=worktree:/wt agents=1 tokens=1 duration=1 deferred=0 in-run-edges=0 orchestrator-turns=1'
   const fields = parseProvenance(line)
   assert.equal(fields.extra === undefined || !('server-run' in fields.extra), true)
+})
+
+// ── 4.0.1: meters / seat-meters tails and six-field extra-seats rows ────────────────────────────
+
+test('meters/seat-meters: the tails render after effort-substituted and round-trip', () => {
+  const base = { adapter: 'claude-agent', run: 'r-1', seats: [{ seat: 'planner', model: 'opus' }, { seat: 'implementer', model: 'sonnet' }], model: 'sonnet', isolation: 'worktree:/wt', agents: 2, tokens: 17, duration: 'unknown', deferred: 0, inRunEdges: 0, orchestratorTurns: 1 }
+  const line = formatProvenance({
+    ...base,
+    efforts: [{ seat: 'planner', effort: 'high' }],
+    meters: { input: 3, cacheWrite: 10, cacheRead: 400, output: 4 },
+    seatMeters: [{ seat: 'planner', meters: { input: 1, cacheWrite: 4, cacheRead: 100, output: 2 } }, { seat: 'implementer', meters: { input: 2, cacheWrite: 6, cacheRead: 300, output: 2 } }],
+    extra: { 'server-run': SERVER_RUN_UUID },
+  })
+  assert.ok(line.includes(' efforts=planner:high meters=3/10/400/4 seat-meters=planner:1/4/100/2,implementer:2/6/300/2 server-run='), line)
+  const f = parseProvenance(line)
+  assert.deepEqual(f.meters, { input: 3, cacheWrite: 10, cacheRead: 400, output: 4 })
+  assert.deepEqual(f.seatMeters[1], { seat: 'implementer', meters: { input: 2, cacheWrite: 6, cacheRead: 300, output: 2 } })
+  assert.equal(formatProvenance(f), line)
+})
+
+test('meters/seat-meters: unknown meters and an unmetered seat round-trip as unknown', () => {
+  const line = 'adapter=claude-agent run=r-1 seats=planner:opus,implementer:sonnet model=sonnet isolation=worktree:/wt agents=2 tokens=unknown duration=unknown deferred=0 in-run-edges=0 orchestrator-turns=1 meters=unknown seat-meters=planner:1/2/3/4,implementer:unknown'
+  const f = parseProvenance(line)
+  assert.equal(f.meters, 'unknown')
+  assert.equal(f.seatMeters[1].meters, 'unknown')
+  assert.equal(formatProvenance(f), line)
+})
+
+test('meters/seat-meters: a line without seats carries neither tail when the fields omit them', () => {
+  const line = formatProvenance({ adapter: 'claude-agent', run: 'r-1', seats: [], model: 'unknown', isolation: 'worktree:/wt', agents: 0, tokens: 'unknown', duration: 'unknown', deferred: 0, inRunEdges: 0, orchestratorTurns: 0 })
+  assert.ok(!line.includes('meters='))
+})
+
+test('extra-seats: a row with meters has six fields and round-trips; a model id with a colon still parses', () => {
+  const list = [
+    { seat: 'reviewer-a1', model: 'opus', tokens: 14, effort: 'high', cause: 'review-fail', meters: { input: 4, cacheWrite: 6, cacheRead: 90, output: 4 } },
+    { seat: 'planner-a1', model: 'claude:x', tokens: 'unknown', effort: 'unknown', cause: 'unknown', meters: { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 } },
+  ]
+  const text = formatExtraSeats(list)
+  assert.equal(text, 'extra-seats=reviewer-a1:opus:14:high:review-fail:4/6/90/4,planner-a1:claude:x:unknown:unknown:unknown:0/0/0/0')
+  assert.deepEqual(parseExtraSeats('x\n' + text), list)
+})
+
+test('extra-seats: a metered row never drops to five fields; an unmetered row keeps the five- and three-field forms', () => {
+  assert.equal(formatExtraSeats([{ seat: 's-a1', model: 'm', tokens: 1, meters: { input: 1, cacheWrite: 0, cacheRead: 0, output: 0 } }]), 'extra-seats=s-a1:m:1:unknown:unknown:1/0/0/0')
+  assert.equal(formatExtraSeats([{ seat: 's-a1', model: 'm', tokens: 'unknown', effort: 'high' }]), 'extra-seats=s-a1:m:unknown:high:unknown')
+  assert.equal(formatExtraSeats([{ seat: 's-a1', model: 'm' }]), 'extra-seats=s-a1:m:unknown')
+  assert.deepEqual(parseExtraSeats('x\nextra-seats=s-a1:m:5:high:cause'), [{ seat: 's-a1', model: 'm', tokens: 5, effort: 'high', cause: 'cause' }])
 })

@@ -922,43 +922,81 @@ function twoItemProvenance(runId) {
   return { doc, a, b, result }
 }
 
-test('P5 AC1: run-level usage is written once on the first item, see:<short> on the rest', () => {
+const U = (input, cacheWrite, cacheRead, output) => ({ input, cacheWrite, cacheRead, output, tokens: input + cacheWrite + output })
+
+test('meters: each item line carries its own non-cached tokens, meters and seat-meters, never see:', () => {
   const { doc, a, b, result } = twoItemProvenance('r-test-0101')
-  const lines = provenance({ core: realCore(), doc, result, method: 'A', turns: 1, usage: { tokens: 1000, duration: 60 } })
-  assert.match(lines[a.id], /\btokens=1000 duration=60\b/)
-  assert.match(lines[b.id], /\btokens=see:aaaaaaaa duration=see:aaaaaaaa\b/)
+  const meta = { 'implementer:aaaaaaaa': { model: 'sonnet', usage: U(1, 2, 300, 4) }, 'implementer:bbbbbbbb': { model: 'sonnet', usage: U(10, 20, 3000, 40) } }
+  const warnings = []
+  const lines = provenance({ core: realCore(), doc, result, method: 'A', turns: 1, meta, warnings })
+  assert.match(lines[a.id], /\btokens=7 duration=unknown\b/)
+  assert.match(lines[a.id], / meters=1\/2\/300\/4 seat-meters=implementer:1\/2\/300\/4( |$)/)
+  assert.match(lines[b.id], /\btokens=70 duration=unknown\b/)
+  assert.match(lines[b.id], / meters=10\/20\/3000\/40 seat-meters=implementer:10\/20\/3000\/40( |$)/)
+  for (const id of [a.id, b.id]) assert.equal(lines[id].includes('see:'), false)
+  assert.deepEqual(warnings, [])
 })
 
-test('P5 AC2: usage.items[short] overrides the run-level value for a non-first item', () => {
-  const { doc, b, result } = twoItemProvenance('r-test-0102')
-  const usage = { tokens: 1000, duration: 60, items: { bbbbbbbb: { tokens: 7, duration: 8 } } }
-  const lines = provenance({ core: realCore(), doc, result, method: 'A', turns: 1, usage })
-  assert.match(lines[b.id], /\btokens=7 duration=8\b/)
+test('meters: tokens sums input + cache write + output and leaves cache read out', () => {
+  const { doc, a, result } = twoItemProvenance('r-test-0102')
+  const meta = { 'implementer:aaaaaaaa': { model: 'sonnet', usage: U(1, 2, 999999, 4) } }
+  const line = provenance({ core: realCore(), doc, result, method: 'A', turns: 1, meta })[a.id]
+  assert.match(line, /\btokens=7\b/)
 })
 
-test('P5 AC3: no usage keeps tokens/duration unknown on every item', () => {
+test('meters: a seat missing from meta reads unknown, is named in a warning and never counts as zero', () => {
   const { doc, a, b, result } = twoItemProvenance('r-test-0103')
-  const lines = provenance({ core: realCore(), doc, result, method: 'B', turns: 1 })
-  for (const id of [a.id, b.id]) assert.match(lines[id], /\btokens=unknown duration=unknown\b/)
+  const meta = { 'implementer:aaaaaaaa': { model: 'sonnet', usage: U(1, 2, 3, 4) } }
+  const warnings = []
+  const lines = provenance({ core: realCore(), doc, result, method: 'B', turns: 1, meta, warnings })
+  assert.match(lines[a.id], /\btokens=7\b/)
+  assert.match(lines[b.id], /\btokens=unknown duration=unknown\b/)
+  assert.match(lines[b.id], / meters=unknown seat-meters=implementer:unknown( |$)/)
+  assert.deepEqual(warnings, ['provenance: bbbbbbbb seat implementer has no transcript meters (a gap, not zero)'])
 })
 
-test('P5: tokens-only usage gives duration=unknown on every item', () => {
-  const { doc, a, b, result } = twoItemProvenance('r-test-0104')
-  const lines = provenance({ core: realCore(), doc, result, method: 'A', turns: 1, usage: { tokens: 5 } })
-  assert.match(lines[a.id], /\btokens=5 duration=unknown\b/)
-  assert.match(lines[b.id], /\btokens=see:aaaaaaaa duration=unknown\b/)
+test('meters: with two seats one unmetered seat makes tokens and meters unknown but keeps the metered seat in seat-meters', () => {
+  const { doc, item, result } = provenanceFixture('r-test-0104')
+  const stagesOut = result.items[0].stages
+  assert.ok(stagesOut.length >= 2, 'fixture has at least two seats')
+  const first = stagesOut[0].seat
+  const meta = { [`${first}:${item.short}`]: { model: 'sonnet', usage: U(1, 1, 1, 1) } }
+  const line = provenance({ core: realCore(), doc, result, method: 'A', turns: 1, meta })[item.id]
+  assert.match(line, /\btokens=unknown\b/)
+  assert.match(line, / meters=unknown seat-meters=/)
+  assert.ok(line.includes(`${first}:1/1/1/1`), line)
+  assert.ok(line.includes(':unknown'), line)
 })
 
-test('P5 AC6: extraSeats with a single item appends the extra-seats line; without an item it throws', () => {
+test('P5 AC6: extraSeats with a single item appends the six-field extra-seats line from meta; without an item it throws', () => {
   const { doc, a, result } = twoItemProvenance('r-test-0105')
-  const extraSeats = [{ seat: 'reviewer-a1', model: 'opus', tokens: 359000 }, { seat: 'planner-a1', model: 'opus', tokens: 'unknown' }]
-  const out = provenance({ core: realCore(), doc, result, method: 'A', turns: 1, extraSeats, item: 'aaaaaaaa' })
+  const extraSeats = [{ seat: 'reviewer-a1', model: 'opus' }, { seat: 'planner-a1', model: 'opus' }]
+  const meta = { 'reviewer-a1:aaaaaaaa': { model: 'opus', usage: U(4, 6, 90, 4) } }
+  const warnings = []
+  const out = provenance({ core: realCore(), doc, result, method: 'A', turns: 1, meta, extraSeats, item: 'aaaaaaaa', warnings })
   assert.deepEqual(Object.keys(out), [a.id])
   const [l1, l2, ...rest] = out[a.id].split('\n')
   assert.match(l1, /^adapter=claude-workflow /)
-  assert.equal(l2, 'extra-seats=reviewer-a1:opus:359000,planner-a1:opus:unknown')
+  assert.equal(l2, 'extra-seats=reviewer-a1:opus:14:unknown:unknown:4/6/90/4,planner-a1:opus:unknown')
   assert.equal(rest.length, 0)
+  assert.ok(warnings.includes('provenance: aaaaaaaa seat planner-a1 has no transcript meters (a gap, not zero)'), warnings.join('|'))
   assert.throws(() => provenance({ core: realCore(), doc, result, method: 'A', turns: 1, extraSeats }), /--item/)
+})
+
+test('meters: a flag tokens number is ignored with a warning; the flag model still wins and the meta meters decide', () => {
+  const { doc, a, result } = twoItemProvenance('r-test-0106')
+  const extraSeats = [{ seat: 'reviewer-a1', model: 'opus', tokens: 359000 }]
+  const meta = { 'reviewer-a1:aaaaaaaa': { model: 'sonnet', usage: U(1, 1, 1, 1) } }
+  const warnings = []
+  const out = provenance({ core: realCore(), doc, result, method: 'A', turns: 1, meta, extraSeats, item: 'aaaaaaaa', warnings })
+  assert.equal(out[a.id].split('\n')[1], 'extra-seats=reviewer-a1:opus:3:unknown:unknown:1/1/1/1')
+  assert.ok(warnings.includes('provenance: aaaaaaaa seat reviewer-a1 tokens 359000 ignored; transcript meters are the only source'), warnings.join('|'))
+})
+
+test('meters: a flag tokens number with no meta meters reads unknown (never the flag figure)', () => {
+  const { doc, a, result } = twoItemProvenance('r-test-0107')
+  const out = provenance({ core: realCore(), doc, result, method: 'A', turns: 1, extraSeats: [{ seat: 'reviewer-a1', model: 'opus', tokens: 359000 }], item: 'aaaaaaaa' })
+  assert.equal(out[a.id].split('\n')[1], 'extra-seats=reviewer-a1:opus:unknown')
 })
 
 // ── S14: CLI rows / exit codes ───────────────────────────────────────────────────────────────

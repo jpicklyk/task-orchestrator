@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { planFixture, itemFixture, stages } from './workflow-harness.mjs'
 import { loadWaveCore } from '../lib/wave-core.mjs'
 import * as execLib from '../run-exec-lib.mjs'
-import { formatExtraSeats, parseExtraSeats, fixCycleTokenWarnings } from '../provenance-lib.mjs'
+import { formatExtraSeats, parseExtraSeats } from '../provenance-lib.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const RUN_PLANNER = join(HERE, '..', 'run-planner.mjs')
@@ -201,17 +201,6 @@ test('AC2: a five-field row round-trips and an old three-field row parses with e
   assert.equal(formatExtraSeats([{ seat: 'x-a1', model: 'opus', tokens: 1, cause: 'breach' }]), 'extra-seats=x-a1:opus:1:unknown:breach')
 })
 
-test('AC2: fixCycleTokenWarnings names only fix-cycle rows with unknown tokens', () => {
-  const w = fixCycleTokenWarnings([
-    { seat: 'implementer-a1', tokens: 'unknown' },
-    { seat: 'implementer-a2', tokens: 50 },
-    { seat: 'reviewer', tokens: 'unknown' },
-    { seat: 'test-author-a1' },
-  ])
-  assert.equal(w.length, 2)
-  assert.ok(w[0].includes('implementer-a1') && w[1].includes('test-author-a1'), JSON.stringify(w))
-})
-
 function provenanceDoc() {
   const item = itemFixture({
     short: SHORT,
@@ -234,22 +223,26 @@ function provenanceDoc() {
   return { doc, result, item }
 }
 
-test('AC2: provenance carries ledger effort and cause, fills unknown tokens from the transcript total, and warns on the rest', () => {
+test('AC2: provenance carries ledger effort and cause, takes tokens and meters only from the transcript, and warns on every gap', () => {
   const { doc, result, item } = provenanceDoc()
   const warnings = []
-  const meta = { [`implementer-a1:${SHORT}`]: { model: 'sonnet', usage: { input: 1, cacheWrite: 2, cacheRead: 3, output: 4, total: 10 } } }
+  const meta = { [`implementer-a1:${SHORT}`]: { model: 'sonnet', usage: { input: 1, cacheWrite: 2, cacheRead: 3, output: 4, tokens: 7 } } }
   const extraSeats = [{ seat: 'reviewer-a1', model: 'opus', tokens: 99 }]
   const out = execLib.provenance({ core, doc, result, method: 'A', turns: 1, meta, extraSeats, item: SHORT, warnings })
   const line2 = out[item.id].split('\n')[1]
-  assert.equal(line2, 'extra-seats=implementer-a1:sonnet:10:high:review,implementer-a2:sonnet:unknown:xhigh:review,reviewer-a1:opus:99')
-  assert.equal(warnings.length, 1)
-  assert.ok(warnings[0].includes('implementer-a2'), warnings[0])
+  assert.equal(line2, 'extra-seats=implementer-a1:sonnet:7:high:review:1/2/3/4,implementer-a2:sonnet:unknown:xhigh:review,reviewer-a1:opus:unknown')
+  assert.deepEqual(warnings, [
+    `provenance: ${SHORT} seat implementer has no transcript meters (a gap, not zero)`,
+    `provenance: ${SHORT} seat implementer-a2 has no transcript meters (a gap, not zero)`,
+    `provenance: ${SHORT} seat reviewer-a1 tokens 99 ignored; transcript meters are the only source`,
+    `provenance: ${SHORT} seat reviewer-a1 has no transcript meters (a gap, not zero)`,
+  ])
 })
 
-test('AC2: a flag row for a ledger seat takes the flag tokens and keeps the ledger effort and cause', () => {
+test('AC2: a flag row for a ledger seat takes the flag model, ignores its tokens and keeps the ledger effort and cause', () => {
   const { doc, result, item } = provenanceDoc()
   const out = execLib.provenance({ core, doc, result, method: 'A', turns: 1, extraSeats: [{ seat: 'implementer-a1', model: 'opus', tokens: 5 }], item: SHORT })
-  assert.ok(out[item.id].split('\n')[1].startsWith('extra-seats=implementer-a1:opus:5:high:review,'), out[item.id])
+  assert.ok(out[item.id].split('\n')[1].startsWith('extra-seats=implementer-a1:opus:unknown:high:review,'), out[item.id])
 })
 
 // ---- AC3: the transcript's four usage meters are summed per seat ---------------------------------
@@ -284,11 +277,11 @@ test('AC3: collectDispatchMeta sums input, cache write, cache read and output on
   const meta = execLib.collectDispatchMeta({ io: fakeIo(files), roots: ['/t'], labels: [`implementer:${SHORT}`] })
   const fix = meta[`implementer-a1:${SHORT}`]
   assert.ok(fix, 'a fix-cycle label of a wanted seat is matched: ' + JSON.stringify(Object.keys(meta)))
-  assert.deepEqual(fix.usage, { input: 15, cacheWrite: 200, cacheRead: 7000, output: 105, total: 7320 })
+  assert.deepEqual(fix.usage, { input: 15, cacheWrite: 200, cacheRead: 7000, output: 105, tokens: 320 })
   assert.equal(meta[`implementer:${SHORT}`].usage, undefined, 'no usage lines -> usage absent')
 })
 
 test('AC3: sumUsage treats a missing meter as zero', () => {
   assert.deepEqual(execLib.sumUsage([{ output_tokens: 3 }, null, { input_tokens: 2, cache_read_input_tokens: 'x' }]),
-    { input: 2, cacheWrite: 0, cacheRead: 0, output: 3, total: 5 })
+    { input: 2, cacheWrite: 0, cacheRead: 0, output: 3, tokens: 5 })
 })

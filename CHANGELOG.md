@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **run-wave: provenance records each seat's transcript meters instead of the run notification figure.** `run-planner provenance` now reads every seat's input, cache write, cache read and output meters from `dispatch-meta` for both methods and writes one measure on every line: `tokens` is the non-cached sum, with `meters=` and `seat-meters=` tails and six-field `extra-seats` rows carrying the four meters. `see:<short>` and the Workflow notification figure are gone, `duration` reads `unknown`, a seat without a transcript reads `unknown` with a stderr warning (never zero), `--usage` is ignored with a warning, and `dispatch-meta` also matches `planner-a<n>` and `reviewer-a<n>` labels. Notes written before this change still parse.
 - **run-wave: seats that own `implementation-notes` or `session-tracking` now receive the `closure-notes` rule.** The run planner derived a stage's rules only from the `skill:` of the notes it owns, and no note names `closure-notes`, so a generic workflow seat (no `dispatch.agent`) never got the rule. `deriveRulesSkills` now adds it once whenever the server serves it (#676).
 
 ## [4.0.0] - 2026-11-07
