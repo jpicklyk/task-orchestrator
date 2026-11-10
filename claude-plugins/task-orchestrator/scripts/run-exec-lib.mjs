@@ -1944,8 +1944,30 @@ function unwrapObject(value, depth = 0) {
 }
 
 /**
+ * runPausedError(value) -> the run_paused error object ({code, detail}) inside a saved runs_write
+ * answer, or null. Accepts a write answer (data.results[i].error or results[i].error), a top-level
+ * {error}, or a bare {code, detail}.
+ */
+export function runPausedError(value, depth = 0) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || depth > 4) return null
+  if (value.code === 'run_paused') return value
+  if (value.error && typeof value.error === 'object' && value.error.code === 'run_paused') return value.error
+  if (value.data && typeof value.data === 'object') {
+    const hit = runPausedError(value.data, depth + 1)
+    if (hit) return hit
+  }
+  if (Array.isArray(value.results)) {
+    for (const r of value.results) {
+      const hit = runPausedError(r, depth + 1)
+      if (hit) return hit
+    }
+  }
+  return null
+}
+
+/**
  * reportFields(doc, opts) -> the fields formatCoordinatorReport takes, built from ids, counts and
- * short reasons only. opts: {event, result, run, close, needs}. `result` is a result-v1, `run` a saved
+ * short reasons only. opts: {event, result, run, close, paused, needs}. `paused` is a saved run_paused answer. `result` is a result-v1, `run` a saved
  * runs_read get (or runs_write) answer, `close` a saved runs_write close answer.
  */
 export function reportFields(doc, opts = {}) {
@@ -1998,9 +2020,11 @@ export function reportFields(doc, opts = {}) {
     fields.counts.deferred = deferredPlan.length
   }
 
-  const pauseDecisionId = run.pauseDecisionId || (run.pause && run.pause.decisionId) || ''
+  const pausedErr = runPausedError(opts.paused)
+  const pausedDetail = pausedErr && pausedErr.detail && typeof pausedErr.detail === 'object' ? pausedErr.detail : {}
+  const pauseDecisionId = typeof pausedDetail.pauseDecisionId === 'string' ? pausedDetail.pauseDecisionId : ''
   if (run.status === 'paused' || event === 'paused') {
-    fields.pauseReason = run.pauseReason || ''
+    fields.pauseReason = pausedDetail.pauseReason || run.pauseReason || ''
     fields.pauseDecisionId = pauseDecisionId
     if (pauseDecisionId && !fields.decisions.some((d) => d.decisionId === pauseDecisionId)) {
       fields.decisions.push({ decisionId: pauseDecisionId, itemId: '' })
@@ -2011,8 +2035,7 @@ export function reportFields(doc, opts = {}) {
     fields.status = 'closed'
     fields.closeReason = snapshot.reason || close.terminalReason || close.reason || (result && result.started === true ? 'completed' : 'failed')
     const od = snapshot.openDecisions
-    fields.openDecisions = Array.isArray(od) ? od.map((d) => (d && typeof d === 'object' ? d.id || d.decisionId : d)) : []
-    if (!Array.isArray(od) && Number.isInteger(od)) fields.openDecisionCount = od
+    if (Number.isInteger(od) && od >= 0) fields.openDecisionCount = od
     fields.headline = `${fields.closeReason}; ${fields.counts.done} done, ${fields.counts.stopped} stopped`
   } else if (event === 'planned') {
     const admitted = (args.items || []).length
@@ -2638,11 +2661,17 @@ function execReport(argv, io) {
   const core = io.loadCore()
   let result = readJsonFlag(argv, io, '--result')
   if (result !== undefined) result = resolveResultDoc(core, doc, result)
+  const paused = readJsonFlag(argv, io, '--paused')
+  if (paused !== undefined && !runPausedError(paused)) {
+    io.fail(2, 'invalid args', `--paused ${flagValue(argv, '--paused')} carries no run_paused error`)
+    return
+  }
   const text = reportBlock(doc, {
     event: flagValue(argv, '--event'),
     result,
     run: readJsonFlag(argv, io, '--run'),
     close: readJsonFlag(argv, io, '--close'),
+    paused,
     needs: flagValue(argv, '--needs'),
   })
   io.writeOut(text)

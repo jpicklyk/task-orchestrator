@@ -69,9 +69,8 @@ exception is an atomic batch (`atomic: true`): it answers only the failing eleme
 
 | Answer | What to do |
 |---|---|
-| a success carrying `paused: {decisionId}` | the call landed and the run is now paused: stop assigning and launching and send a `paused` report (see Reporting) |
-| `run_paused {pauseReason, pauseDecisionId}` | never retry. Send a `paused` report (see Reporting). The run pauses on an `attempt-cap` decision, or on a manual pause. A director or a human answers an attempts decision (`allow_one`, `skip_item` or `stop`); it cannot be withdrawn, so answering it or closing the run is the only way out. A manual pause has no decision: a director or a human `resume`s it. A coordinator token can neither answer nor resume |
-| `run_at_capacity {active, max}` | transient: back off until a seat ends (`maxActiveSeats`), then re-send the same `assign`; no decision to answer (Method B; Method A: see Step 5a) |
+| `run_paused {pauseReason, pauseDecisionId}` | never retry. Save the answer as `paused.json` and send a `paused` report with `--paused paused.json` (see Reporting). The run pauses on an `attempt-cap` decision, or on a manual pause. A director or a human answers an attempts decision (`allow_one`, `skip_item` or `stop`); it cannot be withdrawn, so answering it or closing the run is the only way out. A manual pause has no decision: a director or a human `resume`s it. A coordinator token can neither answer nor resume |
+| `run_at_capacity {active, max}` | transient: back off until a seat ends (`maxActiveSeats`), then re-send the same `assign`; no decision to answer (Method B and every post-run reviewer assign; a Method A launch assign: see Step 5a) |
 | `unavailable` (kind shedding) | retry once after `retryAfterMs` |
 | `unauthenticated` "The seat token is not accepted." | the token is unknown, ended, superseded or the run closed: a seat stops (`seat-token-rejected`); a lost coordinator token means close and re-open |
 | `note_owned_by_other {ownerSeat}`, `seat_forbidden`, `not_claim_holder`, `decision_closed {decisionId, status}`, `forbidden` (`detail.required`), `not_found` (`detail.kind` `seat` or `decision`), `invalid_run_state`, `run_closed` | permanent: never retry unchanged; read `error.fix` |
@@ -87,10 +86,9 @@ never a reason to raise: see Stalled seats below. Answered decisions are resumed
 
 **Reporting.** A coordinator reports to the director (or shows the user, when none runs this skill) on
 exactly four events: `planned` (end of Step 5a; for a tier-2 coordinator, its return), `decision` (a
-stage stopped `awaiting_decision`, or this skill raised one), `paused` (`run_paused`, a
-`paused:{decisionId}` success, or a stalled seat whose re-assign hit the attempt cap) and `closed`
+stage stopped `awaiting_decision`, or this skill raised one), `paused` (`run_paused`, or a stalled seat whose re-assign hit the attempt cap) and `closed`
 (any close). Send only the block `node "<helper>" report --plan <plan.json> --event <e> [--result F]
-[--run F] [--close F] [--needs TEXT]` prints, never a hand-written one and never note text, diffs or a
+[--run F] [--close F] [--paused F] [--needs TEXT]` prints, never a hand-written one and never note text, diffs or a
 token. Contract, addressing and the brief: `skills/director/references/coordinator-tiers.md`. After
 `decision` or `paused`, wait for the answer; never answer a decision yourself.
 

@@ -73,7 +73,6 @@ Read `data.results[0]`:
 | `unblocked` | items that were waiting on this one |
 | `expectedNotes` | note keys the new phase expects; fill these next |
 | `dispatch` | the profile for `newRole` |
-| `paused` | `{decisionId}`: the transition landed and the run just paused on its budget. Stop dispatching into the run; a director or human answers the decision |
 
 A failed transition is `ok: false` with call-level `partial_failure`; the reason is `data.results[0].error.code`:
 

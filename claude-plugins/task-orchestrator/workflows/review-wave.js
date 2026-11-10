@@ -434,8 +434,7 @@ function promptResults() {
       'element"; an atomic batch (atomic: true) is the exception and answers the failing element\'s own error with error.index.',
     'ERRORS: retried: unavailable, once (CONFIG RETRY). Never retried: run_paused {pauseReason, pauseDecisionId} (a director or ' +
       'a human answers; return status "stopped", reason "run_paused"), note_owned_by_other {ownerSeat}, seat_forbidden, ' +
-      'not_claim_holder, decision_closed, forbidden, not_found. A success carrying paused:{decisionId} means the run paused: ' +
-      'write nothing more and return status "stopped", reason "run_paused".',
+      'not_claim_holder, decision_closed, forbidden, not_found.',
   ].join('\n')
 }
 

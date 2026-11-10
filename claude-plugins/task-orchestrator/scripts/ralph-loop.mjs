@@ -295,12 +295,6 @@ function sleep(ms) {
 async function op(tool, body, timeoutMs) {
     const res = await callOp(tool, body, { timeoutMs, baseUrl });
     const out = firstOpResult(res);
-    // A successful write that crossed a run limit carries paused:{decisionId}; the run is now paused.
-    const p = res && (res.paused || res.data?.paused || res.results?.[0]?.paused || res.data?.results?.[0]?.paused);
-    if (out.ok && p && typeof p === "object") {
-        out.paused = { decisionId: p.decisionId };
-        notePause({ decisionId: p.decisionId });
-    }
     return out;
 }
 const coordinatorCall = (tool, ops) => op(tool, { ops, seatToken: run.coordinatorToken }, WRITE_TIMEOUT_MS);

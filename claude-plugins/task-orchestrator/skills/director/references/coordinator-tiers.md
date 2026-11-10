@@ -88,11 +88,11 @@ A coordinator tells the director four things and nothing else. The director othe
 decision only from a manual refresh.
 
 - **When.** `planned` (end of run-wave Step 5a; the tier-2 coordinator's return), `decision` (a seat
-  stopped `awaiting_decision`, or the coordinator raised one), `paused` (`run_paused`, a
-  `paused:{decisionId}` success, or a stalled seat whose re-assign hit the attempt cap), `closed`
+  stopped `awaiting_decision`, or the coordinator raised one), `paused` (`run_paused`, or a
+  stalled seat whose re-assign hit the attempt cap), `closed`
   (any close: completed, failed, cancelled, abandoned, or closed elsewhere).
 - **What.** Only the output of `node scripts/run-planner.mjs report --plan <plan.json> --event
-  <planned|decision|paused|closed> [--result F] [--run F] [--close F] [--needs TEXT]`, or ralph's own
+  <planned|decision|paused|closed> [--result F] [--run F] [--close F] [--paused F] [--needs TEXT]`, or ralph's own
   block. It is a fixed plain-text block (`TO report: run <label> (<run8>) <event>: <headline>`, then
   `run:`, `decisions:`, `items:`, `stopped:`, `close:` and `needs:` lines) of ids cut to 8 hex,
   counts and reasons cut to 120 characters. Never hand-write it, and never send note text, diffs,

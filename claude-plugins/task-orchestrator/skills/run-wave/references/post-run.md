@@ -19,7 +19,7 @@ Read the local `<scratchpad>/run-wave/<runId>/plan.json` (bound: it carries `arg
 from state (Method B) to `<scratchpad>/run-wave/<runId>/result.json`. Any item with no envelope
 recorded at all — neither a successful `stage-result` nor a `stopped` marker — is treated as
 `stopped: "agent returned null"`. A result with `started: false` (or a launch that threw) means
-nothing ran: skip to Step 7 and close the run `failed`. Record the phase `notified`. Orchestrator post-run scripts write new, run-scoped file names and never write over a seat's artifact; run-planner's `--out <path>` refuses a launched run's existing files unless `--force`; a shell redirect (`> plan.json`) bypasses that guard, so write over a launched run's files only through `--out`.
+nothing ran: skip to Step 7 and close the run `failed`. Record the phase `notified`; a paused run answers that phase update `run_paused`: save the answer as `paused.json`. Orchestrator post-run scripts write new, run-scoped file names and never write over a seat's artifact; run-planner's `--out <path>` refuses a launched run's existing files unless `--force`; a shell redirect (`> plan.json`) bypasses that guard, so write over a launched run's files only through `--out`.
 
 An altitude-safe result (`altitudeSafe: true`, from a plan made with `--altitude-safe`) is saved and
 verified the same way: it keeps `items[].stages` (status, commits, files, note keys) and the file
@@ -33,7 +33,7 @@ test-author reseat `--declarations`.
 
 `runs_read(select:"get", runId:<serverRunId>)` shows the run's status: a `paused` run (`pauseReason`
 attempts or manual) is reported now: send one `paused` report (`report --event paused
---run <run.json>`, with `runs_read` `get` saved as `run.json`), and one `decision` report for the
+--run <run.json> --paused <paused.json>`, with `runs_read` `get` saved as `run.json` and the `run_paused` answer as `paused.json`, which names the pause decision), and one `decision` report for the
 stages stopped `awaiting_decision` (their `decisionId`s are in `result.json`). Post-run work that
 needs no new seat continues, and the run closes as usual.
 
@@ -308,7 +308,7 @@ post-run.
 
 **Otherwise**, per advanced item that entered a review phase: on a bound run, first assign its
 reviewer lane like any schema seat (a seat-less item whose schema has a review-role note takes `reviewer` too) — `node "<helper>" run-ops --plan <plan> --phase assign --item
-<short> --seat reviewer`, sent under the coordinator token, the `seatToken` written to the rendered
+<short> --seat reviewer`, sent under the coordinator token (`run_at_capacity` is a plain back-off: wait for a reviewer to end its seat, then re-send the assign), the `seatToken` written to the rendered
 token file (a token-less write to a seat-owned key of a run member is `note_owned_by_other`). Then
 `node "<helper>" review-prompt --plan <scratchpad>/run-wave/<runId>/plan.json --item <short>
 --result <scratchpad>/run-wave/<runId>/result.json` — **always pass `--result`**; without it the
@@ -322,7 +322,7 @@ token file, and its lanes never end their seat, so run Step 0b's sweep again bef
 
 **Review wave launch.** When this post-run actor has the `Workflow` tool (re-probe F1: a background
 subagent may lack it) and the run is bound, assign each reviewer seat once (`run-ops --phase assign
---item <short> --seat reviewer`, token file written as above), then `node "<helper>" review-args
+--item <short> --seat reviewer`, token file written as above; on `run_at_capacity`, launch over the items already assigned, run Step 0b's sweep, then assign the rest and launch again), then `node "<helper>" review-args
 --plan <plan.json> --snapshot <scratchpad>/run-wave/<runId>/snapshot.json --result <result.json>
 --items <short,short,...>` prints the `review-wave/args-v1` object (lanes are the item's review-role
 notes grouped by seat and skill; exit 2 names an item with no review notes). Call

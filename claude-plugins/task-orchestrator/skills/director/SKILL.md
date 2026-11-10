@@ -72,7 +72,7 @@ Run control: `pause` stops an open run (a manual pause, with no decision); `resu
 manual pause. A run paused on an `attempt-cap` decision is lifted only by answering
 that decision (`allow_one`, `skip_item`, `stop`) or by `close`; `resume` on it answers
 `invalid_run_state`. `close` ends a run whatever its pause; a `completed` close is refused while a
-seat is still active, and a close leaves open decisions open (its result lists `openDecisions`).
+seat is still active, and a close leaves open decisions open (its snapshot's `openDecisions` is the number still open).
 
 ## Connection check
 
@@ -203,7 +203,7 @@ An attempt-cap decision is answered with these options:
 Before answering, check the class: `answerers: human-only` cannot be answered from this session
 (`forbidden`, `principal_kind` `human`). `ack` marks a decision seen but deferred; it does not answer it.
 
-`text` carries a free-form answer and `amount` a numeric one, when the decision asks for them.
+`text` carries a free-form answer, when the decision asks for one.
 On `forbidden`, read `error.detail.scope` and `required`, say which, and stop:
 
 - `scope: "capability"`, `required: "decide"`: the director credential lacks the `decide`
