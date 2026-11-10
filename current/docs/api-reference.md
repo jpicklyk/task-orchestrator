@@ -1237,10 +1237,10 @@ key with another payload is `idempotency_mismatch`. All ops need the `advance` c
 
 | Op | Result element (on top of `ok: true`) |
 |---|---|
-| `transition` | `{itemId, previousRole, newRole, trigger, statusLabel?, cascades?, unblocked?, expectedNotes?, guidanceKey?, skillPointer?, dispatch?, violations?, paused?}` |
+| `transition` | `{itemId, previousRole, newRole, trigger, statusLabel?, cascades?, unblocked?, expectedNotes?, guidanceKey?, skillPointer?, dispatch?, violations?}` |
 | `claim` | `{itemId, claimed: true, version, claimedAt, expiresAt, originalClaimedAt, released?, refreshed?, selected?, claimRef?, displaced?}` |
 | `release` | `{itemId, released: true}` |
-| `heartbeat` | `{itemId, claimed: true, version, claimedAt, expiresAt, originalClaimedAt, released?, refreshed: true, paused?}` |
+| `heartbeat` | `{itemId, claimed: true, version, claimedAt, expiresAt, originalClaimedAt, released?, refreshed: true}` |
 
 `itemId` is a UUID or a dash-free hex prefix of 8 to 32 characters (`not_found` when nothing matches, `ambiguous_id` with the
 candidate ids when several do).
@@ -1398,13 +1398,12 @@ Errors: `ambiguous_id`, `claim_held`, `forbidden`, `idempotency_mismatch`, `inte
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_claim_holder`, `not_found`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`
 
-**`advance` op `heartbeat`** (orchestration profile only; capability `advance`): Extend the active claim the calling actor holds on an item. Never takes an item: not_claim_holder unless the caller holds it. usage needs a seat token.
+**`advance` op `heartbeat`** (orchestration profile only; capability `advance`): Extend the active claim the calling actor holds on an item. Never takes an item: not_claim_holder unless the caller holds it.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `itemId` | string | yes | Item id: a UUID or a dash-free hex prefix of 8 to 32 characters. |
 | `ttlSeconds` | integer | no | Claim lifetime in seconds, 1 to 86400; default 900. |
-| `usage` | object | no | Absolute spend so far for the calling seat, {tokens, costUsd}; the highest reported value is kept. |
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_claim_holder`, `not_found`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`
 <!-- /generated:tool advance -->
@@ -1967,7 +1966,7 @@ both on `/runId`. `anchorId` resolves like any item id (a hex prefix of 8 to 32 
   from the subtree's first event to its last event plus 1 ms; a span longer than 31 days is cut to the 31 days ending
   there and `window.clamped: true` is set; a subtree with no event gets the last 7 days.
 - **Not on an anchor.** `run`, `blocked.byReason`, `blocked.resumable`, `blocked.dwellMs`, `decisions`, `seats`,
-  `attempts` and `budget` are run-only sections and are absent.
+  and `attempts` are run-only sections and are absent.
 
 **`rollup` (run).** `runId` rolls up one whole run. It resolves like `runs_read` `get` (a full UUID, or a hex prefix of
 8 to 32 characters; unrestricted: unknown `not_found`, several matches `ambiguous_id`; under a restricted scope an
@@ -1993,9 +1992,9 @@ unknown run or a run of another root is `forbidden`, never `not_found`). A call 
   reads one step more urgent). `seats.active` counts the run's active member seats (the coordinator excluded),
   `seats.stalled` lists at most 5 of those stalled under the run's `stallAfterSeconds` (silent longest first, then item
   id, then seat) and `seats.count` is the true number. `attempts` counts every member-seat assignment, ended ones
-  included (`total`), and the highest attempt (`max`). `budget` is the run's token budget from the run row: `used` is
-  the larger of the reported and the observed tokens, `limit` the pinned `budget.tokens` (absent when none), `basis:
-  "enforced"`, `breaches` the number of `run-budget` decisions the run raised (any status) and `extends` how many of them were answered `extend` (both omitted when zero); the cost budget stays in `runs_read` `get`.
+  included (`total`), and the highest attempt (`max`). There is no `budget` section: token and cost budgets were
+  removed in 4.0.1, and a snapshot stored by 4.0.0 with one still reads (the section is dropped). The run's observed
+  tokens stay in `runs_read` `get` as `usage.observedTokens`.
 - **Closed runs.** Every close (any terminal reason, the decision `stop` included) stores the rollup it computes at
   that moment in the `run.ended` event (`data.rollup`). A closed run answers that snapshot, so the figures survive
   event and call-log retention and ignore calls logged after the close; a run closed before the snapshot existed is
@@ -2086,7 +2085,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
-**`report` select `rollup`** (director profile only; capability `read`): Exactly one of anchorId and runId. anchorId: one subtree (the item and every descendant, any depth). itemCounts: total and byRole (current state; lifecycle-free items not counted, zero roles omitted); blocked.total (blocked role); transitions {total, cascades, rejected} and notes.written (note upserts; an upsert of a since-deleted note is not counted) from subtree events in [since, until); cost {calls, errors, retries, responseBytes, responseTokensEst, basis: targets}: the distinct calls in the window that named a subtree item (target_ids, at most 50 ids per call) or wrote one of its events, a lower bound. Default window: the first to the last subtree event (until = last + 1 ms), clamped to the last 31 days of that span (window.clamped); the last 7 days when the subtree has none. An explicit window is at most 31 days (until defaults to now, since to until minus 7 days). runId: the whole run (since and until are refused); window is openedAt to closedAt or now. itemCounts and blocked cover the current members; blocked adds byReason, resumable (awaiting_decision items whose decision no longer waits) and dwellMs (blocked time per reason in the window); transitions and notes count the events stamped with the run, cost {basis: run} the calls stamped with it (a lower bound). Adds run {status, terminalReason, openedAt, closedAt}, decisions {open, byClass, bySeverity (overdue reads one step up)}, seats {active, stalled (at most 5, silent longest first), count}, attempts {total, max} and budget {used, limit, basis: enforced, breaches, extends} (tokens, from the run row; breaches counts its run-budget decisions, extends those answered extend, both omitted when zero). A closed run answers the snapshot stored at close. resumable and dwellMs are omitted when zero or empty. Ids are 8-character short ids. A tag-scoped credential is forbidden; a root-scoped one counts only calls of its roots (anchorId) or sees only runs of its roots (runId).
+**`report` select `rollup`** (director profile only; capability `read`): Exactly one of anchorId and runId. anchorId: one subtree (the item and every descendant, any depth). itemCounts: total and byRole (current state; lifecycle-free items not counted, zero roles omitted); blocked.total (blocked role); transitions {total, cascades, rejected} and notes.written (note upserts; an upsert of a since-deleted note is not counted) from subtree events in [since, until); cost {calls, errors, retries, responseBytes, responseTokensEst, basis: targets}: the distinct calls in the window that named a subtree item (target_ids, at most 50 ids per call) or wrote one of its events, a lower bound. Default window: the first to the last subtree event (until = last + 1 ms), clamped to the last 31 days of that span (window.clamped); the last 7 days when the subtree has none. An explicit window is at most 31 days (until defaults to now, since to until minus 7 days). runId: the whole run (since and until are refused); window is openedAt to closedAt or now. itemCounts and blocked cover the current members; blocked adds byReason, resumable (awaiting_decision items whose decision no longer waits) and dwellMs (blocked time per reason in the window); transitions and notes count the events stamped with the run, cost {basis: run} the calls stamped with it (a lower bound). Adds run {status, terminalReason, openedAt, closedAt}, decisions {open, byClass, bySeverity (overdue reads one step up)}, seats {active, stalled (at most 5, silent longest first), count} and attempts {total, max}. A closed run answers the snapshot stored at close. resumable and dwellMs are omitted when zero or empty. Ids are 8-character short ids. A tag-scoped credential is forbidden; a root-scoped one counts only calls of its roots (anchorId) or sees only runs of its roots (runId).
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2116,9 +2115,10 @@ then id), `seats` (orchestration only), `frontier` (below), and `decisions` and 
 
 **The run view** (every `runs_read` and `runs_write` result): `{runId, rootId, scopeId?, label?, title?, status,
 pauseReason?, terminalReason?, openedBy?, openedByKind?, openedAt, closedBy?, closedAt?, coordinatorSeenAt?,
-coordinatorStalled, stallAfterSeconds, budget?: {tokens?, costUsd?, attemptsPerSeat?, maxActiveSeats?}, usage:
-{reportedTokens, reportedCostUsd, observedTokens}, hints, marks, members, activeSeats, stalledSeats, version}`. Absent
-members are omitted, never `null`; the cost is `costUsd` (US dollars), never micro-USD. `activeSeats` counts the active
+coordinatorStalled, stallAfterSeconds, budget?: {attemptsPerSeat?, maxActiveSeats?}, usage: {observedTokens},
+hints, marks, members, activeSeats, stalledSeats, version}`. Absent members are omitted, never `null`;
+`usage.observedTokens` is the server's own estimate of the run's call-log response tokens and enforces nothing (the
+4.0.0 token and cost budgets and the agent-reported usage were removed in 4.0.1). `activeSeats` counts the active
 member seats (never the coordinator) and `stalledSeats` those of them that are stalled. Under a restricted scope,
 `members`, `activeSeats` and `stalledSeats` count only the members and seats the caller's scope can see.
 
@@ -2255,7 +2255,7 @@ are served by the director profile, and REST `POST /api/v1/ops/runs_write` serve
 `ack` uses the same answerer check as `answer`; an acknowledged decision is returned unchanged by a second `ack`. An answer
 is final and immutable: a later `ack`, `answer` or `withdraw` of an answered or withdrawn decision is `decision_closed`,
 checked after the permission. `withdraw` is allowed for the raiser (the same principal and seat) or the coordinator token of
-the decision's run. The decisions the server raises for a limit (`run-budget`, `attempt-cap`) are never withdrawable; they stay
+the decision's run. The decisions the server raises for a limit (`attempt-cap`, and a `run-budget` left by 4.0.0, which is never raised again) are never withdrawable; they stay
 pending until answered; closing the run is the other way out of the pause (the decision stays pending and is recorded in the close snapshot's `openDecisions`). Expiry (a class's `expires_after`) escalates the severity only: the decision reads
 one step more urgent (`effectiveSeverity`, `overdue: true`) and the server takes no other action. A close withdraws no
 decision and reports the pending ones in `snapshot.openDecisions`. An `answer` never resumes a blocked item; a decision that
@@ -2279,9 +2279,7 @@ Open, update, close, pause, resume and mark runs; assign and end seats; raise, a
 | `scopeId` | string | no | An item the run is scoped to. Item id: a UUID or a hex prefix of 8 to 32 characters. |
 | `label` | string | no | A short label, at most 64 characters. |
 | `title` | string | no | A title, at most 200 characters. |
-| `budget` | object | no | Run budget: tokens, costUsd, attemptsPerSeat, maxActiveSeats; absent means no cap. On open it may not exceed a configured ceiling; on update a field can only be lowered or newly set. |
-| `budget.tokens` | integer | no | Token limit. |
-| `budget.costUsd` | number | no | Cost limit in US dollars, a decimal such as 12.5. |
+| `budget` | object | no | Run budget: attemptsPerSeat, maxActiveSeats; absent means no cap. On open it may not exceed a configured ceiling; on update a field can only be lowered or newly set. |
 | `budget.attemptsPerSeat` | integer | no | Most attempts one seat may take. |
 | `budget.maxActiveSeats` | integer | no | Most seats active at once. |
 | `stallAfterSeconds` | integer | no | Seconds without a coordinator sign of life before the run reads as stalled. Default from config. |
@@ -2296,9 +2294,7 @@ Errors: `ambiguous_id`, `duplicate`, `forbidden`, `idempotency_mismatch`, `inter
 | `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
 | `addItems` | array of string | no | Items to add to the run. Item id: a UUID or a hex prefix of 8 to 32 characters. |
 | `removeItems` | array of string | no | Items to remove from the run. Item id: a UUID or a hex prefix of 8 to 32 characters. |
-| `budget` | object | no | Run budget: tokens, costUsd, attemptsPerSeat, maxActiveSeats; absent means no cap. On open it may not exceed a configured ceiling; on update a field can only be lowered or newly set. |
-| `budget.tokens` | integer | no | Token limit. |
-| `budget.costUsd` | number | no | Cost limit in US dollars, a decimal such as 12.5. |
+| `budget` | object | no | Run budget: attemptsPerSeat, maxActiveSeats; absent means no cap. On open it may not exceed a configured ceiling; on update a field can only be lowered or newly set. |
 | `budget.attemptsPerSeat` | integer | no | Most attempts one seat may take. |
 | `budget.maxActiveSeats` | integer | no | Most seats active at once. |
 | `hints` | map of string | no | Short structured coordinator hints, string to string. On update they replace the stored hints. |
@@ -2388,7 +2384,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`, `version_conflict`
 
-**`runs_write` op `answer`** (director profile only; capability `decide`): Answer an open or acknowledged decision with an option key (text only for a freeform class) and an optional rationale: the answerers of its class only, as for ack. The answer is final and records the caller's kind, proof, seat and profile; a second answer is decision_closed. Returns the decision. Answering a run-budget or attempt-cap decision acts on its paused run (extend, stop, allow_one, skip_item).
+**`runs_write` op `answer`** (director profile only; capability `decide`): Answer an open or acknowledged decision with an option key (text only for a freeform class) and an optional rationale: the answerers of its class only, as for ack. The answer is final and records the caller's kind, proof, seat and profile; a second answer is decision_closed. Returns the decision. Answering an attempt-cap decision acts on its paused run (allow_one, skip_item, stop); a run-budget decision left by 4.0.0 resumes on extend and closes on stop.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2396,7 +2392,6 @@ Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, 
 | `option` | string | no | Key of the chosen option. |
 | `text` | string | no | Free-form answer, at most 1000 characters; freeform classes only. |
 | `rationale` | string | no | Why this answer, at most 1000 characters. |
-| `amount` | number | no | run-budget extend only: how much to add, in the breached dimension (whole tokens, or US dollars). |
 
 Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`, `version_conflict`
 

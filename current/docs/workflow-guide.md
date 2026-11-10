@@ -1316,15 +1316,15 @@ intervals are pruned after `RETENTION_LEASE_HISTORY_DAYS` days (default 365, `0`
 
 > This chapter is the one place where runs, seats, tokens and decisions are explained; the other guides link here. The examples use the `runs_write`, `runs_read`, `advance`, `notes_write` and `items_read` tools. Field tables and error lists are not repeated here: they live in the [API reference](./api-reference.md#category-runs), and the config keys in the [config reference](./config-reference.md).
 
-A **run** is a bounded, budgeted pass over a set of items of one root. Everything before this chapter works without one. A run adds four things on top: scoped credentials for the agents that work the items (seat tokens), enforcement of who may do what to a member, a liveness view, and a channel for questions that need a human or a director (decisions).
+A **run** is a bounded pass over a set of items of one root, optionally capped. Everything before this chapter works without one. A run adds four things on top: scoped credentials for the agents that work the items (seat tokens), enforcement of who may do what to a member, a liveness view, and a channel for questions that need a human or a director (decisions).
 
 ### A run, and when to open one
 
-Open a run when an orchestrator is about to hand several items to several agents at once and you want the server, not the prompt, to hold the boundaries: which agent may touch which item, how much it may spend, and when a person has to weigh in. A single agent working one item needs none of this.
+Open a run when an orchestrator is about to hand several items to several agents at once and you want the server, not the prompt, to hold the boundaries: which agent may touch which item, how many attempts and seats it may use, and when a person has to weigh in. A single agent working one item needs none of this.
 
 ```json
 {"ops": [{"op": "open", "rootId": "1be2db5e", "items": ["a1b2c3d4", "e5f6a7b8"], "title": "Docs wave",
-          "budget": {"tokens": 2000000, "attemptsPerSeat": 3, "maxActiveSeats": 4}}]}
+          "budget": {"attemptsPerSeat": 3, "maxActiveSeats": 4}}]}
 ```
 
 A run is `open`, may be `paused`, and ends `closed` with a terminal reason. An item can be in only one run that is not closed. The budget is optional and can only sit at or under the ceilings in the [`runs:` config](./config-reference.md#runs-runs); `update` can lower it later.
@@ -1398,12 +1398,11 @@ The director (or the human) lists and reads decisions with `runs_read` `decision
 
 ### Budgets, caps, concurrency and pauses
 
-A run can carry a token budget, a cost budget, an attempt cap per (item, seat) and a cap on concurrently active seats. The server checks the budget on five writes made under a token (heartbeat, transition, assign, end_seat and raise); see [Run Budgets and Caps](fleet-deployment.md#run-budgets-and-caps).
+A run can carry an attempt cap per (item, seat) and a cap on concurrently active seats; both are checked on `assign`. Token and cost budgets and agent-reported usage were removed in 4.0.1 (a run still reports `usage.observedTokens`, the server's own estimate, which enforces nothing); see [Run Budgets and Caps](fleet-deployment.md#run-budgets-and-caps).
 
-- **Budget breach.** The next token-carrying write after a crossing pauses the run (`pauseReason: budget`) and raises a `run-budget` decision. A director or human answers `extend` (with an `amount`) to resume, or `stop` to close the run.
 - **Attempt cap.** An `assign` past `attemptsPerSeat` is refused `run_paused`, the run pauses (`attempts`) and an `attempt-cap` decision is raised (`allow_one`, `skip_item`, `stop`).
 - **Concurrency.** An `assign` past `maxActiveSeats` is a transient `run_at_capacity`. Retry when a seat ends.
-- **Manual pause.** A director or human can `pause` and `resume` a run. Members in flight can still finish. A pause for `budget` or `attempts` cannot be resumed by the coordinator; only the answer resumes it, or a `close` ends it. While a run is paused for a limit, a `start` under any of its tokens is refused.
+- **Manual pause.** A director or human can `pause` and `resume` a run. Members in flight can still finish. A pause for `attempts` (or a `budget` pause stored by 4.0.0) cannot be resumed by the coordinator; only the answer resumes it, or a `close` ends it. While a run is paused for a limit, a `start` under any of its tokens is refused.
 
 Operator-side detail, including what the numbers mean and what is only an estimate, is in [Run Budgets and Caps](./fleet-deployment.md#run-budgets-and-caps).
 

@@ -304,7 +304,7 @@ An altitude-safe `implement-wave` result carries counts, statuses, commit SHAs, 
 
 ### ralph on runs
 
-`/task-orchestrator:ralph` emits the `scripts/ralph-loop.mjs` invocation. The loop needs the REST API (`TASK_ORCHESTRATOR_API_URL`) and a project root, and opens ONE run per loop (a budget only from `--run-budget-tokens`, `--run-budget-usd` and `--max-attempts`, never a default cap). Each iteration selects the oldest ready item with `items_read` `next`, adds it to the run, assigns an `implementer` seat, claims the item under that seat's token and spawns a fresh `claude -p --worktree`; the token reaches the iteration only as a `0o600` file path (`TASK_ORCHESTRATOR_SEAT_TOKEN_FILE`). The seat is ended on every outcome, and the run is closed on exit. The iteration signals its result with a `RALPH_OUTCOME:` marker. There is no `--actor` flag.
+`/task-orchestrator:ralph` emits the `scripts/ralph-loop.mjs` invocation. The loop needs the REST API (`TASK_ORCHESTRATOR_API_URL`) and a project root, and opens ONE run per loop (a cap only from `--max-attempts`, never a default one). Each iteration selects the oldest ready item with `items_read` `next`, adds it to the run, assigns an `implementer` seat, claims the item under that seat's token and spawns a fresh `claude -p --worktree`; the token reaches the iteration only as a `0o600` file path (`TASK_ORCHESTRATOR_SEAT_TOKEN_FILE`). The seat is ended on every outcome, and the run is closed on exit. The iteration signals its result with a `RALPH_OUTCOME:` marker. There is no `--actor` flag.
 
 ### The retrospective on run marks
 

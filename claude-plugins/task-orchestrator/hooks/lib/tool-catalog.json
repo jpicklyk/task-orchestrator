@@ -185,10 +185,6 @@
             "ttlSeconds": {
               "type": "integer",
               "required": false
-            },
-            "usage": {
-              "type": "object",
-              "required": false
             }
           },
           "errors": [
@@ -2954,14 +2950,6 @@
               "type": "object",
               "required": false
             },
-            "budget.tokens": {
-              "type": "integer",
-              "required": false
-            },
-            "budget.costUsd": {
-              "type": "number",
-              "required": false
-            },
             "budget.attemptsPerSeat": {
               "type": "integer",
               "required": false
@@ -3014,14 +3002,6 @@
             },
             "budget": {
               "type": "object",
-              "required": false
-            },
-            "budget.tokens": {
-              "type": "integer",
-              "required": false
-            },
-            "budget.costUsd": {
-              "type": "number",
               "required": false
             },
             "budget.attemptsPerSeat": {
@@ -3365,10 +3345,6 @@
             },
             "rationale": {
               "type": "string",
-              "required": false
-            },
-            "amount": {
-              "type": "number",
               "required": false
             }
           },

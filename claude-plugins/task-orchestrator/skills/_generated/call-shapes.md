@@ -72,7 +72,6 @@ Profiles: orchestration; capability `advance`.
 | --- | --- | --- |
 | `itemId` | string | yes |
 | `ttlSeconds` | integer | no |
-| `usage` | object | no |
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_claim_holder`, `not_found`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`
 
@@ -1044,8 +1043,6 @@ Profiles: director, orchestration; capability `runs`.
 | `label` | string | no |
 | `title` | string | no |
 | `budget` | object | no |
-| `budget.tokens` | integer | no |
-| `budget.costUsd` | number | no |
 | `budget.attemptsPerSeat` | integer | no |
 | `budget.maxActiveSeats` | integer | no |
 | `stallAfterSeconds` | integer | no |
@@ -1064,8 +1061,6 @@ Profiles: orchestration; capability `runs`.
 | `addItems` | array of string | no |
 | `removeItems` | array of string | no |
 | `budget` | object | no |
-| `budget.tokens` | integer | no |
-| `budget.costUsd` | number | no |
 | `budget.attemptsPerSeat` | integer | no |
 | `budget.maxActiveSeats` | integer | no |
 | `hints` | map of string | no |
@@ -1190,7 +1185,6 @@ Profiles: director; capability `decide`.
 | `option` | string | no |
 | `text` | string | no |
 | `rationale` | string | no |
-| `amount` | number | no |
 
 Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`, `version_conflict`
 
