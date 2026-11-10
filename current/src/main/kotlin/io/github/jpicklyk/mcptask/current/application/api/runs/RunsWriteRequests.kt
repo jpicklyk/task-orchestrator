@@ -110,7 +110,7 @@ data class RunsAssignRequest(
     @Doc(RUN_ID_DOC) val runId: IdRef,
     @Doc(ITEM_DOC) val itemId: IdRef,
     @Doc(
-        "A seat of the item's schema (implementer or planner when it has none). Returns a seat token; re-assigning supersedes."
+        "A seat of the item's schema (implementer or planner when it has none, plus reviewer when it has review notes). Returns a seat token; re-assigning supersedes."
     )
     val seat: String,
     @Doc(HINTS_DOC) val hints: Map<String, String>? = null

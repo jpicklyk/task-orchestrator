@@ -469,7 +469,9 @@ outside the config file. Seats are served to clients as an orchestration signal 
 pinned schema declares seats, the server also **enforces** them: a seat token may send only the
 transitions its seat allows and write only its own seat's note keys (see "Seat transitions" below and
 [Seat transitions](../../../../../current/docs/config-reference.md#seat-transitions)). A config with no
-`seats:` anywhere is unaffected: no seat-related field appears in any response.
+`seats:` anywhere is unaffected: no seat-related field appears in any response. A seat-less or
+schema-free run member may still be assigned `implementer` or `planner`, plus `reviewer` when its schema has a
+review-role note; those tokens carry no lane enforcement (the first writer's seat owns a note).
 
 ### Declaration form
 

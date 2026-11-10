@@ -307,7 +307,7 @@ generic reviewer yourself. The project's review step owns merge arming; do not a
 post-run.
 
 **Otherwise**, per advanced item that entered a review phase: on a bound run, first assign its
-reviewer lane like any schema seat — `node "<helper>" run-ops --plan <plan> --phase assign --item
+reviewer lane like any schema seat (a seat-less item whose schema has a review-role note takes `reviewer` too) — `node "<helper>" run-ops --plan <plan> --phase assign --item
 <short> --seat reviewer`, sent under the coordinator token, the `seatToken` written to the rendered
 token file (a token-less write to a seat-owned key of a run member is `note_owned_by_other`). Then
 `node "<helper>" review-prompt --plan <scratchpad>/run-wave/<runId>/plan.json --item <short>

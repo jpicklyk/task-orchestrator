@@ -1011,7 +1011,7 @@ the coordinator only; `end_seat` the seat's own token; `mark` any `runs` caller.
 `detail: {scope: "principal_kind", required}` naming the allowed kinds. The coordinator is the caller presenting the
 run's `coordinatorToken` as the top-level `seatToken`; the opening principal without it is not the coordinator.
 `assign{runId, itemId, seat, hints?}` assigns a seat of a member item (a seat of the item's schema, or `implementer` or
-`planner` for an item with none; an unknown seat is `not_found` with `detail.kind: seat`, `coordinator` and a non-member
+`planner` for an item with none, plus `reviewer` when its schema has a review-role note; an unknown seat is `not_found` with `detail.kind: seat`, `coordinator` and a non-member
 are `invalid_request` on `/seat` and `/itemId`, a closed or paused run `run_closed` or `run_paused`) and returns
 `{assignmentId, seatToken, attempt}`; re-assigning an active seat ends it as `superseded`, releases its claims and counts
 a new attempt. A token is shown once: the idempotency store never holds one, so a keyed replay of `open` or `assign`

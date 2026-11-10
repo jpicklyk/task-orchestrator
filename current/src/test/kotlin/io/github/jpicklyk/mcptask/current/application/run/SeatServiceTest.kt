@@ -111,6 +111,11 @@ work_item_schemas:
         seat: checker
   plain-task:
     notes: []
+  reviewed-task:
+    notes:
+      - key: review-checklist
+        role: review
+        required: false
 """
         val BASE64URL = Regex("^[A-Za-z0-9_-]{43}$")
     }
@@ -125,6 +130,7 @@ work_item_schemas:
         val seated: WorkItem,
         val seatedTwo: WorkItem,
         val plain: WorkItem,
+        val reviewed: WorkItem,
         val free: WorkItem,
         val outsider: WorkItem,
         val run: Run
@@ -147,6 +153,7 @@ work_item_schemas:
         val seated = rig.seed("Seated one", parent = root, tags = "seated-task")
         val seatedTwo = rig.seed("Seated two", parent = root, tags = "seated-task")
         val plain = rig.seed("Plain", parent = root, tags = "plain-task")
+        val reviewed = rig.seed("Reviewed", parent = root, tags = "reviewed-task")
         val free = rig.seed("Free", parent = root, tags = "free-task")
         val outsider = rig.seed("Outsider", parent = root, tags = "seated-task")
         val provider = db.db.repositoryProvider()
@@ -154,7 +161,7 @@ work_item_schemas:
             ParitySeeder(provider.workItemRepository(), provider.dependencyRepository(), provider, db.db.unitOfWork(clock)).run(
                 id = UUID.randomUUID(),
                 rootId = root.id,
-                items = listOf(seated.id, seatedTwo.id, plain.id, free.id),
+                items = listOf(seated.id, seatedTwo.id, plain.id, reviewed.id, free.id),
                 status = runStatus,
                 pauseReason = RunPauseReason.MANUAL,
                 terminalReason = RunTerminalReason.CANCELLED,
@@ -164,7 +171,7 @@ work_item_schemas:
                 // the tests open the coordinator themselves through the service (one active coordinator per run), so the seeder adds none
                 coordinatorToken = null
             )
-        return Fixture(rig, root, seated, seatedTwo, plain, free, outsider, run)
+        return Fixture(rig, root, seated, seatedTwo, plain, reviewed, free, outsider, run)
     }
 
     // ------------------------------------------------------------------ raw reads of run_seats and claims
@@ -711,6 +718,24 @@ work_item_schemas:
                 for (seat in listOf("builder", "reviewer", "Implementer", "implementer ", "")) {
                     assertEquals(ErrorCode.NOT_FOUND, f.assign(item, seat).err().code, "seat [$seat] on ${item.title}")
                 }
+            }
+        }
+
+    @Test
+    fun `S16 a seat-less schema with a review-role note may also be assigned reviewer`(): Unit =
+        runBlocking {
+            val f = fixture()
+            f.assign(f.reviewed, "implementer").ok()
+            f.assign(f.reviewed, "planner").ok()
+            f.assign(f.reviewed, "reviewer").ok()
+            for (seat in listOf("builder", "Reviewer", "reviewer ", "")) {
+                val error = f.assign(f.reviewed, seat).err()
+                assertEquals(ErrorCode.NOT_FOUND, error.code, "seat [$seat] on a reviewed seat-less schema")
+                assertEquals("seat", error.fixArgs["kind"], "[$seat]")
+            }
+            // no review note, no reviewer: the plain schema and the schema-free item still refuse it
+            for (item in listOf(f.plain, f.free)) {
+                assertEquals(ErrorCode.NOT_FOUND, f.assign(item, "reviewer").err().code, item.title)
             }
         }
 

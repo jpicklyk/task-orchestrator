@@ -26,11 +26,12 @@ internal val runsAssignOp =
         name = "assign",
         doc =
             "Assign a seat of a member item: a seat of the item's schema, or implementer or planner for an item with " +
-                "none. Coordinator token only. Re-assigning an active seat supersedes it (its token dies and its claims " +
-                "are released) and counts a new attempt. Returns assignmentId, seatToken and attempt; the token is " +
-                "shown once (a keyed replay omits it and returns tokenRedacted: true; re-assign for a fresh token) and every " +
-                "call made under the seat passes it as the top-level seatToken. Past the run's attempt cap it is run_paused " +
-                "(the run pauses on an attempt-cap decision); at maxActiveSeats it is run_at_capacity (retry when a seat ends).",
+                "none (plus reviewer when its schema has review notes). Coordinator token only. Re-assigning an active seat " +
+                "supersedes it (its token dies and its claims are released) and counts a new attempt. Returns assignmentId, " +
+                "seatToken and attempt; the token is shown once (a keyed replay omits it and returns tokenRedacted: true; " +
+                "re-assign for a fresh token) and every call made under the seat passes it as the top-level seatToken. " +
+                "Past the run's attempt cap it is run_paused (the run pauses on an attempt-cap decision); at maxActiveSeats " +
+                "it is run_at_capacity (retry when a seat ends).",
         profiles = orchestration(),
         capability = ApiCapability.RUNS,
         request = serializer<RunsAssignRequest>(),

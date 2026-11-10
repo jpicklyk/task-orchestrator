@@ -83,8 +83,17 @@ data class RunSeat(
         /** The run-scoped pseudo-seat `open` creates; it is never a seat of an item's schema. */
         const val COORDINATOR = "coordinator"
 
-        /** The seats a seat-less (or schema-free) item may be assigned. */
+        /** The review seat a seat-less item may be assigned when its schema has a review phase. */
+        const val REVIEWER = "reviewer"
+
+        /** The seats a seat-less (or schema-free) item may always be assigned. */
         val DEFAULT_SEATS: Set<String> = setOf("implementer", "planner")
+
+        /**
+         * The seats a seat-less (or schema-free) item may be assigned: [DEFAULT_SEATS], plus [REVIEWER] when its
+         * resolved schema has a review phase ([hasReviewPhase], any review-role note).
+         */
+        fun defaultSeats(hasReviewPhase: Boolean): Set<String> = if (hasReviewPhase) DEFAULT_SEATS + REVIEWER else DEFAULT_SEATS
 
         const val MAX_SEAT_LENGTH = 64
         const val MAX_SUMMARY_LENGTH = 500

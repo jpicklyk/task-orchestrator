@@ -106,7 +106,7 @@
             },
             "seat": {
               "type": "string",
-              "description": "A seat of the item's schema (implementer or planner when it has none). Returns a seat token; re-assigning supersedes. [ops: assign]"
+              "description": "A seat of the item's schema (implementer or planner when it has none, plus reviewer when it has review notes). Returns a seat token; re-assigning supersedes. [ops: assign]"
             },
             "outcome": {
               "type": "string",

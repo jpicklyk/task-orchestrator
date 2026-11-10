@@ -466,11 +466,12 @@ internal class SeatWorld private constructor(
         token: String?,
         body: String = "text",
         extra: String = "",
-        by: ParityToken = orch
+        by: ParityToken = orch,
+        role: String = "work"
     ): Reply =
         ops(
             "notes_write",
-            """{"op":"upsert","itemId":"${item.id}","key":"$key","role":"work","body":"$body"$extra}""",
+            """{"op":"upsert","itemId":"${item.id}","key":"$key","role":"$role","body":"$body"$extra}""",
             token = token,
             by = by
         )
@@ -805,7 +806,7 @@ class RunsSeatOpsTest {
     fun `the registered descriptions of the new fields are the planned text of the base commit, word for word`() {
         val write = rendered("runs_write", ToolProfile.ORCHESTRATION).opFields()
         assertEquals(
-            "A seat of the item's schema (implementer or planner when it has none). Returns a seat token; re-assigning supersedes. [ops: assign]",
+            "A seat of the item's schema (implementer or planner when it has none, plus reviewer when it has review notes). Returns a seat token; re-assigning supersedes. [ops: assign]",
             write.described("seat")
         )
         assertEquals("How the calling seat ended. [ops: end_seat]", write.described("outcome"))
@@ -1063,6 +1064,43 @@ class RunsSeatOpsTest {
         }
 
     // ------------------------------------------------------------------ S16 assign validation
+
+    @Test
+    fun `S16 a seat-less schema with a review note may be assigned reviewer, and the first writer's seat owns that note`(): Unit =
+        runBlocking {
+            val reviewedConfig =
+                SEAT_WORLD_CONFIG.replace(
+                    """  plain-task:
+    notes: []""",
+                    """  plain-task:
+    notes:
+      - key: review-checklist
+        role: review
+        required: false"""
+                )
+            val w = SeatWorld.create(db.db, dir, clock, config = reviewedConfig)
+            try {
+                val run = w.open()
+                // AC1: the seat-less member with a review note takes reviewer; the other refusals stay
+                val reviewer = w.assignOk(run, w.m2, "reviewer")
+                val implementer = w.assignOk(run, w.m2, "implementer")
+                for ((item, seat) in listOf(w.m1 to "reviewer", w.m3 to "reviewer", w.m2 to "builder")) {
+                    val reply = w.assign(run, item, seat).reply
+                    assertEquals("not_found", reply.code(), "seat [$seat] on ${item.title}: $reply")
+                    assertEquals("seat", reply.find("kind", reply.error()?.get("detail")), "$seat: $reply")
+                }
+                // AC2: no lane enforcement, the first writer's (principal, seat) owns the note
+                val created = w.noteUpsert(w.m2, "review-checklist", reviewer.token, body = "verdict", role = "review")
+                assertTrue(created.ok(), "the reviewer token creates the review note: $created")
+                val refused = w.noteUpsert(w.m2, "review-checklist", implementer.token, body = "overwrite", role = "review")
+                assertEquals("note_owned_by_other", refused.code(), refused.toString())
+                assertEquals("reviewer", refused.find("ownerSeat", refused.error()), refused.toString())
+                val again = w.noteUpsert(w.m2, "review-checklist", reviewer.token, body = "verdict v2", role = "review")
+                assertTrue(again.ok(), "the reviewer token re-writes its own note: $again")
+            } finally {
+                w.shutdown()
+            }
+        }
 
     @Test
     fun `S16 an unknown seat is not_found of kind seat, and the default pair applies only to a seat-less or schema-free item`(): Unit =

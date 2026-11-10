@@ -124,7 +124,8 @@ class SeatService(
      * Assigns a seat (task-scope D5, D6), after the caller checked the run's scope and the coordinator token. In order:
      * the run is not closed (`run_closed`) or paused (`run_paused`); [SeatAssignCommand.seat] is not `coordinator`
      * (`invalid_request /seat`); the item is a member of the run (`invalid_request /itemId`); the seat is one of the
-     * item's schema seats, or `implementer`/`planner` for a seat-less or schema-free item (`not_found` kind `seat`).
+     * item's schema seats, or `implementer`/`planner` for a seat-less or schema-free item, plus `reviewer` when the
+     * seat-less item's schema has a review-role note (`not_found` kind `seat`).
      *
      * An active assignment of the same (run, item, seat) is superseded: it ends with outcome `superseded` and its
      * holder's claims are released (reason `superseded`) in the same unit. The new attempt is one more than the highest
@@ -151,13 +152,10 @@ class SeatService(
             val item =
                 stores.workItemRepository().getById(command.itemId)
                     ?: return@write err(invalid(FIELD_ITEM_ID, "is not a member of the run", command.itemId.toString()))
-            val schemaSeats =
-                configResolver
-                    .resolveSchema(item)
-                    ?.seats
-                    ?.map { it.name }
-                    .orEmpty()
-            val allowed = if (schemaSeats.isEmpty()) RunSeat.DEFAULT_SEATS else schemaSeats.toSet()
+            val schema = configResolver.resolveSchema(item)
+            val schemaSeats = schema?.seats?.map { it.name }.orEmpty()
+            val allowed =
+                if (schemaSeats.isEmpty()) RunSeat.defaultSeats(schema?.hasReviewPhase() == true) else schemaSeats.toSet()
             if (command.seat !in allowed) return@write err(seatNotFound(command.seat))
 
             val previous = store.findActive(run.id, command.itemId, command.seat)
