@@ -18,8 +18,8 @@ internal val runsResumeOp =
     OpSpec<RunsResumeRequest, JsonObject>(
         name = "resume",
         doc =
-            "Resume a manually paused run. Director or a human only. A budget or attempts pause cannot be resumed, only " +
-                "closed (invalid_run_state, allowed close). Returns the run.",
+            "Resume a manually paused run. Director or a human only. An attempts pause, or a run-budget pause left by 4.0.0, " +
+                "cannot be resumed, only closed (invalid_run_state, allowed close). Returns the run.",
         profiles = director(),
         capability = ApiCapability.RUNS,
         request = serializer<RunsResumeRequest>(),

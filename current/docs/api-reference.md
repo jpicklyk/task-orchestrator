@@ -1246,7 +1246,7 @@ key with another payload is `idempotency_mismatch`. All ops need the `advance` c
 candidate ids when several do).
 
 **`transition` result.** `cascades` lists the parents evaluated as a side effect: `{itemId, previousRole, targetRole, applied,
-blocked?: ownership | seat | gate | resource | role | dependency, missing?: [{key, role, seat?}], contended?: [resourceKey], blockers?: [{id, role}], reason?}` (`reason` is set with `blocked: gate`, for example `review-pending`). `paused` is `{decisionId}`, present only when a call under a run seat token crossed the run's budget and paused the run.
+blocked?: ownership | seat | gate | resource | role | dependency, missing?: [{key, role, seat?}], contended?: [resourceKey], blockers?: [{id, role}], reason?}` (`reason` is set with `blocked: gate`, for example `review-pending`).
 `unblocked` is `[{itemId, title}]`. Under a root- or tag-scoped token, a `cascades` or `unblocked` entry for an item the scope
 does not admit is `{itemId}` only (the same rule applies to `complete_tree` items and to `items_write` `cascade` entries).
 `expectedNotes` is the list of note keys the new phase expects; `guidanceKey` and
@@ -1300,7 +1300,7 @@ such as `/ops/0/trigger`, `/ops/1/ttlSeconds`, `/ops/2/itemId`, `/ops/0/credenti
 `unknown_parameter`, `not_found` (item), `ambiguous_id`, `forbidden` (token scope or capability), `invalid_transition` (also for
 claiming a terminal item, and for claiming a lifecycle-free item: `fromRole` `none`, `trigger` `claim`, nothing allowed, the
 caller's other claims kept; every `transition` trigger on a lifecycle-free item fails the same way with `fromRole` `none`), `gate_blocked` (`detail.missing[]`; for an independence block `missing` is empty and
-`detail.violations` is `[{gate: "independence", reason}]`), `dependency_unmet`, `seat_forbidden` (a run seat token may not send the trigger; see `blocked: seat` above), `run_paused` (a `start` under a seat token while the run is paused for a budget or attempt limit), `not_claim_holder`, `claim_held`
+`detail.violations` is `[{gate: "independence", reason}]`), `dependency_unmet`, `seat_forbidden` (a run seat token may not send the trigger; see `blocked: seat` above), `run_paused` (a `start` under a seat token while the run is paused for the attempt limit, or by a `run-budget` decision left by 4.0.0), `not_claim_holder`, `claim_held`
 (`detail.expiresAt`, `detail.retryAfterMs`), `resource_unavailable` (`detail.resources[]` with the contended key and its mode,
 `retryAfterMs`; never the holder), `unauthenticated`, `unavailable` (per-root config could not be read; `retryAfterMs` 1000), `config_invalid` (a config head, the server's or the root's, has no loadable canonical form; permanent,
 `detail.errors[0].path` empty; never `internal`),
@@ -1887,7 +1887,7 @@ the `events` table, windows up to 31 days), `waste` (call-pattern waste signals,
 | `notes` | `{items: [{key: {<groupBy>?: value}, writes, notes, rewrites, bytes, maxBytes, avgBytes}], page, window}` |
 | `contention` | `{items: [{key: {resource?: value}, kind, acquired, rejected, expired, released, forceReleased, contentionRate?, expiryRate?, forceReleaseRate?}], page, window}` |
 | `waste` | `{window: {...as usage}, signals: {redundantReads, overFetch, readsWithoutLaterWrite, emptyNext, relatedFollowThrough: {edges, links, tags, text}, lifecycleFreeRejections}}`, each signal `{value?, numerator, denominator, basis?}` |
-| `rollup` | `{scope: {anchorId?, runId?, rootId}, window: {since, until, clamped?}, run?: {status, terminalReason?, openedAt, closedAt?}, itemCounts: {total, byRole}, blocked: {total, byReason?, resumable?, dwellMs?}, decisions?: {open, byClass, bySeverity}, seats?: {active, stalled: [{seat, itemId, silentMs}], count}, transitions: {total, cascades, rejected}, notes: {written}, cost: {calls, errors, retries, responseBytes, responseTokensEst, basis}, attempts?: {total, max}, budget?: {used, limit?, basis, breaches?, extends?}}` (the `?` sections are run-only) |
+| `rollup` | `{scope: {anchorId?, runId?, rootId}, window: {since, until, clamped?}, run?: {status, terminalReason?, openedAt, closedAt?}, itemCounts: {total, byRole}, blocked: {total, byReason?, resumable?, dwellMs?}, decisions?: {open, byClass, bySeverity}, seats?: {active, stalled: [{seat, itemId, silentMs}], count}, transitions: {total, cascades, rejected}, notes: {written}, cost: {calls, errors, retries, responseBytes, responseTokensEst, basis}, attempts?: {total, max}}` (the `?` sections are run-only) |
 
 - **Window.** Half-open `[since, until)`, ISO 8601 instants with `Z` or an offset, echoed in UTC at millisecond
   precision. `until` defaults to now and `since` to `until` minus 7 days; `since` must be before `until` and the window
@@ -2319,7 +2319,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_run_state`, `not_found`, `partial_failure`, `run_closed`, `unavailable`, `unknown_parameter`
 
-**`runs_write` op `resume`** (director profile only; capability `runs`): Resume a manually paused run. Director or a human only. A budget or attempts pause cannot be resumed, only closed (invalid_run_state, allowed close). Returns the run.
+**`runs_write` op `resume`** (director profile only; capability `runs`): Resume a manually paused run. Director or a human only. An attempts pause, or a run-budget pause left by 4.0.0, cannot be resumed, only closed (invalid_run_state, allowed close). Returns the run.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |

@@ -1522,8 +1522,9 @@ internal object YamlSchemaParser {
     /**
      * Parses the top-level `runs:` block into a [RunsConfig], or null when the key is absent. Every invalid value
      * ([ConfigValidator.runsValueViolations], same paths and reasons) and every unknown key is a soft finding and is
-     * left out, so a field that does not parse falls through to the next layer like an absent one. `cost_usd` (US
-     * dollars) is converted to micro-USD. A block whose fields all fail still yields a (field-less) [RunsConfig].
+     * left out, so a field that does not parse falls through to the next layer like an absent one. The removed
+     * `runs.budgets.tokens` and `cost_usd` keys draw one advisory finding each and set nothing. A block whose fields all
+     * fail still yields a (field-less) [RunsConfig].
      */
     private fun parseRunsConfig(
         root: Map<String, Any>,
