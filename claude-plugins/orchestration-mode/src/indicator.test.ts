@@ -1,40 +1,50 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { Board, BoardRun, FocusBoard } from '../types'
+import type { BarCell, Row } from './model.ts'
 import {
+  AGENT_COLOURS,
+  NEEDS_YOU,
+  activityText,
+  agentColour,
+  agentRows,
+  assignColours,
   backdropSvg,
   bandWidth,
+  barCells,
+  barRun,
   blockedByCell,
   blockerOf,
-  boardProgress,
+  cellStyle,
   cellsWidth,
   closedRunIds,
+  colourKey,
+  coordStalled,
   coordinatorFromMarker,
   coordinatorFromOpen,
-  decisionCounts,
+  countsText,
   enterToast,
-  fitCells,
   envelopeData,
+  fitBar,
+  fitCells,
+  fitRow,
   focusBlocked,
   focusFromGet,
-  focusValue,
   focusParent,
+  isGrouping,
   focusProgress,
+  focusValue,
   footerLead,
   footerModes,
-  formatTokens,
-  graphCounts,
+  frontierMembers,
   isDirectorSkillCall,
   itemLead,
-  line1Cells,
-  line2Cells,
   line3Cells,
   listTotal,
   markerPath,
-  pausedCell,
+  namedRunIds,
   phasePipeline,
-  phaseCell,
-  progressBar,
+  quietFor,
   resolveFocus,
   restData,
   restToolUrl,
@@ -42,11 +52,16 @@ import {
   runLabel,
   sameId,
   sanitizeKey,
-  seatsCell,
+  seatsDone,
+  sessionRuns,
+  statusRow,
+  titleRow,
   tmpDir,
   toolEnvelope,
   touchedItemId,
+  watchRuns,
   withFrontier,
+  workingSlots,
 } from './model.ts'
 
 const PLUGIN = 'orchestration-mode'
@@ -84,21 +99,11 @@ function seedState(values: () => Record<string, unknown>) {
 }
 
 /**
- * The leaf texts of a mount, in order: a Text that nests other Texts (line 1 is one, so the frame
- * cuts it as a whole) reports the join of its children, which is dropped here.
+ * The leaf texts of a mount, in order: the Texts whose children are all text. A Text that nests other Texts (a
+ * row, which the frame cuts as a whole) is left out.
  */
-function leaves(found: readonly { text: string }[]): string[] {
-  const all = found.map(t => t.text)
-
-  return all.filter((text, i) => {
-    let joined = ''
-    for (let k = i + 1; k < all.length; k++) {
-      joined += all[k]
-      if (joined === text) return false
-      if (joined.length >= text.length) break
-    }
-    return true
-  })
+function leaves(found: readonly { text: string; children?: unknown[] }[]): string[] {
+  return found.filter(t => (t.children ?? []).every(c => typeof c === 'string')).map(t => t.text)
 }
 
 /** The first leaf text a mount of `site` on the desktop shows that matches `pattern`. */
@@ -177,13 +182,17 @@ const LISTED = {
 
 const FRONTIER = {
   counts: { queue: 2, work: 1, review: 0, blocked: 1, terminal: 1 },
-  ready: [{ itemId: 'a' }],
-  inFlight: [{ itemId: 'b', stalled: true }, { itemId: 'c', stalled: false }],
-  waiting: [{ itemId: 'd' }],
+  cancelled: 0,
+  ready: [{ id: 'a1111111', title: 'A task', role: 'queue' }],
+  inFlight: [
+    { id: 'b2222222', role: 'work', title: 'B task', seat: 'implementer', stalled: true, lastSeenAt: '2026-11-07T13:48:00.000Z' },
+    { id: 'c3333333', role: 'queue', title: 'C task', seat: 'planner', stalled: false },
+  ],
+  waiting: [{ id: 'd4444444', reason: 'awaiting_decision' }],
 }
 
 const RUN = withFrontier(runFromList(LISTED) as BoardRun, FRONTIER)
-const RUN_BOARD: Board = { at: '2026-11-07T14:02:00.000Z', runs: [RUN], decisions: { open: 2, overdue: 1 } }
+const RUN_BOARD: Board = { at: '2026-11-07T14:02:00.000Z', runs: [RUN], colours: {} }
 const COORD = { runId: RUN_ID, label: 'wave-8', since: 'x', source: 'tool' }
 
 /** A feature with a task under it, as the server answers them. */
@@ -321,22 +330,29 @@ test('a touched task draws its feature, the progress and the task itself; /to-ba
   await $.tool.call({ tool: NOTES_TOOL, ops: [{ op: 'upsert', itemId: '8da6e710', key: 'k', role: 'work', body: '' }] })
   await settle()
   expect(await texts($, BAND)).toEqual([
-    // Line 1: the feature the task belongs to, its title alone.
+    // Title row: the feature the task belongs to, and its bar: one done, one in progress (the feature itself), one
+    // not started, still (a focus graph has no agents).
     'Model and effort policy',
-    // Line 2: its type and phase, the subtree with the feature itself, the non-zero blocked count.
+    '▰',
+    '▰',
+    '▱',
+    // Status row: its type and phase and its blocked work; the members by phase on the right.
     'feature-implementation · in-progress',
-    '   ▰▰▰▱▱▱▱▱',
-    ' 1/3',
-    '   q1 → w1 → r0 → ✓1',
-    ' · blocked 1',
-    // Line 3: the task this session touched.
+    ' · 1 waiting on another item',
+    '1 planned · 1 in progress · 1 done',
+    // The task this session touched.
     '8da6e710 · feature-task · queue',
     '   A task',
     ' · blocked by 95c660e2',
   ])
+  expect(await shown($, BAND, /never/)).toBe(undefined)
 
-  // A read of the feature itself (an overview while the task is in hand) keeps the task on line 3.
-  await $.tool.call({ tool: READ_TOOL, select: 'context', itemId: 'd99e4f7a-0000' })
+  // A write to the feature itself (a note on it while the task is in hand) keeps the task on line 3; a read of
+  // another item moves nothing.
+  await $.tool.call({ tool: NOTES_TOOL, ops: [{ op: 'upsert', itemId: 'd99e4f7a-0000', key: 'k', role: 'work', body: '' }] })
+  await settle()
+  expect((await texts($, BAND)).slice(-3)).toEqual(['8da6e710 · feature-task · queue', '   A task', ' · blocked by 95c660e2'])
+  await $.tool.call({ tool: READ_TOOL, select: 'context', itemId: '29fe3b41' })
   await settle()
   expect((await texts($, BAND)).slice(-3)).toEqual(['8da6e710 · feature-task · queue', '   A task', ' · blocked by 95c660e2'])
 
@@ -360,7 +376,7 @@ test('a lone leaf names itself on line 1 and shows its own phase pipeline, no ba
 
   await $.tool.call({ tool: NOTES_TOOL, ops: [{ op: 'upsert', itemId: 'd8999287', key: 'k', role: 'work', body: '' }] })
   await settle()
-  expect(await texts($, BAND)).toEqual(['Band item', 'plugin-change', ' · queue → ', '◉ work', ' → review → done'])
+  expect(await texts($, BAND)).toEqual(['Band item', 'plugin-change', 'queue → ', '◉ work', ' → review → done'])
 })
 
 test('a long title is cut to the frame with an ellipsis, so no band line can wrap', async ($, on) => {
@@ -377,11 +393,102 @@ test('a long title is cut to the frame with an ellipsis, so no band line can wra
     const lines = await texts($, { ...BAND, props: { ...BAND.props, bodyColumns } }, 'terminal')
     expect(lines[0]).toBe(title.slice(0, bodyColumns - 5).trimEnd() + '…')
     expect(lines[0]?.length).toBe(bodyColumns - 4)
-    expect(lines.slice(1).join('')).toBe('plugin-change · queue → ◉ work → review → done')
+    expect(lines.slice(1)).toEqual(['plugin-change', 'queue → ', '◉ work', ' → review → done'])
   }
   // The desktop's font is proportional: the line goes over whole and the surface cuts it at the frame.
   const desktop = await texts($, { ...BAND, props: { ...BAND.props, bodyColumns: 50 } })
   expect(desktop[0]).toBe(title)
+  // The right side never shrinks: a long title gives way, never the phases (or a bar) beside it.
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 50 }, surface: 'desktop' })
+  const kept = (await ui.findAll({ type: 'Box' })).filter(b => b.props.flexShrink === 0).map(b => b.text)
+  expect(kept).toEqual(['queue → ◉ work → review → done'])
+  await ui.unmount()
+})
+
+test('a task under a backlog bucket focuses its own feature; the bucket touched itself does not count itself', async ($, on) => {
+  const bucket = { id: 'babac430-0000', parentId: 'ce064d2c-0000', depth: 1, type: 'container', tags: ['container'], title: 'Bugs', statusLabel: 'done', role: 'work' }
+  const fix = { id: 'efccb63a-0000', parentId: 'babac430-0000', depth: 2, type: 'feature-implementation', title: '4.0.1 fix', role: 'queue' }
+  const task = { id: '240116c3-0000', parentId: 'efccb63a-0000', depth: 3, type: 'feature-task', title: 'A fix', role: 'queue' }
+  on('ui.toast', () => ({ value: undefined }))
+  on(
+    'http.fetch',
+    server({ [bucket.id]: bucket, [fix.id]: fix, [task.id]: task }, {}, {
+      overview: {
+        [fix.id]: [{ id: '240116c3', role: 'queue', childCounts: {} }, { id: '1ef19932', role: 'terminal', childCounts: {} }],
+        [bucket.id]: [{ id: 'efccb63a', role: 'queue', childCounts: { queue: 1, terminal: 1 } }],
+      },
+    }),
+  )
+  on('tool.call', answerWrites(() => ({})))
+
+  // The walk stops below the bucket: the band is the feature (itself planned, one task planned, one done).
+  await $.tool.call({ tool: NOTES_TOOL, ops: [{ op: 'upsert', itemId: task.id, key: 'k', role: 'work', body: '' }] })
+  await settle()
+  const feature = await texts($, BAND)
+  expect(feature[0]).toBe('4.0.1 fix')
+  expect(feature.includes('2 planned · 1 done')).toBe(true)
+  expect(feature.includes('Bugs')).toBe(false)
+
+  // The bucket touched itself is the focus, and counts its work, not itself (it is in work, labelled done).
+  await $.tool.call({ tool: NOTES_TOOL, ops: [{ op: 'upsert', itemId: bucket.id, key: 'k', role: 'work', body: '' }] })
+  await settle()
+  const touchedBucket = await texts($, BAND)
+  expect(touchedBucket[0]).toBe('Bugs')
+  expect(touchedBucket.includes('2 planned · 1 done')).toBe(true)
+})
+
+test('a stored focus is walked again from its touched item once a load: a bucket an earlier version stored moves to the feature', async ($, on) => {
+  const bucket = { id: 'babac430-0000', parentId: 'ce064d2c-0000', depth: 1, type: 'container', tags: ['container'], title: 'Bugs', statusLabel: 'done', role: 'work' }
+  const fix = { id: 'efccb63a-0000', parentId: 'babac430-0000', depth: 2, type: 'feature-implementation', title: '4.0.1 fix', role: 'work' }
+  // The session's state as the earlier walk left it: the bucket as the focus, the feature as the touched item.
+  const held: Record<string, { value: unknown; version: number }> = {
+    bandHidden: { value: false, version: 1 },
+    focus: { value: { itemId: bucket.id, title: 'Bugs', since: 'x', touched: { itemId: fix.id, title: '4.0.1 fix', type: 'feature-implementation', label: 'work' }, by: 'write' }, version: 1 },
+  }
+  on('state.get', (_: unknown, e: { plugin: string; key: string }, next: (e: unknown) => unknown) =>
+    e.plugin === PLUGIN ? { value: held[e.key] ?? { value: undefined, version: 0 } } : next(e),
+  )
+  on('state.set', (_: unknown, e: { plugin: string; key: string; value: unknown }, next: (e: unknown) => unknown) => {
+    if (e.plugin !== PLUGIN) return next(e)
+    const version = (held[e.key]?.version ?? 0) + 1
+    held[e.key] = { value: e.value, version }
+
+    return { value: { isSet: true, version } }
+  })
+  on('ui.toast', () => ({ value: undefined }))
+  on(
+    'http.fetch',
+    server({ [bucket.id]: bucket, [fix.id]: fix }, {}, {
+      overview: {
+        [fix.id]: [{ id: '240116c3', role: 'work', childCounts: {} }],
+        [bucket.id]: [{ id: 'efccb63a', role: 'work', childCounts: { work: 1 } }],
+      },
+    }),
+  )
+  on('tool.call', answerWrites(() => ({})))
+
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return h(Text, null, 'engine')
+  })
+  on('command.register', () => ({ value: { command: 'to-band' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+
+  // A reload or a resume (session.start) refreshes the board, which reads the stored focus, then walks the touched
+  // item again.
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await settle()
+  await settle()
+  expect((held.focus?.value as { itemId?: string } | undefined)?.itemId).toBe(fix.id)
+  expect((await texts($, BAND))[0]).toBe('4.0.1 fix')
+
+  // A focus with no `by: 'write'` (an earlier version also moved the focus on a read) is dropped on load: no band.
+  held.focus = { value: { itemId: fix.id, title: '4.0.1 fix', since: 'x', touched: { itemId: fix.id, title: '4.0.1 fix', type: '', label: '' } }, version: 9 }
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await settle()
+  expect(held.focus?.value ?? null).toBe(null)
+  expect(await shown($, BAND, /4\.0\.1|engine/)).toBe('engine')
 })
 
 test('the band toggle is per session: a fresh session starts from userConfig band, never from the store', async ($, on) => {
@@ -477,7 +584,7 @@ test('closing the run does not clear a coordinator that came from the marker', a
   expect(toasts.includes('Run wave-8 closed')).toBe(false)
 })
 
-test('a run with nothing touched draws its facts and the progress; hidden or with no graph, nothing', async ($, on) => {
+test('a run with nothing touched: one Client draws title and bar, status, and the agents, blinking in step; hidden or with no graph, nothing', async ($, on) => {
   let values: Record<string, unknown> = { board: RUN_BOARD, bandHidden: false, focus: null }
   on('state.get', seedState(() => values))
   on('ui.render', ($, e) => {
@@ -488,22 +595,46 @@ test('a run with nothing touched draws its facts and the progress; hidden or wit
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...BAND, surface })
-    expect(leaves(await ui.findAll({ type: 'Text' }))).toEqual([
-      'run wave-8 open',
-      ' · COORD STALLED',
-      ' · in flight 2 (1 stalled)',
-      ' · ready 1',
-      ' · waiting 1',
-      '▰▰▱▱▱▱▱▱',
-      ' 1/5',
-      '   q2 → w1 → r0 → ✓1',
-      ' · blocked 1',
-      ' · decisions 2 (1 overdue)',
+    expect(await ui.find({ type: 'Client', key: 'band' })).toBeDefined()
+    const inBand = async () => leaves(await ui.findAll({ type: 'Text', in: 'band' }))
+    // The terminal's 96 cells cut the status row's activity first; the counts on the right stay whole.
+    const activity = surface === 'terminal' ? [] : [' · 1 agent planning']
+    expect(await inBand()).toEqual([
+      // Title row: no container read, so the run's short name; the bar: done, C worked on (blue), B stuck, D
+      // waiting on a decision, A not started.
+      'run wave-8',
+      '▰',
+      '▰',
+      '▰',
+      '▰',
+      '▱',
+      // Status row: what needs a look first, then what the agents do; the members by phase on the right.
+      '1 agent stuck',
+      ' · 1 decision for you',
+      ...activity,
+      '2 planned · 1 in progress · 1 on hold · 1 done',
+      // One row per agent, the stuck one first.
+      '◉',
+      ' implementer · quiet 14m',
+      '   B task',
+      '◉',
+      ' planner',
+      '   C task',
     ])
-    expect(await ui.find({ type: 'Text', text: /orchestration-mode|DIRECTOR MODE/ })).toBe(undefined)
+    // The planner's marker and its bar cell share its colour, and blink together on the Client's clock.
+    const blue = async () =>
+      (await ui.findAll({ type: 'Text', in: 'band' })).filter(t => t.props.color === AGENT_COLOURS[0]).map(t => t.text)
+    expect(await blue()).toEqual(['▰', '◉'])
+    await ui.advance(600)
+    expect(await blue()).toEqual(['▱', '○'])
+    expect((await inBand()).filter(t => t === '◉')).toEqual(['◉'])
+    await ui.advance(600)
+    expect(await blue()).toEqual(['▰', '◉'])
+    // The right sides (the bar, the counts) never shrink: a long title gives way, never the bar.
+    const kept = (await ui.findAll({ type: 'Box', in: 'band' })).filter(b => b.props.flexShrink === 0).map(b => b.text)
+    expect(kept).toEqual(['▰▰▰▰▱', '2 planned · 1 in progress · 1 on hold · 1 done'])
     await ui.unmount()
   }
-  expect(await shown($, { ...BAND, props: { ...BAND.props, bodyColumns: 130 } }, /tok$/)).toBe(' · 1.3M tok')
 
   values = { board: RUN_BOARD, bandHidden: true }
   expect(await shown($, BAND, /run wave-8|engine/)).toBe('engine')
@@ -512,7 +643,7 @@ test('a run with nothing touched draws its facts and the progress; hidden or wit
   expect(await shown($, BAND, /run wave-8|engine/)).toBe('engine')
 })
 
-test('the focus view draws container, progress and item, and a short band drops line 3, then line 2', async ($, on) => {
+test('the focus view draws title and bar, status, and the item, and a short band drops rows from the bottom', async ($, on) => {
   const graph: FocusBoard = {
     itemId: 'd99e4f7a-0000',
     counts: { queue: 1, work: 1, review: 0, blocked: 0, terminal: 2 },
@@ -531,32 +662,32 @@ test('the focus view draws container, progress and item, and a short band drops 
     })),
   )
   const band = () => ({ ...BAND, props: { ...BAND.props, maxRows } })
-  // At 96 cells the decisions count is the cell line 2 gives up, and line 3 cuts its title.
-  const progress = ['feature-implementation · in-progress', '   ▰▰▰▰▱▱▱▱', ' 2/4', '   q1 → w1 → r0 → ✓2', ' · blocked 1']
+  // The title with the bar: two done, one in progress (no agents in a focus graph, so it does not blink), one not started.
+  const title = ['Model and effort policy', '▰▰', '▰', '▱']
 
-  // The terminal cuts by cells; the desktop gets every cell whole and cuts at the frame itself.
+  // The terminal cuts by cells: the status row's blocked count gives way to the counts; the item's title is cut.
   expect(await texts($, band(), 'terminal')).toEqual([
-    'Model and effort policy',
-    ...progress,
+    ...title,
+    'feature-implementation · in-progress',
+    '1 planned · 1 in progress · 2 done',
     '6e91c19b · feature-task · queue',
     '   A task with a long title that the frame…',
     ' · blocked by d8999287',
   ])
   expect(await texts($, band())).toEqual([
-    'Model and effort policy',
-    ...progress,
-    ' · decisions 2 (1 overdue)',
+    ...title,
+    'feature-implementation · in-progress',
+    ' · 1 waiting on another item',
+    '1 planned · 1 in progress · 2 done',
     '6e91c19b · feature-task · queue',
     '   A task with a long title that the frame truncates',
     ' · blocked by d8999287',
   ])
-  const wide = await texts($, { ...band(), props: { ...band().props, bodyColumns: 130 } }, 'terminal')
-  expect(wide.includes(' · decisions 2 (1 overdue)')).toBe(true)
 
   maxRows = 4
-  expect(await texts($, band(), 'terminal')).toEqual(['Model and effort policy', ...progress])
+  expect(await texts($, band(), 'terminal')).toEqual([...title, 'feature-implementation · in-progress', '1 planned · 1 in progress · 2 done'])
   maxRows = 3
-  expect(await texts($, band(), 'terminal')).toEqual(['Model and effort policy'])
+  expect(await texts($, band(), 'terminal')).toEqual(title)
 })
 
 test('before the first read the band names the focus and the touched item around a loading progress line', async ($, on) => {
@@ -650,8 +781,9 @@ test('coordinator detection: the open element with a token, a close of the run, 
 })
 
 test('the touched item of a TO call', async () => {
-  expect(touchedItemId('mcp__mcp-task-orchestrator__items_read', { select: 'get', itemId: 'abc12345' })).toBe('abc12345')
-  expect(touchedItemId('mcp__mcp-task-orchestrator-director__items_read', { select: 'overview' })).toBe(undefined)
+  // A read touches nothing: looking at an item (a status check, another session's work) never makes it the focus.
+  expect(touchedItemId('mcp__mcp-task-orchestrator__items_read', { select: 'get', itemId: 'abc12345' })).toBe(undefined)
+  expect(touchedItemId('mcp__mcp-task-orchestrator-director__items_read', { select: 'context', itemId: 'abc12345' })).toBe(undefined)
   expect(touchedItemId('mcp__mcp-task-orchestrator__advance', { ops: [{ op: 'transition', itemId: 'i1', trigger: 'start' }] })).toBe('i1')
   expect(touchedItemId('mcp__mcp-task-orchestrator__items_write', { ops: [{ op: 'update', id: 'i2' }] })).toBe('i2')
   expect(touchedItemId('mcp__mcp-task-orchestrator__items_write', { ops: [{ op: 'create', parentId: 'p1', title: 't' }] })).toBe('p1')
@@ -697,6 +829,27 @@ test('the focus walk climbs parentId to depth 1, at most six hops', async () => 
   })
   expect(deep?.item.id).toBe('d3')
   expect(chainReads.length).toBe(7)
+
+  // A parent that only groups work (a backlog bucket) ends the walk below it, unread into the cache.
+  const bucketed: Record<string, unknown> = {
+    k3: { id: 'k3', parentId: 'k2', depth: 3, type: 'feature-task', title: 'task', role: 'queue' },
+    k2: { id: 'k2', parentId: 'bugs', depth: 2, type: 'feature-implementation', title: '4.0.1', role: 'queue' },
+    bugs: { id: 'bugs', parentId: 'root', depth: 1, type: 'container', tags: ['container'], title: 'Bugs', role: 'work' },
+  }
+  const getBucketed = async (id: string) => bucketed[id]
+  const underBucket = await resolveFocus('k3', getBucketed)
+  expect(underBucket?.item.id).toBe('k2')
+  expect(underBucket?.walked).toEqual(['k3', 'k3', 'k2'])
+  // A cached bucket (the session touched the bucket itself) ends the walk below it too.
+  const bugs = focusFromGet(bucketed.bugs)
+  expect(bugs?.grouping).toBe(true)
+  expect((await resolveFocus('k2', getBucketed, undefined, id => (id === 'bugs' && bugs !== null ? bugs : undefined)))?.item.id).toBe('k2')
+  expect(isGrouping({ type: 'Container' })).toBe(true)
+  expect(isGrouping({ type: 'project' })).toBe(true)
+  expect(isGrouping({ type: 'epic', tags: ['Container'] })).toBe(true)
+  expect(isGrouping({ type: 'feature-implementation', tags: ['plugin'] })).toBe(false)
+  expect(isGrouping(null)).toBe(false)
+  expect(focusFromGet(bucketed.k2)?.grouping).toBe(undefined)
   expect(focusFromGet({ id: 'root', depth: 0, title: 'Project', role: 'work' })?.parentId).toBe(null)
   expect(focusParent({ id: 'x', parentId: 'p', depth: 1, title: '', label: '', role: '' })).toBe(null)
   expect(focusParent({ id: 'x', parentId: 'p', depth: 4, title: '', label: '', role: '' })).toBe('p')
@@ -741,69 +894,6 @@ test('focus progress, blocked work and the line helpers', async () => {
   expect(blockedByCell('95c660e2-617b-49ef')).toBe('blocked by 95c660e2')
 })
 
-test('line 2: the counts across the runs or the focus, only the non-zero extras', async () => {
-  const paused: BoardRun = { ...RUN, id: 'p', status: 'paused', pauseReason: 'attempt-cap', stalled: 0, coordinatorStalled: false }
-  const board: Board = { at: 'x', runs: [RUN, paused], decisions: { open: 2, overdue: 1 } }
-  const feature = { itemId: 'f', title: 'Phase 4 plan', type: 'feature-implementation', label: 'in-progress' }
-  expect(graphCounts(board)).toEqual({
-    counts: { queue: 4, work: 2, review: 0, blocked: 2, terminal: 2 },
-    done: 2,
-    total: 10,
-    blocked: 2,
-    attention: true,
-  })
-  expect(graphCounts({ ...board, runs: [paused] }).attention).toBe(false)
-  expect(line2Cells(board, feature, null)).toEqual([
-    { text: 'feature-implementation · in-progress', tone: 'dim' },
-    { text: '   ▰▰▱▱▱▱▱▱', tone: 'error' },
-    { text: ' 2/10', tone: 'dim' },
-    { text: '   q4 → w2 → r0 → ✓2', tone: 'dim' },
-    { text: ' · blocked 2', tone: 'dim' },
-    { text: ' · decisions 2 (1 overdue)', tone: 'dim' },
-  ])
-  const calm: Board = { at: 'x', runs: [{ ...RUN, counts: { ...RUN.counts, blocked: 0 }, stalled: 0, coordinatorStalled: false }], decisions: { open: 0, overdue: 0 } }
-  expect(line2Cells(calm, null, null).map(c => c.text)).toEqual(['▰▰▱▱▱▱▱▱', ' 1/4', '   q2 → w1 → r0 → ✓1'])
-  expect(line2Cells(calm, null, null)[0]?.tone).toBe('success')
-  const container: FocusBoard = {
-    itemId: 'f',
-    counts: { queue: 1, work: 0, review: 0, blocked: 0, terminal: 1 },
-    hasChildren: true,
-    role: 'work',
-    blocked: 0,
-    container: feature,
-    touched: null,
-  }
-  const focusOnly: Board = { at: 'x', runs: [], decisions: null, focus: container }
-  expect(graphCounts(focusOnly)).toEqual({ counts: container.counts, done: 1, total: 2, blocked: 0, attention: false })
-  expect(line2Cells(focusOnly, feature, container).map(c => c.text)).toEqual([
-    'feature-implementation · in-progress',
-    '   ▰▰▰▰▱▱▱▱',
-    ' 1/2',
-    '   q1 → w0 → r0 → ✓1',
-  ])
-  // A focus with no children shows its type and its own phases, never a bar of one.
-  const leafItem = { itemId: 'l', title: 'Leaf', type: 'plugin-change', label: 'in-progress' }
-  const leaf: FocusBoard = { ...container, counts: { queue: 0, work: 1, review: 0, blocked: 0, terminal: 0 }, hasChildren: false, container: leafItem }
-  expect(line2Cells({ ...focusOnly, focus: leaf }, leafItem, leaf).map(c => c.text).join('')).toBe('plugin-change · queue → ◉ work → review → done')
-  // A board saved before `hasChildren` existed: one member is a leaf, more are a container.
-  const { hasChildren: _h, role: _r, ...old } = leaf
-  expect(line2Cells({ ...focusOnly, focus: old }, leafItem, old).map(c => c.text).join('')).toBe('plugin-change · queue → work → review → done')
-  expect(line2Cells(null, feature, null).map(c => c.text)).toEqual(['feature-implementation · in-progress', '   loading'])
-  expect(line2Cells(null, null, null).map(c => c.text)).toEqual(['loading'])
-  expect(line2Cells({ ...board, error: 'http 502: no JSON body' }, null, null).map(c => c.text)).toEqual(['board unavailable: http 502: no JSON body'])
-  expect(boardProgress(board)).toEqual({ done: 2, total: 10 })
-  expect(boardProgress(null)).toEqual({ done: 0, total: 0 })
-  expect(progressBar(2, 10)).toBe('▰▰▱▱▱▱▱▱')
-  expect(progressBar(0, 0)).toBe('▱▱▱▱▱▱▱▱')
-  expect(progressBar(5, 4, 4)).toBe('▰▰▰▰')
-  expect(decisionCounts({ items: [{ status: 'open', overdue: true }, { status: 'acknowledged' }, { status: 'answered' }] })).toEqual({
-    open: 2,
-    overdue: 1,
-  })
-  expect(listTotal({ items: [{}, {}], page: { total: 7 } })).toBe(7)
-  expect(listTotal({ items: [{}, {}] })).toBe(2)
-})
-
 test('a leaf phase pipeline lights the current phase', async () => {
   const text = (role: string) => phasePipeline(role).map(c => c.text).join('')
   const lit = (role: string) => phasePipeline(role).filter(c => c.tone === 'lit').map(c => c.text)
@@ -818,50 +908,252 @@ test('a leaf phase pipeline lights the current phase', async () => {
   expect(phasePipeline('queue', ' · ').map(c => c.text)).toEqual([' · ', '◉ queue', ' → work → review → done'])
 })
 
-test('line 1: the title alone, then the run facts', async () => {
-  const feature = { itemId: 'f', title: 'Phase 4 plan', type: 'feature-implementation', label: 'in-progress' }
-  expect(line1Cells(null, [], 100)).toBe(null)
-  expect(line1Cells(feature, [], 100)).toEqual([{ text: 'Phase 4 plan', tone: 'title' }])
-  expect(line1Cells(feature, [RUN], 130)).toEqual([
-    { text: 'Phase 4 plan', tone: 'title' },
-    { text: ' · run wave-8 open', tone: 'dim' },
-    { text: ' · COORD STALLED', tone: 'errorBold' },
-    { text: ' · in flight 2 (1 stalled)', tone: 'dim' },
-    { text: ' · ready 1', tone: 'dim' },
-    { text: ' · waiting 1', tone: 'dim' },
-    { text: ' · 1.3M tok', tone: 'dim' },
+test('frontier members: in flight, waiting and ready, each once, with the status the band draws', async () => {
+  expect(frontierMembers(FRONTIER)).toEqual([
+    { id: 'b2222222', status: 'stuck', role: 'work', seat: 'implementer', title: 'B task', lastSeenAt: '2026-11-07T13:48:00.000Z' },
+    { id: 'c3333333', status: 'working', role: 'queue', seat: 'planner', title: 'C task' },
+    { id: 'd4444444', status: 'needsYou' },
+    { id: 'a1111111', status: 'notStarted', role: 'queue', title: 'A task' },
   ])
-  const paused: BoardRun = { ...RUN, id: 'p', status: 'paused', pauseReason: 'run-budget' }
-  expect(line1Cells(null, [paused], 100)?.[1]).toEqual({ text: ' · PAUSED run-budget', tone: 'warningBold' })
-  expect(line1Cells(null, [RUN, { ...RUN, id: 'r2' }], 100)?.[0]?.text).toBe('2 runs open')
-  expect(line1Cells(null, [RUN, paused], 100)?.[0]?.text).toBe('2 runs, 1 open, 1 paused')
-  expect(line1Cells(null, [{ ...RUN, label: 'a label far too long for the line two cell' }], 100)?.[0]?.text).toBe(
-    'run a label far too long fo… open',
-  )
+  // A ready member past the queue has finished its step and waits to be advanced; one in the queue has not started.
+  expect(frontierMembers({ ready: [{ id: 'w', role: 'work' }, { id: 'r', role: 'review' }, { id: 'q', role: 'queue' }] }).map(m => m.status)).toEqual([
+    'finished',
+    'finished',
+    'notStarted',
+  ])
+  // Once every seat of a Workflow has ended, every ready member has finished its step.
+  expect(frontierMembers({ ready: [{ id: 'q', role: 'queue' }] }, true).map(m => m.status)).toEqual(['finished'])
+  // Two seats on one member: one entry, working while either is live.
+  const shared = frontierMembers({ inFlight: [{ id: 'e', stalled: true, seat: 'implementer' }, { id: 'e', stalled: false, seat: 'reviewer' }] })
+  expect(shared.map(m => [m.id, m.status, m.seat])).toEqual([['e', 'working', 'reviewer']])
+  // Waiting on another item is not an alarm: not started.
+  expect(frontierMembers({ waiting: [{ id: 'x', reason: 'dependency' }, { id: 'y', reason: 'manual' }] }).map(m => m.status)).toEqual([
+    'notStarted',
+    'notStarted',
+  ])
 })
 
-test('every line is cut to the frame: cells from the end first, then the title ends in an ellipsis', async () => {
+test('the bar: one cell per member in state order, an agent member in its own colour, ⧄ for cancelled, shares past sixteen', async () => {
+  expect(barCells(RUN_BOARD)).toEqual([
+    { state: 'done' },
+    { state: 'working', colour: AGENT_COLOURS[0] },
+    { state: 'stuck' },
+    { state: 'needsYou' },
+    { state: 'notStarted' },
+  ])
+  expect(barCells(RUN_BOARD, { [colourKey(RUN_ID, 'c3333333')]: 2 })[1]).toEqual({ state: 'working', colour: AGENT_COLOURS[2] })
+  const counts = (over: Partial<BoardRun['counts']>) => ({ queue: 0, work: 0, review: 0, blocked: 0, terminal: 0, ...over })
+  // Cancelled members are terminal but never done.
+  expect(barCells({ at: 'x', runs: [{ ...RUN, counts: counts({ terminal: 3 }), cancelled: 1, members: [] }] }).map(c => c.state)).toEqual([
+    'done',
+    'done',
+    'cancelled',
+  ])
+  // Members the frontier does not list are not started.
+  expect(barCells({ at: 'x', runs: [{ ...RUN, counts: counts({ queue: 2 }), members: [] }] }).map(c => c.state)).toEqual(['notStarted', 'notStarted'])
+  // A focus graph has no agents: its members in work or review are in progress, still.
+  const focus: FocusBoard = { itemId: 'f', counts: counts({ queue: 1, work: 1, review: 1, blocked: 1, terminal: 1 }), blocked: 0, container: null, touched: null }
+  expect(barCells({ at: 'x', runs: [], focus }).map(c => c.state)).toEqual(['done', 'progress', 'progress', 'notStarted', 'notStarted'])
+
+  expect(barRun(barCells(RUN_BOARD))).toEqual([
+    { text: '▰', tone: 'success' },
+    { text: '▰', tone: 'agent', color: AGENT_COLOURS[0], blink: true, off: '▱' },
+    { text: '▰', tone: 'error' },
+    { text: '▰', tone: 'needsYou' },
+    { text: '▱', tone: 'dim' },
+  ])
+  expect(barRun([{ state: 'done' }, { state: 'done' }, { state: 'cancelled' }, { state: 'finished' }, { state: 'progress' }])).toEqual([
+    { text: '▰▰', tone: 'success' },
+    { text: '⧄', tone: 'error' },
+    { text: '▰', tone: 'finished' },
+    { text: '▰', tone: 'text' },
+  ])
+  // Two agents in one colour (past four at once) join, blinking together.
+  expect(barRun([{ state: 'working', colour: '#111111' }, { state: 'working', colour: '#111111' }])).toEqual([
+    { text: '▰▰', tone: 'agent', color: '#111111', blink: true, off: '▱▱' },
+  ])
+
+  // Past sixteen: every agent, stuck and decision cell stays; the rest share the room left.
+  const many: BarCell[] = [
+    ...Array.from({ length: 30 }, (): BarCell => ({ state: 'done' })),
+    { state: 'working', colour: AGENT_COLOURS[0] },
+    { state: 'working', colour: AGENT_COLOURS[1] },
+    { state: 'stuck' },
+    ...Array.from({ length: 67 }, (): BarCell => ({ state: 'notStarted' })),
+  ]
+  const fitted = fitBar(many)
+  const count = (cells: BarCell[], state: string) => cells.filter(c => c.state === state).length
+  expect(fitted.length).toBe(16)
+  expect([count(fitted, 'done'), count(fitted, 'working'), count(fitted, 'stuck'), count(fitted, 'notStarted')]).toEqual([4, 2, 1, 9])
+  expect(fitted.filter(c => c.state === 'working').map(c => c.colour)).toEqual([AGENT_COLOURS[0], AGENT_COLOURS[1]])
+  // A state with one member among a hundred keeps its cell.
+  const thin = fitBar([{ state: 'done' }, ...Array.from({ length: 98 }, (): BarCell => ({ state: 'notStarted' })), { state: 'working', colour: AGENT_COLOURS[0] }])
+  expect([thin.length, count(thin, 'done'), count(thin, 'working')]).toEqual([16, 1, 1])
+  expect(fitBar(barCells(RUN_BOARD))).toEqual(barCells(RUN_BOARD))
+})
+
+test('colours: a member keeps its slot from read to read, and two worked on at once never share one while a slot is free', async () => {
+  expect(assignColours({}, ['r:a', 'r:b'])).toEqual({ 'r:a': 0, 'r:b': 1 })
+  // B keeps its slot from planning to implementing; C, new, takes the lowest free one.
+  expect(assignColours({ 'r:a': 0, 'r:b': 1 }, ['r:b', 'r:c'])).toEqual({ 'r:b': 1, 'r:c': 0 })
+  // A member between agents keeps its slot for when it is worked on again.
+  expect(assignColours({ 'r:a': 2 }, ['r:b'], ['r:a', 'r:b'])).toEqual({ 'r:b': 0, 'r:a': 2 })
+  // Two saved on one slot: the second moves.
+  expect(assignColours({ 'r:a': 0, 'r:b': 0 }, ['r:a', 'r:b'])).toEqual({ 'r:a': 0, 'r:b': 1 })
+  // Past four at once the slots repeat.
+  expect(Object.values(assignColours({}, ['r:1', 'r:2', 'r:3', 'r:4', 'r:5']))).toEqual([0, 1, 2, 3, 0])
+  // A member gone from the run drops out.
+  expect(assignColours({ 'r:gone': 3 }, [], [])).toEqual({})
+  expect(colourKey('Run-1', 'ABCDEF1234-0000')).toBe('Run-1:abcdef12')
+  expect(agentColour(5)).toBe(AGENT_COLOURS[1])
+  // No agent colour is a status colour.
+  expect(AGENT_COLOURS.includes(NEEDS_YOU as never)).toBe(false)
+  // The bar and the agent rows read one slot: with none saved, the order among worked-on members.
+  const two: Board = {
+    at: 'x',
+    runs: [{ ...RUN, members: [{ id: 'p', status: 'working', seat: 'planner' }, { id: 'q', status: 'working', seat: 'planner' }] }],
+  }
+  expect([...workingSlots(two).values()]).toEqual([0, 1])
+  expect(workingSlots(two, { [colourKey(RUN_ID, 'q')]: 3 }).get(colourKey(RUN_ID, 'q'))).toBe(3)
+})
+
+test('the title and status rows: the title with the bar; alerts first, then what the agents do, the members by phase on the right', async () => {
+  const feature = { itemId: 'f', title: 'Phase 4 plan', type: 'feature-implementation', label: 'in-progress' }
+  expect(titleRow(RUN_BOARD, feature, null)).toEqual({ key: 'title', left: [{ text: 'Phase 4 plan', tone: 'title' }], right: barRun(barCells(RUN_BOARD)) })
+  expect(titleRow(RUN_BOARD, null, null)?.left).toEqual([{ text: 'run wave-8', tone: 'dim' }])
+  expect(titleRow(null, null, null)).toBe(null)
+  expect(titleRow(null, feature, null)?.right).toEqual([])
+
+  expect(statusRow(RUN_BOARD, feature, null)).toEqual({
+    key: 'status',
+    left: [
+      { text: '1 agent stuck', tone: 'errorBold' },
+      { text: ' · 1 decision for you', tone: 'needsYouBold' },
+      { text: ' · 1 agent planning', tone: 'dim' },
+    ],
+    right: [{ text: '2 planned · 1 in progress · 1 on hold · 1 done', tone: 'dim' }],
+  })
+  const one = (run: BoardRun): Board => ({ at: 'x', runs: [run] })
+  const left = (board: Board) => statusRow(board, feature, null).left.map(c => c.text)
+  // A quiet coordinator with no seat in flight.
+  expect(left(one({ ...RUN, members: [], inFlight: 0, stalled: 0 }))).toEqual(['Coordinator not responding'])
+  expect(left(one({ ...RUN, status: 'paused', pauseReason: 'run-budget', members: [] }))).toEqual(['Run paused: run budget'])
+  // Every agent of a Workflow finished: the coordinator's move.
+  const finished: BoardRun = { ...RUN, workflowLaunched: true, inFlight: 0, stalled: 0, members: [{ id: 'x', status: 'finished' }] }
+  expect(statusRow(one(finished), feature, null).left).toEqual([{ text: 'All agents finished · advance the items', tone: 'needsYouBold' }])
+  // Several of the session's runs: `2 waves`, then the agents of all of them.
+  const calm: BoardRun = { ...RUN, coordinatorStalled: false, members: [{ id: 'c', status: 'working', seat: 'implementer' }] }
+  const calm2: BoardRun = { ...calm, id: 'r2', members: [{ id: 'e', status: 'working', seat: 'implementer' }] }
+  expect(left({ at: 'x', runs: [calm, calm2] })).toEqual(['2 waves', ' · 2 agents implementing'])
+  expect(left(one({ ...calm, members: [...(calm.members ?? []), { id: 'e', status: 'working', seat: 'reviewer' }] }))).toEqual(['2 agents working'])
+  expect(left(one({ ...calm, members: [] }))).toEqual(['no agent working'])
+  expect(activityText([{ id: 'a', status: 'working', seat: 'reviewer' }])).toBe('1 agent reviewing')
+  expect(activityText([{ id: 'a', status: 'working', seat: 'test-author' }])).toBe('1 agent writing tests')
+  expect(activityText([{ id: 'a', status: 'finished' }])).toBe('')
+  expect(countsText({ queue: 0, work: 0, review: 0, blocked: 0, terminal: 3 }, 1)).toBe('2 done · 1 cancelled')
+  expect(countsText({ queue: 0, work: 0, review: 0, blocked: 0, terminal: 0 })).toBe('')
+  expect(quietFor('2026-11-07T13:48:00.000Z', '2026-11-07T14:02:30.000Z')).toBe('quiet 14m')
+  expect(quietFor(undefined, '2026-11-07T14:02:30.000Z')).toBe('')
+
+  // A focus graph: its type and phase and its blocked work; the members by phase, or a lone leaf's own phases.
+  const container: FocusBoard = {
+    itemId: 'f',
+    counts: { queue: 1, work: 0, review: 0, blocked: 0, terminal: 1 },
+    hasChildren: true,
+    role: 'work',
+    blocked: 2,
+    container: feature,
+    touched: null,
+  }
+  const focusOnly: Board = { at: 'x', runs: [], focus: container }
+  expect(statusRow(focusOnly, feature, container)).toEqual({
+    key: 'status',
+    left: [
+      { text: 'feature-implementation · in-progress', tone: 'dim' },
+      { text: ' · 2 waiting on another item', tone: 'dim' },
+    ],
+    right: [{ text: '1 planned · 1 done', tone: 'dim' }],
+  })
+  const leafItem = { itemId: 'l', title: 'Leaf', type: 'plugin-change', label: 'in-progress' }
+  const leaf: FocusBoard = { ...container, counts: { queue: 0, work: 1, review: 0, blocked: 0, terminal: 0 }, hasChildren: false, blocked: 0, container: leafItem }
+  const leafRow = statusRow({ ...focusOnly, focus: leaf }, leafItem, leaf)
+  expect([leafRow.left.map(c => c.text), leafRow.right.map(c => c.text).join('')]).toEqual([['plugin-change'], 'queue → ◉ work → review → done'])
+  expect(titleRow({ ...focusOnly, focus: leaf }, leafItem, leaf)?.right).toEqual([])
+  expect(statusRow(null, feature, null).left).toEqual([{ text: 'loading', tone: 'dim' }])
+  expect(statusRow({ ...focusOnly, error: 'http 502: no JSON body' }, null, null).left.map(c => c.text)).toEqual(['board unavailable: http 502: no JSON body'])
+})
+
+test("agent rows: one per agent, the stuck first, each marker in its member's colour and blinking; three at most, then +N more", async () => {
+  expect(agentRows(RUN_BOARD)).toEqual([
+    {
+      key: 'agent-0',
+      left: [
+        { text: '◉', tone: 'error' },
+        { text: ' implementer · quiet 14m', tone: 'dim' },
+        { text: '   B task', tone: 'text' },
+      ],
+      right: [],
+      elastic: 2,
+    },
+    {
+      key: 'agent-1',
+      left: [
+        { text: '◉', tone: 'agent', color: AGENT_COLOURS[0], blink: true, off: '○' },
+        { text: ' planner', tone: 'dim' },
+        { text: '   C task', tone: 'text' },
+      ],
+      right: [],
+      elastic: 2,
+    },
+  ])
+  // The marker takes its member's saved colour, the same as its bar cell.
+  const saved = { [colourKey(RUN_ID, 'c3333333')]: 3 }
+  expect(agentRows(RUN_BOARD, saved)[1]?.left[0]?.color).toBe(AGENT_COLOURS[3])
+  expect(barCells(RUN_BOARD, saved).find(c => c.state === 'working')?.colour).toBe(AGENT_COLOURS[3])
+  const five: Board = {
+    at: 'x',
+    runs: [{ ...RUN, members: ['a', 'b', 'c', 'd', 'e'].map(id => ({ id, status: 'working' as const, seat: 'implementer', title: `Task ${id}` })) }],
+  }
+  const rows = agentRows(five)
+  expect(rows.length).toBe(3)
+  expect(rows[2]?.left.map(c => c.text)).toEqual(['◉', ' implementer', '   Task c', ' · +2 more'])
+  // Several runs: the run's name follows the seat.
+  const twoRuns: Board = { at: 'x', runs: [{ ...RUN, members: [{ id: 'a', status: 'working', seat: 'implementer', title: 'T' }] }, { ...RUN, id: 'r2', members: [] }] }
+  expect(agentRows(twoRuns)[0]?.left[1]?.text).toBe(' implementer · wave-8')
+  expect(agentRows(null)).toEqual([])
+})
+
+test('every row is cut to the frame: the right side stays whole while the left gives way from its end', async () => {
   expect(bandWidth(100)).toBe(96)
+  const status = statusRow(RUN_BOARD, null, null)
+  expect(fitRow(status, 96).left.map(c => c.text)).toEqual(['1 agent stuck', ' · 1 decision for you'])
+  expect(fitRow(status, 96).right).toEqual(status.right)
+  // Too narrow for both: the right side goes.
+  expect(fitRow(status, 40)).toEqual({ ...status, right: [], left: [status.left[0], status.left[1]] })
   const title = 'orchestration-mode: graph-progression band (toggleable) and visible-mode footer (director, coordinator)'
-  const head = line1Cells({ itemId: 'd', title, type: 'plugin-change', label: 'in-progress' }, [RUN], 100) ?? []
-  // The run facts go first, then the title is cut.
-  const fitted = fitCells(head, 96)
-  expect(fitted).toEqual([{ text: 'orchestration-mode: graph-progression band (toggleable) and visible-mode footer (director, coor…', tone: 'title' }])
-  expect(cellsWidth(fitted)).toBe(96)
-  const short = fitCells(line1Cells({ itemId: 'd', title: 'Phase 4 plan', type: '', label: '' }, [RUN], 100) ?? [], 50)
-  expect(short.map(c => c.text)).toEqual(['Phase 4 plan', ' · run wave-8 open', ' · COORD STALLED'])
-  expect(cellsWidth(short) <= 50).toBe(true)
-  // Line 3: the title gives way before the blocker; past a dozen cells the blocker goes.
+  const head = fitRow(titleRow(RUN_BOARD, { itemId: 'd', title, type: '', label: '' }, null) as Row, 96)
+  expect(head.left[0]?.text.length).toBe(96 - 5 - 2)
+  expect(head.left[0]?.text.endsWith('…')).toBe(true)
+  expect(cellsWidth(head.right)).toBe(5)
+  // An agent row's title gives way, not its seat.
+  const agent = fitRow(agentRows(RUN_BOARD)[0] as Row, 30)
+  expect(agent.left.map(c => c.text)).toEqual(['◉', ' implementer · quiet 14m', '   B…'])
+  // The item row: the title gives way before the blocker; past a dozen cells the blocker goes.
   const item = { itemId: '6e91c19b-0000', title: 'A task with a long title that the frame truncates', type: 'feature-task', label: 'queue', blockedBy: 'd8999287' }
   expect(line3Cells(item, 96).map(c => c.text)).toEqual(['6e91c19b · feature-task · queue', '   A task with a long title that the frame…', ' · blocked by d8999287'])
   expect(line3Cells(item, 60).map(c => c.text)).toEqual(['6e91c19b · feature-task · queue', '   A task with a long title…'])
   expect(cellsWidth(line3Cells(item, 60))).toBe(59)
-  expect(line3Cells({ ...item, blockedBy: undefined }, 200).map(c => c.text)).toEqual([
-    '6e91c19b · feature-task · queue',
-    '   A task with a long title that the frame truncates',
-  ])
   // Too narrow for the cells before the elastic one: that one alone, cut.
   expect(fitCells([{ text: 'a long lead cell', tone: 'dim' }, { text: '   title', tone: 'text' }], 6, 1)).toEqual([{ text: 'title', tone: 'text' }])
+})
+
+test("a cell's style is what both renderers draw", async () => {
+  expect(cellStyle({ text: '▰', tone: 'agent', color: AGENT_COLOURS[0], blink: true, off: '▱' })).toEqual({ t: '▰', o: '▱', c: AGENT_COLOURS[0] })
+  expect(cellStyle({ text: 'T', tone: 'title' })).toEqual({ t: 'T', c: 'warning', b: true })
+  expect(cellStyle({ text: 'x', tone: 'dim' })).toEqual({ t: 'x', d: true })
+  expect(cellStyle({ text: 'x', tone: 'needsYouBold' })).toEqual({ t: 'x', c: NEEDS_YOU, b: true })
+  expect(cellStyle({ text: 'x', tone: 'finished' })).toEqual({ t: 'x', c: 'subtle' })
+  expect(cellStyle({ text: '⧄', tone: 'error' })).toEqual({ t: '⧄', c: 'error' })
 })
 
 test('a run is built from the list item and its frontier', async () => {
@@ -872,21 +1164,179 @@ test('a run is built from the list item and its frontier', async () => {
   expect(listed?.stalled).toBe(1)
   const run = withFrontier(listed as BoardRun, FRONTIER)
   expect(run.counts).toEqual({ queue: 2, work: 1, review: 0, blocked: 1, terminal: 1 })
-  expect(run.ready).toBe(1)
-  expect(run.inFlight).toBe(2)
-  expect(run.waiting).toBe(1)
-  expect(run.stalled).toBe(1)
+  expect([run.ready, run.inFlight, run.waiting, run.stalled, run.cancelled]).toEqual([1, 2, 1, 1, 0])
+  expect(run.members?.length).toBe(4)
+  expect(withFrontier(listed as BoardRun, { ...FRONTIER, cancelled: 1 }).cancelled).toBe(1)
+  // A Workflow with no seat left: every ready member has finished its step.
+  const done = withFrontier({ ...(listed as BoardRun), workflowLaunched: true }, { ...FRONTIER, inFlight: [] })
+  expect(done.members?.find(m => m.id === 'a1111111')?.status).toBe('finished')
   expect(runLabel(run)).toBe('wave-8')
+  expect(runLabel({ ...run, label: 'r-202611101447-6e90e4d6' })).toBe('6e90e4d6')
+  expect(runLabel({ ...run, label: 'r-wave-8' })).toBe('r-wave-8')
   expect(runLabel({ ...run, label: '' })).toBe('Band demo wave')
   expect(runLabel({ ...run, label: '', title: 'A title that is far too long for one cell' })).toBe('A title that is far too…')
   expect(runLabel({ ...run, title: '', label: '' })).toBe('a51588a2')
-  expect(phaseCell(run.counts)).toBe('q2 → w1 → r0 → ✓1 · blocked 1')
-  expect(phaseCell({ ...run.counts, blocked: 0 })).toBe('q2 → w1 → r0 → ✓1')
-  expect(seatsCell(run)).toBe('in flight 2 (1 stalled) · ready 1 · waiting 1')
-  expect(seatsCell({ ...run, stalled: 0 })).toBe('in flight 2 · ready 1 · waiting 1')
-  expect(pausedCell({ ...run, status: 'paused', pauseReason: 'run-budget' })).toBe('PAUSED run-budget')
-  expect(pausedCell({ ...run, status: 'paused' })).toBe('PAUSED')
-  expect(formatTokens(run.tokens)).toBe('1.3M')
-  expect(formatTokens(26_400)).toBe('26k')
-  expect(formatTokens(12)).toBe('12')
+  const finished: BoardRun = { ...run, workflowLaunched: true, inFlight: 0 }
+  expect(seatsDone(finished)).toBe(true)
+  expect(seatsDone({ ...finished, inFlight: 1 })).toBe(false)
+  expect(seatsDone({ ...finished, workflowLaunched: false })).toBe(false)
+  expect(seatsDone({ ...finished, status: 'paused' })).toBe(false)
+})
+
+test('the coordinator alert follows the director rule: idle under a Workflow or beside a live seat, never on a paused run', async () => {
+  // RUN: the server flags the coordinator, and one of its two seats is live.
+  expect(coordStalled(RUN)).toBe(false)
+  expect(coordStalled({ ...RUN, stalled: 2 })).toBe(true)
+  expect(coordStalled({ ...RUN, stalled: 2, coordinatorStalled: false })).toBe(false)
+  // A launched Method A run: the Workflow coordinates it, nothing calls under the coordinator token.
+  const workflow = runFromList({ ...LISTED, hints: { method: 'A', phase: 'launched' } }) as BoardRun
+  expect(workflow.workflowLaunched).toBe(true)
+  expect(coordStalled({ ...workflow, inFlight: 0, stalled: 0 })).toBe(false)
+  expect(runFromList({ ...LISTED, hints: { method: 'A', phase: 'post-run' } })?.workflowLaunched).toBe(false)
+  expect(runFromList({ ...LISTED, hints: { method: 'B', phase: 'launched' } })?.workflowLaunched).toBe(false)
+  // No seat in flight at all: a quiet coordinator is stalled.
+  expect(coordStalled({ ...RUN, inFlight: 0, stalled: 0 })).toBe(true)
+  // A paused run is paused, never stalled.
+  expect(coordStalled({ ...RUN, status: 'paused', inFlight: 0 })).toBe(false)
+  // The frontier's own coordinator flag is the fresher read.
+  expect(withFrontier(runFromList(LISTED) as BoardRun, { ...FRONTIER, stalled: false }).coordinatorStalled).toBe(false)
+})
+
+test('the band shows only the runs of this session, in every mode', async () => {
+  const run = (id: string, label: string, scopeId?: string): BoardRun => ({ ...RUN, id, label, scopeId })
+  const theirs = run('72100b56-0000', 'theirs', 'a977f05e-0000')
+  const scoped = run('11111111-0000', 'scoped', 'd99e4f7a-0000')
+  const coordinated = run('22222222-0000', 'coordinated')
+  const background = run('33333333-0000', 'background')
+  const all = [theirs, scoped, coordinated, background]
+  const labels = (runs: BoardRun[]) => runs.map(r => r.label)
+
+  expect(labels(sessionRuns(all, { watched: [] }))).toEqual([])
+  // A run this session or one of its subagents opened or acted on, by id prefix either way.
+  expect(labels(sessionRuns(all, { watched: ['33333333'] }))).toEqual(['background'])
+  // The coordinated run comes first, whatever the server's order; a run scoped to an item the session only
+  // touched is never its own.
+  expect(labels(sessionRuns(all, { coordinatorRunId: '22222222', watched: ['33333333-0000'] }))).toEqual(['coordinated', 'background'])
+  expect(labels(sessionRuns(all, { watched: ['11111111'] }))).toEqual(['scoped'])
+  // A marker coordinator that names no run matches nothing.
+  expect(labels(sessionRuns(all, { coordinatorRunId: '', watched: [''] }))).toEqual([])
+  expect(runFromList({ ...LISTED, scopeId: 'a977f05e-0000', rootId: 'ce064d2c-0000' })).toMatchObject({ scopeId: 'a977f05e-0000', rootId: 'ce064d2c-0000' })
+  expect(runFromList(LISTED)?.scopeId).toBe(undefined)
+})
+
+test('a runs_write open or an op on a run makes it the session\'s; a read never does', async () => {
+  const envelope = { ok: true, data: { results: [{ ok: true, runId: RUN_ID, coordinatorToken: 't' }, { ok: false }, { ok: true }] } }
+  const input = { ops: [{ op: 'open', rootId: 'ce064d2c' }, { op: 'open', rootId: 'x' }, { op: 'pause', runId: '72100b56' }] }
+  expect(namedRunIds(RUN_TOOL, input, envelope)).toEqual([RUN_ID, '72100b56'])
+  expect(namedRunIds('mcp__mcp-task-orchestrator-director__runs_write', { ops: [{ op: 'close', runId: 'a51588a2' }] }, undefined)).toEqual(['a51588a2'])
+  expect(namedRunIds('mcp__mcp-task-orchestrator-director__runs_read', { select: 'frontier', runId: RUN_ID }, undefined)).toEqual([])
+  expect(namedRunIds(READ_TOOL, { itemId: 'd99e4f7a' }, undefined)).toEqual([])
+  // Each id once, the full spelling kept, newest last, the oldest dropped past the cap.
+  expect(watchRuns(['a51588a2'], [RUN_ID, 'b0b0b0b0'])).toEqual([RUN_ID, 'b0b0b0b0'])
+  expect(watchRuns([RUN_ID], ['a51588a2'])).toEqual([RUN_ID])
+  expect(watchRuns(['1111aaaa', '2222bbbb', '3333cccc'], ['4444dddd'], 3)).toEqual(['2222bbbb', '3333cccc', '4444dddd'])
+})
+
+/** The runs list the board reads, from `listed()`, over the item server. */
+function runServer(items: ReturnType<typeof server>, listed: () => unknown[]) {
+  return (hook: unknown, e: { url: string; init?: { body?: unknown } }) => {
+    const body = JSON.parse(String(e.init?.body ?? '{}')) as Record<string, string>
+    if (e.url.endsWith('/runs_read') && body.select === 'list') {
+      const page = body.status === 'open' ? listed() : []
+      return ok({ items: page, page: { total: page.length } })
+    }
+
+    return items(hook, e)
+  }
+}
+
+test("another session's run never reaches this session's band, even one scoped to its focus, until the session acts on it", async ($, on) => {
+  on('ui.toast', () => ({ value: undefined }))
+  on('ui.backdrop', () => ({ value: { isDrawn: true, requestId: 'backdrop' } }))
+  const items = server({ 'd99e4f7a-0000': FEATURE, d99e4f7a: FEATURE, '8da6e710': TASK, '8da6e710-0000': TASK }, {}, FEATURE_LISTS)
+  const listed = [
+    { ...LISTED, runId: '72100b56-1824-499f-8801-4017c6cbed72', label: 'theirs', scopeId: 'a977f05e-fae5' },
+    { ...LISTED, label: 'mine', scopeId: 'd99e4f7a-0000', coordinatorStalled: false },
+  ]
+  let runs = listed.slice(0, 1)
+  on('http.fetch', runServer(items, () => runs))
+  on('tool.call', () => ({ result: { ok: true, data: FEATURE }, text: '{}' }))
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return h(Text, null, 'engine')
+  })
+
+  // A read of the feature (looking at another session's work) is no focus: no band.
+  await $.tool.call({ tool: READ_TOOL, select: 'context', itemId: 'd99e4f7a' })
+  await settle()
+  expect(await shown($, BAND, /Model and|engine/)).toBe('engine')
+
+  // A write to it is.
+  await $.tool.call({ tool: NOTES_TOOL, ops: [{ op: 'upsert', itemId: 'd99e4f7a', key: 'k', role: 'work', body: '' }] })
+  await settle()
+  let band = await texts($, BAND)
+  expect(band[0]).toBe('Model and effort policy')
+  expect(band.some(text => /theirs/.test(text))).toBe(false)
+
+  // A run another session runs over this session's focus (the same feature) is still not this session's: a write
+  // to its task claims nothing either.
+  runs = listed
+  await $.tool.call({ tool: NOTES_TOOL, ops: [{ op: 'upsert', itemId: '8da6e710', key: 'k', role: 'work', body: '' }] })
+  await settle()
+  band = await texts($, BAND)
+  expect(band[0]).toBe('Model and effort policy')
+  expect(band.includes('no agent working')).toBe(false)
+  expect(band.includes('feature-implementation · in-progress')).toBe(true)
+
+  // Acting on it through runs_write makes it the session's: the band shows its status (no agent works on it yet).
+  await $.tool.call({ tool: RUN_TOOL, ops: [{ op: 'pause', runId: RUN_ID }] })
+  await settle()
+  band = await texts($, BAND)
+  expect(band.includes('no agent working')).toBe(true)
+  expect(band.some(text => /theirs/.test(text))).toBe(false)
+})
+
+test("a run a subagent opened is the session's: the title row names its scope item, the status row its agents", async ($, on) => {
+  on('ui.toast', () => ({ value: undefined }))
+  on('ui.backdrop', () => ({ value: { isDrawn: true, requestId: 'backdrop' } }))
+  const BG = 'b0b0b0b0-1111-2222-3333-444455556666'
+  const items = server({ 'd99e4f7a-0000': FEATURE }, {}, FEATURE_LISTS)
+  const listed = [
+    { ...LISTED, runId: '72100b56-1824-499f-8801-4017c6cbed72', label: 'theirs', scopeId: 'a977f05e-fae5' },
+    { ...LISTED, runId: BG, label: 'bg', scopeId: 'd99e4f7a-0000', coordinatorStalled: false },
+  ]
+  on('http.fetch', runServer(items, () => listed))
+  on('tool.call', answerWrites(() => ({ runId: BG, label: 'bg', coordinatorToken: 't' })))
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return h(Text, null, 'engine')
+  })
+
+  // A read of every run's frontier (the director running the board) owns nothing.
+  await $.tool.call({ tool: 'mcp__mcp-task-orchestrator-director__runs_read', select: 'frontier', runId: BG })
+  await settle()
+  expect(await shown($, BAND, /run|engine/)).toBe('engine')
+
+  await $.tool.call({ tool: RUN_TOOL, ops: [{ op: 'open', rootId: 'ce064d2c', label: 'bg' }], agentId: 'coordinator-1' })
+  await settle()
+  const band = await texts($, BAND)
+  expect(band).toEqual(['Model and effort policy', 'no agent working'])
+  // The title is a row of its own, the run a row below it.
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect((await ui.find({ key: 'title' }))?.text).toBe('Model and effort policy')
+  expect((await ui.find({ key: 'status' }))?.text).toBe('no agent working')
+  await ui.unmount()
+  // A short band keeps the title, then the status.
+  const rowKeys = async (maxRows: number) => {
+    const m = await $.ui.mount({ ...BAND, props: { ...BAND.props, maxRows }, surface: 'terminal' })
+    const keys = (await m.findAll({ type: 'Box' })).map(b => b.key).filter((k): k is string => k !== undefined)
+    await m.unmount()
+    return keys
+  }
+  expect(await rowKeys(6)).toEqual(['title', 'status'])
+  expect(await rowKeys(3)).toEqual(['title'])
+  // A subagent's open never makes the session a coordinator.
+  expect(await shown($, FOOTER, /coordinator|orchestrator/)).toBe('orchestrator')
 })

@@ -27,10 +27,11 @@ enum class FrontierWaitReason(
     RESOURCE("resource")
 }
 
-/** One active member-seat assignment: [seat] attempt [attempt] on [itemId] (role [role] at read time). */
+/** One active member-seat assignment: [seat] attempt [attempt] on [itemId] (role [role] and [title] at read time). */
 data class FrontierSeat(
     val itemId: UUID,
     val role: Role?,
+    val title: String?,
     val seat: String,
     val attempt: Int,
     val lastSeenAt: Instant?,
@@ -50,11 +51,14 @@ data class FrontierWaiting(
  * The frontier of one run at one instant: [counts] of the visible members by role (all five roles present),
  * the [ready] members (membership order), the active member seats [inFlight] (assignment order) and the [waiting]
  * members (membership order). [stalled] is the coordinator's liveness ([RunLiveness.isCoordinatorStalled]).
+ * [terminalLabels] counts the visible terminal members by status label (a member with none is left out), so a caller
+ * can tell how many of [counts]' terminal ones a given label (the root's cancel label) names.
  */
 data class RunFrontier(
     val run: Run,
     val stalled: Boolean,
     val counts: Map<Role, Int>,
+    val terminalLabels: Map<String, Int>,
     val ready: List<WorkItem>,
     val inFlight: List<FrontierSeat>,
     val waiting: List<FrontierWaiting>
@@ -107,6 +111,12 @@ class RunFrontierQueries(
             val counts = LinkedHashMap<Role, Int>()
             Role.entries.forEach { counts[it] = 0 }
             members.forEach { m -> m.role?.let { counts[it] = counts.getValue(it) + 1 } }
+            val terminalLabels =
+                members
+                    .filter { it.role == Role.TERMINAL }
+                    .mapNotNull { it.statusLabel }
+                    .groupingBy { it }
+                    .eachCount()
 
             val roles: Map<UUID, Role?> = blockerRows.mapValues { it.value.role }
             val unsatisfied = BlockerEvaluator.unsatisfied(members.map { it.id }, edges, roles)
@@ -166,6 +176,7 @@ class RunFrontierQueries(
                 run = run,
                 stalled = RunLiveness.isCoordinatorStalled(run, now),
                 counts = counts,
+                terminalLabels = terminalLabels,
                 ready = ready,
                 inFlight = inFlight,
                 waiting = waiting
@@ -181,6 +192,7 @@ class RunFrontierQueries(
         FrontierSeat(
             itemId = seat.itemId!!,
             role = item?.role,
+            title = item?.title,
             seat = seat.seat,
             attempt = seat.attempt,
             lastSeenAt = seat.lastSeenAt,

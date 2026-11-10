@@ -255,6 +255,29 @@ class RunsFrontierTest {
             assertEquals("manual", data.waitingBy(short(m.f)).text("reason"))
         }
 
+    @Test
+    fun `S1 cancelled counts the terminal members a cancel left, and an in-flight entry carries its item title`(): Unit =
+        world { w ->
+            val done = w.item("done", Role.TERMINAL)
+            val dropped = w.item("dropped", Role.TERMINAL)
+            val unlabelled = w.item("terminal with no label", Role.TERMINAL)
+            val working = w.item("Wire the effort table", Role.WORK)
+            // Status labels are written as the advance service writes them; the built-in label of `cancel` is `cancelled`.
+            w.exec("UPDATE work_items SET status_label = ? WHERE id = ?", "completed", done.id)
+            w.exec("UPDATE work_items SET status_label = ? WHERE id = ?", "cancelled", dropped.id)
+            val run = w.open(listOf(done, dropped, unlabelled, working), extra = stall(120))
+            w.assignOk(run, working, "implementer")
+
+            val data = w.frontier(run)
+            assertEquals(3, data.counts().getValue("terminal"), "every terminal member is still counted as terminal")
+            assertEquals(1, data.num("cancelled"), "only the member carrying the cancel label is cancelled")
+            assertEquals("Wire the effort table", data.list("inFlight").single().text("title"))
+
+            // Control: with no cancelled member the count is present and zero.
+            w.exec("UPDATE work_items SET status_label = ? WHERE id = ?", "completed", dropped.id)
+            assertEquals(0, w.frontier(run).num("cancelled"))
+        }
+
     // ------------------------------------------------------------------ S2 a blocker reaches its threshold
 
     @Test
@@ -741,7 +764,7 @@ class RunsFrontierTest {
 
             assertTrue(Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$").matches(data.text("runId")))
             assertEquals(m.run.runId, data.text("runId"))
-            assertEquals(setOf("runId", "status", "stalled", "counts", "ready", "inFlight", "waiting"), data.keys)
+            assertEquals(setOf("runId", "status", "stalled", "counts", "cancelled", "ready", "inFlight", "waiting"), data.keys)
             assertEquals(setOf("queue", "work", "review", "blocked", "terminal"), data.getValue("counts").jsonObject.keys)
             assertTrue(
                 data.ids("ready").isNotEmpty() && data.ids("inFlight").isNotEmpty() && data.ids("waiting").isNotEmpty(),
@@ -767,7 +790,7 @@ class RunsFrontierTest {
             }
             for (entry in data.list("inFlight")) {
                 assertTrue(
-                    entry.keys.all { it in setOf("id", "role", "seat", "attempt", "lastSeenAt", "stalled") },
+                    entry.keys.all { it in setOf("id", "role", "title", "seat", "attempt", "lastSeenAt", "stalled") },
                     "inFlight keys: $entry"
                 )
             }

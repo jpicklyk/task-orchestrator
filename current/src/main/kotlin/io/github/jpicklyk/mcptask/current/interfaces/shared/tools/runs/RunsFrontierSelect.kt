@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.read.RunFrontier
 import io.github.jpicklyk.mcptask.current.application.read.RunFrontierQueries
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.director
@@ -39,25 +40,41 @@ private suspend fun frontier(
     env: ToolExecutionContext,
     ctx: CallContext,
     req: RunsFrontierRequest
-): Outcome<JsonObject> =
-    env.unitOfWork.read {
-        val run =
-            when (val r = RunsSupport.loadRun(stores, ctx, req.runId)) {
-                is Outcome.Ok -> r.value
-                is Outcome.Err -> return@read Outcome.Err(r.error)
-            }
-        val found =
-            RunFrontierQueries(env.unitOfWork).frontier(run.id, env.clock.now(), ctx.scope)
-                ?: return@read Outcome.Err(RunsSupport.runNotFound(run.id.toString()))
-        Outcome.Ok(FrontierView.of(found))
-    }
+): Outcome<JsonObject> {
+    val read: Outcome<RunFrontier> =
+        env.unitOfWork.read {
+            val run =
+                when (val r = RunsSupport.loadRun(stores, ctx, req.runId)) {
+                    is Outcome.Ok -> r.value
+                    is Outcome.Err -> return@read Outcome.Err(r.error)
+                }
+            val found =
+                RunFrontierQueries(env.unitOfWork).frontier(run.id, env.clock.now(), ctx.scope)
+                    ?: return@read Outcome.Err(RunsSupport.runNotFound(run.id.toString()))
+            Outcome.Ok(found)
+        }
+    val found =
+        when (read) {
+            is Outcome.Ok -> read.value
+            is Outcome.Err -> return Outcome.Err(read.error)
+        }
+    // The terminal members a cancel left: those whose status label is the cancel label of the run's root (the one
+    // label policy: per-root, then server, then the built-in `cancelled`), resolved after the read unit.
+    val cancelLabel = env.configResolver.labelFor(found.run.rootId, Trigger.User.CANCEL, Role.TERMINAL)
+    val cancelled = cancelLabel?.let { found.terminalLabels[it] } ?: 0
+    return Outcome.Ok(FrontierView.of(found, cancelled))
+}
 
 /**
  * The wire form of a run frontier. `runId` is the full UUID; item ids are 8-hex short ids. It never carries a body,
  * summary, token, principal or assignment id; absent members are omitted, never null; every array is present.
+ * [cancelled] is how many of the terminal members a cancel left, already counted in `counts.terminal`.
  */
 internal object FrontierView {
-    fun of(frontier: RunFrontier): JsonObject =
+    fun of(
+        frontier: RunFrontier,
+        cancelled: Int = 0
+    ): JsonObject =
         buildJsonObject {
             put("runId", frontier.run.id.toString())
             put("status", frontier.run.status.wire)
@@ -66,6 +83,7 @@ internal object FrontierView {
                 "counts",
                 buildJsonObject { Role.entries.forEach { put(role(it), frontier.counts[it] ?: 0) } }
             )
+            put("cancelled", cancelled)
             put(
                 "ready",
                 buildJsonArray {
@@ -89,6 +107,7 @@ internal object FrontierView {
                             buildJsonObject {
                                 put("id", ItemView.shortId(seat.itemId))
                                 seat.role?.let { put("role", role(it)) }
+                                seat.title?.let { put("title", it) }
                                 put("seat", seat.seat)
                                 put("attempt", seat.attempt)
                                 seat.lastSeenAt?.let { put("lastSeenAt", it.toString()) }

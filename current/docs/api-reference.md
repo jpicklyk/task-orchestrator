@@ -2131,11 +2131,14 @@ made with the seat's token (or the coordinator token, for the coordinator) refre
 does. A closed run is
 never stalled. Stalled is a derived view only: nothing is ended, released or raised.
 
-**Frontier** (`frontier{runId}`): `{runId, status, stalled, counts: {queue, work, review, blocked, terminal}, ready:
-[{id, title, role, type?}], inFlight: [{id, role, seat, attempt, lastSeenAt?, stalled}], waiting: [{id, reason,
-decisionId?, blockers?}]}`, one read with a constant number of statements. `runId` is the full UUID, item ids are 8-hex short ids;
+**Frontier** (`frontier{runId}`): `{runId, status, stalled, counts: {queue, work, review, blocked, terminal}, cancelled,
+ready: [{id, title, role, type?}], inFlight: [{id, role, title?, seat, attempt, lastSeenAt?, stalled}], waiting: [{id,
+reason, decisionId?, blockers?}]}`, one read with a constant number of statements. `runId` is the full UUID, item ids are 8-hex short ids;
 `stalled` is the coordinator's, the same as the run view's `coordinatorStalled`; every array is present. `counts` covers
-the visible members, every role present. `ready` (membership order) holds the members that are neither terminal nor
+the visible members, every role present. `cancelled` is how many of the terminal ones carry the status label of `cancel`
+under the run's root (the one label policy: per-root `status_labels`, then the server's, then the built-in `cancelled`),
+so they are counted in `counts.terminal` too; a member relabelled after its cancel is not counted. An `inFlight` entry's
+`title` is its item's title. `ready` (membership order) holds the members that are neither terminal nor
 blocked, have no active seat, no unsatisfied blocking dependency and no live claim held outside the run (a claim whose
 holder pair is not an active assignee of this run, the coordinator included; an expired claim never counts); it is
 always empty on a closed run, and a paused run computes it normally. `inFlight` (assignment order) holds the active
