@@ -110,7 +110,7 @@ AskUserQuestion(questions: [{
 - **Bearer** → ask for the host path to the token YAML (free-text/"Other" answer), e.g.
   `~/.taskorchestrator-secrets/api-tokens.yaml`. If the file doesn't exist yet, point at
   `current/docs/api-rest.md` §1 for the token-generation snippet — this skill does not generate tokens.
-- **Unauthenticated and Off both:** every caller is the local agent principal (proof none), so a human-only decision class can never be answered; director-or-human classes (run budget, attempt cap, deviation) can, through the director entry. A user who wants human sign-off needs Bearer with a `kind: human` token (see "Director credential").
+- **Unauthenticated and Off both:** every caller is the local agent principal (proof none), so a human-only decision class can never be answered; director-or-human classes (attempt cap, deviation; the run budget is legacy-only) can, through the director entry. A user who wants human sign-off needs Bearer with a `kind: human` token (see "Director credential").
 - **Off** → REST fragment is `-e API_ENABLED=false -e MCP_ALLOW_UNAUTHENTICATED=true`; config-sync will
   no-op (tell the user). Without the opt-in, an HTTP server with the API off refuses to start (`MCP_AUTH`,
   [fleet deployment](../../../../current/docs/fleet-deployment.md)); with it, `/mcp` serves every caller as

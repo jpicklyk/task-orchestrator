@@ -71,7 +71,7 @@ The five MCP tools come from the director connection. Anything else (notes, item
 Run control: `pause` stops an open run (a manual pause, with no decision); `resume` lifts only a
 manual pause. A run paused on an `attempt-cap` decision is lifted only by answering
 that decision (`allow_one`, `skip_item`, `stop`) or by `close`; `resume` on it answers
-`invalid_run_state`. `close` ends a run whatever its pause; a `completed` close is refused while a
+`invalid_run_state`. A run paused by a stored 4.0.0 budget decision (legacy) is answered `extend` or `stop`, with no other field. `close` ends a run whatever its pause; a `completed` close is refused while a
 seat is still active, and a close leaves open decisions open (its snapshot's `openDecisions` is the number still open).
 
 ## Connection check
@@ -199,6 +199,7 @@ An attempt-cap decision is answered with these options:
 | Class | Options |
 |---|---|
 | `attempt-cap` | `allow_one`, `skip_item` or `stop` |
+| legacy budget class (stored 4.0.0 runs only) | `extend` or `stop`, with no other field |
 
 Before answering, check the class: `answerers: human-only` cannot be answered from this session
 (`forbidden`, `principal_kind` `human`). `ack` marks a decision seen but deferred; it does not answer it.

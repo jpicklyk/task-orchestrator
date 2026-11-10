@@ -1154,7 +1154,7 @@ function promptErrors() {
   return [
     'ERRORS: branch on the error code (per element, see RESULTS), never on message text.',
     'Retried: unavailable, once (CONFIG RETRY). Every other code here is never retried.',
-    'run_paused {pauseReason, pauseDecisionId}: the run is paused on an attempt-cap or manual pause (a run-budget pause exists only on a stored 4.0.0 run). Never retry it;' +
+    'run_paused {pauseReason, pauseDecisionId}: the run is paused on an attempt-cap or manual pause (a run-budget pause exists only on a stored 4.0.0 run). Never retry it; ' +
       'a director or a human answers the decision. Write nothing more and return status "stopped", reason "run_paused", ' +
       'decisionId = detail.pauseDecisionId when present. A withdrawn pause decision leaves the run paused until it closes.',
     'run_at_capacity {active, max}: transient and coordinator-only (assign at maxActiveSeats); the coordinator backs off until a seat ends.',
