@@ -244,17 +244,6 @@ async function readFocus($: EngineInterface, current: NonNullable<FocusState>): 
   }
 }
 
-/**
- * The ids of the session's focus graph a run's scope may name: the focus, the touched item, and every
- * id an earlier walk resolved to this focus (the ancestors between them, and siblings' walks).
- */
-function focusIds(current: NonNullable<FocusState>): string[] {
-  const ids = [current.itemId, current.touched.itemId]
-  for (const [id, item] of resolvedFocus) if (sameId(item.id, current.itemId)) ids.push(id)
-
-  return ids
-}
-
 /** Leaves coordinator mode: state, toast, backdrop. */
 async function clearCoordinator($: EngineInterface, label: string): Promise<void> {
   coordReadFailures = 0
@@ -291,11 +280,8 @@ async function refreshBoard($: EngineInterface, force = false): Promise<void> {
       .filter((r): r is BoardRun => r !== null)
     const current = focusValue(await read($, focus))
     // Only this session's runs, in every mode: the board of every run is the director's to read, not the band's.
-    const mine = sessionRuns(listedAll, {
-      coordinatorRunId: coord?.runId,
-      watched: (await read($, watchedRuns)) ?? [],
-      focusIds: current === null ? [] : focusIds(current),
-    })
+    // A run scoped to the focus is not one of them unless the session acted on it through `runs_write`.
+    const mine = sessionRuns(listedAll, { coordinatorRunId: coord?.runId, watched: (await read($, watchedRuns)) ?? [] })
     const runs = await Promise.all(
       mine
         .slice(0, MAX_RUN_ROWS)

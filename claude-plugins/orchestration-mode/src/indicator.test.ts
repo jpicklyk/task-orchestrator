@@ -1152,18 +1152,15 @@ test('the band shows only the runs of this session, in every mode', async () => 
   const all = [theirs, scoped, coordinated, background]
   const labels = (runs: BoardRun[]) => runs.map(r => r.label)
 
-  expect(labels(sessionRuns(all, { watched: [], focusIds: [] }))).toEqual([])
-  expect(labels(sessionRuns(all, { watched: [], focusIds: ['d99e4f7a'] }))).toEqual(['scoped'])
+  expect(labels(sessionRuns(all, { watched: [] }))).toEqual([])
   // A run this session or one of its subagents opened or acted on, by id prefix either way.
-  expect(labels(sessionRuns(all, { watched: ['33333333'], focusIds: [] }))).toEqual(['background'])
-  // The coordinated run comes first, whatever the server's order.
-  expect(labels(sessionRuns(all, { coordinatorRunId: '22222222', watched: ['33333333-0000'], focusIds: ['d99e4f7a-0000'] }))).toEqual([
-    'coordinated',
-    'scoped',
-    'background',
-  ])
+  expect(labels(sessionRuns(all, { watched: ['33333333'] }))).toEqual(['background'])
+  // The coordinated run comes first, whatever the server's order; a run scoped to an item the session only
+  // touched is never its own.
+  expect(labels(sessionRuns(all, { coordinatorRunId: '22222222', watched: ['33333333-0000'] }))).toEqual(['coordinated', 'background'])
+  expect(labels(sessionRuns(all, { watched: ['11111111'] }))).toEqual(['scoped'])
   // A marker coordinator that names no run matches nothing.
-  expect(labels(sessionRuns(all, { coordinatorRunId: '', watched: [''], focusIds: [] }))).toEqual([])
+  expect(labels(sessionRuns(all, { coordinatorRunId: '', watched: [''] }))).toEqual([])
   expect(runFromList({ ...LISTED, scopeId: 'a977f05e-0000', rootId: 'ce064d2c-0000' })).toMatchObject({ scopeId: 'a977f05e-0000', rootId: 'ce064d2c-0000' })
   expect(runFromList(LISTED)?.scopeId).toBe(undefined)
 })
@@ -1194,7 +1191,7 @@ function runServer(items: ReturnType<typeof server>, listed: () => unknown[]) {
   }
 }
 
-test("another session's run never reaches this session's band; a run scoped to its focus does", async ($, on) => {
+test("another session's run never reaches this session's band, even one scoped to its focus, until the session acts on it", async ($, on) => {
   on('ui.toast', () => ({ value: undefined }))
   on('ui.backdrop', () => ({ value: { isDrawn: true, requestId: 'backdrop' } }))
   const items = server({ 'd99e4f7a-0000': FEATURE, d99e4f7a: FEATURE, '8da6e710': TASK, '8da6e710-0000': TASK }, {}, FEATURE_LISTS)
@@ -1217,11 +1214,20 @@ test("another session's run never reaches this session's band; a run scoped to i
   expect(band[0]).toBe('Model and effort policy')
   expect(band.some(text => /theirs/.test(text))).toBe(false)
 
+  // A run another session runs over this session's focus (the same feature) is still not this session's: a read
+  // of the feature, or of its task, claims nothing.
   runs = listed
   await $.tool.call({ tool: READ_TOOL, select: 'context', itemId: '8da6e710' })
   await settle()
   band = await texts($, BAND)
-  // The run is the session's now: the band shows its status (no agent works on it yet).
+  expect(band[0]).toBe('Model and effort policy')
+  expect(band.includes('no agent working')).toBe(false)
+  expect(band.includes('feature-implementation · in-progress')).toBe(true)
+
+  // Acting on it through runs_write makes it the session's: the band shows its status (no agent works on it yet).
+  await $.tool.call({ tool: RUN_TOOL, ops: [{ op: 'pause', runId: RUN_ID }] })
+  await settle()
+  band = await texts($, BAND)
   expect(band.includes('no agent working')).toBe(true)
   expect(band.some(text => /theirs/.test(text))).toBe(false)
 })

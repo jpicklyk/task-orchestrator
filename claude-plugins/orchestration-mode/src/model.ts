@@ -306,19 +306,15 @@ export function coordStalled(run: BoardRun): boolean {
 
 /**
  * The runs this session's band shows, in every mode (director included: the band is the session's own
- * graph, not the board): the run this session coordinates, the runs it or one of its subagents opened
- * or named (`watched`), and the runs scoped to an item of its focus graph (`focusIds`: the focus, the
- * touched item, the ancestors its walk read). The coordinated run first, then the server's order. A
- * run of another session or another project is never drawn.
+ * graph, not the board): the run this session coordinates, and the runs it or one of its subagents
+ * opened or named through `runs_write` (`watched`). The coordinated run first, then the server's order.
+ * A run of another session or another project is never drawn: a run scoped to an item this session
+ * merely touched or read is not its own (two sessions on one feature would otherwise draw each other's).
  */
-export function sessionRuns(
-  runs: readonly BoardRun[],
-  scope: { coordinatorRunId?: string; watched: readonly string[]; focusIds: readonly string[] },
-): BoardRun[] {
+export function sessionRuns(runs: readonly BoardRun[], scope: { coordinatorRunId?: string; watched: readonly string[] }): BoardRun[] {
   const coordinated = (run: BoardRun): boolean => scope.coordinatorRunId !== undefined && sameId(run.id, scope.coordinatorRunId)
   const watched = (run: BoardRun): boolean => scope.watched.some(id => sameId(run.id, id))
-  const focused = (run: BoardRun): boolean => run.scopeId !== undefined && scope.focusIds.some(id => sameId(run.scopeId ?? '', id))
-  const mine = runs.filter(run => coordinated(run) || watched(run) || focused(run))
+  const mine = runs.filter(run => coordinated(run) || watched(run))
 
   return [...mine.filter(coordinated), ...mine.filter(run => !coordinated(run))]
 }
