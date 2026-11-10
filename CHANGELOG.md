@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **run-wave: seats that own `implementation-notes` or `session-tracking` now receive the `closure-notes` rule.** The run planner derived a stage's rules only from the `skill:` of the notes it owns, and no note names `closure-notes`, so a generic workflow seat (no `dispatch.agent`) never got the rule. `deriveRulesSkills` now adds it once whenever the server serves it (#676).
+
 ## [4.0.0] - 2026-11-07
 
 ### Upgrading from 3.x

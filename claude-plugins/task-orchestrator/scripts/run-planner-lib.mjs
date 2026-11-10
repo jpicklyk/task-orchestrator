@@ -525,6 +525,15 @@ function deriveRulesSkills(ownedKeys, allNotes, servedKeys) {
     if (servedKeys.has(skill)) rules.push(skill);
     else skills.push(skill);
   }
+  // closure-notes: no schema note names it as a skill, so a seat that owns a closure note gets it here
+  // (once, after the note-derived rules); when the server does not serve it, it is neither a rule nor a skill.
+  if (
+    !rules.includes('closure-notes') &&
+    servedKeys.has('closure-notes') &&
+    ownedKeys.some((k) => k === 'implementation-notes' || k === 'session-tracking')
+  ) {
+    rules.push('closure-notes');
+  }
   return { rules, skills };
 }
 
