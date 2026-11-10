@@ -81,7 +81,7 @@ Below, `"<rootId>"` marks a field you include only when a project rootId is know
 
 ### Runs (only when runs exist)
 
-Issue both reads in parallel and render the section only when either returns a run. A run is a bounded, budgeted pass over a set of items.
+Issue both reads in parallel and render the section only when either returns a run. A run is a bounded pass over a set of items.
 
 ```to-call
 {"tool": "runs_read", "select": "list", "args": {"rootId": "<rootId>", "status": "open"}}
@@ -170,8 +170,8 @@ Render in this order; omit any section with no data.
 |----|-------|-----------|-----|
 
 ### ⟳ Runs
-| Run | Status | Terminal / total | Ready | In flight | Waiting | Budget | Decisions open |
-|-----|--------|------------------|-------|-----------|---------|--------|----------------|
+| Run | Status | Terminal / total | Ready | In flight | Waiting | Decisions open |
+|-----|--------|------------------|-------|-----------|---------|----------------|
 
 ### ○ Backlog
 **Workstreams**
