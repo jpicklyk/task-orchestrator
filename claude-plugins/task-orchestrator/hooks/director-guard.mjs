@@ -1,6 +1,9 @@
 #!/usr/bin/env node
-// Director Guard Hook - PreToolUse on Skill|Read|Edit|Write|Bash|PowerShell|Monitor|Agent|Grep|Glob|NotebookEdit|Workflow,
-// plus (a second registration) the task-orchestrator docs_read, items_read and notes_read tools. Two jobs:
+// Director Guard Hook - PreToolUse, three registrations. Group 1: the exact tool names Skill, Read, Edit, Write, Bash,
+// PowerShell, Monitor, Agent, Grep, Glob, NotebookEdit, Workflow, WebFetch, WebSearch, ReadMcpResourceTool and
+// ReadMcpResourceDirTool. Group 2: the task-orchestrator config, docs_read, items_read, notes_read and runs_read
+// tools. Group 3: every other mcp__ tool (a name without `task-orchestrator`), matched by a negative lookahead.
+// Two jobs:
 //
 // 1. Marker lifecycle. A Skill call naming the director skill (`director` or
 //    `task-orchestrator:director`) from the main session (non-empty `session_id`, no `agent_id`)
@@ -46,9 +49,10 @@ export const DIRECTOR_SKILL_ALLOW = Object.freeze([...DIRECTOR_SKILL_NAMES, 'tas
 
 /**
  * Bare names (the segment after the last `__`) of host MCP tools a director session may call: the
- * coordinator tiers' session tools and the desktop UI tools. None reads a file, a shell or a screen.
+ * coordinator tiers' session tools, the tier-1 launch profile calls (get_settings, set_session_output_style) and
+ * the desktop UI tools. None reads a file, a shell or a screen.
  */
-export const DIRECTOR_HOST_MCP_ALLOW = Object.freeze(['start_session', 'send_message', 'update_plan', 'wrap_up', 'mark_chapter']);
+export const DIRECTOR_HOST_MCP_ALLOW = Object.freeze(['start_session', 'send_message', 'update_plan', 'wrap_up', 'mark_chapter', 'get_settings', 'set_session_output_style']);
 
 /** The runs_read selects a director session may use (the director profile set). */
 export const DIRECTOR_RUNS_READ_SELECTS = Object.freeze(['get', 'list', 'frontier', 'decisions', 'decision']);

@@ -88,7 +88,8 @@ stays registered, and the guard enforces the rule there too: `config`, `notes_re
 `get`, `list`, `frontier`, `decisions` and `decision` (both also with `describe: true`). `Skill` runs only the director
 skill and `task-orchestrator:model-effort`; another skill needs `/task-orchestrator:director off`. The limit: the guard
 recognises the orchestration connection by `task-orchestrator` in its server key, so a server registered under a key
-without that word is treated as a host server and denied outright under the marker. Use the hardened entry (below)
+without that word is treated as a host server and denied outright under the marker, and a server whose key contains
+`task-orchestrator` is treated as the Task Orchestrator server, so only its listed reads are guarded. Use the hardened entry (below)
 when enforcement matters.
 
 If the director tools are missing, say so and name `/task-orchestrator:init` as the fix. Until
