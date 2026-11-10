@@ -2,8 +2,13 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
 import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
+import io.github.jpicklyk.mcptask.current.application.port.ServerDecision
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestOption
+import io.github.jpicklyk.mcptask.current.domain.model.RunLimitDecisions
+import io.github.jpicklyk.mcptask.current.domain.model.RunPauseReason
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.BaselineDataset
@@ -520,6 +525,44 @@ internal class SeatWorld private constructor(
         key: String
     ): Map<String, Any?>? = rows("SELECT * FROM notes WHERE work_item_id = ? AND key = ?", item.id, key).singleOrNull()
 
+    /**
+     * Seeds the 4.0.0 state the server no longer produces: a `run-budget` decision raised for [run] and the run paused on it (pause
+     * reason `budget`). Returns the decision id. Fixture setup only: 4.0.1 never raises this class again, but stored rows must load.
+     */
+    suspend fun seedLegacyBudgetPause(run: Opened): String {
+        val runId = UUID.fromString(run.runId)
+        val ctx = rig.ctx
+        val outcome =
+            ctx.unitOfWork.write<UUID>("test.seedLegacyBudgetPause") {
+                val decision =
+                    ServerDecision(
+                        id = UUID.randomUUID(),
+                        rootId = root.id,
+                        runId = runId,
+                        itemId = null,
+                        decisionClass = RunLimitDecisions.RUN_BUDGET,
+                        question = "Legacy 4.0.0 budget breach: extend the budget or stop the run?",
+                        options =
+                            listOf(
+                                DecisionRequestOption(RunLimitDecisions.EXTEND, "Extend the budget", "Resumes the run."),
+                                DecisionRequestOption(RunLimitDecisions.STOP, "Stop the run", "Closes the run as budget_exhausted.")
+                            ),
+                        recommended = RunLimitDecisions.STOP,
+                        context = null,
+                        dedupeKey = "budget:$runId:1"
+                    )
+                when (val raised = ctx.decisionService.raiseServer(decision)) {
+                    is Outcome.Err -> raised
+                    is Outcome.Ok ->
+                        when (val paused = ctx.runService.pauseForLimit(runId, RunPauseReason.BUDGET, raised.value.id)) {
+                            is Outcome.Err -> paused
+                            is Outcome.Ok -> Outcome.Ok(raised.value.id)
+                        }
+                }
+            }
+        return (outcome as? Outcome.Ok ?: error("seeding the legacy pause failed: $outcome")).value.toString()
+    }
+
     /** Runs a write statement against the world's database (fixture setup only); UUID arguments bind as 16-byte blobs. */
     fun exec(
         sql: String,
@@ -602,7 +645,7 @@ internal class SeatWorld private constructor(
 
 /**
  * Independent tests (test-author seat, item 95a22e6e, R22) for the seat ops of `runs_write` (`open`'s coordinator token, `assign`,
- * `end_seat`), the `seats` select of `runs_read`, the coordinator-token permissions of `update` and `close`, the heartbeat `usage`
+ * `end_seat`), the `seats` select of `runs_read`, the coordinator-token permissions of `update` and `close`, the heartbeat
  * and the token-carrying attribution, holder, note-owner and idempotency rules. Every call goes through the real MCP adapter and the
  * production dispatcher over the real composition and SQLite; the lift itself is covered by `SeatTokenLiftTest`.
  *
@@ -613,7 +656,7 @@ internal class SeatWorld private constructor(
  * R22): `open` returns the coordinator token once; `assign` returns `{assignmentId, seatToken, attempt}` to the coordinator token
  * only, validated in the order of D5 (run in scope, coordinator token, run status, `coordinator` is not assignable, membership, seat
  * vocabulary); `end_seat` needs the seat's own token, releases that holder's claims and reports them in `released`; `seats` lists
- * oldest first, active by default, and never echoes a token; heartbeat `usage` needs a token and keeps the maximum per field; the
+ * oldest first, active by default, and never echoes a token; heartbeat takes no `usage` (removed in 4.0.1); the
  * coordinator is the token, never the opener; under a token ADMIN is dropped; claims are held by (principal, assignment); notes are
  * owned by (principal, seat); idempotency is namespaced per assignment. The registered descriptions are compared with the planned
  * text of the base commit's planned deltas, word for word. Literal strings and ids are written from those clauses.
@@ -815,10 +858,7 @@ class RunsSeatOpsTest {
         assertEquals("true: include ended seats; default only active ones. [select: seats]", read.described("ended"))
 
         val advance = rendered("advance", ToolProfile.ORCHESTRATION).opFields()
-        assertEquals(
-            "Absolute spend so far for the calling seat, {tokens, costUsd}; the highest reported value is kept. [ops: heartbeat]",
-            advance.described("usage")
-        )
+        assertNull(advance["usage"], "heartbeat usage was removed in 4.0.1")
     }
 
     private fun resource(name: String) = RunsSeatOpsTest::class.java.getResource("/golden/tools/$name")
@@ -1529,7 +1569,7 @@ class RunsSeatOpsTest {
             assertTrue(plain.ok(), "control: the same human without a token pauses: $plain")
             assertEquals("paused", runRow(w, run)["status"])
         }
-    // ------------------------------------------------------------------ S10 heartbeat usage and liveness
+    // ------------------------------------------------------------------ S10 heartbeat (usage removed in 4.0.1) and liveness
 
     private fun usageOf(
         w: SeatWorld,
@@ -1537,95 +1577,38 @@ class RunsSeatOpsTest {
     ): Pair<Long, Long> = w.seatById(assertNotNull(assignmentId)).let { (it["usage_tokens"] as Long) to (it["usage_cost_micro"] as Long) }
 
     @Test
-    fun `S10 heartbeat usage under a seat token is stored as tokens and micro-USD and keeps the maximum per field`(): Unit =
+    fun `S10 a heartbeat under a seat token still refreshes the claim, and stores no usage`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")
             assertTrue(w.claim(w.m1, a.token).ok())
 
-            val first = w.heartbeat(w.m1, a.token, """{"tokens":100,"costUsd":0.5}""")
-            assertTrue(first.ok(), first.toString())
-            assertEquals("true", first.find("refreshed"), first.toString())
-            assertEquals(100L to 500_000L, usageOf(w, a.assignmentId))
+            val beat = w.heartbeat(w.m1, a.token)
 
-            assertTrue(w.heartbeat(w.m1, a.token, """{"tokens":50}""").ok())
-            assertEquals(100L to 500_000L, usageOf(w, a.assignmentId), "a lower tokens figure keeps the maximum")
-            assertTrue(w.heartbeat(w.m1, a.token, """{"costUsd":0.25}""").ok())
-            assertEquals(100L to 500_000L, usageOf(w, a.assignmentId), "a lower cost figure keeps the maximum")
-            assertTrue(w.heartbeat(w.m1, a.token, """{"tokens":150,"costUsd":0.75}""").ok())
-            assertEquals(150L to 750_000L, usageOf(w, a.assignmentId), "both rise")
-            assertTrue(w.heartbeat(w.m1, a.token).ok(), "a heartbeat without usage")
-            assertEquals(150L to 750_000L, usageOf(w, a.assignmentId), "and changes nothing")
+            assertTrue(beat.ok(), beat.toString())
+            assertEquals("true", beat.find("refreshed"), beat.toString())
+            assertNull(beat.findElement("paused"), "a heartbeat never carries a pause member now: $beat")
+            assertEquals(0L to 0L, usageOf(w, a.assignmentId), "no usage is stored")
         }
 
     @Test
-    fun `S10 usage of a heartbeat that fails is not stored`(): Unit =
+    fun `S19 a heartbeat with usage is unknown_parameter on the usage pointer, with or without a seat token, and changes nothing`(): Unit =
         world { w ->
             val run = w.open()
             val a = w.assignOk(run, w.m1, "builder")
-            // the seat holds nothing, so the heartbeat is not_claim_holder
-            val refused = w.heartbeat(w.m1, a.token, """{"tokens":999,"costUsd":9.0}""")
-            assertEquals("not_claim_holder", refused.code(), refused.toString())
-            assertEquals(0L to 0L, usageOf(w, a.assignmentId), "nothing was stored")
             assertTrue(w.claim(w.m1, a.token).ok())
-            assertTrue(
-                w.heartbeat(w.m1, a.token, """{"tokens":999,"costUsd":9.0}""").ok(),
-                "control: once it holds the item the same call stores"
-            )
-            assertEquals(999L to 9_000_000L, usageOf(w, a.assignmentId))
-        }
+            assertTrue(w.claim(w.m3, null).ok(), "a principal-level claim for the token-less call")
 
-    @Test
-    fun `S19 usage without a seat token is invalid_request on the usage pointer with the reason requires a seat token`(): Unit =
-        world { w ->
-            w.open()
-            // a principal-level claim, so the heartbeat itself is fine and only the usage is at fault
-            assertTrue(w.claim(w.m3, null).ok())
-
+            val withToken = w.heartbeat(w.m1, a.token, """{"tokens":1,"costUsd":0.5}""")
             val noToken = w.heartbeat(w.m3, null, """{"tokens":1}""")
 
-            assertEquals("invalid_request", noToken.code(), noToken.toString())
-            assertTrue(noToken.pointers().any { it.endsWith("/usage") }, "pointer: ${noToken.pointers()} in $noToken")
-            assertTrue("requires a seat token" in noToken.toString(), noToken.toString())
-            assertTrue(w.heartbeat(w.m3, null).ok(), "control: a heartbeat without usage needs no token")
-        }
-
-    private suspend fun badUsage(
-        w: SeatWorld,
-        usage: String
-    ): Pair<Reply, Assigned> {
-        val run = w.open()
-        val a = w.assignOk(run, w.m1, "builder")
-        assertTrue(w.claim(w.m1, a.token).ok())
-        val reply = w.heartbeat(w.m1, a.token, usage)
-        assertEquals(0L to 0L, usageOf(w, a.assignmentId), "no refused figure was stored")
-        assertTrue(w.heartbeat(w.m1, a.token, """{"tokens":0,"costUsd":0}""").ok(), "control: zero is valid")
-        return reply to a
-    }
-
-    @Test
-    fun `S19 negative tokens in usage is invalid_request on the usage tokens pointer`(): Unit =
-        world { w ->
-            val (reply, _) = badUsage(w, """{"tokens":-1}""")
-            assertEquals("invalid_request", reply.code(), reply.toString())
-            assertTrue(reply.pointers().any { it.endsWith("/usage/tokens") }, "pointer: ${reply.pointers()} in $reply")
-        }
-
-    @Test
-    fun `S19 negative costUsd in usage is invalid_request on the usage costUsd pointer`(): Unit =
-        world { w ->
-            val (reply, _) = badUsage(w, """{"costUsd":-0.5}""")
-            assertEquals("invalid_request", reply.code(), reply.toString())
-            assertTrue(reply.pointers().any { it.endsWith("/usage/costUsd") }, "pointer: ${reply.pointers()} in $reply")
-        }
-
-    @Test
-    fun `S19 usage that is not an object is invalid_request on the usage pointer`(): Unit =
-        world { w ->
-            // The oracle fixes the three figure pointers only; a usage that is not an object is a decode fault of the element.
-            val (reply, _) = badUsage(w, "\"lots\"")
-            assertEquals("invalid_request", reply.code(), reply.toString())
-            assertTrue(reply.pointers().any { it.startsWith("/ops/0") }, "pointer: ${reply.pointers()} in $reply")
+            for (reply in listOf(withToken, noToken)) {
+                assertEquals("unknown_parameter", reply.code(), reply.toString())
+                assertTrue(reply.parameters().any { it.endsWith("/usage") }, "parameters: ${reply.parameters()} in $reply")
+            }
+            assertEquals(0L to 0L, usageOf(w, a.assignmentId), "no figure was stored")
+            assertTrue(w.heartbeat(w.m1, a.token).ok(), "control: the same heartbeat without usage succeeds")
+            assertTrue(w.heartbeat(w.m3, null).ok(), "control: a token-less heartbeat without usage succeeds")
         }
 
     @Test

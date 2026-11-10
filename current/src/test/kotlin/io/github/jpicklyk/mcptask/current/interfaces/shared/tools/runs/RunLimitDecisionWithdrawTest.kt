@@ -6,8 +6,6 @@ import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -60,9 +58,6 @@ class RunLimitDecisionWithdrawTest {
     private val director =
         ParityToken("wd-dir", setOf(ApiCapability.RUNS, ApiCapability.READ, ApiCapability.DECIDE), kind = PrincipalKind.HUMAN)
 
-    private fun Reply.pausedId(): String? =
-        (results().firstOrNull()?.let { findElement("paused", it) } as? JsonObject)?.get("decisionId")?.jsonPrimitive?.content
-
     private suspend fun open(
         w: SeatWorld,
         budget: String
@@ -97,13 +92,12 @@ class RunLimitDecisionWithdrawTest {
         mark: Long
     ): List<String> = w.rig.rowsAfter(mark).map { it.type }
 
-    /** A run paused on a budget breach: returns the run and the server-raised decision id. */
+    /** A run paused on a 4.0.0 budget breach (a stored row 4.0.1 no longer produces): returns the run and the decision id. */
     private suspend fun budgetPaused(w: SeatWorld): Pair<Opened, String> {
-        val run = open(w, """{"tokens":100}""")
+        val run = open(w, """{"attemptsPerSeat":5}""")
         val seat = w.assignOk(run, w.m1, "builder")
         assertTrue(w.claim(w.m1, seat.token).ok())
-        val beat = w.heartbeat(w.m1, seat.token, usage = """{"tokens":101}""")
-        return run to assertNotNull(beat.pausedId(), "the breach pauses the run: $beat")
+        return run to w.seedLegacyBudgetPause(run)
     }
 
     /** A run paused on the attempt cap: returns the run and the server-raised decision id. */
@@ -171,7 +165,7 @@ class RunLimitDecisionWithdrawTest {
             val answer =
                 w.director(
                     "runs_write",
-                    """{"ops":[{"op":"answer","decisionId":"$decisionId","option":"extend","amount":50}]}""",
+                    """{"ops":[{"op":"answer","decisionId":"$decisionId","option":"extend"}]}""",
                     director
                 )
             assertTrue(answer.ok(), "the extend by the director still works: $answer")

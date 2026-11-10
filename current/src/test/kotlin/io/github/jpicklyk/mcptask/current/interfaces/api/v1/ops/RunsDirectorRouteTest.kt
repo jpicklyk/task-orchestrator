@@ -535,7 +535,8 @@ class RunsDirectorRouteTest {
             assertFalse("budget" in view.keys, "no budget was given: $text")
             assertFalse("pauseReason" in view.keys, text)
             assertFalse(":null" in text, "absent members are omitted, never null: $text")
-            assertTrue("\"reportedTokens\":0" in text && "\"observedTokens\":0" in text, "usage starts at zero: $text")
+            assertTrue("\"observedTokens\":0" in text, "observed usage starts at zero: $text")
+            assertFalse("reportedTokens" in text || "reportedCostUsd" in text, "no reported usage member: $text")
             assertTrue("\"activeSeats\":0" in text, "a closed run has no active seat (the cascade ended the coordinator seat): $text")
             assertEquals("0", view.getValue("members").jsonPrimitive.content)
         }

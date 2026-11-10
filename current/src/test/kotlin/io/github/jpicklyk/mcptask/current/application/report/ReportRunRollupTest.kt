@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.report
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.AttemptCounts
-import io.github.jpicklyk.mcptask.current.application.port.BudgetFacts
 import io.github.jpicklyk.mcptask.current.application.port.DecisionCounts
 import io.github.jpicklyk.mcptask.current.application.port.RunHeader
 import io.github.jpicklyk.mcptask.current.application.port.StalledSeat
@@ -48,8 +47,7 @@ import kotlin.test.assertTrue
  * forbidden before any read), AC3 (the wire members and their order), AC4 (events by the run stamp, no time predicate), AC5 (cost by
  * the run stamp, no time predicate, root not filtered, basis `run`), AC6 (the RunFacts rules: current members with a role, blocked
  * reasons with legacy NULL read as manual, resumable = awaiting_decision whose decision is not pending, open decisions with the
- * effective severity, stalled seats strictly past the run's threshold, attempts over every member seat row, budget used = the larger
- * of reported and observed), AC7 (blocked dwell by reason over the half-open window, blocks opened before the window counted from
+ * effective severity, stalled seats strictly past the run's threshold, attempts over every member seat row), AC7 (blocked dwell by reason over the half-open window, blocks opened before the window counted from
  * its start, events ordered by seq).
  *
  * Negative-assertion conditions: every exclusion has a seeded row that WOULD be counted if the rule were dropped and a control from
@@ -178,7 +176,6 @@ class ReportRunRollupTest {
             assertEquals(DecisionCounts(open = 0, byClass = emptyMap(), bySeverity = emptyMap()), report.decisions)
             assertEquals(RollupTransitions(0, 0, 0), report.transitions)
             assertEquals(RollupCost(0, 0, 0, 0, 0, "run"), report.cost)
-            assertEquals(BudgetFacts(used = 0, limit = null, basis = "enforced"), report.budget, "present for every run")
         }
 
     // ------------------------------------------------------------------ S2 blocked reasons and resumable
@@ -304,34 +301,6 @@ class ReportRunRollupTest {
 
             assertEquals(5L, scoped.cost.calls, "c5 is stamped with the run but carries root R2; the run stamp is the predicate")
             assertEquals(160L, scoped.cost.responseBytes)
-        }
-
-    // ------------------------------------------------------------------ S5 budget
-
-    @Test
-    fun `S5 budget used is the larger of reported and observed tokens from the run row, never the call log`(): Unit =
-        runBlocking {
-            val f = fx
-            w.seedMain(f)
-
-            val budget = ok(f, w.Q).budget
-
-            // Q: reported 300, observed 450, limit 1,000; the stamped call log sums to 40 estimated tokens
-            assertEquals(BudgetFacts(used = 450, limit = 1_000, basis = "enforced"), budget)
-        }
-
-    @Test
-    fun `S5 reported above observed wins, equal figures stand, and no limit leaves the limit out`(): Unit =
-        runBlocking {
-            val f = fx
-            RunKit.roots(f)
-            val reportedWins = RunKit.id("f6820000", 1)
-            val equal = RunKit.id("f6820000", 2)
-            RunKit.run(f, reportedWins, reportedTokens = 700, observedTokens = 20)
-            RunKit.run(f, equal, budgetTokens = 500, reportedTokens = 500, observedTokens = 500)
-
-            assertEquals(BudgetFacts(used = 700, limit = null, basis = "enforced"), ok(f, reportedWins).budget)
-            assertEquals(BudgetFacts(used = 500, limit = 500, basis = "enforced"), ok(f, equal).budget)
         }
 
     // ------------------------------------------------------------------ S6 decisions
@@ -551,8 +520,7 @@ class ReportRunRollupTest {
                     "transitions",
                     "notes",
                     "cost",
-                    "attempts",
-                    "budget"
+                    "attempts"
                 ),
                 json.keys.toList()
             )
@@ -574,14 +542,10 @@ class ReportRunRollupTest {
             assertEquals(listOf("written"), json.keysOf("notes"))
             assertEquals(listOf("calls", "errors", "retries", "responseBytes", "responseTokensEst", "basis"), json.keysOf("cost"))
             assertEquals("run", json.textOf("cost", "basis"))
-            assertEquals(listOf("used", "limit", "basis"), json.keysOf("budget"))
-            assertEquals("450", json.textOf("budget", "used"))
-            assertEquals("1000", json.textOf("budget", "limit"))
-            assertEquals("enforced", json.textOf("budget", "basis"))
         }
 
     @Test
-    fun `AC3 a closed run adds its terminal reason and closing instant, an unlimited budget has no limit member`(): Unit =
+    fun `AC3 a closed run adds its terminal reason and closing instant`(): Unit =
         runBlocking {
             val f = fx
             DwellWorld.seed(f, closed = true)
@@ -596,7 +560,6 @@ class ReportRunRollupTest {
                 json.keysOf("blocked"),
                 "no awaiting_decision member decision: resumable is zero and omitted"
             )
-            assertEquals(listOf("used", "basis"), json.keysOf("budget"), "no limit: the member is omitted")
         }
 
     // ------------------------------------------------------------------ S13 request validation

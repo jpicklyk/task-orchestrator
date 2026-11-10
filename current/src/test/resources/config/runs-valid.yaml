@@ -1,7 +1,6 @@
 # A ROOT-scope and SERVER-scope document carrying the runs: block with every key set (item 8a71510c, R17).
-# Oracle: task-scope Config runs: and the planner additions: stall_after in seconds (integer > 0), budgets with the four
-# ceilings tokens, cost_usd (US dollars, number > 0), attempts_per_seat, max_active_seats (integers > 0). cost_usd 12.5 is
-# 12500000 micro-USD.
+# Oracle: task-scope Config runs: and the planner additions: stall_after in seconds (integer > 0), budgets with the two
+# ceilings attempts_per_seat, max_active_seats (integers > 0). tokens and cost_usd were removed in 4.0.1.
 work_item_schemas:
   feature-task:
     notes:
@@ -11,7 +10,5 @@ work_item_schemas:
 runs:
   stall_after: 300
   budgets:
-    tokens: 2000000
-    cost_usd: 12.5
     attempts_per_seat: 3
     max_active_seats: 4

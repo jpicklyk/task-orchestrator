@@ -10,7 +10,6 @@ import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
@@ -19,9 +18,9 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import java.time.Instant
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -67,7 +66,7 @@ class RunBudgetStopLeaseReleaseTest {
 
     @Test
     @Suppress("ktlint:standard:max-line-length")
-    fun `S9 the budget stop of a run releases the lease of a WORK member, reports it in run ended and leaves a non-member's lease alone`(): Unit =
+    fun `S9 the stop of a limit-paused run releases the lease of a WORK member, reports it in run ended and leaves a non-member's lease alone`(): Unit =
         world { w ->
             val leased = w.rig.seed("Leased WORK member", parent = w.root, role = Role.WORK, tags = "plain-task")
             val outsider = w.rig.seed("Leased WORK outsider", parent = w.root, role = Role.WORK, tags = "plain-task")
@@ -78,15 +77,13 @@ class RunBudgetStopLeaseReleaseTest {
             assertEquals(1, leases.findActiveForItem(leased.id).size, "fixture: the member holds its lease")
             assertEquals(1, leases.findActiveForItem(outsider.id).size, "fixture: the outsider holds its lease")
 
-            val run = w.open(members = listOf(w.m1, leased), extra = ",\"budget\":{\"tokens\":100}")
+            val run = w.open(members = listOf(w.m1, leased), extra = ",\"budget\":{\"attemptsPerSeat\":1}")
             val seat = w.assignOk(run, w.m1, "builder")
             assertTrue(w.claim(w.m1, seat.token).ok(), "the seat claims its item")
-            val beat = w.heartbeat(w.m1, seat.token, usage = """{"tokens":101}""")
+            val capped = w.assign(run, w.m1, "builder").reply
+            assertEquals("run_paused", capped.code(), "the second attempt over a cap of 1 pauses the run on a decision: $capped")
             val decisionId =
-                assertNotNull(
-                    (beat.findElement("paused") as? JsonObject)?.get("decisionId")?.jsonPrimitive?.content,
-                    "101 over a limit of 100 pauses the run on a decision: $beat"
-                )
+                w.uuidOf(w.rows("SELECT id FROM decision_requests WHERE run_id = ?", UUID.fromString(run.runId)).single()["id"])
             assertEquals(1, leases.findActiveForItem(leased.id).size, "still held while the run is only paused")
 
             val stopped =

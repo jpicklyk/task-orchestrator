@@ -57,7 +57,7 @@ import kotlin.test.assertTrue
 
 /**
  * Independent tests (test-author seat, item 95a22e6e, R22) for [SeatService] over the production composition and a real SQLite
- * database: the coordinator row, assign and supersede, the token (shape, storage, resolution), end, usage and the liveness touch.
+ * database: the coordinator row, assign and supersede, the token (shape, storage, resolution), end and the liveness touch.
  * Scenarios S1 to S3, S8, S10, S12 to S14, S16 and S18 of the frozen test-plan at the service seam (the op and dispatcher halves
  * live in `RunsSeatOpsTest` and `SeatTokenLiftTest`).
  *
@@ -66,7 +66,7 @@ import kotlin.test.assertTrue
  * 1 + the maximum over EVERY row of the (run, item, seat) triple, ended included, and the old holder's claims are released in the
  * same unit with reason `superseded`), D7 (the coordinator row is run-scoped: no item, attempt 1), D8 (end releases the claims of
  * the ending holder only and leaves leases alone; the `seat.ended` event carries runId, itemId, seat, attempt, outcome, summary
- * and links), D9 (usage keeps the maximum per field independently; the liveness touch is skipped while the stored value is under
+ * and links), D9 (the liveness touch is skipped while the stored value is under
  * 5 s old and written from 5 s on), D5 (membership, seat vocabulary: the item's schema seats, or `implementer` / `planner` for a
  * seat-less or schema-free item, never `coordinator`), the FIPS 180-2 SHA-256 test vector for the hash, and the migration-assessment
  * column list for the stored row. Tokens are checked by shape and by independent hashing, never against a literal a run produced.
@@ -206,9 +206,6 @@ work_item_schemas:
 
     private fun sha256Hex(text: String): String =
         MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
-
-    private fun usageOf(assignmentId: UUID): Pair<Long, Long> =
-        seatRow(assignmentId).let { (it["usage_tokens"] as Long) to (it["usage_cost_micro"] as Long) }
 
     private suspend fun EventLogRig.eventsOf(
         type: String,
@@ -630,44 +627,7 @@ work_item_schemas:
             assertEquals(before, after, "the lease is the close cascade's, not the seat's")
         }
 
-    // ------------------------------------------------------------------ S10 usage and liveness
-
-    @Test
-    fun `S10 usage keeps the maximum per field independently, as tokens and micro-USD`(): Unit =
-        runBlocking {
-            val f = fixture()
-            val id =
-                f
-                    .assign(f.seated, "builder")
-                    .ok()
-                    .seat.id
-
-            f.seats.reportUsage(id, 100, 500_000).ok()
-            assertEquals(100L to 500_000L, usageOf(id))
-            f.seats.reportUsage(id, 50, null).ok()
-            assertEquals(100L to 500_000L, usageOf(id), "a lower tokens figure is kept out")
-            f.seats.reportUsage(id, null, 250_000).ok()
-            assertEquals(100L to 500_000L, usageOf(id), "a lower cost figure is kept out")
-            f.seats.reportUsage(id, 150, 250_000).ok()
-            assertEquals(150L to 500_000L, usageOf(id), "tokens rise on their own, cost does not follow")
-            f.seats.reportUsage(id, 150, 750_000).ok()
-            assertEquals(150L to 750_000L, usageOf(id), "cost rises on its own")
-            f.seats.reportUsage(id, 0, 0).ok()
-            assertEquals(150L to 750_000L, usageOf(id), "zero never lowers")
-        }
-
-    @Test
-    fun `S10 usage beyond the int range is stored exactly, and usage of one seat never touches another seat's row`(): Unit =
-        runBlocking {
-            val f = fixture()
-            val a = f.assign(f.seated, "builder").ok()
-            val b = f.assign(f.seatedTwo, "builder").ok()
-
-            f.seats.reportUsage(a.seat.id, 3_000_000_000L, 9_000_000_000L).ok()
-
-            assertEquals(3_000_000_000L to 9_000_000_000L, usageOf(a.seat.id))
-            assertEquals(0L to 0L, usageOf(b.seat.id), "control: the other seat is untouched")
-        }
+    // ------------------------------------------------------------------ S10 liveness
 
     @Test
     fun `S10 the liveness touch is written at once, skipped under 5 seconds old, and written from 5 seconds on`(): Unit =

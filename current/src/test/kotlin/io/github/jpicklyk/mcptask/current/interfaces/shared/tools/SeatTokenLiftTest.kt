@@ -372,7 +372,7 @@ class SeatTokenLiftTest {
         }
 
     @Test
-    fun `REST the whole seat life over HTTP - open, assign, claim, usage, end - with the same principal binding`(): Unit =
+    fun `REST the whole seat life over HTTP - open, assign, claim, heartbeat, end - with the same principal binding`(): Unit =
         rest { w ->
             val opened =
                 client.send(
@@ -414,14 +414,14 @@ class SeatTokenLiftTest {
             val beat =
                 client.send(
                     "/api/v1/ops/advance",
-                    """{"seatToken":"$seatToken","ops":[{"op":"heartbeat","itemId":"${w.m1.id}","usage":{"tokens":42,"costUsd":0.5}}]}""",
+                    """{"seatToken":"$seatToken","ops":[{"op":"heartbeat","itemId":"${w.m1.id}"}]}""",
                     w.orch
                 )
             assertEquals(200, beat.status, beat.toString())
             val row = w.seatByToken(seatToken)
             assertNotNull(row)
-            assertEquals(42L, row["usage_tokens"])
-            assertEquals(500_000L, row["usage_cost_micro"])
+            assertEquals(0L, row["usage_tokens"], "no usage is stored: heartbeat usage was removed in 4.0.1")
+            assertEquals(0L, row["usage_cost_micro"])
 
             val end =
                 client.send(

@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.report
 
 import io.github.jpicklyk.mcptask.current.application.port.AttemptCounts
-import io.github.jpicklyk.mcptask.current.application.port.BudgetFacts
 import io.github.jpicklyk.mcptask.current.application.port.DecisionCounts
 import io.github.jpicklyk.mcptask.current.application.port.RunHeader
 import io.github.jpicklyk.mcptask.current.application.port.StalledSeat
@@ -90,8 +89,7 @@ class RollupSnapshotCodecTest {
                     stalled = listOf(StalledSeat("reviewer", itemA, 3_600_000), StalledSeat("implementer", itemB, 601_000)),
                     count = 2
                 ),
-            attempts = AttemptCounts(total = 4, max = 3),
-            budget = BudgetFacts(used = 450, limit = 1_000, basis = "enforced")
+            attempts = AttemptCounts(total = 4, max = 3)
         )
 
     private val anchorReport =
@@ -106,16 +104,14 @@ class RollupSnapshotCodecTest {
             run = null,
             decisions = null,
             seats = null,
-            attempts = null,
-            budget = null
+            attempts = null
         )
 
     private val openRunReport =
         runReport.copy(
             run = RunHeader(RunStatus.OPEN, null, opened, null, rootId),
             blocked = RollupBlocked(total = 0, byReason = null),
-            seats = RollupSeats(active = 0, stalled = emptyList(), count = 0),
-            budget = BudgetFacts(used = 0, limit = null, basis = "enforced")
+            seats = RollupSeats(active = 0, stalled = emptyList(), count = 0)
         )
 
     @Test
@@ -133,7 +129,6 @@ class RollupSnapshotCodecTest {
         assertNull(decoded.decisions)
         assertNull(decoded.seats)
         assertNull(decoded.attempts)
-        assertNull(decoded.budget)
         assertNull(decoded.scope.runId)
     }
 
@@ -174,8 +169,7 @@ class RollupSnapshotCodecTest {
             "transitions",
             "notes",
             "cost",
-            "attempts",
-            "budget"
+            "attempts"
         )) {
             assertTrue(member in stored, "the stored snapshot carries the wire member '$member': ${stored.keys}")
         }

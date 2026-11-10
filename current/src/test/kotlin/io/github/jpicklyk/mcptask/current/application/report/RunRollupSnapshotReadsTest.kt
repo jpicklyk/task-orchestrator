@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.report
 
 import io.github.jpicklyk.mcptask.current.application.port.AttemptCounts
-import io.github.jpicklyk.mcptask.current.application.port.BudgetFacts
 import io.github.jpicklyk.mcptask.current.application.port.DecisionCounts
 import io.github.jpicklyk.mcptask.current.application.port.StalledSeat
 import io.github.jpicklyk.mcptask.current.application.support.IdRef
@@ -31,7 +30,7 @@ import kotlin.test.assertTrue
  * - S11: a live rollup of an open run reads the `runs` table once; the close-time snapshot reads the run row, the member item id-set,
  *   the run's seat rows and its decision rows once each, plus one more decision read for the blocked references when (and only when)
  *   an awaiting_decision member exists. The count of statements does not depend on the data volume (scale 1 and scale 40).
- * - S13: the per-run facts (stalled seats, attempts, decisions, blocked reasons, budget) come from the store predicates alone, so a
+ * - S13: the per-run facts (stalled seats, attempts, decisions, blocked reasons) come from the store predicates alone, so a
  *   second run on the same root, with its own members, seats and decisions interleaved in time, changes nothing of the first. Every
  *   expected number is a hand sum written next to its rows.
  *
@@ -248,14 +247,14 @@ class RunRollupSnapshotReadsTest {
     /**
      * Run Q1 (stalls after 600 s): a1 work with an ENDED implementer seat (attempt 1) and an active implementer seat (attempt 3, last
      * seen 700 s ago, stalled), a2 blocked dependency with an active reviewer seat (attempt 1, seen 10 s ago); decisions: a question
-     * NORMAL open, a question ANSWERED. Budget 1,000, reported 300, observed 100.
+     * NORMAL open, a question ANSWERED. Observed 100.
      * Run Q2 (same root, same threshold): b1 work with an active implementer seat (attempt 2, seen 650 s ago, stalled), b2 blocked
      * manual with an active implementer seat (attempt 5, seen 1 s ago); decisions: a question HIGH open, an attempt-cap HIGH open, a
-     * question LOW acknowledged. Budget 50, reported 10, observed 60.
+     * question LOW acknowledged. Observed 60.
      * Hand sums Q1: items 2 (work 1, blocked 1), blocked {dependency 1}, seats active 2 / stalled [a1 700,000 ms] / count 1,
-     * attempts total 3 max 3, decisions open 1 {question 1} {normal 1}, budget used 300 limit 1,000.
+     * attempts total 3 max 3, decisions open 1 {question 1} {normal 1}.
      * Hand sums Q2: items 2 (work 1, blocked 1), blocked {manual 1}, seats active 2 / stalled [b1 650,000 ms] / count 1,
-     * attempts total 2 max 5, decisions open 3 {question 2, attempt-cap 1} {high 2, low 1}, budget used 60 limit 50.
+     * attempts total 2 max 5, decisions open 3 {question 2, attempt-cap 1} {high 2, low 1}.
      */
     private suspend fun seedTwoRuns(f: ReportFixture) {
         RunKit.roots(f)
@@ -267,8 +266,8 @@ class RunRollupSnapshotReadsTest {
             blocked(a2, "dependency")
             blocked(b2, "manual")
         }
-        RunKit.run(f, q1, members = listOf(a1, a2), openedAt = ago(7_200), budgetTokens = 1_000, reportedTokens = 300, observedTokens = 100)
-        RunKit.run(f, q2, members = listOf(b1, b2), openedAt = ago(7_200), budgetTokens = 50, reportedTokens = 10, observedTokens = 60)
+        RunKit.run(f, q1, members = listOf(a1, a2), openedAt = ago(7_200), observedTokens = 100)
+        RunKit.run(f, q2, members = listOf(b1, b2), openedAt = ago(7_200), observedTokens = 60)
         RunKit.decision(f, RunKit.id("fb300000", 1), q1, item = a1, severity = DecisionRequestSeverity.NORMAL)
         RunKit.decision(f, RunKit.id("fb300000", 2), q1, status = DecisionRequestStatus.ANSWERED, severity = DecisionRequestSeverity.NORMAL)
         RunKit.decision(f, RunKit.id("fb300000", 3), q2, severity = DecisionRequestSeverity.HIGH)
@@ -313,7 +312,6 @@ class RunRollupSnapshotReadsTest {
                 assertEquals(RollupSeats(active = 2, stalled = listOf(StalledSeat("implementer", a1, 700_000)), count = 1), one.seats)
                 assertEquals(AttemptCounts(total = 3, max = 3), one.attempts)
                 assertEquals(DecisionCounts(open = 1, byClass = mapOf("question" to 1), bySeverity = mapOf("normal" to 1)), one.decisions)
-                assertEquals(BudgetFacts(used = 300, limit = 1_000, basis = "enforced"), one.budget)
             }
         }
 
@@ -342,7 +340,6 @@ class RunRollupSnapshotReadsTest {
                     ),
                     two.decisions
                 )
-                assertEquals(BudgetFacts(used = 60, limit = 50, basis = "enforced"), two.budget)
             }
         }
 

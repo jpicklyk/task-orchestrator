@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.report
 import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
 import io.github.jpicklyk.mcptask.current.application.port.AttemptCounts
-import io.github.jpicklyk.mcptask.current.application.port.BudgetFacts
 import io.github.jpicklyk.mcptask.current.application.port.RunHeader
 import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -42,8 +41,7 @@ import kotlin.test.assertTrue
  * Oracles: task-scope AC8 (the snapshot is computed inside the close unit for EVERY terminal reason, the budget_exhausted decision stop
  * included, and stored under `rollup` in the `run.ended` data; the stored form decodes to the rollup of the run as the close left
  * it), AC9 (a CLOSED run whose `run.ended` carries a decodable rollup answers that snapshot, so figures survive retention and late
- * call_log rows; an open run, a pre-R28 close, or a snapshot that cannot be decoded is computed live) and AC6 (budget used is the
- * larger of reported and observed; a closed run has no active seat). The expected report of each close is the live rollup read just
+ * call_log rows; an open run, a pre-R28 close, or a snapshot that cannot be decoded is computed live) and AC6 (a closed run has no active seat). The expected report of each close is the live rollup read just
  * before the close, with the header the close writes (status closed, the reason, the close instant): the window ends at the same
  * instant because the clock does not move.
  *
@@ -162,22 +160,16 @@ class RunRollupSnapshotTest {
     fun `S10 an abandoned close stores the rollup in run ended`(): Unit = closeCase("abandoned", RunTerminalReason.ABANDONED)
 
     @Test
-    fun `S10 the budget stop of the director closes budget_exhausted and stores the rollup with the cascade applied`(): Unit =
+    fun `S10 the attempt-cap stop of the director closes budget_exhausted and stores the rollup with the cascade applied`(): Unit =
         world { w ->
             val f = ReportFixture(w.database, clock)
-            val run = w.open(extra = ",\"budget\":{\"tokens\":100}")
+            val run = w.open(extra = ",\"budget\":{\"attemptsPerSeat\":1}")
             val seat = w.assignOk(run, w.m1, "builder")
             assertTrue(w.claim(w.m1, seat.token).ok(), "the seat claims its item")
-            val beat = w.heartbeat(w.m1, seat.token, usage = "{\"tokens\":101}")
-            val paused =
-                (
-                    beat
-                        .results()
-                        .getOrNull(
-                            0
-                        )?.let { beat.findElement("paused", it) } as? JsonObject
-                )?.get("decisionId")?.jsonPrimitive?.content
-            val decisionId = assertNotNull(paused, "101 over a limit of 100 pauses the run on a decision: $beat")
+            val capped = w.assign(run, w.m1, "builder").reply
+            assertEquals("run_paused", capped.code(), "the second attempt hits the attempt cap: $capped")
+            val decisionId =
+                w.uuidOf(w.rows("SELECT id FROM decision_requests WHERE run_id = ?", UUID.fromString(run.runId)).single()["id"])
 
             val stopped =
                 w.director(
@@ -195,7 +187,6 @@ class RunRollupSnapshotTest {
                 )
             assertEquals(RunStatus.CLOSED, decoded.run?.status)
             assertEquals(RunTerminalReason.BUDGET_EXHAUSTED, decoded.run?.terminalReason)
-            assertEquals(BudgetFacts(used = 101, limit = 100, basis = "enforced", breaches = 1, extends = 0), decoded.budget)
             assertEquals(AttemptCounts(total = 1, max = 1), decoded.attempts, "the one seat assignment")
             assertEquals(0, decoded.seats?.active, "the close cascade ended the seat before the snapshot: a closed run has no active seat")
             assertEquals(3L, decoded.items.total)

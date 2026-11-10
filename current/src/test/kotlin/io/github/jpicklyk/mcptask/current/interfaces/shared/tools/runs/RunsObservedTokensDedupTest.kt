@@ -9,10 +9,6 @@ import io.github.jpicklyk.mcptask.current.test.StatementTap
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.testReqId
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -22,7 +18,6 @@ import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.hours
@@ -31,16 +26,15 @@ import kotlin.time.Duration.Companion.hours
  * Independent tests (blind test-author seat, item 85d49060) for the observed-token counter of a run (`runs.observed_tokens`) as the
  * call-log writer feeds it, scenarios S1 to S6 of the frozen test-plan, with its probes. The writer is the production
  * `CallLogWriter` over the production `SqliteCallLogStore` and the real run store of the `SeatWorld` rig; the database is read back
- * by SQL, and the enforced budget is read through the real MCP adapter (`advance` heartbeat).
+ * by SQL, and the absence of any enforcement is read through the real MCP adapter (`advance` heartbeat).
  *
  * Oracles (never read from a run): `api-rest.md` "Budgets" ("observed" is the estimate of every call-log row that carries the run)
  * and the `CallLogStore` contract (the insert is per row and ignores a row whose request id is already stored, and a row the
  * database refuses is not stored); the frozen task-scope D1 acceptance: the observed tokens of a run equal the sum of
  * `response_tokens_est` over its call_log rows written by the writer, a duplicate request id (same batch or a later one) and a
  * refused row add nothing, and the writer updates `runs` once per distinct run that has a stored positive estimate and not at all
- * for a run whose rows were all dropped. The pause rule is the R27 one already pinned by `RunsBudgetsCapsTest`: enforced tokens =
- * max(reported, observed), a breach is strictly over the limit, and the writer never runs the check (the next token-carrying write
- * does).
+ * for a run whose rows were all dropped. Since 4.0.1 the figure enforces nothing (token budgets were removed, see `RunsBudgetsCapsTest`): no
+ * seat-token write pauses a run however large it is.
  *
  * Arbitration: the stored copy of a duplicate request id is the first one (an insert that ignores the later row), the oracle the
  * plan states for S1 ("1 call_log row (42)"); every assertion about observed tokens is also stated as "equals the SUM of the stored
@@ -130,8 +124,6 @@ class RunsObservedTokensDedupTest {
     ): Int = w.rows("SELECT req_id FROM call_log WHERE run_id = ?", UUID.fromString(run.runId)).size
 
     private fun updatesOfRuns(sql: List<String>): Int = sql.count { StatementTap.updates(it, "runs") }
-
-    private fun Reply.pausedId(): String? = (findElement("paused") as? JsonObject)?.get("decisionId")?.jsonPrimitive?.content
 
     private suspend fun seatUp(
         w: SeatWorld,
@@ -312,12 +304,12 @@ class RunsObservedTokensDedupTest {
             assertEquals(5L, observed(w, a), "and counted once: 5, not 30 + 5")
         }
 
-    // ------------------------------------------------------------------ S6 the enforced figure
+    // ------------------------------------------------------------------ S6 the figure enforces nothing
 
     @Test
-    fun `S6 a replayed request id does not push the run over its token budget, a distinct row that does is still enforced`(): Unit =
+    fun `S6 a replayed request id is not counted, and neither the counted figure nor a distinct row pauses the run`(): Unit =
         world { w ->
-            val run = w.open(members = listOf(w.m1), extra = ""","budget":{"tokens":50}""")
+            val run = w.open(members = listOf(w.m1), extra = ""","budget":{"attemptsPerSeat":5}""")
             val seat = seatUp(w, run, w.m1)
             val writer = writerFor(w)
             writer.submit(rec(run, 42, id(1)))
@@ -328,21 +320,19 @@ class RunsObservedTokensDedupTest {
             val under = w.heartbeat(w.m1, seat.token)
 
             assertTrue(under.ok(), "the heartbeat succeeds: $under")
-            assertNull(under.pausedId(), "42 of 50 is within the budget, so the run is not paused: $under")
+            assertNull(under.findElement("paused"), "no pause member: $under")
             assertEquals("open", w.select("get", ""","runId":"${run.runId}"""").find("status"))
             assertEquals(0, w.rows("SELECT id FROM decision_requests WHERE run_id = ?", UUID.fromString(run.runId)).size)
 
-            // control: one more distinct row that really takes the figure over the limit pauses the run
-            writer.submit(rec(run, 9, id(2)))
+            // control: one more distinct row is counted, and still enforces nothing
+            writer.submit(rec(run, 9_000_000, id(2)))
             writer.flushNow()
-            assertEquals(51L, observed(w, run))
-            val over = w.heartbeat(w.m1, seat.token)
+            assertEquals(9_000_042L, observed(w, run))
+            val after = w.heartbeat(w.m1, seat.token)
 
-            val decisionId = assertNotNull(over.pausedId(), "51 over 50 pauses the run: $over")
-            val decision = w.rows("SELECT id, class, context FROM decision_requests WHERE run_id = ?", UUID.fromString(run.runId)).single()
-            assertEquals("run-budget", decision["class"], "the pause is a run-budget decision $decisionId")
-            val context = Json.parseToJsonElement(decision["context"] as String).jsonObject
-            assertEquals("51", context["used"]?.jsonPrimitive?.content, "enforced tokens are max(reported 0, observed 51)")
-            assertEquals("50", context["limit"]?.jsonPrimitive?.content)
+            assertTrue(after.ok(), "the heartbeat still succeeds: $after")
+            assertNull(after.findElement("paused"), "observed tokens are never a cap: $after")
+            assertEquals("open", w.select("get", ""","runId":"${run.runId}"""").find("status"))
+            assertEquals(0, w.rows("SELECT id FROM decision_requests WHERE run_id = ?", UUID.fromString(run.runId)).size)
         }
 }

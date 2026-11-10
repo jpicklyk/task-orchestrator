@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.report
 
 import io.github.jpicklyk.mcptask.current.application.port.AttemptCounts
-import io.github.jpicklyk.mcptask.current.application.port.BudgetFacts
 import io.github.jpicklyk.mcptask.current.application.port.DecisionCounts
 import io.github.jpicklyk.mcptask.current.application.port.RunHeader
 import io.github.jpicklyk.mcptask.current.application.port.StalledSeat
@@ -62,7 +61,6 @@ class RollupAssemblerTest {
         blockedReasons: Map<String, Int>? = null,
         decisions: DecisionCounts? = null,
         attempts: AttemptCounts? = null,
-        budget: BudgetFacts? = null,
         window: RollupWindow = this.window
     ) = RollupParts(
         scope = scope,
@@ -75,8 +73,7 @@ class RollupAssemblerTest {
         blockedReasons = blockedReasons,
         decisions = decisions,
         seats = seats,
-        attempts = attempts,
-        budget = budget
+        attempts = attempts
     )
 
     private fun stalled(n: Int): List<StalledSeat> =
@@ -100,7 +97,6 @@ class RollupAssemblerTest {
                 )
         )
     private val attempts = AttemptCounts(total = 4, max = 3)
-    private val budget = BudgetFacts(used = 500, limit = 1_000, basis = "targets")
 
     // ------------------------------------------------------------------ constants
 
@@ -251,8 +247,7 @@ class RollupAssemblerTest {
                     blockedReasons = mapOf("dependency" to 2, "decision" to 1),
                     decisions = decisions,
                     seats = StalledSeats(active = 4, stalled = stalled(2), count = 2),
-                    attempts = attempts,
-                    budget = budget
+                    attempts = attempts
                 )
             )
 
@@ -261,13 +256,11 @@ class RollupAssemblerTest {
         assertNull(bare.decisions)
         assertNull(bare.seats)
         assertNull(bare.attempts)
-        assertNull(bare.budget)
         assertEquals(header, full.run)
         assertEquals(mapOf("dependency" to 2, "decision" to 1), full.blocked.byReason)
         assertEquals(decisions, full.decisions)
         assertEquals(RollupSeats(active = 4, stalled = stalled(2), count = 2), full.seats)
         assertEquals(attempts, full.attempts)
-        assertEquals(budget, full.budget)
         assertNull(full.scope.anchorId)
         assertEquals(run, full.scope.runId)
     }
@@ -282,7 +275,7 @@ class RollupAssemblerTest {
     }
 
     @Test
-    fun `S17 the not-tracked stub answers null from all seven methods`(): Unit =
+    fun `S17 the not-tracked stub answers null from all six methods`(): Unit =
         runBlocking {
             val id = UUID.randomUUID()
 
@@ -293,7 +286,6 @@ class RollupAssemblerTest {
             assertNull(NotTrackedRunFacts.openDecisions(id))
             assertNull(NotTrackedRunFacts.stalledSeats(id, RollupAssembler.STALLED_CAP))
             assertNull(NotTrackedRunFacts.attempts(id))
-            assertNull(NotTrackedRunFacts.budget(id))
         }
 
     // ------------------------------------------------------------------ wire shape
@@ -381,8 +373,7 @@ class RollupAssemblerTest {
                     blockedReasons = mapOf("dependency" to 2),
                     decisions = decisions,
                     seats = StalledSeats(active = 4, stalled = seatList, count = 2),
-                    attempts = attempts,
-                    budget = budget
+                    attempts = attempts
                 )
             )
 
@@ -400,8 +391,7 @@ class RollupAssemblerTest {
                 "transitions",
                 "notes",
                 "cost",
-                "attempts",
-                "budget"
+                "attempts"
             ),
             json.keys.toList()
         )

@@ -45,16 +45,8 @@
             },
             "budget": {
               "type": "object",
-              "description": "Run budget: tokens, costUsd, attemptsPerSeat, maxActiveSeats; absent means no cap. On open it may not exceed a configured ceiling; on update a field can only be lowered or newly set. [ops: open, update]",
+              "description": "Run budget: attemptsPerSeat, maxActiveSeats; absent means no cap. On open it may not exceed a configured ceiling; on update a field can only be lowered or newly set. [ops: open, update]",
               "properties": {
-                "tokens": {
-                  "type": "integer",
-                  "description": "Token limit."
-                },
-                "costUsd": {
-                  "type": "number",
-                  "description": "Cost limit in US dollars, a decimal such as 12.5."
-                },
                 "attemptsPerSeat": {
                   "type": "integer",
                   "description": "Most attempts one seat may take."

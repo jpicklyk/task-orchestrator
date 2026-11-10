@@ -612,7 +612,6 @@ class ReportRollupTest {
             assertNull(report.decisions)
             assertNull(report.seats)
             assertNull(report.attempts)
-            assertNull(report.budget)
             assertNull(report.blocked.byReason)
             assertEquals(1L, report.blocked.total, "B is the one blocked-role item; the role alone decides")
             assertNull(report.scope.runId)
