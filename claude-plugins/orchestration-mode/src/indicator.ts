@@ -22,7 +22,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions, Timer, ToolCallResult } from 'claude-code'
 
 import type { Board, BoardRun, CoordinatorState, DirectorState, FocusBoard, FocusState, ItemFacts } from '../types'
-import type { Cell, FocusItem } from './model.ts'
+import type { CellStyle, FocusItem, Row } from './model.ts'
 import {
   BACKDROP_ALT,
   BACKDROP_HEIGHT,
@@ -44,9 +44,8 @@ import {
   coordinatorFromMarker,
   coordinatorFromOpen,
   coordinatorToast,
-  decisionCounts,
   enterToast,
-  fitCells,
+  fitRow,
   envelopeData,
   focusBlocked,
   focusFromGet,
@@ -56,9 +55,13 @@ import {
   footerModes,
   isDirectorSkillCall,
   itemFacts,
-  line1Cells,
-  line2Cells,
   line3Cells,
+  statusRow,
+  titleRow,
+  agentRows,
+  assignColours,
+  cellStyle,
+  colourKey,
   listItems,
   markerPath,
   modesOn,
@@ -68,7 +71,10 @@ import {
   runClosedToast,
   runFromList,
   runIsClosed,
+  namedRunIds,
   sameId,
+  sessionRuns,
+  watchRuns,
   tmpDir,
   toolBase,
   toolEnvelope,
@@ -83,6 +89,7 @@ const coordinator = atom({ plugin: 'orchestration-mode', key: 'coordinator' } as
 const focus = atom({ plugin: 'orchestration-mode', key: 'focus' } as const, null as FocusState)
 const bandHidden = atom({ plugin: 'orchestration-mode', key: 'bandHidden' } as const, false)
 const board = atom({ plugin: 'orchestration-mode', key: 'board' } as const, null as Board)
+const watchedRuns = atom({ plugin: 'orchestration-mode', key: 'watchedRuns' } as const, [] as string[])
 
 const enter = (): DirectorState => ({ since: new Date().toISOString() })
 const leave = (): DirectorState => null
@@ -212,13 +219,14 @@ async function readFocus($: EngineInterface, current: NonNullable<FocusState>): 
   const self = focusFromGet(item)
   const blocked = blockedData === undefined ? undefined : focusBlocked(blockedData)
   // The focus is the container when it has children (an ancestor of the touched item always has);
-  // a childless focus below depth 1 (a walk that settled early) hands the line to its parent; a lone
-  // leaf below the root is its own container.
+  // a childless focus below depth 1 (a walk that settled early) hands the line to its parent, unless the
+  // parent only groups work (a backlog bucket: the walk stopped below it on purpose); a lone leaf below
+  // the root, or below a bucket, is its own container.
   const hasChildren = !touchedIsFocus || listItems(overview).length > 0
   let container: ItemFacts | null = self === null ? null : itemFacts(self)
   if (self !== null && !hasChildren && self.depth >= 2 && self.parentId !== null) {
     const parent = focusFromGet(await quiet(directorRead($, 'items_read', { select: 'get', itemId: self.parentId })))
-    if (parent !== null) container = itemFacts(parent)
+    if (parent !== null && parent.grouping !== true) container = itemFacts(parent)
   }
   const touchedNow = touchedIsFocus ? self : focusFromGet(touchedData)
   const touched = touchedNow === null ? current.touched : itemFacts(touchedNow)
@@ -226,13 +234,25 @@ async function readFocus($: EngineInterface, current: NonNullable<FocusState>): 
 
   return {
     itemId: current.itemId,
-    counts: focusProgress(overview, self?.role),
+    // A bucket the session touched itself counts its work, not itself (its own role is not progress).
+    counts: focusProgress(overview, self?.grouping === true ? '' : self?.role),
     role: self?.role ?? '',
     hasChildren,
     blocked: blocked?.total ?? null,
     container,
     touched: blockedBy === undefined ? touched : { ...touched, blockedBy },
   }
+}
+
+/**
+ * The ids of the session's focus graph a run's scope may name: the focus, the touched item, and every
+ * id an earlier walk resolved to this focus (the ancestors between them, and siblings' walks).
+ */
+function focusIds(current: NonNullable<FocusState>): string[] {
+  const ids = [current.itemId, current.touched.itemId]
+  for (const [id, item] of resolvedFocus) if (sameId(item.id, current.itemId)) ids.push(id)
+
+  return ids
 }
 
 /** Leaves coordinator mode: state, toast, backdrop. */
@@ -244,8 +264,9 @@ async function clearCoordinator($: EngineInterface, label: string): Promise<void
 }
 
 /**
- * Reads the board (open and paused runs with their frontiers, decisions waiting, and, once a TO call
- * named an item, the focus graph) and stores it, which redraws the band. Faults land in `board.error`
+ * Reads the board (this session's open and paused runs with their frontiers, every run in director
+ * mode; decisions waiting; and, once a TO call named an item, the focus graph) and stores it, which
+ * redraws the band. Faults land in `board.error`
  * and keep the last read. Skipped while the band is off or hidden and no run is coordinated.
  */
 async function refreshBoard($: EngineInterface, force = false): Promise<void> {
@@ -268,11 +289,25 @@ async function refreshBoard($: EngineInterface, force = false): Promise<void> {
     const listedAll = [...listItems(open), ...listItems(paused)]
       .map(runFromList)
       .filter((r): r is BoardRun => r !== null)
+    const current = focusValue(await read($, focus))
+    // Only this session's runs, in every mode: the board of every run is the director's to read, not the band's.
+    const mine = sessionRuns(listedAll, {
+      coordinatorRunId: coord?.runId,
+      watched: (await read($, watchedRuns)) ?? [],
+      focusIds: current === null ? [] : focusIds(current),
+    })
     const runs = await Promise.all(
-      listedAll
+      mine
         .slice(0, MAX_RUN_ROWS)
         .map(async run => withFrontier(run, await directorRead($, 'runs_read', { select: 'frontier', runId: run.id }))),
     )
+    // Line 1 names the first run's container (its scope item, else its root) when no focus names one.
+    const lead = runs[0]
+    const containerId = lead?.scopeId ?? lead?.rootId
+    if (lead !== undefined && containerId !== undefined) {
+      const scopeItem = focusFromGet(await directorRead($, 'items_read', { select: 'get', itemId: containerId }).catch(() => undefined))
+      runs[0] = { ...lead, container: scopeItem === null ? null : itemFacts(scopeItem) }
+    }
     // The coordinated run, gone from the open and paused lists: clear the mode once it reads closed,
     // once the server says it does not exist, or after MAX_COORD_READ_FAILURES failed reads in a row.
     if (coord !== null && coord.source === 'tool' && !listedAll.some(run => sameId(run.id, coord.runId))) {
@@ -288,22 +323,23 @@ async function refreshBoard($: EngineInterface, force = false): Promise<void> {
     } else {
       coordReadFailures = 0
     }
-    let decisions: { open: number; overdue: number } | null = null
-    try {
-      decisions = decisionCounts(await directorRead($, 'runs_read', { select: 'decisions', limit: 50 }))
-    } catch {
-      // decisions stay unknown
-    }
-    const current = focusValue(await read($, focus))
     const focusBoard = current !== null ? await readFocus($, current) : null
-    await update($, board, () => ({ at: new Date().toISOString(), runs, decisions, focus: focusBoard }))
+    // Each member an agent works on keeps its colour from read to read (see assignColours).
+    const working = runs.flatMap(run => (run.members ?? []).filter(m => m.status === 'working').map(m => colourKey(run.id, m.id)))
+    const present = runs.flatMap(run => (run.members ?? []).map(m => colourKey(run.id, m.id)))
+    await update($, board, prev => ({
+      at: new Date().toISOString(),
+      runs,
+      focus: focusBoard,
+      colours: assignColours(prev?.colours ?? {}, working, present),
+    }))
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     await update($, board, prev => ({
       at: new Date().toISOString(),
       runs: prev?.runs ?? [],
-      decisions: prev?.decisions ?? null,
       focus: prev?.focus ?? null,
+      colours: prev?.colours ?? {},
       error: message,
     }))
   } finally {
@@ -364,7 +400,7 @@ async function reconcile($: EngineInterface): Promise<void> {
 
 /**
  * Records `itemId` as the touched item (line 3) and moves the focus to its top-most ancestor below
- * the project root (lines 1 and 2).
+ * the project root and below any item that only groups work (lines 1 and 2).
  */
 async function focusOn($: EngineInterface, itemId: string): Promise<void> {
   const key = itemId.toLowerCase()
@@ -395,8 +431,23 @@ async function focusOn($: EngineInterface, itemId: string): Promise<void> {
   await refreshBoard($, true)
 }
 
+/**
+ * Makes the runs a `runs_write` call opened or acted on this session's (`watchedRuns`), whoever in the
+ * session made it: the session itself or one of its subagents (a background coordinator, a Workflow, a
+ * seat). A run seen for the first time redraws the band.
+ */
+async function watchNamedRuns($: EngineInterface, tool: string, input: Record<string, unknown>, ran: ToolCallResult): Promise<void> {
+  const ids = namedRunIds(tool, input, toolEnvelope(ran))
+  if (ids.length === 0) return
+  const before = (await read($, watchedRuns)) ?? []
+  const fresh = ids.some(id => !before.some(w => sameId(w, id)))
+  await update($, watchedRuns, prev => watchRuns(prev ?? [], ids))
+  if (fresh) await refreshBoard($, true)
+}
+
 /** What one of this session's own TO calls says: a run opened or closed, or the item it touched. */
 async function observeCall($: EngineInterface, tool: string, input: Record<string, unknown>, ran: ToolCallResult): Promise<void> {
+  await watchNamedRuns($, tool, input, ran)
   if (toolBase(tool) === 'runs_write') {
     const envelope = toolEnvelope(ran)
     const opened = coordinatorFromOpen(input, envelope, new Date().toISOString())
@@ -471,9 +522,10 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
     return result
   })
 
-  // This session's own TO calls on either server: a `runs_write` open or close moves coordinator
-  // mode, and the item a write or an item read touched moves the focus. A subagent's call (it
-  // carries an agent id) is ignored, so a seat's calls never move the session that dispatched it.
+  // TO calls on either server. This session's own: a `runs_write` open or close moves coordinator
+  // mode, the item a write or an item read touched moves the focus, and a run it names becomes its
+  // own. A subagent's call (it carries an agent id) only makes the runs it names this session's (a
+  // background coordinator or a Workflow it dispatched); it never moves the mode or the focus.
   on(
     'tool.call',
     {
@@ -490,10 +542,12 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
     },
     async ($, e, next) => {
       const ran = await next(e)
-      if (e.agentId !== undefined || ran.deny !== undefined || ran.isError === true) return ran
+      if (ran.deny !== undefined || ran.isError === true) return ran
+      const input = e as unknown as Record<string, unknown>
       // In the background: the model gets its result now, whatever the board reads take (a slow or
       // hung REST server never holds a TO call). The call's result stands whatever the mod made of it.
-      void observeCall($, e.tool, e as unknown as Record<string, unknown>, ran).catch(() => undefined)
+      const observed = e.agentId !== undefined ? watchNamedRuns($, e.tool, input, ran) : observeCall($, e.tool, input, ran)
+      void observed.catch(() => undefined)
 
       return ran
     },
@@ -531,15 +585,16 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
     })
   })
 
-  // The band directly above the prompt, in every mode, one line per layer and never more than three:
-  // 1 the container, the root of the work being done (its title alone, then the run facts when a run
-  // is open), 2 the progress (the container's type and phase, then the bar, done/total and counts
-  // pipeline of a graph with members, or a lone item's own phase pipeline, then the non-zero blocked
-  // and decisions counts), 3 the work item this session last touched (left out when it is the
-  // container itself). Every line is cut here to the frame's width: the desktop app wraps a long Text
-  // whatever its `wrap` says. A short band drops line 3, then line 2, never line 1. Not drawn with no
-  // run and no touched item, while hidden (`/to-band`) or off (userConfig `band`), while a survey
-  // holds the band, and on a very narrow body.
+  // The band directly above the prompt, in every mode: 1 the title of the container, the root of the work being
+  // done, with the bar on the right (one cell per member, green done, red stuck, amber needing the person, grey
+  // finished, hollow not started, ⧄ cancelled, and each member an agent works on in its own colour, blinking); 2 the
+  // status: what needs a look first, then what the agents do, and the members by phase in plain words on the right;
+  // 3 and on, one row per agent (a marker in its member's colour, blinking, its seat and the item's title), at most
+  // three, else the item this session last touched. While anything blinks, one `Client` (band.ts) draws the whole
+  // band, so every blink turns on one timer; else plain Text. Every row is cut here to the frame's width (the
+  // desktop app wraps a long Text whatever its `wrap` says): the right side stays whole. A short band drops rows from
+  // the bottom, never the title. Not drawn with no run and no touched item, while hidden (`/to-band`) or off
+  // (userConfig `band`), while a survey holds the band, and on a very narrow body.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (!bandWanted || (await read($, bandHidden))) return next(e)
     if (e.props.hasSurvey || e.props.bodyColumns < MIN_BAND_COLUMNS) return next(e)
@@ -547,10 +602,11 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
     const focused = focusValue(await read($, focus))
     const runs = current?.runs ?? []
     if (runs.length === 0 && focused === null) return next(e)
-    const { Box, Text } = $.ui.resolve(e)
-    // The terminal's cells are the width, so each line is cut to them here. The desktop app draws
-    // a proportional font, where a cell count under-uses the frame: there every line is handed
-    // over whole and the surface cuts it at the frame's edge (`truncate-end`).
+    const elements = $.ui.resolve(e)
+    const { Box, Text } = elements
+    // The terminal's cells are the width, so each row is cut to them here. The desktop app draws a proportional
+    // font, where a cell count under-uses the frame: there every row is handed over whole and the surface cuts it
+    // at the frame's edge (`truncate-end`).
     const desktop = e.surface === 'desktop'
     const width = desktop ? Number.MAX_SAFE_INTEGER : bandWidth(e.props.bodyColumns)
 
@@ -558,61 +614,66 @@ export function registerOrchestrationMode(on: On, options: PluginOptions): void 
     const graph = focused !== null && current?.focus && sameId(current.focus.itemId, focused.itemId) ? current.focus : null
     const loading = current === null || (runs.length === 0 && graph === null && current.error === undefined)
     const shown: Board = loading ? null : { ...current, focus: graph }
+    const colours = current?.colours ?? {}
 
-    // Until the board has read the focus, line 1 names it from what the walk saw.
+    // Until the board has read the focus, the title row names it from what the walk saw.
     const fallback: ItemFacts | null =
       focused === null
         ? null
         : sameId(focused.touched.itemId, focused.itemId)
           ? focused.touched
           : { itemId: focused.itemId, title: focused.title, type: '', label: '' }
-    // A board saved by an earlier version carries no container: the walk's facts stand in.
-    const containerFacts = graph?.container ?? fallback
+    // The title names the graph the band counts: the first run's container (its scope item, else its root) when a
+    // run is shown, else the focus container. A board saved by an earlier version carries neither: the walk's facts.
+    const containerFacts = runs[0]?.container ?? graph?.container ?? fallback
 
-    // One line: a row holding one Text, its cells nested, already cut to the frame.
-    const tone = (cell: Cell) => {
-      switch (cell.tone) {
-        case 'title':
-          return Text({ color: 'warning', bold: true, children: cell.text })
-        case 'text':
-          return Text({ color: 'text', children: cell.text })
-        case 'lit':
-          return Text({ color: 'text', bold: true, children: cell.text })
-        case 'success':
-          return Text({ color: 'success', children: cell.text })
-        case 'error':
-          return Text({ color: 'error', children: cell.text })
-        case 'errorBold':
-          return Text({ color: 'error', bold: true, children: cell.text })
-        case 'warningBold':
-          return Text({ color: 'warning', bold: true, children: cell.text })
-        default:
-          return Text({ dimColor: true, children: cell.text })
-      }
-    }
-    const line = (key: string, cells: Cell[]) =>
-      Box({ key, flexDirection: 'row', overflow: 'hidden', children: [Text({ wrap: desktop ? 'truncate-end' : 'truncate', children: cells.map(tone) })] })
-
-    // Line 1: the container's title alone, then the first run's facts, which give way first.
-    const head = line1Cells(containerFacts, runs, e.props.bodyColumns)
-    const line1 = head === null ? null : line('container', fitCells(head, width))
-
-    // Line 2: the container's type and phase, then the progress and the non-zero counts.
-    const line2 = line('graph', fitCells(line2Cells(shown, containerFacts, graph), width))
-
-    // Line 3: the item this session last touched, as the board last read it.
+    // Rows 3 and on: the agents, else the item this session last touched.
+    const agents = agentRows(shown, colours)
     const touched: (ItemFacts & { blockedBy?: string }) | null =
       focused === null ? null : graph?.touched && sameId(graph.touched.itemId, focused.touched.itemId) ? graph.touched : focused.touched
     const isContainer = touched !== null && containerFacts !== null && sameId(touched.itemId, containerFacts.itemId)
-    const line3 = touched === null || isContainer ? null : line('item', line3Cells(touched, width))
+    const itemRow: Row | null = touched === null || isContainer ? null : { key: 'item', left: line3Cells(touched, width), right: [] }
 
-    // The border takes two rows; past that, drop line 3 first, then line 2, never line 1.
+    const ordered = [titleRow(shown, containerFacts, graph, colours), statusRow(shown, containerFacts, graph), ...(agents.length > 0 ? agents : itemRow ? [itemRow] : [])]
+      .filter((row): row is Row => row !== null)
+      .map(row => fitRow(row, width))
+    // The border takes two rows; past that, rows go from the bottom.
     const room = Math.max(1, e.props.maxRows - 2)
-    const rows = line1 === null ? [line2] : [line1]
-    if (line1 !== null && room >= 2) rows.push(line2)
-    if (line3 !== null && rows.length < room) rows.push(line3)
+    const rows = ordered.slice(0, Math.max(1, Math.min(room, ordered.length)))
+    const frame = (children: unknown[]) =>
+      Box({ flexDirection: 'column', paddingX: 1, borderStyle: 'round', borderColor: 'warning', children: children as never[] })
+    const style = (row: Row) => ({ key: row.key, left: row.left.map(cellStyle), right: row.right.map(cellStyle) })
 
-    return Box({ flexDirection: 'column', paddingX: 1, borderStyle: 'round', borderColor: 'warning', children: rows })
+    // Something blinks: one Client draws the band, on one timer.
+    if ('Client' in elements && rows.some(row => [...row.left, ...row.right].some(cell => cell.blink === true))) {
+      return frame([elements.Client({ key: 'band', module: './band.ts', props: { rows: rows.map(style), desktop } })])
+    }
+    const cell = (s: CellStyle) =>
+      Text({
+        ...(s.c !== undefined ? { color: s.c } : {}),
+        ...(s.b === true ? { bold: true } : {}),
+        ...(s.d === true ? { dimColor: true } : {}),
+        children: s.t,
+      })
+
+    return frame(
+      rows.map(style).map(row =>
+        // The right side (the bar, the counts) never shrinks; the left gives way, so a long title never squeezes the
+        // bar (the desktop app wraps the title instead of cutting it, onto a second line under the bar's first).
+        Box({
+          key: row.key,
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          gap: 1,
+          overflow: 'hidden',
+          children: [
+            Box({ flexGrow: 1, flexShrink: 1, minWidth: 0, children: [Text({ wrap: desktop ? 'truncate-end' : 'truncate', children: row.left.map(cell) })] }),
+            ...(row.right.length > 0 ? [Box({ flexShrink: 0, children: [Text({ wrap: 'truncate', children: row.right.map(cell) })] })] : []),
+          ],
+        }),
+      ),
+    )
   })
 
   // The desktop backdrop this plugin set for director mode: an amber gradient with a faint DIRECTOR

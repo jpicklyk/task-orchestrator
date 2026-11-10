@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`runs_read` `frontier` reports cancelled members and the in-flight items' titles.** `cancelled` counts the terminal members that carry the status label of `cancel` under the run's root (the one label policy: per-root `status_labels`, then the server's, then the built-in `cancelled`); they stay counted in `counts.terminal`. Each `inFlight` entry gains its item's `title`. Both are additive, on MCP and on `POST /api/v1/ops/runs_read`.
+
+### Plugin
+
+- **Fixed: the `orchestration-mode` band shows only this session's runs, in every mode.** It drew every open and paused run on the server, and counted every session's decisions, so a session with nothing of its own showed another session's run, even one from another project. It now draws the run the session coordinates, the runs it or one of its subagents (a background coordinator, a Workflow, a seat) opened or acted on through `runs_write`, and the runs scoped to an item of its focus graph, and no longer reads the server-wide decisions list. Director mode follows the same rule: the band is the session's own graph, not the board.
+- **Fixed: the `orchestration-mode` band no longer reports a stalled coordinator for a Workflow-driven run.** The alert follows the director skill's rule: nothing while a Workflow runs the run (`hints.method` `A`, `hints.phase` `launched`), while any seat is live, or on a paused run. Before, any Workflow wave longer than the stall threshold showed `COORD STALLED` until the post-run step.
+- **Changed: the `orchestration-mode` band speaks plain words and shows each agent.** The title row carries the bar on its right: one cell per member, green done, a red `⧄` cancelled, red stuck, amber waiting on a decision, grey finished and waiting to be advanced, hollow not started, and each member an agent works on in a colour of its own that it keeps from stage to stage, blinking. The status row puts what needs a look first (`1 agent stuck`, `Coordinator not responding`, `1 decision for you`, `Run paused`, `All agents finished · advance the items`), then what the agents do (`3 agents implementing`), with the members by phase in plain words on the right (`3 planned · 2 in progress · 1 done`); the run ids, `ready`/`waiting` and `q → w → r → ✓` are gone. Below it, one row per agent (its marker in the member's colour, blinking with its bar cell, then its seat and the item's title; at most three, then `+N more`), else the item the session last touched. The blink runs in a `Client` on the surface's own clock, one timer for the whole band, with no extra server reads; VS Code and the mobile app draw the band still. A short band drops rows from the bottom, never the title. The bar and the counts never shrink: a long title gives way (on the desktop app it wraps onto a second line) instead of squeezing the bar.
+- **Fixed: the `orchestration-mode` band's focus stops below a backlog bucket.** With no run, the band showed the ancestor just below the project root of the item the session touched, so a task in a bucket such as `Bugs` drew the bucket's whole backlog, and counted the bucket itself as in progress. The walk now stops below a grouping item (typed `container` or `project`, or tagged `container`), so the band shows the task's own feature; a bucket the session touched itself counts its work, not itself.
+
 ## [4.0.0] - 2026-11-07
 
 ### Upgrading from 3.x
