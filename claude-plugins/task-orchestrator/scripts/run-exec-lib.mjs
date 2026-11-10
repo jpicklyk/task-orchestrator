@@ -1668,7 +1668,7 @@ export function reviewPrompt(core, doc, idOrShort, result) {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export const CLOSE_REASONS = ['completed', 'cancelled', 'failed', 'abandoned']
-const BUDGET_KEYS = ['tokens', 'costUsd', 'attemptsPerSeat', 'maxActiveSeats']
+const BUDGET_KEYS = ['attemptsPerSeat', 'maxActiveSeats']
 
 /**
  * closeReason(result, override?) -> 'completed' | 'failed' | 'cancelled' | 'abandoned'.
@@ -1769,8 +1769,6 @@ function runHints(doc, phase) {
  *             every item (Method A, at launch), with opts.item + opts.seat that one seat (Method B, a
  *             review lane, a reseat's base seat). tokenFiles[i] is where results[i].seatToken goes.
  *   update    runs_write update {runId, hints} with hints.phase = opts.runPhase (the hints replace).
- *   heartbeat advance [claim(first item, or opts.item: a short or full id of a plan item), heartbeat{usage:{tokens,
- *             costUsd?}}, release] from opts.usage; an unknown opts.item throws.
  *   end-seats one runs_write end_seat per still-active member seat in opts.seats (runs_read seats
  *             data); outcome done/failed/abandoned from opts.result's stage status; the coordinator
  *             row and ended rows are skipped; tokenFiles[i] names the seat's token file.
@@ -1845,28 +1843,6 @@ export function runOps(core, doc, opts = {}) {
     }
     return { tool: 'runs_write', ops: [{ op: 'update', runId, hints: runHints(doc, opts.runPhase) }] }
   }
-  if (phase === 'heartbeat') {
-    requireBound(doc)
-    if (items.length === 0) throw new Error('invalid args: the plan admits no items')
-    const u = opts.usage
-    if (!u || typeof u !== 'object' || !Number.isInteger(u.tokens) || u.tokens < 0) {
-      throw new Error('invalid args: --usage needs {tokens: integer >= 0, costUsd?: number}')
-    }
-    const usage = { tokens: u.tokens }
-    if (u.costUsd !== undefined && u.costUsd !== null) {
-      if (typeof u.costUsd !== 'number' || !(u.costUsd >= 0)) throw new Error('invalid args: usage.costUsd must be a number >= 0')
-      usage.costUsd = u.costUsd
-    }
-    const itemId = opts.item ? findItem({ items }, opts.item).id : items[0].id
-    return {
-      tool: 'advance',
-      ops: [
-        { op: 'claim', itemId },
-        { op: 'heartbeat', itemId, usage },
-        { op: 'release', itemId },
-      ],
-    }
-  }
   if (phase === 'end-seats') {
     requireBound(doc)
     const { plan } = resolvePlan(core, doc)
@@ -1928,7 +1904,7 @@ export function runOps(core, doc, opts = {}) {
     const runId = requireBound(doc)
     return { tool: 'runs_write', ops: [{ op: 'close', runId, reason: closeReason(opts.result, opts.reason) }] }
   }
-  throw new Error(`invalid args: --phase must be open, assign, adopt-notes, update, heartbeat, end-seats or close, got ${JSON.stringify(phase)}`)
+  throw new Error(`invalid args: --phase must be open, assign, adopt-notes, update, end-seats or close, got ${JSON.stringify(phase)}`)
 }
 
 // ---------------------------------------------------------------------------------------
@@ -2378,7 +2354,6 @@ function execRunOps(argv, io) {
     seat: flagValue(argv, '--seat'),
     seats: read('--seats'),
     notes: read('--notes'),
-    usage: read('--usage'),
     result: resultDoc,
     reason: flagValue(argv, '--reason'),
     runPhase: flagValue(argv, '--run-phase'),

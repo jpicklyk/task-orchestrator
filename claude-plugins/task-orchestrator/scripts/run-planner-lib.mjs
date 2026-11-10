@@ -1494,6 +1494,13 @@ export function buildPlanDoc(snap, opts = {}) {
   if (profile && typeof profile === 'object' && 'defaultModels' in profile) {
     warnings.push('profile.defaultModels is ignored: stage model and effort come from dispatch-policy.json');
   }
+  if (profile && profile.runBudget && typeof profile.runBudget === 'object' && !Array.isArray(profile.runBudget)) {
+    for (const k of ['tokens', 'costUsd']) {
+      if (k in profile.runBudget) {
+        warnings.push(`profile.runBudget.${k} is ignored: run token and cost budgets were removed in 4.0.1`);
+      }
+    }
+  }
   for (const e of liveKnownRed(profile, now).expired) warnings.push(`knownRed ${e.test} expired ${e.expires}`);
 
   const estAgents = finalIds.reduce((sum, id) => sum + ((derivedById[id].stages || []).length), 0);

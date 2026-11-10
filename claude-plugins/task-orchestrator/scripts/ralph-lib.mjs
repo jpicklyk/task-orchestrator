@@ -6,7 +6,7 @@
 // claude's JSON envelope parsing, the RALPH_OUTCOME marker scan, the resume-continuation
 // decision, and the 4.0 run plumbing (run open op, selection over items_read next, the
 // per-loop skip list, the outcome table shared by the three prompt sources, seat-outcome and
-// loop-effect mapping, usage ops, token redaction).
+// loop-effect mapping, token redaction).
 //
 // Stdlib-only. Node 18+.
 
@@ -493,19 +493,16 @@ export function buildNextQuery({ filter = {}, rootId, skipCount = 0, members = n
 /**
  * The `runs_write` `open` op. `items` is sent only when a non-empty member list is given (`--items`);
  * otherwise the run opens empty and each picked item is added with `update addItems`. `budget` is
- * sent only when at least one of `runBudgetTokens` (-> tokens), `runBudgetUsd` (-> costUsd) or
- * `maxAttempts` (-> attemptsPerSeat) is a finite number; `maxActiveSeats` is never sent and there is
- * no default cap. `hints` values are strings: `{tool: 'ralph', filter, pid}`.
+ * sent only when `maxAttempts` (-> attemptsPerSeat) is a finite number; `maxActiveSeats` is never
+ * sent and there is no default cap. `hints` values are strings: `{tool: 'ralph', filter, pid}`.
  */
-export function buildRunOpenOp({ rootId, items, label, title, filter, pid, runBudgetTokens, runBudgetUsd, maxAttempts }) {
+export function buildRunOpenOp({ rootId, items, label, title, filter, pid, maxAttempts }) {
     const op = { op: "open", rootId };
     if (Array.isArray(items) && items.length) op.items = [...items];
     if (label) op.label = String(label).slice(0, 64);
     if (title) op.title = String(title).slice(0, 200);
     op.hints = { tool: "ralph", filter: filter ? String(filter) : "any", pid: String(pid ?? "") };
     const budget = {};
-    if (typeof runBudgetTokens === "number" && Number.isFinite(runBudgetTokens)) budget.tokens = runBudgetTokens;
-    if (typeof runBudgetUsd === "number" && Number.isFinite(runBudgetUsd)) budget.costUsd = runBudgetUsd;
     if (typeof maxAttempts === "number" && Number.isFinite(maxAttempts)) budget.attemptsPerSeat = maxAttempts;
     if (Object.keys(budget).length) op.budget = budget;
     return op;
@@ -623,8 +620,8 @@ export function decideSelection({ candidates, reason, skipList, members = null, 
  *   (end the loop now: end the seat, close the run), `pause-wait` (end the seat, poll the run until it is open again or closed).
  */
 export const OUTCOME_TABLE = Object.freeze([
-    { code: "ready-to-complete", kind: "outcome", by: "iteration", status: "ready-to-complete", action: "All notes are filled and the work is committed, but the iteration did NOT send the move into terminal. The driver reports usage and sends the complete transition itself while the claim is still held, then ends the seat done.", loop: "continue" },
-    { code: "terminal", kind: "outcome", by: "iteration", status: "terminal", action: "The item already reached terminal per its schema (legacy; prefer ready-to-complete). The driver ends the seat done and cannot report usage (usage-unreported).", loop: "continue" },
+    { code: "ready-to-complete", kind: "outcome", by: "iteration", status: "ready-to-complete", action: "All notes are filled and the work is committed, but the iteration did NOT send the move into terminal. The driver sends the complete transition itself while the claim is still held, then ends the seat done.", loop: "continue" },
+    { code: "terminal", kind: "outcome", by: "iteration", status: "terminal", action: "The item already reached terminal per its schema (legacy; prefer ready-to-complete). The driver ends the seat done.", loop: "continue" },
     { code: "gate-blocked", kind: "outcome", by: "iteration", status: "gate-blocked", action: "A required note cannot be filled autonomously. The driver ends the seat abandoned.", loop: "gate" },
     { code: "error", kind: "outcome", by: "iteration", status: "error", action: "Tool error, build failure, budget cap, or a marker-less exit after every continuation. The driver ends the seat failed.", loop: "error" },
     { code: "skip", kind: "outcome", by: "iteration", status: "skip", action: "The item cannot be worked now; put the catalog code in `code`. The driver ends the seat abandoned and skip-lists the item.", loop: "skip" },
@@ -640,7 +637,7 @@ export const OUTCOME_TABLE = Object.freeze([
     { code: "note_owned_by_other", kind: ERROR_KINDS.note_owned_by_other, by: "iteration", status: "gate-blocked", action: "A note this seat may not write belongs to another seat. Never take it over. Emit gate-blocked with code and the note key in reason; that seat or a human fills it.", loop: "gate" },
     { code: "not_claim_holder", kind: ERROR_KINDS.not_claim_holder, by: "iteration", status: "error", action: "A write was refused because the call does not hold the claim (claim lapsed, or the call went out without the seat token). Emit error with code.", loop: "error" },
     { code: "unauthenticated", kind: ERROR_KINDS.unauthenticated, by: "iteration", status: "error", action: "The seat token was refused: the iteration must reach the server as the same principal as the driver. Emit error with code. On a driver call with the coordinator token the loop exits 2.", loop: "error" },
-    { code: "run_paused", kind: ERROR_KINDS.run_paused, by: "driver", status: "error", action: "The run paused (budget, attempt cap or manual). Never retried and never closes the run: the driver ends the seat, then polls the run every 30s until a director or human answers the pause decision (or resumes a manual pause) and the loop continues, or closes the run (exit 0).", loop: "pause-wait" },
+    { code: "run_paused", kind: ERROR_KINDS.run_paused, by: "driver", status: "error", action: "The run paused (attempt cap or manual). Never retried and never closes the run: the driver ends the seat, then polls the run every 30s until a director or human answers the pause decision (or resumes a manual pause) and the loop continues, or closes the run (exit 0).", loop: "pause-wait" },
     { code: "run_closed", kind: ERROR_KINDS.run_closed, by: "driver", status: "error", action: "The run was closed elsewhere (a closed run's tokens may also answer unauthenticated; the driver probes the run to tell the two apart). The driver ends the seat and exits 0 without closing.", loop: "exit" },
     { code: "run_at_capacity", kind: ERROR_KINDS.run_at_capacity, by: "driver", status: "idle", action: "assign hit the run's maxActiveSeats. The driver waits 30s, then retries the assign, up to 10 times, then ends the loop.", loop: "wait-retry" },
     { code: "unavailable", kind: ERROR_KINDS.unavailable, by: "driver", status: "idle", action: "The server shed load on a driver call. The driver waits retryAfterMs, then tries again.", loop: "backoff" },
@@ -715,49 +712,6 @@ export function loopEffect(outcome) {
         default:
             return { effect: "error" };
     }
-}
-
-/**
- * The usage report ops (D11) for a finished child envelope, or null when the envelope carries
- * neither `total_cost_usd` nor `usage` token counts: `[claim, heartbeat{usage: {tokens, costUsd?}},
- * release]`, sent under the seat token. `tokens` sums the numeric `input_tokens`, `output_tokens`,
- * `cache_creation_input_tokens` and `cache_read_input_tokens` (0 when none is present).
- */
-export function buildUsageOps({ itemId, ttlSeconds, envelope }) {
-    const cost = envelope?.total_cost_usd;
-    const hasCost = typeof cost === "number" && Number.isFinite(cost) && cost >= 0;
-    const u = envelope?.usage;
-    let tokens = 0;
-    let hasTokens = false;
-    if (u && typeof u === "object") {
-        for (const k of ["input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"]) {
-            const v = u[k];
-            if (typeof v === "number" && Number.isFinite(v) && v >= 0) {
-                tokens += Math.floor(v);
-                hasTokens = true;
-            }
-        }
-    }
-    if (!hasCost && !hasTokens) return null;
-    const usage = { tokens };
-    if (hasCost) usage.costUsd = cost;
-    return [
-        { op: "claim", itemId, ttlSeconds },
-        { op: "heartbeat", itemId, usage },
-        { op: "release", itemId },
-    ];
-}
-
-/**
- * The `heartbeat` op that reports a finished child's usage while the seat's claim is still held
- * (the handshake before the driver's complete transition), or null when the envelope carries
- * neither cost nor token counts. Sent under the seat token; `ttlSeconds` refreshes the claim.
- */
-export function buildHeartbeatUsageOp({ itemId, ttlSeconds, envelope }) {
-    const ops = buildUsageOps({ itemId, ttlSeconds, envelope });
-    if (!ops) return null;
-    const hb = ops[1];
-    return { op: "heartbeat", itemId, ttlSeconds, usage: hb.usage };
 }
 
 /**
