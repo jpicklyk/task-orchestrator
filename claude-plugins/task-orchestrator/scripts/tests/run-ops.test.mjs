@@ -650,7 +650,7 @@ test('REPORT S1: a closed report with 2 stopped items has the fixed lines in ord
       { id: B, short: 'bbbbbbbb', status: 'stopped', reason: 'gate_blocked', stages: [stageStatus('implementer', 'stopped')], outputs: {} },
     ],
   })
-  const close = { data: { results: [{ ok: true, snapshot: { reason: 'failed', openDecisions: [DEC] } }] } }
+  const close = { data: { results: [{ ok: true, snapshot: { reason: 'failed', openDecisions: 1 } }] } }
   const res = reportOut(planPath, [
     '--event', 'closed', '--result', writeJson(dir, 'result.json', result), '--close', writeJson(dir, 'close.json', close),
   ])
@@ -662,7 +662,7 @@ test('REPORT S1: a closed report with 2 stopped items has the fixed lines in ord
   assert.equal(lines[2], 'decisions: d3c1a2b4 item aaaaaaaa')
   assert.equal(lines[3], 'items: done 0, stopped 2, deferred 0, held 0, excluded 0')
   assert.equal(lines[4], 'stopped: aaaaaaaa run_paused; bbbbbbbb gate_blocked')
-  assert.equal(lines[5], 'close: failed, open decisions d3c1a2b4')
+  assert.equal(lines[5], 'close: failed, open decisions 1 (ids unlisted)')
   assert.equal(lines[6], 'needs: nothing')
 })
 
@@ -705,15 +705,19 @@ test('REPORT S4: planned from a plan with excluded items says needs approve laun
   assert.match(res.stdout, /excluded 1/)
 })
 
-test('REPORT S5: a paused run.json gives the pause line and puts the pause decision in decisions', () => {
+test('REPORT S5: a paused run.json plus the saved run_paused answer gives the pause line and puts the pause decision in decisions', () => {
   const { dir, boundPath: planPath } = boundDoc()
-  const run = { data: { runId: SERVER_RUN, status: 'paused', pauseReason: 'budget', pauseDecisionId: DEC, hints: { phase: 'launched', method: 'A' } } }
-  const res = reportOut(planPath, ['--event', 'paused', '--run', writeJson(dir, 'run.json', run)])
+  // The run view carries pauseReason only (RunView has no pauseDecisionId); the id arrives in the run_paused error detail.
+  const run = { data: { runId: SERVER_RUN, status: 'paused', pauseReason: 'attempts', hints: { phase: 'launched', method: 'A' } } }
+  const answer = { ok: false, data: { results: [{ ok: false, error: { code: 'run_paused', detail: { runId: SERVER_RUN, pauseReason: 'attempts', pauseDecisionId: DEC } } }] } }
+  const res = reportOut(planPath, [
+    '--event', 'paused', '--run', writeJson(dir, 'run.json', run), '--paused', writeJson(dir, 'paused.json', answer),
+  ])
   assert.equal(res.status, 0, res.stderr)
   const lines = res.stdout.split('\n')
   assert.equal(lines[1], 'run: status paused phase launched method A')
   assert.equal(lines[2], 'decisions: d3c1a2b4 item -')
-  assert.equal(lines[3], 'pause: budget decision d3c1a2b4')
+  assert.equal(lines[3], 'pause: attempts decision d3c1a2b4')
 })
 
 test('REPORT S6: 12 stopped items list 10 then and 2 more; zero items gives all-zero counts and a failed close', () => {

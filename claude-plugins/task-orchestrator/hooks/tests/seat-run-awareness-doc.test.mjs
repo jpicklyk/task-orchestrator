@@ -51,10 +51,8 @@ test('S13: schema-workflow canAdvance context-table row says seat enforcement is
   assert.ok(row.includes('seat enforcement'), `row: ${row}`)
 })
 
-test('S13: schema-workflow result table has a `paused` row carrying decisionId', () => {
-  const row = tableRow(SCHEMA_WORKFLOW, '`paused`')
-  assert.ok(row, 'a result-table row for paused')
-  assert.ok(row.includes('decisionId'), `row: ${row}`)
+test('S13: schema-workflow result table has no `paused` row (a write success carries no paused member; the pause arrives as run_paused)', () => {
+  assert.equal(tableRow(SCHEMA_WORKFLOW, '`paused`'), undefined, 'no result-table row for paused')
 })
 
 test('S13: schema-workflow mentions seat_forbidden and run_paused more than once (failure list and Error recovery)', () => {

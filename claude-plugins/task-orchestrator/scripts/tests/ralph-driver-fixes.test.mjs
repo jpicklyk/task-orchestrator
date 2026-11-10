@@ -458,7 +458,7 @@ describe('S12 run_paused reported by the iteration', () => {
   })
 })
 
-test('S13 NEW: a complete answered paused:{decisionId} during ready-to-complete -> complete is still sent, then the driver waits for the resume before the next assign', async () => {
+test('S13 NEW: a pause after a granted complete (no paused member on the answer) is seen at the next assign as run_paused, then the driver waits for the resume', async () => {
   const s = await scenario({
     items: [A, B],
     plan: [{ kind: 'ready', ...COST }, { kind: 'ready' }],
@@ -471,15 +471,16 @@ test('S13 NEW: a complete answered paused:{decisionId} during ready-to-complete 
   const tr = opsNamed(s, 'transition')
   assert.ok(tr.length >= 1 && tr[0].itemId.toLowerCase() === A && tr[0].trigger === 'complete', 'complete is still sent after the call that paused the run' + tail(s))
   assert.equal(s.api.item(A).role, 'terminal')
+  assert.equal(s.api.item(B).role, 'terminal')
   const assigns = opsNamed(s, 'assign')
-  assert.equal(assigns.length, 2)
   const ps = polls(s)
-  assert.equal(ps.length, 2, tail(s))
-  assert.ok(ps.every((p) => p.seq > opsNamed(s, 'end_seat')[0].seq && p.seq < assigns[1].seq), 'the wait sits between the first seat end and the second assign')
+  assert.ok(ps.length >= 1, 'the driver polled the paused run' + tail(s))
+  assert.ok(ps.every((p) => p.seq > opsNamed(s, 'end_seat')[0].seq && p.seq < assigns.at(-1).seq), 'the wait sits between the first seat end and the last assign')
   assert.deepEqual(s.api.seats.map((x) => [x.itemId, x.outcome]), [[A, 'done'], [B, 'done']])
   assert.equal(opsNamed(s, 'close').length, 1)
   assert.equal(opsNamed(s, 'close')[0].reason, 'completed')
-  assert.equal(countOf(s.res.out, DECISION), 1, tail(s))
+  assert.equal(countOf(s.res.out, DECISION), 1, 'one paused block naming the decision' + tail(s))
+  assert.equal(s.res.out.split('TO report: ').slice(1).filter((b) => / paused: /.test(b.split(/\r?\n/)[0])).length, 1, 'exactly one paused block')
 })
 
 // ---- S7: a run closed elsewhere is a clean exit, not an auth error (FIX F3; AR runs_write "Tokens") ---------

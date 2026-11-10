@@ -76,8 +76,8 @@ function listData(items, reason) {
 //   ttlUnitMs        milliseconds per claim ttl second (default 1000): a small value makes a claim lapse fast
 //   pauseOn          {op, nth = 1, pauseReason = 'budget', decisionId} or an array of them: when the nth op of that
 //                    name arrives the run pauses. assign is refused run_paused{runId, pauseReason, pauseDecisionId};
-//                    heartbeat / transition are performed and their result carries paused:{decisionId}; claim is
-//                    performed. A run_paused verdict from the assign hook pauses the run the same way.
+//                    heartbeat / transition are performed and the run then pauses, but the result carries no paused
+//                    member (4.0.1 server): the pause is seen at the next assign as run_paused; claim is performed. A run_paused verdict from the assign hook pauses the run the same way.
 //   resumeAfterPolls n: the n-th runs_read get answered while paused flips the run back to open
 //   closeAfterPolls  n: the n-th runs_read get answered while paused closes the run (director, cancelled)
 //   externalClose    {op, nth = 1, reason = 'cancelled'}: the nth op of that name finds the run already closed by a
@@ -323,10 +323,7 @@ export async function startFakeApi(opts = {}) {
         const claimedAt = new Date(item.claim.claimedAtMs).toISOString()
         const out = { ok: true, itemId, claimed: true, version: 1, claimedAt, expiresAt: new Date(expiresAtMs).toISOString(), originalClaimedAt: claimedAt, refreshed: true }
         const pause = pauseFor('heartbeat', nth)
-        if (pause) {
-          pauseRun(pause)
-          out.paused = { decisionId: pause.decisionId }
-        }
+        if (pause) pauseRun(pause)
         return out
       }
       case 'advance.transition': {
@@ -351,10 +348,7 @@ export async function startFakeApi(opts = {}) {
         }
         const out = { ok: true, itemId, previousRole, newRole: item.role, trigger: op.trigger }
         const pause = pauseFor('transition', nth)
-        if (pause) {
-          pauseRun(pause)
-          out.paused = { decisionId: pause.decisionId }
-        }
+        if (pause) pauseRun(pause)
         return out
       }
       case 'advance.release': {
