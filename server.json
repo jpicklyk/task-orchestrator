@@ -52,6 +52,12 @@
           "isSecret": false
         },
         {
+          "name": "MCP_SESSION_IDLE_TIMEOUT_MINUTES",
+          "description": "Minutes without a request before an HTTP MCP session is closed; the client re-initializes on its next call (default: 120)",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
           "name": "LOG_LEVEL",
           "description": "Logging level: DEBUG, INFO, WARN, ERROR (default: INFO)",
           "isRequired": false,

@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`MCP_SESSION_IDLE_TIMEOUT_MINUTES` sets how long an HTTP MCP session may go without a request** (default `120`). After that, the MCP SDK closes the session within a few seconds, its next request is `404`, and the client re-initializes. An open `GET` stream does not count as activity. A blank, zero, negative or non-integer value fails startup naming the variable.
+
+### Changed
+
+- **The MCP Kotlin SDK is 0.16.0** (was 0.13.0). What HTTP clients see:
+  - an idle session ends after 2 hours instead of 24;
+  - a `GET` to `/mcp` without `Mcp-Session-Id` is `400`;
+  - a new session while 10,000 are open is `503`;
+  - a `POST` without a session id that is not `initialize` no longer leaves a session behind.
+
+  stdio is unchanged.
+
+### Fixed
+
+- **HTTP `/mcp` no longer leaks sockets in `CLOSE_WAIT`** ([#682](https://github.com/jpicklyk/task-orchestrator/issues/682)). A client that dropped its connection without `DELETE` left its session's `GET` stream waiting forever. The server never closed the socket, so these piled up until the server stopped answering. Now a stream is cancelled as soon as its client disconnects, and every `/mcp` SSE stream sends a `: heartbeat` comment every 30 seconds, so a peer that vanished without closing is noticed on the next write.
+- **`/api/v1/events` releases a subscriber as soon as its client disconnects**, and sends the same 30-second `: heartbeat` comment.
+
 ## [4.0.1] - 2026-11-10
 
 4.0.1 is a critical fix. The run token and cost budgets shipped incomplete in 4.0.0: usage could not be reported once a run's members were terminal, and the budget measured the last turn's figure instead of the run's spend. They are removed (see Removed); a client that still sends a removed field gets `unknown_parameter`. There is no migration, so a rollback to 4.0.0 is safe.

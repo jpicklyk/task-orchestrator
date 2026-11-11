@@ -158,6 +158,7 @@ default, and an unrecognized non-empty value either falls back to the default wi
 - `MCP_TOOL_PROFILE` — `orchestration` (default), `knowledge` or `director` (case-insensitive); the stdio transport's tool profile. HTTP serves all three: `/mcp` is orchestration, `/mcp/knowledge` is knowledge, `/mcp/director` is director. Any other value fails startup
 - `MCP_ALLOW_UNAUTHENTICATED` — opt-in (default `false`, parsed with `EnvBoolean.require`) that lets `MCP_TRANSPORT=http` serve `/mcp` with the REST API disabled, every caller as the `local` principal; without it that combination fails startup (`MCP_AUTH`)
 - `MCP_SERVER_NAME` — service name reported in MCP identity and REST well-known/service metadata (default: `mcp-task-orchestrator-current`)
+- `MCP_SESSION_IDLE_TIMEOUT_MINUTES` — minutes without a request before the MCP SDK closes an HTTP `/mcp` session (its next request is `404` and the client re-initializes); the session-principal map uses the same value (default: `120`); blank, zero, negative or non-integer fails startup
 - `LOG_LEVEL` — DEBUG / INFO / WARN / ERROR (default: `INFO`)
 - `LOG_FILE` — opt-in log file path (default: unset, no file logging). Logs are always JSON on stderr; see `current/docs/fleet-deployment.md` → "Logging".
 - `FLYWAY_REPAIR` — run repair and exit (default: `false`)
