@@ -32,13 +32,14 @@ enum class BindOutcome {
  * unbound session gets an access with no principal, which the dispatcher refuses (fail closed). `DELETE /mcp` forgets
  * the binding.
  *
- * Lifecycle: a bound id is trusted until forgotten or evicted (the liveness check runs on the first bind only). On a
+ * Lifecycle: a bound id is trusted until forgotten or evicted (the liveness check runs on the first bind only). The SDK
+ * itself sweeps idle sessions every few seconds (`sessionIdleTimeout`) and cancels a GET stream when its client
+ * disconnects; this map still evicts on a new bind, for capacity, and drops bindings whose SDK session closed. On a
  * new bind, eviction drops bindings whose SDK session already closed, then ends and drops sessions idle for at least
  * [idleTtl], then ends and drops the least-recently-seen binding of the principal holding the most sessions (the binder counted
  * with the bind in progress; ties go to the older binding) until there is room under [maxSessions], so one credential's
  * flood ends its own sessions first. Ending closes the SDK
- * session, so the client's next request is the spec's 404 and it re-initializes. There is no background sweeper: an
- * idle server keeps idle sessions until the next new bind.
+ * session, so the client's next request is the spec's 404 and it re-initializes.
  *
  * @param redactNoteAttribution `API_REDACT_NOTE_ATTRIBUTION`: the same note-attribution rule as REST.
  * @param sdkSessions the SDK's view of its sessions (no default: a forgotten argument must not fail open).
@@ -141,8 +142,8 @@ class McpSessionPrincipals(
     }
 
     companion object {
-        /** Sessions idle this long are ended on the next new bind. */
-        val DEFAULT_IDLE_TTL: Duration = Duration.ofHours(24)
+        /** Sessions idle this long are ended on the next new bind (production passes `MCP_SESSION_IDLE_TIMEOUT_MINUTES`). */
+        val DEFAULT_IDLE_TTL: Duration = Duration.ofHours(2)
 
         /** The most sessions bound at once; the least-recently-seen is ended to make room. */
         const val DEFAULT_MAX_SESSIONS: Int = 1024

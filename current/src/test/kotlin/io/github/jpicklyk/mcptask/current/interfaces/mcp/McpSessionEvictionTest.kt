@@ -72,8 +72,8 @@ internal fun fakeSdkSessions(vararg ids: String): FakeSdkSessions = FakeSdkSessi
  * session is also ended on the SDK side so its next request is the SDK's 404), AC1-AC6; the eviction order of task-scope item 2
  * (a: entries the SDK no longer serves are dropped with no `end` call, b: idle entries are ended and removed, c: while the map
  * is at its limit the least recently seen entry is ended and removed); the MCP Streamable HTTP specification, "Session
- * Management" (a terminated session answers 404); the SDK 0.13.0 `existingStreamableTransport` behaviour recorded in the plan
- * (an id the mount does not serve is 404 "Session not found").
+ * Management" (a terminated session answers 404); the SDK `withStreamableSession` behaviour recorded in the plan (an id the
+ * mount does not serve is 404; since SDK 0.16 the default session idle time of the principal store is 2 hours, item f98690c9).
  *
  * Negative-assertion conditions (what makes each fail without the feature): a bind of an id the SDK does not serve stores
  * nothing (S3: `principalOf` is non-null and `size` rises if the liveness check is dropped); an unknown-id flood must not end or
@@ -414,8 +414,8 @@ class McpSessionEvictionTest {
     }
 
     @Test
-    fun `S12 the defaults are 24 hours and 1024 sessions and are the ones in effect`() {
-        assertEquals(Duration.ofHours(24), McpSessionPrincipals.DEFAULT_IDLE_TTL)
+    fun `S12 the defaults are 2 hours and 1024 sessions and are the ones in effect`() {
+        assertEquals(Duration.ofHours(2), McpSessionPrincipals.DEFAULT_IDLE_TTL)
         assertEquals(1024, McpSessionPrincipals.DEFAULT_MAX_SESSIONS)
         runBlocking {
             val fake = fakeSdkSessions()
@@ -434,12 +434,12 @@ class McpSessionEvictionTest {
             val idleClock = SettableClock()
             val idle = McpSessionPrincipals(redactNoteAttribution = true, sdkSessions = idleFake, clock = idleClock)
             assertEquals(BindOutcome.BOUND, idle.bind("a", principal("p")))
-            idleClock.advance(Duration.ofHours(24).minusMillis(1))
+            idleClock.advance(Duration.ofHours(2).minusMillis(1))
             assertEquals(BindOutcome.BOUND, idle.bind("b", principal("p")))
-            assertNotNull(idle.principalOf("a"), "24h - 1ms is inside the default window")
+            assertNotNull(idle.principalOf("a"), "2h - 1ms is inside the default window")
             idleClock.advance(Duration.ofMillis(1))
             assertEquals(BindOutcome.BOUND, idle.bind("c", principal("p")))
-            assertNull(idle.principalOf("a"), "24h exactly is outside it")
+            assertNull(idle.principalOf("a"), "2h exactly is outside it")
             assertEquals(listOf("a"), idleFake.ended.toList())
         }
     }

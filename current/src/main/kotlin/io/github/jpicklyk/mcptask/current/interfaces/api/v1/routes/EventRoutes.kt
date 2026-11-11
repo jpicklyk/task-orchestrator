@@ -31,6 +31,7 @@ import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
 import io.ktor.server.application.createRouteScopedPlugin
 import io.ktor.server.application.install
+import io.ktor.server.http.HttpRequestLifecycle
 import io.ktor.server.response.header
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.route
@@ -48,7 +49,11 @@ import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.util.UUID
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
+
+/** How often an `/api/v1/events` stream sends its `: heartbeat` comment; the first goes out one period after the stream opens. */
+internal val EVENTS_HEARTBEAT_PERIOD: Duration = 30.seconds
 
 private val sseLogger = LoggerFactory.getLogger("EventRoutes")
 
@@ -393,10 +398,13 @@ fun Route.eventRoutes(
     authConfig: ApiAuthConfig = ApiAuthConfig.Disabled,
     workItemRepository: WorkItemRepository? = null,
     redactAttribution: Boolean,
+    heartbeatPeriod: Duration = EVENTS_HEARTBEAT_PERIOD,
 ) {
     // Wrap the SSE handler in a dedicated child route so the pre-flight auth plugin is scoped
     // ONLY to /events and does not affect sibling routes.
     route("/events") {
+        // Route-scoped only: cancels this call when its client disconnects, so the subscriber is released.
+        install(HttpRequestLifecycle) { cancelCallOnClose = true }
         install(sseInlineAuthPlugin) {
             this.tokenEntries = tokenEntries
             this.allowQueryToken = allowQueryToken
@@ -493,6 +501,21 @@ fun Route.eventRoutes(
 
             try {
                 coroutineScope {
+                    // Keep-alive: a `: heartbeat` comment every [heartbeatPeriod], the first one only after a
+                    // full period, so it is never the stream's first event (Ktor's `heartbeat {}` sends one at
+                    // once, which a client reading the first event as data would mistake for one). The write
+                    // catches a peer that vanished without a FIN.
+                    launch {
+                        try {
+                            while (isActive) {
+                                delay(heartbeatPeriod)
+                                session.send(ServerSentEvent(comments = "heartbeat"))
+                            }
+                        } catch (_: CancellationException) {
+                            // Normal teardown
+                        }
+                    }
+
                     // Periodic token-expiry check
                     if (tokenExpiry != null) {
                         launch {

@@ -40,8 +40,9 @@ import org.junit.jupiter.api.Test
  *    serializes correctly under the same config.
  *
  * NOTE: an earlier version of this comment claimed "install(SSE) is idempotent with
- * mcpStreamableHttp's SSE install path." That is FALSE for MCP SDK 0.12.0 — mcpStreamableHttp
- * installs the SSE plugin itself, so an explicit install(SSE) throws DuplicatePluginException at
+ * mcpStreamableHttp's SSE install path." That was FALSE for MCP SDK 0.12.0 (it is true again since SDK 0.16, which reuses an
+ * already installed SSE plugin); in 0.12.0 mcpStreamableHttp
+ * installed the SSE plugin itself, so an explicit install(SSE) threw DuplicatePluginException at
  * startup. This spike never actually called mcpStreamableHttp, which is why it never caught the
  * bug; the real /mcp transport is now exercised by McpStreamableHttpTransportTest.
  */

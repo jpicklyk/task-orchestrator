@@ -34,8 +34,10 @@ interface SdkSessions {
  * The production [SdkSessions]: reads the public `Server.sessions` registry of every served [Server].
  *
  * Honest limit: liveness is the SDK registry, so an id is live from `initialize` until its transport closes (a
- * `DELETE`, [end], or server shutdown). A client that merely disconnects stays live until [McpSessionPrincipals]
- * evicts it for idleness or capacity.
+ * `DELETE`, [end], the SDK's idle sweep, or server shutdown). A client that disconnects loses its GET stream at once
+ * (the SDK cancels it) and its session when the SDK's idle sweep expires it, or when [McpSessionPrincipals] evicts it
+ * for capacity. Over HTTP on kotlin-sdk 0.16 a rejected request leaves no id-less session, so [endOrphans] is a no-op
+ * there (kept: harmless).
  */
 class ServerSdkSessions(
     private val clock: Clock = Clock.SYSTEM,

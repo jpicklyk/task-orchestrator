@@ -54,8 +54,8 @@ class McpBearerAuthConfig {
  *    runs. `DELETE` (the session's end) forgets the binding. The `initialize` request carries no session id: its
  *    session is bound from the `Mcp-Session-Id` response header, and in any case before any request of that session
  *    reaches a tool (an unbound session's tool call has no principal and the dispatcher refuses it). A POST without a
- *    session id first reaps SDK sessions left without a transport id by earlier rejected requests (see
- *    [McpSessionPrincipals.sweepOrphans]).
+ *    session id first runs [McpSessionPrincipals.sweepOrphans], a guard for SDK sessions left without a transport id.
+ *    On SDK 0.16.0 it finds none: the SDK closes the session of a request it rejects before initialization.
  */
 val McpBearerAuth =
     createRouteScopedPlugin(
@@ -78,8 +78,9 @@ val McpBearerAuth =
 
             val sessionId = call.request.headers[MCP_SESSION_ID_HEADER]
             if (sessionId == null) {
-                // A POST without a session id is the only request that makes the SDK create a session; reap the ones
+                // A POST without a session id is the only request that makes the SDK create a session; sweep any that
                 // earlier rejected requests left behind (before the SDK handles this one, so it is never its own victim).
+                // A guard only: SDK 0.16.0 closes such sessions itself, so the sweep normally finds none.
                 if (call.request.httpMethod == HttpMethod.Post) sessions.sweepOrphans()
                 return@onCall
             }
