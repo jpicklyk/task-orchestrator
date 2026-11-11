@@ -36,8 +36,9 @@ import org.junit.jupiter.api.extension.RegisterExtension
 /**
  * End-to-end tests for the MCP **Streamable HTTP** transport mounted at `/mcp`.
  *
- * These tests are the regression guard for the SDK-0.12.0 startup crash where an explicit
- * `install(SSE)` collided with the SSE plugin that `mcpStreamableHttp` installs itself
+ * These tests were the regression guard for the SDK-0.12.0 startup crash where an explicit
+ * `install(SSE)` collided with the SSE plugin that `mcpStreamableHttp` installed itself (since SDK 0.16 an already
+ * installed SSE plugin is reused, so that particular crash can no longer happen; the other plugin-install collisions still can)
  * (`DuplicatePluginException` → HTTP server never started). They exercise the SAME production
  * wiring function ([installMcpStreamableHttp]) and the SAME tool registry (`buildToolSpecs()` through
  * [McpOperationAdapter]) the real server uses — so re-introducing a duplicate plugin install, or otherwise breaking the `/mcp`

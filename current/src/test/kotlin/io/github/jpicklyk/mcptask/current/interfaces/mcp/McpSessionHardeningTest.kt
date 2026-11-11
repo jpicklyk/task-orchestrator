@@ -18,10 +18,18 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
+import io.modelcontextprotocol.kotlin.sdk.server.Server
+import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
+import io.modelcontextprotocol.kotlin.sdk.server.StreamableHttpServerTransport
+import io.modelcontextprotocol.kotlin.sdk.types.Implementation
+import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -56,11 +64,11 @@ import kotlin.test.assertTrue
  * refresh the victim's lastSeen), D4 (the sweep trigger is a header-less POST), plus the SDK 0.13.0 facts recorded in the
  * plan (a header-less non-initialize POST is 400 and leaves a null-id session; a present unknown id is 404 and creates nothing).
  *
- * Orphan ages in the HTTP scenarios are read at one unambiguous instant: every group of orphans is followed by a successful
- * `initialize` (itself a header-less POST, so it triggers a sweep, and it leaves a real session, not an orphan) at the instant
- * the orphans were created, and only then is the clock moved. The plan's S3/S10 count sequences ("advance, one more ping ->
- * base+1") also count the orphan that the trigger ping itself creates and the one the previous ping created; see the
- * arbitration record in test-manifest.
+ * SDK 0.16 (item f98690c9, oracle kotlin-sdk 0.16.0 KtorServer.kt `openStreamableSession`): a POST without `Mcp-Session-Id` that
+ * does not initialize a session closes the transport it opened once the POST completes, and closing drops the ServerSession from
+ * `Server.sessions`. So over HTTP no orphan is ever left: the HTTP scenarios assert that the registry returns to its prior size
+ * (polled for up to 2 s, because the close runs after the response is written), and the 30 s grace of [ServerSdkSessions] is
+ * pinned by a unit scenario that creates never-initialized sessions directly with `Server.createSession`.
  *
  * Negative-assertion conditions (what makes each fail without the feature): S1/S2/S5/S7 fail if eviction is plain LRU (the
  * flooded-out bystander is the oldest); S8 fails if the binder is not counted +1; S4 fails if a 401 caller refreshes lastSeen
@@ -428,6 +436,19 @@ class McpSessionHardeningTest {
     private val bobToken = "bob-hardening-token"
     private val ping = """{"jsonrpc":"2.0","id":2,"method":"ping"}"""
 
+    /** Polls [server]'s session registry for up to 2 s until it holds [expected] sessions, then asserts it (real time, no bare sleep). */
+    private suspend fun awaitSessions(
+        server: Server,
+        expected: Int,
+        message: String
+    ) {
+        val deadline = System.nanoTime() + Duration.ofSeconds(2).toNanos()
+        while (server.sessions.size != expected && System.nanoTime() < deadline) {
+            withContext(Dispatchers.Default) { delay(20) }
+        }
+        assertEquals(expected, server.sessions.size, message)
+    }
+
     private fun entries() =
         mapOf(
             McpAuthHttpFixture.entry(aliceToken, "alice"),
@@ -471,7 +492,7 @@ class McpSessionHardeningTest {
     }
 
     @Test
-    fun `S3 header-less pings are 400 and bind nothing, a later header-less POST closes their SDK sessions and no real one`() {
+    fun `S3 header-less pings are 400, bind nothing and leave no SDK session, and a later header-less POST closes no real one`() {
         val clock = SettableClock()
         val f = fixture(clock)
         val entries = entries()
@@ -488,16 +509,20 @@ class McpSessionHardeningTest {
                     assertNull(reply.sessionId, "ping $i issued no session id")
                 }
                 assertEquals(1, f.sessions.size, "nothing was bound by the pings")
-                assertEquals(base + 5, f.orchestration.sessions.size, "fixture condition: each ping left a session in the SDK registry")
+                awaitSessions(
+                    f.orchestration,
+                    base,
+                    "SDK 0.16 closes the transport of a header-less non-initialize POST: no session is left"
+                )
                 assertEquals(0, McpAuthHttpFixture.workItemCount(db.jdbcUrl))
 
-                // a successful initialize at the same instant: it sweeps (starting the five orphans' age) and leaves a real session
+                // a successful initialize leaves exactly one real session and no orphan
                 val h2 = client.handshake("/mcp", aliceToken)
-                assertEquals(base + 6, f.orchestration.sessions.size)
+                awaitSessions(f.orchestration, base + 1, "the initialize added one real session")
 
                 clock.advance(Duration.ofMinutes(5))
                 val h3 = client.handshake("/mcp", aliceToken)
-                assertEquals(base + 2, f.orchestration.sessions.size, "the five orphans are closed; the three real sessions remain")
+                awaitSessions(f.orchestration, base + 2, "the three real sessions remain; nothing was left to close")
 
                 for (session in listOf(a, h2, h3)) {
                     assertTrue(f.sdkSessions.isLive(session), "$session has an id and is never closed by the orphan sweep")
@@ -512,31 +537,29 @@ class McpSessionHardeningTest {
 
     @Test
     fun `S10 an orphan is kept until it is exactly 30 seconds old and closed at that instant`() {
-        val clock = SettableClock()
-        val f = fixture(clock)
-        val entries = entries()
-        testApplication {
-            application { with(f) { mount(McpAuthHttpFixture.credentialMode(entries)) } }
-            with(f) {
-                client.handshake("/mcp", aliceToken)
-                repeat(3) { client.rpc("/mcp", ping, "Bearer $aliceToken") }
-                client.handshake("/mcp", aliceToken)
-                val live = f.orchestration.sessions.size
-                assertEquals(2 + 3, live, "fixture condition: two real sessions and three orphans, all created at one instant")
-
-                clock.advance(Duration.ofSeconds(30).minusMillis(1))
-                client.handshake("/mcp", aliceToken)
-                assertEquals(live + 1, f.orchestration.sessions.size, "29.999 s old: none of the three is closed")
-
-                clock.advance(Duration.ofMillis(1))
-                client.handshake("/mcp", aliceToken)
-                assertEquals(live + 2 - 3, f.orchestration.sessions.size, "exactly 30 s old: the three are closed")
+        runBlocking {
+            val server = Server(Implementation("orphan-grace-test", "1.0.0"), ServerOptions(ServerCapabilities()))
+            val clock = SettableClock()
+            val sdk = ServerSdkSessions(clock).apply { serve(server) }
+            // never-initialized sessions (no session id): what a 0.13 header-less POST left behind
+            repeat(3) {
+                server.createSession(StreamableHttpServerTransport(StreamableHttpServerTransport.Configuration(enableJsonResponse = true)))
             }
+            assertEquals(3, server.sessions.size, "fixture condition: three orphans exist")
+
+            assertEquals(0, sdk.endOrphans(), "the sweep that first sees them starts their age")
+            clock.advance(Duration.ofSeconds(30).minusMillis(1))
+            assertEquals(0, sdk.endOrphans(), "29.999 s old: none of the three is closed")
+            assertEquals(3, server.sessions.size)
+
+            clock.advance(Duration.ofMillis(1))
+            assertEquals(3, sdk.endOrphans(), "exactly 30 s old: the three are closed")
+            assertEquals(0, server.sessions.size)
         }
     }
 
     @Test
-    fun `S10 probe a trigger that is not a header-less POST does not sweep`() {
+    fun `S10 probe a trigger that is not a header-less POST leaves the registry unchanged`() {
         val clock = SettableClock()
         val f = fixture(clock)
         val entries = entries()
@@ -546,17 +569,19 @@ class McpSessionHardeningTest {
                 val a = client.handshake("/mcp", aliceToken)
                 repeat(3) { client.rpc("/mcp", ping, "Bearer $aliceToken") }
                 client.handshake("/mcp", aliceToken)
+                awaitSessions(f.orchestration, 2, "fixture condition: the two real sessions, the three pings left nothing")
                 val live = f.orchestration.sessions.size
                 clock.advance(Duration.ofMinutes(5))
 
-                client.getStream("/mcp", "Bearer $aliceToken")
-                assertEquals(live, f.orchestration.sessions.size, "a header-less GET does not sweep and creates nothing")
+                val get = client.getStream("/mcp", "Bearer $aliceToken")
+                assertEquals(HttpStatusCode.BadRequest, get.status, "a header-less GET is the SDK's 400: ${get.body}")
+                awaitSessions(f.orchestration, live, "a header-less GET creates nothing")
                 val call = client.callTool("/mcp", aliceToken, a, "items_write", McpAuthHttpFixture.CREATE_ARGS)
                 assertTrue(call.toolCallSucceeded(), call.body)
-                assertEquals(live, f.orchestration.sessions.size, "a POST that names a session does not sweep")
+                awaitSessions(f.orchestration, live, "a POST that names a session creates nothing")
 
                 client.handshake("/mcp", aliceToken)
-                assertEquals(live + 1 - 3, f.orchestration.sessions.size, "control: a header-less POST sweeps the same orphans")
+                awaitSessions(f.orchestration, live + 1, "control: a header-less initialize adds exactly its real session")
             }
         }
     }
@@ -583,10 +608,12 @@ class McpSessionHardeningTest {
                 }
                 assertEquals(before, sizes(), "forged ids created no SDK session on any server")
 
-                client.getStream("/mcp", "Bearer $aliceToken")
-                client.endSession("/mcp", "Bearer $aliceToken")
-                client.getStream("/mcp/knowledge", "Bearer $aliceToken")
-                client.endSession("/mcp/knowledge", "Bearer $aliceToken")
+                for (path in listOf("/mcp", "/mcp/knowledge")) {
+                    val get = client.getStream(path, "Bearer $aliceToken")
+                    assertEquals(HttpStatusCode.BadRequest, get.status, "header-less GET $path: ${get.body}")
+                    val delete = client.endSession(path, "Bearer $aliceToken")
+                    assertEquals(HttpStatusCode.BadRequest, delete.status, "header-less DELETE $path: ${delete.body}")
+                }
                 assertEquals(before, sizes(), "a header-less GET or DELETE creates nothing")
 
                 for (blank in listOf("", "   ")) {
@@ -601,7 +628,7 @@ class McpSessionHardeningTest {
     }
 
     @Test
-    fun `S10 probe orphans on the knowledge path are swept by a header-less POST on another path`() {
+    fun `S10 probe header-less pings on the knowledge path leave no session there`() {
         val clock = SettableClock()
         val f = fixture(clock)
         val entries = entries()
@@ -612,18 +639,18 @@ class McpSessionHardeningTest {
                     val reply = client.rpc("/mcp/knowledge", ping, "Bearer $aliceToken")
                     assertEquals(HttpStatusCode.BadRequest, reply.status, reply.body)
                 }
-                assertEquals(3, f.knowledge.sessions.size, "fixture condition: three orphans on the knowledge server")
+                awaitSessions(f.knowledge, 0, "SDK 0.16 leaves no session behind on the knowledge path")
                 client.handshake("/mcp", aliceToken)
                 clock.advance(Duration.ofMinutes(5))
                 client.handshake("/mcp", aliceToken)
-                assertEquals(0, f.knowledge.sessions.size, "closed by a sweep triggered on /mcp")
-                assertEquals(2, f.orchestration.sessions.size)
+                awaitSessions(f.knowledge, 0, "a header-less POST on /mcp finds nothing on the knowledge server")
+                awaitSessions(f.orchestration, 2, "the two handshakes are the only orchestration sessions")
             }
         }
     }
 
     @Test
-    fun `S10 probe an initialize the SDK rejects leaves an orphan that the sweep closes`() {
+    fun `S10 probe an initialize the SDK rejects leaves no orphan`() {
         val clock = SettableClock()
         val f = fixture(clock)
         val entries = entries()
@@ -640,19 +667,19 @@ class McpSessionHardeningTest {
                         setBody(f.initializeBody)
                     }
                 assertNull(rejected.headers["Mcp-Session-Id"], "the SDK refused the initialize: ${rejected.bodyAsText()}")
-                assertEquals(base + 1, f.orchestration.sessions.size, "fixture condition: the refused initialize left an orphan")
+                awaitSessions(f.orchestration, base, "SDK 0.16 closes the transport of an initialize it refused: no orphan")
                 assertEquals(1, f.sessions.size)
 
                 client.handshake("/mcp", aliceToken)
                 clock.advance(Duration.ofMinutes(5))
                 client.handshake("/mcp", aliceToken)
-                assertEquals(base + 2, f.orchestration.sessions.size, "the orphan is closed; two real sessions were added")
+                awaitSessions(f.orchestration, base + 2, "only the two real sessions were added")
             }
         }
     }
 
     @Test
-    fun `S10 probe 200 concurrent header-less pings are all closed after the grace`() {
+    fun `S10 probe 200 concurrent header-less pings leave no session behind`() {
         val clock = SettableClock()
         val f = fixture(clock)
         val entries = entries()
@@ -671,12 +698,12 @@ class McpSessionHardeningTest {
                     }
                 assertEquals(200, statuses.size)
                 assertTrue(statuses.all { it == HttpStatusCode.BadRequest }, "every ping is the SDK's 400: ${statuses.toSet()}")
-                assertEquals(base + 200, f.orchestration.sessions.size, "fixture condition: each ping left an orphan")
+                awaitSessions(f.orchestration, base, "all 200 header-less pings were closed by the SDK: none is left")
 
                 client.handshake("/mcp", aliceToken)
                 clock.advance(Duration.ofMinutes(5))
                 client.handshake("/mcp", aliceToken)
-                assertEquals(base + 2, f.orchestration.sessions.size, "all 200 closed, the two new real sessions remain")
+                awaitSessions(f.orchestration, base + 2, "only the two new real sessions were added")
                 assertEquals(3, f.sessions.size, "the flood bound nothing: only the three handshake sessions are bound")
             }
         }
