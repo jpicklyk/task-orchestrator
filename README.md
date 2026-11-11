@@ -313,7 +313,13 @@ The plugin adds workflow automation on top of the MCP server: skills, hooks, and
 
 The MCP server works without the plugin. The plugin makes it seamless with Claude Code.
 
-**Optional mod (early access):** [orchestration-mode](claude-plugins/orchestration-mode/README.md) puts Task Orchestrator on the session itself: a band above the prompt with the progression of the graph the session drives (its container, progress and current item, from its open runs or else the item it is working on), in every mode and toggleable with `/to-band`, a footer label that always names the mode (`TO orchestrator`, `director`, `coordinator`), a tinted desktop backdrop and toasts. Standalone; it shares nothing with the graph mod.
+**Optional mod (early access):** [orchestration-mode](claude-plugins/orchestration-mode/README.md) shows on each session which work it drives and in which mode, so several open sessions stay easy to tell apart. It adds:
+
+- **The band**, above the prompt in every mode: this session's own graph in plain words. The title row names the container, with a bar of its members on the right: done, cancelled, stuck, waiting on a decision, not started, and each member an agent works on in a blinking colour of its own. The status row puts what needs a look first (`1 agent stuck`, `1 decision for you`, `Coordinator not responding`), then what the agents do and the members by phase (`3 planned · 2 in progress · 1 done`). Below it, one row per agent with its seat and the item's title. The graph is the runs this session or its subagents opened or acted on, never another session's; with no run, it is the feature of the item the session last wrote to, stopping below a backlog bucket such as `Bugs`. `/to-band` hides or shows it for the session.
+- **A footer label** that always names the mode: `TO orchestrator`, `TO director`, `TO coordinator`, or `TO director & coordinator`.
+- **A backdrop** tinted for director and coordinator mode, on desktop builds that draw plugin backdrops (turn it off with the `backdrop` setting), and **toasts** when director mode turns on or off, the session becomes a run's coordinator, its run closes, or the band is hidden or shown.
+
+It is a standalone plugin, installed on its own. It needs the `task-orchestrator` plugin and a 4.x server: the band reads the server's REST API (the `apiUrl` setting), or the director MCP connection when `apiUrl` is empty. It is early access because it runs on Claude Code's early-access function-hooks API.
 
 ```
 /plugin install orchestration-mode@task-orchestrator-marketplace
