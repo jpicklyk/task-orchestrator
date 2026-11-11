@@ -132,10 +132,14 @@ data class AppConfig(
         /** The default of `MCP_SESSION_IDLE_TIMEOUT_MINUTES`: 2 hours. */
         val DEFAULT_MCP_SESSION_IDLE_TIMEOUT: Duration = 120.minutes
 
-        /** Parses `MCP_SESSION_IDLE_TIMEOUT_MINUTES`: unset is the default; anything but a positive whole number throws [IllegalArgumentException]. */
+        /**
+         * Parses `MCP_SESSION_IDLE_TIMEOUT_MINUTES`: unset is the default; anything but a positive whole number within
+         * the Int range throws [IllegalArgumentException], as the `RETENTION_*` variables do. The Int bound also keeps
+         * a huge value from overflowing to an infinite Duration, which would silently disable session expiry.
+         */
         private fun parseMcpSessionIdleTimeout(raw: String?): Duration {
             if (raw == null) return DEFAULT_MCP_SESSION_IDLE_TIMEOUT
-            val parsed = raw.trim().toLongOrNull()
+            val parsed = raw.trim().toIntOrNull()
             require(parsed != null && parsed > 0) {
                 "Environment variable '$MCP_SESSION_IDLE_TIMEOUT_VAR' has invalid value '$raw': expected a positive whole number of minutes"
             }
