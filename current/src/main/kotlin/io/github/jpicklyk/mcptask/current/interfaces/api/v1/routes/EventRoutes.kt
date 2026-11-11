@@ -35,7 +35,6 @@ import io.ktor.server.http.HttpRequestLifecycle
 import io.ktor.server.response.header
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.route
-import io.ktor.server.sse.heartbeat
 import io.ktor.server.sse.sse
 import io.ktor.sse.ServerSentEvent
 import io.ktor.util.AttributeKey
@@ -50,7 +49,11 @@ import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.util.UUID
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
+
+/** How often an `/api/v1/events` stream sends its `: heartbeat` comment; the first goes out one period after the stream opens. */
+internal val EVENTS_HEARTBEAT_PERIOD: Duration = 30.seconds
 
 private val sseLogger = LoggerFactory.getLogger("EventRoutes")
 
@@ -395,6 +398,7 @@ fun Route.eventRoutes(
     authConfig: ApiAuthConfig = ApiAuthConfig.Disabled,
     workItemRepository: WorkItemRepository? = null,
     redactAttribution: Boolean,
+    heartbeatPeriod: Duration = EVENTS_HEARTBEAT_PERIOD,
 ) {
     // Wrap the SSE handler in a dedicated child route so the pre-flight auth plugin is scoped
     // ONLY to /events and does not affect sibling routes.
@@ -411,8 +415,6 @@ fun Route.eventRoutes(
         }
 
         sse {
-            // Ktor's default 30 s comment heartbeat catches peers that vanish without a FIN.
-            heartbeat { }
             // Auth already ran in the pre-flight plugin. If the principal is absent, the plugin
             // already responded 401/403 and finished the call — but guard defensively.
             val principal = call.attributes.getOrNull(SsePrincipalKey) ?: return@sse
@@ -499,6 +501,21 @@ fun Route.eventRoutes(
 
             try {
                 coroutineScope {
+                    // Keep-alive: a `: heartbeat` comment every [heartbeatPeriod], the first one only after a
+                    // full period, so it is never the stream's first event (Ktor's `heartbeat {}` sends one at
+                    // once, which a client reading the first event as data would mistake for one). The write
+                    // catches a peer that vanished without a FIN.
+                    launch {
+                        try {
+                            while (isActive) {
+                                delay(heartbeatPeriod)
+                                session.send(ServerSentEvent(comments = "heartbeat"))
+                            }
+                        } catch (_: CancellationException) {
+                            // Normal teardown
+                        }
+                    }
+
                     // Periodic token-expiry check
                     if (tokenExpiry != null) {
                         launch {
