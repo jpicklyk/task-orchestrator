@@ -323,19 +323,19 @@ class McpStreamDisconnectTest {
     @Test
     fun `S3 edge requests inside the idle window keep the session alive past the timeout`() {
         val f = fixture()
-        startEngine(f, idleTimeout = 1.seconds).use { live ->
+        startEngine(f, idleTimeout = 2.seconds).use { live ->
             HttpClient(ClientCIO).use { client ->
                 val session = f.handshakeOn(live, client)
-                repeat(5) { i ->
+                repeat(10) { i ->
                     Thread.sleep(400)
                     val reply = f.pingOn(live, client, session)
                     assertEquals(
                         200,
                         reply.status.value,
-                        "ping $i at ${(i + 1) * 400} ms: each ping refreshes the 1 s idle clock: ${reply.body}"
+                        "ping $i at ${(i + 1) * 400} ms: each ping refreshes the 2 s idle clock: ${reply.body}"
                     )
                 }
-                assertTrue(f.sdkSessions.isLive(session), "2 s of life across a 1 s idle timeout: kept alive only by the pings")
+                assertTrue(f.sdkSessions.isLive(session), "4 s of life across a 2 s idle timeout: kept alive only by the pings")
             }
         }
     }

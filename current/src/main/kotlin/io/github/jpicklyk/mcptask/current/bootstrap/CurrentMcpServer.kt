@@ -699,7 +699,8 @@ internal fun buildToolDispatcher(toolContext: ToolExecutionContext): ToolDispatc
  *    authenticated per [mcpAuth] and bound to its session in [sessionPrincipals] before the SDK sees it. A refusal is
  *    the 4.0 error envelope. In [installRestApiRoutes], `ApiBearerAuth` delegates `/mcp` to it.
  * 4. [mcpStreamableHttp] mounts `/mcp` and **installs the Ktor `SSE` plugin itself**. Callers should not
- *    `install(SSE)` separately (SDK 0.16.0 tolerates a second install, but the single mount stays). The SSE
+ *    `install(SSE)` separately (SDK 0.16.0 reuses an SSE plugin only when it was installed before the mount; the
+ *    single mount stays). The SSE
  *    plugin installed here is reused by the `/api/v1/events` route in [installRestApiRoutes]. The mount also
  *    cancels a GET stream when its client disconnects, sends an SSE heartbeat every [heartbeat], and closes
  *    sessions idle for [idleTimeout].
@@ -792,8 +793,9 @@ internal fun Application.installMcpStreamableHttp(
 }
 
 /**
- * The ONE factory of [McpSessionPrincipals]: its idle TTL is [AppConfig.mcpSessionIdleTimeout], the same value the
- * SDK mount gets as `sessionIdleTimeout`, so the binding map and the SDK sessions expire together.
+ * The ONE factory of [McpSessionPrincipals]: its idle TTL is [AppConfig.mcpSessionIdleTimeout], the value
+ * [installMcpStreamableHttp]'s `idleTimeout` defaults to and passes to the SDK mount as `sessionIdleTimeout`, so in
+ * production the binding map and the SDK sessions expire together (only tests pass a different `idleTimeout`).
  */
 internal fun newSessionPrincipals(
     appConfig: AppConfig,

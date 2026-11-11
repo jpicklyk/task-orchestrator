@@ -7,8 +7,8 @@ kotlinSerialization = "1.11.0"
 # MCP SDK
 mcpSdk = "0.16.0"
 
-# Ktor (at least the MCP SDK's Ktor: 0.16.0 is built on 3.5.2 — the SDK's SSE routing is compiled
-# against one Ktor minor. >= 3.4.1 closes CVE-2026-68762.)
+# Ktor (at least the MCP SDK's Ktor: 0.16.0 is built on 3.5.2 and runs on this later 3.x minor; re-check
+# when either moves. >= 3.4.1 closes CVE-2026-68762.)
 ktor = "3.6.1"
 
 # Database
