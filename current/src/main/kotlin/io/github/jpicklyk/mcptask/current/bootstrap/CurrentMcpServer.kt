@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.api.RequestDecoder
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
+import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
@@ -45,6 +46,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpAuthResolution
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpSessionPrincipals
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.SdkSessions
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerSdkSessions
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installHostAllowlist
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
@@ -87,6 +89,9 @@ import java.nio.file.Paths
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.toJavaDuration
 
 /**
  * Current (4.0) MCP Server implementation for the Task Orchestrator.
@@ -313,7 +318,7 @@ class CurrentMcpServer(
             val toolDispatcher = buildToolDispatcher(toolContext)
             // HTTP: a tool call runs as the principal its session is bound to (McpBearerAuth binds it). Stdio: the local principal.
             val sdkSessions = ServerSdkSessions()
-            val sessionPrincipals = McpSessionPrincipals(appConfig.apiRedactNoteAttribution, sdkSessions)
+            val sessionPrincipals = newSessionPrincipals(appConfig, sdkSessions)
             val stdioAccess = LOCAL_PRINCIPAL.toCallAccess(appConfig.apiRedactNoteAttribution)
             val operationAdapter =
                 McpOperationAdapter(
@@ -410,8 +415,8 @@ class CurrentMcpServer(
 
         val transport =
             StdioServerTransport(
-                inputStream = stdioInput().asSource().buffered(),
-                outputStream = stdioOutput().asSink().buffered()
+                input = stdioInput().asSource().buffered(),
+                output = stdioOutput().asSink().buffered()
             )
 
         registerCommonCleanup(listOf(server))
@@ -693,10 +698,11 @@ internal fun buildToolDispatcher(toolContext: ToolExecutionContext): ToolDispatc
  *    before [mcpStreamableHttp] on the same route node (Ktor merges the two), so every `/mcp` request is
  *    authenticated per [mcpAuth] and bound to its session in [sessionPrincipals] before the SDK sees it. A refusal is
  *    the 4.0 error envelope. In [installRestApiRoutes], `ApiBearerAuth` delegates `/mcp` to it.
- * 4. [mcpStreamableHttp] mounts `/mcp` and **installs the Ktor `SSE` plugin itself** (SDK 0.12.0+).
- *    Therefore callers MUST NOT `install(SSE)` separately: a second install throws
- *    `DuplicatePluginException` at startup and the HTTP server never comes up. The SSE plugin
- *    installed here is reused by the `/api/v1/events` route in [installRestApiRoutes].
+ * 4. [mcpStreamableHttp] mounts `/mcp` and **installs the Ktor `SSE` plugin itself**. Callers should not
+ *    `install(SSE)` separately (SDK 0.16.0 tolerates a second install, but the single mount stays). The SSE
+ *    plugin installed here is reused by the `/api/v1/events` route in [installRestApiRoutes]. The mount also
+ *    cancels a GET stream when its client disconnects, sends an SSE heartbeat every [heartbeat], and closes
+ *    sessions idle for [idleTimeout].
  *
  * **One Host guard, not two.** Since SDK 0.13.0 `mcpStreamableHttp` ships its own route-scoped
  * DNS-rebinding guard, on by default with a loopback-only allowlist. It is turned off here
@@ -719,10 +725,12 @@ internal fun Application.installMcpStreamableHttp(
     directorServer: Server? = null,
     mcpAuth: McpAuthMode,
     sessionPrincipals: McpSessionPrincipals =
-        McpSessionPrincipals(
-            appConfig.apiRedactNoteAttribution,
+        newSessionPrincipals(
+            appConfig,
             ServerSdkSessions().apply { listOfNotNull(server, knowledgeServer, directorServer).forEach(::serve) }
         ),
+    heartbeat: Duration = 30.seconds,
+    idleTimeout: Duration = appConfig.mcpSessionIdleTimeout,
 ) {
     installHostAllowlist(appConfig)
     install(ContentNegotiation) {
@@ -751,13 +759,17 @@ internal fun Application.installMcpStreamableHttp(
     }
     if (profileServers.isEmpty()) {
         authenticate(MCP_PATH)
-        mcpStreamableHttp(enableDnsRebindingProtection = false) {
+        mcpStreamableHttp(
+            enableDnsRebindingProtection = false,
+            sseHeartbeatConfig = { period = heartbeat },
+            sessionIdleTimeout = idleTimeout
+        ) {
             server
         }
         return
     }
-    // Several profiles, ONE mount: a second mcpStreamableHttp call would install(SSE) again and throw
-    // DuplicatePluginException. The route takes an optional segment and the Server factory (called only for a new
+    // Several profiles, ONE mount (SDK 0.16.0 no longer throws DuplicatePluginException on a second mount, but one
+    // mount keeps one session registry and one route). The route takes an optional segment and the Server factory (called only for a new
     // session) picks the profile from the exact path, so a session keeps the profile it was initialised with.
     // Any other /mcp/<x> is a 404 at the Setup phase, right after the Host guard: it never reaches the mount (so it
     // never falls back to the orchestration Server) and never reaches ApiBearerAuth (so it is not a 401).
@@ -769,10 +781,31 @@ internal fun Application.installMcpStreamableHttp(
         }
     }
     authenticate(MCP_PROFILE_ROUTE)
-    mcpStreamableHttp(path = MCP_PROFILE_ROUTE, enableDnsRebindingProtection = false) {
+    mcpStreamableHttp(
+        path = MCP_PROFILE_ROUTE,
+        enableDnsRebindingProtection = false,
+        sseHeartbeatConfig = { period = heartbeat },
+        sessionIdleTimeout = idleTimeout
+    ) {
         profileServers[call.request.path()] ?: server
     }
 }
+
+/**
+ * The ONE factory of [McpSessionPrincipals]: its idle TTL is [AppConfig.mcpSessionIdleTimeout], the same value the
+ * SDK mount gets as `sessionIdleTimeout`, so the binding map and the SDK sessions expire together.
+ */
+internal fun newSessionPrincipals(
+    appConfig: AppConfig,
+    sdkSessions: SdkSessions,
+    clock: Clock = Clock.SYSTEM
+): McpSessionPrincipals =
+    McpSessionPrincipals(
+        appConfig.apiRedactNoteAttribution,
+        sdkSessions,
+        clock = clock,
+        idleTtl = appConfig.mcpSessionIdleTimeout.toJavaDuration()
+    )
 
 /** The MCP endpoint path (the SDK's default mount). */
 internal const val MCP_PATH = "/mcp"

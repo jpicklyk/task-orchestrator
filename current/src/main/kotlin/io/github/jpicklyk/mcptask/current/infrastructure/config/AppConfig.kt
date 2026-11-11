@@ -1,6 +1,8 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import org.slf4j.LoggerFactory
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
 
 /**
  * `FTS_INTEGRITY`: whether startup runs the per-table FTS5 `integrity-check` (cost grows with the indexed bytes:
@@ -103,6 +105,8 @@ data class AppConfig(
     val resourceLeasesEnforced: Boolean = true,
     /** `RETENTION_CALL_LOG_DAYS` / `RETENTION_EVENTS_DAYS` / `RETENTION_AUDIT_EVENTS_DAYS` / `RETENTION_LEASE_HISTORY_DAYS` ([RetentionSettings.parse]); an invalid value fails startup. */
     val retention: RetentionSettings = RetentionSettings.DEFAULT,
+    /** `MCP_SESSION_IDLE_TIMEOUT_MINUTES` (default 120): idle time after which the SDK closes an MCP session; also the idle TTL of [io.github.jpicklyk.mcptask.current.interfaces.mcp.McpSessionPrincipals]. A blank, zero, negative or non-integer value fails startup. */
+    val mcpSessionIdleTimeout: Duration = DEFAULT_MCP_SESSION_IDLE_TIMEOUT,
     // ---- REST API: SSE / events ----
     val apiAllowQueryTokenForSse: Boolean,
     val apiSseAuthCheckIntervalSeconds: Int,
@@ -123,6 +127,21 @@ data class AppConfig(
     val envResolver: (String) -> String?,
 ) {
     companion object {
+        private const val MCP_SESSION_IDLE_TIMEOUT_VAR = "MCP_SESSION_IDLE_TIMEOUT_MINUTES"
+
+        /** The default of `MCP_SESSION_IDLE_TIMEOUT_MINUTES`: 2 hours. */
+        val DEFAULT_MCP_SESSION_IDLE_TIMEOUT: Duration = 120.minutes
+
+        /** Parses `MCP_SESSION_IDLE_TIMEOUT_MINUTES`: unset is the default; anything but a positive whole number throws [IllegalArgumentException]. */
+        private fun parseMcpSessionIdleTimeout(raw: String?): Duration {
+            if (raw == null) return DEFAULT_MCP_SESSION_IDLE_TIMEOUT
+            val parsed = raw.trim().toLongOrNull()
+            require(parsed != null && parsed > 0) {
+                "Environment variable '$MCP_SESSION_IDLE_TIMEOUT_VAR' has invalid value '$raw': expected a positive whole number of minutes"
+            }
+            return parsed.minutes
+        }
+
         // Bearer token store default — mirrors CurrentMcpServer.resolveApiWiring.
         internal const val DEFAULT_API_TOKENS_PATH = "/run/secrets/api-tokens.yaml"
 
@@ -170,6 +189,7 @@ data class AppConfig(
                 resourceLeasesEnforced = EnvBoolean.parse("RESOURCE_LEASES_ENFORCED", env("RESOURCE_LEASES_ENFORCED"), true),
                 // Retention windows -- an invalid value throws IllegalArgumentException and fails startup.
                 retention = RetentionSettings.parse(env),
+                mcpSessionIdleTimeout = parseMcpSessionIdleTimeout(env("MCP_SESSION_IDLE_TIMEOUT_MINUTES")),
                 // REST API SSE / events.
                 apiAllowQueryTokenForSse =
                     EnvBoolean.parse("API_ALLOW_QUERY_TOKEN_FOR_SSE", env("API_ALLOW_QUERY_TOKEN_FOR_SSE"), false),

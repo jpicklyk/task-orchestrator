@@ -31,9 +31,11 @@ import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
 import io.ktor.server.application.createRouteScopedPlugin
 import io.ktor.server.application.install
+import io.ktor.server.http.HttpRequestLifecycle
 import io.ktor.server.response.header
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.route
+import io.ktor.server.sse.heartbeat
 import io.ktor.server.sse.sse
 import io.ktor.sse.ServerSentEvent
 import io.ktor.util.AttributeKey
@@ -397,6 +399,8 @@ fun Route.eventRoutes(
     // Wrap the SSE handler in a dedicated child route so the pre-flight auth plugin is scoped
     // ONLY to /events and does not affect sibling routes.
     route("/events") {
+        // Route-scoped only: cancels this call when its client disconnects, so the subscriber is released.
+        install(HttpRequestLifecycle) { cancelCallOnClose = true }
         install(sseInlineAuthPlugin) {
             this.tokenEntries = tokenEntries
             this.allowQueryToken = allowQueryToken
@@ -407,6 +411,8 @@ fun Route.eventRoutes(
         }
 
         sse {
+            // Ktor's default 30 s comment heartbeat catches peers that vanish without a FIN.
+            heartbeat { }
             // Auth already ran in the pre-flight plugin. If the principal is absent, the plugin
             // already responded 401/403 and finished the call — but guard defensively.
             val principal = call.attributes.getOrNull(SsePrincipalKey) ?: return@sse
