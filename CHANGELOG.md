@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.1] - 2026-11-10
+
+4.0.1 is a critical fix. The run token and cost budgets shipped incomplete in 4.0.0: usage could not be reported once a run's members were terminal, and the budget measured the last turn's figure instead of the run's spend. They are removed (see Removed); a client that still sends a removed field gets `unknown_parameter`. There is no migration, so a rollback to 4.0.0 is safe.
+
 ### Added
 
 - **`runs_read` `frontier` reports cancelled members and the in-flight items' titles.** `cancelled` counts the terminal members that carry the status label of `cancel` under the run's root (the one label policy: per-root `status_labels`, then the server's, then the built-in `cancelled`); they stay counted in `counts.terminal`. Each `inFlight` entry gains its item's `title`. Both are additive, on MCP and on `POST /api/v1/ops/runs_read`.
@@ -23,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Fixed: run-wave provenance records each seat's transcript meters instead of the run notification figure.** `run-planner provenance` now reads every seat's input, cache write, cache read and output meters from `dispatch-meta` for both methods and writes one measure on every line: `tokens` is the non-cached sum, with `meters=` and `seat-meters=` tails and six-field `extra-seats` rows carrying the four meters. `see:<short>` and the Workflow notification figure are gone, `duration` reads `unknown`, a seat without a transcript reads `unknown` with a stderr warning (never zero), `--usage` is ignored with a warning, and `dispatch-meta` also matches `planner-a<n>` and `reviewer-a<n>` labels. Notes written before this change still parse.
 - **Fixed: run-wave seats that own `implementation-notes` or `session-tracking` now receive the `closure-notes` rule.** The run planner derived a stage's rules only from the `skill:` of the notes it owns, and no note names `closure-notes`, so a generic workflow seat (no `dispatch.agent`) never got the rule. `deriveRulesSkills` now adds it once whenever the server serves it (#676).
 - **Fixed: the run-wave fix-cycle reseat prompt tells the seat to rewrite its notes in full.** A fix-cycle seat (`-a<n>`) kept the first seat's banned sections and appended a per-cycle narrative to its notes. The `FIX CYCLE` line now ends with a rewrite-in-full instruction for each of `implementation-notes` and `test-manifest` the base stage owns: replace superseded text, drop the sections the `closure-notes` rule bans, add no per-cycle section, and keep history to a final `Amendments:` list.
+- **Bumped plugin versions:** `task-orchestrator` to 4.0.1 (the usage-report removal and the run-wave and director fixes above) and `orchestration-mode` to 0.1.1 (the band fixes and redesign above).
 
 ### Removed
 
