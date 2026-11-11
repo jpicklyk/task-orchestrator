@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.2] - 2026-11-11
+
+4.0.2 fixes a socket leak on the HTTP transport ([#682](https://github.com/jpicklyk/task-orchestrator/issues/682)): an MCP client that dropped its connection without `DELETE` left a socket in `CLOSE_WAIT`, and they piled up until the server stopped answering. It moves the MCP Kotlin SDK to 0.16.0, adds SSE heartbeats and `MCP_SESSION_IDLE_TIMEOUT_MINUTES`. There is no migration, so a rollback to 4.0.1 is safe.
+
 ### Added
 
 - **`MCP_SESSION_IDLE_TIMEOUT_MINUTES` sets how long an HTTP MCP session may go without a request** (default `120`). After that, the MCP SDK closes the session within a few seconds, its next request is `404`, and the client re-initializes. An open `GET` stream does not count as activity. A blank, zero, negative or non-integer value fails startup naming the variable.
