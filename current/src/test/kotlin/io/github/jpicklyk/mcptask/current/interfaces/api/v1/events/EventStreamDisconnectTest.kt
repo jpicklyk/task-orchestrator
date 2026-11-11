@@ -1,10 +1,12 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.EVENTS_HEARTBEAT_PERIOD
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.github.jpicklyk.mcptask.current.test.RawSseConnection
 import io.github.jpicklyk.mcptask.current.test.awaitCondition
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.ktor.client.plugins.sse.sse
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
@@ -12,15 +14,28 @@ import io.ktor.server.engine.embeddedServer
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.routing.routing
 import io.ktor.server.sse.SSE
+import io.ktor.server.testing.testApplication
+import io.ktor.sse.ServerSentEvent
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
+import io.ktor.client.plugins.sse.SSE as ClientSSE
 
 /**
  * Independent tests (test-author seat, item f98690c9, issue 682 "CLOSE_WAIT") for the `GET /api/v1/events` SSE stream: a client
@@ -36,8 +51,7 @@ import kotlin.test.assertTrue
  * `flow.collect` with no heartbeat and no lifecycle plugin, so a vanished client was noticed only on the next event write, which
  * on an idle bus is never (the subscription and the socket leaked); the fix gives the route Ktor's `HttpRequestLifecycle` with
  * `cancelCallOnClose` (the engine cancels the call when its client disconnects, which cancels the collection and unsubscribes)
- * and an SSE heartbeat (Ktor ServerSSESession.kt:172-177 and :199-201: the first `: heartbeat` comment at once, then one per
- * period). The bus's `subscriberCount()` is the public observation of the unsubscribe.
+ * and an SSE heartbeat (a `: heartbeat` comment every period, the first one only after a full period, never as the first event). The bus's `subscriberCount()` is the public observation of the unsubscribe.
  *
  * Negative-assertion conditions (what makes each fail without the fix): the count must first be seen at 1 (the subscription
  * exists, so "0 afterwards" is not vacuous); without the lifecycle plugin the idle bus never writes, the call is never cancelled
@@ -51,6 +65,8 @@ import kotlin.test.assertTrue
  */
 @Timeout(value = 60, unit = TimeUnit.SECONDS)
 class EventStreamDisconnectTest {
+    private val replayJson = Json { ignoreUnknownKeys = true }
+
     @RegisterExtension
     @JvmField
     val db = SqliteTestDatabase.perMethod()
@@ -62,13 +78,21 @@ class EventStreamDisconnectTest {
         override fun close() = stopper()
     }
 
-    private fun startEngine(bus: ApiEventBus): LiveEngine {
+    private fun startEngine(
+        bus: ApiEventBus,
+        heartbeatPeriod: Duration = EVENTS_HEARTBEAT_PERIOD
+    ): LiveEngine {
         val server =
             embeddedServer(CIO, host = "127.0.0.1", port = 0) {
                 install(ContentNegotiation) { json(McpJson) }
                 install(SSE)
                 routing {
-                    eventRoutes(bus, authConfig = ApiAuthConfig.Unauthenticated, redactAttribution = true)
+                    eventRoutes(
+                        bus,
+                        authConfig = ApiAuthConfig.Unauthenticated,
+                        redactAttribution = true,
+                        heartbeatPeriod = heartbeatPeriod
+                    )
                 }
             }
         server.start(wait = false)
@@ -116,18 +140,68 @@ class EventStreamDisconnectTest {
     }
 
     @Test
-    fun `S5 the first bytes of the events stream carry a heartbeat comment`() {
+    fun `S5 the events heartbeat period is 30 seconds`() {
+        assertEquals(30.seconds, EVENTS_HEARTBEAT_PERIOD)
+    }
+
+    @Test
+    fun `S5 an idle events stream carries a heartbeat comment every period, more than one over a few periods`() {
         val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
-        startEngine(bus).use { live ->
+        startEngine(bus, heartbeatPeriod = 300.milliseconds).use { live ->
             RawSseConnection(live.port, "/events").use { sse ->
                 assertTrue(sse.awaitHead(3000), "the stream answers its head: ${sse.text}")
                 assertEquals(200, sse.status)
-                sse.awaitText(3000) { it.contains(": heartbeat") }
-                assertTrue(sse.count(": heartbeat") >= 1, "the idle stream carries a heartbeat comment: ${sse.text}")
+                sse.awaitText(3000) { Regex(": heartbeat").findAll(it).count() >= 2 }
+                assertTrue(sse.count(": heartbeat") >= 2, "the idle stream carries repeated heartbeat comments: ${sse.text}")
                 assertFalse(sse.closedByServer)
             }
         }
     }
+
+    @Test
+    fun `S5 no heartbeat comment is sent before the first full period has elapsed`() {
+        val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
+        startEngine(bus, heartbeatPeriod = 2.seconds).use { live ->
+            RawSseConnection(live.port, "/events").use { sse ->
+                assertTrue(sse.awaitHead(3000), "the stream answers its head: ${sse.text}")
+                assertEquals(200, sse.status)
+                assertFalse(sse.readFor(1000), "fixture condition: the stream stays open")
+                assertEquals(0, sse.count(": heartbeat"), "no heartbeat in the first second of a 2 s period: ${sse.text}")
+                // Control: the same stream does heartbeat once the period has passed, so the zero above is not a dead stream.
+                sse.awaitText(4000) { it.contains(": heartbeat") }
+                assertEquals(1, sse.count(": heartbeat"), "the first heartbeat arrives after the period: ${sse.text}")
+            }
+        }
+    }
+
+    @Test
+    fun `S5 an event published right after the subscriber attaches is the first event an SSE client receives`(): Unit =
+        testApplication {
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
+            application {
+                install(ContentNegotiation) { json(McpJson) }
+                install(SSE)
+                routing { eventRoutes(bus, authConfig = ApiAuthConfig.Unauthenticated, redactAttribution = true) }
+            }
+            val client = createClient { install(ClientSSE) }
+            val itemId = UUID.randomUUID()
+            val first = CompletableDeferred<ServerSentEvent>()
+            withTimeout(5.seconds) {
+                coroutineScope {
+                    launch {
+                        bus.awaitSubscribers(1)
+                        bus.emit(ApiEventType.ITEM_CREATED, itemId = itemId)
+                    }
+                    client.sse("/events") { first.complete(incoming.first()) }
+                }
+            }
+            val received = first.await()
+            val data = received.data
+            assertEquals(false, data == null, "the first event the client receives carries data, not a bare comment: $received")
+            val decoded = replayJson.decodeFromString(ApiEvent.serializer(), data.orEmpty())
+            assertEquals(ApiEventType.ITEM_CREATED, decoded.event)
+            assertEquals(itemId.toString(), decoded.itemId)
+        }
 
     @Test
     fun `S5 probe two clients that leave are both unsubscribed and a third that stays is not`() {
