@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "task-orchestrator",
-      "version": "4.0.0",
+      "version": "4.0.1",
       "description": "Skills, hooks, and workflows for MCP Task Orchestrator. Schema-aware context, note-driven workflow, and session hooks.",
       "author": {
         "name": "Jeff Picklyk",
@@ -43,7 +43,7 @@
     },
     {
       "name": "orchestration-mode",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "Opt-in Claude Code mod that shows which Task Orchestrator orchestration mode a session is in (today: director): a footer label, a live run board above the prompt, a tinted desktop backdrop and enter/exit toasts (early-access function-hooks API)",
       "author": {
         "name": "Jeff Picklyk",

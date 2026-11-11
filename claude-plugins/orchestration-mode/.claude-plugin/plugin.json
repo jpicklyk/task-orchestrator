@@ -1,6 +1,6 @@
 {
   "name": "orchestration-mode",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Task Orchestrator in the session itself: a band above the prompt with the graph this session drives, in plain words (its title with a per-member bar where each agent's item blinks in its own colour, what needs a look and what the agents do, one row per agent; its own runs, else the item it is working on), toggleable with /to-band; a footer label always naming the mode (orchestrator at rest, director, coordinator); a tinted desktop backdrop and toasts (early-access function-hooks API)",
   "author": {
     "name": "Jeff Picklyk"
