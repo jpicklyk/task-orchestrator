@@ -134,3 +134,38 @@ test('CLI: dispatch-meta --plan --session-dir walks the session folder and print
   const bad = spawnSync(process.execPath, [RUN_PLANNER, 'dispatch-meta', '--plan', planPath, '--session-dir', session, '--since', 'yesterday'], { encoding: 'utf8' })
   assert.notEqual(bad.status, 0, 'a non-integer --since is refused')
 })
+
+test('CLI: dispatch-meta wants planner and reviewer for every item, so reviewer-a1 and planner-a1 labels match when the plan has neither stage', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dispatch-meta-oor-'))
+  const session = join(dir, 'session')
+  mkdirSync(join(session, 'subagents'), { recursive: true })
+  const line = (id) => JSON.stringify({ type: 'assistant', effort: 'high', message: { id, model: 'claude-opus-5-5', usage: { input_tokens: 1, cache_creation_input_tokens: 2, cache_read_input_tokens: 30, output_tokens: 4 } } })
+  writeFileSync(join(session, 'subagents', 'agent-1.meta.json'), JSON.stringify({ description: 'reviewer-a1:aaaaaaaa [opus/high]', model: 'opus' }))
+  writeFileSync(join(session, 'subagents', 'agent-1.jsonl'), [line('m1'), line('m1'), line('m2')].join('\n'))
+  writeFileSync(join(session, 'subagents', 'agent-2.meta.json'), JSON.stringify({ description: 'planner-a1:aaaaaaaa', model: 'opus' }))
+  writeFileSync(join(session, 'subagents', 'agent-2.jsonl'), line('p1'))
+  writeFileSync(join(session, 'subagents', 'agent-3.meta.json'), JSON.stringify({ description: 'implementer:aaaaaaaa', model: 'sonnet' }))
+  writeFileSync(join(session, 'subagents', 'agent-3.jsonl'), line('i1'))
+  const plan = {
+    contract: 'run-wave/plan-doc-v1',
+    args: { runId: 'r-1', items: [{ id: 'aaaaaaaa-0000-4000-8000-000000000000', short: 'aaaaaaaa', stages: [{ seat: 'implementer' }] }] },
+  }
+  const planPath = join(dir, 'plan.json')
+  writeFileSync(planPath, JSON.stringify(plan))
+  const res = spawnSync(process.execPath, [RUN_PLANNER, 'dispatch-meta', '--plan', planPath, '--session-dir', session], { encoding: 'utf8' })
+  assert.equal(res.status, 0, res.stderr)
+  const out = JSON.parse(res.stdout)
+  assert.equal(out.wanted, 3, 'implementer plus planner and reviewer, deduplicated')
+  assert.deepEqual(Object.keys(out.meta).sort(), ['implementer:aaaaaaaa', 'planner-a1:aaaaaaaa', 'reviewer-a1:aaaaaaaa'])
+  assert.deepEqual(out.meta['reviewer-a1:aaaaaaaa'].usage, { input: 2, cacheWrite: 4, cacheRead: 60, output: 8, tokens: 14 })
+})
+
+test('transcriptMeters: one count per message id (last line wins), tokens exclude cache read, no usage -> undefined', async () => {
+  const { transcriptMeters, sumUsage } = await import('../lib/meters.mjs')
+  const a = (id, u) => JSON.stringify({ type: 'assistant', message: { id, usage: u } })
+  const text = [a('m1', { input_tokens: 1, output_tokens: 1 }), a('m1', { input_tokens: 1, cache_creation_input_tokens: 5, cache_read_input_tokens: 100, output_tokens: 2 }), 'garbage "assistant"', JSON.stringify({ type: 'user' })].join('\n')
+  assert.deepEqual(transcriptMeters(text), { input: 1, cacheWrite: 5, cacheRead: 100, output: 2, tokens: 8 })
+  assert.equal(transcriptMeters(JSON.stringify({ type: 'user' })), undefined)
+  assert.equal(transcriptMeters(''), undefined)
+  assert.equal(sumUsage([]).tokens, 0)
+})

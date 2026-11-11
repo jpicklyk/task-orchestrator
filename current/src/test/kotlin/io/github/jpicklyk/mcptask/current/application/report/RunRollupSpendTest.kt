@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.report
 import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
 import io.github.jpicklyk.mcptask.current.application.port.AttemptCounts
-import io.github.jpicklyk.mcptask.current.application.port.BudgetFacts
 import io.github.jpicklyk.mcptask.current.application.port.DecisionCounts
 import io.github.jpicklyk.mcptask.current.application.port.RunHeader
 import io.github.jpicklyk.mcptask.current.application.support.IdRef
@@ -11,7 +10,6 @@ import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.RunStatus
 import io.github.jpicklyk.mcptask.current.domain.model.RunTerminalReason
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.report.rollupJson
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.Opened
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.SEAT_WORLD_CONFIG
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.SeatWorld
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
@@ -22,7 +20,6 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
@@ -36,27 +33,12 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * Independent tests (test-author seat, item f65fef01, R29) for scenario S10 (r27 spend reporting): the rollup `budget` reports how
- * often the run hit its limit (`breaches`) and how often the director raised it (`extends`).
+ * Tests for the 4.0.1 removal of the rollup `budget` block (item e74ff75e): a run rollup carries no `budget` member, live or
+ * stored, and a snapshot stored by 4.0.0 with a `budget` member still decodes (the member is ignored).
  *
- * Surface labels: the wire members and the facts are EXISTING-SURFACE (a plain revert shows the old figures); the codec round trip is
- * NEW-SURFACE (a revert is a compile failure; the behaviour is proved by the decode of an old snapshot).
- *
- * Oracles (never read from a run), the frozen task-scope D7: `breaches` is the number of the run's `run-budget` decisions of any status
- * (a breach raises exactly one), `extends` is how many of them were answered `extend`; the attempt-cap decisions are not counted; the
- * wire object is `budget{used, limit?, basis, breaches?, extends?}` with `breaches` and `extends` omitted when 0; the snapshot codec
- * round-trips both, and a snapshot stored before this item (no such members) decodes them as 0; a closed run keeps answering its
- * stored figures. The hand numbers: limit 100, a heartbeat reporting 101 breaches (used 101); `extend` by 50 raises the limit to 150;
- * a second heartbeat reporting 151 breaches again (used 151) and the director's `stop` closes the run `budget_exhausted`. Used is the
- * larger of the reported and the observed tokens (R28 AC6), here the reported 101 and 151.
- *
- * Negative-assertion fixture conditions: the attempt-cap decision is really raised (asserted from the table) so excluding it is a real
- * exclusion; "keys absent" is paired with the breached run that carries them.
- *
- * Domain invariants satisfied by construction: runs, seats, breaches and answers all go through the tools; the codec fixtures are built
- * with the rollup's own constructors.
- *
- * Forbidden-construct declaration: none. No assumeTrue, no @Disabled, no swallowed assertions.
+ * Oracles (never read from a run): the wire members of a run rollup are `run`, `decisions`, `seats`, `attempts` and the common
+ * sections; none is `budget`. A stored 4.0.0 snapshot is the current encoding plus a `budget{used, limit, basis, breaches,
+ * extends}` object; decoding it yields the current report.
  */
 @Timeout(value = 900, unit = TimeUnit.SECONDS)
 class RunRollupSpendTest {
@@ -91,99 +73,35 @@ class RunRollupSpendTest {
             is Outcome.Err -> error("expected an ok rollup for run $runId but got ${outcome.error}")
         }
 
-    private suspend fun SeatWorld.breach(
-        run: Opened,
-        tokens: Int
-    ): String {
-        val beat = heartbeat(m1, assignedToken(run), usage = "{\"tokens\":$tokens}")
-        return assertNotNull(
-            (beat.findElement("paused") as? JsonObject)?.get("decisionId")?.jsonPrimitive?.content,
-            "$tokens tokens must breach the limit: $beat"
-        )
-    }
-
-    private val tokens = mutableMapOf<String, String>()
-
-    private fun assignedToken(run: Opened): String = checkNotNull(tokens[run.runId]) { "no seat token for ${run.runId}" }
-
-    private suspend fun SeatWorld.seatUp(run: Opened) {
-        val seat = assignOk(run, m1, "builder")
-        assertTrue(claim(m1, seat.token).ok(), "the seat claims its item")
-        tokens[run.runId] = checkNotNull(seat.token)
-    }
-
-    private suspend fun SeatWorld.answer(
-        decisionId: String,
-        option: String,
-        amount: Int? = null
-    ) {
-        val amountField = if (amount != null) ",\"amount\":$amount" else ""
-        val reply =
-            director(
-                "runs_write",
-                "{\"ops\":[{\"op\":\"answer\",\"decisionId\":\"$decisionId\",\"option\":\"$option\"$amountField}]}",
-                director
-            )
-        assertTrue(reply.ok(), "answer $option must succeed: $reply")
-    }
-
-    private fun keysOfBudget(report: RollupReport): List<String> =
-        rollupJson(report)
-            .getValue("budget")
-            .jsonObject.keys
-            .toList()
-
-    private fun budgetNumber(
-        report: RollupReport,
-        key: String
-    ): Int =
-        rollupJson(report)
-            .getValue("budget")
-            .jsonObject
-            .getValue(key)
-            .jsonPrimitive.content
-            .toInt()
-
-    // ------------------------------------------------------------------ S10 the figures
+    // ------------------------------------------------------------------ the live and stored rollup
 
     @Test
-    fun `S10 a breach, an extend and a second breach are counted live, and the stop stores them in the closed run's rollup`(): Unit =
+    fun `S10 a run rollup has no budget member, live, and the attempt-cap stop stores the same shape`(): Unit =
         world { w ->
             val f = ReportFixture(w.database, clock)
-            val run = w.open(extra = ",\"budget\":{\"tokens\":100}")
-            w.seatUp(run)
+            val run = w.open(extra = ",\"budget\":{\"attemptsPerSeat\":1}")
+            assertTrue(w.assign(run, w.m1, "builder").reply.ok(), "the first attempt is allowed")
+            val capped = w.assign(run, w.m1, "builder").reply
+            assertEquals("run_paused", capped.code(), "the second attempt hits the cap: $capped")
 
-            val first = w.breach(run, 101)
-            assertEquals(
-                BudgetFacts(used = 101, limit = 100, basis = "enforced", breaches = 1, extends = 0),
-                rollupOf(f, run.runId).budget,
-                "one breach, no extend"
-            )
-            assertEquals(listOf("used", "limit", "basis", "breaches"), keysOfBudget(rollupOf(f, run.runId)), "extends is omitted at 0")
+            val before = rollupOf(f, run.runId)
+            assertTrue("budget" !in rollupJson(before).keys, "the live rollup has no budget member: ${rollupJson(before).keys}")
+            assertTrue("attempts" in rollupJson(before).keys, "control: the attempts section is still reported")
 
-            w.answer(first, "extend", amount = 50)
-            assertEquals(
-                BudgetFacts(used = 101, limit = 150, basis = "enforced", breaches = 1, extends = 1),
-                rollupOf(f, run.runId).budget,
-                "the extend raised the limit to 150 and is counted once"
-            )
+            val decisionId =
+                w.uuidOf(w.rows("SELECT id FROM decision_requests WHERE run_id = ?", UUID.fromString(run.runId)).single()["id"])
+            val reply =
+                w.director(
+                    "runs_write",
+                    "{\"ops\":[{\"op\":\"answer\",\"decisionId\":\"$decisionId\",\"option\":\"stop\"}]}",
+                    director
+                )
+            assertTrue(reply.ok(), "answer stop must succeed: $reply")
 
-            val second = w.breach(run, 151)
-            assertEquals(
-                BudgetFacts(used = 151, limit = 150, basis = "enforced", breaches = 2, extends = 1),
-                rollupOf(f, run.runId).budget,
-                "a second breach is counted although it is still open"
-            )
-
-            w.answer(second, "stop")
             val live = rollupOf(f, run.runId)
-            val expected = BudgetFacts(used = 151, limit = 150, basis = "enforced", breaches = 2, extends = 1)
-            assertEquals(expected, live.budget, "the closed run's rollup keeps both figures (stop is a breach answered, not an extend)")
             assertEquals(RunStatus.CLOSED, live.run?.status)
             assertEquals(RunTerminalReason.BUDGET_EXHAUSTED, live.run?.terminalReason)
-            assertEquals(listOf("used", "limit", "basis", "breaches", "extends"), keysOfBudget(live), "wire order")
-            assertEquals(2, budgetNumber(live, "breaches"))
-            assertEquals(1, budgetNumber(live, "extends"))
+            assertTrue("budget" !in rollupJson(live).keys, "the closed rollup has no budget member")
 
             val ended =
                 Json
@@ -194,45 +112,12 @@ class RunRollupSpendTest {
                                 UUID.fromString(run.runId)
                             ).single()["data"] as String
                     ).jsonObject
-            val stored = assertNotNull(RollupSnapshotCodec.decode(assertNotNull(ended["rollup"], "the close stored a rollup: $ended")))
-            assertEquals(expected, stored.budget, "the stored snapshot carries them")
-            assertEquals(stored, live, "and the closed run answers the snapshot")
+            val storedJson = assertNotNull(ended["rollup"], "the close stored a rollup: $ended").jsonObject
+            assertTrue("budget" !in storedJson.keys, "the stored snapshot has no budget member: ${storedJson.keys}")
+            assertEquals(assertNotNull(RollupSnapshotCodec.decode(storedJson)), live, "and the closed run answers the snapshot")
         }
 
-    @Test
-    fun `S10 an attempt-cap decision is not a breach, and a run that never breached carries neither member`(): Unit =
-        world { w ->
-            val f = ReportFixture(w.database, clock)
-            val run = w.open(extra = ",\"budget\":{\"tokens\":100,\"attemptsPerSeat\":1}")
-            assertTrue(w.assign(run, w.m1, "builder").reply.ok(), "the first attempt is allowed")
-            val capped = w.assign(run, w.m1, "builder").reply
-            assertEquals("run_paused", capped.code(), "the second attempt hits the cap: $capped")
-
-            val classes = w.rows("SELECT class FROM decision_requests WHERE run_id = ?", UUID.fromString(run.runId)).map { it["class"] }
-            assertEquals(listOf<Any?>("attempt-cap"), classes, "fixture: the cap raised its decision, and no budget decision exists")
-
-            val report = rollupOf(f, run.runId)
-            assertEquals(
-                BudgetFacts(used = 0, limit = 100, basis = "enforced", breaches = 0, extends = 0),
-                report.budget,
-                "attempt-cap is not counted"
-            )
-            assertEquals(listOf("used", "limit", "basis"), keysOfBudget(report), "no breach: both members are absent")
-        }
-
-    @Test
-    fun `S10 probe an empty run reports no breach and no extend`(): Unit =
-        world { w ->
-            val f = ReportFixture(w.database, clock)
-            val run = w.open(members = emptyList(), extra = ",\"budget\":{\"tokens\":100}")
-
-            val report = rollupOf(f, run.runId)
-
-            assertEquals(BudgetFacts(used = 0, limit = 100, basis = "enforced"), report.budget)
-            assertEquals(listOf("used", "limit", "basis"), keysOfBudget(report))
-        }
-
-    // ------------------------------------------------------------------ S10 the snapshot codec
+    // ------------------------------------------------------------------ the snapshot codec
 
     private val sample =
         RollupReport(
@@ -253,37 +138,32 @@ class RunRollupSpendTest {
                 ),
             decisions = DecisionCounts(0, emptyMap(), emptyMap()),
             seats = RollupSeats(0, emptyList(), 0),
-            attempts = AttemptCounts(2, 1),
-            budget = BudgetFacts(used = 151, limit = 150, basis = "enforced", breaches = 2, extends = 1)
+            attempts = AttemptCounts(2, 1)
         )
 
     @Test
-    fun `S10 the snapshot codec round-trips breaches and extends`() {
-        for (budget in listOf(
-            BudgetFacts(used = 151, limit = 150, basis = "enforced", breaches = 2, extends = 1),
-            BudgetFacts(used = 5, limit = null, basis = "enforced", breaches = 0, extends = 0),
-            BudgetFacts(used = 5, limit = 9, basis = "enforced", breaches = 4, extends = 0)
-        )) {
-            val report = sample.copy(budget = budget)
-            assertEquals(report, RollupSnapshotCodec.decode(RollupSnapshotCodec.encode(report)), "$budget")
-            assertEquals(report, RollupSnapshotCodec.decode(RollupSnapshotCodec.encode(report).toString()), "text form: $budget")
-        }
+    fun `S10 the snapshot codec round-trips a run rollup and encodes no budget`() {
+        val encoded = RollupSnapshotCodec.encode(sample)
+        assertTrue("budget" !in encoded.keys, "no budget member: ${encoded.keys}")
+        assertEquals(sample, RollupSnapshotCodec.decode(encoded))
+        assertEquals(sample, RollupSnapshotCodec.decode(encoded.toString()), "text form")
     }
 
     @Test
-    fun `S10 a snapshot stored before this item has no breaches and no extends and decodes both as 0`() {
+    fun `S10 a snapshot stored by 4_0_0 with a budget member still decodes, the member is ignored`() {
         val encoded = RollupSnapshotCodec.encode(sample)
-        val oldBudget =
+        val stored =
             buildJsonObject {
                 put("used", 151)
                 put("limit", 150)
                 put("basis", "enforced")
+                put("breaches", 2)
+                put("extends", 1)
             }
-        val old = JsonObject(encoded.toMutableMap().also { it["budget"] = oldBudget })
+        val old = JsonObject(encoded.toMutableMap().also { it["budget"] = stored })
 
-        val decoded = assertNotNull(RollupSnapshotCodec.decode(old), "an old snapshot still decodes")
+        val decoded = assertNotNull(RollupSnapshotCodec.decode(old), "a 4.0.0 snapshot still decodes")
 
-        assertEquals(BudgetFacts(used = 151, limit = 150, basis = "enforced", breaches = 0, extends = 0), decoded.budget)
-        assertEquals(sample.copy(budget = BudgetFacts(used = 151, limit = 150, basis = "enforced")), decoded, "nothing else changed")
+        assertEquals(sample, decoded, "nothing else changed")
     }
 }

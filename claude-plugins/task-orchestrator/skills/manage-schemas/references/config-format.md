@@ -469,7 +469,9 @@ outside the config file. Seats are served to clients as an orchestration signal 
 pinned schema declares seats, the server also **enforces** them: a seat token may send only the
 transitions its seat allows and write only its own seat's note keys (see "Seat transitions" below and
 [Seat transitions](../../../../../current/docs/config-reference.md#seat-transitions)). A config with no
-`seats:` anywhere is unaffected: no seat-related field appears in any response.
+`seats:` anywhere is unaffected: no seat-related field appears in any response. A seat-less or
+schema-free run member may still be assigned `implementer` or `planner`, plus `reviewer` when its schema has a
+review-role note; those tokens carry no lane enforcement (the first writer's seat owns a note).
 
 ### Declaration form
 
@@ -1045,12 +1047,10 @@ The top-level `runs:` block (server file or per-root document, resolved per fiel
 | Key | Type | Meaning |
 |---|---|---|
 | `stall_after` | integer seconds, 1 or more | How long a seat or coordinator may go unseen before it reads as stalled (default 600) |
-| `budgets.tokens` | integer, 1 or more | Ceiling on a run's token budget |
-| `budgets.cost_usd` | number above 0 | Ceiling on a run's cost |
 | `budgets.attempts_per_seat` | integer, 1 or more | Ceiling on attempts one seat may make on one item |
 | `budgets.max_active_seats` | integer, 1 or more | Ceiling on seats active at once |
 
-An absent ceiling means unlimited; a run's own budget may only lower a ceiling.
+An absent ceiling means unlimited; a run's own budget may only lower a ceiling. The run token and cost ceilings were removed in 4.0.1; a config that still sets them loads with a warning and the keys have no effect.
 
 ## Decision Classes (`decision_classes:`)
 
@@ -1064,7 +1064,7 @@ decision_classes:
     expires_after: 86400
 ```
 
-- Built-in classes: `run-budget` and `attempt-cap` (raised by the server only), `deviation` and `question`. A built-in entry in config overrides it field by field.
+- Built-in classes: `run-budget` and `attempt-cap` (raised by the server only; `run-budget` is legacy, raised only by 4.0.0 and still answerable on stored rows with `extend` and no amount, or `stop`), `deviation` and `question`. A built-in entry in config overrides it field by field.
 - Merge: a per-root entry replaces the server entry of the same name as a whole.
 - The limit classes (`run-budget`, `attempt-cap`) may be raised to `human-only` but are never `any-actor`; a push that lowers them is rejected at `/decision_classes/<name>/answerers`.
 - A `human-only` class cannot be answered on a stdio server: every caller there is the `local` agent principal.

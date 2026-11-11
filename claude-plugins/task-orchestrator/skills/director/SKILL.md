@@ -13,7 +13,7 @@ bodies; coordinators and background agents do that and report back.
 
 Calling this skill entered director mode. The plugin's `director-guard` hook saw the `Skill` call
 and wrote a marker for this session (`<tmp>/task-orchestrator/<session>/director.json`). While the
-marker exists, the guard enforces the altitude rule below on the tools it matches in this session (the built-in file and shell tools, foreground dispatch, and three reads on the orchestration connection); it does not see other MCP servers or the web tools.
+marker exists, the guard enforces the altitude rule below on the tools it matches in this session: the built-in file, shell, web (`WebFetch`, `WebSearch`) and MCP-resource tools, foreground dispatch, `Skill` and `Workflow`, the reads on the orchestration connection, and every host MCP tool (terminal, file store, computer use and the like), which is denied unless it is `start_session`, `send_message`, a tier-1 launch profile call (`get_settings`, `set_session_output_style`) or a desktop UI tool (`update_plan`, `wrap_up`, `mark_chapter`).
 Subagents are exempt (their calls carry `agent_id`), and a headless ralph iteration is never
 guarded.
 
@@ -69,10 +69,10 @@ The five MCP tools come from the director connection. Anything else (notes, item
 `advance`, config, and `runs_write` `open`) is a coordinator's job.
 
 Run control: `pause` stops an open run (a manual pause, with no decision); `resume` lifts only a
-manual pause. A run paused on a `run-budget` or `attempt-cap` decision is lifted only by answering
-that decision (`extend`, `allow_one`, `skip_item`) or by `close`; `resume` on it answers
-`invalid_run_state`. `close` ends a run whatever its pause; a `completed` close is refused while a
-seat is still active, and a close leaves open decisions open (its result lists `openDecisions`).
+manual pause. A run paused on an `attempt-cap` decision is lifted only by answering
+that decision (`allow_one`, `skip_item`, `stop`) or by `close`; `resume` on it answers
+`invalid_run_state`. A run paused by a stored 4.0.0 budget decision (legacy) is answered `extend` or `stop`, with no other field. `close` ends a run whatever its pause; a `completed` close is refused while a
+seat is still active, and a close leaves open decisions open (its snapshot's `openDecisions` is the number still open).
 
 ## Connection check
 
@@ -83,9 +83,13 @@ on. Confirm they are in your tool list; do not edit `.mcp.json` from here.
 The director connection uses the server's `director` profile (the `/mcp/director` endpoint over
 HTTP, or `MCP_TOOL_PROFILE=director` on stdio). That profile has no note-body read at all, so on
 that connection the server enforces the rule. In a normal session the orchestration connection
-stays registered, and the guard enforces the rule there too: `notes_read` and `docs_read` are denied,
-and `items_read` is allowed only with the `get`, `list`, `overview` and `blocked` selects (or
-`describe: true`). Other tools on that connection are not covered. Use the hardened entry (below)
+stays registered, and the guard enforces the rule there too: `config`, `notes_read` and `docs_read` are denied,
+`items_read` is allowed only with the `get`, `list`, `overview` and `blocked` selects, and `runs_read` only with
+`get`, `list`, `frontier`, `decisions` and `decision` (both also with `describe: true`). `Skill` runs only the director
+skill and `task-orchestrator:model-effort`; another skill needs `/task-orchestrator:director off`. The limit: the guard
+recognises the orchestration connection by `task-orchestrator` in its server key, so a server registered under a key
+without that word is treated as a host server and denied outright under the marker, and a server whose key contains
+`task-orchestrator` is treated as the Task Orchestrator server, so only its listed reads are guarded. Use the hardened entry (below)
 when enforcement matters.
 
 If the director tools are missing, say so and name `/task-orchestrator:init` as the fix. Until
@@ -108,7 +112,7 @@ Run these in order and render one compact board. Every call below uses the direc
 {"tool": "runs_read", "select": "list", "args": {"status": "paused", "limit": 20}, "profile": "director"}
 ```
 
-Show `pauseReason` on each paused run: a budget or attempt pause waits for its decision. No open
+Show `pauseReason` on each paused run: an attempt pause waits for its decision. No open
 or paused run: say so in one line, still show the decisions (step 3) and the blocked work (step 5),
 and stop.
 
@@ -129,7 +133,7 @@ come from the `decision` read when you answer.
 {"tool": "runs_read", "select": "decisions", "args": {"rootId": "ce064d2c", "limit": 50}, "profile": "director"}
 ```
 
-4. The rollup per open or paused run (counts, spend, stalls). This is one of the two bodies you may read:
+4. The rollup per open or paused run (counts, stalls). This is one of the two bodies you may read:
 
 ```to-call
 {"tool": "report", "select": "rollup", "args": {"runId": "7c41e0a2"}, "profile": "director"}
@@ -158,8 +162,8 @@ Decisions waiting: 2 (1 overdue)
   [d-3f2a] run 7c41 deviation high "Approve schema change?"   OVERDUE
   [d-91bc] no run   question low   "Pick retry strategy"
 Runs: 1 open, 1 paused
-  7c41 "W8 plugin"  ready 3  inFlight 2  waiting 1   spend 1.2M tok   stalled 0
-  9d02 "W9 docs"    PAUSED run-budget (d-5e10)
+  7c41 "W8 plugin"  ready 3  inFlight 2  waiting 1   stalled 0
+  9d02 "W9 docs"    PAUSED attempt-cap (d-5e10)
 Blocked: 2
   8aee "Director skill" blocked by dependency 4440ff65
   b31c "Api guard"      answered, needs resume (d-77aa)
@@ -190,18 +194,17 @@ user's rationale:
 {"tool": "runs_write", "op": "answer", "args": {"decisionId": "3f2a9c1e", "option": "approve", "rationale": "Migration reviewed; table recreation is safe."}, "profile": "director"}
 ```
 
-A run-budget or attempt-cap decision is answered with these options (the amount is in `context.dimension`, whole
-tokens or US dollars):
+An attempt-cap decision is answered with these options:
 
 | Class | Options |
 |---|---|
-| `run-budget` | `extend` (with `amount`) or `stop` |
 | `attempt-cap` | `allow_one`, `skip_item` or `stop` |
+| legacy budget class (stored 4.0.0 runs only) | `extend` or `stop`, with no other field |
 
 Before answering, check the class: `answerers: human-only` cannot be answered from this session
 (`forbidden`, `principal_kind` `human`). `ack` marks a decision seen but deferred; it does not answer it.
 
-`text` carries a free-form answer and `amount` a numeric one, when the decision asks for them.
+`text` carries a free-form answer, when the decision asks for one.
 On `forbidden`, read `error.detail.scope` and `required`, say which, and stop:
 
 - `scope: "capability"`, `required: "decide"`: the director credential lacks the `decide`
@@ -220,7 +223,7 @@ Withdraw a decision the run no longer needs (for example the user cancelled that
 Withdraw succeeds only for a decision this principal raised without a seat, or under the coordinator
 token of the decision's run. On stdio or an unauthenticated local-mode server every caller is the one
 `local` principal, so there "this principal raised" covers every decision raised without a seat.
-Nobody can withdraw a server-raised run-budget or attempt-cap decision.
+Nobody can withdraw a server-raised attempt-cap decision.
 For a seat's decision, `SendMessage` the run's coordinator to withdraw it, or answer it.
 `decision_closed` means someone already answered or withdrew it: refresh the board.
 
@@ -263,7 +266,7 @@ after idle), read the run that woke you. A message starting `TO report:` is a co
 read below, then Answering. In a tier-2 hand-off: on `planned` with `needs: approve launch`, get the
 user's approval; then call `Workflow` with the returned `args` and `SendMessage` the coordinator
 `launched` with the call's task id, run id and script path; on the task notification, send it the
-result JSON verbatim plus the usage figures (tokens, duration, cost when given).
+result JSON verbatim.
 
 ```to-call
 {"tool": "runs_read", "select": "get", "args": {"runId": "7c41e0a2"}, "profile": "director"}

@@ -34,7 +34,7 @@ document body or a call argument.
 | Which items or resources are fought over, and how often do claims and leases expire or get forced? | `contention` | Claim and lease events |
 | Are agents fetching more than they use, reading and never writing, or hitting empty queues? | `waste` | The call log, with session joins |
 | How big is this part of the tree, how much of it is blocked, and what did working on it cost? | `rollup` with `anchorId` | Items, events and the call log |
-| How did this run go: members, blocked reasons, decisions, seats, attempts, budget and cost? | `rollup` with `runId` | The run, its members and the events and calls stamped with it, or the snapshot taken when it closed |
+| How did this run go: members, blocked reasons, decisions, seats, attempts and cost? | `rollup` with `runId` | The run, its members and the events and calls stamped with it, or the snapshot taken when it closed |
 
 `rollup` takes exactly one of `anchorId` and `runId`. An anchor rollup covers the anchor and every descendant over a
 window. A run rollup always covers the whole run and takes no window.
@@ -54,9 +54,9 @@ A number in a report is only as good as its basis. These are the ones to know.
 - **`cost.basis` on a rollup: `targets` or `run`.** An anchor rollup counts the calls that name a subtree item or that
   wrote one of the subtree's events (`targets`). A run rollup counts the calls stamped with the run id (`run`). Both
   are lower bounds: a call that named no item and wrote nothing, or was never bound to the run, is missed.
-- **`budget.basis: enforced`.** A run's token budget in a rollup comes from the run row, the figure the budget check
-  enforces (the larger of the reported and the observed tokens). It is not summed from the call log, so it can differ
-  from the rollup's `cost` and does not shrink when the call log is pruned.
+- **No `budget` section.** A run rollup carries no token or cost budget: they were removed in 4.0.1. The run's
+  observed tokens are `usage.observedTokens` of `runs_read` `get`, not part of the rollup. A rollup snapshot stored by
+  4.0.0 that still has a `budget` section reads with it dropped.
 - **`basis: mcp_sessions` on `waste`.** The session signals (`redundantReads`, `readsWithoutLaterWrite` and the
   `relatedFollowThrough` signals) are computed over MCP calls only. REST calls carry no session, so a REST-only
   workload shows nothing in them, and related follow-through cannot be attributed on REST at all. The other `waste`
@@ -144,7 +144,7 @@ How is one feature tree doing, and what did it cost?
 { "select": "rollup", "anchorId": "1be2db5e" }
 ```
 
-Post-mortem of a run: members, blocked reasons, decisions, seats, attempts, budget and cost.
+Post-mortem of a run: members, blocked reasons, decisions, seats, attempts and cost.
 
 ```json
 { "select": "rollup", "runId": "7c0f3a91" }

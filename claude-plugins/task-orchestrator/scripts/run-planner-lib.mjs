@@ -525,6 +525,15 @@ function deriveRulesSkills(ownedKeys, allNotes, servedKeys) {
     if (servedKeys.has(skill)) rules.push(skill);
     else skills.push(skill);
   }
+  // closure-notes: no schema note names it as a skill, so a seat that owns a closure note gets it here
+  // (once, after the note-derived rules); when the server does not serve it, it is neither a rule nor a skill.
+  if (
+    !rules.includes('closure-notes') &&
+    servedKeys.has('closure-notes') &&
+    ownedKeys.some((k) => k === 'implementation-notes' || k === 'session-tracking')
+  ) {
+    rules.push('closure-notes');
+  }
   return { rules, skills };
 }
 
@@ -1484,6 +1493,13 @@ export function buildPlanDoc(snap, opts = {}) {
   warnings.push(...sharedFileWarnings);
   if (profile && typeof profile === 'object' && 'defaultModels' in profile) {
     warnings.push('profile.defaultModels is ignored: stage model and effort come from dispatch-policy.json');
+  }
+  if (profile && profile.runBudget && typeof profile.runBudget === 'object' && !Array.isArray(profile.runBudget)) {
+    for (const k of ['tokens', 'costUsd']) {
+      if (k in profile.runBudget) {
+        warnings.push(`profile.runBudget.${k} is ignored: run token and cost budgets were removed in 4.0.1`);
+      }
+    }
   }
   for (const e of liveKnownRed(profile, now).expired) warnings.push(`knownRed ${e.test} expired ${e.expires}`);
 

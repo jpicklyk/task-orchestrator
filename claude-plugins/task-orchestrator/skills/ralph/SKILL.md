@@ -64,7 +64,7 @@ Set sensible loop bounds. Show defaults and let the user adjust.
   Per-iteration USD cap:    $5           (the hard stop)
   Iteration timeout:        2700s (45 min)
   Claim TTL per iteration:  1800s (30 min)
-  Run budget:               none         (tokens / USD / attempts per seat)
+  Run budget:               none         (attempts per seat only)
   Model and effort:         the policy's implementation class
                             (effort one level higher per retry of a seat)
   Cleanup on terminal:      smart (remove if no commits/changes; preserve otherwise)
@@ -77,7 +77,6 @@ If the user adjusts, capture the overrides. Common patterns:
 - High-volume drain: `--max 30`
 - Low-confidence run: `--gate-budget 1 --error-budget 1`
 - Architecture-heavy items: `--model <the implementation-complex class model> --budget 15 --iteration-timeout 5400`
-- Cap the whole run's spend on the server side: `--run-budget-usd 40` (or `--run-budget-tokens <n>`); the run pauses on a budget decision when it is reached
 - Stop re-seating a struggling item: `--max-attempts 2`
 - Drain an exact list of items: `--items <id>,<id>,...`
 - Drain another project's queue: `--root <rootId>`
@@ -86,7 +85,7 @@ If the user adjusts, capture the overrides. Common patterns:
 
 The iteration's model and effort come from the `implementation` class in the plugin's dispatch policy (see `task-orchestrator:model-effort`), and the driver passes both to `claude -p` as `--model` and `--effort`. When the assign result reports `attempt` > 1 (the run already seated this item before), the effort is raised one level per earlier attempt, up to the policy's escalation ceiling. `--model` and `--effort` override the class; an explicit `--effort` is used as given and never raised.
 
-There is no run budget unless one of `--run-budget-tokens`, `--run-budget-usd` or `--max-attempts` is passed. The removed `--actor` flag is gone for good: the server records the principal of every call, and each iteration acts under its own seat.
+There is no run cap unless `--max-attempts` is passed. The `--actor` flag was removed (passing it exits 64): the server records the principal of every call, and each iteration acts under its own seat.
 
 ---
 
@@ -141,8 +140,7 @@ Print the exact command to run. The user copies and pastes it.
   -> An iteration that outlives --iteration-timeout is killed and counted as an error
   -> Final summary lists outcomes, the run, and preserved worktrees
 
-  Optional flags: --root <rootId>, --items <id,...>, --run-budget-tokens <n>,
-  --run-budget-usd <usd>, --max-attempts <n>, --scratch-dir <dir>, --claude-bin <path>
+  Optional flags: --root <rootId>, --items <id,...>, --max-attempts <n>, --scratch-dir <dir>, --claude-bin <path>
 
   For autonomous cadence (re-run every 30 min until empty):
     /loop 30m node claude-plugins/task-orchestrator/scripts/ralph-loop.mjs --filter "tag=bug-fix priority=high"
@@ -176,7 +174,7 @@ After the script finishes (the user reports back with the summary, or pastes the
 | `Exit reason: error budget exhausted` | Inspect last error; likely repo/build/network issue affecting all iterations |
 | `Exit reason: idle budget exhausted` | Matches exist but stayed claimed, blocked or skip-listed; re-run later |
 | `Exit reason: run closed elsewhere` | A director or human closed the run while the loop was working or waiting (exit 0; the driver sends no close) |
-| `run paused ...` (a status line, not an exit) | The run hit its budget or attempt cap (or was paused by hand). The loop ends the seat and polls the run every 30s; it carries on once a director or human answers the pause decision (or resumes a manual pause), and exits 0 if they close the run |
+| `run paused ...` (a status line, not an exit) | The run hit its attempt cap (or was paused by hand). The loop ends the seat and polls the run every 30s; it carries on once a director or human answers the pause decision (or resumes a manual pause), and exits 0 if they close the run |
 
 For preserved worktrees from gate-blocked or errored iterations:
 
@@ -198,8 +196,8 @@ The iteration agent emits `RALPH_OUTCOME: {...}` as its final message, with an o
 <!-- BEGIN GENERATED:ralph-outcomes -->
 | Code | Kind | By | Status | Action | Loop |
 |---|---|---|---|---|---|
-| `ready-to-complete` | outcome | iteration | `ready-to-complete` | All notes are filled and the work is committed, but the iteration did NOT send the move into terminal. The driver reports usage and sends the complete transition itself while the claim is still held, then ends the seat done. | continue |
-| `terminal` | outcome | iteration | `terminal` | The item already reached terminal per its schema (legacy; prefer ready-to-complete). The driver ends the seat done and cannot report usage (usage-unreported). | continue |
+| `ready-to-complete` | outcome | iteration | `ready-to-complete` | All notes are filled and the work is committed, but the iteration did NOT send the move into terminal. The driver sends the complete transition itself while the claim is still held, then ends the seat done. | continue |
+| `terminal` | outcome | iteration | `terminal` | The item already reached terminal per its schema (legacy; prefer ready-to-complete). The driver ends the seat done. | continue |
 | `gate-blocked` | outcome | iteration | `gate-blocked` | A required note cannot be filled autonomously. The driver ends the seat abandoned. | gate |
 | `error` | outcome | iteration | `error` | Tool error, build failure, budget cap, or a marker-less exit after every continuation. The driver ends the seat failed. | error |
 | `skip` | outcome | iteration | `skip` | The item cannot be worked now; put the catalog code in `code`. The driver ends the seat abandoned and skip-lists the item. | skip |
@@ -215,7 +213,7 @@ The iteration agent emits `RALPH_OUTCOME: {...}` as its final message, with an o
 | `note_owned_by_other` | permanent | iteration | `gate-blocked` | A note this seat may not write belongs to another seat. Never take it over. Emit gate-blocked with code and the note key in reason; that seat or a human fills it. | gate |
 | `not_claim_holder` | permanent | iteration | `error` | A write was refused because the call does not hold the claim (claim lapsed, or the call went out without the seat token). Emit error with code. | error |
 | `unauthenticated` | permanent | iteration | `error` | The seat token was refused: the iteration must reach the server as the same principal as the driver. Emit error with code. On a driver call with the coordinator token the loop exits 2. | error |
-| `run_paused` | permanent | driver | `error` | The run paused (budget, attempt cap or manual). Never retried and never closes the run: the driver ends the seat, then polls the run every 30s until a director or human answers the pause decision (or resumes a manual pause) and the loop continues, or closes the run (exit 0). | pause-wait |
+| `run_paused` | permanent | driver | `error` | The run paused (attempt cap or manual). Never retried and never closes the run: the driver ends the seat, then polls the run every 30s until a director or human answers the pause decision (or resumes a manual pause) and the loop continues, or closes the run (exit 0). | pause-wait |
 | `run_closed` | permanent | driver | `error` | The run was closed elsewhere (a closed run's tokens may also answer unauthenticated; the driver probes the run to tell the two apart). The driver ends the seat and exits 0 without closing. | exit |
 | `run_at_capacity` | transient | driver | `idle` | assign hit the run's maxActiveSeats. The driver waits 30s, then retries the assign, up to 10 times, then ends the loop. | wait-retry |
 | `unavailable` | shedding | driver | `idle` | The server shed load on a driver call. The driver waits retryAfterMs, then tries again. | backoff |
@@ -226,7 +224,7 @@ The iteration agent emits `RALPH_OUTCOME: {...}` as its final message, with an o
 
 The seat's end follows the final status: `ready-to-complete` (once the driver's `complete` lands, reported as `terminal`) and `terminal` end it `done`; `gate-blocked` and `skip` end it `abandoned`; `error` (including a timeout or spawn error) ends it `failed`. Every exit path ends any active seat before it closes the run (`completed`, or `cancelled` on SIGINT/SIGTERM). A paused run is never closed by the driver, and a run closed elsewhere is not closed again. An `end_seat` that fails leaves the seat active until `close`, where `completed` falls back to `cancelled`.
 
-**Usage handshake.** Entering terminal clears the claim, and the server records a seat's usage only under a held claim. So the iteration stops at `ready-to-complete`; the driver sends `heartbeat` with the final `usage`, then `transition` `complete`, both under the seat token (a transient answer on `complete` is retried up to 3 times). A legacy `terminal` outcome reports no usage and prints `usage-unreported`, so `--run-budget-usd` does not count it. Between claim and the end of the iteration the driver also heartbeats the claim every `--heartbeat-interval` seconds (default half of `--ttl`), so a long iteration outlives the TTL. **Skip-listing.** An item whose iteration ends `gate-blocked` or `error` is skip-listed for the rest of the loop.
+**Complete handshake.** Entering terminal clears the claim, so the iteration stops at `ready-to-complete`; the driver sends `transition` `complete` under the seat token (a transient answer is retried up to 3 times). Between claim and the end of the iteration the driver also heartbeats the claim every `--heartbeat-interval` seconds (default half of `--ttl`), so a long iteration outlives the TTL. **Skip-listing.** An item whose iteration ends `gate-blocked` or `error` is skip-listed for the rest of the loop.
 
 **Which items ralph can drain.** Ralph drains only types the `implementer` seat can carry to terminal. On a seat-aware schema (such as this repository's `bug-fix`) the review and orchestrator steps belong to other seats, so those iterations end `gate-blocked`.
 
@@ -291,7 +289,7 @@ node claude-plugins/task-orchestrator/scripts/ralph-loop.mjs \
   --max 10
 ```
 
-User runs it. The driver opens one run. Per iteration it selects the oldest ready item, assigns it an implementer seat, claims it under the seat token, and spawns a fresh `claude -p --worktree=ralph-<id>` whose prompt names the item and the token file. The agent reads the item's context, invokes `/schema-workflow` to drive it through whatever phases its schema declares, commits changes, and exits with the `ready-to-complete` marker; the driver reports usage, sends the `complete` transition and ends the seat.
+User runs it. The driver opens one run. Per iteration it selects the oldest ready item, assigns it an implementer seat, claims it under the seat token, and spawns a fresh `claude -p --worktree=ralph-<id>` whose prompt names the item and the token file. The agent reads the item's context, invokes `/schema-workflow` to drive it through whatever phases its schema declares, commits changes, and exits with the `ready-to-complete` marker; the driver sends the `complete` transition and ends the seat.
 
 5 iterations later: 3 terminal, 1 gate-blocked (a required note couldn't be filled), 1 errored (test failure unrelated to the fix). Loop exits when consecutive gate failures hit the budget (3) or nothing is ready - whichever comes first - and closes the run.
 
@@ -311,9 +309,9 @@ The `/loop` skill schedules it. Every hour, the script runs, opening a fresh run
 
 ---
 
-### Example 3: One-shot drain of a specific container under a spend cap
+### Example 3: One-shot drain of a specific container with an attempt cap
 
-User: "ralph everything in tech debt, but stop at $30"
+User: "ralph everything in tech debt, but give up on an item after 3 attempts"
 
 **Step 1** searches for "Tech Debt", finds container `89d02e32`. Filter resolves to `parentId=89d02e32`.
 
@@ -323,10 +321,10 @@ User: "ralph everything in tech debt, but stop at $30"
 node claude-plugins/task-orchestrator/scripts/ralph-loop.mjs \
   --filter "parentId=89d02e32" \
   --max 20 \
-  --run-budget-usd 30
+  --max-attempts 3
 ```
 
-When the run's reported spend reaches $30 the server pauses the run on a budget decision; the next assign answers `run_paused`. The driver does not close the run: it prints the pause reason and decision once, then polls the run every 30s until a director or human answers the pause decision (the loop continues; a manual pause is resumed instead) or closes the run (the loop exits 0).
+When an item would need a fourth attempt, the server pauses the run on an attempt-cap decision and that assign answers `run_paused`. The driver does not close the run: it prints the pause reason and decision once, then polls the run every 30s until a director or human answers the pause decision (the loop continues; a manual pause is resumed instead) or closes the run (the loop exits 0).
 
 ---
 
@@ -422,7 +420,7 @@ Solution: The iteration must collect any results itself, fill notes, and emit th
 
 **Why a Node script, not bash.** Cross-platform - every Claude Code install has Node. Stdlib-only - no `npm install`, no plugin dependencies. Targets Node 18+ to match Claude Code's own minimum.
 
-**Why one run per loop, one seat per iteration.** A run gives the drain a server-side boundary: membership, an optional budget, attempt caps, and one place a director or human can pause or close it. Each iteration gets its own `implementer` seat and claims the item under that seat's token before the agent starts, so the iteration is the claim holder for its transitions and note writes, and ending the seat on every outcome (timeout and crash included) frees the claim at once instead of leaving it to run out its TTL.
+**Why one run per loop, one seat per iteration.** A run gives the drain a server-side boundary: membership, attempt caps, and one place a director or human can pause or close it. Each iteration gets its own `implementer` seat and claims the item under that seat's token before the agent starts, so the iteration is the claim holder for its transitions and note writes, and ending the seat on every outcome (timeout and crash included) frees the claim at once instead of leaving it to run out its TTL.
 
 **Why the driver selects and claims, not the iteration.** Selection with `items_read next` plus a per-loop skip list keeps contended items out of the way: a `claim_held` or `resource_unavailable` item is skipped for its `retryAfterMs` and the next selection picks a different one, with no release and no spin. Claiming before the spawn means the seat token, not the agent, owns the claim.
 

@@ -33,17 +33,18 @@ import kotlin.test.assertTrue
  * and validation.
  *
  * Scenarios: S8 (parse and layered resolution) and S16 (validator errors at /runs/... paths) of the frozen test-plan.
- * Oracles: task-scope "Config `runs:`" and the planner additions (stall_after default 600; the four budget ceilings tokens,
- * cost_usd, attempts_per_seat, max_active_seats; budgets are opt-in so an absent ceiling is null and never invented;
- * `cost_usd` is converted to micro-USD; resolution is per FIELD: per-root value, else server value, else default;
+ * Oracles: task-scope "Config `runs:`" and the planner additions (stall_after default 600; the two budget ceilings
+ * attempts_per_seat, max_active_seats (tokens and cost_usd were removed in 4.0.1: accepted with one advisory warning
+ * each, whatever the value, applying no ceiling); budgets are opt-in so an absent ceiling is null and never invented;
+ * resolution is per FIELD: per-root value, else server value, else default;
  * `runs:` is allowed in both a server and a per-root document; the block is strict, so an unknown key is a finding),
- * the declared JSON schema (stall_after integer 1..2147483647; tokens integer >= 1; cost_usd number > 0; attempts_per_seat and
+ * the declared JSON schema (stall_after integer 1..2147483647; tokens and cost_usd deprecated and untyped; attempts_per_seat and
  * max_active_seats integer 1..2147483647; additionalProperties false) and RFC 6901 for the error paths (the leading-slash
  * pointer is the form every existing ConfigValidatorTest assertion uses, e.g. "/bogus_section").
  * Expected values are written out from those clauses, never read from the parser, resolver or validator.
  *
  * Ambiguity arbitration: whether an absent `budgets` resolves to a null [RunBudget] or to an all-null [RunBudget] is not
- * stated; the tests assert the four ceilings through [ceilings], which is the same list for both representations
+ * stated; the tests assert the two ceilings through [ceilings], which is the same list for both representations
  * (RunBudget documents all-null as unlimited).
  */
 class RunsConfigParseTest {
@@ -57,10 +58,9 @@ class RunsConfigParseTest {
         return assertIs<ConfigDocumentParser.Outcome.Parsed>(outcome, "expected Parsed: $outcome").document
     }
 
-    private fun ceilings(budget: RunBudget?): List<Number?> =
-        listOf(budget?.tokens, budget?.costMicroUsd, budget?.attemptsPerSeat, budget?.maxActiveSeats)
+    private fun ceilings(budget: RunBudget?): List<Number?> = listOf(budget?.attemptsPerSeat, budget?.maxActiveSeats)
 
-    private val noCeilings: List<Number?> = listOf(null, null, null, null)
+    private val noCeilings: List<Number?> = listOf(null, null)
 
     private fun validate(
         yaml: String,
@@ -78,20 +78,34 @@ class RunsConfigParseTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `S8 the runs-valid fixture parses to the stall_after and the four converted ceilings`() {
+    fun `S8 the runs-valid fixture parses to the stall_after and the two ceilings`() {
         val runs = assertNotNull(parsed(StrictConfigCases.resource("/config/runs-valid.yaml")).runs)
 
         assertEquals(300, runs.stallAfterSeconds)
-        assertEquals(listOf<Number?>(2_000_000L, 12_500_000L, 3, 4), ceilings(runs.budgets))
+        assertEquals(listOf<Number?>(3, 4), ceilings(runs.budgets))
     }
 
     @Test
-    fun `S8 the task-scope example parses to RunsConfig 300 with budget 1 500000 2 3`() {
-        val yaml =
-            base +
-                "runs:\n  stall_after: 300\n  budgets:\n    tokens: 1\n    cost_usd: 0.5\n    attempts_per_seat: 2\n    max_active_seats: 3\n"
+    fun `S8 the task-scope example parses to RunsConfig 300 with budget 2 3`() {
+        val yaml = base + "runs:\n  stall_after: 300\n  budgets:\n    attempts_per_seat: 2\n    max_active_seats: 3\n"
 
-        assertEquals(RunsConfig(300, RunBudget(1, 500_000, 2, 3)), parsed(yaml).runs)
+        assertEquals(RunsConfig(300, RunBudget(2, 3)), parsed(yaml).runs)
+    }
+
+    @Test
+    fun `S8 the removed tokens and cost_usd keys parse with one advisory each, whatever the value, and apply no ceiling`() {
+        for (value in listOf("5", "-5", "0", "2.5", "\"x\"")) {
+            val yaml =
+                base + "runs:\n  budgets:\n    tokens: $value\n    cost_usd: $value\n    attempts_per_seat: 2\n    max_active_seats: 3\n"
+            val doc = parsed(yaml)
+            assertEquals(RunBudget(2, 3), doc.runs?.budgets, "value $value: only the caps are kept")
+            for (key in listOf("tokens", "cost_usd")) {
+                val expected = YamlSchemaParser.runBudgetKeyRemovedWarning(key)
+                assertEquals(1, doc.warnings.count { it.contains(expected) }, "value $value, key $key: ${doc.warnings}")
+            }
+        }
+        val onlyRemoved = parsed(base + "runs:\n  budgets:\n    tokens: 9000000000\n    cost_usd: 12.5\n")
+        assertNull(onlyRemoved.runs?.budgets, "nothing left of the budget: no ceiling")
     }
 
     @Test
@@ -109,22 +123,9 @@ class RunsConfigParseTest {
         assertEquals(45, onlyStall.stallAfterSeconds)
         assertEquals(noCeilings, ceilings(onlyStall.budgets), "no ceiling is invented")
 
-        val onlyTokens = assertNotNull(parsed(base + "runs:\n  budgets:\n    tokens: 7\n").runs)
-        assertNull(onlyTokens.stallAfterSeconds, "stall_after is not defaulted at parse time; resolution supplies the default")
-        assertEquals(listOf<Number?>(7L, null, null, null), ceilings(onlyTokens.budgets))
-    }
-
-    @Test
-    fun `S8 cost_usd converts to micro-USD exactly, including values whose binary product is just below the integer`() {
-        fun micro(cost: String): Long? = parsed(base + "runs:\n  budgets:\n    cost_usd: $cost\n").runs?.budgets?.costMicroUsd
-
-        assertEquals(500_000L, micro("0.5"))
-        assertEquals(12_500_000L, micro("12.5"))
-        // 8.2 * 1000000 evaluates to 8199999.999999999 in binary floating point; the decimal value is 8200000 micro-USD.
-        assertEquals(8_200_000L, micro("8.2"), "a truncating conversion would give 8199999")
-        assertEquals(3_000_000L, micro("3"), "an integer-valued YAML scalar is whole dollars")
-        assertEquals(1L, micro("0.000001"), "the smallest representable amount is one micro-USD")
-        assertEquals(19_990_000L, micro("19.99"))
+        val onlyAttempts = assertNotNull(parsed(base + "runs:\n  budgets:\n    attempts_per_seat: 7\n").runs)
+        assertNull(onlyAttempts.stallAfterSeconds, "stall_after is not defaulted at parse time; resolution supplies the default")
+        assertEquals(listOf<Number?>(7, null), ceilings(onlyAttempts.budgets))
     }
 
     @Test
@@ -133,9 +134,9 @@ class RunsConfigParseTest {
         assertTrue(topLevel.warnings.any { it.contains("runs.foo") }, "warnings: ${topLevel.warnings}")
         assertEquals(60, topLevel.runs?.stallAfterSeconds, "the known key is still read")
 
-        val nested = parsed(base + "runs:\n  budgets:\n    tokens: 5\n    bar: 1\n")
+        val nested = parsed(base + "runs:\n  budgets:\n    attempts_per_seat: 5\n    bar: 1\n")
         assertTrue(nested.warnings.any { it.contains("runs.budgets.bar") }, "warnings: ${nested.warnings}")
-        assertEquals(5L, nested.runs?.budgets?.tokens)
+        assertEquals(5, nested.runs?.budgets?.attemptsPerSeat)
 
         val clean = parsed(StrictConfigCases.resource("/config/runs-valid.yaml"))
         assertTrue(clean.warnings.none { it.contains("runs") }, "control: the valid fixture produces no runs warning: ${clean.warnings}")
@@ -168,50 +169,50 @@ class RunsConfigParseTest {
 
     @Test
     fun `S8 the server value applies when the per-root document has no runs block`() {
-        val server = RunsConfig(300, RunBudget(1_000, 500_000, 2, 3))
+        val server = RunsConfig(300, RunBudget(2, 3))
 
         val resolved = layered(server = server, perRoot = null).runsConfig()
 
         assertEquals(300, resolved.stallAfterSeconds)
-        assertEquals(listOf<Number?>(1_000L, 500_000L, 2, 3), ceilings(resolved.budgets))
+        assertEquals(listOf<Number?>(2, 3), ceilings(resolved.budgets))
     }
 
     @Test
     fun `S8 each field resolves independently - per-root value, else server value, else default`() {
-        val server = RunsConfig(300, RunBudget(tokens = 1_000, attemptsPerSeat = 2))
-        val perRoot = RunsConfig(null, RunBudget(tokens = 500, maxActiveSeats = 7))
+        val server = RunsConfig(300, RunBudget(attemptsPerSeat = 2, maxActiveSeats = 4))
+        val perRoot = RunsConfig(null, RunBudget(attemptsPerSeat = 5))
 
         val resolved = layered(server = server, perRoot = perRoot).runsConfig()
 
         assertEquals(300, resolved.stallAfterSeconds, "per-root has no stall_after, so the server's applies")
         assertEquals(
-            listOf<Number?>(500L, null, 2, 7),
+            listOf<Number?>(5, 4),
             ceilings(resolved.budgets),
-            "tokens from per-root, attempts_per_seat falls through to the server, max_active_seats from per-root, cost unset"
+            "attempts_per_seat from per-root, max_active_seats falls through to the server"
         )
     }
 
     @Test
     fun `S8 a per-root stall_after wins over the server stall_after and leaves the server ceilings in force`() {
-        val server = RunsConfig(300, RunBudget(tokens = 1_000))
+        val server = RunsConfig(300, RunBudget(attemptsPerSeat = 1_000))
         val perRoot = RunsConfig(120, null)
 
         val resolved = layered(server = server, perRoot = perRoot).runsConfig()
 
         assertEquals(120, resolved.stallAfterSeconds)
-        assertEquals(listOf<Number?>(1_000L, null, null, null), ceilings(resolved.budgets))
+        assertEquals(listOf<Number?>(1_000, null), ceilings(resolved.budgets))
     }
 
     @Test
     fun `S8 the shared resolver returns the server runs block when the root has no per-root config`(): Unit =
         runBlocking {
-            val server = RunsConfig(90, RunBudget(costMicroUsd = 250_000))
+            val server = RunsConfig(90, RunBudget(maxActiveSeats = 250))
             val resolver = TestConfigResolver.resolver(ConfigDocument(workItemSchemas = emptyMap(), traits = emptyMap(), runs = server))
 
             for (rootId in listOf<UUID?>(null, UUID.randomUUID())) {
                 val resolved = resolver.resolveRunsConfig(rootId)
                 assertEquals(90, resolved.stallAfterSeconds, "root $rootId")
-                assertEquals(listOf<Number?>(null, 250_000L, null, null), ceilings(resolved.budgets), "root $rootId")
+                assertEquals(listOf<Number?>(null, 250), ceilings(resolved.budgets), "root $rootId")
             }
 
             val bare = TestConfigResolver.resolver(ConfigDocument.EMPTY).resolveRunsConfig(null)
@@ -240,8 +241,6 @@ class RunsConfigParseTest {
 
         assertFalse(result.isValid)
         assertTrue(result.hasErrorAt("/runs/stall_after", within = false), "errors: ${result.errors}")
-        assertTrue(result.hasErrorAt("/runs/budgets/tokens", within = false), "errors: ${result.errors}")
-        assertTrue(result.hasErrorAt("/runs/budgets/cost_usd", within = false), "errors: ${result.errors}")
         assertTrue(result.hasErrorAt("/runs/budgets/attempts_per_seat", within = false), "errors: ${result.errors}")
         assertTrue(result.hasErrorAt("/runs/budgets/max_active_seats", within = false), "errors: ${result.errors}")
         assertTrue(result.hasErrorAt("/runs", within = true), "the unknown key foo is reported at or under /runs: ${result.errors}")
@@ -268,32 +267,6 @@ class RunsConfigParseTest {
                 "/runs/stall_after",
                 "runs:\n  stall_after: 2147483647\n"
             ),
-            Defect("tokens 0", "runs:\n  budgets:\n    tokens: 0\n", "/runs/budgets/tokens", "runs:\n  budgets:\n    tokens: 1\n"),
-            Defect("tokens negative", "runs:\n  budgets:\n    tokens: -5\n", "/runs/budgets/tokens", "runs:\n  budgets:\n    tokens: 1\n"),
-            Defect(
-                "tokens fractional",
-                "runs:\n  budgets:\n    tokens: 2.5\n",
-                "/runs/budgets/tokens",
-                "runs:\n  budgets:\n    tokens: 3\n"
-            ),
-            Defect(
-                "cost_usd 0",
-                "runs:\n  budgets:\n    cost_usd: 0\n",
-                "/runs/budgets/cost_usd",
-                "runs:\n  budgets:\n    cost_usd: 0.000001\n"
-            ),
-            Defect(
-                "cost_usd negative",
-                "runs:\n  budgets:\n    cost_usd: -2.5\n",
-                "/runs/budgets/cost_usd",
-                "runs:\n  budgets:\n    cost_usd: 2.5\n"
-            ),
-            Defect(
-                "cost_usd as a string",
-                "runs:\n  budgets:\n    cost_usd: \"5\"\n",
-                "/runs/budgets/cost_usd",
-                "runs:\n  budgets:\n    cost_usd: 5\n"
-            ),
             Defect(
                 "attempts_per_seat 0",
                 "runs:\n  budgets:\n    attempts_per_seat: 0\n",
@@ -318,14 +291,14 @@ class RunsConfigParseTest {
                 "/runs/budgets/max_active_seats",
                 "runs:\n  budgets:\n    max_active_seats: 2\n"
             ),
-            Defect("budgets not a mapping", "runs:\n  budgets: 3\n", "/runs/budgets", "runs:\n  budgets:\n    tokens: 3\n"),
+            Defect("budgets not a mapping", "runs:\n  budgets: 3\n", "/runs/budgets", "runs:\n  budgets:\n    attempts_per_seat: 3\n"),
             Defect("runs not a mapping", "runs: 7\n", "/runs", "runs:\n  stall_after: 7\n"),
             Defect("unknown runs key", "runs:\n  foo: 1\n", "/runs", "runs:\n  stall_after: 1\n", within = true),
             Defect(
                 "unknown budgets key",
                 "runs:\n  budgets:\n    bar: 1\n",
                 "/runs/budgets",
-                "runs:\n  budgets:\n    tokens: 1\n",
+                "runs:\n  budgets:\n    attempts_per_seat: 1\n",
                 within = true
             ),
             Defect(
@@ -354,15 +327,31 @@ class RunsConfigParseTest {
         }
 
     @Test
-    fun `S16 the declared boundaries are admitted - largest integers, a token count beyond 32 bits, one micro-dollar`() {
+    fun `S16 the declared boundaries are admitted - the largest integers`() {
         val yaml =
-            base + "runs:\n  stall_after: 2147483647\n  budgets:\n    tokens: 9000000000\n    cost_usd: 0.000001\n" +
-                "    attempts_per_seat: 2147483647\n    max_active_seats: 2147483647\n"
+            base + "runs:\n  stall_after: 2147483647\n  budgets:\n    attempts_per_seat: 2147483647\n    max_active_seats: 2147483647\n"
 
-        val result = validate(yaml)
+        assertEquals(emptyList(), validate(yaml).errors)
+        assertEquals(2147483647, parsed(yaml).runs?.budgets?.attemptsPerSeat)
+    }
 
-        assertEquals(emptyList(), result.errors)
-        assertEquals(9_000_000_000L, parsed(yaml).runs?.budgets?.tokens)
+    @Test
+    fun `S16 the removed tokens and cost_usd keys validate at both scopes, any value, with one warning each at its pointer`() {
+        for (scope in listOf(ConfigScope.ROOT, ConfigScope.SERVER)) {
+            for (value in listOf("5", "-5", "0", "2.5", "\"x\"")) {
+                val yaml = base + "runs:\n  budgets:\n    tokens: $value\n    cost_usd: $value\n"
+                val result = validate(yaml, scope)
+                assertEquals(emptyList(), result.errors, "scope $scope value $value")
+                for (key in listOf("tokens", "cost_usd")) {
+                    val matching = result.warnings.filter { it.path == "/runs/budgets/$key" }
+                    assertEquals(1, matching.size, "scope $scope value $value key $key: ${result.warnings}")
+                    assertEquals(YamlSchemaParser.runBudgetKeyRemovedWarning(key), matching.single().reason)
+                }
+            }
+        }
+        for (key in listOf("attempts_per_seat", "max_active_seats")) {
+            assertFalse(validate(base + "runs:\n  budgets:\n    $key: 0\n    tokens: 5\n").isValid, "$key keeps its value check")
+        }
     }
 
     @Test
@@ -374,12 +363,12 @@ class RunsConfigParseTest {
 
     @Test
     fun `S16 two defects in one document are both reported and the list is stable across runs`() {
-        val yaml = base + "runs:\n  stall_after: 0\n  budgets:\n    tokens: 0\n"
+        val yaml = base + "runs:\n  stall_after: 0\n  budgets:\n    attempts_per_seat: 0\n"
 
         val runs = (1..3).map { validate(yaml) }
 
         assertTrue(runs[0].hasErrorAt("/runs/stall_after", within = false), "errors: ${runs[0].errors}")
-        assertTrue(runs[0].hasErrorAt("/runs/budgets/tokens", within = false), "errors: ${runs[0].errors}")
+        assertTrue(runs[0].hasErrorAt("/runs/budgets/attempts_per_seat", within = false), "errors: ${runs[0].errors}")
         assertEquals(runs[0].errors, runs[1].errors)
         assertEquals(runs[0].errors, runs[2].errors)
     }

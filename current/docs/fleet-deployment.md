@@ -1405,34 +1405,45 @@ logs a WARN and keeps enforcement on. Re-enable the same way, by unsetting the v
 
 ## Run Budgets and Caps
 
-Runs are bounded by their pinned budget (see [`runs:`](config-reference.md#runs-runs) in the config reference for the
-ceilings an operator sets, and the [workflow guide](workflow-guide.md#12-runs-seats-and-decisions) for the run
-lifecycle). What an operator sees:
+Runs are bounded by their pinned caps: `attempts_per_seat` and `max_active_seats` (see [`runs:`](config-reference.md#runs-runs)
+in the config reference for the ceilings an operator sets, and the [workflow guide](workflow-guide.md#12-runs-seats-and-decisions)
+for the run lifecycle). The heading and the word "budget" stay because `budget` is the API term for the caps
+(`runs_write` `budget`, `runs_read` `get` `budget`). Token and cost budgets were removed in 4.0.1 (see "Removed in 4.0.1"
+below). What an operator sees:
 
-- **Spend.** `runs_read` `get` shows `usage` (`reportedTokens`, `reportedCostUsd`, `observedTokens`). Reported figures
-  are the SUM of the seats' absolute `heartbeat` reports (the highest per seat is kept); `observedTokens` is the server's
-  own estimate, written off the request path by the call-log writer. It is an estimate: only rows actually stored
-  count (a duplicate or refused row adds nothing), and a dropped or failed call-log batch (see "Call log") under-counts it.
-- **Breach.** The next token-carrying write after a crossing pauses the run (`pauseReason: budget`) and raises a
-  high-severity `run-budget` decision; the writer itself never pauses anything, so a run whose seats have all gone quiet
-  is not paused by observed spend alone until some seat writes again. Only token-carrying writes run the check (a
-  heartbeat, `assign`, `end_seat`, a transition or a `raise`, each under a seat or coordinator token); a call
-  without a token never does.
-- **Answering.** A director or human answers through `runs_write` `answer` (`/ops/director/runs_write` on REST):
-  `extend` with an `amount` resumes the run with the raised limit; `stop` closes it `budget_exhausted` and ends its
-  seats, clears their claims and releases the leases of its WORK members. A coordinator cannot lift its own cap: a
-  manual `resume` of a budget or attempts pause is refused. The decisions the server raises for a limit
-  (`run-budget`, `attempt-cap`) cannot be withdrawn.
+- **Observed spend.** `runs_read` `get` shows `usage.observedTokens`: the server's own estimate, written off the request
+  path by the call-log writer. It is an estimate: only rows actually stored count (a duplicate or refused row adds
+  nothing), and a dropped or failed call-log batch (see "Call log") under-counts it. It enforces nothing: no write pauses
+  a run because of it.
 - **Attempt cap.** An `assign` over `attempts_per_seat` is refused `run_paused`, pauses the run (`pauseReason:
-  attempts`) and raises an `attempt-cap` decision. The refusal names that decision in `detail.pauseDecisionId`, but the id is
+  attempts`) and raises a high-severity `attempt-cap` decision. The refusal names that decision in `detail.pauseDecisionId`, but the id is
   chosen before the unit that writes the decision runs, so after a database fault, or when the write finds an
   existing decision for the same attempt (a dedupe hit), the id can be absent or differ from the one that stands.
   Read the run's decisions (`runs_read` `decisions`) rather than trusting the refusal alone.
+- **Answering.** A director or human answers through `runs_write` `answer` (`/ops/director/runs_write` on REST):
+  `allow_one` gives that (item, seat) one more attempt and resumes the run; `skip_item` removes the item and resumes;
+  `stop` closes the run `budget_exhausted`, ends its seats, clears their claims and releases the leases of its WORK
+  members. A coordinator cannot lift its own cap: a manual `resume` of an attempts pause is refused. The decisions the
+  server raises for a limit cannot be withdrawn.
 - **While paused.** A `start` presented with any of the run's tokens, a seat token or the coordinator token, is
-  refused `run_paused` while the run is paused for a limit (`budget` or `attempts`). A manual pause never refuses
+  refused `run_paused` while the run is paused for a limit. A manual pause never refuses
   it, so in-flight seats can finish their work, and a `start` without a token is never refused for a pause.
 - **Concurrency.** `max_active_seats` answers an extra `assign` with `409 run_at_capacity` (transient); the coordinator
   backs off and retries when a seat ends. No decision is raised.
+
+### Removed in 4.0.1
+
+Run token and cost budgets (`budget.tokens`, `budget.costUsd`, `runs.budgets.tokens`, `runs.budgets.cost_usd`), the
+agent-reported usage (`heartbeat` `usage`, the run's `reportedTokens` / `reportedCostUsd`, the seat rows' `usage`), the
+answer `amount` and the rollup `budget` section shipped incomplete in 4.0.0 and are gone. A request that still sends one
+fails `unknown_parameter` on that field. A config document that still sets `runs.budgets.tokens` or `cost_usd` loads: it
+validates and pushes, each key draws one warning at its pointer, and no ceiling is applied. There is no migration: the
+`runs` and `run_seats` columns stay (a rollback to 4.0.0 is safe) and are no longer written.
+
+Stored 4.0.0 state still works. A run paused by a `run-budget` decision (the class is never raised again, and a
+`decision_classes:` entry for it still loads) answers like any limit pause: `extend` resumes the run with no budget
+change (and takes no `amount`), `stop` closes it `budget_exhausted`. A stored rollup snapshot that carries a `budget`
+section decodes with the section ignored.
 
 ## Observability Gaps
 

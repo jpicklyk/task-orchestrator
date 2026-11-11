@@ -100,11 +100,9 @@ data class DecisionRaiseResult(
 
 /**
  * Answers a decision request with an [option] key and/or free [text] (freeform classes only), and a [rationale].
- * [amount] is the extend amount of a `run-budget` `extend` answer (R27), in the breached dimension: tokens or US dollars.
  */
 data class DecisionAnswerCommand(
     val option: String? = null,
     val text: String? = null,
-    val rationale: String? = null,
-    val amount: Double? = null
+    val rationale: String? = null
 )

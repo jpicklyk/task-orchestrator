@@ -17,32 +17,13 @@ import io.github.jpicklyk.mcptask.current.domain.model.Run
 import io.github.jpicklyk.mcptask.current.domain.model.RunLimitDecisions
 import io.github.jpicklyk.mcptask.current.domain.model.RunPauseReason
 import io.github.jpicklyk.mcptask.current.domain.model.RunStatus
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.slf4j.LoggerFactory
-import java.math.BigDecimal
 import java.util.UUID
 
-/** A budget a run has crossed: the [dimension] (`tokens` or `costUsd`), the enforced [used] figure and its [limit]. */
-data class BudgetBreach(
-    val dimension: String,
-    val used: Long,
-    val limit: Long
-)
-
 /**
- * The run limits (plan section 3.9, R27): the token and cost budget, the attempt cap and the active-seat cap.
- *
- * ## Budget
- *
- * [checkBudget] is the in-unit check every token-carrying write (heartbeat, assign, end_seat, transition, raise) runs
- * after its own change, in its own unit. The enforced figures are `max(reportedTokens, observedTokens)` for tokens and
- * `reportedCostMicroUsd` for cost; a breach is `used > limit` (equality is not a breach). On a crossing of an OPEN run it
- * raises a `run-budget` decision (dedupe `budget:<runId>:<n>`, n the breach ordinal over the run's budget decisions,
- * options `extend`/`stop`, recommended `stop`, context the numbers) and pauses the run (`budget`) with it; both commit
- * with the caller's write, which still succeeds. A run already paused for its budget answers its pause decision again,
- * recording nothing. An unbudgeted run's token writes skip the run-row read via the token lookup's `runLimited` hint; a budgeted run's are checked in the unit.
+ * The run limits (plan section 3.9, R27): the attempt cap and the active-seat cap.
  *
  * ## Assign ([admit], through [assign])
  *
@@ -53,9 +34,6 @@ data class BudgetBreach(
  * the assign's own unit has ended, so they land although the assign rolls back. An otherwise admissible assign that
  * would not supersede an active seat is refused with transient `run_at_capacity` while `maxActiveSeats` member seats are
  * active; superseding keeps the count, so it is allowed at capacity.
- *
- * The observed counter is written off-path by the call-log writer, which never runs a check: a crossing it causes is
- * found by the next token-carrying write.
  */
 class RunLimits(
     private val repositoryProvider: RepositoryProvider,
@@ -69,51 +47,6 @@ class RunLimits(
 
     /** [SeatService.assign] with this run's attempt cap and seat cap enforced. */
     suspend fun assign(command: SeatAssignCommand): Outcome<IssuedSeat> = seatService.assign(command, this)
-
-    /**
-     * The budget check of run [runId] (see the class rules); joins the caller's unit. Returns the id of the decision the
-     * run is paused on for its budget (just raised, or the standing one), else null. [runLimited] is the server-derived
-     * hint from token resolution (the run has any budget field): false answers null with no read, and the default true
-     * keeps every caller without the hint checking.
-     */
-    suspend fun checkBudget(
-        runId: UUID,
-        runLimited: Boolean = true
-    ): Outcome<UUID?> =
-        if (!runLimited) {
-            Outcome.Ok(null)
-        } else {
-            checkBudgetInUnit(runId)
-        }
-
-    private suspend fun checkBudgetInUnit(runId: UUID): Outcome<UUID?> =
-        unitOfWork.write(OP_CHECK) {
-            val run = runs.getById(runId) ?: return@write Outcome.Ok(null)
-            val budget = run.budget
-            if (budget == null || (budget.tokens == null && budget.costMicroUsd == null)) return@write Outcome.Ok(null)
-            when (run.status) {
-                RunStatus.CLOSED -> return@write Outcome.Ok(null)
-                RunStatus.PAUSED ->
-                    return@write Outcome.Ok(if (run.pauseReason == RunPauseReason.BUDGET) run.pauseDecisionId else null)
-                RunStatus.OPEN -> Unit
-            }
-            val breach = breach(run) ?: return@write Outcome.Ok(null)
-            val ordinal =
-                stores
-                    .decisionRequestStore()
-                    .list(runId = run.id)
-                    .count { it.decisionClass == RunLimitDecisions.RUN_BUDGET } + 1
-            val raised =
-                when (val r = decisions.raiseServer(budgetDecision(run, breach, ordinal))) {
-                    is Outcome.Err -> return@write r
-                    is Outcome.Ok -> r.value
-                }
-            when (val paused = runService.pauseForLimit(run.id, RunPauseReason.BUDGET, raised.id)) {
-                is Outcome.Err -> return@write paused
-                is Outcome.Ok -> Unit
-            }
-            Outcome.Ok(raised.id)
-        }
 
     override suspend fun admit(
         scope: WriteScope,
@@ -209,57 +142,6 @@ class RunLimits(
         }
     }
 
-    private fun budgetDecision(
-        run: Run,
-        breach: BudgetBreach,
-        ordinal: Int
-    ): ServerDecision {
-        val cost = breach.dimension == RunLimitDecisions.DIMENSION_COST
-        val shown = { v: Long -> if (cost) "${usd(v)} USD" else "$v tokens" }
-        val context =
-            buildJsonObject {
-                put("dimension", breach.dimension)
-                if (cost) {
-                    put("used", JsonPrimitive(usdNumber(breach.used)))
-                    put("limit", JsonPrimitive(usdNumber(breach.limit)))
-                } else {
-                    put("used", breach.used)
-                    put("limit", breach.limit)
-                }
-                put("reportedTokens", run.reportedTokens)
-                put("observedTokens", run.observedTokens)
-                put("reportedCostUsd", JsonPrimitive(usdNumber(run.reportedCostMicroUsd)))
-                run.budget?.tokens?.let { put("tokenLimit", it) }
-                run.budget?.costMicroUsd?.let { put("costLimitUsd", JsonPrimitive(usdNumber(it))) }
-            }
-        return ServerDecision(
-            id = UUID.randomUUID(),
-            rootId = run.rootId,
-            runId = run.id,
-            itemId = null,
-            decisionClass = RunLimitDecisions.RUN_BUDGET,
-            question =
-                "Run ${run.label ?: run.id} has used ${shown(breach.used)} against a budget of ${shown(breach.limit)}. " +
-                    "Extend the budget or stop the run?",
-            options =
-                listOf(
-                    DecisionRequestOption(
-                        RunLimitDecisions.EXTEND,
-                        "Extend the budget",
-                        "Raises the ${breach.dimension} budget by the answer's amount and resumes the run."
-                    ),
-                    DecisionRequestOption(
-                        RunLimitDecisions.STOP,
-                        "Stop the run",
-                        "Closes the run as budget_exhausted, ending its seats and releasing their claims."
-                    )
-                ),
-            recommended = RunLimitDecisions.STOP,
-            context = context.toString(),
-            dedupeKey = RunLimitDecisions.budgetDedupeKey(run.id, ordinal)
-        )
-    }
-
     private fun attemptDecision(
         run: Run,
         itemId: UUID,
@@ -304,22 +186,7 @@ class RunLimits(
     }
 
     companion object {
-        private const val OP_CHECK = "RunLimits.checkBudget"
         private const val OP_ATTEMPT_PAUSE = "RunLimits.pauseForAttempts"
-
-        /**
-         * The budget [run] has crossed, or null: tokens first (enforced `max(reported, observed)`), then cost (enforced
-         * reported). A breach is `used > limit`.
-         */
-        fun breach(run: Run): BudgetBreach? {
-            val budget = run.budget ?: return null
-            val tokens = maxOf(run.reportedTokens, run.observedTokens)
-            budget.tokens?.let { limit -> if (tokens > limit) return BudgetBreach(RunLimitDecisions.DIMENSION_TOKENS, tokens, limit) }
-            budget.costMicroUsd?.let { limit ->
-                if (run.reportedCostMicroUsd > limit) return BudgetBreach(RunLimitDecisions.DIMENSION_COST, run.reportedCostMicroUsd, limit)
-            }
-            return null
-        }
 
         /** Transient `run_at_capacity`: [active] member seats are active on run [runId], its cap [max]. */
         fun runAtCapacity(
@@ -333,9 +200,5 @@ class RunLimits(
                 detail = ErrorDetail.RunAtCapacity(runId, active, max),
                 fixArgs = mapOf("runId" to runId.toString(), "active" to active.toString(), "max" to max.toString())
             )
-
-        private fun usdNumber(micro: Long): BigDecimal = BigDecimal.valueOf(micro, 6).stripTrailingZeros()
-
-        private fun usd(micro: Long): String = usdNumber(micro).toPlainString()
     }
 }

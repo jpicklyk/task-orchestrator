@@ -19,7 +19,7 @@ Read the local `<scratchpad>/run-wave/<runId>/plan.json` (bound: it carries `arg
 from state (Method B) to `<scratchpad>/run-wave/<runId>/result.json`. Any item with no envelope
 recorded at all — neither a successful `stage-result` nor a `stopped` marker — is treated as
 `stopped: "agent returned null"`. A result with `started: false` (or a launch that threw) means
-nothing ran: skip to Step 7 and close the run `failed`. Record the phase `notified`. Orchestrator post-run scripts write new, run-scoped file names and never write over a seat's artifact; run-planner's `--out <path>` refuses a launched run's existing files unless `--force`; a shell redirect (`> plan.json`) bypasses that guard, so write over a launched run's files only through `--out`.
+nothing ran: skip to Step 7 and close the run `failed`. Record the phase `notified`; a paused run answers that phase update `run_paused`: save the answer as `paused.json`. Orchestrator post-run scripts write new, run-scoped file names and never write over a seat's artifact; run-planner's `--out <path>` refuses a launched run's existing files unless `--force`; a shell redirect (`> plan.json`) bypasses that guard, so write over a launched run's files only through `--out`.
 
 An altitude-safe result (`altitudeSafe: true`, from a plan made with `--altitude-safe`) is saved and
 verified the same way: it keeps `items[].stages` (status, commits, files, note keys) and the file
@@ -32,31 +32,10 @@ result passes scrubbed outputs, so a fix-cycle prompt shows `decisions: none` an
 test-author reseat `--declarations`.
 
 `runs_read(select:"get", runId:<serverRunId>)` shows the run's status: a `paused` run (`pauseReason`
-budget, attempts or manual) is reported now: send one `paused` report (`report --event paused
---run <run.json>`, with `runs_read` `get` saved as `run.json`), and one `decision` report for the
+attempts or manual) is reported now: send one `paused` report (`report --event paused
+--run <run.json> --paused <paused.json>`, with `runs_read` `get` saved as `run.json` and the `run_paused` answer as `paused.json`, which names the pause decision), and one `decision` report for the
 stages stopped `awaiting_decision` (their `decisionId`s are in `result.json`). Post-run work that
 needs no new seat continues, and the run closes as usual.
-
----
-
-## Step 0a — Report usage
-
-Method A: write the Workflow task notification's usage to `<scratchpad>/run-wave/<runId>/usage.json`
-as `{"tokens": N, "duration": N}` (add `"costUsd": N` when the notification reports a cost).
-That file is always written here, but the heartbeat is SENT here only when no run item has a review
-phase (Step 4 sends no `start`, Step 5 assigns no reviewer). Otherwise it is sent at Step 7, after the
-Step 0b re-sweep and just before `close`, because a heartbeat that crosses the budget pauses the run
-and the later `start` and reviewer `assign` would answer `run_paused`. Residual: a Step 5 wave-parent
-`start` under the coordinator token can still answer `run_paused` after a Step 0a heartbeat crossed
-the budget; report it (`paused`), and a non-member parent may be started token-less.
-`node "<helper>" run-ops --plan <plan> --phase heartbeat --usage <usage.json>` renders an `advance`
-call `[claim(first item), heartbeat{usage: {tokens, costUsd?}}, release]`; add `--item <short>` to
-claim a named item instead (at Step 7 use the first item Step 4 sent `start` for: it is in review,
-so not terminal). Send it under the coordinator token (a heartbeat's `usage` needs a seat token and
-a held claim, so the coordinator claims that member for the length of this one call). This reports the run total once:
-the server keeps the highest value per seat. Any element error is Friction, never retried, and never
-blocks the close. A success carrying `paused: {decisionId}` means the report crossed the run budget:
-surface the decision (at Step 7 it is reported with `openDecisions` in the `closed` report). Method B: report the same way when a run total is known; otherwise skip.
 
 ---
 
@@ -232,9 +211,17 @@ If one of the item's plan stages lists `session-tracking` in `stages[].notes` (a
 implicit implementer owns it), skip `session-tracking` for that item and record its outcome in the
 run report instead.
 
-1. **`session-tracking`** — outcome per item, commits, verified line, deviations from the plan, and
-   Friction (the declarations-scan hit count from Method B step 4, any Step 0 fallback taken in
-   `SKILL.md`, any `verify`/notes-audit failure, a failed usage report). Write this **after**
+1. **`session-tracking`** — the line formats of closure-notes rule 2 (the bundled `closure-notes`
+   rule), one line each, in this order: `Outcome:`; `Commits:` one sha or one range (never a file
+   list, never two shas); `Verified: <command> green at <sha> | not run (<why>)` (one line, never test
+   or pass/fail counts); `Deviations: <what and why> | none`; `Friction: <type: description>, ... | none`;
+   `Observations:` (omit when there are none); `Follow-ups: see orchestrator-confirmation`.
+   The item's `Friction:` keeps only what is specific to that item: its declarations-scan hit count
+   from Method B step 4, its own `verify`/notes-audit failure, a write refused on that item.
+   Run-level friction (any `SKILL.md` Step 0 fallback F0-F6, Method B degradations, no git remote, a
+   missing seat, CRLF, a refusal that hit every item) is recorded once: in the Step 7 report and,
+   when the run has a feature parent, in that parent's `session-tracking` at Step 7b finalization.
+   Never repeat it on each item. Write this **after**
    verify and the notes audit have run, in confirmed past tense — not as a speculative "pending
    verification" draft you intend to edit later. When the item's schema has a review phase (a
    review-role note, or a review trait such as `needs-docs-accuracy-review`), the confirmed state
@@ -242,25 +229,32 @@ run report instead.
    deviations "Deviations (before review)", and end the body with the mandatory line
    `Review: pending - verdict in <review-note key>; fix cycles are recorded in the item's amendments note or its planning note's Amendment A<n> sections`.
    `Outcome: success` is reserved for items whose schema has no review phase.
-2. **`delegation-metadata`** — the single provenance line, produced by
-   `node "<helper>" provenance --plan <plan> --result <result> --method A|B --turns <n> --usage <usage-file> [--meta-dir <dir>]`. **Method A: `--usage` is mandatory** (the Step 0a
-   file): the helper records that run total once, on the run's first item, and
-   `tokens=see:<firstItemShort>` (likewise `duration=`) on every other item, so per-item sums never
-   multiply the run total. **Method B:** pass `--usage` only if a per-item file exists
-   (`{"items": {"<short>": {"tokens": N, "duration": N}}}`); omit it otherwise (tokens/duration read
-   `unknown`). First run `node "<helper>" dispatch-meta --plan <plan> > <scratchpad>/run-wave/<runId>/dispatch-meta.json`
-   and pass that file as `--meta <file>`: Claude Code writes an `agent-<id>.meta.json` beside every
-   subagent transcript whose `description` is the dispatch label, and the command matches those to this
-   plan's `<seat>:<short>` labels (display tag stripped, newest match per label) and reads from each
-   transcript the model id and the effort its assistant turns actually ran at. By default it scans
-   every session under `~/.claude/projects`; `--session-dir <dir>` limits it to one session folder and
-   `--since <epoch-ms>` drops older agents. With it the line carries the observed model
+2. **`delegation-metadata`** — the single provenance line, for both methods. First run
+   `node "<helper>" dispatch-meta --plan <plan> > <scratchpad>/run-wave/<runId>/dispatch-meta.json`, then
+   `node "<helper>" provenance --plan <plan> --result <result> --method A|B --turns <n> --meta <dispatch-meta.json> [--meta-dir <dir>]`.
+   There is no usage file and no per-item file: Claude Code writes an `agent-<id>.meta.json` beside every
+   subagent transcript whose `description` is the dispatch label, and `dispatch-meta` matches those to this
+   plan's `<seat>:<short>` labels (display tag stripped, newest match per label; it also wants `planner` and
+   `reviewer` for every item, so out-of-run `planner-a<n>` and `reviewer-a<n>` labels match) and reads from each
+   transcript the model id, the effort its assistant turns actually ran at and the four usage meters (input,
+   cache write, cache read, output; one count per message id). By default it scans every session under
+   `~/.claude/projects`; `--session-dir <dir>` limits it to one session folder and `--since <epoch-ms>` drops
+   older agents. One measure runs through the whole line: each seat's `tokens` are its non-cached meters
+   (input + cache write + output); cache read stays out of `tokens` and is kept as its own meter. The line
+   carries `tokens=<n>` (that sum over the line's seats), `duration=unknown` (no per-seat source), and the tails
+   `meters=<input>/<cacheWrite>/<cacheRead>/<output>` (the item's sum) and
+   `seat-meters=<seat>:<i>/<cw>/<cr>/<o>,...` (one entry per seat in `seats=` order). The Workflow
+   notification figure is never written and `see:<short>` never appears. A seat with no transcript in the meta
+   file reads `<seat>:unknown`, makes `tokens` and `meters` `unknown`, and prints a stderr warning
+   `provenance: <short> seat <seat> has no transcript meters (a gap, not zero)`: a warned seat is a gap, never zero;
+   fix it (re-run `dispatch-meta` without `--since`, or check the dispatch label) before you upsert, or
+   upsert and report the gap. With the meta file the line carries the observed model
    (`model-source=meta`) and observed effort (`efforts=<seat>:<effort>,...` with
    `effort-source=transcript`; `assigned` when a seat fell back to the plan's dispatch effort, `mixed`
    when both occur), and `effort-substituted=<seat>:<requested>,...` names each seat whose observed
-   effort differs from the assigned one. Without it the line falls back to each stage's self-reported
+   effort differs from the assigned one. A seat missing from the meta file falls back to its self-reported
    `modelReported` and the assigned effort. `--meta-dir <dir>` still accepts hand-made `*.meta.json`
-   files of the same `{label, model, effort?}` shape. A bound plan appends `server-run=<uuid>` after the fixed
+   files of the same `{label, model, effort?, usage?}` shape. A bound plan appends `server-run=<uuid>` after the fixed
    fields. This line is what the session-retrospective skill's structured-provenance parser reads —
    do not hand-write it, and do not reorder its fields.
 
@@ -313,8 +307,8 @@ generic reviewer yourself. The project's review step owns merge arming; do not a
 post-run.
 
 **Otherwise**, per advanced item that entered a review phase: on a bound run, first assign its
-reviewer lane like any schema seat — `node "<helper>" run-ops --plan <plan> --phase assign --item
-<short> --seat reviewer`, sent under the coordinator token, the `seatToken` written to the rendered
+reviewer lane like any schema seat (a seat-less item whose schema has a review-role note takes `reviewer` too) — `node "<helper>" run-ops --plan <plan> --phase assign --item
+<short> --seat reviewer`, sent under the coordinator token (`run_at_capacity` is a plain back-off: wait for a reviewer to end its seat, then re-send the assign), the `seatToken` written to the rendered
 token file (a token-less write to a seat-owned key of a run member is `note_owned_by_other`). Then
 `node "<helper>" review-prompt --plan <scratchpad>/run-wave/<runId>/plan.json --item <short>
 --result <scratchpad>/run-wave/<runId>/result.json` — **always pass `--result`**; without it the
@@ -328,7 +322,7 @@ token file, and its lanes never end their seat, so run Step 0b's sweep again bef
 
 **Review wave launch.** When this post-run actor has the `Workflow` tool (re-probe F1: a background
 subagent may lack it) and the run is bound, assign each reviewer seat once (`run-ops --phase assign
---item <short> --seat reviewer`, token file written as above), then `node "<helper>" review-args
+--item <short> --seat reviewer`, token file written as above; on `run_at_capacity`, launch over the items already assigned, run Step 0b's sweep, then assign the rest and launch again), then `node "<helper>" review-args
 --plan <plan.json> --snapshot <scratchpad>/run-wave/<runId>/snapshot.json --result <result.json>
 --items <short,short,...>` prints the `review-wave/args-v1` object (lanes are the item's review-role
 notes grouped by seat and skill; exit 2 names an item with no review notes). Call
@@ -372,7 +366,7 @@ cap on cycles.
 2. **Implementer, then blind test author, as fresh `<seat>-a<n>` seats, one effort level higher**,
    each scoped to ruling `A<n>` only. Render each with `reseat ... --cause review` (`--cause test`
    for a post-run or wave-build test failure sent back to the owning seat) and dispatch a fresh
-   Agent with the base stage's model and the `effort` the command returns, never a `SendMessage`
+   Agent (description `<seat>-a<n>:<short>`, optionally followed by the display tag ` [<model>/<effort>]`) with the base stage's model and the `effort` the command returns, never a `SendMessage`
    resume: a resumed subagent keeps its effort, so it cannot escalate. The effort rises one level
    per cycle up to the policy's `escalation.ceiling`; when the output says `ceilingReached: true`
    and that cycle fails too, the next step is the existing decision path (raise a blocking
@@ -471,7 +465,7 @@ replacement. Only `review` and `test` on an implementer or test-author base esca
 with the Agent `effort` parameter set to that `effort`. At the escalation ceiling the prompt also tells the seat to
 stop and report once the checks pass. The prompt is the base stage's prompt under the `<seat>-a<n>`
 commit trailer, with no ENTRY block, the base seat's token file and END SEAT on a bound plan
-(`tokenFile` in the output), and a `FIX CYCLE A<n>` line. A test-author base on an item with a
+(`tokenFile` in the output), and a `FIX CYCLE A<n>` line that ends with a rewrite-in-full instruction for each of `implementation-notes` and `test-manifest` the base stage owns (replace superseded text, no per-cycle section, history only as a final `Amendments:` list; a base owning neither gets none). A test-author base on an item with a
 declarations stage needs declarations from the result or `--declarations <file>` (plain text;
 `none` or empty counts as absent), else the command exits 3 with `missingDeclaration:`. The output
 JSON carries a `result` copy with the seat appended to `items[].reseats`
@@ -483,7 +477,7 @@ test-author-before-implementer order only over item commits at or before the ear
 finding. Verify trusts the ledger `pre`: a `--pre` earlier than an order violation hides it, so pass the real pre-fix `HEAD`.
 
 **Re-review after fixes.** If the original reviewer seat cannot be resumed once fixes land, dispatch a
-fresh `task-orchestrator:reviewer` scoped to the fix commits (`git diff <prevReviewedSha>..HEAD -- <owned
+fresh `task-orchestrator:reviewer` (Agent description `reviewer-a<n>:<short>`, so `dispatch-meta` finds its transcript) scoped to the fix commits (`git diff <prevReviewedSha>..HEAD -- <owned
 files>`) plus the original blocking findings. The orchestrator never writes a note a seat owns
 (`review-checklist`, `test-manifest`, `test-plan`, `test-independence-audit`, or any other seat-owned
 key): the server refuses it (`note_owned_by_other`), and a confirmation must never come from the
@@ -492,23 +486,31 @@ seat's own verdict being rewritten. Any orchestrator confirmation goes under its
 feature-task and bug-fix, no seat on feature-implementation).
 
 **Recording out-of-run seats.** Every seat dispatched outside the run for an item (re-review,
-fix-cycle `<seat>-a<n>`, amendment planner) is recorded by re-running
-`node "<helper>" provenance ... --item <short> --extra-seats <seat>:<model>:<tokens>[:<effort>:<cause>],...` — with the
-same flags as Step 3, including `--usage` under Method A (omitting it on the run's first item
-replaces the recorded run total with `tokens=unknown`) — and
+fix-cycle `<seat>-a<n>`, amendment planner) is recorded by re-running `dispatch-meta` (so the new transcripts are
+in the file) and then
+`node "<helper>" provenance ... --item <short> --meta <dispatch-meta.json> [--extra-seats <seat>:<model>[:unknown:<effort>:<cause>],...]` - with the
+same flags as Step 3 — and
 re-upserting that item's `delegation-metadata` (orchestrator-owned) under the coordinator token of
 the run holding the item (the still-open run, or the fix-cycle run before it closes; with no open run the
 write is refused, so report it) with the two-line output (grammar line, then `extra-seats=...`). The list is cumulative: each re-run passes
-every out-of-run seat so far. Take tokens from the Agent result's usage; use `unknown` if not
-reported. With `--meta <dispatch-meta.json>`, a row whose tokens are `unknown` takes the sum of the
-four usage meters (input, cache write, cache read, output) from that seat's transcript
-(`dispatch-meta` matches `<seat>-a<n>:<short>` dispatch labels too); a fix-cycle row still
-`unknown` gets a `{warning}` line on stderr and counts as a gap in the retrospective, never as zero.
-Rows are `<seat>:<model>:<tokens>:<effort>:<cause>`; a three-field row (no effort or cause) still
-parses. Seats recorded by `reseat` are read from the `reseats` ledger in `--result`, listed first,
+every out-of-run seat so far.
+
+**Label rule.** Every out-of-run Agent dispatch sets its `description` to `<seat>[-a<n>]:<short>` (the display tag
+` [<model>/<effort>]` after it is optional and stripped): a fix-cycle seat is `implementer-a1:<short>`, a re-review is
+`reviewer-a<n>:<short>`, an amendment planner is `planner-a<n>:<short>`. `dispatch-meta` matches exactly these
+labels; a free-text description leaves the seat unknown.
+
+Tokens and meters come only from the seat's transcript, via `--meta`: never from the Agent result, never from a
+flag. A row's tokens are the non-cached sum (input + cache write + output) and the row carries its four meters as a
+sixth field: `<seat>:<model>:<tokens>:<effort>:<cause>:<input>/<cacheWrite>/<cacheRead>/<output>` (a missing effort or
+cause reads `unknown`). A seat with no transcript meters reads `unknown` (a five- or three-field row without meters) and
+prints a stderr warning, a gap in the retrospective and never zero; a tokens figure passed in the ledger or in
+`--extra-seats` is ignored with its own warning (the flag row keeps the tokens field positional: write `unknown`, and
+the field is ignored whenever meta has the seat). Rows written before 4.0.1 (five or three fields) still parse.
+Seats recorded by `reseat` are read from the `reseats` ledger in `--result`, listed first,
 so `--extra-seats` is only needed for seats `reseat` never saw (re-review, or an amendment planner on an item with no planner stage); a seat
-named in both takes the flag's model and tokens, and keeps the ledger's effort and cause when the
-flag row has none. `--item` alone now restricts the output to that
+named in both takes the flag's model, and keeps the ledger's effort and cause when the
+flag row has none. `--item` alone restricts the output to that
 item; `--extra-seats` requires `--item`.
 
 ---
@@ -556,11 +558,7 @@ process requires:
 ## Step 7 — Close and loop
 
 Once the review hand-off (Step 5) is dispatched or handed off, any review seats of this run have
-been swept (Step 0b again), and any immediate human checkpoints (Step 6) are surfaced, send the usage
-heartbeat now when Step 0a deferred it (any run item has a review phase): `node "<helper>" run-ops
---plan <plan> --phase heartbeat --usage <usage.json> --item <short>`, where `<short>` is the first item
-Step 4 sent `start` for (it is in review, so not terminal). Send it under the coordinator token, then
-close the run: `node "<helper>" run-ops --plan <plan> --phase close --result <result.json>` renders
+been swept (Step 0b again), and any immediate human checkpoints (Step 6) are surfaced, close the run: `node "<helper>" run-ops --plan <plan> --phase close --result <result.json>` renders
 `{op: "close", runId, reason}` — `completed` when the result says `started: true`, `failed` when it
 says `started: false` or the launch threw (no result); pass `--reason cancelled` for an explicit user
 stop or `--reason abandoned` for a Resume re-plan of an unrecoverable run (any other `--reason` exits

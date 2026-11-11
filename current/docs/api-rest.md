@@ -981,8 +981,8 @@ nor `until`, the window runs from the subtree's first event to its last event pl
 from `openedAt` to `closedAt` (or now), `run: {status, terminalReason?, openedAt, closedAt?}`, item and blocked counts
 over the current members (`blocked` adds `byReason`, and `resumable` and `dwellMs` when non-zero), transitions and notes
 from the events stamped with the run, `cost` (`basis: "run"`) from the calls stamped with it, `decisions: {open, byClass,
-bySeverity}`, `seats: {active, stalled[], count}`, `attempts: {total, max}` and `budget: {used, limit?, basis:
-"enforced"}` (tokens, from the run row). A closed run answers the snapshot its close stored in `run.ended`. A
+bySeverity}`, `seats: {active, stalled[], count}`, and `attempts: {total, max}`. There is no `budget` (removed
+in 4.0.1). A closed run answers the snapshot its close stored in `run.ended`. A
 `tags_include` token is `403 forbidden`; a `root_ids` token sees only runs of its roots (else `403`).
 
 **Runs.** `POST /ops/runs_read` serves `get` (one run by UUID or an 8 to 32 character hex prefix), `list` (newest
@@ -990,7 +990,7 @@ first; `status`, `rootId`, `endedSince` against `closedAt`, inclusive, and `unma
 runs without it and is `invalid_request` on `/unmarked` together with a `status` other than `closed`) and `seats` (the
 seat assignments of one run, oldest first: active ones, or every one with `ended: true`, optionally only those on
 `itemId`; `{runId, seats: [{assignmentId, itemId?, seat, attempt, status, outcome?, summary?, links?, hints?, assignedAt,
-endedAt?, lastSeenAt?, usage: {tokens, costUsd}}]}`; the coordinator pseudo-seat has no `itemId`; never a token, its hash
+endedAt?, lastSeenAt?}]}`; the coordinator pseudo-seat has no `itemId`; never a token, its hash
 or the bound principal) and `frontier` (`{runId, status, stalled, counts, ready, inFlight, waiting}`: the ready members,
 the active member seats with their stalled flag and the waiting members with a reason (`manual`, `dependency`,
 `awaiting_decision` or `resource`; a blocked member reports its typed blocked reason, and an `awaiting_decision` one
@@ -1011,7 +1011,7 @@ the coordinator only; `end_seat` the seat's own token; `mark` any `runs` caller.
 `detail: {scope: "principal_kind", required}` naming the allowed kinds. The coordinator is the caller presenting the
 run's `coordinatorToken` as the top-level `seatToken`; the opening principal without it is not the coordinator.
 `assign{runId, itemId, seat, hints?}` assigns a seat of a member item (a seat of the item's schema, or `implementer` or
-`planner` for an item with none; an unknown seat is `not_found` with `detail.kind: seat`, `coordinator` and a non-member
+`planner` for an item with none, plus `reviewer` when its schema has a review-role note; an unknown seat is `not_found` with `detail.kind: seat`, `coordinator` and a non-member
 are `invalid_request` on `/seat` and `/itemId`, a closed or paused run `run_closed` or `run_paused`) and returns
 `{assignmentId, seatToken, attempt}`; re-assigning an active seat ends it as `superseded`, releases its claims and counts
 a new attempt. A token is shown once: the idempotency store never holds one, so a keyed replay of `open` or `assign`
@@ -1036,36 +1036,31 @@ auto-releases the other claims of a sibling seat of the same principal; a stdio 
 `seatToken` holds claims as `(local, assignmentId)`, so two local agents with different seats are distinct holders for
 claims, fencing and note ownership. A note created or adopted under a token is owned by (principal, seat)
 (`notes.owner_id` and `notes.owner_seat`, written only together); every write under a token also records its seat as
-the note's attribution seat (`notes.seat`), which the independence gate pairs with the actor. `advance` `heartbeat` takes `usage{tokens, costUsd}` (absolute values; the highest per field is
-kept), which needs a token. `mark` is REST only (it is on no MCP
+the note's attribution seat (`notes.seat`), which the independence gate pairs with the actor. `advance` `heartbeat` takes no `usage` (removed in 4.0.1: a
+caller that sends one gets `unknown_parameter` on `/usage`). `mark` is REST only (it is on no MCP
 profile): it sets a named instant on a run in any status, first write wins, and answers `marked: false` and records
-nothing for a key already set. Every run result is the run view (`runId`, `rootId`, `status`, `openedBy`, `budget` with
-`costUsd`, `usage`, `hints`, `marks`, `members`, `activeSeats`, `stalledSeats`, `coordinatorStalled`, `version`, ...); `close` adds `snapshot`, `mark` adds
+nothing for a key already set. Every run result is the run view (`runId`, `rootId`, `status`, `openedBy`, `budget`
+(the caps), `usage {observedTokens}`, `hints`, `marks`, `members`, `activeSeats`, `stalledSeats`, `coordinatorStalled`, `version`, ...); `close` adds `snapshot`, `mark` adds
 `marked`. The field reference is in [`api-reference.md`](api-reference.md#runs_read).
 
-**Budgets and caps.** A run's `budget{tokens?, costUsd?, attemptsPerSeat?, maxActiveSeats?}` is pinned at `open` (at
-most the configured `runs.budgets` ceilings, `invalid_request /budget/<field>` otherwise) and `update` may only lower a set field or set one that is absent.
-Usage: each seat's `heartbeat` `usage` is kept per assignment (the highest value per field) and the run's `usage`
-`reportedTokens` / `reportedCostUsd` are the SUM over every assignment of the run, ended ones included; `observedTokens`
-is the server's own estimate, the `responseTokensEst` of every call-log row carrying the run, added off-path by the
-call-log writer. Enforced figures: tokens `max(reported, observed)`, cost reported only; a run breaches when a figure is
-strictly over its limit. Every token-carrying write (`heartbeat`, `transition`, `assign`, `end_seat`, `raise`) checks
-its run after its own change: on a crossing the run is paused (`pauseReason: budget`) and a server-raised `run-budget`
-decision is raised (dedupe key `budget:<runId>:<n>`, options `extend` / `stop`, recommended `stop`, `context` a JSON
-object naming the breached `dimension` with `used` and `limit`), both committed with the write, which still succeeds and
-carries `paused: {decisionId}` in its result. While a run is paused for a limit, `assign` and a `start` transition
-under any of the run's tokens (a member seat's or the coordinator's; a start with no token is not refused) are
-`run_paused` (`pauseReason`, `pauseDecisionId`); every other write continues, and a manual pause does not refuse
-`start`. The `(attemptsPerSeat + 1)`th `assign` of one (item, seat) is refused `run_paused`
+**Budgets and caps.** A run's `budget{attemptsPerSeat?, maxActiveSeats?}` is pinned at `open` (at most the configured
+`runs.budgets` ceilings, `invalid_request /budget/<field>` otherwise) and `update` may only lower a set field or set one
+that is absent. Token and cost budgets (`tokens`, `costUsd`), agent-reported usage (`heartbeat` `usage`) and the answer
+`amount` were removed in 4.0.1: a request that sends one fails `unknown_parameter` on that field. `observedTokens`
+(`usage.observedTokens` of the run view) is the server's own estimate, the `responseTokensEst` of every call-log row
+carrying the run, added off-path by the call-log writer; it is read-only and enforces nothing. While a run is paused for
+a limit, `assign` and a `start` transition under any of the run's tokens (a member seat's or the coordinator's; a start
+with no token is not refused) are `run_paused` (`pauseReason`, `pauseDecisionId`); every other write continues, and a
+manual pause does not refuse `start`. The `(attemptsPerSeat + 1)`th `assign` of one (item, seat) is refused `run_paused`
 (`attempts`), and the run pauses on a server-raised `attempt-cap` decision (dedupe key
 `attempts:<runId>:<itemId>:<seat>:<attempt>`, options `allow_one` / `skip_item` / `stop`) written although the assign
 is refused. An otherwise admissible `assign` that would not supersede an active seat is `409 run_at_capacity` (transient,
 `detail: {runId, active, max}`) while `maxActiveSeats` member seats are active; nothing pauses, retry when a seat ends.
-Answering the pause decision (director or human, `runs_write` `answer`) acts on the run: `extend` (with `amount`, whole
-tokens or US dollars in the context's `dimension`; it may exceed the configured ceiling) raises that limit and resumes
-(`run.updated` with `budgetChanged`, then `run.resumed`); `allow_one` gives that (item, seat) one more attempt and
-resumes; `skip_item` removes the item and resumes; `stop` closes the run `budget_exhausted` with the full close cascade.
-A manual `resume` of a limit pause stays `invalid_run_state`.
+Answering the pause decision (director or human, `runs_write` `answer`) acts on the run: `allow_one` gives that
+(item, seat) one more attempt and resumes; `skip_item` removes the item and resumes; `stop` closes the run
+`budget_exhausted` with the full close cascade. A run paused by a 4.0.0 `run-budget` decision (a stored row, never
+raised again) answers the same way: `extend` resumes the run with no budget change and no `amount`, `stop` closes it. A
+manual `resume` of a limit pause stays `invalid_run_state`.
 
 **Typed blocked reason.** `advance` `transition` takes `reason` (`awaiting_decision`, `dependency`, `resource` or
 `manual`) and `decisionId` on the `block` and `hold` triggers only (anything else is `invalid_request` on

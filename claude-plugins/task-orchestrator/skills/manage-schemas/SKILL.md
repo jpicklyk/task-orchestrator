@@ -137,7 +137,7 @@ For detailed workflow, see `references/delete-workflow.md` in this skill folder.
 
 ### RUN POLICY — the `runs:` block
 
-View: show `runs:` from the file (or the merged view when a `rootId` exists). Edit: write the keys (`stall_after`, `budgets.tokens`, `budgets.cost_usd`, `budgets.attempts_per_seat`, `budgets.max_active_seats`), then run the Step 4 validate and push. Budgets are ceilings and opt-in; keys and ranges are in `references/config-format.md` -> "Run Budgets (`runs:`)".
+View: show `runs:` from the file (or the merged view when a `rootId` exists). Edit: write the keys (`stall_after`, `budgets.attempts_per_seat`, `budgets.max_active_seats`), then run the Step 4 validate and push. The seat budgets are ceilings and opt-in; keys and ranges are in `references/config-format.md` -> "Run Budgets (`runs:`)".
 
 ### DECISION CLASSES — the `decision_classes:` block
 

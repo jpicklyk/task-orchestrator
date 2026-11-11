@@ -67,8 +67,7 @@ private suspend fun listSeats(
 }
 
 /**
- * The one wire form of a seat assignment. It never carries the token, its hash or the bound principal; usage cost is
- * `costUsd` (decimal US dollars), never micro-USD. Absent members are omitted.
+ * The one wire form of a seat assignment. It never carries the token, its hash or the bound principal. Absent members are omitted.
  */
 internal object SeatView {
     fun of(seat: RunSeat): JsonObject =
@@ -99,17 +98,5 @@ internal object SeatView {
             put("assignedAt", seat.assignedAt.toString())
             seat.endedAt?.let { put("endedAt", it.toString()) }
             seat.lastSeenAt?.let { put("lastSeenAt", it.toString()) }
-            put(
-                "usage",
-                buildJsonObject {
-                    put("tokens", seat.usageTokens)
-                    put("costUsd", usd(seat.usageCostMicro))
-                }
-            )
         }
-
-    private fun usd(micro: Long): Double =
-        java.math.BigDecimal
-            .valueOf(micro, 6)
-            .toDouble()
 }

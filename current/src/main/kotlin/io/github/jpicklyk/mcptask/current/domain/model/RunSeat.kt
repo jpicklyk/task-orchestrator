@@ -44,8 +44,7 @@ data class RunSeatLink(
  * [principalId] that the assignment's token is bound to. The token itself is never kept; [tokenHash] is its lowercase hex
  * SHA-256.
  *
- * The [COORDINATOR] pseudo-seat is the one run-scoped row: its [itemId] is null. [usageTokens] and [usageCostMicro]
- * (micro-USD) are the highest absolute usage the seat reported.
+ * The [COORDINATOR] pseudo-seat is the one run-scoped row: its [itemId] is null.
  */
 data class RunSeat(
     val id: UUID = UUID.randomUUID(),
@@ -62,9 +61,7 @@ data class RunSeat(
     val hints: Map<String, String> = emptyMap(),
     val assignedAt: Instant,
     val endedAt: Instant? = null,
-    val lastSeenAt: Instant? = null,
-    val usageTokens: Long = 0,
-    val usageCostMicro: Long = 0
+    val lastSeenAt: Instant? = null
 ) {
     init {
         require(seat.isNotEmpty() && seat.length <= MAX_SEAT_LENGTH) { "seat must be 1 to $MAX_SEAT_LENGTH characters" }
@@ -75,7 +72,6 @@ data class RunSeat(
         }
         require(summary == null || summary.length <= MAX_SUMMARY_LENGTH) { "summary must be at most $MAX_SUMMARY_LENGTH characters" }
         require(links.size <= MAX_LINKS) { "at most $MAX_LINKS links" }
-        require(usageTokens >= 0 && usageCostMicro >= 0) { "usage must not be negative" }
     }
 
     /** True for the run-scoped coordinator pseudo-seat. */
@@ -87,8 +83,17 @@ data class RunSeat(
         /** The run-scoped pseudo-seat `open` creates; it is never a seat of an item's schema. */
         const val COORDINATOR = "coordinator"
 
-        /** The seats a seat-less (or schema-free) item may be assigned. */
+        /** The review seat a seat-less item may be assigned when its schema has a review phase. */
+        const val REVIEWER = "reviewer"
+
+        /** The seats a seat-less (or schema-free) item may always be assigned. */
         val DEFAULT_SEATS: Set<String> = setOf("implementer", "planner")
+
+        /**
+         * The seats a seat-less (or schema-free) item may be assigned: [DEFAULT_SEATS], plus [REVIEWER] when its
+         * resolved schema has a review phase ([hasReviewPhase], any review-role note).
+         */
+        fun defaultSeats(hasReviewPhase: Boolean): Set<String> = if (hasReviewPhase) DEFAULT_SEATS + REVIEWER else DEFAULT_SEATS
 
         const val MAX_SEAT_LENGTH = 64
         const val MAX_SUMMARY_LENGTH = 500

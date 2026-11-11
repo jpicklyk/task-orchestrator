@@ -73,7 +73,6 @@ Read `data.results[0]`:
 | `unblocked` | items that were waiting on this one |
 | `expectedNotes` | note keys the new phase expects; fill these next |
 | `dispatch` | the profile for `newRole` |
-| `paused` | `{decisionId}`: the transition landed and the run just paused on its budget. Stop dispatching into the run; a director or human answers the decision |
 
 A failed transition is `ok: false` with call-level `partial_failure`; the reason is `data.results[0].error.code`:
 
@@ -82,7 +81,7 @@ A failed transition is `ok: false` with call-level `partial_failure`; the reason
 - `dependency_unmet`: a blocker is unfinished; diagnose with `/dependency-manager`.
 - `not_claim_holder`: someone else holds the claim; only the holder can transition.
 - `seat_forbidden`: the item is a member of an open or paused run whose schema declares seats, and your caller is not allowed that trigger (`detail.allowedSeats` lists who is; it always starts with `coordinator`). If you are the run's coordinator, resend with the run's coordinator token as top-level `seatToken`; otherwise leave the transition to the run. Never retry it token-less.
-- `run_paused`: a `start` under a token of a run that is paused on its budget or attempt limit. Read `detail.pauseReason` and `detail.pauseDecisionId`; stop and never retry. A director or human answers the decision.
+- `run_paused`: a `start` under a token of a run that is paused on its attempt limit or a manual pause. Read `detail.pauseReason` and `detail.pauseDecisionId`; stop and never retry. A director or human answers the decision.
 - `invalid_transition`: read `detail.fromRole` and `detail.allowed`; the trigger is not valid from that role.
 
 ### Step 4 - Repeat or finish

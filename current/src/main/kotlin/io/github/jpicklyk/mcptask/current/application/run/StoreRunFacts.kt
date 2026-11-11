@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.run
 
 import io.github.jpicklyk.mcptask.current.application.port.AttemptCounts
-import io.github.jpicklyk.mcptask.current.application.port.BudgetFacts
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.DecisionCounts
 import io.github.jpicklyk.mcptask.current.application.port.RunFacts
@@ -15,7 +14,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequest
 import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestStatus
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.Run
-import io.github.jpicklyk.mcptask.current.domain.model.RunLimitDecisions
 import io.github.jpicklyk.mcptask.current.domain.model.RunLiveness
 import io.github.jpicklyk.mcptask.current.domain.model.RunSeat
 import java.time.Duration
@@ -124,19 +122,9 @@ class StoreRunFacts(
         }
 
     /**
-     * The token budget from the run row (V5, never from `call_log`): used is the larger of the reported and the observed
-     * tokens, limit the pinned `budget.tokens` (null when none), basis `enforced`. Null when there is no such run.
-     */
-    override suspend fun budget(runId: UUID): BudgetFacts? =
-        unitOfWork.read {
-            val run = stores.runStore().getById(runId) ?: return@read null
-            budgetOf(run, stores.decisionRequestStore().list(runId = runId))
-        }
-
-    /**
      * Every fact for [run] with one read per table: the member items, the run's seats (ended ones included), the run's
-     * decisions (any status) and, only when a member awaits a decision, the referenced decisions. The header and budget
-     * figures come from [run] itself.
+     * decisions (any status) and, only when a member awaits a decision, the referenced decisions. The header comes from
+     * [run] itself.
      */
     override suspend fun snapshot(
         run: Run,
@@ -172,8 +160,7 @@ class StoreRunFacts(
                 resumable = awaiting.count { item -> referenced[item.blockedRef]?.status?.isPending != true },
                 decisions = decisionCounts(open, now),
                 seats = stalledOf(run, active, now, stalledLimit),
-                attempts = AttemptCounts(total = allSeats.size, max = allSeats.maxOfOrNull { it.attempt } ?: 0),
-                budget = budgetOf(run, allDecisions)
+                attempts = AttemptCounts(total = allSeats.size, max = allSeats.maxOfOrNull { it.attempt } ?: 0)
             )
         }
     }
@@ -207,25 +194,7 @@ class StoreRunFacts(
         return StalledSeats(active = active.size, stalled = stalled.take(limit.coerceAtLeast(0)), count = stalled.size)
     }
 
-    /** The budget figures of [run]; breaches and extends come from the run's `run-budget` decisions in [decisions]. */
-    private fun budgetOf(
-        run: Run,
-        decisions: List<DecisionRequest>
-    ): BudgetFacts {
-        val budgetDecisions = decisions.filter { it.decisionClass == RunLimitDecisions.RUN_BUDGET }
-        return BudgetFacts(
-            used = maxOf(run.reportedTokens, run.observedTokens),
-            limit = run.budget?.tokens,
-            basis = BUDGET_BASIS_ENFORCED,
-            breaches = budgetDecisions.size,
-            extends = budgetDecisions.count { it.answer?.option == RunLimitDecisions.EXTEND }
-        )
-    }
-
     companion object {
-        /** `budget.basis`: the figure the run's token budget is enforced on. */
-        const val BUDGET_BASIS_ENFORCED = "enforced"
-
         private val PENDING: Set<DecisionRequestStatus> = setOf(DecisionRequestStatus.OPEN, DecisionRequestStatus.ACKNOWLEDGED)
     }
 }

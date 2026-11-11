@@ -125,6 +125,13 @@ test('S2: seat-less orchestrator-confirmation lands in orchestratorNotes and out
   const laneNotes = item.stages.flatMap((s) => s.notes || [])
   assert.ok(laneNotes.includes('review-checklist'))
   assert.equal(laneNotes.includes('orchestrator-confirmation'), false)
+  // the lane runs under seat reviewer with its own token file, and review-wave accepts it
+  const reviewLane = item.stages.find((s) => (s.notes || []).includes('review-checklist'))
+  assert.equal(reviewLane.seat, 'reviewer')
+  assert.ok(/tokens.aaaaaaaa[.]reviewer[.]token$/.test(reviewLane.tokenFile), reviewLane.tokenFile)
+  const norm = normalizeArgs(okArgs(fx))
+  assert.equal(norm.ok, true, norm.reason)
+  assert.deepEqual(preflight(norm.plan).refused, [])
 })
 
 // ---- S3: required orchestrator-confirmation -----------------------------------------------

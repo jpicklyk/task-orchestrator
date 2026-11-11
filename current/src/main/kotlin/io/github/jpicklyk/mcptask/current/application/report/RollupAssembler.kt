@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.report
 
 import io.github.jpicklyk.mcptask.current.application.port.AttemptCounts
-import io.github.jpicklyk.mcptask.current.application.port.BudgetFacts
 import io.github.jpicklyk.mcptask.current.application.port.DecisionCounts
 import io.github.jpicklyk.mcptask.current.application.port.RunFacts
 import io.github.jpicklyk.mcptask.current.application.port.RunHeader
@@ -62,7 +61,6 @@ data class RollupParts(
     val decisions: DecisionCounts? = null,
     val seats: StalledSeats? = null,
     val attempts: AttemptCounts? = null,
-    val budget: BudgetFacts? = null,
     val resumable: Int? = null,
     val dwellMs: Map<String, Long>? = null
 )
@@ -94,7 +92,7 @@ data class RollupSeats(
 
 /**
  * The `report rollup` answer: pointers and counts only, never note bodies. A null section is omitted on the wire; an anchor
- * rollup has no [run], [decisions], [seats], [attempts], [budget] and no `blocked.byReason`.
+ * rollup has no [run], [decisions], [seats], [attempts] and no `blocked.byReason`.
  */
 data class RollupReport(
     val scope: RollupScope,
@@ -107,8 +105,7 @@ data class RollupReport(
     val run: RunHeader?,
     val decisions: DecisionCounts?,
     val seats: RollupSeats?,
-    val attempts: AttemptCounts?,
-    val budget: BudgetFacts?
+    val attempts: AttemptCounts?
 )
 
 /**
@@ -163,8 +160,7 @@ object RollupAssembler {
                         count = maxOf(seats.count, seats.stalled.size)
                     )
                 },
-            attempts = parts.attempts,
-            budget = parts.budget
+            attempts = parts.attempts
         )
     }
 
@@ -191,6 +187,4 @@ object NotTrackedRunFacts : RunFacts {
     ): StalledSeats? = null
 
     override suspend fun attempts(runId: UUID): AttemptCounts? = null
-
-    override suspend fun budget(runId: UUID): BudgetFacts? = null
 }

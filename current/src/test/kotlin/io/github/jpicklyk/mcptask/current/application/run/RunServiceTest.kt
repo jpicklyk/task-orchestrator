@@ -246,7 +246,6 @@ class RunServiceTest {
             assertNull(run.pauseReason)
             assertNull(run.terminalReason)
             assertNull(run.closedAt)
-            assertEquals(0L, run.reportedTokens)
             assertEquals(0L, run.observedTokens)
             assertEquals(run, rig.store.getById(run.id), "the returned run is the stored run")
             assertEquals(members.map { it.id }.toSet(), rig.store.members(run.id).toSet())
@@ -332,24 +331,21 @@ class RunServiceTest {
     @Test
     fun `S2 a budget under the configured ceiling is pinned and recorded, and the boundary value is accepted`(): Unit =
         runBlocking {
-            val rig = rig(RunsConfig(budgets = RunBudget(tokens = 5000)))
+            val rig = rig(RunsConfig(budgets = RunBudget(attemptsPerSeat = 5)))
             val root = rig.root()
             val mark = rig.maxSeq()
 
-            val run = rig.service.open(RunOpenCommand(rootId = root.id, budget = RunBudget(tokens = 1000))).ok()
-            val atCeiling = rig.service.open(RunOpenCommand(rootId = root.id, budget = RunBudget(tokens = 5000))).ok()
+            val run = rig.service.open(RunOpenCommand(rootId = root.id, budget = RunBudget(attemptsPerSeat = 2))).ok()
+            val atCeiling = rig.service.open(RunOpenCommand(rootId = root.id, budget = RunBudget(attemptsPerSeat = 5))).ok()
 
-            assertEquals(RunBudget(tokens = 1000), run.budget)
-            assertEquals(RunBudget(tokens = 5000), atCeiling.budget, "equal to the ceiling is not over it")
+            assertEquals(RunBudget(attemptsPerSeat = 2), run.budget)
+            assertEquals(RunBudget(attemptsPerSeat = 5), atCeiling.budget, "equal to the ceiling is not over it")
             assertEquals(run.budget, rig.store.getById(run.id)?.budget)
             val opened = rig.rowsAfter(mark).first { it.type == "run.opened" }
-            assertEquals(
-                1000,
-                opened
-                    .payload()["budget"]!!
-                    .jsonObject["tokens"]!!
-                    .jsonPrimitive.int
-            )
+            val payload = opened.payload()["budget"]!!.jsonObject
+            assertEquals(2, payload["attemptsPerSeat"]!!.jsonPrimitive.int)
+            assertNull(payload["tokens"], "no token or cost member in the event")
+            assertNull(payload["costMicroUsd"])
         }
 
     @Test
@@ -359,26 +355,26 @@ class RunServiceTest {
             val root = rig.root()
 
             val unlimited = rig.service.open(RunOpenCommand(rootId = root.id)).ok()
-            val huge = rig.service.open(RunOpenCommand(rootId = root.id, budget = RunBudget(tokens = 900_000_000_000L))).ok()
+            val huge = rig.service.open(RunOpenCommand(rootId = root.id, budget = RunBudget(attemptsPerSeat = 2_000_000_000))).ok()
 
             assertNull(unlimited.budget)
-            assertEquals(RunBudget(tokens = 900_000_000_000L), huge.budget, "no ceiling configured, so any requested value stands")
+            assertEquals(RunBudget(attemptsPerSeat = 2_000_000_000), huge.budget, "no ceiling configured, so any requested value stands")
         }
 
     @Test
-    fun `S11 a budget over the configured ceiling is an invalid_request naming budget tokens and the ceiling`(): Unit =
+    fun `S11 a budget over the configured ceiling is an invalid_request naming budget attemptsPerSeat and the ceiling`(): Unit =
         runBlocking {
-            val rig = rig(RunsConfig(budgets = RunBudget(tokens = 5000)))
+            val rig = rig(RunsConfig(budgets = RunBudget(attemptsPerSeat = 5)))
             val root = rig.root()
 
-            val over = rig.service.open(RunOpenCommand(rootId = root.id, budget = RunBudget(tokens = 6000))).err()
-            val justOver = rig.service.open(RunOpenCommand(rootId = root.id, budget = RunBudget(tokens = 5001))).err()
+            val over = rig.service.open(RunOpenCommand(rootId = root.id, budget = RunBudget(attemptsPerSeat = 9))).err()
+            val justOver = rig.service.open(RunOpenCommand(rootId = root.id, budget = RunBudget(attemptsPerSeat = 6))).err()
 
             for (err in listOf(over, justOver)) {
                 assertEquals(ErrorCode.INVALID_REQUEST, err.code)
                 val violation = err.fields().single()
-                assertEquals("budget.tokens", violation.field)
-                assertTrue(violation.reason.contains("5000"), "the reason names the ceiling: ${violation.reason}")
+                assertEquals("budget.attemptsPerSeat", violation.field)
+                assertTrue(violation.reason.contains("5"), "the reason names the ceiling: ${violation.reason}")
             }
             assertEquals(0, rig.store.countNotClosedByRoot(root.id), "a refused open stores nothing")
         }
@@ -386,16 +382,15 @@ class RunServiceTest {
     @Test
     fun `S11 each budget field has its own ceiling and the boundary of every one is accepted`(): Unit =
         runBlocking {
-            val ceilings = RunBudget(tokens = 5000, costMicroUsd = 500_000, attemptsPerSeat = 2, maxActiveSeats = 3)
+            val ceilings = RunBudget(attemptsPerSeat = 2, maxActiveSeats = 3)
             val rig = rig(RunsConfig(budgets = ceilings))
             val root = rig.root()
 
-            val cost = rig.service.open(RunOpenCommand(rootId = root.id, budget = RunBudget(costMicroUsd = 500_001))).err()
             val attempts = rig.service.open(RunOpenCommand(rootId = root.id, budget = RunBudget(attemptsPerSeat = 3))).err()
             val seatsOver = rig.service.open(RunOpenCommand(rootId = root.id, budget = RunBudget(maxActiveSeats = 4))).err()
             val withinAll = rig.service.open(RunOpenCommand(rootId = root.id, budget = ceilings)).ok()
 
-            for (err in listOf(cost, attempts, seatsOver)) {
+            for (err in listOf(attempts, seatsOver)) {
                 assertEquals(ErrorCode.INVALID_REQUEST, err.code)
                 assertTrue(
                     err
@@ -410,14 +405,14 @@ class RunServiceTest {
         }
 
     @Test
-    fun `S11 a ceiling configured for tokens alone does not cap the cost field`(): Unit =
+    fun `S11 a ceiling configured for attempts alone does not cap the seat field`(): Unit =
         runBlocking {
-            val rig = rig(RunsConfig(budgets = RunBudget(tokens = 5000)))
+            val rig = rig(RunsConfig(budgets = RunBudget(attemptsPerSeat = 5)))
             val root = rig.root()
 
-            val free = rig.service.open(RunOpenCommand(rootId = root.id, budget = RunBudget(costMicroUsd = 10_000_000))).ok()
+            val free = rig.service.open(RunOpenCommand(rootId = root.id, budget = RunBudget(maxActiveSeats = 10_000))).ok()
 
-            assertEquals(10_000_000L, free.budget?.costMicroUsd)
+            assertEquals(10_000, free.budget?.maxActiveSeats)
         }
 
     // ---------------------------------------------------------------------------------------------
@@ -460,16 +455,16 @@ class RunServiceTest {
         runBlocking {
             val rig = rig()
             val root = rig.root()
-            val run = rig.service.open(RunOpenCommand(rootId = root.id, budget = RunBudget(tokens = 1000))).ok()
+            val run = rig.service.open(RunOpenCommand(rootId = root.id, budget = RunBudget(attemptsPerSeat = 10))).ok()
             val mark = rig.maxSeq()
 
-            val raised = rig.service.update(run.id, RunUpdateCommand(budget = RunBudget(tokens = 2000))).err()
+            val raised = rig.service.update(run.id, RunUpdateCommand(budget = RunBudget(attemptsPerSeat = 20))).err()
             assertEquals(ErrorCode.INVALID_REQUEST, raised.code)
-            assertEquals(RunBudget(tokens = 1000), rig.store.getById(run.id)?.budget, "a refused raise leaves the pin")
+            assertEquals(RunBudget(attemptsPerSeat = 10), rig.store.getById(run.id)?.budget, "a refused raise leaves the pin")
             assertEquals(emptyList(), rig.rowsAfter(mark), "a refused update records nothing")
 
-            val lowered = rig.service.update(run.id, RunUpdateCommand(budget = RunBudget(tokens = 400))).ok()
-            assertEquals(RunBudget(tokens = 400), lowered.budget)
+            val lowered = rig.service.update(run.id, RunUpdateCommand(budget = RunBudget(attemptsPerSeat = 4))).ok()
+            assertEquals(RunBudget(attemptsPerSeat = 4), lowered.budget)
             val row = rig.rowsAfter(mark).single()
             assertEquals("run.updated", row.type)
             assertEquals("true", row.payload()["budgetChanged"]!!.jsonPrimitive.content)

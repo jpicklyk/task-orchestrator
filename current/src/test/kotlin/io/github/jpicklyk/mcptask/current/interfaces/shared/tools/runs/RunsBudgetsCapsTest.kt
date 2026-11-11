@@ -12,7 +12,6 @@ import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.testReqId
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -25,38 +24,30 @@ import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
-import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.hours
 
 /**
- * Independent tests (blind test-author seat, item acb8e2cf, R27) for run budgets, attempt caps and the active-seat cap, driven
- * through the real MCP adapter and the production dispatcher over the real composition and SQLite (the `SeatWorld` rig), plus the
- * call-log writer for the observed-token counter.
+ * Tests for run caps (attempts per seat and active seats), the legacy 4.0.0 `run-budget` decision state and the removed token and
+ * cost budgets, driven through the real MCP adapter and the production dispatcher over the real composition and SQLite (the
+ * `SeatWorld` rig), plus the call-log writer for the observed-token counter. Originally the R27 scenarios S1 to S15 of the frozen
+ * test-plan; 4.0.1 (item e74ff75e) removed token and cost budgets, heartbeat usage and the answer `amount`.
  *
- * Scenarios S1 to S15 of the frozen test-plan, with its probes.
- *
- * Oracles (never read from a run): task-scope R27 (usage summed into `runs.reported_*`; the writer only adds `response_tokens_est`
- * into `runs.observed_tokens` and never runs the check, D1; enforced tokens = max(reported, observed), cost = reported, D4; the
- * in-unit check on heartbeat, assign, end_seat, transition and raise; a crossing pauses the run for `budget`, raises `run-budget`
- * with dedupe `budget:<runId>:<n>`, options extend/stop, recommended stop and the numbers as context, committed although the write
- * succeeds and answered with `data.paused{decisionId}`; while paused `assign` and a seat-token `start` are `run_paused`; the
- * (cap+1)th assign is refused, pauses the run for `attempts` and raises `attempt-cap`; extend, stop, allow_one and skip_item
- * effects; `run_at_capacity{runId, active, max}` beyond `max_active_seats`, the coordinator not counted, D6), the test-plan frozen
- * rules (breach iff used > limit; reported = SUM over all assignments, ended included, of each one's max-kept report), and the
- * public docs `api-reference.md`, `api-rest.md` ("Budgets and caps"), `fleet-deployment.md` ("Run Budgets and Caps") for wire names
- * (`usage{tokens, costUsd}`, `paused{decisionId}`, `amount`, the run view and the `run_paused` / `run_at_capacity` detail keys).
- *
- * Arbitration record: the decision-row column names `recommended` and `context` follow the sibling `dedupe_key` / `answer_option`
- * columns DecisionServiceTest reads; the dedupe key of an attempt-cap decision uses the refused attempt number (cap + 1) per the
- * orchestrator's supplementary ruling.
+ * Oracles (never read from a run): task-scope R27 as amended by 4.0.1. The writer only adds `response_tokens_est` into
+ * `runs.observed_tokens`, never pauses and never raises a decision (the figure enforces nothing); the (cap+1)th assign is refused
+ * `run_paused`, pauses the run for `attempts` and raises `attempt-cap` (dedupe `attempts:<runId>:<itemId>:<seat>:<attempt>`); `allow_one`
+ * and `skip_item` effects; `run_at_capacity{runId, active, max}` beyond `maxActiveSeats`, the coordinator not counted. A 4.0.0 run
+ * paused on a `run-budget` decision (never raised again, seeded here) resumes on `extend` with no amount and no budget change, and
+ * closes `budget_exhausted` on `stop`. A removed request field is `unknown_parameter` (`/budget/tokens`, `/budget/costUsd`,
+ * `/amount`), and the run view shows `usage {observedTokens}` and no token or cost budget.
  *
  * Negative-assertion fixture conditions: every "not paused / not refused" assertion is paired with the same call crossing the single
- * input it turns on (one more token, one more attempt, one more seat); every refusal asserts the code and its detail.
+ * input it turns on (one more attempt, one more seat); every refusal asserts the code and its detail.
  *
- * Domain invariants satisfied by construction: runs are opened through the tool itself with items that are children of the root.
+ * Domain invariants satisfied by construction: runs are opened through the tool itself with items that are children of the root; the
+ * legacy pause is written through the production decision and run services.
  *
  * Forbidden-construct declaration: none. No assumeTrue, no @Disabled, no swallowed assertions.
  */
@@ -94,11 +85,6 @@ class RunsBudgetsCapsTest {
         )
 
     // ------------------------------------------------------------------ helpers
-
-    private fun Reply.pausedId(i: Int = 0): String? =
-        (results().getOrNull(i)?.let { findElement("paused", it) } as? JsonObject)?.get("decisionId")?.jsonPrimitive?.content
-
-    private fun Reply.hasPaused(): Boolean = findElement("paused") != null
 
     private suspend fun open(
         w: SeatWorld,
@@ -143,18 +129,38 @@ class RunsBudgetsCapsTest {
         w: SeatWorld,
         decisionId: String,
         option: String,
-        amount: String? = null,
+        extra: String = "",
         token: String? = null,
         by: ParityToken = director
     ): Reply =
         w.director(
             "runs_write",
             "{" + (if (token != null) """"seatToken":"$token",""" else "") +
-                """"ops":[{"op":"answer","decisionId":"$decisionId","option":"$option"${amountField(amount)}}]}""",
+                """"ops":[{"op":"answer","decisionId":"$decisionId","option":"$option"$extra}]}""",
             by
         )
 
-    private fun amountField(amount: String?): String = if (amount != null) ""","amount":$amount""" else ""
+    /** The 4.0.0 state: a run seated and paused on a `run-budget` decision. Returns the run, the seat and the decision id. */
+    private suspend fun legacyBudgetPaused(w: SeatWorld): Triple<Opened, Assigned, String> {
+        val run = open(w, """{"attemptsPerSeat":5}""")
+        val seat = seatUp(w, run, w.m1)
+        val decisionId = w.seedLegacyBudgetPause(run)
+        assertEquals("paused", status(w, run), "fixture: the run is paused")
+        assertEquals("budget", view(w, run).find("pauseReason"), "fixture: on the legacy budget reason")
+        return Triple(run, seat, decisionId)
+    }
+
+    /** A run paused on the attempt cap: returns the run and the decision id the refusal names. */
+    private suspend fun attemptsPaused(
+        w: SeatWorld,
+        cap: Int = 1
+    ): Pair<Opened, String> {
+        val run = open(w, """{"attemptsPerSeat":$cap}""")
+        repeat(cap) { w.assignOk(run, w.m1, "builder") }
+        val refused = w.assign(run, w.m1, "builder").reply
+        assertEquals("run_paused", refused.code(), refused.toString())
+        return run to assertNotNull(refused.find("pauseDecisionId", refused.error()))
+    }
 
     private suspend fun eventTypesAfter(
         w: SeatWorld,
@@ -194,37 +200,51 @@ class RunsBudgetsCapsTest {
         by: ParityToken = w.orch
     ): Reply = w.ops("advance", """{"op":"transition","itemId":"${item.id}","trigger":"$trigger"}""", token = token, by = by)
 
-    // ------------------------------------------------------------------ S1 usage is summed per assignment, max per field
+    // ------------------------------------------------------------------ S1 the removed fields
 
     @Test
-    fun `S1 reported usage is the sum over every assignment of each one's highest report, ended and superseded ones included`(): Unit =
+    fun `S1 a removed budget field is unknown_parameter on open and update, and the answer amount is unknown_parameter`(): Unit =
         world { w ->
-            val run = w.open()
-            val a = seatUp(w, run, w.m1)
-            val b = seatUp(w, run, w.m2, "implementer")
+            for ((field, value) in listOf("tokens" to "100", "costUsd" to "1.5")) {
+                val open =
+                    w.ops("runs_write", """{"op":"open","rootId":"${w.root.id}","items":[${w.ids(w.m1)}],"budget":{"$field":$value}}""")
+                assertEquals("unknown_parameter", open.code(), "open with $field: $open")
+                assertTrue(open.parameters().any { it.endsWith("/budget/$field") }, "parameters: ${open.parameters()} in $open")
+            }
+            assertEquals(0, w.rows("SELECT id FROM runs").size, "a refused open stores nothing")
 
-            assertTrue(w.heartbeat(w.m1, a.token, usage = """{"tokens":100}""").ok())
-            assertTrue(w.heartbeat(w.m1, a.token, usage = """{"tokens":100}""").ok())
-            assertTrue(w.heartbeat(w.m2, b.token, usage = """{"tokens":50}""").ok())
-            assertEquals(
-                "150",
-                view(w, run).find("reportedTokens"),
-                "100 (A, reported twice) + 50 (B) is 150, not 250 (test-plan S1, brief 3.9)"
-            )
+            val run = open(w, """{"attemptsPerSeat":3}""")
+            val update =
+                w.ops(
+                    "runs_write",
+                    """{"op":"update","runId":"${run.runId}","budget":{"tokens":50}}""",
+                    token = run.coordinatorToken
+                )
+            assertEquals("unknown_parameter", update.code(), update.toString())
+            assertTrue(update.parameters().any { it.endsWith("/budget/tokens") }, update.toString())
 
-            // probe: a lower report keeps the highest
-            assertTrue(w.heartbeat(w.m1, a.token, usage = """{"tokens":80}""").ok())
-            assertEquals("150", view(w, run).find("reportedTokens"), "a lower absolute report does not reduce the kept maximum")
+            assertTrue(w.close(run, "cancelled", run.coordinatorToken).ok(), "the members are free again")
+            val (_, decisionId) = attemptsPaused(w)
+            val amount = answer(w, decisionId, "allow_one", extra = ""","amount":50""")
+            assertEquals("unknown_parameter", amount.code(), amount.toString())
+            assertTrue(amount.parameters().any { it.endsWith("/amount") }, amount.toString())
+            assertTrue(answer(w, decisionId, "allow_one").ok(), "control: the same answer without amount works")
+        }
 
-            // an ended assignment still counts
-            assertTrue(w.endSeat(b.token).ok())
-            assertEquals("150", view(w, run).find("reportedTokens"), "an ended seat's kept report stays in the sum")
+    @Test
+    fun `S1 the run view shows usage observedTokens only and no token, cost or reported member`(): Unit =
+        world { w ->
+            val run = open(w, """{"attemptsPerSeat":3,"maxActiveSeats":2}""")
+            val v = view(w, run)
 
-            // a superseded assignment still counts, and the new attempt adds its own
-            val again = seatUp(w, run, w.m1)
-            assertEquals(2, again.attempt)
-            assertTrue(w.heartbeat(w.m1, again.token, usage = """{"tokens":30}""").ok())
-            assertEquals("180", view(w, run).find("reportedTokens"), "100 (attempt 1) + 50 (B) + 30 (attempt 2)")
+            assertEquals("0", v.find("observedTokens"))
+            assertEquals("3", v.find("attemptsPerSeat"))
+            for (gone in listOf("tokens", "costUsd", "reportedTokens", "reportedCostUsd")) {
+                assertNull(v.findElement(gone), "no $gone member in the run view: $v")
+            }
+            val seats = w.seats(run)
+            assertTrue(seats.ok(), seats.toString())
+            assertNull(seats.findElement("usage"), "no usage member on a seat row: $seats")
         }
 
     // ------------------------------------------------------------------ S2 the writer adds observed tokens and never checks
@@ -232,7 +252,7 @@ class RunsBudgetsCapsTest {
     @Test
     fun `S2 the call-log writer adds response_tokens_est per run into observed tokens and does not touch the run`(): Unit =
         world { w ->
-            val run = open(w, """{"tokens":5}""")
+            val run = open(w, """{"attemptsPerSeat":5}""")
             val versionBefore = view(w, run).find("version")
             val marker = w.rig.maxSeq()
             val writer = writerFor(w)
@@ -244,11 +264,7 @@ class RunsBudgetsCapsTest {
 
             val after = view(w, run)
             assertEquals("60", after.find("observedTokens"), "10 + 20 + 30; the row without a run id adds nothing (test-plan S2)")
-            assertEquals(
-                "open",
-                after.find("status"),
-                "observed 60 is over the limit 5, yet the writer never runs the check (task-scope D1)"
-            )
+            assertEquals("open", after.find("status"), "the observed figure enforces nothing")
             assertEquals(versionBefore, after.find("version"), "the counter write does not bump the run version")
             assertEquals(0, decisions(w, run).size, "no decision is raised by the writer")
             assertEquals(emptyList(), eventTypesAfter(w, marker).filter { it.startsWith("run.") || it.startsWith("decision.") })
@@ -272,126 +288,51 @@ class RunsBudgetsCapsTest {
         }
 
     @Test
-    @Suppress("ktlint:standard:max-line-length")
-    fun `S2 the writer alone never pauses a run whose observed usage is far over the limit, and the next token-carrying write does`(): Unit =
+    fun `S2 observed tokens far over any figure pause nothing, not even on the next seat-token write`(): Unit =
         world { w ->
-            val run = open(w, """{"tokens":100}""")
+            val run = open(w, """{"attemptsPerSeat":5}""")
             val seat = seatUp(w, run, w.m1)
             val writer = writerFor(w)
-            writer.submit(record(run.runId, 1_000))
+            writer.submit(record(run.runId, 1_000_000))
             writer.flushNow()
-            assertEquals("open", status(w, run), "observed 1000 over 100 and still open")
-            assertEquals(0, decisions(w, run).size)
-            val beat = w.heartbeat(w.m1, seat.token)
-            assertNotNull(beat.pausedId(), "control: the next token-carrying write is the one that pauses: $beat")
-        }
-
-    // ------------------------------------------------------------------ S3 a heartbeat breach pauses
-
-    @Test
-    @Suppress("ktlint:standard:max-line-length")
-    fun `S3 a heartbeat over the token budget succeeds, pauses the run for budget and raises the run-budget decision in the same unit`(): Unit =
-        world { w ->
-            val run = open(w, """{"tokens":100}""")
-            val seat = seatUp(w, run, w.m1)
-            val mark = w.rig.maxSeq()
-
-            val beat = w.heartbeat(w.m1, seat.token, usage = """{"tokens":101}""")
-
-            assertTrue(beat.ok(), "the write itself succeeds: $beat")
-            val decisionId = assertNotNull(beat.pausedId(), "the result carries paused{decisionId}: $beat")
-            val v = view(w, run)
-            assertEquals("paused", v.find("status"))
-            assertEquals("budget", v.find("pauseReason"))
-            val d = decisions(w, run).single()
-            assertEquals(decisionId, w.uuidOf(d["id"]).toString())
-            assertEquals("run-budget", d["class"])
-            assertEquals("budget:${run.runId}:1", d["dedupe_key"])
-            assertEquals(listOf("extend", "stop"), optionKeys(d))
-            assertEquals("stop", d["recommended"])
-            val ctx = Json.parseToJsonElement(d["context"] as String).jsonObject
-            assertEquals("tokens", ctx["dimension"]?.jsonPrimitive?.content)
-            assertEquals("101", ctx["used"]?.jsonPrimitive?.content)
-            assertEquals("100", ctx["limit"]?.jsonPrimitive?.content)
-            assertEquals(101L, w.seatById(seat.assignmentId!!)["usage_tokens"], "the report itself is kept")
-            val types = eventTypesAfter(w, mark)
-            assertEquals(1, types.count { it == "run.paused" }, "run.paused committed: $types")
-            assertEquals(1, types.count { it == "decision.raised" }, "decision.raised committed: $types")
-        }
-
-    // ------------------------------------------------------------------ S4 an observed-only breach pauses on the next write
-
-    @Test
-    fun `S4 observed tokens over the limit with nothing reported pause the run on the next token-carrying write, not before`(): Unit =
-        world { w ->
-            val run = open(w, """{"tokens":100}""")
-            val seat = seatUp(w, run, w.m1)
-            val writer = writerFor(w)
-            writer.submit(record(run.runId, 101))
-            writer.flushNow()
-            assertEquals("open", status(w, run), "the writer alone never pauses")
-            assertEquals(0, decisions(w, run).size)
 
             val beat = w.heartbeat(w.m1, seat.token)
 
             assertTrue(beat.ok(), beat.toString())
-            assertNotNull(beat.pausedId(), "a heartbeat with no usage re-checks the run: $beat")
-            val v = view(w, run)
-            assertEquals("paused", v.find("status"))
-            assertEquals("0", v.find("reportedTokens"))
-            val ctx = Json.parseToJsonElement(decisions(w, run).single()["context"] as String).jsonObject
-            assertEquals("101", ctx["used"]?.jsonPrimitive?.content, "enforced tokens are max(reported 0, observed 101) (D4)")
-        }
-
-    @Test
-    fun `S4 probe observed tokens exactly at the limit do not pause, one more does`(): Unit =
-        world { w ->
-            val run = open(w, """{"tokens":100}""")
-            val seat = seatUp(w, run, w.m1)
-            val writer = writerFor(w)
-            writer.submit(record(run.runId, 100))
-            writer.flushNow()
-            val atLimit = w.heartbeat(w.m1, seat.token)
-            assertTrue(atLimit.ok() && !atLimit.hasPaused(), "observed == limit is not a breach: $atLimit")
+            assertNull(beat.findElement("paused"), "no pause member: $beat")
             assertEquals("open", status(w, run))
-
-            writer.submit(record(run.runId, 1))
-            writer.flushNow()
-            val over = w.heartbeat(w.m1, seat.token)
-            assertNotNull(over.pausedId(), "observed 101 over 100 pauses: $over")
+            assertEquals(0, decisions(w, run).size)
         }
 
-    // ------------------------------------------------------------------ S5 extend resumes, S6 stop closes
+    // ------------------------------------------------------------------ S5 legacy extend resumes, S6 legacy stop closes
 
     @Test
-    fun `S5 the director's extend raises the budget, resumes the run and lets seats assign again`(): Unit =
+    fun `S5 the director's extend on a 4_0_0 run-budget decision resumes the run with no amount and no budget change`(): Unit =
         world { w ->
-            val run = open(w, """{"tokens":100}""")
-            val seat = seatUp(w, run, w.m1)
-            val decisionId = assertNotNull(w.heartbeat(w.m1, seat.token, usage = """{"tokens":101}""").pausedId())
+            val (run, seat, decisionId) = legacyBudgetPaused(w)
             val mark = w.rig.maxSeq()
 
-            val reply = answer(w, decisionId, "extend", amount = "50")
+            val reply = answer(w, decisionId, "extend")
 
             assertTrue(reply.ok(), reply.toString())
             val v = view(w, run)
             assertEquals("open", v.find("status"))
             assertNull(v.find("pauseReason"), "the pause fields are cleared: $v")
-            assertEquals("150", v.find("tokens"), "100 + 50")
-            assertTrue("run.resumed" in eventTypesAfter(w, mark), "run.resumed is recorded")
+            assertEquals("5", v.find("attemptsPerSeat"), "the caps are unchanged")
+            val types = eventTypesAfter(w, mark)
+            assertTrue("run.resumed" in types, "run.resumed is recorded: $types")
+            assertTrue("run.updated" !in types, "nothing was changed on the run: $types")
             assertEquals("answered", decisions(w, run).single()["status"])
-            // control: the refused operations of S10 work again
             assertTrue(w.assign(run, w.m2, "implementer").reply.ok(), "assign works after the resume")
-            val after = w.heartbeat(w.m1, seat.token, usage = """{"tokens":150}""")
-            assertTrue(after.ok() && !after.hasPaused(), "used 150 equals the raised limit 150: no breach: $after")
+            val beat = w.heartbeat(w.m1, seat.token)
+            assertTrue(beat.ok() && beat.findElement("paused") == null, "a heartbeat after the resume raises nothing: $beat")
+            assertEquals(1, decisions(w, run).size, "no new decision")
         }
 
     @Test
-    fun `S6 the director's stop closes the run budget_exhausted with the full cascade`(): Unit =
+    fun `S6 the director's stop of a 4_0_0 run-budget decision closes the run budget_exhausted with the full cascade`(): Unit =
         world { w ->
-            val run = open(w, """{"tokens":100}""")
-            val seat = seatUp(w, run, w.m1)
-            val decisionId = assertNotNull(w.heartbeat(w.m1, seat.token, usage = """{"tokens":101}""").pausedId())
+            val (run, _, decisionId) = legacyBudgetPaused(w)
             val held = w.claim(w.m1, null, by = w.other)
             assertEquals("claim_held", held.code(), "control: before the stop the seat's claim holds the item: $held")
             val mark = w.rig.maxSeq()
@@ -538,15 +479,17 @@ class RunsBudgetsCapsTest {
     @Suppress("ktlint:standard:max-line-length")
     fun `S10 while paused for a limit assign, a seat-token start and update are run_paused and a manual resume is invalid_run_state`(): Unit =
         world { w ->
-            val run = open(w, """{"tokens":100}""")
-            val a = seatUp(w, run, w.m1)
+            val run = open(w, """{"attemptsPerSeat":1}""")
+            seatUp(w, run, w.m1)
             val b = seatUp(w, run, w.m2, "implementer")
-            val decisionId = assertNotNull(w.heartbeat(w.m1, a.token, usage = """{"tokens":101}""").pausedId())
+            val capped = w.assign(run, w.m1, "builder").reply
+            assertEquals("run_paused", capped.code(), capped.toString())
+            val decisionId = assertNotNull(capped.find("pauseDecisionId", capped.error()))
 
             val assign = w.assign(run, w.m3, "implementer").reply
             assertEquals("run_paused", assign.code(), assign.toString())
             assertEquals(decisionId, assign.find("pauseDecisionId", assign.error()))
-            assertEquals("budget", assign.find("pauseReason", assign.error()))
+            assertEquals("attempts", assign.find("pauseReason", assign.error()))
 
             val start = transition(w, w.m2, "start", b.token)
             assertEquals("run_paused", start.code(), "a seat-token start is refused: $start")
@@ -565,39 +508,29 @@ class RunsBudgetsCapsTest {
             assertTrue(human.ok(), "a start without a seat token is not refused: $human")
         }
 
-    // ------------------------------------------------------------------ S11 answer permissions and amount validation
+    // ------------------------------------------------------------------ S11 answer permissions
 
     @Test
-    fun `S11 an answer under a seat token is forbidden principal_kind, and an extend needs a positive amount`(): Unit =
+    fun `S11 an answer under a seat token is forbidden principal_kind, and the director's answer is accepted`(): Unit =
         world { w ->
-            val run = open(w, """{"tokens":100}""")
-            val seat = seatUp(w, run, w.m1)
-            val decisionId = assertNotNull(w.heartbeat(w.m1, seat.token, usage = """{"tokens":101}""").pausedId())
+            val (run, decisionId) = attemptsPaused(w)
 
-            val coordinator = answer(w, decisionId, "extend", amount = "50", token = run.coordinatorToken, by = orchDecide)
+            val coordinator = answer(w, decisionId, "allow_one", token = run.coordinatorToken, by = orchDecide)
             assertEquals("forbidden", coordinator.code(), coordinator.toString())
             assertEquals("principal_kind", coordinator.find("scope", coordinator.error()), coordinator.toString())
             assertEquals("paused", status(w, run), "the coordinator cannot lift its own cap")
+            assertEquals("open", decisions(w, run).single()["status"], "a rejected answer leaves the decision open")
 
-            for (bad in listOf<String?>(null, "0", "-5")) {
-                val reply = answer(w, decisionId, "extend", amount = bad)
-                assertEquals("invalid_request", reply.code(), "amount $bad: $reply")
-                assertTrue(reply.pointers().any { it.endsWith("/amount") }, "the pointer names /amount for $bad: $reply")
-                assertEquals("open", decisions(w, run).single()["status"], "a rejected answer leaves the decision open")
-            }
-
-            val good = answer(w, decisionId, "extend", amount = "50")
-            assertTrue(good.ok(), "control: a positive amount from the director is accepted: $good")
+            val good = answer(w, decisionId, "allow_one")
+            assertTrue(good.ok(), "control: the director's answer is accepted: $good")
             assertEquals("open", status(w, run))
         }
 
     @Test
     fun `S11 probe answering the same decision twice is decision_closed`(): Unit =
         world { w ->
-            val run = open(w, """{"tokens":100}""")
-            val seat = seatUp(w, run, w.m1)
-            val decisionId = assertNotNull(w.heartbeat(w.m1, seat.token, usage = """{"tokens":101}""").pausedId())
-            assertTrue(answer(w, decisionId, "extend", amount = "50").ok())
+            val (run, _, decisionId) = legacyBudgetPaused(w)
+            assertTrue(answer(w, decisionId, "extend").ok())
 
             val second = answer(w, decisionId, "stop")
 
@@ -608,99 +541,50 @@ class RunsBudgetsCapsTest {
     // ------------------------------------------------------------------ S12 ceilings (open may only lower)
 
     @Test
-    fun `S12 open above a configured ceiling is invalid_request on the budget field, and extend may go past the ceiling`(): Unit =
-        world(config = SEAT_WORLD_CONFIG + "\nruns:\n  budgets:\n    tokens: 150\n") { w ->
+    fun `S12 open above a configured attempt ceiling is invalid_request on the budget field`(): Unit =
+        world(config = SEAT_WORLD_CONFIG + "\nruns:\n  budgets:\n    attempts_per_seat: 3\n") { w ->
             val over =
-                w.ops("runs_write", """{"op":"open","rootId":"${w.root.id}","items":[${w.ids(w.m1)}],"budget":{"tokens":151}}""")
+                w.ops("runs_write", """{"op":"open","rootId":"${w.root.id}","items":[${w.ids(w.m1)}],"budget":{"attemptsPerSeat":4}}""")
             assertEquals("invalid_request", over.code(), over.toString())
-            assertTrue(over.pointers().any { it.endsWith("/budget/tokens") }, "pointer names /budget/tokens: $over")
+            assertTrue(over.pointers().any { it.endsWith("/budget/attemptsPerSeat") }, "pointer names /budget/attemptsPerSeat: $over")
 
-            val run = open(w, """{"tokens":150}""")
-            val seat = seatUp(w, run, w.m1)
-            val decisionId = assertNotNull(w.heartbeat(w.m1, seat.token, usage = """{"tokens":151}""").pausedId())
-            assertTrue(answer(w, decisionId, "extend", amount = "100").ok())
-            assertEquals("250", view(w, run).find("tokens"), "extend may exceed the ceiling (frozen probe)")
+            val run = open(w, """{"attemptsPerSeat":3}""")
+            assertEquals("3", view(w, run).find("attemptsPerSeat"), "the ceiling itself is accepted")
         }
 
-    // ------------------------------------------------------------------ S13 boundary
-
     @Test
-    fun `S13 usage equal to the limit does not breach and one more does`(): Unit =
-        world { w ->
-            val run = open(w, """{"tokens":100}""")
-            val seat = seatUp(w, run, w.m1)
+    fun `S12 the removed tokens and cost_usd config keys apply no ceiling`(): Unit =
+        world(config = SEAT_WORLD_CONFIG + "\nruns:\n  budgets:\n    tokens: 1\n    cost_usd: -5\n") { w ->
+            val run = open(w, """{"attemptsPerSeat":9}""")
 
-            val atLimit = w.heartbeat(w.m1, seat.token, usage = """{"tokens":100}""")
-            assertTrue(atLimit.ok() && !atLimit.hasPaused(), "used == limit is not a breach: $atLimit")
+            assertEquals("9", view(w, run).find("attemptsPerSeat"), "no ceiling comes from the removed keys")
             assertEquals("open", status(w, run))
-            assertEquals(0, decisions(w, run).size)
-
-            val over = w.heartbeat(w.m1, seat.token, usage = """{"tokens":101}""")
-            assertNotNull(over.pausedId(), "used 101 over 100 breaches: $over")
-            assertEquals("paused", status(w, run))
         }
 
     // ------------------------------------------------------------------ S14 while paused
 
     @Test
-    fun `S14 while paused the seat's other writes continue and repeat breaches return the same decision and one run paused event`(): Unit =
+    fun `S14 while paused the seat's other writes continue and no write raises a second decision or pause`(): Unit =
         world { w ->
-            val run = open(w, """{"tokens":100}""")
+            val run = open(w, """{"attemptsPerSeat":5}""")
             val seat = seatUp(w, run, w.m1)
             assertTrue(
                 transition(w, w.m3, "start", run.coordinatorToken).ok(),
                 "the coordinator starts a second item while the run is open"
             )
+            val decisionId = w.seedLegacyBudgetPause(run)
             val mark = w.rig.maxSeq()
-            val first = w.heartbeat(w.m1, seat.token, usage = """{"tokens":101}""")
-            val decisionId = assertNotNull(first.pausedId())
 
-            val again = w.heartbeat(w.m1, seat.token, usage = """{"tokens":120}""")
-            assertTrue(again.ok(), "a heartbeat with usage continues: $again")
-            assertEquals(decisionId, again.pausedId(), "a repeat breach returns the same decision")
-            assertEquals(120L, w.seatById(seat.assignmentId!!)["usage_tokens"], "the higher report is kept")
+            val again = w.heartbeat(w.m1, seat.token)
+            assertTrue(again.ok(), "a heartbeat continues: $again")
+            assertNull(again.findElement("paused"), "and carries no pause member: $again")
             assertTrue(w.noteUpsert(w.m1, "build-notes", seat.token).ok(), "a note write continues")
             val complete = transition(w, w.m3, "complete", run.coordinatorToken)
-            assertTrue(complete.ok(), "a seat-token complete continues: $complete")
+            assertTrue(complete.ok(), "a complete continues: $complete")
             assertTrue(w.endSeat(seat.token).ok(), "end_seat continues")
 
-            assertEquals(1, decisions(w, run).size, "still one decision")
-            assertEquals(1, eventTypesAfter(w, mark).count { it == "run.paused" }, "run.paused is recorded once")
+            assertEquals(1, decisions(w, run).size, "still the one legacy decision $decisionId")
+            assertEquals(0, eventTypesAfter(w, mark).count { it == "run.paused" }, "no run.paused is recorded")
             assertEquals("paused", status(w, run))
-        }
-
-    // ------------------------------------------------------------------ S15 cost
-
-    @Test
-    fun `S15 a cost breach alone pauses the run on the cost dimension, and a second breach after an extend is budget n 2`(): Unit =
-        world { w ->
-            val run = open(w, """{"costUsd":1.0}""")
-            val seat = seatUp(w, run, w.m1)
-
-            val first = w.heartbeat(w.m1, seat.token, usage = """{"costUsd":1.5}""")
-            val firstId = assertNotNull(first.pausedId(), "1.5 over 1.0 USD pauses: $first")
-            val d1 = decisions(w, run).single()
-            assertEquals("budget:${run.runId}:1", d1["dedupe_key"])
-            assertEquals(
-                "costUsd",
-                Json
-                    .parseToJsonElement(d1["context"] as String)
-                    .jsonObject["dimension"]
-                    ?.jsonPrimitive
-                    ?.content
-            )
-
-            assertTrue(answer(w, firstId, "extend", amount = "0.25").ok())
-            val limit = assertNotNull(view(w, run).find("costUsd")).toDouble()
-            assertEquals(1.25, limit, 1e-9, "1.0 + 0.25 USD")
-            assertEquals("open", status(w, run))
-
-            val second = w.heartbeat(w.m1, seat.token, usage = """{"costUsd":1.5}""")
-            val secondId = assertNotNull(second.pausedId(), "1.5 is still over 1.25: $second")
-            assertNotEquals(firstId, secondId)
-            assertTrue(
-                decisions(w, run).any { it["dedupe_key"] == "budget:${run.runId}:2" },
-                "the second breach is budget:<runId>:2: ${decisions(w, run)}"
-            )
         }
 }

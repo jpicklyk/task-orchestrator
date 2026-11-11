@@ -144,7 +144,7 @@ test('S1 (shape): label <= 64 and title <= 200 chars, hints is a string-to-strin
 test('S1 (D4): budget appears only when the profile opts in with runBudget, and carries that budget; a plan without it has no budget key', () => {
   const without = ops(planDoc().planPath, 'open').ops[0]
   assert.equal(Object.hasOwn(without, 'budget'), false, 'fixture condition: the same snapshot without runBudget has no budget')
-  const budget = { tokens: 5000000, costUsd: 12.5, attemptsPerSeat: 3, maxActiveSeats: 2 }
+  const budget = { attemptsPerSeat: 3, maxActiveSeats: 2 }
   const withBudget = ops(planDoc({ runBudget: budget }).planPath, 'open').ops[0]
   assert.deepEqual(withBudget.budget, budget)
 })
@@ -206,10 +206,9 @@ test('S2 (probe): an upper-case UUID is a UUID and binds', () => {
   assert.equal(JSON.parse(res.stdout).args.serverRunId.toLowerCase(), SERVER_RUN)
 })
 
-test('S2 (probe): run-ops assign, heartbeat and close on an unbound plan exit 2 (no run to address)', () => {
+test('S2 (probe): run-ops assign and close on an unbound plan exit 2 (no run to address)', () => {
   const { dir, planPath } = planDoc()
-  const usage = writeJson(dir, 'usage.json', { tokens: 1 })
-  for (const extra of [['--phase', 'assign'], ['--phase', 'heartbeat', '--usage', usage], ['--phase', 'close', '--reason', 'cancelled']]) {
+  for (const extra of [['--phase', 'assign'], ['--phase', 'close', '--reason', 'cancelled']]) {
     const res = runCli(['run-ops', '--plan', planPath, ...extra])
     assert.equal(res.status, 2, `${extra.join(' ')} -> ${res.status} ${res.stdout}`)
   }
@@ -290,32 +289,6 @@ test('S3 (probe): an unknown item short exits 2', () => {
   const { boundPath } = boundDoc()
   const res = runCli(['run-ops', '--plan', boundPath, '--phase', 'assign', '--item', 'zzzzzzzz', '--seat', 'planner'])
   assert.equal(res.status, 2)
-})
-
-// ============================================================================================
-// S7 - run-ops heartbeat [D5]
-// ============================================================================================
-
-test('S7: heartbeat renders advance ops [claim first member, heartbeat with usage, release] on the first member item', () => {
-  const { dir, bound, boundPath } = boundDoc()
-  const first = bound.args.items[0].id
-  const usage = writeJson(dir, 'usage.json', { tokens: 1200, costUsd: 0.5 })
-  const out = ops(boundPath, 'heartbeat', ['--usage', usage])
-  assert.equal(out.tool, 'advance')
-  assert.deepEqual(out.ops, [
-    { op: 'claim', itemId: first },
-    { op: 'heartbeat', itemId: first, usage: { tokens: 1200, costUsd: 0.5 } },
-    { op: 'release', itemId: first },
-  ])
-  assert.equal(hasKeyDeep(out, 'seatToken'), false)
-})
-
-test('S7 (absent cost): costUsd is omitted from usage when the usage file lacks it, not rendered as null or 0', () => {
-  const { dir, bound, boundPath } = boundDoc()
-  const first = bound.args.items[0].id
-  const usage = writeJson(dir, 'usage.json', { tokens: 1200 })
-  const out = ops(boundPath, 'heartbeat', ['--usage', usage])
-  assert.deepEqual(out.ops[1], { op: 'heartbeat', itemId: first, usage: { tokens: 1200 } })
 })
 
 // ============================================================================================
@@ -500,7 +473,7 @@ function implementerOut() {
   }
 }
 
-test('AC12 walk: open -> bind-run -> assign (four) -> stage results -> heartbeat -> end-seats -> close completed; provenance carries server-run', () => {
+test('AC12 walk: open -> bind-run -> assign (four) -> stage results -> end-seats -> close completed; provenance carries server-run', () => {
   const { dir, doc, planPath } = planDoc()
   // 1. open
   const opened = ops(planPath, 'open')
@@ -534,10 +507,7 @@ test('AC12 walk: open -> bind-run -> assign (four) -> stage results -> heartbeat
   assert.equal(result.items.length, 2)
   assert.ok(result.items.every((it) => it.status === 'done'), JSON.stringify(result.items.map((it) => [it.short, it.status, it.reason])))
   const resultPath = writeJson(dir, 'result.json', result)
-  // 5. heartbeat
-  const usagePath = writeJson(dir, 'usage.json', { tokens: 1200, costUsd: 0.5 })
-  assert.equal(ops(boundPath, 'heartbeat', ['--usage', usagePath]).ops[1].op, 'heartbeat')
-  // 6. end-seats: the four seats are still active on the server
+  // 5. end-seats: the four seats are still active on the server
   const active = {
     runId: SERVER_RUN,
     seats: [
@@ -548,7 +518,7 @@ test('AC12 walk: open -> bind-run -> assign (four) -> stage results -> heartbeat
   const ended = ops(boundPath, 'end-seats', ['--seats', writeJson(dir, 'seats.json', active), '--result', resultPath])
   assert.equal(ended.ops.length, 4)
   assert.ok(ended.ops.every((o) => o.outcome === 'done'))
-  // 7. close completed
+  // 6. close completed
   assert.deepEqual(ops(boundPath, 'close', ['--result', resultPath]).ops, [{ op: 'close', runId: SERVER_RUN, reason: 'completed' }])
   // provenance carries the server run id
   const lines = provenance({ core, doc: bound, result, method: 'B', turns: 1 })
@@ -605,7 +575,7 @@ test('AC3: no run-wave text persists the plan or state as a document - no docs_w
 
 test('AC3: SKILL.md drives the run lifecycle through the helpers - open, bind-run, assign, end-seats, close - and names runs_write and runs_read', () => {
   const text = skillText('SKILL.md')
-  for (const needle of ['run-ops', 'bind-run', 'end-seats', 'runs_write', 'runs_read', 'seatToken', 'heartbeat']) {
+  for (const needle of ['run-ops', 'bind-run', 'end-seats', 'runs_write', 'runs_read', 'seatToken']) {
     assert.ok(has(text, needle), `SKILL.md does not mention ${needle}`)
   }
   // F7 and Resume read the run view, matching hints.plan
@@ -680,7 +650,7 @@ test('REPORT S1: a closed report with 2 stopped items has the fixed lines in ord
       { id: B, short: 'bbbbbbbb', status: 'stopped', reason: 'gate_blocked', stages: [stageStatus('implementer', 'stopped')], outputs: {} },
     ],
   })
-  const close = { data: { results: [{ ok: true, snapshot: { reason: 'failed', openDecisions: [DEC] } }] } }
+  const close = { data: { results: [{ ok: true, snapshot: { reason: 'failed', openDecisions: 1 } }] } }
   const res = reportOut(planPath, [
     '--event', 'closed', '--result', writeJson(dir, 'result.json', result), '--close', writeJson(dir, 'close.json', close),
   ])
@@ -692,7 +662,7 @@ test('REPORT S1: a closed report with 2 stopped items has the fixed lines in ord
   assert.equal(lines[2], 'decisions: d3c1a2b4 item aaaaaaaa')
   assert.equal(lines[3], 'items: done 0, stopped 2, deferred 0, held 0, excluded 0')
   assert.equal(lines[4], 'stopped: aaaaaaaa run_paused; bbbbbbbb gate_blocked')
-  assert.equal(lines[5], 'close: failed, open decisions d3c1a2b4')
+  assert.equal(lines[5], 'close: failed, open decisions 1 (ids unlisted)')
   assert.equal(lines[6], 'needs: nothing')
 })
 
@@ -735,15 +705,19 @@ test('REPORT S4: planned from a plan with excluded items says needs approve laun
   assert.match(res.stdout, /excluded 1/)
 })
 
-test('REPORT S5: a paused run.json gives the pause line and puts the pause decision in decisions', () => {
+test('REPORT S5: a paused run.json plus the saved run_paused answer gives the pause line and puts the pause decision in decisions', () => {
   const { dir, boundPath: planPath } = boundDoc()
-  const run = { data: { runId: SERVER_RUN, status: 'paused', pauseReason: 'budget', pauseDecisionId: DEC, hints: { phase: 'launched', method: 'A' } } }
-  const res = reportOut(planPath, ['--event', 'paused', '--run', writeJson(dir, 'run.json', run)])
+  // The run view carries pauseReason only (RunView has no pauseDecisionId); the id arrives in the run_paused error detail.
+  const run = { data: { runId: SERVER_RUN, status: 'paused', pauseReason: 'attempts', hints: { phase: 'launched', method: 'A' } } }
+  const answer = { ok: false, data: { results: [{ ok: false, error: { code: 'run_paused', detail: { runId: SERVER_RUN, pauseReason: 'attempts', pauseDecisionId: DEC } } }] } }
+  const res = reportOut(planPath, [
+    '--event', 'paused', '--run', writeJson(dir, 'run.json', run), '--paused', writeJson(dir, 'paused.json', answer),
+  ])
   assert.equal(res.status, 0, res.stderr)
   const lines = res.stdout.split('\n')
   assert.equal(lines[1], 'run: status paused phase launched method A')
   assert.equal(lines[2], 'decisions: d3c1a2b4 item -')
-  assert.equal(lines[3], 'pause: budget decision d3c1a2b4')
+  assert.equal(lines[3], 'pause: attempts decision d3c1a2b4')
 })
 
 test('REPORT S6: 12 stopped items list 10 then and 2 more; zero items gives all-zero counts and a failed close', () => {
@@ -767,77 +741,6 @@ test('REPORT S9: run-ops open names the coordinator token file, keeps the ops an
   assert.equal(canonPath(out.tokenFile), canonPath(`${doc.args.project.scratchDir}/tokens/coordinator.token`))
   assert.equal(out.ops.length, 1)
   assert.equal(hasKeyDeep(out, 'seatToken'), false)
-})
-
-// ============================================================================================
-// Item ad3429e6 - run-ops heartbeat --item (scenarios HB-S9..HB-S11 = test-plan S9..S11).
-// BLIND author: oracle is task-scope Build E1 / AC5: `--phase heartbeat` takes an optional
-// `--item <short|id>` and claims, heartbeats and releases THAT member; without it, items[0].
-// Fixture: independent-two bound plan; items[0] and items[1] are different items, so a heartbeat that
-// ignored --item would claim items[0] and fail every assertion that names items[1].
-// ============================================================================================
-
-test('HB-S9: --item <short id of the second member> -> claim, heartbeat{usage}, release all on that item, not on items[0]', () => {
-  const { dir, bound, boundPath } = boundDoc()
-  const [first, second] = bound.args.items
-  assert.notEqual(first.id, second.id, 'fixture condition: two distinct members')
-  const usage = writeJson(dir, 'usage.json', { tokens: 700, costUsd: 0.25 })
-  const out = ops(boundPath, 'heartbeat', ['--usage', usage, '--item', second.short])
-  assert.equal(out.tool, 'advance')
-  assert.deepEqual(out.ops, [
-    { op: 'claim', itemId: second.id },
-    { op: 'heartbeat', itemId: second.id, usage: { tokens: 700, costUsd: 0.25 } },
-    { op: 'release', itemId: second.id },
-  ])
-  assert.equal(hasKeyDeep(out, 'seatToken'), false)
-})
-
-test('HB-S9: --item <full id of the second member> -> the same three ops on that item', () => {
-  const { dir, bound, boundPath } = boundDoc()
-  const second = bound.args.items[1]
-  const usage = writeJson(dir, 'usage.json', { tokens: 5 })
-  const out = ops(boundPath, 'heartbeat', ['--usage', usage, '--item', second.id])
-  assert.deepEqual(out.ops, [
-    { op: 'claim', itemId: second.id },
-    { op: 'heartbeat', itemId: second.id, usage: { tokens: 5 } },
-    { op: 'release', itemId: second.id },
-  ])
-})
-
-test('HB-S9 (probe): --item naming the FIRST member behaves like the default (same ops)', () => {
-  const { dir, bound, boundPath } = boundDoc()
-  const first = bound.args.items[0]
-  const usage = writeJson(dir, 'usage.json', { tokens: 9 })
-  const named = ops(boundPath, 'heartbeat', ['--usage', usage, '--item', first.short])
-  const dflt = ops(boundPath, 'heartbeat', ['--usage', usage])
-  assert.deepEqual(named, dflt)
-})
-
-test('HB-S10: an unknown --item exits 2 and stderr names the value', () => {
-  const { dir, boundPath } = boundDoc()
-  const usage = writeJson(dir, 'usage.json', { tokens: 1 })
-  const res = runCli(['run-ops', '--plan', boundPath, '--phase', 'heartbeat', '--usage', usage, '--item', 'deadbeef'])
-  assert.equal(res.status, 2, `${res.status} ${res.stdout}`)
-  assert.ok(res.stderr.includes('deadbeef'), `stderr names the unknown item: ${res.stderr}`)
-  assert.equal(res.stdout.trim(), '', 'no ops are rendered for an unknown item')
-})
-
-test('HB-S10 (probe): a well-formed full UUID that is not a member of the plan exits 2 and stderr names it', () => {
-  const { dir, boundPath } = boundDoc()
-  const usage = writeJson(dir, 'usage.json', { tokens: 1 })
-  const stranger = '12345678-1234-4234-8234-123456789abc'
-  const res = runCli(['run-ops', '--plan', boundPath, '--phase', 'heartbeat', '--usage', usage, '--item', stranger])
-  assert.equal(res.status, 2, `${res.status} ${res.stdout}`)
-  assert.ok(res.stderr.includes(stranger), res.stderr)
-})
-
-test('HB-S11: without --item the heartbeat targets items[0], and that differs from items[1]', () => {
-  const { dir, bound, boundPath } = boundDoc()
-  const [first, second] = bound.args.items
-  const usage = writeJson(dir, 'usage.json', { tokens: 42 })
-  const out = ops(boundPath, 'heartbeat', ['--usage', usage])
-  assert.deepEqual(out.ops.map((o) => o.itemId), [first.id, first.id, first.id])
-  assert.notEqual(first.id, second.id)
 })
 
 test('run-pointers: SKILL.md Step 5 names the run-pointers note with the session-tracking fallback, and post-run.md names run-pointers', () => {

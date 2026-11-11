@@ -81,7 +81,7 @@ Below, `"<rootId>"` marks a field you include only when a project rootId is know
 
 ### Runs (only when runs exist)
 
-Issue both reads in parallel and render the section only when either returns a run. A run is a bounded, budgeted pass over a set of items.
+Issue both reads in parallel and render the section only when either returns a run. A run is a bounded pass over a set of items.
 
 ```to-call
 {"tool": "runs_read", "select": "list", "args": {"rootId": "<rootId>", "status": "open"}}
@@ -99,13 +99,13 @@ For each run (cap 5, newest first) read its frontier:
 
 `data.counts` is members by role, `ready` the members nothing holds back, `inFlight` the active seats (each with its own `stalled` flag), `waiting` the members held back, each `{id, reason, decisionId?, blockers?}` with a `reason` of `manual`, `dependency`, `awaiting_decision` or `resource`; `decisionId` is present whenever the member's block names a decision, and `blockers` (short ids) only for `dependency`. `stalled` is the coordinator's flag. A paused run's list entry carries `pauseReason`. Render one row per run: label or title, short run id, status, counts, ready, in flight (N silent, from the seats' `stalled` flags), waiting. The word "stalled" is kept for the health `stalled` items (open items missing notes); a run's seats and coordinator are "silent".
 
-When the director connection's tools are present (`report` and `runs_read` `decisions`; skip the rest of this section silently otherwise), add per run the budget and open decisions from the rollup, and one decisions line for the root. Every call here is a director-profile call:
+When the director connection's tools are present (`report` and `runs_read` `decisions`; skip the rest of this section silently otherwise), add per run the open decisions from the rollup, and one decisions line for the root. Every call here is a director-profile call:
 
 ```to-call
 {"tool": "report", "select": "rollup", "args": {"runId": "<run UUID>"}, "profile": "director"}
 ```
 
-`data.budget` is `{used, limit?}` and `data.decisions.open` the open decisions count. Both are run-only and a run rollup always carries both: `decisions` with `open: 0` when nothing is open, `budget` with `limit` absent when the run has no token budget; an anchor rollup has neither. Render `budget used/limit` (`used` alone with no `limit`) and `decisions open` in the run's row.
+`data.decisions.open` is the open decisions count. It is run-only and a run rollup always carries it (`open: 0` when nothing is open); an anchor rollup has none, and a run rollup has no `budget` (token and cost budgets were removed in 4.0.1). Render `decisions open` in the run's row.
 
 ```to-call
 {"tool": "runs_read", "select": "decisions", "args": {"rootId": "<rootId>", "limit": 50}, "profile": "director"}
@@ -170,8 +170,8 @@ Render in this order; omit any section with no data.
 |----|-------|-----------|-----|
 
 ### ⟳ Runs
-| Run | Status | Terminal / total | Ready | In flight | Waiting | Budget | Decisions open |
-|-----|--------|------------------|-------|-----------|---------|--------|----------------|
+| Run | Status | Terminal / total | Ready | In flight | Waiting | Decisions open |
+|-----|--------|------------------|-------|-----------|---------|----------------|
 
 ### ○ Backlog
 **Workstreams**

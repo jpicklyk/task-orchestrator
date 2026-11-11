@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.application.report
 
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.AttemptCounts
-import io.github.jpicklyk.mcptask.current.application.port.BudgetFacts
 import io.github.jpicklyk.mcptask.current.application.port.DecisionCounts
 import io.github.jpicklyk.mcptask.current.application.port.RunHeader
 import io.github.jpicklyk.mcptask.current.application.support.IdRef
@@ -112,8 +111,7 @@ class RunRollupQueryCountTest {
             run = RunHeader(RunStatus.CLOSED, RunTerminalReason.COMPLETED, opened, now, root),
             decisions = DecisionCounts(0, emptyMap(), emptyMap()),
             seats = RollupSeats(0, emptyList(), 0),
-            attempts = AttemptCounts(2, 1),
-            budget = BudgetFacts(10, null, "enforced")
+            attempts = AttemptCounts(2, 1)
         )
 
     private suspend fun seed(

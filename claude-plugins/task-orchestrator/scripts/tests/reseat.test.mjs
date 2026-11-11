@@ -662,10 +662,23 @@ test('S6: provenance --item with a ledger and no --extra-seats appends extra-sea
   assert.deepEqual(parseExtraSeats(out[a.id]), [{ seat: 'implementer-a1', model: 'sonnet', tokens: 'unknown' }])
 })
 
-test('S6: a numeric ledger tokens value is printed as given', () => {
+test('S6: a numeric ledger tokens value is ignored with a warning; the row reads unknown without meta', () => {
   const { doc, a, result } = provenanceScenario([ledgerEntry('implementer-a1', C2, { tokens: 359000, model: 'opus' })])
-  const out = provenance({ core: realCore(), doc, result, method: 'A', turns: 1, item: 'aaaaaaaa' })
-  assert.equal(out[a.id].split('\n')[1], 'extra-seats=implementer-a1:opus:359000')
+  const warnings = []
+  const out = provenance({ core: realCore(), doc, result, method: 'A', turns: 1, item: 'aaaaaaaa', warnings })
+  assert.equal(out[a.id].split('\n')[1], 'extra-seats=implementer-a1:opus:unknown')
+  assert.ok(warnings.includes('provenance: aaaaaaaa seat implementer-a1 tokens 359000 ignored; transcript meters are the only source'), warnings.join('|'))
+})
+
+test('S6: a ledger row takes its tokens and meters from meta and prints six fields', () => {
+  const { doc, a, result } = provenanceScenario([ledgerEntry('implementer-a1', C2, { tokens: 359000, model: 'opus' })])
+  const meta = { 'implementer-a1:aaaaaaaa': { model: 'opus', usage: { input: 5, cacheWrite: 10, cacheRead: 700, output: 20, tokens: 35 } } }
+  const out = provenance({ core: realCore(), doc, result, method: 'A', turns: 1, item: 'aaaaaaaa', meta })
+  const row = out[a.id].split('\n')[1]
+  assert.match(row, /^extra-seats=implementer-a1:opus:35:[a-z]+:[a-z-]+:5\/10\/700\/20$/)
+  const [parsed] = parseExtraSeats(out[a.id])
+  assert.equal(parsed.tokens, 35)
+  assert.deepEqual(parsed.meters, { input: 5, cacheWrite: 10, cacheRead: 700, output: 20 })
 })
 
 test('S6: --item restricts the output to that item; an item without a ledger gets no second line', () => {
@@ -676,11 +689,11 @@ test('S6: --item restricts the output to that item; an item without a ledger get
   assert.equal(out[b.id].includes('extra-seats='), false)
 })
 
-test('S15: --extra-seats are merged after the ledger; a seat in both takes the flag model and tokens', () => {
+test('S15: --extra-seats are merged after the ledger; a seat in both takes the flag model, and flag tokens are ignored', () => {
   const { doc, a, result } = provenanceScenario([ledgerEntry('implementer-a1', C2)])
   const extraSeats = [{ seat: 'implementer-a1', model: 'opus', tokens: 5 }, { seat: 'reviewer-a1', model: 'opus', tokens: 7 }]
   const out = provenance({ core: realCore(), doc, result, method: 'A', turns: 1, extraSeats, item: 'aaaaaaaa' })
-  assert.equal(out[a.id].split('\n')[1], 'extra-seats=implementer-a1:opus:5,reviewer-a1:opus:7')
+  assert.equal(out[a.id].split('\n')[1], 'extra-seats=implementer-a1:opus:unknown,reviewer-a1:opus:unknown')
 })
 
 test('S15: ledger order comes first, then flag-only seats, with the flag override applied in place', () => {
@@ -688,7 +701,7 @@ test('S15: ledger order comes first, then flag-only seats, with the flag overrid
   const { doc, a, result } = provenanceScenario(ledger)
   const extraSeats = [{ seat: 'reviewer-a1', model: 'opus', tokens: 7 }, { seat: 'test-author-a1', model: 'sonnet', tokens: 42 }]
   const out = provenance({ core: realCore(), doc, result, method: 'A', turns: 1, extraSeats, item: 'aaaaaaaa' })
-  assert.equal(out[a.id].split('\n')[1], 'extra-seats=implementer-a1:sonnet:100,test-author-a1:sonnet:42,reviewer-a1:opus:7')
+  assert.equal(out[a.id].split('\n')[1], 'extra-seats=implementer-a1:sonnet:unknown,test-author-a1:sonnet:unknown,reviewer-a1:opus:unknown')
 })
 
 test('S15: without --item the output is unchanged by a ledger - one line per item, no extra-seats line', () => {
@@ -728,7 +741,23 @@ test('S6 (CLI): provenance --item alone restricts the output to that item and re
 test('S15 (CLI): provenance --item with --extra-seats merges the flag seats after the ledger', () => {
   const { lines, a } = provenanceCli([ledgerEntry('implementer-a1', C2)], ['--item', 'aaaaaaaa', '--extra-seats', 'implementer-a1:opus:5,reviewer-a1:opus:7'])
   assert.deepEqual(Object.keys(lines), [a.id])
-  assert.equal(lines[a.id].split('\n')[1], 'extra-seats=implementer-a1:opus:5,reviewer-a1:opus:7')
+  assert.equal(lines[a.id].split('\n')[1], 'extra-seats=implementer-a1:opus:unknown,reviewer-a1:opus:unknown')
+})
+
+test('provenance --usage warns on stderr, is ignored and leaves the output unchanged (exit 0)', () => {
+  const { doc, result } = provenanceScenario([])
+  const dir = mkdtempSync(join(tmpdir(), 'reseat-usage-'))
+  const planPath = writeJson(dir, 'plan.json', doc)
+  const resultPath = writeJson(dir, 'result.json', result)
+  const usagePath = writeJson(dir, 'usage.json', { tokens: 1000, duration: 60 })
+  const args = ['provenance', '--plan', planPath, '--result', resultPath, '--method', 'A', '--turns', '1']
+  const plain = runCli(args)
+  const withUsage = runCli([...args, '--usage', usagePath])
+  assert.equal(plain.status, 0, plain.stderr)
+  assert.equal(withUsage.status, 0, withUsage.stderr)
+  assert.equal(withUsage.stdout, plain.stdout)
+  assert.ok(withUsage.stderr.includes('provenance: --usage is ignored; tokens come from --meta'), withUsage.stderr)
+  assert.ok(!plain.stderr.includes('--usage'))
 })
 
 test('S15 (CLI): provenance without --item lists every item and never adds an extra-seats line', () => {
@@ -855,4 +884,59 @@ test('D11 (CLI): reseat --assignment <id> records the id in the ledger row; with
   assert.equal(without.status, 0, without.stderr)
   const bare = JSON.parse(without.stdout).result.items[0].reseats[0]
   assert.equal(Object.values(bare).includes(ASSIGNMENT), false, 'fixture condition: the id appears only when passed')
+})
+
+// ── item d0c4f620: the FIX CYCLE line tells a seat to rewrite the notes its base stage owns ────────
+
+const IMPL_REWRITE = 'Rewrite implementation-notes in full so it describes the final state'
+const MANIFEST_REWRITE = 'Rewrite test-manifest in full so it describes the final state'
+
+function fixCycleLine(prompt) {
+  return prompt.split('\n').find((l) => l.startsWith('FIX CYCLE A'))
+}
+
+function ownedNotesDoc(owned) {
+  const list = stageList()
+  for (const [seat, notes] of Object.entries(owned)) list.find((s) => s.seat === seat).notes = notes
+  return makeDoc({ list }).doc
+}
+
+test('d0c4f620: implementer-a1 owning implementation-notes gets the rewrite sentence on the FIX CYCLE line (planning-note variant)', () => {
+  const doc = ownedNotesDoc({ implementer: ['implementation-notes'] })
+  const out = callReseat(realCore(), doc, makeResult(doc), SHORT, 'implementer-a1', { pre: C2 })
+  assert.equal(out.ok, true, JSON.stringify(out))
+  const line = fixCycleLine(out.prompt)
+  assert.ok(line.includes(IMPL_REWRITE), line)
+  assert.ok(line.includes('closure-notes') && line.includes('Amendments:') && line.includes('A<n>'), line)
+  assert.equal(line.includes('test-manifest'), false, line)
+  assert.equal(/\bactor\b|amendments note|## Amendment A1[^"]/i.test(line.replace('"## Amendment A1"', '')), false, line)
+})
+
+test('d0c4f620: the amendments-note variant carries the same sentence on the same line', () => {
+  const doc = ownedNotesDoc({ implementer: ['implementation-notes'], planner: ['amendments'] })
+  const out = callReseat(realCore(), doc, makeResult(doc), SHORT, 'implementer-a1', { pre: C2 })
+  assert.equal(out.ok, true, JSON.stringify(out))
+  const line = fixCycleLine(out.prompt)
+  assert.ok(line.includes("ruling A1 in the item's amendments note"), line)
+  assert.ok(line.includes(IMPL_REWRITE), line)
+})
+
+test('d0c4f620: test-author-a1 owning test-manifest gets the test-manifest sentence without the closure-notes clause', () => {
+  const doc = ownedNotesDoc({ 'test-author': ['test-manifest'] })
+  const out = callReseat(realCore(), doc, makeResult(doc, makeOutputs({ 'declarations-extractor': { declarations: 'export function f(x)', harnessPointers: 'p', gaps: 'none' } })), SHORT, 'test-author-a1', { pre: C2 })
+  assert.equal(out.ok, true, JSON.stringify(out))
+  const line = fixCycleLine(out.prompt)
+  assert.ok(line.includes(MANIFEST_REWRITE), line)
+  assert.equal(line.includes('closure-notes'), false, line)
+  assert.equal(line.includes('implementation-notes'), false, line)
+})
+
+test('d0c4f620: a base owning neither note (planner, implementer with no notes) gets no rewrite sentence', () => {
+  const doc = ownedNotesDoc({ planner: ['specification'], implementer: [] })
+  for (const seat of ['planner-a1', 'implementer-a1']) {
+    const out = callReseat(realCore(), doc, makeResult(doc), SHORT, seat, { pre: C2 })
+    assert.equal(out.ok, true, JSON.stringify(out))
+    assert.equal(out.prompt.includes('Rewrite '), false, seat)
+    assert.ok(fixCycleLine(out.prompt).endsWith('never the whole tree.'), seat)
+  }
 })

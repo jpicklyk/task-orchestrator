@@ -25,7 +25,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { startFakeApi } from './fixtures/ralph/fake-api.mjs'
-import { addSkip, buildHeartbeatUsageOp, decideSelection, hasItemId, isSkipped, loopEffect, OUTCOME_TABLE, sameItemId, worktreeNameForOutcome } from '../ralph-lib.mjs'
+import { addSkip, decideSelection, hasItemId, isSkipped, loopEffect, OUTCOME_TABLE, sameItemId, worktreeNameForOutcome } from '../ralph-lib.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const LOOP = path.resolve(HERE, '..', 'ralph-loop.mjs')
@@ -131,35 +131,25 @@ const assignedIds = (s) => opsNamed(s, 'assign').map((a) => a.itemId.toLowerCase
 const countOf = (text, needle) => text.split(needle).length - 1
 const COST = { total_cost_usd: 1.25, usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 10, cache_read_input_tokens: 5 } }
 
-// ---- S1: usage lands through the ready-to-complete handshake (FIX F1; WG:1112, AR heartbeat) ------------------
+// ---- S1: no usage handshake - ready-to-complete sends complete only (4.0.1 removed usage reporting) -----------
 
-describe('S1 usage handshake', () => {
-  test('NEW: ready-to-complete with cost 1.25 -> heartbeat{usage} then transition complete under the seat token, before end_seat; the run counts the cost and the seat ends done', async () => {
+describe('S1 no usage handshake', () => {
+  test('NEW: ready-to-complete with cost 1.25 in the envelope -> no heartbeat carries usage; complete goes under the seat token before end_seat; the seat ends done and the item is terminal', async () => {
     const s = await scenario({ items: [A], plan: [{ kind: 'ready', ...COST }] })
     assert.equal(s.res.timedOut, false, tail(s))
     assert.equal(s.res.code, 0, tail(s))
     const seat = s.api.seats[0]
-    const hb = opsNamed(s, 'heartbeat').filter((h) => h.usage !== undefined)
-    assert.equal(hb.length, 1, 'one usage heartbeat' + tail(s))
-    assert.equal(hb[0].seatToken, seat.token, 'usage is only recorded under a seat token (AR)')
-    assert.equal(hb[0].usage.costUsd, 1.25)
+    assert.equal(opsNamed(s, 'heartbeat').filter((h) => h.usage !== undefined).length, 0, 'usage reporting was removed in 4.0.1' + tail(s))
     const tr = opsNamed(s, 'transition')
     assert.equal(tr.length, 1)
     assert.equal(tr[0].trigger, 'complete')
     assert.equal(tr[0].seatToken, seat.token)
     const end = opsNamed(s, 'end_seat')[0]
-    assert.ok(hb[0].seq < tr[0].seq, 'the usage is reported while the claim is still held, i.e. before the terminal move')
     assert.ok(tr[0].seq < end.seq, 'complete precedes end_seat')
     assert.equal(end.outcome, 'done')
     assert.equal(s.api.item(A).role, 'terminal')
-    assert.equal(s.api.runView().usage.reportedCostUsd, 1.25, 'the fixture only records usage under a held claim: a post-terminal report would leave 0')
-  })
-
-  test('NEW: usage of two items adds up in the run (the cost budget counts successes)', async () => {
-    const s = await scenario({ items: [A, B], plan: [{ kind: 'ready', ...COST }, { kind: 'ready', ...COST, total_cost_usd: 0.5 }], args: ['--max', '2'] })
-    assert.equal(s.res.timedOut, false, tail(s))
-    assert.deepEqual(s.api.seats.map((x) => [x.itemId, x.outcome]), [[A, 'done'], [B, 'done']])
-    assert.equal(s.api.runView().usage.reportedCostUsd, 1.75)
+    assert.equal(s.res.out.includes('usage-unreported'), false, tail(s))
+    assert.equal(s.res.out.includes('usage-report-failed'), false, tail(s))
   })
 
   test('PROBE (ready on an already-terminal item): the iteration already completed the item; the driver complete is invalid_transition{fromRole: terminal} and still ends the seat done, with no re-assign', async () => {
@@ -175,16 +165,15 @@ describe('S1 usage handshake', () => {
 
 // ---- S10: the legacy terminal status sends no usage ops (FIX F1) --------------------------------------------
 
-test('S10 EXISTING: a legacy terminal iteration (it completed the item itself) with usage in the envelope -> no claim, heartbeat or release after the transition, usage-unreported is printed, the seat ends done', async () => {
+test('S10 EXISTING: a legacy terminal iteration (it completed the item itself) with usage in the envelope -> no claim, heartbeat or release after the transition, no usage line is printed, the seat ends done', async () => {
   const s = await scenario({ items: [A], plan: [{ kind: 'terminal-api', ...COST }] })
   assert.equal(s.res.timedOut, false, tail(s))
   assert.ok(s.log.some((r) => r.type === 'complete-sent' && r.ok === true), 'fixture condition: the child completed the item through the API')
   assert.equal(opsNamed(s, 'claim').length, 1, 'only the seat claim before the spawn; a post-terminal claim would be invalid_transition (WG:1112)')
   assert.equal(opsNamed(s, 'heartbeat').length, 0)
   assert.equal(opsNamed(s, 'release').length, 0)
-  assert.ok(s.res.out.includes('usage-unreported'), tail(s))
+  assert.equal(s.res.out.includes('usage-unreported'), false, tail(s))
   assert.equal(s.api.seats[0].outcome, 'done')
-  assert.equal(s.api.runView().usage.reportedCostUsd, 0)
 })
 
 // ---- S2: full-UUID / hex-id member matching (FIX F4; AR items_read next answers 8-hex short ids) -------------
@@ -469,11 +458,11 @@ describe('S12 run_paused reported by the iteration', () => {
   })
 })
 
-test('S13 NEW: a heartbeat answered paused:{decisionId} during ready-to-complete -> complete is still sent, then the driver waits for the resume before the next assign', async () => {
+test('S13 NEW: a pause after a granted complete (no paused member on the answer) is seen at the next assign as run_paused, then the driver waits for the resume', async () => {
   const s = await scenario({
     items: [A, B],
     plan: [{ kind: 'ready', ...COST }, { kind: 'ready' }],
-    apiOpts: { pauseOn: { op: 'heartbeat', nth: 1, decisionId: DECISION }, resumeAfterPolls: 2 },
+    apiOpts: { pauseOn: { op: 'transition', nth: 1, decisionId: DECISION }, resumeAfterPolls: 2 },
     args: ['--max', '2'],
     env: FAST_POLL,
   })
@@ -481,17 +470,17 @@ test('S13 NEW: a heartbeat answered paused:{decisionId} during ready-to-complete
   assert.equal(s.res.code, 0, tail(s))
   const tr = opsNamed(s, 'transition')
   assert.ok(tr.length >= 1 && tr[0].itemId.toLowerCase() === A && tr[0].trigger === 'complete', 'complete is still sent after the call that paused the run' + tail(s))
-  assert.ok(tr[0].seq > opsNamed(s, 'heartbeat')[0].seq)
   assert.equal(s.api.item(A).role, 'terminal')
+  assert.equal(s.api.item(B).role, 'terminal')
   const assigns = opsNamed(s, 'assign')
-  assert.equal(assigns.length, 2)
   const ps = polls(s)
-  assert.equal(ps.length, 2, tail(s))
-  assert.ok(ps.every((p) => p.seq > opsNamed(s, 'end_seat')[0].seq && p.seq < assigns[1].seq), 'the wait sits between the first seat end and the second assign')
+  assert.ok(ps.length >= 1, 'the driver polled the paused run' + tail(s))
+  assert.ok(ps.every((p) => p.seq > opsNamed(s, 'end_seat')[0].seq && p.seq < assigns.at(-1).seq), 'the wait sits between the first seat end and the last assign')
   assert.deepEqual(s.api.seats.map((x) => [x.itemId, x.outcome]), [[A, 'done'], [B, 'done']])
   assert.equal(opsNamed(s, 'close').length, 1)
   assert.equal(opsNamed(s, 'close')[0].reason, 'completed')
-  assert.equal(countOf(s.res.out, DECISION), 1, tail(s))
+  assert.equal(countOf(s.res.out, DECISION), 1, 'one paused block naming the decision' + tail(s))
+  assert.equal(s.res.out.split('TO report: ').slice(1).filter((b) => / paused: /.test(b.split(/\r?\n/)[0])).length, 1, 'exactly one paused block')
 })
 
 // ---- S7: a run closed elsewhere is a clean exit, not an auth error (FIX F3; AR runs_write "Tokens") ---------
@@ -673,15 +662,6 @@ describe('S15 outcome table', () => {
     assert.equal(loopEffect({ code: 'run_closed', status: 'error' }).effect, 'exit')
   })
 
-  test('NEW: buildHeartbeatUsageOp builds heartbeat{itemId, ttlSeconds, usage} from the final envelope', () => {
-    const op = buildHeartbeatUsageOp({ itemId: A, ttlSeconds: 120, envelope: COST })
-    assert.equal(op.op, 'heartbeat')
-    assert.equal(op.itemId, A)
-    assert.equal(op.ttlSeconds, 120)
-    assert.equal(op.usage.costUsd, 1.25)
-    assert.ok(Number.isInteger(op.usage.tokens) && op.usage.tokens >= 150 && op.usage.tokens <= 165, `tokens ${op.usage.tokens}`)
-  })
-
   test('EXISTING: render-ralph-prompts --check finds the generated prompt tables up to date (exit 0)', () => {
     const out = execFileSync(process.execPath, [RENDER, '--check'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
     assert.equal(typeof out, 'string')
@@ -694,7 +674,7 @@ test('REPORT NEW: a pause prints a TO report paused block naming the decision, t
   const s = await scenario({
     items: [A, B],
     plan: [{ kind: 'ready', ...COST }, { kind: 'ready' }],
-    apiOpts: { pauseOn: { op: 'heartbeat', nth: 1, decisionId: DECISION }, resumeAfterPolls: 2 },
+    apiOpts: { pauseOn: { op: 'transition', nth: 1, decisionId: DECISION }, resumeAfterPolls: 2 },
     args: ['--max', '2'],
     env: FAST_POLL,
   })

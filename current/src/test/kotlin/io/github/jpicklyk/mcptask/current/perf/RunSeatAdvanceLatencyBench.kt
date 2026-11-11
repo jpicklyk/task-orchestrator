@@ -70,7 +70,7 @@ class RunSeatAdvanceLatencyBench {
     ) {
         val items: List<WorkItem> =
             (0 until agents * perAgent).map { world.rig.seed("bench-$label-$it", parent = world.root, tags = "seated-task") }
-        val budget = if (limited) ""","budget":{"tokens":1000000000}""" else ""
+        val budget = if (limited) ""","budget":{"attemptsPerSeat":1000000000}""" else ""
         val run = world.open(members = items, extra = budget)
         val tokens = items.map { item -> item to world.assignOk(run, item, "builder").token!! }
         for ((item, token) in tokens) check(world.claim(item, token).ok()) { "claim failed for ${item.id}" }

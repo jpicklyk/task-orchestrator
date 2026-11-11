@@ -57,9 +57,8 @@ snapshot reads note bodies. So the work splits into five steps:
    makes implement-wave return the altitude-safe result: `rollup` counts, item and stage statuses,
    commit SHAs, file lists, note keys and seat-raised `decisionId`s, with every reason cut to 120
    characters and `redProofShape` cut to 200, and no other seat prose.
-4. On the task notification, the director sends the coordinator the result JSON verbatim and the
-   usage figures (tokens, duration, `costUsd` when given). The coordinator writes `result.json` and
-   `usage.json` and runs post-run (Step 0 saves and verifies the safe result the same way as a full
+4. On the task notification, the director sends the coordinator the result JSON verbatim. The
+   coordinator writes `result.json` and runs post-run (Step 0 saves and verifies the safe result the same way as a full
    one; the prose is in the seats' notes).
 5. The coordinator reports per "Coordinator reports" below.
 
@@ -89,11 +88,11 @@ A coordinator tells the director four things and nothing else. The director othe
 decision only from a manual refresh.
 
 - **When.** `planned` (end of run-wave Step 5a; the tier-2 coordinator's return), `decision` (a seat
-  stopped `awaiting_decision`, or the coordinator raised one), `paused` (`run_paused`, a
-  `paused:{decisionId}` success, or a stalled seat whose re-assign hit the attempt cap), `closed`
+  stopped `awaiting_decision`, or the coordinator raised one), `paused` (`run_paused`, or a
+  stalled seat whose re-assign hit the attempt cap), `closed`
   (any close: completed, failed, cancelled, abandoned, or closed elsewhere).
 - **What.** Only the output of `node scripts/run-planner.mjs report --plan <plan.json> --event
-  <planned|decision|paused|closed> [--result F] [--run F] [--close F] [--needs TEXT]`, or ralph's own
+  <planned|decision|paused|closed> [--result F] [--run F] [--close F] [--paused F] [--needs TEXT]`, or ralph's own
   block. It is a fixed plain-text block (`TO report: run <label> (<run8>) <event>: <headline>`, then
   `run:`, `decisions:`, `items:`, `stopped:`, `close:` and `needs:` lines) of ids cut to 8 hex,
   counts and reasons cut to 120 characters. Never hand-write it, and never send note text, diffs,

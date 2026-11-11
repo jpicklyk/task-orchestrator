@@ -76,7 +76,7 @@
         ]
       },
       {
-        "matcher": "Skill|Read|Edit|Write|Bash|PowerShell|Monitor|Agent|Grep|Glob|NotebookEdit|Workflow",
+        "matcher": "Skill|Read|Edit|Write|Bash|PowerShell|Monitor|Agent|Grep|Glob|NotebookEdit|Workflow|WebFetch|WebSearch|ReadMcpResourceTool|ReadMcpResourceDirTool",
         "hooks": [
           {
             "type": "command",
@@ -88,7 +88,18 @@
       }
 ,
       {
-        "matcher": "^mcp__.*task-orchestrator.*__(docs_read|items_read|notes_read)$",
+        "matcher": "^mcp__.*task-orchestrator.*__(config|docs_read|items_read|notes_read|runs_read)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/director-guard.mjs\"",
+            "timeout": 5,
+            "onFailure": "block"
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__(?!.*task-orchestrator).*$",
         "hooks": [
           {
             "type": "command",

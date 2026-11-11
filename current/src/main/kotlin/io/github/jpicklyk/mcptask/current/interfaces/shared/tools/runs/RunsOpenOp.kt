@@ -75,7 +75,7 @@ private suspend fun WriteScope.openRun(
         return Outcome.Err(RunsSupport.notFoundItem(scopeId))
     }
     val budget =
-        when (val r = RunsSupport.budget(req.budget, "/budget")) {
+        when (val r = RunsSupport.budget(req.budget)) {
             is Outcome.Ok -> r.value
             is Outcome.Err -> return r
         }

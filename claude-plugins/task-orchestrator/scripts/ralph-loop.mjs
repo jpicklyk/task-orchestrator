@@ -4,8 +4,8 @@
 // One server run per loop. Each iteration: select the oldest ready queue item with
 // `items_read next` (minus a per-loop skip list), add it to the run, assign it an `implementer`
 // seat, claim it under that seat token, hand the token to a fresh `claude -p` process (in its own
-// git worktree) through a 0o600 file, wait for the iteration's `RALPH_OUTCOME:` marker, report
-// usage, and end the seat. Every exit path ends any active seat first, then closes the run.
+// git worktree) through a 0o600 file, wait for the iteration's `RALPH_OUTCOME:` marker, and
+// end the seat. Every exit path ends any active seat first, then closes the run.
 //
 // Every coordinator call goes over REST (hooks/lib/api-client.mjs callOp): reads token-less,
 // update/assign/close under the coordinator token, claim/heartbeat/release/end_seat under the seat
@@ -45,8 +45,6 @@ import {
     decideSelection,
     endSeatOutcome,
     loopEffect,
-    buildUsageOps,
-    buildHeartbeatUsageOp,
     resolveHeartbeatInterval,
     hasItemId,
     redactTokens,
@@ -114,8 +112,6 @@ try {
             "max-continuations": { type: "string", default: String(DEFAULTS.maxContinuations) },
             "idle-budget": { type: "string", default: String(DEFAULTS.idleBudget) },
             "iteration-timeout": { type: "string", default: String(DEFAULTS.iterationTimeout) },
-            "run-budget-tokens": { type: "string" },
-            "run-budget-usd": { type: "string" },
             "max-attempts": { type: "string" },
             root: { type: "string", default: "" },
             items: { type: "string", default: "" },
@@ -154,8 +150,6 @@ const cfg = {
     maxContinuations: parseIntStrict(values["max-continuations"], "max-continuations"),
     idleBudget: parseIntStrict(values["idle-budget"], "idle-budget"),
     iterationTimeout: parseIntStrict(values["iteration-timeout"], "iteration-timeout"),
-    runBudgetTokens: values["run-budget-tokens"] === undefined ? undefined : parseIntStrict(values["run-budget-tokens"], "run-budget-tokens"),
-    runBudgetUsd: values["run-budget-usd"] === undefined ? undefined : parseFloatStrict(values["run-budget-usd"], "run-budget-usd"),
     maxAttempts: values["max-attempts"] === undefined ? undefined : parseIntStrict(values["max-attempts"], "max-attempts"),
     items: [...new Set(values.items.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean))],
     claudeBin: values["claude-bin"] || "claude",
@@ -206,8 +200,6 @@ const openOp = buildRunOpenOp({
     title: `ralph drain: ${cfg.filter || "any"}`,
     filter: cfg.filter,
     pid,
-    runBudgetTokens: cfg.runBudgetTokens,
-    runBudgetUsd: cfg.runBudgetUsd,
     maxAttempts: cfg.maxAttempts,
 });
 
@@ -303,12 +295,6 @@ function sleep(ms) {
 async function op(tool, body, timeoutMs) {
     const res = await callOp(tool, body, { timeoutMs, baseUrl });
     const out = firstOpResult(res);
-    // A successful write that crossed a run limit carries paused:{decisionId}; the run is now paused.
-    const p = res && (res.paused || res.data?.paused || res.results?.[0]?.paused || res.data?.results?.[0]?.paused);
-    if (out.ok && p && typeof p === "object") {
-        out.paused = { decisionId: p.decisionId };
-        notePause({ decisionId: p.decisionId });
-    }
     return out;
 }
 const coordinatorCall = (tool, ops) => op(tool, { ops, seatToken: run.coordinatorToken }, WRITE_TIMEOUT_MS);
@@ -491,26 +477,16 @@ while (stats.iterations < cfg.max && !shuttingDown && !stats.exitReason) {
     // ---- was the run closed under us? A closed run's tokens answer unauthenticated, not run_closed.
     if (heartbeat.unauthenticated || outcome.code === "unauthenticated") await runClosedElsewhere("the iteration");
 
-    // ---- usage while the claim is still held, then the driver's own move into terminal
+    // ---- the driver's own move into terminal while the claim is still held
     if (run.closed) {
         if (outcome.status === "ready-to-complete") {
             outcome = { status: "error", code: "run_closed", reason: "the run was closed before the item could be completed", itemId };
         }
     } else if (outcome.status === "ready-to-complete") {
         const summary = outcome.summary;
-        outcome = await completeReady({ itemId, token: seat.token, envelope: result.envelope });
+        outcome = await completeReady({ itemId, token: seat.token });
         outcome.itemId = itemId;
         if (summary && !outcome.summary && outcome.status === "terminal") outcome.summary = summary;
-    } else if (outcome.status === "terminal") {
-        // Legacy: the iteration already moved the item; terminal cleared the claim, so usage cannot land.
-        say("  usage-unreported (the iteration moved the item to terminal itself; use ready-to-complete)");
-    } else {
-        // Best effort, never blocks end_seat. The item is not terminal, so the claim is still held.
-        const usageOps = buildUsageOps({ itemId, ttlSeconds: cfg.ttl, envelope: result.envelope });
-        if (usageOps) {
-            const ur = await callOp("advance", { ops: usageOps, seatToken: seat.token }, { timeoutMs: WRITE_TIMEOUT_MS, baseUrl });
-            if (!ur || !ur.ok) say(`  usage-report-failed (${ur?.error?.code || "no answer"})`);
-        }
     }
 
     // ---- end the seat
@@ -698,17 +674,10 @@ function stopHeartbeat(hb) {
 }
 
 /**
- * The ready-to-complete handshake, under the seat token while the claim is still held: report usage
- * with a heartbeat, then send the complete transition. Returns the final outcome object.
+ * The ready-to-complete handshake, under the seat token while the claim is still held: send the
+ * complete transition. Returns the final outcome object.
  */
-async function completeReady({ itemId, token, envelope }) {
-    const hbOp = buildHeartbeatUsageOp({ itemId, ttlSeconds: cfg.ttl, envelope });
-    if (hbOp) {
-        const ur = await seatCall("advance", [hbOp], token);
-        if (!ur.ok) say(`  usage-report-failed (${ur.error?.code || "no answer"})`);
-    } else {
-        say("  usage-unreported (the iteration's output carried no usage)");
-    }
+async function completeReady({ itemId, token }) {
     let lastError = null;
     for (let attempt = 1; attempt <= COMPLETE_ATTEMPTS; attempt++) {
         const r = await seatCall("advance", [{ op: "transition", itemId, trigger: "complete" }], token);
@@ -722,7 +691,6 @@ async function completeReady({ itemId, token, envelope }) {
             continue;
         }
         if (code === "invalid_transition" && r.error.detail?.fromRole === "terminal") {
-            say("  usage-unreported (the item was already terminal)");
             return { status: "terminal" };
         }
         break;
@@ -1167,8 +1135,6 @@ Options:
   --gate-budget <n>          Consecutive gate failures before stopping (default: ${DEFAULTS.gateBudget})
   --error-budget <n>         Consecutive errors before stopping (default: ${DEFAULTS.errorBudget})
   --budget <usd>             Max USD per iteration, the hard stop (default: $${DEFAULTS.budget})
-  --run-budget-tokens <n>    Run budget in tokens (default: none)
-  --run-budget-usd <usd>     Run budget in US dollars (default: none)
   --max-attempts <n>         Attempts per seat before the run pauses (default: none)
   --ttl <seconds>            Claim TTL per iteration (default: ${DEFAULTS.ttl}s, range 60-86400)
   --heartbeat-interval <s>   Heartbeat the claim this often while an iteration runs

@@ -23,7 +23,7 @@ Every top-level key has one owner. The server validates what it owns and stores 
 | `note_limits` | server | yes | yes | `mode`: `warn` or `reject`. |
 | `status_labels` | server | yes | yes | Trigger to label map; an explicit `null` clears a label. |
 | `independence` | server | yes | yes | `mode` (`off`, `warn`, `reject`) and `require_verified`. |
-| `runs` | server | yes | yes | Run settings: `stall_after` and the `budgets` ceilings. Resolved per field. See [Runs](#runs-runs). |
+| `runs` | server | yes | yes | Run settings: `stall_after` and the `budgets` ceilings (`attempts_per_seat`, `max_active_seats`). Resolved per field. See [Runs](#runs-runs). |
 | `decision_classes` | server | yes | yes | Decision classes by name. A per-root entry replaces the server entry of that name. See [Decision classes](#decision-classes-decision_classes). |
 | `project` | server (per-root) | `rootId` retargets the import to that root (see Parse modes); `name` ignored | yes | `rootId` and `name`. A `rootId` that differs from the push target is rejected unless `force`. |
 | `resources` | server only | yes | rejected | The resource registry is one per server. |
@@ -110,21 +110,21 @@ migration aid. It checks `default_traits` lists only, because the validator does
 
 ## Runs (`runs:`)
 
-The `runs:` block sets how long a run may go quiet and, optionally, ceilings on a run's budget. It is allowed in the
+The `runs:` block sets how long a run may go quiet and, optionally, ceilings on a run's caps. It is allowed in the
 server file and in a per-root document, and each field resolves on its own: the per-root value, else the server value,
 else the default.
 
 | Key | Type | Default | Meaning |
 |-----|------|---------|---------|
 | `stall_after` | integer, seconds, 1 to 2147483647 | 600 | A seat or the coordinator is stalled when the time since it was last seen is strictly longer than this. The value is pinned on the run when it opens. |
-| `budgets.tokens` | integer, at least 1 | none | Ceiling on the tokens a run may be given. |
-| `budgets.cost_usd` | number, US dollars, above 0 | none | Ceiling on the cost a run may be given. |
 | `budgets.attempts_per_seat` | integer, 1 to 2147483647 | none | Ceiling on the attempts one seat may make on one item. |
 | `budgets.max_active_seats` | integer, 1 to 2147483647 | none | Ceiling on the seats active at once. |
 
-Budgets are opt-in: an absent ceiling means unlimited. The block is a ceiling, not a default: a run's own budget at
+Ceilings are opt-in: an absent ceiling means unlimited. The block is a ceiling, not a default: a run's own budget at
 `open` may only lower a ceiling (a value above it is refused), and `update` can only lower a field further or set one
-that was absent. How a run enforces its budget, and the decisions a limit raises, are in
+that was absent. `budgets.tokens` and `budgets.cost_usd` were removed in 4.0.1: a document that still sets them (any
+value) validates and pushes, each key draws one warning at its pointer (`/runs/budgets/tokens`,
+`/runs/budgets/cost_usd`), and no ceiling is applied. How a run enforces its caps, and the decisions a limit raises, are in
 [Fleet Deployment](fleet-deployment.md#run-budgets-and-caps) and the
 [workflow guide](workflow-guide.md#12-runs-seats-and-decisions).
 
@@ -132,8 +132,6 @@ that was absent. How a run enforces its budget, and the decisions a limit raises
 runs:
   stall_after: 900
   budgets:
-    tokens: 2000000
-    cost_usd: 25
     attempts_per_seat: 3
     max_active_seats: 4
 ```

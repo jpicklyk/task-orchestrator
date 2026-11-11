@@ -929,7 +929,7 @@ paths:
         item and blocked counts over the current members (`blocked.byReason`, plus `resumable` and `dwellMs` when
         non-zero), transitions and notes from the events stamped with the run, `cost` (`basis: run`) from the calls
         stamped with it, `decisions: {open, byClass, bySeverity}`, `seats: {active, stalled, count}`, `attempts: {total,
-        max}` and `budget: {used, limit?, basis: enforced}`. A closed run answers the snapshot stored in its
+        max}` (no `budget`: removed in 4.0.1). A closed run answers the snapshot stored in its
         `run.ended` event; a root-scoped token sees only runs of its roots.
         Scope differs per select. `usage`, `waste` and `rollup` read `call_log` rows, which carry no tags: a tag-scoped token is
         `forbidden` (`scope: tag`) and a root-scoped token sees only calls recorded against its roots; `groupBy:
@@ -966,8 +966,7 @@ paths:
         message `The seat token is not accepted.` and no detail, before anything else in the body is read. A call
         under a token loses ADMIN, holds claims as its seat (principal plus assignment), owns the notes it creates or
         adopts as its seat (owner pair), records its seat as each written note's attribution seat, and is its own
-        idempotency principal. `advance` `heartbeat` takes `usage{tokens, costUsd}` under a
-        token. The run errors are 409 `run_closed` (`runId`, `terminalReason`), `run_paused` (`runId`, `pauseReason`,
+        idempotency principal. `advance` `heartbeat` takes no `usage` (removed in 4.0.1). The run errors are 409 `run_closed` (`runId`, `terminalReason`), `run_paused` (`runId`, `pauseReason`,
         `pauseDecisionId?`), `invalid_run_state` (`runId`, `status`, `allowed`), `run_at_capacity` (transient; `runId`,
         `active`, `max`) and `decision_closed` (`decisionId`, `status`); a refused seat is 403 `seat_forbidden`. The check
         order is scope, then permission, then the state of the run. The coordinator token of a closed run is dead

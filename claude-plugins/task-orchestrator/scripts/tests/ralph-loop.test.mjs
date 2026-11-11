@@ -326,17 +326,17 @@ describe('S7 token hygiene', () => {
 
 // ---- S1: budgets and membership on the open op (CLI level), D4 / D5 / S15 ---------------------------------
 
-test('S1/D5: --run-budget-tokens, --run-budget-usd and --max-attempts become budget{tokens, costUsd, attemptsPerSeat} on open, and never maxActiveSeats', async () => {
-  const s = await scenario({ items: [A], args: ['--run-budget-tokens', '1000', '--run-budget-usd', '12.5', '--max-attempts', '3'] })
+test('S1/D5: --max-attempts alone becomes budget{attemptsPerSeat} on open, and never maxActiveSeats or a token or cost cap', async () => {
+  const s = await scenario({ items: [A], args: ['--max-attempts', '3'] })
   assert.equal(s.res.timedOut, false, tail(s))
   const open = opsNamed(s, 'open')[0]
-  assert.deepEqual(open.budget, { tokens: 1000, costUsd: 12.5, attemptsPerSeat: 3 })
+  assert.deepEqual(open.budget, { attemptsPerSeat: 3 })
 })
 
-test('S1/D5: a single --run-budget-usd sends only costUsd', async () => {
-  const s = await scenario({ items: [A], args: ['--run-budget-usd', '12.5'] })
+test('S1/D5: without --max-attempts the open op carries no budget key', async () => {
+  const s = await scenario({ items: [A] })
   assert.equal(s.res.timedOut, false, tail(s))
-  assert.deepEqual(opsNamed(s, 'open')[0].budget, { costUsd: 12.5 })
+  assert.equal(Object.hasOwn(opsNamed(s, 'open')[0], 'budget'), false)
 })
 
 test('D4: --items lists the members on open, de-duplicated, and the picked item is one of them; an earlier non-member in the queue is never assigned', async () => {
@@ -528,54 +528,37 @@ describe('S6 assign faults', () => {
   })
 })
 
-// ---- S11: usage (AC9, D11) ---------------------------------------------------------------------------
-// fd1beaee F1: a terminal transition clears the claim (workflow-guide "Effect of complete and cancel on the
-// Claim"), and usage is only recorded under an active held claim (advance heartbeat "usage needs a seat token").
-// So the iteration reports `ready-to-complete`, and the driver sends heartbeat{usage} and THEN transition
-// {trigger: complete} under the seat token, before end_seat.
+// ---- S11: no usage report (4.0.1 removed heartbeat usage; oracle: e74ff75e AC1/AC2, diagnosis D4) ---------
+// The iteration still reports `ready-to-complete` and the driver still sends transition {trigger: complete}
+// under the held claim and seat token before end_seat, but no heartbeat carries usage and no usage line prints.
 
-describe('S11 usage report', () => {
+describe('S11 no usage report', () => {
   const usageExtras = { total_cost_usd: 1.25, usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 10, cache_read_input_tokens: 5 } }
   const usagePlan = [{ kind: 'ready', ...usageExtras }]
 
-  test('total_cost_usd 1.25 is reported as heartbeat{usage} under the held claim, then transition complete, both under the seat token, before end_seat', async () => {
+  test('total_cost_usd 1.25 in the envelope: no heartbeat carries usage; transition complete goes under the seat token before end_seat; the item is terminal', async () => {
     const s = await scenario({ items: [A], plan: usagePlan })
     assert.equal(s.res.timedOut, false, tail(s))
     assert.equal(s.res.code, 0, tail(s))
     const seat = s.api.seats[0]
-    const hb = opsNamed(s, 'heartbeat')
-    assert.equal(hb.length, 1)
-    assert.equal(hb[0].seatToken, seat.token)
-    assert.equal(hb[0].itemId.toLowerCase(), A)
-    assert.equal(hb[0].usage.costUsd, 1.25)
-    assert.ok(Number.isFinite(hb[0].usage.tokens) && hb[0].usage.tokens >= 150 && hb[0].usage.tokens <= 165, `tokens between input+output and the sum of all four counters (got ${hb[0].usage.tokens})`)
-    assert.equal(hb[0].ttlSeconds, 120, 'the heartbeat carries --ttl')
+    assert.equal(opsNamed(s, 'heartbeat').filter((h) => h.usage !== undefined).length, 0)
     const tr = opsNamed(s, 'transition')
     assert.equal(tr.length, 1)
     assert.equal(tr[0].trigger, 'complete')
     assert.equal(tr[0].seatToken, seat.token)
     assert.equal(tr[0].itemId.toLowerCase(), A)
     const end = opsNamed(s, 'end_seat')[0]
-    assert.ok(hb[0].seq < tr[0].seq && tr[0].seq < end.seq, 'heartbeat{usage}, then complete, then end_seat')
+    assert.ok(tr[0].seq < end.seq, 'complete, then end_seat')
     assert.equal(end.outcome, 'done')
     assert.equal(opsNamed(s, 'claim').filter((c) => c.opsInCall !== 1).length, 0, 'no post-exit claim batch')
     assert.equal(opsNamed(s, 'release').length, 0, 'no release after the item is terminal')
     assert.equal(s.api.item(A).role, 'terminal', 'the driver landed the item in terminal')
-    assert.equal(s.api.runView().usage.reportedCostUsd, 1.25, 'the run counts the reported cost (it was lost when usage was sent after terminal)')
-    assert.equal(s.api.runView().usage.reportedTokens, hb[0].usage.tokens)
+    assert.equal(s.res.out.includes('usage-unreported'), false, tail(s))
+    assert.equal(s.res.out.includes('usage-report-failed'), false, tail(s))
     assert.equal(opsNamed(s, 'close')[0].reason, 'completed')
   })
 
-  test('a usage report that the server refuses never blocks end_seat or the close', async () => {
-    const s = await scenario({ items: [A], plan: usagePlan, apiOpts: { heartbeat: () => ({ code: 'unavailable', retryAfterMs: 1000 }) } })
-    assert.equal(s.res.timedOut, false, tail(s))
-    assert.equal(s.res.code, 0, tail(s))
-    assert.equal(opsNamed(s, 'end_seat').length, 1, 'the seat is still ended')
-    assert.equal(opsNamed(s, 'close')[0].reason, 'completed')
-    assert.equal(writes(s).at(-1).op, 'close')
-  })
-
-  test('no usage is sent when the envelope carries neither total_cost_usd nor usage: ready-to-complete is just the complete move', async () => {
+  test('a plain ready-to-complete is just the complete move', async () => {
     const s = await scenario({ items: [A], plan: ['ready'] })
     assert.equal(s.res.timedOut, false, tail(s))
     assert.equal(opsNamed(s, 'heartbeat').filter((h) => h.usage !== undefined).length, 0)
@@ -652,7 +635,7 @@ describe('S13 preflight', () => {
   test('AC10: --help lists the new flags and no --actor', async () => {
     const s = await scenario({ items: [A], args: ['--help'], timeoutMs: 20000 })
     assert.equal(s.res.timedOut, false, tail(s))
-    for (const flag of ['--iteration-timeout', '--run-budget-tokens', '--run-budget-usd', '--max-attempts', '--root', '--items', '--scratch-dir', '--claude-bin']) {
+    for (const flag of ['--iteration-timeout', '--max-attempts', '--root', '--items', '--scratch-dir', '--claude-bin']) {
       assert.ok(s.res.out.includes(flag), `--help names ${flag}`)
     }
     assert.equal(/\bactor\b/i.test(s.res.out), false, '--help no longer mentions an actor option')

@@ -220,34 +220,31 @@ internal object AdvanceParityScenarios {
                 expectAbsent = listOf("\"refreshed\""),
                 expectDbChanged = false
             ),
-            // R22 (decision D9): `usage` is a seat's spend, so a call with no seat token cannot carry it. Atomic, so the failing
-            // element is the whole-call error with its index and the claim before it is rolled back.
+            // 4.0.1: heartbeat `usage` was removed (it shipped incomplete in 4.0.0). A removed request field is unknown_parameter on its
+            // pointer, with or without a seat token, and the atomic claim before it is not stored.
             scenario(
-                "advance heartbeat usage without a seat token is invalid_request on the usage pointer",
+                "advance heartbeat with usage is unknown_parameter on the usage pointer",
                 "heartbeat",
                 ParityKind.OTHER,
                 agent,
                 ops(claim(r1), heartbeatWithUsage(r1), top = ""","atomic":true"""),
                 400,
-                expectCode = "invalid_request",
-                expectContains = listOf("\"index\":1", "/usage", "requires a seat token"),
+                expectCode = "unknown_parameter",
+                expectContains = listOf("/usage"),
                 expectAbsent = listOf("\"refreshed\""),
                 expectDbChanged = false
             ),
-            // R22 (decision D9), the HAPPY half the round 1 harness could not seed: under a live seat token the seat's spend is
-            // accepted. The claim and the heartbeat are taken under the assignment (the holder is the pair, D10), so the heartbeat
-            // refreshes the very claim the same call made; the seat row keeps the reported usage (compared across the legs through
-            // the run_seats snapshot).
             scenario(
-                "advance heartbeat usage under a seat token is accepted for the seat's own claim",
+                "advance heartbeat with usage under a seat token is unknown_parameter on the usage pointer too",
                 "heartbeat",
                 ParityKind.OTHER,
                 agent,
-                ops(claim(c1), heartbeatWithUsage(c1), top = ""","seatToken":"$seatToken""""),
-                200,
-                expectContains = listOf("\"claimed\":true", "\"refreshed\":true"),
-                expectAbsent = listOf(seatToken, "requires a seat token"),
-                expectDbChanged = true,
+                ops(claim(c1), heartbeatWithUsage(c1), top = ""","atomic":true,"seatToken":"$seatToken""""),
+                400,
+                expectCode = "unknown_parameter",
+                expectContains = listOf("/usage"),
+                expectAbsent = listOf(seatToken, "\"refreshed\""),
+                expectDbChanged = false,
                 seed = seedSeat
             ),
             // R22 (decision D1/D2): a seat token that no live assignment issued is the fixed 401 before any op is read.

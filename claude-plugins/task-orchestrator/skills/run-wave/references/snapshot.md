@@ -47,7 +47,7 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
 - `profile.knownRed` — optional array of `{test, reason, expires?, tracking?}` (`expires` as `YYYY-MM-DD`, or
   `tracking`, required). `plan` copies live entries into `args.project.knownRed` and drops one whose
   `expires` is before the plan date with a warning `knownRed <test> expired <date>`.
-- `profile.runBudget` — optional `{tokens?, costUsd?, attemptsPerSeat?, maxActiveSeats?}`: when set,
+- `profile.runBudget` — optional `{attemptsPerSeat?, maxActiveSeats?}`: when set,
   `plan` copies it to `meta.runBudget` and `run-ops --phase open` sends it as the run's `budget`
   (absent means no cap; the server refuses a budget above its configured ceiling). `plan` also copies
   the snapshot's `ancestorId` to `meta.scopeId`, the run's `scopeId`.

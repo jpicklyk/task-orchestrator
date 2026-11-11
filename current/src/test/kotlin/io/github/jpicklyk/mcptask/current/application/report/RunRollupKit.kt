@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestSeverity
 import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestStatus
 import io.github.jpicklyk.mcptask.current.domain.model.Run
-import io.github.jpicklyk.mcptask.current.domain.model.RunBudget
 import io.github.jpicklyk.mcptask.current.domain.model.RunStatus
 import io.github.jpicklyk.mcptask.current.domain.model.RunTerminalReason
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.P7Raw
@@ -138,8 +137,6 @@ internal object RunKit {
         openedAt: Instant = NOW.minusSeconds(7_200),
         closedAt: Instant = NOW.minusSeconds(3_600),
         stallAfterSeconds: Int = 600,
-        budgetTokens: Long? = null,
-        reportedTokens: Long = 0,
         observedTokens: Long = 0
     ): Run {
         val closed = status == RunStatus.CLOSED
@@ -159,8 +156,6 @@ internal object RunKit {
                         closedBy = if (closed) "api:t" else null,
                         closedAt = if (closed) closedAt else null,
                         stallAfterSeconds = stallAfterSeconds,
-                        budget = budgetTokens?.let { RunBudget(tokens = it) },
-                        reportedTokens = reportedTokens,
                         observedTokens = observedTokens
                     )
                 )
@@ -299,8 +294,6 @@ internal object RunWorld {
             Q,
             members = memberIds,
             openedAt = OPENED,
-            budgetTokens = 1_000,
-            reportedTokens = 300,
             observedTokens = 450
         )
         RunKit.run(f, Q2, members = listOf(J1, J2), openedAt = OPENED)

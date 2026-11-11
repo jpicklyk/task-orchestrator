@@ -297,7 +297,7 @@ class ReportService(
     /**
      * The live rollup of [run], in the caller's unit: the window is `[openedAt, closedAt ?: now)` (informational, never
      * clamped); items, blocked reasons, resumable and dwell are over the CURRENT members; events and cost are those
-     * stamped with the run (no time predicate); decisions, seats, attempts and budget come from [runFacts].
+     * stamped with the run (no time predicate); decisions, seats and attempts come from [runFacts].
      */
     private suspend fun ReadScope.liveRunRollup(run: Run): RollupReport {
         val members = runFacts.members(run.id) ?: stores.runStore().members(run.id).toSet()
@@ -335,7 +335,6 @@ class ReportService(
                 decisions = facts.decisions,
                 seats = facts.seats,
                 attempts = facts.attempts,
-                budget = facts.budget,
                 resumable = facts.resumable,
                 dwellMs = counts.dwellMs
             )

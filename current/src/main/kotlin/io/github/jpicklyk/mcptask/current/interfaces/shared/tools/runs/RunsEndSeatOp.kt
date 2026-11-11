@@ -57,11 +57,6 @@ private suspend fun WriteScope.endSeat(
             is Outcome.Err -> return r
         }
     val ended = result.seat
-    val paused =
-        when (val r = env.runLimits.checkBudget(ended.runId, seat.runLimited)) {
-            is Outcome.Ok -> r.value
-            is Outcome.Err -> return r
-        }
     return Outcome.Ok(
         buildJsonObject {
             put("assignmentId", ended.id.toString())
@@ -71,7 +66,7 @@ private suspend fun WriteScope.endSeat(
             ended.outcome?.let { put("outcome", it.wire) }
             ended.endedAt?.let { put("endedAt", it.toString()) }
             put("released", buildJsonArray { result.released.forEach { add(JsonPrimitive(it.toString())) } })
-        }.withPaused(paused)
+        }
     )
 }
 

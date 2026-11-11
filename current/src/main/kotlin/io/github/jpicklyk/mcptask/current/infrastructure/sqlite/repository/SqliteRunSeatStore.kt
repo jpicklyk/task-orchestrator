@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.port.AssigneeHolder
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.InFlightSeat
 import io.github.jpicklyk.mcptask.current.application.port.RunSeatStore
-import io.github.jpicklyk.mcptask.current.application.port.RunUsageTotals
 import io.github.jpicklyk.mcptask.current.application.port.SeatTokenMatch
 import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.domain.model.RunSeat
@@ -28,7 +27,6 @@ import org.jetbrains.exposed.v1.core.count
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.max
 import org.jetbrains.exposed.v1.core.neq
-import org.jetbrains.exposed.v1.core.sum
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
@@ -62,8 +60,6 @@ class SqliteRunSeatStore(
                 it[RunSeatsTable.assignedAt] = seat.assignedAt
                 it[RunSeatsTable.endedAt] = seat.endedAt
                 it[RunSeatsTable.lastSeenAt] = seat.lastSeenAt
-                it[RunSeatsTable.usageTokens] = seat.usageTokens
-                it[RunSeatsTable.usageCostMicro] = seat.usageCostMicro
             }
             readById(seat.id) ?: error("Seat assignment ${seat.id} vanished after insert")
         }
@@ -145,24 +141,6 @@ class SqliteRunSeatStore(
         }
     }
 
-    override suspend fun recordUsage(
-        id: UUID,
-        tokens: Long?,
-        costMicro: Long?
-    ): RunSeat? =
-        databaseManager.writeTx("RunSeatStore.recordUsage") {
-            val current = readById(id) ?: return@writeTx null
-            val newTokens = if (tokens != null) maxOf(current.usageTokens, tokens) else current.usageTokens
-            val newCost = if (costMicro != null) maxOf(current.usageCostMicro, costMicro) else current.usageCostMicro
-            if (newTokens != current.usageTokens || newCost != current.usageCostMicro) {
-                RunSeatsTable.update({ RunSeatsTable.id eq id }) {
-                    it[RunSeatsTable.usageTokens] = newTokens
-                    it[RunSeatsTable.usageCostMicro] = newCost
-                }
-            }
-            readById(id)
-        }
-
     override suspend fun list(
         runId: UUID,
         itemId: UUID?,
@@ -181,18 +159,6 @@ class SqliteRunSeatStore(
         }
 
     // ---- RunSeatPort ----------------------------------------------------------------------------------------
-
-    override suspend fun usageTotals(runId: UUID): RunUsageTotals =
-        databaseManager.readTx {
-            val tokens = RunSeatsTable.usageTokens.sum()
-            val cost = RunSeatsTable.usageCostMicro.sum()
-            val row =
-                RunSeatsTable
-                    .select(tokens, cost)
-                    .where { RunSeatsTable.runId eq runId }
-                    .single()
-            RunUsageTotals(row[tokens] ?: 0L, row[cost] ?: 0L)
-        }
 
     override suspend fun activeCount(runId: UUID): Int =
         databaseManager.readTx {
@@ -263,9 +229,7 @@ class SqliteRunSeatStore(
             hints = decodeHints(row[RunSeatsTable.hints]),
             assignedAt = row[RunSeatsTable.assignedAt],
             endedAt = row[RunSeatsTable.endedAt],
-            lastSeenAt = row[RunSeatsTable.lastSeenAt],
-            usageTokens = row[RunSeatsTable.usageTokens],
-            usageCostMicro = row[RunSeatsTable.usageCostMicro]
+            lastSeenAt = row[RunSeatsTable.lastSeenAt]
         )
 
     private companion object {

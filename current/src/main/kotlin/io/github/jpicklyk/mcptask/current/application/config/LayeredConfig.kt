@@ -132,8 +132,6 @@ class LayeredConfig(
         val serverBudgets = server?.budgets
         val budgets =
             RunBudget(
-                tokens = localBudgets?.tokens ?: serverBudgets?.tokens,
-                costMicroUsd = localBudgets?.costMicroUsd ?: serverBudgets?.costMicroUsd,
                 attemptsPerSeat = localBudgets?.attemptsPerSeat ?: serverBudgets?.attemptsPerSeat,
                 maxActiveSeats = localBudgets?.maxActiveSeats ?: serverBudgets?.maxActiveSeats,
             )

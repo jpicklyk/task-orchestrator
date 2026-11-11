@@ -15,12 +15,9 @@ import java.time.Instant
 
 /**
  * The one wire form of a run, shared by `runs_read` (get and list items) and every `runs_write` op result. Absent
- * members are omitted, never null; `hints` and `marks` are always present. The budget cost is `costUsd` on the wire,
- * never micro-USD.
+ * members are omitted, never null; `hints` and `marks` are always present.
  */
 internal object RunView {
-    private const val MICRO_PER_USD = 1_000_000.0
-
     /**
      * [members] is the member count and [seats] the run's active seat assignments at read time (the coordinator may be
      * among them; it is never counted). `activeSeats` is the number of active member seats and `stalledSeats` the number
@@ -66,8 +63,6 @@ internal object RunView {
             put(
                 "usage",
                 buildJsonObject {
-                    put("reportedTokens", run.reportedTokens)
-                    put("reportedCostUsd", usd(run.reportedCostMicroUsd))
                     put("observedTokens", run.observedTokens)
                 }
             )
@@ -111,11 +106,7 @@ internal object RunView {
 
     private fun budget(budget: RunBudget): JsonObject =
         buildJsonObject {
-            budget.tokens?.let { put("tokens", it) }
-            budget.costMicroUsd?.let { put("costUsd", usd(it)) }
             budget.attemptsPerSeat?.let { put("attemptsPerSeat", it) }
             budget.maxActiveSeats?.let { put("maxActiveSeats", it) }
         }
-
-    private fun usd(micro: Long): Double = micro / MICRO_PER_USD
 }

@@ -34,3 +34,14 @@ export function orchestratorToolMatcher(tools) {
 export function isOrchestratorServerKey(key) {
   return typeof key === 'string' && key.includes(SERVER_SEGMENT_TOKEN);
 }
+
+/**
+ * Regex-mode matcher for every MCP tool whose name does NOT contain SERVER_SEGMENT_TOKEN: a host
+ * server (terminal, file store, computer use, ...) or a Task Orchestrator server registered under a
+ * key without the token. The director guard hooks it and denies all but a short allow-list.
+ *
+ * @returns {string} '^mcp__(?!.*task-orchestrator).*$'
+ */
+export function hostToolMatcher() {
+  return `^mcp__(?!.*${SERVER_SEGMENT_TOKEN}).*$`;
+}

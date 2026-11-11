@@ -42,7 +42,7 @@ import kotlin.test.assertTrue
  * rollup response for a run, as the REST `POST /api/v1/ops/report` returns it, stays small. A 50-member run shaped like the W6 brief
  * example (one stalled seat, one decision class, one severity, one blocked reason, six-digit event and cost counts) is at most 1,500
  * UTF-8 bytes; the worst case (five stalled seats at the cap, every blocked reason in `byReason` and in `dwellMs`, three classes,
- * three severities, a budget limit, ten-digit durations) is at most 2,000.
+ * three severities, ten-digit durations) is at most 2,000.
  *
  * Oracle: task-scope AC11 and decision D4 (1,500 B for the brief-shaped run, 2,000 B for the worst case). The bounds are the frozen
  * numbers, not a measurement of the implementation.
@@ -131,8 +131,6 @@ class RunRollupSizeTest {
             root = root,
             members = members,
             openedAt = opened,
-            budgetTokens = if (worst) 1_000_000 else null,
-            reportedTokens = 123_456,
             observedTokens = 654_321
         )
         // decisions: the brief shape has one class and one severity; the worst case has three of each
@@ -277,7 +275,7 @@ class RunRollupSizeTest {
         assertFalse("dwellMs" in data.obj("blocked"), "the brief shape has no block events: $text")
         assertEquals(1, data.obj("decisions").obj("byClass").size, "one class: $text")
         assertEquals(1, data.obj("decisions").obj("bySeverity").size, "one severity: $text")
-        assertFalse("limit" in data.obj("budget"), "no budget limit in the brief shape: $text")
+        assertFalse("budget" in data, "a run rollup has no budget member: $text")
         assertTrue(size > 300, "a real rollup is more than a stub: $size bytes\n$text")
         assertTrue(size <= 1_500, "the brief-shaped run rollup response is $size bytes (limit 1,500):\n$text")
     }
@@ -299,7 +297,6 @@ class RunRollupSizeTest {
         assertEquals(4, data.obj("blocked").obj("dwellMs").size, "a dwell for every reason: $text")
         assertEquals(3, data.obj("decisions").obj("byClass").size, "three classes: $text")
         assertEquals(3, data.obj("decisions").obj("bySeverity").size, "three severities: $text")
-        assertEquals("1000000", data.obj("budget").text("limit"), "a budget limit: $text")
         assertTrue(size > 300, "the worst case is far more than a stub: $size bytes\n$text")
         assertTrue(size <= 2_000, "the worst-case run rollup response is $size bytes (limit 2,000):\n$text")
     }

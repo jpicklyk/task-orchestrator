@@ -35,8 +35,8 @@ import kotlin.test.assertTrue
  * N1 oracle (fix declarations): under a restricted scope an unknown full UUID, an unknown prefix and a prefix whose candidates
  * are all out of scope give the SAME `forbidden` as an existing out-of-scope run (the item no-match shape of ScopedIdsTest:
  * scope is no existence oracle); an ambiguous prefix keeps only admitted candidates (one resolves, two or more list only
- * those); an unrestricted scope keeps `not_found` / `ambiguous_id`. N5 oracle: the ceiling breach reason states the ceiling in
- * decimal USD (the field's unit), never in micro-USD.
+ * those); an unrestricted scope keeps `not_found` / `ambiguous_id`. N5 oracle: the ceiling breach reason names the field and states the ceiling (the
+ * 4.0.1 removal of cost budgets left the attempt and seat ceilings).
  *
  * Negative-assertion conditions: every forbidden case is paired with an in-scope control that resolves; every refusal also
  * asserts the database snapshot is unchanged.
@@ -289,11 +289,11 @@ class RunsIdScopeAndCeilingTest {
     // ------------------------------------------------------------------ N5
 
     @Test
-    fun `N5 a costUsd ceiling breach states the ceiling in decimal USD and never the micro-USD figure`() {
+    fun `N5 an attempts ceiling breach names the field and states the ceiling, and the removed cost_usd key applies none`() {
         val rig =
             rig {
                 with(RunsParityScenarios) { tree() }
-                config(r1, CfgYaml.rev(1) + "runs:\n  budgets:\n    cost_usd: 2.5\n")
+                config(r1, CfgYaml.rev(1) + "runs:\n  budgets:\n    attempts_per_seat: 2\n    cost_usd: 2.5\n")
             }
         val before = ParityHarness.snapshot(db.db.jdbcUrl)
 
@@ -302,15 +302,25 @@ class RunsIdScopeAndCeilingTest {
                 rig,
                 RunsParityScenarios.coord,
                 "runs_write",
-                RunsParityScenarios.ops(RunsParityScenarios.open(r1, ""","budget":{"costUsd":3}""")),
+                RunsParityScenarios.ops(RunsParityScenarios.open(r1, ""","budget":{"attemptsPerSeat":3}""")),
                 ToolProfile.ORCHESTRATION
             )
         val body = text(over)
         assertTrue(over.isError, over.structured.toString())
-        assertTrue("/budget/costUsd" in body, "the refusal names the field: ${over.structured}")
-        assertTrue("2.5" in body, "the ceiling is stated in USD: ${over.structured}")
-        assertFalse("2500000" in body, "the micro-USD figure never reaches the reason: ${over.structured}")
+        assertTrue("/budget/attemptsPerSeat" in body, "the refusal names the field: ${over.structured}")
+        assertTrue("ceiling 2" in body, "the ceiling is stated: ${over.structured}")
         assertEquals(before, ParityHarness.snapshot(db.db.jdbcUrl), "a refused open stores nothing")
+
+        // a removed request field is unknown_parameter, whatever the config says
+        val removed =
+            mcp(
+                rig,
+                RunsParityScenarios.coord,
+                "runs_write",
+                RunsParityScenarios.ops(RunsParityScenarios.open(r1, ""","budget":{"costUsd":3}""")),
+                ToolProfile.ORCHESTRATION
+            )
+        assertTrue("unknown_parameter" in text(removed) && "/budget/costUsd" in text(removed), removed.structured.toString())
 
         // control: a budget at the ceiling is accepted
         val atCeiling =
@@ -318,10 +328,10 @@ class RunsIdScopeAndCeilingTest {
                 rig,
                 RunsParityScenarios.coord,
                 "runs_write",
-                RunsParityScenarios.ops(RunsParityScenarios.open(r1, ""","budget":{"costUsd":2.5}""")),
+                RunsParityScenarios.ops(RunsParityScenarios.open(r1, ""","budget":{"attemptsPerSeat":2}""")),
                 ToolProfile.ORCHESTRATION
             )
         assertFalse(atCeiling.isError, atCeiling.structured.toString())
-        assertTrue("\"costUsd\":2.5" in text(atCeiling), atCeiling.structured.toString())
+        assertTrue("\"attemptsPerSeat\":2" in text(atCeiling), atCeiling.structured.toString())
     }
 }

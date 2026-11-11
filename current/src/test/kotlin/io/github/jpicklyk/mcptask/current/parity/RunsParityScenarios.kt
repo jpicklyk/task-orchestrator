@@ -950,7 +950,7 @@ internal object RunsParityScenarios {
                     open(
                         r1,
                         ""","items":${ids(c1)},"label":"nightly","title":"Nightly wave",""" +
-                            """"budget":{"tokens":1000,"costUsd":1.5,"attemptsPerSeat":3,"maxActiveSeats":2},""" +
+                            """"budget":{"attemptsPerSeat":3,"maxActiveSeats":2},""" +
                             """"stallAfterSeconds":120,"hints":{"owner":"qa"}"""
                     )
                 ),
@@ -958,15 +958,13 @@ internal object RunsParityScenarios {
                     listOf(
                         "\"label\":\"nightly\"",
                         "\"title\":\"Nightly wave\"",
-                        "\"tokens\":1000",
-                        "\"costUsd\":1.5",
                         "\"attemptsPerSeat\":3",
                         "\"maxActiveSeats\":2",
                         "\"stallAfterSeconds\":120",
                         "\"hints\":{\"owner\":\"qa\"}",
                         "\"members\":1"
                     ),
-                absent = listOf("costMicroUsd", "1500000"),
+                absent = listOf("costMicroUsd", "\"tokens\":", "\"costUsd\"", "reportedTokens"),
                 seed = tree
             ),
             wrote(
@@ -1558,7 +1556,7 @@ internal object RunsParityScenarios {
      *
      * Round 2 adds the HAPPY `assign` / `end_seat` scenarios: the harness seeds the coordinator seat of every seeded run with a
      * known token (`parityCoordinatorToken`) and an `implementer` seat with a known token (`ParitySeeder.seat`), and masks the
-     * issued `seatToken` / `coordinatorToken` values in the compared bodies (the heartbeat `usage` one is in
+     * issued `seatToken` / `coordinatorToken` values in the compared bodies (the heartbeat scenarios are in
      * [AdvanceParityScenarios]). A token is accepted only from the principal the seat was assigned to, so these scenarios run as
      * `api:rw-coord`, the opener the seeder records.
      */
@@ -2565,11 +2563,13 @@ class RunsParityTest {
     }
 
     @Test
-    fun `S1 the cost in USD is a decimal on the wire and the micro-USD figure never reaches it`() {
+    fun `S1 the run view carries the caps and observedTokens, and no token or cost member`() {
         val o = harness.run(named("open with every field"))
-        assertTrue("\"costUsd\":1.5" in o.body, o.body)
-        assertFalse("costMicroUsd" in o.body, o.body)
-        assertFalse("1500000" in o.body, o.body)
+        assertTrue("\"attemptsPerSeat\":3" in o.body, o.body)
+        assertTrue("\"observedTokens\":0" in o.body, o.body)
+        for (gone in listOf("costUsd", "costMicroUsd", "reportedTokens", "reportedCostUsd", "\"tokens\":")) {
+            assertFalse(gone in o.body, "$gone is gone from the run view: ${o.body}")
+        }
     }
 
     // ------------------------------------------------------------------ S3 list order and paging

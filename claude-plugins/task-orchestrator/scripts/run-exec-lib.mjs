@@ -17,7 +17,8 @@
 // renders them.
 
 import { extractLastBalancedJson } from './ralph-lib.mjs'
-import { formatProvenance, formatExtraSeats, parseExtraSeats, fixCycleTokenWarnings, FIX_CYCLE_SEAT_RE } from './provenance-lib.mjs'
+import { formatProvenance, formatExtraSeats, parseExtraSeats, FIX_CYCLE_SEAT_RE } from './provenance-lib.mjs'
+import { sumUsage, transcriptMeters } from './lib/meters.mjs'
 import { formatCoordinatorReport, REPORT_EVENTS } from './lib/coordinator-report.mjs'
 // The dispatch policy is the one file read outside io: reseat escalates a fix cycle's effort with it.
 import { escalate, ceilingReached, forClass, loadPolicy } from './lib/dispatch-policy.mjs'
@@ -521,6 +522,24 @@ function isAbsentDeclaration(text) {
 }
 
 /**
+ * The note-rewrite sentence of a fix-cycle prompt, keyed on the notes the BASE stage owns (never on the
+ * seat name), so a seat is never told to write a note another seat owns. One sentence per owned key among
+ * implementation-notes then test-manifest; '' when the base owns neither. closure-notes governs only
+ * implementation-notes, so the test-manifest sentence leaves that clause out.
+ */
+function noteRewriteSentence(baseStage) {
+  const owned = Array.isArray(baseStage.notes) ? baseStage.notes : []
+  let out = ''
+  if (owned.includes('implementation-notes')) {
+    out += " Rewrite implementation-notes in full so it describes the final state: replace superseded text, drop every section the closure-notes rule bans (the previous seat's included), add no per-cycle section, and keep history to a final Amendments: list with one line per A<n> (what changed, commit SHA)."
+  }
+  if (owned.includes('test-manifest')) {
+    out += ' Rewrite test-manifest in full so it describes the final state: replace superseded text, add no per-cycle section, and keep history to a final Amendments: list with one line per A<n> (what changed, commit SHA).'
+  }
+  return out
+}
+
+/**
  * reseat(core, doc, result, idOrShort, seat, opts) ->
  *   {ok:true, prompt, seat, baseSeat, cycle, cause, effort, ceilingReached, tokenFile, result}
  *   | {ok:false, error}.
@@ -531,7 +550,8 @@ function isAbsentDeclaration(text) {
  * else its policy class effort. ceilingReached is true when an escalating cycle runs at the ceiling
  * (a further failure goes to the decision path). The prompt is core.seatPrompt over a clone of the
  * base stage renamed to `seat` with enters:false, outs from the result item's outputs (keyed by base
- * seat), plus a FIX CYCLE line, CEILING_STOP_LINE when an escalated cycle runs at the policy escalation ceiling, and the
+ * seat), plus a FIX CYCLE line (ending with a rewrite-in-full instruction for each of implementation-notes and
+ * test-manifest the base stage owns), CEILING_STOP_LINE when an escalated cycle runs at the policy escalation ceiling, and the
  * Method B addendum on Method B plans. opts = {cause, declarations?, model?, tokens?, pre?,
  * assignment?, policyPath?}. On a bound run the reseat runs under the BASE seat's server assignment (the
  * orchestrator re-assigns the base seat first, which supersedes it as attempt n+1, and writes the new
@@ -591,9 +611,10 @@ export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
   let text = core.seatPrompt(promptPlan, item, stage, outs)
   if (tokenFile) text += `\n${reseatTokenPart(plan, baseStage, tokenFile)}`
   const hasAmendmentsNote = (item.stages || []).some((st) => Array.isArray(st.notes) && st.notes.includes('amendments'))
+  const rewriteSentence = noteRewriteSentence(baseStage)
   text += hasAmendmentsNote
-    ? `\nFIX CYCLE A${cycle}: work only ruling A${cycle} in the item's amendments note and the blocking findings it cites. Commit your owned paths as soon as each fix is done (git commit --only -- <paths>) and revert only your own paths, never the whole tree.`
-    : `\nFIX CYCLE A${cycle}: work only section "## Amendment A${cycle}" of the item's planning note and the blocking findings it cites. Commit your owned paths as soon as each fix is done (git commit --only -- <paths>) and revert only your own paths, never the whole tree.`
+    ? `\nFIX CYCLE A${cycle}: work only ruling A${cycle} in the item's amendments note and the blocking findings it cites. Commit your owned paths as soon as each fix is done (git commit --only -- <paths>) and revert only your own paths, never the whole tree.${rewriteSentence}`
+    : `\nFIX CYCLE A${cycle}: work only section "## Amendment A${cycle}" of the item's planning note and the blocking findings it cites. Commit your owned paths as soon as each fix is done (git commit --only -- <paths>) and revert only your own paths, never the whole tree.${rewriteSentence}`
 
   const baseEffort = (baseStage.dispatch && baseStage.dispatch.effort) ||
     forClass(policyClassFor(baseSeat, baseStage.phase), opts.policyPath).effort
@@ -1383,33 +1404,53 @@ export function notesAudit(doc, observed, itemIds, opts) {
 }
 
 /**
- * provenance({core, doc, result, method:'A'|'B', turns, usage?, meta?, journal?}) -> {[itemId]: line}.
+ * metersOf(usage) -> {input, cacheWrite, cacheRead, output} from a dispatch-meta entry's usage, or
+ * undefined when the entry has none. Pure helper of provenance().
+ */
+function metersOf(usage) {
+  if (!usage || typeof usage !== 'object') return undefined
+  const n = (v) => (Number.isFinite(v) ? v : 0)
+  return { input: n(usage.input), cacheWrite: n(usage.cacheWrite), cacheRead: n(usage.cacheRead), output: n(usage.output) }
+}
+
+const nonCached = (m) => m.input + m.cacheWrite + m.output
+
+/**
+ * provenance({core, doc, result, method:'A'|'B', turns, meta?, journal?}) -> {[itemId]: line}.
  * seats = result stages in order; model per seat from meta['<seat>:<short>'].model, else the
  * stage's modelReported, else its dispatch.model, else 'unknown'. model = the entry seat's
  * model (else the first work-stage seat's). isolation = 'worktree:<item.worktree>'. agents =
- * stage count. tokens/duration (each independently) from usage.items[short]; else run-level
- * usage, written ONLY on the run's first item (doc.args.items[0]) with every other item getting
- * 'see:<firstShort>'; else 'unknown'. Optional extraSeats=[{seat,model,tokens}] plus item
- * (short|id) restricts the output to that item and appends the 'extra-seats=...' line 2.
- * deferred = result.deferred.length + args.deferred.length. in-run-edges =
- * doc.meta.inRunEdges.length. orchestrator-turns = turns. substituted lists seats whose meta
- * model differs from stage.dispatch.model. model-source is 'meta' only when every seat's
- * model came from meta, else 'self-report'. efforts lists one seat:effort per seat: the meta
- * entry's effort (observed in the seat's transcript by collectDispatchMeta) when present, else the
- * stage dispatch effort (assigned); omitted when neither exists. effort-source is 'transcript'
- * when every listed effort came from meta, 'assigned' when none did, else 'mixed'.
- * effort-substituted lists seats whose observed effort differs from the assigned one.
- * extra-seats rows (ledger first, then extraSeats) carry seat:model:tokens:effort:cause; a row
- * with unknown tokens takes meta['<seat>:<short>'].usage.total (the transcript's four usage
- * meters) when present. Optional `warnings` (an array) receives one line per fix-cycle row whose
- * tokens are still unknown (fixCycleTokenWarnings).
+ * stage count. Tokens come ONLY from the seats' transcript meters, meta['<seat>:<short>'].usage
+ * ({input, cacheWrite, cacheRead, output}, written by dispatch-meta): seat-meters lists each seat's
+ * four meters in seats= order ('<seat>:unknown' for a seat with no meters), meters is the item's
+ * sum, and tokens = input + cacheWrite + output (non-cached) over the line's seats. tokens and
+ * meters are 'unknown' as soon as one seat has no meters (a gap, never zero), and each such seat
+ * adds a warning to the optional `warnings` array. duration is always 'unknown' (no per-seat
+ * source). Neither the workflow notification figure nor 'see:<short>' is ever written. Optional
+ * extraSeats=[{seat,model,tokens?,effort?,cause?}] plus item (short|id) restricts the output to that
+ * item and appends the 'extra-seats=...' line 2. deferred = result.deferred.length +
+ * args.deferred.length. in-run-edges = doc.meta.inRunEdges.length. orchestrator-turns = turns.
+ * substituted lists seats whose meta model differs from stage.dispatch.model. model-source is
+ * 'meta' only when every seat's model came from meta, else 'self-report'. efforts lists one
+ * seat:effort per seat: the meta entry's effort (observed in the seat's transcript by
+ * collectDispatchMeta) when present, else the stage dispatch effort (assigned); omitted when
+ * neither exists. effort-source is 'transcript' when every listed effort came from meta,
+ * 'assigned' when none did, else 'mixed'. effort-substituted lists seats whose observed effort
+ * differs from the assigned one.
+ * extra-seats rows (ledger first, then extraSeats; the flag's model wins, ledger effort and cause
+ * stay) carry six fields seat:model:tokens:effort:cause:meters when meta['<seat>:<short>'].usage
+ * exists. A row's tokens and meters come only from meta: a numeric tokens value from the ledger or
+ * the flag is ignored with a warning, and a row with no meters reads tokens 'unknown' plus a gap
+ * warning.
  */
-export function provenance({ core, doc, result, method, turns, usage, meta, journal, extraSeats, item: onlyItem, warnings }) {
+export function provenance({ core, doc, result, method, turns, meta, journal, extraSeats, item: onlyItem, warnings }) {
   const out = {}
   if (extraSeats && extraSeats.length > 0 && !onlyItem) {
     throw new Error('provenance: extraSeats requires a single item (--item)')
   }
   const resultByItemId = new Map((result.items || []).map((r) => [r.id, r]))
+  // On the --item path only the selected item warns about its unmetered seats.
+  const warnItemId = onlyItem ? findItem(resolvePlan(core, doc).plan, onlyItem).id : undefined
 
   for (const item of doc.args.items) {
     const resItem = resultByItemId.get(item.id)
@@ -1422,6 +1463,9 @@ export function provenance({ core, doc, result, method, turns, usage, meta, jour
     let anyEffortAssigned = false
     let anyFromMeta = false
     let anySelfReport = false
+    const seatMeters = []
+    const itemMeters = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 }
+    let allMetered = true
 
     for (const s of resultStages) {
       const seat = s.seat
@@ -1439,6 +1483,14 @@ export function provenance({ core, doc, result, method, turns, usage, meta, jour
         anySelfReport = true
       }
       seats.push({ seat, model })
+      const seatUsage = metersOf(metaEntry && metaEntry.usage)
+      seatMeters.push({ seat, meters: seatUsage || 'unknown' })
+      if (seatUsage) {
+        for (const key of Object.keys(itemMeters)) itemMeters[key] += seatUsage[key]
+      } else {
+        allMetered = false
+        if (Array.isArray(warnings) && (warnItemId === undefined || warnItemId === item.id)) warnings.push(`provenance: ${item.short} seat ${seat} has no transcript meters (a gap, not zero)`)
+      }
       const assignedEffort = stageDef.dispatch && stageDef.dispatch.effort
       if (metaEntry && metaEntry.effort) {
         efforts.push({ seat, effort: metaEntry.effort })
@@ -1458,12 +1510,7 @@ export function provenance({ core, doc, result, method, turns, usage, meta, jour
     const firstWorkOut = firstWorkStage && seats.find((s) => s.seat === firstWorkStage.seat)
     const modelField = (entrySeatOut && entrySeatOut.model) || (firstWorkOut && firstWorkOut.model) || 'unknown'
 
-    const usageItem = usage && usage.items && usage.items[item.short]
-    const isFirstItem = item === doc.args.items[0]
-    const firstShort = doc.args.items[0].short
-    const runLevel = (v) => (v === undefined ? 'unknown' : (isFirstItem ? v : `see:${firstShort}`))
-    const tokens = usageItem && usageItem.tokens !== undefined ? usageItem.tokens : runLevel(usage && usage.tokens)
-    const duration = usageItem && usageItem.duration !== undefined ? usageItem.duration : runLevel(usage && usage.duration)
+    const tokens = seats.length > 0 && allMetered ? nonCached(itemMeters) : 'unknown'
 
     const deferredCount = ((result.deferred && result.deferred.length) || 0) + ((doc.args.deferred && doc.args.deferred.length) || 0)
     const inRunEdges = (doc.meta && Array.isArray(doc.meta.inRunEdges)) ? doc.meta.inRunEdges.length : 0
@@ -1476,7 +1523,7 @@ export function provenance({ core, doc, result, method, turns, usage, meta, jour
       isolation: `worktree:${item.worktree}`,
       agents: resultStages.length,
       tokens,
-      duration,
+      duration: 'unknown',
       deferred: deferredCount,
       inRunEdges,
       orchestratorTurns: turns,
@@ -1489,6 +1536,10 @@ export function provenance({ core, doc, result, method, turns, usage, meta, jour
       fields.effortSource = anyEffortMeta && !anyEffortAssigned ? 'transcript' : (anyEffortMeta ? 'mixed' : 'assigned')
     }
     if (effortSubstituted.length > 0) fields.effortSubstituted = effortSubstituted
+    if (seats.length > 0) {
+      fields.meters = allMetered ? itemMeters : 'unknown'
+      fields.seatMeters = seatMeters
+    }
     if (doc.args.serverRunId) fields.extra = { 'server-run': doc.args.serverRunId }
 
     out[item.id] = formatProvenance(fields)
@@ -1509,7 +1560,7 @@ export function provenance({ core, doc, result, method, turns, usage, meta, jour
       const at = merged.findIndex((r) => r.seat === e.seat)
       if (at === -1) merged.push(e)
       else {
-        // The flag's model and tokens win; effort and cause the flag row lacks stay from the ledger.
+        // The flag's model wins; effort and cause the flag row lacks stay from the ledger.
         const prev = merged[at]
         const row = Object.assign({}, e)
         if (!row.effort && prev.effort) row.effort = prev.effort
@@ -1517,13 +1568,23 @@ export function provenance({ core, doc, result, method, turns, usage, meta, jour
         merged[at] = row
       }
     }
-    // Tokens the Agent result did not report come from the seat transcript's usage meters.
+    // Tokens and meters come only from the seat transcript; a ledger or flag figure is ignored.
     for (const row of merged) {
-      if (row.tokens !== undefined && row.tokens !== null && row.tokens !== 'unknown') continue
-      const m = meta && meta[`${row.seat}:${target.short}`]
-      if (m && m.usage && Number.isFinite(m.usage.total)) row.tokens = m.usage.total
+      const given = row.tokens
+      if (given !== undefined && given !== null && given !== 'unknown' && Array.isArray(warnings)) {
+        warnings.push(`provenance: ${target.short} seat ${row.seat} tokens ${given} ignored; transcript meters are the only source`)
+      }
+      const entry = meta && meta[`${row.seat}:${target.short}`]
+      const m = metersOf(entry && entry.usage)
+      if (m) {
+        row.tokens = nonCached(m)
+        row.meters = m
+      } else {
+        row.tokens = 'unknown'
+        delete row.meters
+        if (Array.isArray(warnings)) warnings.push(`provenance: ${target.short} seat ${row.seat} has no transcript meters (a gap, not zero)`)
+      }
     }
-    if (Array.isArray(warnings)) warnings.push(...fixCycleTokenWarnings(merged))
     const extraLine = formatExtraSeats(merged)
     return { [target.id]: extraLine ? `${line}\n${extraLine}` : line }
   }
@@ -1629,7 +1690,7 @@ export function reviewPrompt(core, doc, idOrShort, result) {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export const CLOSE_REASONS = ['completed', 'cancelled', 'failed', 'abandoned']
-const BUDGET_KEYS = ['tokens', 'costUsd', 'attemptsPerSeat', 'maxActiveSeats']
+const BUDGET_KEYS = ['attemptsPerSeat', 'maxActiveSeats']
 
 /**
  * closeReason(result, override?) -> 'completed' | 'failed' | 'cancelled' | 'abandoned'.
@@ -1730,8 +1791,6 @@ function runHints(doc, phase) {
  *             every item (Method A, at launch), with opts.item + opts.seat that one seat (Method B, a
  *             review lane, a reseat's base seat). tokenFiles[i] is where results[i].seatToken goes.
  *   update    runs_write update {runId, hints} with hints.phase = opts.runPhase (the hints replace).
- *   heartbeat advance [claim(first item, or opts.item: a short or full id of a plan item), heartbeat{usage:{tokens,
- *             costUsd?}}, release] from opts.usage; an unknown opts.item throws.
  *   end-seats one runs_write end_seat per still-active member seat in opts.seats (runs_read seats
  *             data); outcome done/failed/abandoned from opts.result's stage status; the coordinator
  *             row and ended rows are skipped; tokenFiles[i] names the seat's token file.
@@ -1806,28 +1865,6 @@ export function runOps(core, doc, opts = {}) {
     }
     return { tool: 'runs_write', ops: [{ op: 'update', runId, hints: runHints(doc, opts.runPhase) }] }
   }
-  if (phase === 'heartbeat') {
-    requireBound(doc)
-    if (items.length === 0) throw new Error('invalid args: the plan admits no items')
-    const u = opts.usage
-    if (!u || typeof u !== 'object' || !Number.isInteger(u.tokens) || u.tokens < 0) {
-      throw new Error('invalid args: --usage needs {tokens: integer >= 0, costUsd?: number}')
-    }
-    const usage = { tokens: u.tokens }
-    if (u.costUsd !== undefined && u.costUsd !== null) {
-      if (typeof u.costUsd !== 'number' || !(u.costUsd >= 0)) throw new Error('invalid args: usage.costUsd must be a number >= 0')
-      usage.costUsd = u.costUsd
-    }
-    const itemId = opts.item ? findItem({ items }, opts.item).id : items[0].id
-    return {
-      tool: 'advance',
-      ops: [
-        { op: 'claim', itemId },
-        { op: 'heartbeat', itemId, usage },
-        { op: 'release', itemId },
-      ],
-    }
-  }
   if (phase === 'end-seats') {
     requireBound(doc)
     const { plan } = resolvePlan(core, doc)
@@ -1889,7 +1926,7 @@ export function runOps(core, doc, opts = {}) {
     const runId = requireBound(doc)
     return { tool: 'runs_write', ops: [{ op: 'close', runId, reason: closeReason(opts.result, opts.reason) }] }
   }
-  throw new Error(`invalid args: --phase must be open, assign, adopt-notes, update, heartbeat, end-seats or close, got ${JSON.stringify(phase)}`)
+  throw new Error(`invalid args: --phase must be open, assign, adopt-notes, update, end-seats or close, got ${JSON.stringify(phase)}`)
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1907,8 +1944,30 @@ function unwrapObject(value, depth = 0) {
 }
 
 /**
+ * runPausedError(value) -> the run_paused error object ({code, detail}) inside a saved runs_write
+ * answer, or null. Accepts a write answer (data.results[i].error or results[i].error), a top-level
+ * {error}, or a bare {code, detail}.
+ */
+export function runPausedError(value, depth = 0) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || depth > 4) return null
+  if (value.code === 'run_paused') return value
+  if (value.error && typeof value.error === 'object' && value.error.code === 'run_paused') return value.error
+  if (value.data && typeof value.data === 'object') {
+    const hit = runPausedError(value.data, depth + 1)
+    if (hit) return hit
+  }
+  if (Array.isArray(value.results)) {
+    for (const r of value.results) {
+      const hit = runPausedError(r, depth + 1)
+      if (hit) return hit
+    }
+  }
+  return null
+}
+
+/**
  * reportFields(doc, opts) -> the fields formatCoordinatorReport takes, built from ids, counts and
- * short reasons only. opts: {event, result, run, close, needs}. `result` is a result-v1, `run` a saved
+ * short reasons only. opts: {event, result, run, close, paused, needs}. `paused` is a saved run_paused answer. `result` is a result-v1, `run` a saved
  * runs_read get (or runs_write) answer, `close` a saved runs_write close answer.
  */
 export function reportFields(doc, opts = {}) {
@@ -1961,9 +2020,11 @@ export function reportFields(doc, opts = {}) {
     fields.counts.deferred = deferredPlan.length
   }
 
-  const pauseDecisionId = run.pauseDecisionId || (run.pause && run.pause.decisionId) || ''
+  const pausedErr = runPausedError(opts.paused)
+  const pausedDetail = pausedErr && pausedErr.detail && typeof pausedErr.detail === 'object' ? pausedErr.detail : {}
+  const pauseDecisionId = typeof pausedDetail.pauseDecisionId === 'string' ? pausedDetail.pauseDecisionId : ''
   if (run.status === 'paused' || event === 'paused') {
-    fields.pauseReason = run.pauseReason || ''
+    fields.pauseReason = pausedDetail.pauseReason || run.pauseReason || ''
     fields.pauseDecisionId = pauseDecisionId
     if (pauseDecisionId && !fields.decisions.some((d) => d.decisionId === pauseDecisionId)) {
       fields.decisions.push({ decisionId: pauseDecisionId, itemId: '' })
@@ -1974,8 +2035,7 @@ export function reportFields(doc, opts = {}) {
     fields.status = 'closed'
     fields.closeReason = snapshot.reason || close.terminalReason || close.reason || (result && result.started === true ? 'completed' : 'failed')
     const od = snapshot.openDecisions
-    fields.openDecisions = Array.isArray(od) ? od.map((d) => (d && typeof d === 'object' ? d.id || d.decisionId : d)) : []
-    if (!Array.isArray(od) && Number.isInteger(od)) fields.openDecisionCount = od
+    if (Number.isInteger(od) && od >= 0) fields.openDecisionCount = od
     fields.headline = `${fields.closeReason}; ${fields.counts.done} done, ${fields.counts.stopped} stopped`
   } else if (event === 'planned') {
     const admitted = (args.items || []).length
@@ -2339,7 +2399,6 @@ function execRunOps(argv, io) {
     seat: flagValue(argv, '--seat'),
     seats: read('--seats'),
     notes: read('--notes'),
-    usage: read('--usage'),
     result: resultDoc,
     reason: flagValue(argv, '--reason'),
     runPhase: flagValue(argv, '--run-phase'),
@@ -2362,24 +2421,7 @@ function modelAliasOf(meta, modelId) {
   return (meta && meta.model) || 'unknown'
 }
 
-/**
- * sumUsage(usages) -> {input, cacheWrite, cacheRead, output, total} over message.usage objects
- * (input_tokens, cache_creation_input_tokens, cache_read_input_tokens, output_tokens); a missing
- * or non-numeric meter counts 0. total is the sum of the four.
- */
-export function sumUsage(usages) {
-  const n = (v) => (Number.isFinite(v) ? v : 0)
-  const out = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0, total: 0 }
-  for (const u of usages || []) {
-    if (!u || typeof u !== 'object') continue
-    out.input += n(u.input_tokens)
-    out.cacheWrite += n(u.cache_creation_input_tokens)
-    out.cacheRead += n(u.cache_read_input_tokens)
-    out.output += n(u.output_tokens)
-  }
-  out.total = out.input + out.cacheWrite + out.cacheRead + out.output
-  return out
-}
+export { sumUsage }
 
 /**
  * collectDispatchMeta({io, roots, labels, since?}) -> {[label]: {label, model, modelId, effort?,
@@ -2391,10 +2433,10 @@ export function sumUsage(usages) {
  * transcript's assistant lines carry the model id and the effort the turn ran at: effort is the
  * most frequent value over those lines (ties -> the later value), modelId the last one seen; a
  * missing or empty transcript leaves effort absent. A fix-cycle label '<seat>-a<n>:<short>' is
- * matched too when '<seat>:<short>' is wanted. usage = the four meters of message.usage summed over
- * the assistant lines, one count per message.id (Claude Code repeats a message's usage on each of
- * its content-block lines; the last line of an id wins): {input, cacheWrite, cacheRead, output,
- * total}; absent when no line carries usage. Pure: io supplies walkMeta/readInput/readText.
+ * matched too when '<seat>:<short>' is wanted. usage = transcriptMeters(text) (lib/meters.mjs): the
+ * four meters of message.usage summed over the assistant lines, one count per message.id:
+ * {input, cacheWrite, cacheRead, output, tokens} with tokens = input + cacheWrite + output; absent
+ * when no line carries usage. Pure: io supplies walkMeta/readInput/readText.
  */
 export function collectDispatchMeta({ io, roots, labels, since }) {
   const wanted = new Set(labels || [])
@@ -2419,8 +2461,6 @@ export function collectDispatchMeta({ io, roots, labels, since }) {
       const text = io.readText(transcript)
       const counts = {}
       let modelId = ''
-      const usageById = new Map()
-      let anon = 0
       for (const line of (text || '').split('\n')) {
         if (!line.includes('"assistant"')) continue
         let rec
@@ -2428,11 +2468,6 @@ export function collectDispatchMeta({ io, roots, labels, since }) {
         if (!rec || rec.type !== 'assistant') continue
         if (typeof rec.effort === 'string' && rec.effort) counts[rec.effort] = (counts[rec.effort] || 0) + 1
         if (rec.message && typeof rec.message.model === 'string') modelId = rec.message.model
-        const u = rec.message && rec.message.usage
-        if (u && typeof u === 'object') {
-          const id = typeof rec.message.id === 'string' && rec.message.id ? rec.message.id : `#${anon++}`
-          usageById.set(id, u)
-        }
       }
       let effort = ''
       let best = 0
@@ -2441,7 +2476,8 @@ export function collectDispatchMeta({ io, roots, labels, since }) {
       }
       const rec = { label, model: modelAliasOf(meta, modelId), modelId, transcript, mtimeMs: entry.mtimeMs }
       if (effort) { rec.effort = effort; rec.effortSource = 'transcript' }
-      if (usageById.size > 0) rec.usage = sumUsage(usageById.values())
+      const usage = transcriptMeters(text)
+      if (usage) rec.usage = usage
       out[label] = rec
     }
   }
@@ -2451,7 +2487,8 @@ export function collectDispatchMeta({ io, roots, labels, since }) {
 /**
  * dispatch-meta --plan <plan> [--session-dir <dir> | --projects-dir <dir>] [--since <epoch-ms>]
  * -> {contract:'run-wave/dispatch-meta-v1', roots, wanted, matched, meta}. Labels are every
- * '<seat>:<short>' of the plan's items. Default root: <home>/.claude/projects (every session).
+ * '<seat>:<short>' of each plan item's stage seats plus 'planner' and 'reviewer' (deduplicated), so
+ * the out-of-run 'planner-a<n>:<short>' and 'reviewer-a<n>:<short>' labels match too. Default root: <home>/.claude/projects (every session).
  * The printed document is what provenance --meta <file> reads.
  */
 function execDispatchMeta(argv, io) {
@@ -2463,7 +2500,11 @@ function execDispatchMeta(argv, io) {
   }
   const labels = []
   for (const item of doc.args.items) {
-    for (const s of item.stages || []) labels.push(`${s.seat}:${item.short}`)
+    const seats = (item.stages || []).map((s) => s.seat)
+    for (const seat of [...seats, 'planner', 'reviewer']) {
+      const label = `${seat}:${item.short}`
+      if (!labels.includes(label)) labels.push(label)
+    }
   }
   const sessionDir = flagValue(argv, '--session-dir')
   const projectsDir = flagValue(argv, '--projects-dir')
@@ -2487,8 +2528,9 @@ function execProvenance(argv, io) {
   const resultDoc = io.readInput(flagValue(argv, '--result'))
   const core = io.loadCore()
   const result = resolveResultDoc(core, doc, resultDoc)
-  const usagePath = flagValue(argv, '--usage')
-  const usage = usagePath ? io.readInput(usagePath) : undefined
+  const warnings = []
+  // --usage is retired (tokens come from --meta); a lagging plugin cache must not fail Step 3.
+  if (flagValue(argv, '--usage') !== undefined) warnings.push('provenance: --usage is ignored; tokens come from --meta')
   const metaDir = flagValue(argv, '--meta-dir')
   let meta
   if (metaDir) {
@@ -2515,12 +2557,11 @@ function execProvenance(argv, io) {
   const itemFlag = flagValue(argv, '--item')
   if (extraFlag !== undefined && !itemFlag) throw new Error('provenance: --extra-seats requires --item')
   const extraSeats = extraFlag !== undefined ? parseExtraSeats(`x\nextra-seats=${extraFlag}`) : undefined
-  const warnings = []
   const out = provenance({
     core, doc, result,
     method: flagValue(argv, '--method'),
     turns: Number(flagValue(argv, '--turns', '0')),
-    usage, meta,
+    meta,
     journal: flagValue(argv, '--journal'),
     extraSeats,
     item: itemFlag,
@@ -2620,11 +2661,17 @@ function execReport(argv, io) {
   const core = io.loadCore()
   let result = readJsonFlag(argv, io, '--result')
   if (result !== undefined) result = resolveResultDoc(core, doc, result)
+  const paused = readJsonFlag(argv, io, '--paused')
+  if (paused !== undefined && !runPausedError(paused)) {
+    io.fail(2, 'invalid args', `--paused ${flagValue(argv, '--paused')} carries no run_paused error`)
+    return
+  }
   const text = reportBlock(doc, {
     event: flagValue(argv, '--event'),
     result,
     run: readJsonFlag(argv, io, '--run'),
     close: readJsonFlag(argv, io, '--close'),
+    paused,
     needs: flagValue(argv, '--needs'),
   })
   io.writeOut(text)

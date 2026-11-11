@@ -44,7 +44,7 @@
       }
     },
     "runs": {
-      "description": "Run settings, allowed in the server and per-root documents and resolved per field (per-root, then server, then default). Budgets are opt-in: an absent ceiling is unlimited.",
+      "description": "Run settings, allowed in the server and per-root documents and resolved per field (per-root, then server, then default). Ceilings are opt-in: an absent ceiling is unlimited.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -54,8 +54,8 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "tokens": { "type": "integer", "minimum": 1 },
-            "cost_usd": { "description": "US dollars.", "type": "number", "exclusiveMinimum": 0 },
+            "tokens": { "deprecated": true, "description": "Removed in 4.0.1: accepted with a warning, never applied." },
+            "cost_usd": { "deprecated": true, "description": "Removed in 4.0.1: accepted with a warning, never applied." },
             "attempts_per_seat": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
             "max_active_seats": { "type": "integer", "minimum": 1, "maximum": 2147483647 }
           }

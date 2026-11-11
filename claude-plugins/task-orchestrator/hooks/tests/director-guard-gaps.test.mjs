@@ -199,7 +199,7 @@ test('S14: hooks-config matcher for the guard covers Grep, Glob and NotebookEdit
   const groups = cfg.hooks.PreToolUse.filter((g) => g.hooks.some((h) => h.command.includes('director-guard.mjs')))
   const group = groups.find((g) => !g.matcher.startsWith('^mcp__'))
   assert.ok(group, 'a non-mcp guard group exists')
-  assert.equal(group.matcher, 'Skill|Read|Edit|Write|Bash|PowerShell|Monitor|Agent|Grep|Glob|NotebookEdit|Workflow')
+  assert.equal(group.matcher, 'Skill|Read|Edit|Write|Bash|PowerShell|Monitor|Agent|Grep|Glob|NotebookEdit|Workflow|WebFetch|WebSearch|ReadMcpResourceTool|ReadMcpResourceDirTool')
   assert.equal(group.hooks[0].onFailure, 'block')
   const re = new RegExp(`^(?:${group.matcher})$`)
   for (const tool of ['Grep', 'Glob', 'NotebookEdit', 'Read', 'Bash']) assert.ok(re.test(tool), tool)

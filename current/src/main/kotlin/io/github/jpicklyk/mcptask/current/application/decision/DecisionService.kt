@@ -59,12 +59,6 @@ import java.util.UUID
  * [effects] runs inside each answer's unit (server-class effects, R27); an error it returns refuses the answer. As a
  * [RunDecisionPort] the service counts a run's pending requests for `run.ended`; as a [ServerDecisionRaiser] it raises
  * the server-raised classes for the run limits (R27).
- *
- * ## Amount
- *
- * An answer's `amount` belongs to an `extend` answer of a `run-budget` request only: it is required there and must be
- * a positive finite number; anywhere else it is `invalid_request /amount`. Its fit to the breached dimension (tokens
- * are whole) is the effects' to check.
  */
 class DecisionService(
     private val repositoryProvider: RepositoryProvider,
@@ -241,7 +235,7 @@ class DecisionService(
                 )
             val changed = decision.copy(status = DecisionRequestStatus.ANSWERED, answer = answer)
             val stored = store.update(changed, decision.version) ?: return@write err(conflictAfterRead(decision))
-            effects.onAnswered(stored, command.amount)?.let { return@write err(it) }
+            effects.onAnsweredOrRefuse(stored)?.let { return@write err(it) }
             events.record(
                 DomainEvent.DecisionAnswered(
                     stored.id,
@@ -449,17 +443,6 @@ class DecisionService(
             } else if (text == null) {
                 out += FieldViolation("/option", "an option or a text is required")
             }
-        }
-        val amount = command.amount
-        val extend = decision.decisionClass == RunLimitDecisions.RUN_BUDGET && option == RunLimitDecisions.EXTEND
-        if (amount != null) {
-            if (!extend) {
-                out += FieldViolation("/amount", "only an extend answer of a run-budget decision takes an amount", amount.toString())
-            } else if (!amount.isFinite() || amount <= 0) {
-                out += FieldViolation("/amount", "must be a positive number", amount.toString())
-            }
-        } else if (extend) {
-            out += FieldViolation("/amount", "is required to extend")
         }
         val rationale = command.rationale
         if (rationale != null && rationale.length > DecisionRequest.MAX_RATIONALE_LENGTH) {
