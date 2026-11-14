@@ -305,37 +305,47 @@ test('both layers missing: both entries read unknown, both warnings, exit 0', ()
 
 // ── S8: misuse exits 2 ──────────────────────────────────────────────────────────────────────────
 
+// Oracle (amendment A1): exit 2, empty stdout, one stderr line that parses as JSON with
+// error === 'invalid args' and a string detail; the detail names the flag at fault. The error
+// wording is not a contract, so only the tokens the caller needs are asserted.
+function usageError(res, tokens) {
+  assert.equal(res.status, 2, res.stderr)
+  assert.equal(res.stdout, '', 'a usage error prints nothing on stdout')
+  const lines = res.stderr.split('\n').filter((l) => l.trim())
+  assert.equal(lines.length, 1, res.stderr)
+  const env = JSON.parse(lines[0])
+  assert.equal(env.error, 'invalid args', res.stderr)
+  assert.equal(typeof env.detail, 'string', res.stderr)
+  for (const t of tokens) assert.ok(env.detail.includes(t), `detail ${JSON.stringify(env.detail)} lacks ${t}`)
+}
+
 test('S8: a bad --session-since or --session-until value exits 2 naming the flag and value', () => {
   const run = mkRun()
   const sess = writeSession(run, SESSION_TEXT)
   for (const [flag, value] of [['--session-since', 'yesterday'], ['--session-until', 'not-a-time']]) {
     const res = cli(run, ['--session-transcript', sess, flag, value])
-    assert.equal(res.status, 2, res.stderr)
-    assert.ok(res.stderr.includes(`invalid args: provenance: ${flag} ${value} is neither epoch milliseconds nor an ISO-8601 time`), res.stderr)
+    usageError(res, [flag, value])
   }
 })
 
-test('S8: a window flag without --session-transcript exits 2', () => {
+test('S8: a window flag without --session-transcript exits 2 naming --session-transcript', () => {
   const run = mkRun()
   for (const flag of ['--session-since', '--session-until']) {
     const res = cli(run, [flag, T2])
-    assert.equal(res.status, 2, res.stderr)
-    assert.ok(res.stderr.includes('invalid args: provenance: --session-since/--session-until require --session-transcript'), res.stderr)
+    usageError(res, ['--session-transcript'])
   }
 })
 
-test('S8: any layer flag together with --item exits 2', () => {
+test('S8: any layer flag together with --item exits 2 naming --item', () => {
   const run = mkRun()
   const sess = writeSession(run, SESSION_TEXT)
-  const msg = 'invalid args: provenance: layer meters are per run; --coordinator and --session-* do not combine with --item'
   for (const flags of [
     ['--coordinator', COORD, '--session-dir', run.session],
     ['--session-transcript', sess],
     ['--session-transcript', sess, '--session-since', T2],
   ]) {
     const res = cli(run, ['--item', 'aaaaaaaa', ...flags])
-    assert.equal(res.status, 2, res.stderr)
-    assert.ok(res.stderr.includes(msg), res.stderr)
+    usageError(res, ['--item'])
   }
 })
 
@@ -382,6 +392,16 @@ test('S10: no window flag and no timestamps measures the whole transcript withou
   const sess = writeSession(run, [assistant('m1', usage(1, 2, 3, 4))].join('\n'))
   const res = cli(run, ['--session-transcript', sess])
   assert.equal(layerLine(res), `layer-meters=session:1/2/3/4 run=${RUN_ID} session-window=whole-session`)
+  assert.ok(!warnings(res).includes(NO_TS_WARNING), JSON.stringify(warnings(res)))
+})
+
+test('S14: with a window, a usage line without a timestamp is not measured, and no no-timestamps warning is given', () => {
+  const run = mkRun()
+  const text = [assistant('w1', usage(1, 2, 30, 4), T2), assistant('w2', usage(100, 200, 3000, 400))].join('\n')
+  const sess = writeSession(run, text)
+  const res = cli(run, ['--session-transcript', sess, '--session-since', T1])
+  // only w1 (timestamped, inside the window) counts: 1/2/30/4 ; w2 has no timestamp and is outside the window rule
+  assert.equal(layerLine(res), `layer-meters=session:1/2/30/4 run=${RUN_ID} session-window=run`)
   assert.ok(!warnings(res).includes(NO_TS_WARNING), JSON.stringify(warnings(res)))
 })
 
