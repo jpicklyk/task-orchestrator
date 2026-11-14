@@ -8,12 +8,12 @@ A Kotlin MCP server for hierarchical work items with dependencies, note schemas 
 
 - Source root: `current/src/main/kotlin/io/github/jpicklyk/mcptask/current/` (paths below are relative to it unless they start at the repo root). Entry point `CurrentMain.kt`; composition root `bootstrap/` (`ServerComposition.kt` wires everything).
 - Migrations: `current/src/main/resources/db/migration/sqlite/` (the only Flyway location).
-- Environment variables: read only in `infrastructure/config/AppConfig.kt`; catalogue and defaults in [current/docs/fleet-deployment.md](current/docs/fleet-deployment.md). Schema and trait resolution: [current/docs/config-reference.md](current/docs/config-reference.md) and `application/config/` (`EffectiveConfigResolver`, `LayeredConfig`, `TraitResolver`).
+- Environment variables: read only in `infrastructure/config/AppConfig.kt`; catalogue and defaults in [current/docs/fleet-deployment.md](current/docs/fleet-deployment.md). Schema and trait resolution: [current/docs/config-reference.md](current/docs/config-reference.md) and `application/config/` (`EffectiveConfigResolver`, `LayeredConfig`, `TraitResolver`). The trait dimensions, and the rule that a per-root trait entry replaces every dimension of the server's trait of the same name: [claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md](claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md).
 - Two skill systems, do not confuse them: project skills in `.claude/skills/` (auto-discovered) and plugin skills in `claude-plugins/task-orchestrator/skills/` (enabled through `enabledPlugins` in `.claude/settings.json`). Edits to plugin files are not picked up by a plain marketplace update; the cache refresh procedure is in [claude-plugins/CLAUDE.md](claude-plugins/CLAUDE.md).
 
 ## Rules a guard test enforces
 
-Tests are under `current/src/test/kotlin/io/github/jpicklyk/mcptask/current/`; ratchet baselines under `current/src/test/resources/architecture/` hold no entries, so any violation fails, and a baseline line that no longer matches fails too. Fix the code; never add a baseline line.
+Tests are under `current/src/test/kotlin/io/github/jpicklyk/mcptask/current/`. Of the ratchet baselines under `current/src/test/resources/architecture/`, the layering, package-cycle and dialect-neutrality ones are empty, so any violation of those rules fails; in every baseline a line that no longer matches fails too. Fix the code; never add a baseline line.
 
 - **Layering** (`architecture/LayeringTest`, rules R1-R5 in `LayeringRules.kt`): `domain -> application -> infrastructure -> interfaces`, an outer layer may depend on an inner one, never the reverse. `infrastructure -> application` is allowed (adapters implement application ports). `domain` and `application` must not import `io.modelcontextprotocol` or `io.ktor`. No layer may import `bootstrap`.
 - **Application package cycles** (`architecture/PackageCycleTest`): the `application/<sub>` packages are acyclic. To share a type, move it down to a package every consumer already sits above.
@@ -28,6 +28,7 @@ Tests are under `current/src/test/kotlin/io/github/jpicklyk/mcptask/current/`; r
 - **Runtime config is DB-only.** `.taskorchestrator/config.yaml` under `AGENT_CONFIG_DIR` (default: the working directory) is imported into the DB at every boot by the `server-config-import` data step; the server then reads the stored head per call, so editing the file does nothing until a restart, and a version appended by another process on a shared volume is served without one.
 - **Two configs, two delivery paths.** The global floor mounted into the container is `deploy/global-config/.taskorchestrator/` (process schemas shared by every project). This repo's own `.taskorchestrator/config.yaml` is dogfood project config, pushed per root by the plugin's `config-sync` SessionStart hook; it is never mounted.
 - **Boolean env vars** go through `EnvBoolean`: most fall back to the default with a WARN on an unrecognized value, but `API_ENABLED`, `API_ALLOW_UNAUTHENTICATED`, `MCP_ALLOW_UNAUTHENTICATED` and `API_JWKS_ALLOW_INSECURE_URL` fail startup. `RESOURCE_LEASES_ENFORCED` is read once at startup; changing it needs a restart.
+- **Single construction sites.** Production constructs `ToolExecutionContext` once, in `ServerComposition.build()`, and `AdvanceService` once, in `AdvanceServiceFactory.forItem()`. A new constructor parameter given a default value compiles without being passed there, so wire it at that site by hand.
 
 ## Session Layers: Orchestrator, Coordinator, Director
 
@@ -46,16 +47,16 @@ Three session layers sit above the seats that do the work. They are roles a Clau
 
 **Rules across the layers** (judge any change to director, coordinator or run-wave behaviour against these):
 
-- **Altitude.** The director never opens a file or reads a diff, test output or note body, except one decision request and a run rollup; it hands every read and edit to a coordinator or background agent. The `director` tool profile enforces this on the server, the `director-guard` hook in the session.
+- **Altitude.** The director never opens a file or reads a diff, test output or note body, except one decision request and a run rollup; it hands every read and edit to a coordinator or background agent. The `director` tool profile enforces this on the server (it has no read that returns a body), the `director-guard` hook in the session.
 - **Content flows down, pointers flow up.** A layer hands the one above ids, counts and short reasons, never note bodies, diffs or transcripts. Notes are the report.
 - **Server records are the state; messages are wake-ups.** Every layer restarts from server state (runs, seats, decisions, notes) plus its run files; nothing needed to resume lives only in a conversation.
-- **Decisions go up, answers come down.** A seat or coordinator raises; a director or human answers, as the decision class allows; a coordinator never answers its own. An answer never resumes the item: the coordinator does.
-- **Identity is declared.** The director is a call served by the director profile with no seat token; the coordinator holds the run's coordinator token (`RunPermissions`). The director path is not a security boundary: put decision authority in a credential's capabilities and scope.
+- **Decisions go up, answers come down.** A seat or coordinator raises; a director or human answers, as the decision class allows; a coordinator never answers one itself. An answer never resumes the item: the coordinator does.
+- **Identity is declared.** The director is a call served by the director profile with no seat token; the coordinator holds the run's coordinator token (`RunPermissions`). The director path is not a security boundary (any credential with the capability may call it): put decision authority in a credential's capabilities and scope.
 - **Cost is measured, not self-reported.** Model and effort come from `dispatch-policy.json` per class of work, and every dispatch names both. Token cost is read from Claude Code transcripts after a run into `delegation-metadata`; the session retrospective analyses it.
 
 **Vocabulary.** "Director" names both the server profile (`/mcp/director`) and the session mode: say which. The seat named `orchestrator` is the one whose note keys a run's coordinator token may write. The layers are not the sizing tiers (Direct, Delegated, Parallel) nor the coordinator tiers 1 to 4 (where a coordinator runs).
 
-Key files: `claude-plugins/task-orchestrator/skills/director/SKILL.md` and `hooks/director-guard.mjs` (director mode); `skills/director/references/coordinator-tiers.md` and `scripts/coordinator-tiers.mjs` (coordinator tiers); `skills/run-wave/SKILL.md`; `scripts/lib/meters.mjs` and `skills/session-retrospective/SKILL.md` (cost); server side `interfaces/shared/tools/runs/RunPermissions.kt` and `interfaces/shared/tools/ToolProfile.kt`; user-facing chapter 12 of [current/docs/workflow-guide.md](current/docs/workflow-guide.md).
+Key files (plugin paths under `claude-plugins/task-orchestrator/`): `skills/director/SKILL.md` and `hooks/director-guard.mjs` (director mode); `skills/director/references/coordinator-tiers.md` and `scripts/coordinator-tiers.mjs` (coordinator tiers); `skills/run-wave/SKILL.md`; `scripts/lib/meters.mjs` and `skills/session-retrospective/SKILL.md` (cost); server side `interfaces/shared/tools/runs/RunPermissions.kt` and `interfaces/shared/tools/ToolProfile.kt`; user-facing chapter 12 of [current/docs/workflow-guide.md](current/docs/workflow-guide.md).
 
 ## Build and run
 
