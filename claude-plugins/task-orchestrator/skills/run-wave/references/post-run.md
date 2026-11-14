@@ -235,13 +235,15 @@ run report instead.
    There is no usage file and no per-item file: Claude Code writes an `agent-<id>.meta.json` beside every
    subagent transcript whose `description` is the dispatch label, and `dispatch-meta` matches those to this
    plan's `<seat>:<short>` labels (display tag stripped, same-label transcripts of one session summed, with a dispatches count; it also wants `planner` and
-   `reviewer` for every item, so out-of-run `planner-a<n>` and `reviewer-a<n>` labels match) and reads from each
+   `reviewer` for every item, and keeps the fix-cycle `<seat>-a<n>` and lane `<seat>.<skill>` forms of a wanted label, each
+   under its own full label, so out-of-run `planner-a<n>` and `reviewer-a<n>` labels match) and reads from each
    transcript the model id, the effort its assistant turns actually ran at and the four usage meters (input,
    cache write, cache read, output; one count per message id). By default it scans every session under
    `~/.claude/projects`; `--session-dir <dir>` limits it to one session folder and `--since <epoch-ms>` drops
    older agents (by the meta file's mtime). Pass `--since` with the run's `openedAt` and `--session-dir` with the
    session folder when it is known. `runs_read` `get` returns `openedAt` as an ISO-8601 instant while `--since` takes only an
-   epoch-ms integer (anything else exits 2): convert it first. One measure runs through the whole line: each seat's `tokens` are its non-cached meters
+   epoch-ms integer (anything else exits 2): convert it first with `Date.parse(openedAt)`
+   (`provenance --session-since` takes the ISO value as it is). One measure runs through the whole line: each seat's `tokens` are its non-cached meters
    (input + cache write + output); cache read stays out of `tokens` and is kept as its own meter. The line
    carries `tokens=<n>` (that sum over the line's seats), `duration=unknown` (no per-seat source), and the tails
    `meters=<input>/<cacheWrite>/<cacheRead>/<output>` (the item's sum) and
@@ -332,9 +334,12 @@ own review step (this repo: `/implement` Step 5) and do not dispatch the generic
 Step 4 is done and the phase `review` is recorded; assign a reviewer seat per advanced item that entered a review
 phase (the `run-ops --phase assign --item <short> --seat reviewer` command below, under the coordinator token, its
 `seatToken` written to `tokens/<short>.reviewer.token`); hand off to the project's review step with the run open
-(its reviewers carry the label `reviewer:<short>`, see the Label rule). After the hand-off returns: run Step 0b's
+(its reviewers carry the label `reviewer:<short>`, see the Label rule). The hand-off returns once the project's review
+step has a verdict for every advanced item (this repo: `/implement` Step 5); the advance named below is that project's
+own advance (this repo: `/implement` Step 6), not a second one. After the hand-off returns: run Step 0b's
 sweep, re-run `dispatch-meta` and `provenance --item <short> --extra-seats reviewer:<model>` (`provenance` reads
-the `reviewer:<short>` transcript from the meta file, and `--extra-seats` needs `--item`), and re-upsert the item's
+the `reviewer:<short>` transcript from the meta file, and `--extra-seats` needs `--item`; a consolidated reviewer over several
+children is one agent labelled for the first child in plan order, so its `reviewer:<model>` row goes on that child only), and re-upsert the item's
 `delegation-metadata` under the coordinator token; write each `orchestrator-confirmation` and advance under the
 coordinator token while the run is open; then run Step 7 to close. The costs, stated plainly: the root has an open
 run for the whole length of the review; one wave runs per root, so a new run-wave on that root resumes this run
@@ -456,9 +461,14 @@ same scope, so the audit trail distinguishes the cycle. The server knows only sc
 so a fix-cycle seat runs under its **base** seat's assignment: on a still-open run, first re-`assign`
 the base seat (`run-ops --phase assign --item <short> --seat <base seat>`, coordinator token; this
 supersedes the old assignment as attempt n+1) and write the new `seatToken` to the base seat's token
-file. When the run is already closed, the cycle gets its own
-run over that one item, `<runId>-a<n>` (a `review: "handoff"` fix cycle takes the still-open-run branch above, since
-that run closes only after the project's review). Follow these steps in order:
+file. A `review: "handoff"` fix cycle takes this still-open-run branch: the item is still a member of
+the open run, and a second `open` over it is refused (an item must be in no other open run). After that re-assign,
+reseat each fix-cycle seat with the run's own `plan.json` (`reseat --plan plan.json`, the command below), and after the
+re-review verdict do step 5 below (the `session-tracking` and Outcome rewrite, then the `delegation-metadata` re-upsert)
+under this run's coordinator token. A Fail's `a<n+1>` stays on this run too, and Step 7 closes it, not step 6.
+Steps 1-6 are for a run already closed (the Otherwise mode of Step 5, where Step 7 closes the run once the review is
+dispatched, or a cycle after a handoff run's Step 7): the cycle gets its own run over that one item, `<runId>-a<n>`.
+Follow these steps in order:
 
 1. Open a run over that one item, label `<runId>-a<n>`. `open` carries no `seatToken`; save the returned
    `coordinatorToken` as one line to its own token file beside the run's (for example
@@ -547,9 +557,11 @@ not restate it.
 
 Any other description, or none, is class unlabelled. `<short>` is the item's 8-hex short id. A fix-cycle seat is
 `implementer-a1:<short>`, a re-review is `reviewer-a<n>:<short>`, an amendment planner is `planner-a<n>:<short>`.
-`dispatch-meta` matches only the plan's seat labels (`<seat>[-a<n>]:<short>` of the plan's items, plus `planner` and
-`reviewer` for every item); a free-text description leaves the seat unknown, and the other classes are found only by
-`session-meters`.
+`dispatch-meta` wants `<seat>:<short>` for each plan item's stage seats plus `planner` and `reviewer`, and also keeps,
+each under its own full label, the fix-cycle form `<seat>-a<n>:<short>` and the lane form `<seat>.<skill>:<short>` (a
+lane on a fix-cycle base too) of a wanted label; a free-text description leaves the seat unknown. `provenance
+--coordinator` finds the coordinator by its exact label. The `red-proofs`, `retrospective`, `research` and unlabelled
+classes are found only by `session-meters`.
 
 Tokens and meters come only from the seat's transcript, via `--meta`: never from the Agent result, never from a
 flag. A row's tokens are the non-cached sum (input + cache write + output) and the row carries its four meters as a
@@ -672,11 +684,16 @@ background and go on to `SKILL.md` Step 9; the next wave's planners do not wait 
    `redProofs: "done"` in the run's local `state.json` so a resume does not repeat the step.
 7. **Record the runner's meters.** The runner is one background Agent with `description`
    `red-proofs:<parent-short>` (Label rule) and an explicit `model` and `effort` (the dispatch-model guard requires
-   both). Once it returns, run `node "<helper>" session-meters --session-dir <session> --label red-proofs:<parent-short>`
-   (the session folder derived as in Step 3's layer meters) and append one line to the wave parent's
-   `red-proof-results`: the `agent-meters=` entry of `lines` that command prints for that label, followed by ` run=<runId>`
-   (the plan run id). The write is a token-less `upsert` of the whole body (the note was created token-less in item 5,
-   so it stays writable after the close); no minutes are added.
+   both). Once it returns, find the runner's own session folder: this step runs after the merge, so it can be a later
+   session than the run's, and the run's session folder is not the one to use. Look under `~/.claude/projects` for the
+   `agent-*.meta.json` whose `description`, display tag stripped, is `red-proofs:<parent-short>`; the folder is the part
+   of its path before `/subagents/` (as in Step 3's layer meters). Run
+   `node "<helper>" session-meters --session-dir <that folder> --label red-proofs:<parent-short>` and append one line to
+   the wave parent's `red-proof-results`: the `agent-meters=` entry of `lines` that command prints for that label,
+   followed by ` run=<runId>` (the plan run id). On `agent-meters=red-proofs:<parent-short>:unknown`, run the command
+   once more on that folder; if the entry is still `unknown`, append it as it is, with ` run=<runId>` (a gap, never
+   zero) and name the gap in the Step 7 report. The write is a token-less `upsert` of the whole body (the note was
+   created token-less in item 5, so it stays writable after the close); no minutes are added.
 
 ---
 

@@ -907,7 +907,10 @@ table is the "Label rule" of run-wave `post-run.md`; do not restate it). On a ru
 TOKEN and END SEAT parts that `node "<helper>" review-prompt --plan <plan> --item <short> --result <result>` renders for
 a bound run: copy those two paragraphs from its output and never write the token rules by hand. The consolidated
 reviewer gets each child's reviewer token file (`tokens/<short>.reviewer.token`), passes the matching child's token on
-that child's calls, and ends each child's seat.
+that child's calls, and ends each child's seat. A consolidated reviewer is one Agent, labelled `reviewer:<short>` with
+the short id of the first child in plan order: `provenance` looks a seat's meters up as `<seat>:<item short>`, so
+`--extra-seats reviewer:<model>` goes on that first child only, and every other child's `delegation-metadata` carries,
+from line 3 on, a prose pointer to that child instead. The session coverage counts the one label once.
 
 **If using Direct or Delegated tier** (single working branch on the main directory),
 the review agent reads from the working branch and runs no gradle itself (see item 4
@@ -961,7 +964,7 @@ The review agent:
 | **Pass with observations** | Proceed to Step 6; dispose observations per Dispositions at child close (`fixed` only under run-wave `post-run.md` Step 5 "Observation triage") |
 | **Fail — blocking issues** | Stop and report to the user with the full findings. Do not attempt to fix autonomously — bring the human into the loop. |
 
-Once the user rules a fix on a run-wave item under `review: "handoff"`, the fix cycle follows the numbered recipe in run-wave `post-run.md` Step 5 "Fallback" on the still-open run (re-assign the base seat), and takes its own `<runId>-a<n>` run only once the run has closed; the recipe also finalizes the item's `session-tracking`.
+Once the user rules a fix on a run-wave item under `review: "handoff"`, the fix cycle takes the still-open-run branch of run-wave `post-run.md` Step 5 "Fallback" (re-assign the base seat, reseat with the run's own `plan.json`, and after the re-review rewrite `session-tracking` and re-upsert `delegation-metadata` as that Fallback's step 5 says, under the run's coordinator token); it opens no `<runId>-a<n>` run, and the numbered steps 1-6 apply only once the run has closed.
 
 **Dispositions at child close.** When a child's review returns Pass or Pass with observations,
 write the child's `orchestrator-confirmation` before advancing it: one line per O# as `fixed <sha>`,
@@ -1083,6 +1086,9 @@ After review passes:
    ```to-call
    {"tool":"advance","op":"transition","args":{"itemId":"4b7d0e19","trigger":"start"}}
    ```
+   On a run-wave item whose run is still open (under `review: "handoff"` it stays open through the review), this
+   advance and the item's `orchestrator-confirmation` go under the coordinator token, then the run is closed with
+   `post-run.md` Step 7, as in the Parallel tier below; with no open run both stay token-less.
    An item that has children follows the same rule before this advance, with the item in the feature's
    place and its parent as the holder's parent:
 
@@ -1115,7 +1121,10 @@ After review passes:
    in the item's `red-proof-results` note (orchestrator-owned). A real gap becomes a test-only
    follow-up item via `/task-orchestrator:create-item` (exempt from further proofs by policy),
    never a reopen. Skip categories per the rule. Run it in the background when other work is
-   waiting; it never gates the merge or the terminal transition.
+   waiting; it never gates the merge or the terminal transition. Dispatch the runner with the Agent `description`
+   `red-proofs:<item short>` (the Label rule of run-wave `post-run.md`; a one-item run's wave parent is the item), and
+   when the item had a run id, record its meters as `post-run.md` Step 7a item 7 says. With no run id, write no meters
+   line and say so in the report.
 
 Report the PR URL and a summary.
 
