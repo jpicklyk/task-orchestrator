@@ -12,6 +12,9 @@
 //
 // run-exec-lib.mjs adds rows to the subcommand table below: next, prompt, stage-result,
 // scan-declarations, verify, notes-audit, dispatch-meta, provenance, review-prompt, reseat, run-ops, follow-ups, report, review-args.
+// provenance also takes the per-run layer flags --coordinator <label> (with --session-dir |
+// --projects-dir), --session-transcript <path>, --session-since <t> and --session-until <t>, which add
+// the 'layer-meters' member to its output.
 
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';

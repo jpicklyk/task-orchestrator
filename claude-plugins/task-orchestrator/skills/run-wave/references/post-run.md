@@ -258,6 +258,25 @@ run report instead.
    fields. This line is what the session-retrospective skill's structured-provenance parser reads —
    do not hand-write it, and do not reorder its fields.
 
+   **Layer meters (once per run).** The same `provenance` call also meters the two layers above the
+   seats when you pass their flags: `--coordinator <label>` (tier 2 only: the exact dispatch label the
+   director dispatched this coordinator under; a `-a<n>` variant or a prefix is not matched; the meta walk
+   uses the same `--session-dir`/`--projects-dir` roots as `dispatch-meta`), and
+   `--session-transcript <path>` (the launching session's own transcript,
+   `<projects>/<cwd-encoded>/<sessionId>.jsonl`, the `.jsonl` beside the session folder; never guessed)
+   with `--session-since <openedAt>` (the run's `openedAt` from `runs_read` `get`) and optionally
+   `--session-until <t>` (epoch ms or ISO-8601, inclusive). The output gains one member, `layer-meters`,
+   whose value is `layer-meters=coordinator:<i>/<cw>/<cr>/<o>,session:<i>/<cw>/<cr>/<o> run=<runId> session-window=run|whole-session`
+   (only the layers you asked for; `session-window=whole-session` when the transcript lines carry no
+   timestamps, with a stderr warning). A layer with no meters reads `<layer>:unknown` with a stderr
+   warning `provenance: layer <layer> has no transcript meters (a gap, not zero)`, never zero. The
+   meters are a snapshot taken when Step 3 runs, so the post-run tail is not in them. A layer flag with
+   `--item`, or a window flag without `--session-transcript`, exits 2. Do not put this line on a member
+   item: append it to the run's target parent's `delegation-metadata` (one line per run id; a re-run for
+   the same run id replaces its own line), a token-less write like the parent pointer line. With no
+   non-member target parent (the Parent check wrote `parent=skipped`) the line goes only in the Step 7
+   report.
+
 ---
 
 ## Step 4 — Batched advance
