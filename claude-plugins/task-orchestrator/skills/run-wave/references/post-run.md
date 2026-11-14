@@ -266,9 +266,10 @@ run report instead.
    `transcript` field of any seat entry in this run's `dispatch-meta` document,
    `<projects>/<cwd-encoded>/<sessionId>/subagents/agent-<id>.jsonl` (a Workflow seat sits deeper under
    `subagents/`); the part before `/subagents/` is the session folder, the one `--session-dir` takes, and
-   the session transcript is that folder plus `.jsonl`; when no seat matched, omit `--session-transcript`
-   and name the gap in the Step 7 report) with `--session-since <openedAt>` (the run's `openedAt` from `runs_read` `get`) and optionally
-   `--session-until <t>` (epoch ms or ISO-8601, inclusive). The output gains one member, `layer-meters`,
+   the session transcript is that folder plus `.jsonl`) with `--session-since <openedAt>` (the run's `openedAt` from `runs_read` `get`) and optionally
+   `--session-until <t>` (epoch ms or ISO-8601, inclusive). When no seat matched, omit
+   `--session-transcript` and drop `--session-since` and `--session-until` with it (a window flag
+   without `--session-transcript` exits 2), and name the gap in the Step 7 report. The output gains one member, `layer-meters`,
    whose value is `layer-meters=coordinator:<i>/<cw>/<cr>/<o>,session:<i>/<cw>/<cr>/<o> run=<runId> session-window=run|whole-session`
    (only the layers you asked for; `session-window=whole-session` has two causes: no window flag was
    given, with no warning, or a window flag was given but no usage line carries a timestamp, with the

@@ -76,8 +76,7 @@ throws unless `prompt` is a non-empty string (the CLI exits non-zero without `--
 - `--max-budget-usd` is the only configured hard stop: plans open runs with no budget, and the
   server's run limits return early without one. The account usage limit is not a configured stop.
 
-- Never `--bare`: a bare session skips the hooks installed plugins define, so Method B seats lose the
-  subagent-start hook and their phase protocol, and it reads auth only from `ANTHROPIC_API_KEY` or
+- Never `--bare`: a bare session skips the hooks installed plugins define, and it reads auth only from `ANTHROPIC_API_KEY` or
   `apiKeyHelper`.
 - A headless process fails rather than pauses on a usage limit. `--max-budget-usd` bounds the
   spend; a failed run is resumed from the server's run state, not from the process.
