@@ -234,7 +234,7 @@ run report instead.
    `node "<helper>" provenance --plan <plan> --result <result> --method A|B --turns <n> --meta <dispatch-meta.json> [--meta-dir <dir>]`.
    There is no usage file and no per-item file: Claude Code writes an `agent-<id>.meta.json` beside every
    subagent transcript whose `description` is the dispatch label, and `dispatch-meta` matches those to this
-   plan's `<seat>:<short>` labels (display tag stripped, newest match per label; it also wants `planner` and
+   plan's `<seat>:<short>` labels (display tag stripped, same-label transcripts of one session summed, with a dispatches count; it also wants `planner` and
    `reviewer` for every item, so out-of-run `planner-a<n>` and `reviewer-a<n>` labels match) and reads from each
    transcript the model id, the effort its assistant turns actually ran at and the four usage meters (input,
    cache write, cache read, output; one count per message id). By default it scans every session under
