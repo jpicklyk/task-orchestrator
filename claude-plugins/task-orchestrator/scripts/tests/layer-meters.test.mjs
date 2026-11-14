@@ -437,15 +437,17 @@ test('probe: a display tag on the meta description is stripped for the exact mat
   assert.equal(layerLine(cli(run, ['--coordinator', COORD, '--session-dir', run.session])), `layer-meters=${COORD_ENTRY} run=${RUN_ID}`)
 })
 
-test('probe: two meta files with the same label, the newest mtime wins', () => {
+test('probe: two same-label coordinator meta files in one session are summed', () => {
+  // 11/22/330/9 (COORD_TEXT) + 1000/1000/1000/1000, summed by hand, whichever file is newer.
+  const SUMMED = `layer-meters=coordinator:1011/1022/1330/1009 run=${RUN_ID}`
   const run = mkRun()
   writeAgent(run.session, 1, COORD, [assistant('o', usage(1000, 1000, 1000, 1000))].join('\n'), 1_700_000_000)
   writeAgent(run.session, 2, COORD, COORD_TEXT, 1_800_000_000)
-  assert.equal(layerLine(cli(run, ['--coordinator', COORD, '--session-dir', run.session])), `layer-meters=${COORD_ENTRY} run=${RUN_ID}`)
+  assert.equal(layerLine(cli(run, ['--coordinator', COORD, '--session-dir', run.session])), SUMMED)
   const run2 = mkRun()
   writeAgent(run2.session, 1, COORD, COORD_TEXT, 1_700_000_000)
   writeAgent(run2.session, 2, COORD, [assistant('o', usage(1000, 1000, 1000, 1000))].join('\n'), 1_800_000_000)
-  assert.equal(layerLine(cli(run2, ['--coordinator', COORD, '--session-dir', run2.session])), `layer-meters=coordinator:1000/1000/1000/1000 run=${RUN_ID}`)
+  assert.equal(layerLine(cli(run2, ['--coordinator', COORD, '--session-dir', run2.session])), SUMMED)
 })
 
 // ── probes: odd meter values ────────────────────────────────────────────────────────────────────

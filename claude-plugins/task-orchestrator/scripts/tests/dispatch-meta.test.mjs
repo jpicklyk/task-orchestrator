@@ -42,7 +42,7 @@ test('stripDisplayTag removes a trailing " [model/effort]" tag and leaves a bare
   assert.equal(stripDisplayTag('implementer:abcd1234'), 'implementer:abcd1234')
 })
 
-test('collectDispatchMeta: matches meta descriptions (tag stripped) to the wanted labels, takes the modal effort and last model id from the transcript, and lets the newest file win per label', () => {
+test('collectDispatchMeta: matches meta descriptions (tag stripped) to the wanted labels, takes the modal effort and last model id from the transcript, and sums the same-label files of one session folder; model, effort and transcript come from the newest', () => {
   const io = fakeIo({
     walk: {
       '/s': [
@@ -68,7 +68,8 @@ test('collectDispatchMeta: matches meta descriptions (tag stripped) to the wante
   const meta = collectDispatchMeta({ io, roots: ['/s'], labels: ['implementer:aaaaaaaa', 'planner:aaaaaaaa'] })
   assert.deepEqual(Object.keys(meta).sort(), ['implementer:aaaaaaaa', 'planner:aaaaaaaa'])
   const impl = meta['implementer:aaaaaaaa']
-  assert.equal(impl.transcript, '/s/agent-new.jsonl', 'the newest meta file for a label wins')
+  assert.equal(impl.transcript, '/s/agent-new.jsonl', 'the transcript comes from the newest meta file for a label')
+  assert.equal(impl.dispatches, 2, 'both same-label files of the session folder are counted')
   assert.equal(impl.model, 'sonnet')
   assert.equal(impl.modelId, 'claude-sonnet-5-5')
   assert.equal(impl.effort, 'medium', 'the most frequent effort over the assistant lines')
