@@ -268,8 +268,6 @@ export function listTotal(data: unknown): number {
 export function runFromList(item: Obj): BoardRun | null {
   const status = item.status
   if (status !== 'open' && status !== 'paused') return null
-  const usage = isObj(item.usage) ? item.usage : {}
-  const tokens = num(usage.reportedTokens) > 0 ? num(usage.reportedTokens) : num(usage.observedTokens)
   const hints = isObj(item.hints) ? item.hints : {}
 
   return {
@@ -287,7 +285,6 @@ export function runFromList(item: Obj): BoardRun | null {
     workflowLaunched: hints.method === 'A' && hints.phase === 'launched',
     scopeId: str(item.scopeId) || undefined,
     rootId: str(item.rootId) || undefined,
-    tokens,
   }
 }
 

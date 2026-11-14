@@ -177,7 +177,7 @@ const LISTED = {
   status: 'open',
   coordinatorStalled: true,
   stalledSeats: 1,
-  usage: { reportedTokens: 0, observedTokens: 1_250_000 },
+  usage: { observedTokens: 1_250_000 },
 }
 
 const FRONTIER = {
@@ -1160,7 +1160,7 @@ test('a run is built from the list item and its frontier', async () => {
   expect(runFromList({ ...LISTED, status: 'closed' })).toBe(null)
   const listed = runFromList(LISTED)
   expect(listed?.status).toBe('open')
-  expect(listed?.tokens).toBe(1_250_000)
+  expect(listed).not.toHaveProperty('tokens')
   expect(listed?.stalled).toBe(1)
   const run = withFrontier(listed as BoardRun, FRONTIER)
   expect(run.counts).toEqual({ queue: 2, work: 1, review: 0, blocked: 1, terminal: 1 })
