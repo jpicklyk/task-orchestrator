@@ -76,7 +76,8 @@ throws unless `prompt` is a non-empty string (the CLI exits non-zero without `--
 - `--max-budget-usd` is the only configured hard stop: plans open runs with no budget, and the
   server's run limits return early without one. The account usage limit is not a configured stop.
 
-- Never `--bare`: a bare session cannot receive messages, so the director could not reach it.
+- Never `--bare`: a bare session skips the hooks installed plugins define, and it reads auth only from `ANTHROPIC_API_KEY` or
+  `apiKeyHelper`.
 - A headless process fails rather than pauses on a usage limit. `--max-budget-usd` bounds the
   spend; a failed run is resumed from the server's run state, not from the process.
 - Do not set `TASK_ORCHESTRATOR_MODE`. `headless-iteration` would silence the plugin's
@@ -106,7 +107,9 @@ decision only from a manual refresh.
 
 ### Coordinator brief
 
-The `prompt` of `start_session`, `claude -p` or the background `Agent`, verbatim for every tier:
+The `prompt` of `start_session` or the background `Agent`, verbatim at tiers 1, 2 and 4. At tier 3 the
+brief goes to the background agent that starts the process, not to the process: the process prompt
+carries only the plan's args.
 
 ```
 Run /task-orchestrator:run-wave <scope> --altitude-safe   (tier 2 also: --method A).
@@ -131,6 +134,18 @@ The director board therefore shows `coord idle (Method A)` when the run hints sa
 `launched`, `coord idle, seats live` when any in-flight seat is not stalled, nothing on a paused run,
 and otherwise `COORD STALLED`: SendMessage the coordinator; if it is gone, close the run and
 re-plan.
+
+## Limits
+
+- One wave per project root at a time: run-wave resumes an open or paused run instead of starting a second.
+- The tier-2 coordinator, the agent that starts a tier-3 process, and tier 4 live inside the director
+  session and end with it. A tier-1 session does not.
+- Nothing wakes the director but a coordinator report, a task notification or the user.
+- A tier-2 Workflow resume is not the director's call: the guard denies `Workflow` with a `scriptPath` or
+  `resumeFromRunId`, so it falls to the coordinator, a background agent that may lack `Workflow`
+  (run-wave post-run re-probes it for that reason). A resume may then have no one able to make it.
+- The director cannot plan: it reads no files or notes. New work is planned in orchestrator mode before
+  entering director mode.
 
 ## Tier 4: inline, with a warning
 

@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.director
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.serializer
 
@@ -20,7 +21,7 @@ internal val runsWithdrawOp =
             "Withdraw an open or acknowledged decision: its raiser (the same principal and seat) or the coordinator " +
                 "token of its run. An answered or withdrawn decision is decision_closed. The dedupeKey is then free for a " +
                 "new decision. Returns the decision.",
-        profiles = director(),
+        profiles = orchestration() + director(),
         capability = ApiCapability.RUNS,
         request = serializer<RunsWithdrawRequest>(),
         errors =

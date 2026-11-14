@@ -10,9 +10,11 @@ orchestrator and coordinator side (the orchestration connection). The director s
 
 | Actor | Does |
 |---|---|
-| A seat (implementer, reviewer, ...) | Raises under its own seat token, with `block: true`. Never resumes. |
-| Orchestrator or coordinator | Raises for a token-less agent that returned `awaiting_decision`; later resumes the item and re-dispatches. |
-| Director or human | Answers or withdraws. The director has no `advance`, so it cannot resume. |
+| A seat (implementer, reviewer, ...) | Raises under its own seat token, with `block: true`. May withdraw a decision it raised, under the same seat. Never resumes. |
+| Orchestrator or coordinator | Raises for a token-less agent that returned `awaiting_decision`; later resumes the item and re-dispatches. Withdraws a decision it raised; under the coordinator token, any decision of its run. |
+| Director or human | Answers. Withdraws only a decision this principal raised without a seat, never a seat's decision. The director has no `advance`, so it cannot resume. |
+
+Nobody withdraws a server-raised decision (`attempt-cap`, `run-budget`).
 
 ## 2. Raise
 

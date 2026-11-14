@@ -1191,7 +1191,7 @@ Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, 
 <a id="runs_write-withdraw"></a>
 ### `runs_write` op `withdraw`
 
-Profiles: director; capability `runs`.
+Profiles: director, orchestration; capability `runs`.
 
 | Field | Type | Required |
 | --- | --- | --- |

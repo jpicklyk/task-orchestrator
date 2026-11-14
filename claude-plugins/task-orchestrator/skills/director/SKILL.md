@@ -7,7 +7,8 @@ argument-hint: "[off]"
 # Director
 
 The director watches runs and answers decisions. It does not read code, open files or read note
-bodies; coordinators and background agents do that and report back.
+bodies; coordinators and background agents do that and report back. Why the layer exists, and when
+not to use it: [references/purpose.md](references/purpose.md).
 
 ## Entering and leaving
 
@@ -66,7 +67,14 @@ This is the whole tool budget of a director session:
 | `PushNotification` | Tell the user a decision is waiting when they are away |
 
 The five MCP tools come from the director connection. Anything else (notes, items writes,
-`advance`, config, and `runs_write` `open`) is a coordinator's job.
+`advance`, config) is a coordinator's job. `runs_write` `open` is in the director profile on purpose:
+a session that opens a run holds that run's coordinator token.
+
+The guard enforces the altitude rule, not this whole budget: in a skill-entered session it denies the
+file and shell tools, foreground `Agent`, `Bash` outside its read-only allow-list, the `config` tool
+(every op, `push`, `rollback` and `reset` included) and the reads that return note or document bodies.
+It does not deny the orchestration connection's other writes (`notes_write`, `items_write`, `advance`).
+Only the hardened entry enforces the whole budget, through its tool list.
 
 Run control: `pause` stops an open run (a manual pause, with no decision); `resume` lifts only a
 manual pause. A run paused on an `attempt-cap` decision is lifted only by answering
@@ -94,7 +102,7 @@ when enforcement matters.
 
 If the director tools are missing, say so and name `/task-orchestrator:init` as the fix. Until
 then the director-only members are unavailable on the orchestration connection: `runs_read`
-`decisions`/`decision`, `runs_write` `pause`/`resume`/`ack`/`answer`/`withdraw` and the `report`
+`decisions`/`decision`, `runs_write` `pause`/`resume`/`ack`/`answer` and the `report`
 tool. Decisions cannot be shown or answered until `/task-orchestrator:init`.
 Still never call `notes_read`.
 
@@ -243,8 +251,8 @@ to run `claude --version` and report. The hardened entry has no shell, so that i
 
 | Tier | Present | Meaning |
 |------|---------|---------|
-| 1 | Desktop session tools (start a session, list sessions) and `ListAgents` showing other sessions (not in the hardened entry) | Coordinators run as separate sessions; reach them with `SendMessage` |
-| 2 | The `Workflow` tool (not in the hardened entry) | A run executes as a background workflow; this session only watches and answers |
+| 1 | `start_session` and `SendMessage` (or `send_message`) in your tool list (not in the hardened entry) | Coordinators run as separate sessions; reach them with `SendMessage` |
+| 2 | The `Workflow` tool (not in the hardened entry) | A run executes as a background workflow; the director makes the one `Workflow` call and relays its args and result, because the coordinator is a background agent and a background subagent may lack `Workflow` |
 | 3 | Neither, but `claude -p` is available on the host | Coordinators run as headless `claude -p` processes started by a background agent |
 | 4 | None of the above | No separate coordinator: every read and edit goes through background `Agent` dispatches from this session |
 

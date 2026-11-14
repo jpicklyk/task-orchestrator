@@ -202,7 +202,7 @@
     <thead><tr><th>More hooks</th><th>What each does</th></tr></thead>
     <tbody>
       <tr><td>Before a note is written</td><td>If the note's schema names a skill and the body looks thin, suggests running that skill first. Advisory only.</td></tr>
-      <tr><td>Before an agent is dispatched</td><td>Denies a dispatch that names no <code>model</code>, because the shipped agents would silently inherit the caller's.</td></tr>
+      <tr><td>Before an agent is dispatched</td><td>Denies a dispatch that is missing a <code>model</code> or an effort, because the shipped agents would silently inherit the caller's model and carry no effort.</td></tr>
       <tr><td>When <code>config.yaml</code> changes</td><td>Re-syncs the project config to the server mid-session.</td></tr>
       <tr><td>After a plan is approved</td><td>Stores the plan as a plan document over REST, so items are materialized from it.</td></tr>
       <tr><td>When a run closes, or a turn ends</td><td>Dispatches or nudges a retrospective for a closed run that has not had one.</td></tr>

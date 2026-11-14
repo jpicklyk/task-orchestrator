@@ -2523,7 +2523,102 @@ function execDispatchMeta(argv, io) {
   io.exit(0)
 }
 
+const LAYER_GAP_WARNING = {
+  coordinator: 'provenance: layer coordinator has no transcript meters (a gap, not zero)',
+  session: 'provenance: layer session has no transcript meters (a gap, not zero)',
+}
+const NO_TIMESTAMPS_WARNING = 'provenance: session transcript lines carry no timestamps; session meters cover the whole session'
+
+/** A window bound: all-digit epoch ms, or an ISO-8601 time Date.parse accepts; otherwise a throw. */
+function parseWindowBound(flag, value) {
+  if (value === undefined) return undefined
+  const t = /^\d+$/.test(value) ? Number(value) : Date.parse(value)
+  if (!Number.isFinite(t)) throw new Error(`invalid args: provenance: ${flag} ${value} is neither epoch milliseconds nor an ISO-8601 time`)
+  return t
+}
+
+/**
+ * windowTranscript(text, since, until) -> {text, windowed}. When at least one usage-bearing
+ * assistant line has a parseable top-level `timestamp`, only those lines whose timestamp lies in
+ * [since, until] (inclusive; an absent bound is open) are kept and windowed is true; otherwise the
+ * text is returned whole and windowed is false. Pure.
+ */
+export function windowTranscript(text, since, until) {
+  const kept = []
+  let anyTimestamp = false
+  for (const line of String(text || '').split('\n')) {
+    if (!line.includes('"assistant"')) continue
+    let rec
+    try { rec = JSON.parse(line) } catch (e) { continue }
+    if (!rec || rec.type !== 'assistant' || !rec.message || !rec.message.usage || typeof rec.message.usage !== 'object') continue
+    const t = typeof rec.timestamp === 'string' ? Date.parse(rec.timestamp) : NaN
+    if (!Number.isFinite(t)) continue
+    anyTimestamp = true
+    if (since !== undefined && t < since) continue
+    if (until !== undefined && t > until) continue
+    kept.push(line)
+  }
+  if (!anyTimestamp) return { text: String(text || ''), windowed: false }
+  return { text: kept.join('\n'), windowed: true }
+}
+
+/**
+ * layerMeters({io, runId, coordinator?, roots, sessionTranscript?, since?, until?, windowFlag,
+ * warnings}) -> the 'layer-meters=' line, or undefined when neither layer was asked for.
+ * Coordinator: the dispatch-meta transcript whose stripped label equals `coordinator` exactly (a
+ * fix-cycle variant or a prefix is not it). Session: transcriptMeters over the transcript at
+ * `sessionTranscript`, windowed when windowFlag and the lines carry timestamps. A layer with no
+ * meters reads '<layer>:unknown' and pushes its gap warning; never zero.
+ */
+export function layerMeters({ io, runId, coordinator, roots, sessionTranscript, since, until, windowFlag, warnings }) {
+  if (coordinator === undefined && sessionTranscript === undefined) return undefined
+  const fmt = (layer, u) => (u ? `${layer}:${u.input}/${u.cacheWrite}/${u.cacheRead}/${u.output}` : `${layer}:unknown`)
+  const entries = []
+  let windowToken
+  if (coordinator !== undefined) {
+    const found = collectDispatchMeta({ io, roots, labels: [coordinator] })
+    const rec = Object.hasOwn(found, coordinator) ? found[coordinator] : undefined
+    const usage = rec && rec.usage
+    if (!usage) warnings.push(LAYER_GAP_WARNING.coordinator)
+    entries.push(fmt('coordinator', usage))
+  }
+  if (sessionTranscript !== undefined) {
+    const raw = io.readText(sessionTranscript)
+    let usage
+    if (raw !== null && raw !== undefined) {
+      let text = raw
+      let token = 'whole-session'
+      if (windowFlag) {
+        const w = windowTranscript(raw, since, until)
+        if (w.windowed) { text = w.text; token = 'run' } else warnings.push(NO_TIMESTAMPS_WARNING)
+      }
+      usage = transcriptMeters(text)
+      if (usage) windowToken = token
+    }
+    if (!usage) warnings.push(LAYER_GAP_WARNING.session)
+    entries.push(fmt('session', usage))
+  }
+  return `layer-meters=${entries.join(',')} run=${runId}${windowToken ? ` session-window=${windowToken}` : ''}`
+}
+
+/**
+ * provenance --plan <plan> --result <result> [...seat flags] [--coordinator <label>
+ * [--session-dir <dir> | --projects-dir <dir>]] [--session-transcript <path> [--session-since <t>]
+ * [--session-until <t>]] -> {<itemId>: <line>, ...}; with a layer flag one more member,
+ * 'layer-meters', whose value is layerMeters()'s line. t = epoch ms or ISO-8601, inclusive. A layer
+ * flag with --item, a window flag without --session-transcript, or a bad t exits 2.
+ */
 function execProvenance(argv, io) {
+  const coordinator = flagValue(argv, '--coordinator')
+  const sessionTranscript = flagValue(argv, '--session-transcript')
+  const sinceFlag = flagValue(argv, '--session-since')
+  const untilFlag = flagValue(argv, '--session-until')
+  const windowFlag = sinceFlag !== undefined || untilFlag !== undefined
+  const anyLayerFlag = coordinator !== undefined || sessionTranscript !== undefined || windowFlag
+  if (anyLayerFlag && flagValue(argv, '--item') !== undefined) throw new Error('invalid args: provenance: layer meters are per run; --coordinator and --session-* do not combine with --item')
+  if (windowFlag && sessionTranscript === undefined) throw new Error('invalid args: provenance: --session-since/--session-until require --session-transcript')
+  const since = parseWindowBound('--session-since', sinceFlag)
+  const until = parseWindowBound('--session-until', untilFlag)
   const doc = io.readInput(flagValue(argv, '--plan'))
   const resultDoc = io.readInput(flagValue(argv, '--result'))
   const core = io.loadCore()
@@ -2567,6 +2662,16 @@ function execProvenance(argv, io) {
     item: itemFlag,
     warnings,
   })
+  if (anyLayerFlag) {
+    const sessionDir = flagValue(argv, '--session-dir')
+    const projectsDir = flagValue(argv, '--projects-dir')
+    const roots = sessionDir ? [sessionDir] : [projectsDir || `${io.homeDir()}/.claude/projects`]
+    const line = layerMeters({
+      io, runId: doc && doc.args ? doc.args.runId : undefined,
+      coordinator, roots, sessionTranscript, since, until, windowFlag, warnings,
+    })
+    if (line !== undefined) out['layer-meters'] = line
+  }
   if (warnings.length > 0 && io.warn) for (const w of warnings) io.warn(w)
   io.writeOut(JSON.stringify(out))
   io.exit(0)

@@ -112,7 +112,7 @@ class ProfileVisibilityAllowlistTest {
         val DIRECTOR_ONLY_MEMBERS: Map<String, Set<String>> =
             mapOf(
                 "runs_read" to setOf("decisions", "decision"),
-                "runs_write" to setOf("pause", "resume", "ack", "answer", "withdraw")
+                "runs_write" to setOf("pause", "resume", "ack", "answer")
             )
 
         /** Tools visible in director and in no other profile (plan R9: report's profiles are {DIRECTOR}). */

@@ -39,7 +39,7 @@ over MCP.
 
 | Profile | HTTP path | stdio | Tools |
 |---|---|---|---|
-| `orchestration` | `/mcp` | `MCP_TOOL_PROFILE=orchestration` (the default) | every 4.0 tool except the director-only `report`, including `advance` and `config`; `runs_read` and `runs_write` carry only their orchestration-profile selects and ops (no `decisions`, `decision`, `pause`, `resume`, `ack`, `answer`, `withdraw`, and never `mark`) |
+| `orchestration` | `/mcp` | `MCP_TOOL_PROFILE=orchestration` (the default) | every 4.0 tool except the director-only `report`, including `advance` and `config`; `runs_read` and `runs_write` carry only their orchestration-profile selects and ops (no `decisions`, `decision`, `pause`, `resume`, `ack`, `answer`, and never `mark`) |
 | `knowledge` | `/mcp/knowledge` | `MCP_TOOL_PROFILE=knowledge` | `items_read` (no `context`, `next`, `blocked`, `history`), `items_write` (no `create_tree`, `complete_tree`, `repin`), `notes_read`, `notes_write`, `deps_read`, `deps_write`, `docs_read`, `docs_write` |
 | `director` | `/mcp/director` | `MCP_TOOL_PROFILE=director` | `items_read` (`get`, `list`, `overview`, `blocked` only), `deps_read`, `report`, `runs_read` (`get`, `list`, `frontier`, `decisions`, `decision`) and `runs_write` (`open`, `close`, `pause`, `resume`, `ack`, `answer`, `withdraw` only): no read that can return a note, document or transition-summary body, and no other write |
 
@@ -2246,8 +2246,8 @@ most 32. Any token with `runs` whose scope reaches the run can stamp any key, `r
 
 **Decisions.** A decision is a question raised under a class (see
 [Decision classes](config-reference.md#decision-classes-decision_classes)) that a human or a director answers.
-`raise` is under the orchestration profile (a seat token supplies its run and item); `ack`, `answer` and `withdraw`
-are served by the director profile, and REST `POST /api/v1/ops/runs_write` serves every op. Who may `ack` or `answer`:
+`raise` and `withdraw` are under the orchestration profile (a seat token supplies its run and item); `ack` and
+`answer` are served by the director profile, `withdraw` also by it, and REST `POST /api/v1/ops/runs_write` serves every op. Who may `ack` or `answer`:
 
 | Class answerers | A human (human credential, real proof, no seat token) | The director profile (no seat token) | Any other caller |
 |---|---|---|---|
@@ -2398,7 +2398,7 @@ Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, 
 
 Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`, `version_conflict`
 
-**`runs_write` op `withdraw`** (director profile only; capability `runs`): Withdraw an open or acknowledged decision: its raiser (the same principal and seat) or the coordinator token of its run. An answered or withdrawn decision is decision_closed. The dedupeKey is then free for a new decision. Returns the decision.
+**`runs_write` op `withdraw`** (orchestration and director profiles; capability `runs`): Withdraw an open or acknowledged decision: its raiser (the same principal and seat) or the coordinator token of its run. An answered or withdrawn decision is decision_closed. The dedupeKey is then free for a new decision. Returns the decision.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
