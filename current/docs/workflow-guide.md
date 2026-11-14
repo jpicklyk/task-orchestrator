@@ -1329,7 +1329,7 @@ One session used to be both the user's point of contact and the coordinator of e
 
 "Director" names two things: a server tool profile (`/mcp/director`, `MCP_TOOL_PROFILE=director`) and a session mode entered with `/task-orchestrator:director`. The seat named `orchestrator` is the one whose note keys the coordinator token may write; it is a seat of the item's schema, not a session.
 
-A director earns its keep when the work is long or wide: the user stays reachable while a coordinator runs a wave, the director's context holds decisions and rollups rather than code, a disposable coordinator can be replaced without losing the run, and a guard keeps the session at that altitude. For small work or one short wave, orchestrator mode is enough.
+A director earns its keep when the work is long or wide, for four reasons: its context stays lean and long-lived because it holds decisions and rollups rather than code, it is one decision inbox across runs, the user's session stays free to talk while a coordinator runs a wave, and more parallel and longer-running work fits than one session can hold. For small work or one short wave, orchestrator mode is enough.
 
 ### A run, and when to open one
 
