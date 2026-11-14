@@ -63,7 +63,7 @@ try {
 
   if (rootId) {
     const result = await evaluateRuns({ rootId, config, state });
-    const text = directiveFor(result, located, { director });
+    const text = directiveFor(result, located, { director, transcriptPath: hookInput.transcript_path });
     if (result.nudge.length > 0) writeSessionState(sessionId, state);
     if (text) emitBlock(text);
     emitEmpty();
@@ -72,7 +72,7 @@ try {
   if (!state.sawClose || state.backstopNudged) emitEmpty();
   state.backstopNudged = true;
   writeSessionState(sessionId, state);
-  emitBlock(director ? buildDispatch(state.closes, dispatchAncestorId(located)) : buildNudge(state.closes));
+  emitBlock(director ? buildDispatch(state.closes, dispatchAncestorId(located), undefined, { transcriptPath: hookInput.transcript_path }) : buildNudge(state.closes));
 } catch {
   emitEmpty();
 }
