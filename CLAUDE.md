@@ -1,11 +1,65 @@
-## Project: MCP Task Orchestrator
+# MCP Task Orchestrator
 
-A Kotlin-based MCP server providing hierarchical work item management with dependency tracking, note schemas, and role-based workflow automation.
+> Maintenance rule: this file holds only what scanning the code will not tell you quickly - traps, guard rules and their tests, where things live, and the session layers. No defaults, counts, version numbers, history or detail a named file already states: point at that file instead.
 
-## Build Commands
+A Kotlin MCP server for hierarchical work items with dependencies, note schemas and gated phase transitions.
+
+## Where things live
+
+- Source root: `current/src/main/kotlin/io/github/jpicklyk/mcptask/current/` (paths below are relative to it unless they start at the repo root). Entry point `CurrentMain.kt`; composition root `bootstrap/` (`ServerComposition.kt` wires everything).
+- Migrations: `current/src/main/resources/db/migration/sqlite/` (the only Flyway location).
+- Environment variables: read only in `infrastructure/config/AppConfig.kt`; catalogue and defaults in [current/docs/fleet-deployment.md](current/docs/fleet-deployment.md). Schema and trait resolution: [current/docs/config-reference.md](current/docs/config-reference.md) and `application/config/` (`EffectiveConfigResolver`, `LayeredConfig`, `TraitResolver`).
+- Two skill systems, do not confuse them: project skills in `.claude/skills/` (auto-discovered) and plugin skills in `claude-plugins/task-orchestrator/skills/` (enabled through `enabledPlugins` in `.claude/settings.json`). Edits to plugin files are not picked up by a plain marketplace update; the cache refresh procedure is in [claude-plugins/CLAUDE.md](claude-plugins/CLAUDE.md).
+
+## Rules a guard test enforces
+
+Tests are under `current/src/test/kotlin/io/github/jpicklyk/mcptask/current/`; ratchet baselines under `current/src/test/resources/architecture/` hold no entries, so any violation fails, and a baseline line that no longer matches fails too. Fix the code; never add a baseline line.
+
+- **Layering** (`architecture/LayeringTest`, rules R1-R5 in `LayeringRules.kt`): `domain -> application -> infrastructure -> interfaces`, an outer layer may depend on an inner one, never the reverse. `infrastructure -> application` is allowed (adapters implement application ports). `domain` and `application` must not import `io.modelcontextprotocol` or `io.ktor`. No layer may import `bootstrap`.
+- **Application package cycles** (`architecture/PackageCycleTest`): the `application/<sub>` packages are acyclic. To share a type, move it down to a package every consumer already sits above.
+- **Dialect neutrality** (`architecture/DialectNeutralityTest`): `org.sqlite.*` and `org.jetbrains.exposed.*`, and SQLite tokens such as `PRAGMA` or `datetime(` in string literals, appear only under `infrastructure/sqlite/`. Storage ports (`*Store`) live in `application/port/`.
+- **Environment access** (`architecture/EnvAccessTest`): `System.getenv` only in `AppConfig.kt`, `EnvBoolean.kt` and `LogFileAppenderInstaller.kt`; everything else receives a typed value from the composition root.
+- **Flyway is the only schema path** (`architecture/NoSchemaUtilsInProductionTest`): a new table or column starts with a migration. Released migration files are byte-immutable (Flyway checksums every line, comments included). The Exposed table objects must match the DDL and the compiler does not check it: `SchemaParityTest` and the snapshots in `current/src/test/resources/schema/snapshot/` do, so a schema change edits the migration, the Exposed object and the snapshot together.
+- **Tool parameters are documented once**, in the `@Doc` of the request-class field; a tool `description` or select/op `doc` covers only operation choice, triggers, gates and cross-field constraints. After a `@Doc` edit run and commit both `./gradlew :current:regenerateToolGoldens` and `./gradlew :current:regenerateApiReference` (`ToolSchemaGoldenTest`, `ApiReferenceFreshnessTest`, `ToolSurfaceGuardsTest` check it). Checklists for a new tool, op, migration or dependency: `.claude/skills/add-component/SKILL.md`.
+- **Test functions** need a block body or an explicit `: Unit`; JUnit 5 silently skips a non-void test (`architecture/TestFunctionReturnTypeTest`).
+
+## Config traps
+
+- **Runtime config is DB-only.** `.taskorchestrator/config.yaml` under `AGENT_CONFIG_DIR` (default: the working directory) is imported into the DB at every boot by the `server-config-import` data step; the server then reads the stored head per call, so editing the file does nothing until a restart, and a version appended by another process on a shared volume is served without one.
+- **Two configs, two delivery paths.** The global floor mounted into the container is `deploy/global-config/.taskorchestrator/` (process schemas shared by every project). This repo's own `.taskorchestrator/config.yaml` is dogfood project config, pushed per root by the plugin's `config-sync` SessionStart hook; it is never mounted.
+- **Boolean env vars** go through `EnvBoolean`: most fall back to the default with a WARN on an unrecognized value, but `API_ENABLED`, `API_ALLOW_UNAUTHENTICATED`, `MCP_ALLOW_UNAUTHENTICATED` and `API_JWKS_ALLOW_INSECURE_URL` fail startup. `RESOURCE_LEASES_ENFORCED` is read once at startup; changing it needs a restart.
+
+## Session Layers: Orchestrator, Coordinator, Director
+
+Three session layers sit above the seats that do the work. They are roles a Claude Code session plays, not server modes (orchestration push via `advance` `transition`, opt-in claim via `advance` `claim`).
+
+**Why.** One session used to be both the user's contact and the coordinator of every run: its context filled, it was unavailable while a run was in flight, and held state was fragile across compaction. The layers split those jobs so each context is purposeful and clearable, token cost stays proportional to the work, and the server (not a prompt) holds state and boundaries.
+
+| Layer | What it is | Owns | Lifetime |
+|-------|------------|------|----------|
+| Seat (the base) | One agent on one phase of one item: planner, implementer, test author, reviewer | Its seat's notes; the entry seat also makes the one phase entry | One dispatch, fresh context |
+| **Orchestrator** (default) | The user's own session | Planning, sizing (Direct, Delegated, Parallel), dispatching seats, every later transition; when it opens a run it is also that run's coordinator | The session |
+| **Coordinator** | Whoever presents a run's coordinator token | One run (one wave): assign seats, advance members, post-run, report | One run, disposable; resumes from the run view and its run files, never from conversation |
+| **Director** (opt-in) | A session in director mode (`/task-orchestrator:director`) | The board across runs, answering decisions, staying free to talk to the user | The session; rebuilds its board from the server |
+
+**Why a director:** (1) a lean, long-lived context; (2) one decision inbox across runs; (3) the user-facing session stays free while work runs in the background; (4) more parallelism and longer-running work than one session can hold. Small work or one short wave does not need it; orchestrator mode is enough, and a director adds a layer and its cost.
+
+**Rules across the layers** (judge any change to director, coordinator or run-wave behaviour against these):
+
+- **Altitude.** The director never opens a file or reads a diff, test output or note body, except one decision request and a run rollup; it hands every read and edit to a coordinator or background agent. The `director` tool profile enforces this on the server, the `director-guard` hook in the session.
+- **Content flows down, pointers flow up.** A layer hands the one above ids, counts and short reasons, never note bodies, diffs or transcripts. Notes are the report.
+- **Server records are the state; messages are wake-ups.** Every layer restarts from server state (runs, seats, decisions, notes) plus its run files; nothing needed to resume lives only in a conversation.
+- **Decisions go up, answers come down.** A seat or coordinator raises; a director or human answers, as the decision class allows; a coordinator never answers its own. An answer never resumes the item: the coordinator does.
+- **Identity is declared.** The director is a call served by the director profile with no seat token; the coordinator holds the run's coordinator token (`RunPermissions`). The director path is not a security boundary: put decision authority in a credential's capabilities and scope.
+- **Cost is measured, not self-reported.** Model and effort come from `dispatch-policy.json` per class of work, and every dispatch names both. Token cost is read from Claude Code transcripts after a run into `delegation-metadata`; the session retrospective analyses it.
+
+**Vocabulary.** "Director" names both the server profile (`/mcp/director`) and the session mode: say which. The seat named `orchestrator` is the one whose note keys a run's coordinator token may write. The layers are not the sizing tiers (Direct, Delegated, Parallel) nor the coordinator tiers 1 to 4 (where a coordinator runs).
+
+Key files: `claude-plugins/task-orchestrator/skills/director/SKILL.md` and `hooks/director-guard.mjs` (director mode); `skills/director/references/coordinator-tiers.md` and `scripts/coordinator-tiers.mjs` (coordinator tiers); `skills/run-wave/SKILL.md`; `scripts/lib/meters.mjs` and `skills/session-retrospective/SKILL.md` (cost); server side `interfaces/shared/tools/runs/RunPermissions.kt` and `interfaces/shared/tools/ToolProfile.kt`; user-facing chapter 12 of [current/docs/workflow-guide.md](current/docs/workflow-guide.md).
+
+## Build and run
 
 ```bash
-# Docker (most common)
 docker build -t task-orchestrator:dev .
 docker run --rm -i \
   -v mcp-task-data:/app/data \
@@ -14,245 +68,9 @@ docker run --rm -i \
   task-orchestrator:dev
 ```
 
-## Architecture
+Never pipe `./gradlew` output to `tail`; run it directly and read the full output. Tests use JUnit 5, MockK and a real file-backed SQLite fixture (`SqliteTestDatabase`).
 
-Source lives under `current/`.
+## Git workflow
 
-**Package root:** `io.github.jpicklyk.mcptask.current`
-**Source root:** `current/src/main/kotlin/io/github/jpicklyk/mcptask/current/`
-
-**Entry point:** `current/src/main/kotlin/io/github/jpicklyk/mcptask/current/CurrentMain.kt`
-
-**Composition root:** `bootstrap/` wires the server. No layer may import it; only `CurrentMain.kt` and `bootstrap`
-itself may (rule R5).
-
-**Layer rules (enforced by `LayeringTest`):** `domain` -> `application` -> `infrastructure` -> `interfaces`
-(an outer layer may depend on an inner one; the reverse is forbidden) — `domain` must not import from
-`application`/`infrastructure`/`interfaces`; `application` must not import from `infrastructure`/`interfaces`;
-`infrastructure` must not import from `interfaces`. `infrastructure -> application` IS allowed (infrastructure
-adapters implement application-layer ports); `interfaces -> anything` is unrestricted; the root package
-(`CurrentMain.kt`) is unscoped. Enforced by
-`current/src/test/kotlin/.../architecture/LayeringTest.kt` (Konsist), production source only, against the
-two-way-ratcheted baseline `current/src/test/resources/architecture/layering-baseline.txt`, which is empty: any
-violation fails the test, and so would a stale baseline line.
-
-**Application sub-packages (enforced acyclic by `PackageCycleTest`):** `application/` splits into `api` (tool
-request types and handlers' shared context), `service` (command services, advance), `read` (read views), `run`
-(runs and seats), `knowledge` (links, related items, documents, search), `config` (schema/trait resolution, status
-labels), `support` (small shared helpers, e.g. `IdRef`, `ScopeGuard`, `eventRootOf`, `Cancellation`, `UnitResults`),
-`telemetry`, `port` (storage ports and paging: `PageRequest`, `ListPage`, `CursorCodec`), and the top-level
-`decision`, `report` and `upgrade`. Dependencies point down this order: `api` -> service, read, run, knowledge, config,
-support, telemetry, port (`decision` and `report` depend on `api`, not the reverse); `service` -> config, knowledge,
-port, support, telemetry; `read` -> port, service; `run` -> config, port, service, support; `knowledge` -> port,
-support, telemetry; `support` -> port; `telemetry` -> port; `config` and `port` depend on no other sub-package. `PackageCycleTest` fails on any edge that closes a cycle
-between sub-packages, against `current/src/test/resources/architecture/package-cycle-baseline.txt`, which is empty.
-To share a type, move it down to a package every consumer already sits above. Guard tests
-(`ToolSurfaceGuardsTest`, `ToolSchemaGoldenTest`, `ApiReferenceFreshnessTest`) derive their tool list from
-`buildToolSpecs()` (`interfaces/shared/tools/ToolRegistry.kt`) rather than a hard-coded list, so
-they automatically cover every tool the production server registers.
-
-**Dialect neutrality (enforced by `DialectNeutralityTest`):** SQLite and Exposed code lives only under `infrastructure/sqlite/` (`org.sqlite.*` and `org.jetbrains.exposed.*` imports, plus SQLite dialect tokens such as `PRAGMA` or `datetime(` in string literals, are forbidden elsewhere) against a two-way-ratcheted baseline at `current/src/test/resources/architecture/dialect-neutrality-baseline.txt`. Storage ports (`*Store`) live in `application/port/`.
-
-## Modes of Operation
-
-- **Orchestration** (default) - orchestrator pushes items through phases via `advance` `transition`
-- **Claim** (opt-in) - consumers pull work via `advance` `claim`, holding TTL-based ownership before advancing
-
-Caller identity comes from the transport credential (`API_AUTH_MODE`, the `API_JWKS_*` variables, the `/mcp` auth mode) — independent of claim mode (claim works without it). See [`current/docs/fleet-deployment.md`](current/docs/fleet-deployment.md). The old `actor_authentication` config block is removed: a leftover block fails startup.
-
-## Session Layers: Orchestrator, Coordinator, Director
-
-Three session layers sit on top of the server, above the seats that do the work. They are the roles a Claude Code
-session plays; they are not the server modes above.
-
-**Why the layers exist.** One session used to be both the user's point of contact and the coordinator of every run.
-That filled its context, made it unavailable while a run was in flight, and left held state fragile across
-compaction. The layers split those jobs so that each context is purposeful and clearable, token cost stays
-proportional to the work, and the server (not a prompt) holds state and boundaries.
-
-| Layer | What it is | Owns | Lifetime |
-|-------|------------|------|----------|
-| Seat (the base) | One agent on one phase of one item: planner, implementer, test author, reviewer | Its seat's notes; the entry seat also makes the one phase entry | One dispatch, fresh context |
-| **Orchestrator** (default) | The user's own session | Planning, sizing (Direct, Delegated, Parallel), dispatching seats, every later transition. When it opens a run it is also that run's coordinator | The session |
-| **Coordinator** | Whoever presents a run's coordinator token | One run (one wave): assign seats, advance members, post-run, report | One run, disposable; resumes from the run view and its run files, never from conversation |
-| **Director** (opt-in, the third layer) | A session in director mode (`/task-orchestrator:director`) | The board across runs, answering decisions, staying free to talk to the user | The session; rebuilds its board from the server |
-
-**Why a director.** It is added above the coordinators for four reasons: (1) a lean, long-lived context; (2) one
-decision inbox across runs; (3) the user-facing session stays free to answer while work runs in the background;
-(4) more parallelism and longer-running work than one session can hold. Small work or a single short wave does not
-need one: orchestrator mode is enough, and a director adds a layer and its cost.
-
-**Rules that hold across the layers.** Judge any change to director, coordinator or run-wave behaviour against these.
-
-- **Altitude rule.** The director never opens a file and never reads a diff, test output or a note body, except one
-  decision request and a run rollup. It hands every read and edit to a coordinator or a background agent. The
-  `director` tool profile enforces this on the server (it has no read that returns a body); the `director-guard`
-  hook enforces it in the session.
-- **Content flows down, pointers flow up.** A layer hands the layer above ids, counts and short reasons, never note
-  bodies, diffs or transcripts. Notes are the report.
-- **Server records are the state; messages are wake-ups.** Every layer must be restartable from server state (runs,
-  seats, decisions, notes) plus its run files. Nothing a layer needs in order to resume may live only in a
-  conversation.
-- **Decisions go up, answers come down.** A seat or a coordinator raises; a director or a human answers, as the
-  decision class allows; a coordinator never answers one itself. An answer never resumes the item: the coordinator
-  does.
-- **Identity is declared.** On the server the director is a call served by the director profile with no seat token,
-  and the coordinator is the holder of the run's coordinator token (`RunPermissions`). The director path is not a
-  security boundary (any credential with the capability may call it): put decision authority in a credential's
-  capabilities and scope.
-- **Cost is measured, not self-reported.** Model and effort come from `dispatch-policy.json` per class of work, and
-  every dispatch names both. Token cost is read from Claude Code transcripts after a run and stored in
-  `delegation-metadata`; the session retrospective is where it is analysed.
-
-**Vocabulary.** "Director" names both the server tool profile (`/mcp/director`) and the session mode: say which.
-The seat named `orchestrator` is the one whose note keys a run's coordinator token may write. These layers are not
-the work-sizing tiers (Direct, Delegated, Parallel) and not the coordinator tiers 1 to 4, which say where a
-coordinator runs.
-
-**Key files:**
-
-| What | Path |
-|------|------|
-| Director mode and its rule | `claude-plugins/task-orchestrator/skills/director/SKILL.md`, `claude-plugins/task-orchestrator/hooks/director-guard.mjs` |
-| Where a coordinator runs | `claude-plugins/task-orchestrator/skills/director/references/coordinator-tiers.md`, `claude-plugins/task-orchestrator/scripts/coordinator-tiers.mjs` |
-| Running a wave | `claude-plugins/task-orchestrator/skills/run-wave/SKILL.md` |
-| Server permissions and profiles | `current/.../interfaces/shared/tools/runs/RunPermissions.kt`, `current/.../interfaces/shared/tools/ToolProfile.kt` |
-| Cost capture | `claude-plugins/task-orchestrator/scripts/lib/meters.mjs`, `claude-plugins/task-orchestrator/skills/session-retrospective/SKILL.md` |
-| User-facing explanation | `current/docs/workflow-guide.md`, chapter 12 (Runs, Seats and Decisions) |
-
-## Trait System (Orchestration Signals)
-
-Traits are **composable orchestration signals** declared in `.taskorchestrator/config.yaml` under the `traits:` key. They are NOT merely note requirements. Each trait carries five dimensions:
-
-1. **Note requirements** -- notes with `key`, `role`, `required` that merge into an item's resolved schema and enforce gates
-2. **Guidance** -- `guidance` text on each note telling agents HOW to fill it (context, constraints, structure)
-3. **Skill routing** -- optional `skill` pointer (e.g., `skill: "migration-review"`) that routes evaluation to a specialized skill
-4. **Resources** -- optional `resources:` list declaring shared-resource requirements (`exclusive` or `advisory` mode) enforced as a lease gate at WORK entry, independent of the note-requirement dimension. See `claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md` -> "Resources (Trait Dimension)" for declaration syntax, merge semantics, and the leaf-task-types-only rule.
-5. **Dispatch** -- optional `dispatch.<queue|work|review>: {agent?, model?, effort?}` declaring which agent/model/effort should pick up a phase, surfaced on `advance` `transition` results and `items_read` `context` and `schema`. See `claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md` -> "Dispatch (Trait Dimension)" for declaration syntax and precedence.
-
-**Resolution flow:** schema and trait resolution live in `application/config` — `EffectiveConfigResolver` (the shared entry point, one instance built in `ServerComposition` and used by both MCP and REST), `LayeredConfig` (the per-root/global layer lookups for one resolution, built fresh per `EffectiveConfigResolver.layered(rootId)` call) and `TraitResolver` (the one place every cross-trait merge happens: notes, seats, resources, dispatch by role and by seat). `ToolExecutionContext.resolveSchema(item)` and its sibling methods now delegate to `configResolver` rather than resolving inline. Trait notes merge from two sources:
-- `defaultTraits` on the schema type definition (always applied to items of that type)
-- Per-item `traits` from the item's typed `WorkItem.traits` list (stored in the `item_traits` table; read by every `ItemStore`/`ClaimStore`/`HierarchyStore` read)
-
-**One precedence rule.** An item's base schema is per-root exact type -> server exact type -> per-root `default` -> server `default`; tags never select a schema, and a null type uses only the two `default` steps. Every trait dimension uses ONE trait order: per-item traits first, then `defaultTraits`, deduplicated with the first position kept. Notes: base notes first, a key's content comes from its first declaration (base before traits), and `required` is true if ANY declaration marks it. Seats: first declaration of a name wins (a second `enters` seat in a phase is demoted). Resources: union of keys, EXCLUSIVE beats ADVISORY, `ttlSeconds` first-seen. Dispatch by role: first trait wins; by seat: the override of a seat-only trait (a trait with no phase-level `dispatch.<phase>` profile) that sets `model` and neither sets nor clears `agent` is model-selecting and wins its (phase, seat) regardless of order, otherwise first trait wins (see `current/docs/config-reference.md`, Seat dispatch precedence). When the per-root `traits:` map contains a trait name, EVERY dimension of that trait (notes, seats, resources, both dispatch shapes) comes from the per-root entry — a dimension it does not declare is empty, never the server's. The resource registry is server-only. The 3.x `schema_resolution` key is removed (it parses with one warning and has no effect).
-
-**Schema pins.** Every item is pinned (`WorkItem.pin`, the V26 `pinned_*`/`lifecycle` columns) to the server and root config versions that were the heads when the pin was taken and to its base schema key and layer. The item facets (`resolveSchema`, `resolveSchemaWithSource`, `resolveHasReviewPhase`, `resolveResourceRequirements`, `resolveDispatchProfile(s)`, `resolveDispatchBySeat`) resolve through `EffectiveConfigResolver.forItem(item)`: the pinned versions (by id, via `ConfigVersionSource.layerAt` on `PerRootConfigService`) with the base schema forced to the pinned key and layer; an unpinned item, or a resolver without a version source, resolves at the heads. Root-wide settings (labels, note limits, independence, registry, type/trait lists, every `*ForType`) always read the heads. `SchemaPinService` is the only code that constructs a `SchemaPin`; the pin points are create, type change, cross-root reparent, trait change (`ItemCommandService`), every transition out of TERMINAL (`AdvanceService`), and `items_write` `repin`, each recording one table-only `item.pinned` event. The `pin-backfill` data step pins 3.x rows by the 3.x rule. See `current/docs/config-reference.md` ("Schema pins").
-
-**Example:** An item typed `feature-task` with trait `needs-migration-review` gets the base `feature-task` notes PLUS the `migration-assessment` note (queue phase, required, with `migration-review` skill pointer and guidance about SQLite table recreation patterns). The orchestrator sees this merged schema via `items_read(select="context", itemId=...)` and routes accordingly -- dispatching a migration-specialized agent or invoking the migration-review skill.
-
-**Key files:**
-
-| What | Path |
-|------|------|
-| Trait definitions | `.taskorchestrator/config.yaml` -> `traits:` section |
-| Schema resolution | `current/.../application/config/LayeredConfig.kt` (per-layer lookups, `resolveBaseSchema()`/`resolveTypeSchema()`, the precedence table), `current/.../application/config/EffectiveConfigResolver.kt` (shared entry point) |
-| Trait merging | `current/.../application/config/TraitResolver.kt` (`mergeSchema()`, `resources()`, `dispatch()`, `dispatchBySeat()`, `order()`) |
-| Item traits | `WorkItem.traits` (domain); `current/.../infrastructure/sqlite/schema/ItemTraitsTable.kt` + `V27__Item_Traits.sql`; `ItemStore.traitsOf()`; `TraitsFromPropertiesStep` (one-time move out of `properties`) |
-| Domain models | `WorkItemSchema.kt` (`defaultTraits`), `NoteSchemaEntry.kt` (`skill`, `guidance`) |
-| Dispatch resolution | `current/.../domain/model/DispatchProfile.kt` (domain model); `current/.../application/config/TraitResolver.kt` -> `dispatch()`/`dispatchBySeat()` |
-| `ToolExecutionContext` | `current/.../application/api/ToolExecutionContext.kt` - thin delegate methods over `configResolver`; no longer where the merge logic lives |
-
-## Tight Coupling Areas
-
-### ToolExecutionContext
-`ToolExecutionContext` (`application/api/ToolExecutionContext.kt`) is constructed exactly ONCE, in `ServerComposition.build()`, and every tool handler receives it as `env`. REST builds no copy: the RPC route `POST /api/v1/ops/{tool}` (`interfaces/api/v1/ops/OpsRoutes.kt`) runs the same `ToolDispatcher` MCP uses, and the two resource GETs translate into registry tools (`ItemRoutes.kt` into `items_read`, `NoteResourceRoutes.kt` into `notes_read`); all of it is wired in `CurrentMcpServer.installRestApiRoutes()` from the single `CompositionResult`. This is also what makes REST and MCP share one per-root last-known-good config cache (one `EffectiveConfigResolver`, see `current/docs/api-reference.md`, "Read-error fallback (last-known-good)", and `current/docs/fleet-deployment.md`, "Staleness semantics"). `AdvanceService` itself is built in exactly one place, `AdvanceServiceFactory.forItem()` (`application/service/AdvanceServiceFactory.kt`); the `advance` `transition` op (`interfaces/mcp/tools/advance/TransitionOp.kt`), `TreeCompletionService` (`items_write` `complete_tree`) and `ItemCommandService` (the old-parent cascade of a reparent or delete) all call `advanceServiceFactory.forItem(item)` instead of constructing `AdvanceService` inline. One advance is ONE unit of work (`AdvanceService.advance`): `TransitionSnapshotLoader` loads the facts, the domain `TransitionPolicy` decides, and the apply, its `item.transitioned` event (recorded by `AdvanceService`), lease acquire/release and every cascade commit together. The read-only preview (`items_read` `context` `canAdvance`) goes through `AdvanceServiceFactory.preview()` (`TransitionPreview`, exposed as `env.transitionPreview()`) over the same loader and policy; status labels have one policy, `EffectiveConfigResolver.labelFor`. Adding a new constructor dependency to `ToolExecutionContext` or `AdvanceServiceFactory` still means updating that class's own (now singular) construction site plus its own field/getter - the compiler will not catch a site you miss if the new parameter has a default.
-
-### Flyway migrations are the only schema path
-`DirectDatabaseSchemaManager` and `SchemaManagerFactory` are gone from production: the Exposed tables are query mappings only, and `NoSchemaUtilsInProductionTest` bans `SchemaUtils` in production source. A new table or column starts with a Flyway migration under `db/migration/sqlite/`. Migration files are byte-immutable once released (Flyway checksums every line, comments included). Startup runs the whole schema phase under an OS file lock (`<db>.migrate.lock`) and then verifies the FTS5 tables/triggers inventory and FTS `integrity-check` (see `StartupIntegrity`); a missing FTS table or trigger fails startup. A test-only `DirectDatabaseSchemaManager` bridge remains under `src/test` until the test fixture migration removes it. The real hazard is parity: the Exposed table objects must match the Flyway DDL, and nothing at compile time enforces it. `SchemaParityTest` and the schema snapshots under `current/src/test/resources/schema/snapshot/` guard it, so a new table or column changes the migration, the Exposed object and the snapshot together.
-
-## Configuration Directory (AGENT_CONFIG_DIR)
-
-**CRITICAL:** No service reads `AGENT_CONFIG_DIR` (or any environment variable) itself. The environment is read once, in
-`AppConfig` (`infrastructure/config/AppConfig.kt`), and the composition root hands every consumer a typed value.
-`architecture/EnvAccessTest` fails the build when production code outside `AppConfig.kt`, `EnvBoolean.kt` and
-`LogFileAppenderInstaller.kt` calls `System.getenv`.
-
-```kotlin
-// AppConfig.resolveConfigBaseDir(agentConfigDir): String =
-//     agentConfigDir ?: System.getProperty("user.dir")
-val configBaseDir = Paths.get(AppConfig.resolveConfigBaseDir(appConfig.agentConfigDir))   // built ONCE in ServerComposition
-val globalConfigPath = configBaseDir.resolve(".taskorchestrator/config.yaml")
-```
-
-- In Docker: `-e AGENT_CONFIG_DIR=/project` (where config is mounted)
-- In local dev: not needed (uses working directory)
-- `ServerComposition.kt` builds ONE `GlobalConfigFile(globalConfigPath)` (`infrastructure/config/GlobalConfigFile.kt`), which reads
-  `.taskorchestrator/config.yaml` exactly ONCE (a broken file fails startup before the readiness marker) and exposes the raw text
-  (`ConfigFileSource`) plus a lenient parsed layer. The file is **imported** by the every-boot data step `server-config-import`
-  (`application/upgrade/steps/ServerConfigImportStep.kt`, phase `CONFIG_IMPORT`): `ConfigService.importDocument` parses it strictly
-  and appends it as a `file-import` config version (`project.rootId` absent = the SERVER scope; present = that depth-0 root), verbatim
-  with `configFingerprint(text)`. The 3.x top-level keys (`schema_resolution`, `orchestration`, `retrospective`, `actor_attribution`)
-  are allowed at boot as stored warnings (`GET /api/v1/info` -> `configWarnings`); any other error fails startup as `DATA_STEPS`.
-  An absent or empty file imports nothing.
-- **Runtime config is DB-only.** The server layer is the stored SERVER head, read per call through `ServerConfigSource`
-  (`PerRootConfigService` implements both it and `PerRootConfigSource`; `EffectiveConfigResolver(server, perRoot)`), so a version another
-  process appends to a shared volume is served without a restart (last booting process wins, by design). A head that cannot be
-  loaded surfaces as `config_invalid` (REST 422) at every boundary; read faults answer `unavailable` (kind `shedding`).
-- `checkRemovedServerConfig` (`infrastructure/config/RemovedServerConfigKeys.kt`) reads the same `GlobalConfigFile` at startup and fails it on a leftover `actor_authentication:` or `auditing:` key or a set `DEGRADED_MODE_POLICY`. `TypeBackfillStep` also keeps reading the file.
-- `jwks_path` resolves against the injected `configBaseDir` (`DefaultJwksKeySetProvider(config, configBaseDir)`); `bodyFromFile` against
-  the `FileBodySource` root built from the same base directory.
-- **This is the SERVER-scope/fallback config.** Per-**project** config is stored per-root in the DB: pushed via the `config` tool's `push` op
-  (`POST /api/v1/ops/config`), synced from the workspace file by the `config-sync` SessionStart hook, and layered over the server
-  config per item `rootId` (hot-reloads, no restart). See `claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md` -> "Global vs Per-Project Config".
-- This repo's own `.taskorchestrator/config.yaml` is git-tracked dogfood config and doubles as a living schema/trait example — it is delivered to the server per-root via the `config-sync` hook, not mounted as the global config. The actual global mount is the process-schema floor at `deploy/global-config/.taskorchestrator/` — agent-observation, session-retrospective, improvement-proposal, container, project, and retrospective-trend schemas only, shared across every project the server serves.
-
-## Adding New Components
-
-Step-by-step checklists for a new MCP tool, select or op, a new Flyway migration, and a new Gradle dependency live in the `add-component` skill (`.claude/skills/add-component/SKILL.md`) - load it before doing any of those. The non-negotiable rule from it, kept here because it applies whenever a request class changes: **each parameter is documented ONCE, in the `@Doc` of its field in the request class** (beside its tool's siblings: `application/api/<area>/`, `application/report/ReportRequests.kt`, or the op file itself for `items_*` and `config`); a tool's `description` and a select/op `doc` are reserved for operation selection, trigger and gate semantics, and cross-field XOR constraints - never per-field restatement. The request class is the one source of both decoding and documentation, so a `@Doc` edit is followed by two regenerations, each committed: `./gradlew :current:regenerateToolGoldens` (the per-tool schema goldens under `current/src/test/resources/golden/tools/`) and `./gradlew :current:regenerateApiReference` (the generated field tables and error catalog in `current/docs/api-reference.md`). `ToolSchemaGoldenTest`, `ApiReferenceFreshnessTest` and `ToolSurfaceGuardsTest` (documentation and token budgets) guard this in CI; only the behavior prose of `api-reference.md` is hand-written.
-
-## Database Management
-
-**Boolean env vars** are parsed by `EnvBoolean` (`infrastructure/config/EnvBoolean.kt`): `true`/`1`/`yes`
-and `false`/`0`/`no` (case-insensitive, trimmed) are all recognized; an unset var silently takes its
-default, and an unrecognized non-empty value either falls back to the default with a WARN log
-(`EnvBoolean.parse`, used by every var below except the three noted otherwise) or fails startup
-(`EnvBoolean.require`, used by `API_ENABLED`, `API_ALLOW_UNAUTHENTICATED` and `MCP_ALLOW_UNAUTHENTICATED`).
-
-**Key environment variables:**
-- `DATABASE_PATH` — SQLite file path (default: `data/current-tasks.db`; in-memory URLs are refused)
-- `DATABASE_MAX_CONNECTIONS` — reader pool size (default: `10`, clamped 1-64); the writer pool is always 1 connection
-- `SCHEMA_MODE` — `migrate` (default) or `validate` (no migrate/baseline; a pending or future version fails startup); any other value fails startup. `USE_FLYWAY` is removed and ignored with a WARN (Flyway is the only schema path)
-- `AGENT_CONFIG_DIR` — directory containing `.taskorchestrator/` (default: working dir)
-- `MCP_TRANSPORT` — `stdio` (default) or `http`
-- `MCP_HTTP_PORT` — HTTP port (default: `3001`)
-- `MCP_TOOL_PROFILE` — `orchestration` (default), `knowledge` or `director` (case-insensitive); the stdio transport's tool profile. HTTP serves all three: `/mcp` is orchestration, `/mcp/knowledge` is knowledge, `/mcp/director` is director. Any other value fails startup
-- `MCP_ALLOW_UNAUTHENTICATED` — opt-in (default `false`, parsed with `EnvBoolean.require`) that lets `MCP_TRANSPORT=http` serve `/mcp` with the REST API disabled, every caller as the `local` principal; without it that combination fails startup (`MCP_AUTH`)
-- `MCP_SERVER_NAME` — service name reported in MCP identity and REST well-known/service metadata (default: `mcp-task-orchestrator-current`)
-- `MCP_SESSION_IDLE_TIMEOUT_MINUTES` — minutes without a request before the MCP SDK closes an HTTP `/mcp` session (its next request is `404` and the client re-initializes); the session-principal map uses the same value (default: `120`); blank, zero, negative or non-integer fails startup
-- `LOG_LEVEL` — DEBUG / INFO / WARN / ERROR (default: `INFO`)
-- `LOG_FILE` — opt-in log file path (default: unset, no file logging). Logs are always JSON on stderr; see `current/docs/fleet-deployment.md` → "Logging".
-- `FLYWAY_REPAIR` — run repair and exit (default: `false`)
-- `DB_COMPACT_ON_UPGRADE` — run the one-time post-V17 startup compaction (VACUUM + FTS5 rebuild) on the first Flyway-mode start after upgrading (default: `true`; set `false` to opt out)
-- `FTS_INTEGRITY` - `startup` (default) runs the FTS5 `integrity-check` on every FTS table at each start; `off` skips only that check (the FTS inventory check still runs). An unrecognized value falls back to `startup` with a WARN
-- `RETENTION_CALL_LOG_DAYS` (default `90`), `RETENTION_EVENTS_DAYS` (`180`, activity-class events), `RETENTION_AUDIT_EVENTS_DAYS` (`0`) and `RETENTION_LEASE_HISTORY_DAYS` (`365`) — retention of the pruned tables; `0` keeps that data forever, a blank, negative or non-integer value fails startup, and call-log rows are deleted only for days already folded into `usage_daily`. Values, guarantees and the known limits are in `current/docs/fleet-deployment.md` → "Data Retention" (`infrastructure/config/RetentionSettings.kt`)
-- `READINESS_FILE` — path to the readiness marker file the server touches once startup (DB init,
-  schema update, and transport bind) has fully succeeded; default `/tmp/mcp-task-orchestrator.ready`.
-  Backs the Docker image's `HEALTHCHECK` (see `current/docs/fleet-deployment.md`) and covers both
-  `stdio` and `http` transport — the marker is cleared at the start of startup (before DB init, so a
-  stale marker from a crashed run cannot signal readiness) and again on shutdown
-
-**REST API environment variables** (`API_*`, `CORS_*`, `RESOURCE_LEASES_ENFORCED`) are documented with defaults in `current/docs/fleet-deployment.md` and `current/docs/api-rest.md`. Gotchas: `API_ENABLED`, `API_ALLOW_UNAUTHENTICATED` and `API_JWKS_ALLOW_INSECURE_URL` use `EnvBoolean.require` (a bad value fails startup) while the other booleans fall back with a WARN; `API_JWKS_MAX_STALE_SECONDS` (jwks mode) is how old a cached key set may be and still be served after a failed refresh, default `max(3600, API_JWKS_CACHE_TTL_SECONDS)`, and a value that is not a positive integer or is below the cache TTL fails startup; `RESOURCE_LEASES_ENFORCED` is read ONCE at startup into `AppConfig.resourceLeasesEnforced` (restart required; `true`/`1`/`yes` vs `false`/`0`/`no`; false skips the lease gate and acquisition on every advance, releases still run).
-
-**Migration files:** `current/src/main/resources/db/migration/sqlite/` (the only configured Flyway location)
-
-## Testing
-
-- Tests mirror source under `current/src/test/kotlin/`
-- Test functions need a block body or an explicit `: Unit` (JUnit 5 silently skips non-void tests); enforced by `TestFunctionReturnTypeTest`
-- JUnit 5 + MockK; real file-backed SQLite (`SqliteTestDatabase` fixture) for repository and route tests
-- **Never pipe `./gradlew` output to `tail`** — run directly and read full output
-
-## Claude Code Plugin Discovery
-
-Two skill systems — do not confuse them: **project-level skills** in `.claude/skills/` (auto-discovered) and **plugin skills** in `claude-plugins/task-orchestrator/skills/` (activated via `enabledPlugins` in `.claude/settings.json`). The plugin cache is version-keyed and re-extracts lazily, so edits to plugin files are NOT picked up by a plain marketplace update — the refresh procedure and its gotchas are in `claude-plugins/CLAUDE.md`.
-
-## Git Workflow
-
-**PR-per-feature flow** — the PR boundary is the **parent feature**, not individual child tasks. For a `feature-implementation` parent with N children (Parallel tier), all children commit to a shared feature worktree on a single `feat/<slug>` branch; one PR opens when the parent feature reaches terminal. For Direct/Delegated tier (single items), each item gets its own branch and PR. Local `main` always tracks `origin/main`. See the `/implement` skill (Step 2 worktree setup, Step 6 finalization) and `.claude/skills/implement/WORKTREE.md` (Shared feature worktree) for the full process.
-
-- Follow conventional commits, reference issue numbers
-- All tests must pass before committing
-- Never force-push `main`
-- Feature branches push to origin and merge via PR (squash merge on GitHub)
-- After PR merges: `git checkout main && git pull origin main && git branch -D <branch>`
-- Database migrations require special attention
+- The PR boundary is the parent feature: the children of a Parallel-tier feature commit to one shared `feat/<slug>` worktree branch and one PR opens when the parent reaches terminal; a Direct or Delegated item gets its own branch and PR. Procedure: the `implement` skill (`.claude/skills/implement/SKILL.md`, `WORKTREE.md`).
+- Conventional commits referencing the issue; all tests pass before a commit; squash-merge via PR; never force-push `main`. After a merge: `git checkout main && git pull origin main && git branch -D <branch>`.
