@@ -55,14 +55,22 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
     </div>
   </div>
   <div class="tscroll"><table>
-    <thead><tr><th>Kind of task</th><th>Model</th></tr></thead>
+    <thead><tr><th>Class of work</th><th>Use</th></tr></thead>
     <tbody>
-      <tr><td>Bulk item operations, materialization, simple queries</td><td><code>haiku</code></td></tr>
-      <tr><td>Reading code, implementation, writing tests</td><td><code>sonnet</code></td></tr>
-      <tr><td>Architecture, hard trade-offs, synthesis across many files</td><td><code>opus</code></td></tr>
+      <tr><td><code>coordinator</code></td><td>Run and wave coordinators, orchestration sessions</td></tr>
+      <tr><td><code>planning</code></td><td>Planner seats, specifications, task scope</td></tr>
+      <tr><td><code>planning-high-stakes</code></td><td>Architecture decisions and other high-stakes planning</td></tr>
+      <tr><td><code>implementation</code></td><td>Well-specified implementation work</td></tr>
+      <tr><td><code>implementation-complex</code></td><td>Complex or cross-cutting implementation</td></tr>
+      <tr><td><code>test-authoring</code></td><td>Independent test authors</td></tr>
+      <tr><td><code>review</code></td><td>Reviewer seats and defect search</td></tr>
+      <tr><td><code>review-high-stakes</code></td><td>Review of high-stakes changes</td></tr>
+      <tr><td><code>research</code></td><td>Read-only research and exploration</td></tr>
+      <tr><td><code>bulk</code></td><td>Bulk writes and other checkable mechanical work</td></tr>
+      <tr><td><code>extraction</code></td><td>Extractors and retrospective data pulls</td></tr>
     </tbody>
   </table></div>
-  <p class="sub small">The model table is the style's default, flagged as a project convention. A schema's <code>dispatch</code> block overrides it per phase or per seat (plates 4 and 6). The orchestrator always names the model on a dispatch.</p>
+  <p class="sub small">The plugin's dispatch policy assigns a model and an effort to each class of work, and <code>task-orchestrator:model-effort</code> reads it. The values live in the policy and change with it. A schema's <code>dispatch</code> block overrides it per phase or per seat (plates 4 and 6). The orchestrator always names the model and the effort on a dispatch.
 </section>
 
 <section>
@@ -162,10 +170,11 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
         <tr><td><code>protocol.read-only-agent</code></td><td>Never transition. Put findings in your own note.</td></tr>
         <tr><td><code>commit-discipline</code></td><td>Commit only your own paths, by path, and check the file list.</td></tr>
         <tr><td><code>review-scoping</code></td><td>Review the diff of the files an agent owns. Edits outside them are a breach.</td></tr>
+        <tr><td><code>closure-notes</code></td><td>A closure note holds only what the diff, git log and CI do not show.</td></tr>
       </tbody>
     </table></div>
     <div style="display:grid;gap:16px;align-content:start">
-      <div class="rule"><h3>Where rule text comes from</h3><p class="small">A rule is a document of kind <code>rule</code> under the project root. The config-sync hook pushes your <code>.taskorchestrator/rules/*.md</code>, and the plugin's five bundled rules at session start only. It needs a REST URL, plus a token that may write documents when the server requires one. Without them, <code>/task-orchestrator:init</code> seeds the bundled rules. A workspace key wins over a bundled one.</p></div>
+      <div class="rule"><h3>Where rule text comes from</h3><p class="small">A rule is a document of kind <code>rule</code> under the project root. The config-sync hook pushes your <code>.taskorchestrator/rules/*.md</code>, and the plugin's bundled rules at session start only. It needs a REST URL, plus a token that may write documents when the server requires one. Without them, <code>/task-orchestrator:init</code> seeds the bundled rules. A workspace key wins over a bundled one.</p></div>
       <div class="rule"><h3>Safe updates</h3><p class="small">A manifest governs them. A bundled rule overwrites the server copy only when that copy matches a version the plugin shipped before. A copy someone customized is left alone and reported.</p></div>
       <pre>config(op="rules", rootId, key="commit-discipline")
 config(op="rules", itemId, noteKey="test-manifest")
@@ -188,9 +197,9 @@ config(op="rules", rootId)</pre>
     </tbody>
   </table></div>
   <div class="grid3">
-    <div class="rule"><h3>Ralph's limits</h3><p class="small">Defaults: 10 iterations, 5 US dollars per iteration, a 45-minute iteration timeout, a 30-minute claim. The loop stops after 3 gate failures in a row, 2 errors in a row or 3 idle results. The run has no budget unless <code>--run-budget-tokens</code>, <code>--run-budget-usd</code> or <code>--max-attempts</code> is passed.</p></div>
+    <div class="rule"><h3>Ralph's limits</h3><p class="small">Defaults: 10 iterations, 5 US dollars per iteration, a 45-minute iteration timeout, a 30-minute claim. The loop stops after 3 gate failures in a row, 2 errors in a row or 3 idle results. The run has no cap unless <code>--max-attempts</code> is passed.</p></div>
     <div class="rule"><h3>Each iteration reports</h3><p class="small">The iteration ends with one outcome line: <code>ready-to-complete</code> (or the legacy <code>terminal</code>), <code>gate-blocked</code>, <code>error</code> or <code>skip</code>. The driver itself adds <code>idle</code> and <code>no-item</code>. The loop reads the outcome to decide whether to continue.</p></div>
-    <div class="rule"><h3>Run it on work you trust</h3><p class="small">Iterations run with permission prompts bypassed, each in its own temporary worktree. The budget and the claim expiry are the hard stops.</p></div>
+    <div class="rule"><h3>Run it on work you trust</h3><p class="small">Iterations run with permission prompts bypassed, each in its own temporary worktree. The per-iteration dollar cap and the claim expiry are the hard stops.</p></div>
   </div>
 </section>
 
@@ -207,7 +216,7 @@ config(op="rules", rootId)</pre>
         <tr><td><code>extensions.claude-code.orchestration.mode: workflow</code></td><td>The default. Tier-aware, with a model policy. Small fixes are done inline.</td></tr>
         <tr><td><code>extensions.claude-code.orchestration.mode: schema</code></td><td>No tiers and no model policy. The item's schema alone sets the process.</td></tr>
         <tr><td><code>extensions.claude-code.orchestration.mode: off</code></td><td>The orchestration hooks stay silent.</td></tr>
-        <tr><td>Dispatch model guard</td><td>Denies an <code>Agent</code> dispatch that carries no <code>model</code>, because the shipped agents inherit the caller's model.</td></tr>
+        <tr><td>Dispatch model guard</td><td>Denies an <code>Agent</code> dispatch that is missing a <code>model</code> or an effort, because the shipped agents inherit the caller's model and carry no effort.</td></tr>
         <tr><td>Dispatch hint</td><td>After an <code>advance</code> lands in work or review, tells the dispatcher the item's agent, model and effort.</td></tr>
         <tr><td>Phase guard</td><td>Records the items a subagent entered. When it tries to stop with required notes missing, sends it back with the keys named.</td></tr>
         <tr><td>Subagent start</td><td>Injects the agent-owned-phase protocol into a phase-owner agent.</td></tr>
