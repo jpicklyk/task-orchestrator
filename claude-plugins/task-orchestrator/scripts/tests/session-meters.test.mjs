@@ -450,7 +450,9 @@ test('probe: a trailing slash and spaces in --session-dir still find the folder 
   const sess = mkSession('with space')
   put(sess, 1, 'implementer:aaaaaaaa', text(line('a', usage(1, 0, 0, 0))))
   writeFileSync(sess.main, text(line('mm', usage(9, 0, 0, 0))))
-  for (const dir of [sess.s, `${sess.s}/`, `${sess.s}\\`]) {
+  // A trailing backslash is a path separator only on Windows; on POSIX it is part of the name.
+  const forms = process.platform === 'win32' ? [sess.s, `${sess.s}/`, `${sess.s}\\`] : [sess.s, `${sess.s}/`]
+  for (const dir of forms) {
     const { doc } = ok(['--session-dir', dir])
     assert.equal(doc.agents.length, 1, dir)
     assert.equal(doc.main.input, 9, `main found for ${dir}`)
