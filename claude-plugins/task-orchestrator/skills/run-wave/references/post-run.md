@@ -262,13 +262,17 @@ run report instead.
    seats when you pass their flags: `--coordinator <label>` (tier 2 only: the exact dispatch label the
    director dispatched this coordinator under; a `-a<n>` variant or a prefix is not matched; the meta walk
    uses the same `--session-dir`/`--projects-dir` roots as `dispatch-meta`), and
-   `--session-transcript <path>` (the launching session's own transcript,
-   `<projects>/<cwd-encoded>/<sessionId>.jsonl`, the `.jsonl` beside the session folder; never guessed)
-   with `--session-since <openedAt>` (the run's `openedAt` from `runs_read` `get`) and optionally
+   `--session-transcript <path>` (the launching session's own transcript, never guessed: read the
+   `transcript` field of any seat entry in this run's `dispatch-meta` document,
+   `<projects>/<cwd-encoded>/<sessionId>/subagents/agent-<id>.jsonl` (a Workflow seat sits deeper under
+   `subagents/`); the part before `/subagents/` is the session folder, the one `--session-dir` takes, and
+   the session transcript is that folder plus `.jsonl`; when no seat matched, omit `--session-transcript`
+   and name the gap in the Step 7 report) with `--session-since <openedAt>` (the run's `openedAt` from `runs_read` `get`) and optionally
    `--session-until <t>` (epoch ms or ISO-8601, inclusive). The output gains one member, `layer-meters`,
    whose value is `layer-meters=coordinator:<i>/<cw>/<cr>/<o>,session:<i>/<cw>/<cr>/<o> run=<runId> session-window=run|whole-session`
-   (only the layers you asked for; `session-window=whole-session` when the transcript lines carry no
-   timestamps, with a stderr warning). A layer with no meters reads `<layer>:unknown` with a stderr
+   (only the layers you asked for; `session-window=whole-session` has two causes: no window flag was
+   given, with no warning, or a window flag was given but no usage line carries a timestamp, with the
+   stderr warning `provenance: session transcript lines carry no timestamps; session meters cover the whole session`). A layer with no meters reads `<layer>:unknown` with a stderr
    warning `provenance: layer <layer> has no transcript meters (a gap, not zero)`, never zero. The
    meters are a snapshot taken when Step 3 runs, so the post-run tail is not in them. A layer flag with
    `--item`, or a window flag without `--session-transcript`, exits 2. Do not put this line on a member
