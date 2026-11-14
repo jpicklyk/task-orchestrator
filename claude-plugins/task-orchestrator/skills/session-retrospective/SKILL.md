@@ -37,7 +37,7 @@ The settings (`mode`: `nudge` | `dispatch` | `off`, and `dispatchThreshold`) are
 
 - `--dry-run` sets **DRY_RUN = true**: perform steps 1-4 and render the report (step 9); skip steps 5-8 (no item creation, no memory updates). Announce: `**Dry run** - no items created, no memory updated.`
 - `--run <runId>` scopes the analysis to a run (step 1a). It repeats (`--run A --run B`): the scope is the union of the runs' members, and one retrospective covers them all. It wins over a root UUID.
-- `--session-dir <dir>` is a Claude Code session folder (the main transcript is `<dir>.jsonl` beside it). Step 1b's session sweep reads it; the dispatch directive passes it when the hook saw a transcript path. Without it the sweep is skipped.
+- `--session-dir <dir>` is a Claude Code session folder (the main transcript is `<dir>.jsonl` beside it). Step 1b's session sweep reads it; the dispatch directive passes it when the hook saw a transcript path ending in `.jsonl`. Without it the sweep is skipped.
 - `--deep` is handled in 4.3.
 
 ---
@@ -100,7 +100,7 @@ For each item in scope (up to 20), list its notes by key. A list carries no bodi
 
 `session-tracking` holds per-item outcome, commits, verified line, deviations, friction and observations; `delegation-metadata` (optional) holds the orchestrator-recorded model and isolation (structured provenance line or legacy prose).
 
-**Session sweep.** With `--session-dir <dir>`, run `node "<helper>" session-meters --session-dir <dir>` (the helper resolved as in the run-wave SKILL.md, Step 0) and keep its JSON (`agents`, `main`, `byClass`, `lines`). It reports token volume by meter and model for every agent transcript of the session, not only the run's seats. Also read the run target parent's `red-proof-results` note for its `agent-meters=` lines. A missing folder or a failed sweep leaves the sweep unmeasured; say so in 5c and carry on.
+**Session sweep.** With `--session-dir <dir>`, run `node "<helper>" session-meters --session-dir "<dir>"` (the helper resolved as in the run-wave SKILL.md, Step 0) and keep its JSON (`agents`, `main`, `byClass`, `lines`). It reports token volume by meter and model for every agent transcript of the session, not only the run's seats. Also read the run target parent's `red-proof-results` note for its `agent-meters=` lines. A missing folder or a failed sweep leaves the sweep unmeasured; say so in 5c and carry on.
 
 ### 1c. Early exit
 If no items are in scope, or no item has a `session-tracking` note, exit with: `No implementation run data found. Nothing to retrospect - run /implement first, then try again.`
@@ -173,7 +173,7 @@ If `delegation-metadata` notes exist, cross-reference the expected model: the mo
 - Report effort beside model: list each `seat:model/effort` (from `efforts=`; `-` when unset) in the per-run table with its `effort-source`, and the distribution of efforts per seat type across runs. Effort is not scored against an expected value; flag it as a finding for 5b when a pattern stands out (a seat type always at `max`, a review seat below `medium`, an effort set on a seat whose model was substituted) so a trend can form over sessions. Every `effort-substituted=` entry is a dispatch-versus-runtime mismatch and is always a finding; a run whose lines all read `effort-source=assigned` is noted as "effort not observed" (the post-run `dispatch-meta` step was skipped).
 - **Score:** fraction of delegations matching the expected model. With no `delegation-metadata`, note "delegation metadata not recorded" and skip scoring.
 
-With at least one structured line, show a per-run table before 3c: `| adapter | run | agents | tokens | cacheRead | duration | orchestrator-turns |` (`cacheRead` is the sum of the item `meters=` cacheRead values, `unknown` when any reads `unknown`).
+With at least one structured line, show a per-run table before 3c: `| adapter | run | agents | tokens | cacheRead | duration | orchestrator-turns |` (`cacheRead` is the sum of the item `meters=` cacheRead values; an item reading `unknown` is shown as `+<n> unknown` beside the known sum, `n` counting the items that read `unknown`).
 
 With at least one `layer-meters=` line, show a separate per-layer table after it: `| run | layer | input | cacheWrite | cacheRead | output | tokens |`, three rows per run: `seats` (the sum of that run's item `meters=` tails plus the meters of the six-field `extra-seats` rows of those items; an item or row reading `unknown` is shown as `+<n> unknown` beside the known sum and never blanks the row; five- and three-field rows are flagged `legacy basis` and kept out of the sums), `coordinator` and `session` (from the line; a layer the line omits is left out, `unknown` stays `unknown`). `tokens` = input + cacheWrite + output; cacheRead stays its own column.
 
