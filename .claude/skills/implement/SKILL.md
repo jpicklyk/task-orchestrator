@@ -1345,7 +1345,7 @@ implemented), the skill picks up from the current state:
 | work (notes filled) | Step 4 — advance to review |
 | review | Step 5 — run review |
 | terminal | Already done — report status |
-| open `run/<runId>/state` found (F7) | `/task-orchestrator:run-wave --resume <runId>` |
+| an open run found (F7) | `/task-orchestrator:run-wave --resume <runId>` |
 
 Always call `items_read` `context` (`itemId`) first to determine exact state before
 resuming.
