@@ -60,6 +60,66 @@ they automatically cover every tool the production server registers.
 
 Caller identity comes from the transport credential (`API_AUTH_MODE`, the `API_JWKS_*` variables, the `/mcp` auth mode) — independent of claim mode (claim works without it). See [`current/docs/fleet-deployment.md`](current/docs/fleet-deployment.md). The old `actor_authentication` config block is removed: a leftover block fails startup.
 
+## Session Layers: Orchestrator, Coordinator, Director
+
+Three session layers sit on top of the server, above the seats that do the work. They are the roles a Claude Code
+session plays; they are not the server modes above.
+
+**Why the layers exist.** One session used to be both the user's point of contact and the coordinator of every run.
+That filled its context, made it unavailable while a run was in flight, and left held state fragile across
+compaction. The layers split those jobs so that each context is purposeful and clearable, token cost stays
+proportional to the work, and the server (not a prompt) holds state and boundaries.
+
+| Layer | What it is | Owns | Lifetime |
+|-------|------------|------|----------|
+| Seat (the base) | One agent on one phase of one item: planner, implementer, test author, reviewer | Its seat's notes; the entry seat also makes the one phase entry | One dispatch, fresh context |
+| **Orchestrator** (default) | The user's own session | Planning, sizing (Direct, Delegated, Parallel), dispatching seats, every later transition. When it opens a run it is also that run's coordinator | The session |
+| **Coordinator** | Whoever presents a run's coordinator token | One run (one wave): assign seats, advance members, post-run, report | One run, disposable; resumes from the run view and its run files, never from conversation |
+| **Director** (opt-in, the third layer) | A session in director mode (`/task-orchestrator:director`) | The board across runs, answering decisions, staying free to talk to the user | The session; rebuilds its board from the server |
+
+**Why a director.** It is added above the coordinators for four reasons: (1) a lean, long-lived context; (2) one
+decision inbox across runs; (3) the user-facing session stays free to answer while work runs in the background;
+(4) more parallelism and longer-running work than one session can hold. Small work or a single short wave does not
+need one: orchestrator mode is enough, and a director adds a layer and its cost.
+
+**Rules that hold across the layers.** Judge any change to director, coordinator or run-wave behaviour against these.
+
+- **Altitude rule.** The director never opens a file and never reads a diff, test output or a note body, except one
+  decision request and a run rollup. It hands every read and edit to a coordinator or a background agent. The
+  `director` tool profile enforces this on the server (it has no read that returns a body); the `director-guard`
+  hook enforces it in the session.
+- **Content flows down, pointers flow up.** A layer hands the layer above ids, counts and short reasons, never note
+  bodies, diffs or transcripts. Notes are the report.
+- **Server records are the state; messages are wake-ups.** Every layer must be restartable from server state (runs,
+  seats, decisions, notes) plus its run files. Nothing a layer needs in order to resume may live only in a
+  conversation.
+- **Decisions go up, answers come down.** A seat or a coordinator raises; a director or a human answers, as the
+  decision class allows; a coordinator never answers one itself. An answer never resumes the item: the coordinator
+  does.
+- **Identity is declared.** On the server the director is a call served by the director profile with no seat token,
+  and the coordinator is the holder of the run's coordinator token (`RunPermissions`). The director path is not a
+  security boundary (any credential with the capability may call it): put decision authority in a credential's
+  capabilities and scope.
+- **Cost is measured, not self-reported.** Model and effort come from `dispatch-policy.json` per class of work, and
+  every dispatch names both. Token cost is read from Claude Code transcripts after a run and stored in
+  `delegation-metadata`; the session retrospective is where it is analysed.
+
+**Vocabulary.** "Director" names both the server tool profile (`/mcp/director`) and the session mode: say which.
+The seat named `orchestrator` is the one whose note keys a run's coordinator token may write. These layers are not
+the work-sizing tiers (Direct, Delegated, Parallel) and not the coordinator tiers 1 to 4, which say where a
+coordinator runs.
+
+**Key files:**
+
+| What | Path |
+|------|------|
+| Director mode and its rule | `claude-plugins/task-orchestrator/skills/director/SKILL.md`, `claude-plugins/task-orchestrator/hooks/director-guard.mjs` |
+| Where a coordinator runs | `claude-plugins/task-orchestrator/skills/director/references/coordinator-tiers.md`, `claude-plugins/task-orchestrator/scripts/coordinator-tiers.mjs` |
+| Running a wave | `claude-plugins/task-orchestrator/skills/run-wave/SKILL.md` |
+| Server permissions and profiles | `current/.../interfaces/shared/tools/runs/RunPermissions.kt`, `current/.../interfaces/shared/tools/ToolProfile.kt` |
+| Cost capture | `claude-plugins/task-orchestrator/scripts/lib/meters.mjs`, `claude-plugins/task-orchestrator/skills/session-retrospective/SKILL.md` |
+| User-facing explanation | `current/docs/workflow-guide.md`, chapter 12 (Runs, Seats and Decisions) |
+
 ## Trait System (Orchestration Signals)
 
 Traits are **composable orchestration signals** declared in `.taskorchestrator/config.yaml` under the `traits:` key. They are NOT merely note requirements. Each trait carries five dimensions:
