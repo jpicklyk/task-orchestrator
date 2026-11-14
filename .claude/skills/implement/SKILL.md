@@ -901,6 +901,14 @@ bar. Mark each finding blocking or observation and state your confidence; the
 orchestrator's verdict handling is the downstream filter, not your own judgment.
 ```
 
+**Label and seat parts.** Dispatch every reviewer with the Agent `description` `reviewer:<short>` (the label
+table is the "Label rule" of run-wave `post-run.md`; do not restate it). On a run-wave run, which is open under
+`review: "handoff"` with a reviewer seat assigned per item (`post-run.md` Step 5), append to the template the SEAT
+TOKEN and END SEAT parts that `node "<helper>" review-prompt --plan <plan> --item <short> --result <result>` renders for
+a bound run: copy those two paragraphs from its output and never write the token rules by hand. The consolidated
+reviewer gets each child's reviewer token file (`tokens/<short>.reviewer.token`), passes the matching child's token on
+that child's calls, and ends each child's seat.
+
 **If using Direct or Delegated tier** (single working branch on the main directory),
 the review agent reads from the working branch and runs no gradle itself (see item 4
 below) - no worktree-specific scoping needed.
@@ -953,7 +961,7 @@ The review agent:
 | **Pass with observations** | Proceed to Step 6; dispose observations per Dispositions at child close (`fixed` only under run-wave `post-run.md` Step 5 "Observation triage") |
 | **Fail — blocking issues** | Stop and report to the user with the full findings. Do not attempt to fix autonomously — bring the human into the loop. |
 
-Once the user rules a fix on a run-wave item whose run closed at handoff, the fix cycle follows the numbered recipe in run-wave `post-run.md` Step 5 "Fallback", which also finalizes the item's `session-tracking`.
+Once the user rules a fix on a run-wave item under `review: "handoff"`, the fix cycle follows the numbered recipe in run-wave `post-run.md` Step 5 "Fallback" on the still-open run (re-assign the base seat), and takes its own `<runId>-a<n>` run only once the run has closed; the recipe also finalizes the item's `session-tracking`.
 
 **Dispositions at child close.** When a child's review returns Pass or Pass with observations,
 write the child's `orchestrator-confirmation` before advancing it: one line per O# as `fixed <sha>`,
@@ -1123,7 +1131,11 @@ For Parallel-tier features with a shared feature worktree:
 2. Advance the child to terminal only if it is not already terminal (Step 4c item 7 already
    advanced each child out of work; a review-less child is terminal by now, so skip it). A child
    sitting in review takes one `advance` `transition` with `trigger: "start"` (`itemId` the
-   child's id) to reach terminal, and only after its review passes.
+   child's id) to reach terminal, and only after its review passes. While the run is open (under
+   `review: "handoff"` it stays open through the review), that advance and the child's
+   `orchestrator-confirmation` go under the coordinator token: a token-less write to an orchestrator-seat
+   key of a run member is refused (`post-run.md` Step 3), and the coordinator token passes the seat
+   gate (`current/docs/api-reference.md`, advance seat gate). Then close the run with `post-run.md` Step 7.
 3. **Do NOT push. Do NOT create a PR.** The work is committed to `feat/<feature-slug>`
    inside the shared worktree; that's the integration point.
 
@@ -1146,7 +1158,9 @@ merge, step 8):
    ```
 3. Advance the parent to review. The orchestrator never authors the parent's `review-checklist`,
    whatever the child count. With 2+ children, run the feature review of `run-wave`
-   `post-run.md` Step 7b: one independent `task-orchestrator:reviewer` (explicit `model`) over
+   `post-run.md` Step 7b: one independent `task-orchestrator:reviewer` (explicit `model`, Agent `description`
+   `reviewer:<parent-short>`; it runs under an assigned reviewer seat only when the parent is a member of the
+   open run, otherwise token-less) over
    `git -C <feature-worktree-path> diff <base>...HEAD`, handed each child's verdict and
    disposition count lines (a child with no review phase is listed as such). The reviewer
    writes only feature-level findings, never re-lists a child's disposed observation, and fills
@@ -1226,7 +1240,8 @@ merge, step 8):
    and run only against the test classes that child's `test-manifest` maps to it, one incremental
    whole-suite run per survivor, results recorded once on the parent's `red-proof-results` note.
    A real gap becomes a carry-in on the next item touching that seam or one test-only follow-up
-   item, never a reopen. Background; it gates nothing.
+   item, never a reopen. Background; it gates nothing. The runner is dispatched as `red-proofs:<parent-short>`
+   and its meters are recorded per `post-run.md` Step 7a item 7.
 11. Retrospective - the plugin's retrospective hook fires on a successful `runs_write` `close`
    (or the Stop backstop for a closed run without the `retro` mark), never on a terminal
    transition. In `dispatch` mode (`extensions.claude-code.retrospective.mode` in

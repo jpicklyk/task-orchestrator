@@ -239,7 +239,9 @@ run report instead.
    transcript the model id, the effort its assistant turns actually ran at and the four usage meters (input,
    cache write, cache read, output; one count per message id). By default it scans every session under
    `~/.claude/projects`; `--session-dir <dir>` limits it to one session folder and `--since <epoch-ms>` drops
-   older agents. One measure runs through the whole line: each seat's `tokens` are its non-cached meters
+   older agents (by the meta file's mtime). Pass `--since` with the run's `openedAt` and `--session-dir` with the
+   session folder when it is known. `runs_read` `get` returns `openedAt` as an ISO-8601 instant while `--since` takes only an
+   epoch-ms integer (anything else exits 2): convert it first. One measure runs through the whole line: each seat's `tokens` are its non-cached meters
    (input + cache write + output); cache read stays out of `tokens` and is kept as its own meter. The line
    carries `tokens=<n>` (that sum over the line's seats), `duration=unknown` (no per-seat source), and the tails
    `meters=<input>/<cacheWrite>/<cacheRead>/<output>` (the item's sum) and
@@ -325,10 +327,19 @@ Record the phase `review` before dispatching or handing off the reviewer — a r
 this point (Resume matrix, `SKILL.md`) continues at Step 8 there instead of re-running Step 4's
 batched advance.
 
-**Under `review: "handoff"`** (the project's `run-profile.json`), run Step 7 first — the run closes
-before the project's own review step (this repo: `/implement` Step 5) — and do not dispatch the
-generic reviewer yourself. The project's review step owns merge arming; do not arm auto-merge from
-post-run.
+**Under `review: "handoff"`** (the project's `run-profile.json`), keep the run open through the project's
+own review step (this repo: `/implement` Step 5) and do not dispatch the generic reviewer yourself. In order:
+Step 4 is done and the phase `review` is recorded; assign a reviewer seat per advanced item that entered a review
+phase (the `run-ops --phase assign --item <short> --seat reviewer` command below, under the coordinator token, its
+`seatToken` written to `tokens/<short>.reviewer.token`); hand off to the project's review step with the run open
+(its reviewers carry the label `reviewer:<short>`, see the Label rule). After the hand-off returns: run Step 0b's
+sweep, re-run `dispatch-meta` and `provenance --item <short> --extra-seats reviewer:<model>` (`provenance` reads
+the `reviewer:<short>` transcript from the meta file, and `--extra-seats` needs `--item`), and re-upsert the item's
+`delegation-metadata` under the coordinator token; write each `orchestrator-confirmation` and advance under the
+coordinator token while the run is open; then run Step 7 to close. The costs, stated plainly: the root has an open
+run for the whole length of the review; one wave runs per root, so a new run-wave on that root resumes this run
+(`SKILL.md` Step 0 F7) until the close; and a Fail waiting on a human keeps the run open. The project's review step
+owns merge arming; do not arm auto-merge from post-run.
 
 **Otherwise**, per advanced item that entered a review phase: on a bound run, first assign its
 reviewer lane like any schema seat (a seat-less item whose schema has a review-role note takes `reviewer` too) — `node "<helper>" run-ops --plan <plan> --phase assign --item
@@ -340,7 +351,7 @@ diff command falls back to a bare "owned files: planner output" line instead of 
 `git diff <baseSha>..HEAD -- <owned files>` pathspec. The generic review prompt is deliberately
 thin: seat line, the owned-file diff command, which notes to fill, which rule keys apply and, on a
 bound run, the token file and END SEAT — it carries no rule text inline (the reviewer fetches those
-itself) and never the token. The review-wave workflow (`review-wave/args-v1`) takes the same
+itself) and never the token. Dispatch the reviewer with the Agent `description` `reviewer:<short>` (Label rule). The review-wave workflow (`review-wave/args-v1`) takes the same
 `serverRunId` and a per-stage `tokenFile`; lanes that share a seat share one assignment and one
 token file, and its lanes never end their seat, so run Step 0b's sweep again before Step 7.
 
@@ -356,7 +367,7 @@ turn. On the notification, aggregate the lane verdicts, run Step 0b's sweep, and
 `Workflow`, keep the generic `review-prompt` path above.
 
 **Wave parent review.** Before any reviewer for the wave parent itself is dispatched or handed off
-(a feature-level review; this repo's `/implement` Step 6 item 3), `items_read(select:"context",
+(a feature-level review; this repo's `/implement` Step 6 item 3; its reviewer's `description` is `reviewer:<parent-short>`, Label rule), `items_read(select:"context",
 itemId:<parent>)` and branch on its role. No review-role entry in its schema → do not advance it:
 `start` from work with no review phase lands terminal. Role `work` and `gateStatus.canAdvance` →
 `advance` `transition` `start` (work→review) under the coordinator token first, then dispatch. Role
@@ -445,8 +456,9 @@ same scope, so the audit trail distinguishes the cycle. The server knows only sc
 so a fix-cycle seat runs under its **base** seat's assignment: on a still-open run, first re-`assign`
 the base seat (`run-ops --phase assign --item <short> --seat <base seat>`, coordinator token; this
 supersedes the old assignment as attempt n+1) and write the new `seatToken` to the base seat's token
-file. When the run is already closed (for example after a `review: "handoff"` close), the cycle gets its own
-run over that one item, `<runId>-a<n>`. Follow these steps in order:
+file. When the run is already closed, the cycle gets its own
+run over that one item, `<runId>-a<n>` (a `review: "handoff"` fix cycle takes the still-open-run branch above, since
+that run closes only after the project's review). Follow these steps in order:
 
 1. Open a run over that one item, label `<runId>-a<n>`. `open` carries no `seatToken`; save the returned
    `coordinatorToken` as one line to its own token file beside the run's (for example
@@ -519,10 +531,25 @@ the run holding the item (the still-open run, or the fix-cycle run before it clo
 write is refused, so report it) with the two-line output (grammar line, then `extra-seats=...`). The list is cumulative: each re-run passes
 every out-of-run seat so far.
 
-**Label rule.** Every out-of-run Agent dispatch sets its `description` to `<seat>[-a<n>]:<short>` (the display tag
-` [<model>/<effort>]` after it is optional and stripped): a fix-cycle seat is `implementer-a1:<short>`, a re-review is
-`reviewer-a<n>:<short>`, an amendment planner is `planner-a<n>:<short>`. `dispatch-meta` matches exactly these
-labels; a free-text description leaves the seat unknown.
+**Label rule.** An agent's Agent `description` is its label; an optional display tag ` [<model>/<effort>]` may
+follow and is stripped. This paragraph is the single source of the label table; every other file points here and does
+not restate it.
+
+| Agent | Label | Class |
+|---|---|---|
+| Run seat, fix seat | `<seat>[-a<n>]:<short>` | seat |
+| Review lane | `<seat>.<skill>:<short>` | lane |
+| Item reviewer, feature reviewer | `reviewer:<short>` (the parent's short id for the feature) | seat |
+| Post-merge red-proof runner | `red-proofs:<parent-short>` | red-proofs |
+| Retrospective agent | `retrospective:<run8>` (first 8 hex of the server run id) | retrospective |
+| Tier 2 coordinator | `coordinator:<target-short>` | coordinator |
+| Research, audit, mining | `research:<topic>` | research |
+
+Any other description, or none, is class unlabelled. `<short>` is the item's 8-hex short id. A fix-cycle seat is
+`implementer-a1:<short>`, a re-review is `reviewer-a<n>:<short>`, an amendment planner is `planner-a<n>:<short>`.
+`dispatch-meta` matches only the plan's seat labels (`<seat>[-a<n>]:<short>` of the plan's items, plus `planner` and
+`reviewer` for every item); a free-text description leaves the seat unknown, and the other classes are found only by
+`session-meters`.
 
 Tokens and meters come only from the seat's transcript, via `--meta`: never from the Agent result, never from a
 flag. A row's tokens are the non-cached sum (input + cache write + output) and the row carries its four meters as a
@@ -581,7 +608,7 @@ process requires:
 
 ## Step 7 — Close and loop
 
-Once the review hand-off (Step 5) is dispatched or handed off, any review seats of this run have
+Once the review hand-off (Step 5) has returned (`review: "handoff"`) or been dispatched (otherwise), any review seats of this run have
 been swept (Step 0b again), and any immediate human checkpoints (Step 6) are surfaced, close the run: `node "<helper>" run-ops --plan <plan> --phase close --result <result.json>` renders
 `{op: "close", runId, reason}` — `completed` when the result says `started: true`, `failed` when it
 says `started: false` or the launch threw (no result); pass `--reason cancelled` for an explicit user
@@ -643,6 +670,13 @@ background and go on to `SKILL.md` Step 9; the next wave's planners do not wait 
    the scratch path and merged SHA. Reviewers of later waves read it there; nobody re-runs it.
 6. **Remove the scratch worktree** (`git worktree remove --force <unique-tmp>`) and set
    `redProofs: "done"` in the run's local `state.json` so a resume does not repeat the step.
+7. **Record the runner's meters.** The runner is one background Agent with `description`
+   `red-proofs:<parent-short>` (Label rule) and an explicit `model` and `effort` (the dispatch-model guard requires
+   both). Once it returns, run `node "<helper>" session-meters --session-dir <session> --label red-proofs:<parent-short>`
+   (the session folder derived as in Step 3's layer meters) and append one line to the wave parent's
+   `red-proof-results`: the `agent-meters=` entry of `lines` that command prints for that label, followed by ` run=<runId>`
+   (the plan run id). The write is a token-less `upsert` of the whole body (the note was created token-less in item 5,
+   so it stays writable after the close); no minutes are added.
 
 ---
 
@@ -663,7 +697,7 @@ suppressed (`blocked: gate`, reason `review-pending`), so finishing a child neve
 review-role parent, and the parent leaves review only by the explicit advance in item 4.
 
 1. **Dispatch one feature reviewer.** The parent is in review (Step 5 "Wave parent review").
-   Dispatch one `task-orchestrator:reviewer` with an explicit `model` and `effort`: the values the
+   Dispatch one `task-orchestrator:reviewer` with `description` `reviewer:<parent-short>` (Label rule) and an explicit `model` and `effort`: the values the
    parent's review dispatch profile names, else the `review` class (`task-orchestrator:model-effort`). Range: the merged diff of the feature's owned files,
    pathspec = the union of the children's owned files (the reviewer also runs `git diff --stat
    <range>` over the WHOLE range, without the pathspec, and flags any off-scope change; this
@@ -681,7 +715,7 @@ review-role parent, and the parent leaves review only by the explicit advance in
    of the children together); a child's already-disposed observation is never re-listed,
    re-numbered or "carried". The reviewer fills the parent's review-phase notes; the orchestrator
    never rewrites them.
-2. **On Fail**, the default fix path is a fix seat (a fresh `implementer-a<n>`, scoped to the
+2. **On Fail**, the default fix path is a fix seat (a fresh `implementer-a<n>` with `description` `implementer-a<n>:<parent-short>`, scoped to the
    finding's file, dispatched one effort level above the original implementer dispatch per
    `orchestrate`'s hand-dispatch rule) against the PARENT feature: its dispatch prompt must name it a NON-ENTRY seat
    that never transitions the parent. In shared mode it commits on the feature branch; in per-item
@@ -702,8 +736,8 @@ review-role parent, and the parent leaves review only by the explicit advance in
 4. **Complete.** The orchestrator's explicit `advance` `transition` `complete` on the parent, only
    after N of N.
 
-**Post-merge live acceptance.** After the feature PR has merged (a `review: "handoff"` close applies
-it too: the project's finalization, this repo `/implement` Step 6, carries the same step), if the
+**Post-merge live acceptance.** After the feature PR has merged (under `review: "handoff"` the
+project's finalization, this repo `/implement` Step 6, carries the same step), if the
 only non-terminal children are live checks that need a refreshed plugin cache or a user opt-in: (a)
 create one `plugin-change` item titled `Post-merge live acceptance: <feature title>` under the
 feature's parent, its `specification` filled at creation; (b) `deps_write` `create` a `relates_to`
