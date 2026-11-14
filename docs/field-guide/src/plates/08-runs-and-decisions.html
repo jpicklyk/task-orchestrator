@@ -202,7 +202,7 @@ Coordinator tier: 2 (Workflow)</pre>
     <tbody>
       <tr><td>1</td><td><code>start_session</code> and <code>SendMessage</code></td><td>A separate desktop session, reached with <code>SendMessage</code>. Cross-session inbound messages must be set to accept, or a report can be lost.</td></tr>
       <tr><td>2</td><td><code>Workflow</code></td><td>A background coordinator agent plans the run (run-wave Steps 0 to 5a, altitude-safe) and keeps the coordinator token. The director makes the one <code>implement-wave</code> call, whose result holds counts, statuses, SHAs, file lists and note keys, with reasons cut short and no other seat prose, then messages the coordinator to run post-run.</td></tr>
-      <tr><td>3</td><td>The <code>claude</code> CLI on the host</td><td>A headless <code>claude -p</code> process that a background agent starts with <code>--allowedTools Workflow</code> and <code>--max-budget-usd</code>, the only configured hard stop. Never <code>--bare</code>, which skips the hooks that installed plugins define, so the run's seats lose their subagent-start hook and phase protocol.</td></tr>
+      <tr><td>3</td><td>The <code>claude</code> CLI on the host</td><td>A headless <code>claude -p</code> process that a background agent starts with <code>--allowedTools Workflow</code> and <code>--max-budget-usd</code>, the only configured hard stop. Never <code>--bare</code>, which skips the hooks that installed plugins define.</td></tr>
       <tr><td>4</td><td>None of these</td><td>No coordinator. The run executes in the director session, which breaks the altitude rule, and the director warns once.</td></tr>
     </tbody>
   </table></div>
