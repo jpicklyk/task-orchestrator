@@ -185,7 +185,7 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
       <tr><td><code>extraction</code></td><td>Extractors and retrospective data pulls</td></tr>
     </tbody>
   </table></div>
-  <p class="sub small">The plugin's dispatch policy assigns a model and an effort to each class of work, and <code>task-orchestrator:model-effort</code> reads it. The values live in the policy and change with it. A schema's <code>dispatch</code> block overrides it per phase or per seat (plates 4 and 6). The orchestrator always names the model and the effort on a dispatch.
+  <p class="sub small">The plugin's dispatch policy assigns a model and an effort to each class of work, and <code>task-orchestrator:model-effort</code> reads it. The values live in the policy and change with it. A schema's <code>dispatch</code> block overrides it per phase or per seat (plates 4 and 6). The orchestrator always names the model and the effort on a dispatch.</p>
 </section>
 
 <section>
@@ -326,7 +326,7 @@ config(op="rules", rootId)</pre>
       <thead><tr><th>Channel</th><th>Behaviour</th></tr></thead>
       <tbody>
         <tr><td>Orchestration context</td><td>A session-start hook delivers the orchestration core, including after a compact. Plans, delegates, tracks and reports.</td></tr>
-        <tr><td>Orchestrate skill</td><td>On-demand tier table, delegation table and phase-owner dispatch rules.</td></tr>
+        <tr><td>Orchestrate skill</td><td>On-demand tier table, delegation rules (an explicit model and effort on every dispatch, one effort level higher on a fix) and phase-owner dispatch rules. The class table is in <code>task-orchestrator:model-effort</code>.</td></tr>
         <tr><td>Ralph iteration prompt</td><td>The terse single-item rules each headless iteration runs under, appended to its system prompt.</td></tr>
         <tr><td><code>extensions.claude-code.orchestration.mode: workflow</code></td><td>The default. Tier-aware, with a model policy. Small fixes are done inline.</td></tr>
         <tr><td><code>extensions.claude-code.orchestration.mode: schema</code></td><td>No tiers and no model policy. The item's schema alone sets the process.</td></tr>
