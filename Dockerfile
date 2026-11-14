@@ -3,7 +3,10 @@
 # ============================================================
 
 # --- Builder stage ---
-FROM eclipse-temurin:21-jdk AS builder
+# Runs on the build host's platform ($BUILDPLATFORM), not the target's: the JAR is platform-independent
+# bytecode (sqlite-jdbc bundles its natives for every architecture), so a multi-arch build compiles once,
+# natively, instead of running Gradle under QEMU emulation for arm64. The runtime stages stay per-target.
+FROM --platform=$BUILDPLATFORM eclipse-temurin:21-jdk AS builder
 
 WORKDIR /app
 
