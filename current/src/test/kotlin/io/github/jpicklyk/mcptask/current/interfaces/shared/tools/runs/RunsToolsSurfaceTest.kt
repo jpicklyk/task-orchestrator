@@ -126,11 +126,11 @@ class RunsToolsSurfaceTest {
         assertEquals(setOf(ToolProfile.ORCHESTRATION), readMember("seats").profiles)
         assertEquals(setOf(ToolProfile.ORCHESTRATION), writeMember("assign").profiles)
         assertEquals(setOf(ToolProfile.ORCHESTRATION), writeMember("end_seat").profiles)
-        // R24 (task-scope "Placement"): `raise` is orchestration; ack, answer, withdraw and both decision reads are director only.
+        // R24 (task-scope "Placement"): `raise` is orchestration; withdraw is on both profiles; ack, answer and both decision reads are director only.
         assertEquals(setOf(ToolProfile.ORCHESTRATION), writeMember("raise").profiles)
         assertEquals(setOf(ToolProfile.DIRECTOR), writeMember("ack").profiles)
         assertEquals(setOf(ToolProfile.DIRECTOR), writeMember("answer").profiles)
-        assertEquals(setOf(ToolProfile.DIRECTOR), writeMember("withdraw").profiles)
+        assertEquals(both, writeMember("withdraw").profiles)
         assertEquals(setOf(ToolProfile.DIRECTOR), readMember("decisions").profiles)
         assertEquals(setOf(ToolProfile.DIRECTOR), readMember("decision").profiles)
     }
@@ -182,7 +182,10 @@ class RunsToolsSurfaceTest {
         assertEquals(emptySet(), visible("runs_read", ToolProfile.KNOWLEDGE))
         assertEquals(emptySet(), visible("runs_write", ToolProfile.KNOWLEDGE))
         assertEquals(setOf("get", "list", "seats", "frontier"), visible("runs_read", ToolProfile.ORCHESTRATION))
-        assertEquals(setOf("open", "update", "close", "assign", "end_seat", "raise"), visible("runs_write", ToolProfile.ORCHESTRATION))
+        assertEquals(
+            setOf("open", "update", "close", "assign", "end_seat", "raise", "withdraw"),
+            visible("runs_write", ToolProfile.ORCHESTRATION)
+        )
         assertEquals(setOf("get", "list", "frontier", "decisions", "decision"), visible("runs_read", ToolProfile.DIRECTOR))
         assertEquals(
             setOf("open", "close", "pause", "resume", "ack", "answer", "withdraw"),
@@ -228,7 +231,7 @@ class RunsToolsSurfaceTest {
     @Test
     fun `the rendered op enum is the visible set of the profile and never carries mark`() {
         assertEquals(
-            setOf("open", "update", "close", "assign", "end_seat", "raise"),
+            setOf("open", "update", "close", "assign", "end_seat", "raise", "withdraw"),
             opEnum(rendered("runs_write", ToolProfile.ORCHESTRATION))
         )
         assertEquals(
@@ -262,7 +265,10 @@ class RunsToolsSurfaceTest {
                         .getValue("name")
                         .jsonPrimitive.content
                 }
-        assertEquals(setOf("open", "update", "close", "assign", "end_seat", "raise"), described(ToolProfile.ORCHESTRATION).toSet())
+        assertEquals(
+            setOf("open", "update", "close", "assign", "end_seat", "raise", "withdraw"),
+            described(ToolProfile.ORCHESTRATION).toSet()
+        )
         assertEquals(setOf("open", "close", "pause", "resume", "ack", "answer", "withdraw"), described(ToolProfile.DIRECTOR).toSet())
         val selects =
             ToolDescriber

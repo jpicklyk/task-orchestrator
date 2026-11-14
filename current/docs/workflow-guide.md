@@ -1318,6 +1318,19 @@ intervals are pruned after `RETENTION_LEASE_HISTORY_DAYS` days (default 365, `0`
 
 A **run** is a bounded pass over a set of items of one root, optionally capped. Everything before this chapter works without one. A run adds four things on top: scoped credentials for the agents that work the items (seat tokens), enforcement of who may do what to a member, a liveness view, and a channel for questions that need a human or a director (decisions).
 
+### Why three session layers
+
+One session used to be both the user's point of contact and the coordinator of every run. That filled its context, made it unavailable while a run was in flight, and left the state it held fragile across compaction. The layers split those jobs so each context is purposeful and clearable, token cost stays proportional to the work, and the server, not a prompt, holds state and boundaries.
+
+- **Seat**: one agent on one phase of one item (planner, implementer, test author, reviewer), with one dispatch and a fresh context.
+- **Orchestrator** (the default): the user's own session. It plans, sizes, dispatches seats and makes every later transition. When it opens a run it is also that run's coordinator.
+- **Coordinator**: whoever presents a run's coordinator token. It owns one run (one wave) and is disposable.
+- **Director**: an optional session mode that runs the board instead of the code.
+
+"Director" names two things: a server tool profile (`/mcp/director`, `MCP_TOOL_PROFILE=director`) and a session mode entered with `/task-orchestrator:director`. The seat named `orchestrator` is the one whose note keys the coordinator token may write; it is a seat of the item's schema, not a session.
+
+A director earns its keep when the work is long or wide, for four reasons: its context stays lean and long-lived because it holds decisions and rollups rather than code, it is one decision inbox across runs, the user's session stays free to talk while a coordinator runs a wave, and more parallel and longer-running work fits than one session can hold. For small work or one short wave, orchestrator mode is enough.
+
 ### A run, and when to open one
 
 Open a run when an orchestrator is about to hand several items to several agents at once and you want the server, not the prompt, to hold the boundaries: which agent may touch which item, how many attempts and seats it may use, and when a person has to weigh in. A single agent working one item needs none of this.
@@ -1366,7 +1379,7 @@ A cascade is a write too. When a child's change would move a parent that is a me
 
 ### Liveness and the frontier
 
-A seat or the coordinator is **stalled** when it has been quiet for strictly longer than the run's `stallAfterSeconds` (pinned when the run opens; default 600). Quiet means no call under its token on a tool that takes `ops`; a read through a `select` tool does not count, so a long-running seat makes some call on an `ops` tool now and then, for example an `advance` `heartbeat` on its claim (which also reports `usage`). Stalled is only a view: nothing is ended or released for you.
+A seat or the coordinator is **stalled** when it has been quiet for strictly longer than the run's `stallAfterSeconds` (pinned when the run opens; default 600). Quiet means no call under its token on a tool that takes `ops`; a read through a `select` tool does not count, so a long-running seat makes some call on an `ops` tool now and then, for example an `advance` `heartbeat` on its claim. Stalled is only a view: nothing is ended or released for you.
 
 `runs_read` with `select: "frontier"` is the one read that tells the coordinator what to do next:
 
@@ -1414,7 +1427,7 @@ Operator-side detail, including what the numbers mean and what is only an estima
 
 ### Answering a decision as a single developer
 
-A person working alone usually has one stdio server, and stdio serves the orchestration profile, which cannot answer decisions. Start a second stdio entry with `MCP_TOOL_PROFILE=director` (or point at `/mcp/director` over HTTP). That entry lists, acknowledges and answers decisions, pauses and resumes runs, and closes them. If you have no director entry and a run is paused for a limit, the only way out from the orchestration side is to `close` it. See the [director endpoint](./fleet-deployment.md#mcp-authentication---read-first) notes for the HTTP and REST forms.
+A person working alone usually has one stdio server, and stdio serves the orchestration profile, which cannot answer decisions. Start a second stdio entry with `MCP_TOOL_PROFILE=director` (or point at `/mcp/director` over HTTP). That entry lists, acknowledges and answers decisions, pauses and resumes runs, and closes them. If you have no director entry and a run is paused for a limit, the only way out from the orchestration side is to `close` it. See the [director endpoint](./fleet-deployment.md#mcp-authentication---read-first) notes for the HTTP and REST forms. The director path is hygiene that keeps a session at altitude, not a security boundary.
 
 ---
 

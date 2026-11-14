@@ -782,9 +782,9 @@ class RunsSeatOpsTest {
         val end = write.ops.single { it.name == "end_seat" }
         assertTrue(ErrorCode.UNAUTHENTICATED in end.errors && ErrorCode.FORBIDDEN in end.errors, "end_seat declares ${end.errors}")
 
-        // R24 adds `raise` to the orchestration set and ack, answer, withdraw, decisions and decision to the director's.
+        // R24 adds `raise` to the orchestration set and ack, answer, withdraw, decisions and decision to the director's; withdraw is also an orchestration op.
         assertEquals(
-            setOf("open", "update", "close", "assign", "end_seat", "raise"),
+            setOf("open", "update", "close", "assign", "end_seat", "raise", "withdraw"),
             visibleNames(write, ToolProfile.ORCHESTRATION).toSet()
         )
         assertEquals(
@@ -841,7 +841,7 @@ class RunsSeatOpsTest {
                 .jsonArray
                 .map { it.jsonPrimitive.content }
                 .toSet()
-        assertEquals(setOf("open", "update", "close", "assign", "end_seat", "raise"), opEnum)
+        assertEquals(setOf("open", "update", "close", "assign", "end_seat", "raise", "withdraw"), opEnum)
 
         val read = rendered("runs_read", ToolProfile.ORCHESTRATION).properties()
         assertEquals(

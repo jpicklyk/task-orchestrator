@@ -1099,7 +1099,7 @@ and no seat token; `director-or-human` also the director profile without a seat 
 is `403 forbidden` with `scope: "principal_kind"` and `required` `human` or `director,human`. `answer` is final: the
 option must be one of the keys, `text` (at most 1,000) is accepted only for a freeform class, `rationale` is at most
 1,000, and the answer records the caller's kind, proof status, seat, run and profile and `afterExpiry`. `withdraw
-{decisionId}` (director profile, `runs`) needs the raiser (the same principal and seat) or the coordinator token of the
+{decisionId}` (capability `runs`) needs the raiser (the same principal and seat) or the coordinator token of the
 decision's run (`required` `coordinator,raiser`); a server-raised `run-budget` or `attempt-cap` decision cannot be
 withdrawn by anyone (the same `forbidden`): it stays pending until it is answered (closing its run withdraws no
 decision; `run.ended` counts it in `openDecisions`). An `ack`, `answer` or `withdraw` of an answered or withdrawn

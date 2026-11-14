@@ -17,7 +17,8 @@
                 "close",
                 "assign",
                 "end_seat",
-                "raise"
+                "raise",
+                "withdraw"
               ]
             },
             "rootId": {
@@ -167,6 +168,10 @@
             "block": {
               "type": "boolean",
               "description": "true: also block itemId as awaiting_decision in the same unit. [ops: raise]"
+            },
+            "decisionId": {
+              "type": "string",
+              "description": "Decision id: a UUID or a hex prefix of 8 to 32 characters. [ops: withdraw]"
             },
             "idempotencyKey": {
               "type": "string",

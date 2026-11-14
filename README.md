@@ -308,7 +308,7 @@ The plugin adds workflow automation on top of the MCP server: skills, hooks, and
 | **Skills** | Slash commands for common workflows, including `/task-orchestrator:quick-start`, `/task-orchestrator:init`, `/task-orchestrator:configure-server`, `/task-orchestrator:manage-schemas`, and `/task-orchestrator:create-item` |
 | **Hooks** | Context injection at session start, plan-mode integration, sub-agent context handoff and phase-gate enforcement, per-project config sync, and run-close retrospective prompts |
 | **Orchestration context** | A SessionStart hook delivers the orchestration core (with the `orchestrate` skill for tier and delegation detail): Claude plans, delegates to sub-agents, and tracks progress without writing code directly |
-| **Director mode** | `/task-orchestrator:director` runs the session as a board of open runs, decisions and rollups; a guard hook holds it above the code and delegates every read to coordinators |
+| **Director mode** | `/task-orchestrator:director` runs the session as a board of open runs, decisions and rollups, so your own session stays free and its context lean, with one decision inbox across runs and room for more parallel and longer-running work, while coordinators run the waves; a guard hook holds it above the code and delegates every read to coordinators |
 | **Runs** | `/task-orchestrator:run-wave` and `/task-orchestrator:ralph` open server runs with per-seat tokens, and closing a run triggers its retrospective |
 
 The MCP server works without the plugin. The plugin makes it seamless with Claude Code.

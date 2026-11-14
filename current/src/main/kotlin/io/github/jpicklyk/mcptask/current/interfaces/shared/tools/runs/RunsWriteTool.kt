@@ -32,8 +32,8 @@ internal object RunsWriteCodec : IdempotencyCodec<JsonObject> {
 /**
  * The runs_write tool: open, update, close, pause, resume and mark runs, assign and end seats, and raise, acknowledge,
  * answer and withdraw decisions. Every op needs the runs capability except ack and answer, which need decide. mark is
- * REST-only (it is on no MCP profile); pause, resume, ack, answer and withdraw are director ops; update, assign,
- * end_seat and raise are orchestration ops.
+ * REST-only (it is on no MCP profile); pause, resume, ack and answer are director ops; update, assign, end_seat
+ * and raise are orchestration ops; withdraw is on both profiles.
  */
 fun runsWriteTool(): OpsToolSpec<JsonObject> =
     OpsToolSpec(

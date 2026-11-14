@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `runs_write` `withdraw` is now served by the orchestration profile as well as the director profile, so the raiser and a run's coordinator can withdraw a decision on the connection they already use. The director profile is unchanged.
+
+### Plugin
+
+- **Added: `run-planner provenance` can meter the coordinator and the launching session.** `--coordinator <label>` and `--session-transcript <path>` (with an optional `--session-since`/`--session-until` run window) add one `layer-meters` member to the output: `layer-meters=coordinator:<i>/<cw>/<cr>/<o>,session:<i>/<cw>/<cr>/<o> run=<runId> session-window=run|whole-session`, read from the transcripts, with `<layer>:unknown` and a warning for a gap. Run-wave post-run records it once per run on the target parent's `delegation-metadata`, and the session retrospective shows it in a separate per-layer table. Without the new flags the output is unchanged.
+
 ## [4.0.2] - 2026-11-11
 
 4.0.2 fixes a socket leak on the HTTP transport ([#682](https://github.com/jpicklyk/task-orchestrator/issues/682)): an MCP client that dropped its connection without `DELETE` left a socket in `CLOSE_WAIT`, and they piled up until the server stopped answering. It moves the MCP Kotlin SDK to 0.16.0, adds SSE heartbeats and `MCP_SESSION_IDLE_TIMEOUT_MINUTES`. There is no migration, so a rollback to 4.0.1 is safe.

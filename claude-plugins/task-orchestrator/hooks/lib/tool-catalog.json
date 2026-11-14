@@ -3366,7 +3366,8 @@
         "withdraw": {
           "anchor": "runs_write-withdraw",
           "profiles": [
-            "director"
+            "director",
+            "orchestration"
           ],
           "capability": "runs",
           "destructive": false,
