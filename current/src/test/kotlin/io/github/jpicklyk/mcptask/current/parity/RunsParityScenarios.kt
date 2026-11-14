@@ -2519,9 +2519,12 @@ class RunsParityTest {
         assertEquals(ToolProfile.ORCHESTRATION, ParityCoverage.mcpLegProfile(registry, "runs_write", "close"))
         assertEquals(ToolProfile.DIRECTOR, ParityCoverage.mcpLegProfile(registry, "runs_write", "pause"))
         assertEquals(ToolProfile.DIRECTOR, ParityCoverage.mcpLegProfile(registry, "runs_write", "resume"))
-        // R24: raise is an orchestration member; ack, answer, withdraw, decisions and decision are director members
-        assertEquals(ToolProfile.ORCHESTRATION, ParityCoverage.mcpLegProfile(registry, "runs_write", "raise"))
-        for (op in listOf("ack", "answer", "withdraw")) {
+        // R24: raise and withdraw are orchestration members (withdraw is also a director member, orchestration is
+        // picked first); ack, answer, decisions and decision are director members
+        for (op in listOf("raise", "withdraw")) {
+            assertEquals(ToolProfile.ORCHESTRATION, ParityCoverage.mcpLegProfile(registry, "runs_write", op), op)
+        }
+        for (op in listOf("ack", "answer")) {
             assertEquals(ToolProfile.DIRECTOR, ParityCoverage.mcpLegProfile(registry, "runs_write", op), op)
         }
         for (select in listOf("decisions", "decision")) {

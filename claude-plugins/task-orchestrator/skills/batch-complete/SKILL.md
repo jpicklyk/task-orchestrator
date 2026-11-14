@@ -85,7 +85,7 @@ If any item is in work or review, warn that active work will be force-completed 
 
 Wait for the answer and record the trigger.
 
-Add a `blocked` row to the preview. Under `complete`, blocked items fail `invalid_transition` (resume them first). Under `cancel`, list each `awaiting_decision` item with its `decisionId` (`items_read` `blocked` with `ancestorId`, or `get` per id) and warn that the decision stays open after the cancel; have it answered or withdrawn first (`withdraw`: the raiser or the run's coordinator token, director profile):
+Add a `blocked` row to the preview. Under `complete`, blocked items fail `invalid_transition` (resume them first). Under `cancel`, list each `awaiting_decision` item with its `decisionId` (`items_read` `blocked` with `ancestorId`, or `get` per id) and warn that the decision stays open after the cancel; have it answered or withdrawn first (`withdraw`: the raiser or the run's coordinator token):
 
 ```to-call
 {"tool": "items_read", "select": "blocked", "args": {"ancestorId": "98d452e9"}}

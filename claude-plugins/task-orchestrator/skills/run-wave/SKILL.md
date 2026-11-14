@@ -79,8 +79,7 @@ exception is an atomic batch (`atomic: true`): it answers only the failing eleme
 block: true, dedupeKey, question, options, recommended, itemId}` under its own token and stops with
 `reason: "awaiting_decision"` and the `decisionId`. A raise with `block: true` blocks the item; an
 answer never resumes it, and a blocked item allows only `resume` and `cancel`. The coordinator
-withdraws (`runs_write` `withdraw {decisionId}`, coordinator token as `seatToken`, sent on the
-`mcp-task-orchestrator-director` connection or REST `POST /api/v1/ops/runs_write`: `withdraw` exists only in the director profile) only decisions it or its seats
+withdraws (`runs_write` `withdraw {decisionId}`, coordinator token as `seatToken`) only decisions it or its seats
 raised that went stale — never a server-raised `attempt-cap` decision. A stall is
 never a reason to raise: see Stalled seats below. Answered decisions are resumed here, at Step 2 (before the snapshot) and at post-run Step 6, by the rule in [status-progression/references/decisions.md](../status-progression/references/decisions.md): never while the decision is open.
 
