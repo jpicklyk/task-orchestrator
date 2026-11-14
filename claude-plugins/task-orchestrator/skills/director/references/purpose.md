@@ -31,5 +31,7 @@ cost. A run of one or two items skips the coordinator layer even under a directo
 ## Limits
 
 The director cannot plan or read files, one wave runs per project root at a time, and its
-coordinators live inside the director session (except a tier-1 session). The full list is in
+coordinators run as a background agent in the director session (tier 2), as a separate desktop session
+(tier 1) or as a separate headless `claude -p` process that a background agent starts (tier 3); tier 4
+has none. The full list is in
 [coordinator-tiers.md](coordinator-tiers.md), section "Limits".

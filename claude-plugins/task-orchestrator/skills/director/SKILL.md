@@ -70,8 +70,11 @@ The five MCP tools come from the director connection. Anything else (notes, item
 `advance`, config) is a coordinator's job. `runs_write` `open` is in the director profile on purpose:
 a session that opens a run holds that run's coordinator token.
 
-The guard enforces the reads (the altitude rule). Only the hardened entry enforces this whole budget,
-through its tool list; in a skill-entered session, writes on the orchestration connection are not guarded.
+The guard enforces the altitude rule, not this whole budget: in a skill-entered session it denies the
+file and shell tools, foreground `Agent`, `Bash` outside its read-only allow-list, the `config` tool
+(every op, `push`, `rollback` and `reset` included) and the reads that return note or document bodies.
+It does not deny the orchestration connection's other writes (`notes_write`, `items_write`, `advance`).
+Only the hardened entry enforces the whole budget, through its tool list.
 
 Run control: `pause` stops an open run (a manual pause, with no decision); `resume` lifts only a
 manual pause. A run paused on an `attempt-cap` decision is lifted only by answering

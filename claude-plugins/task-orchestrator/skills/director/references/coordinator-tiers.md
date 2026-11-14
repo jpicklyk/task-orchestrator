@@ -142,7 +142,9 @@ re-plan.
 - The tier-2 coordinator, the agent that starts a tier-3 process, and tier 4 live inside the director
   session and end with it. A tier-1 session does not.
 - Nothing wakes the director but a coordinator report, a task notification or the user.
-- A tier-2 Workflow resume has no settled owner: the director cannot make one, so it goes to the coordinator.
+- A tier-2 Workflow resume is not the director's call: the guard denies `Workflow` with a `scriptPath` or
+  `resumeFromRunId`, so it falls to the coordinator, a background agent that may lack `Workflow`
+  (run-wave post-run re-probes it for that reason). A resume may then have no one able to make it.
 - The director cannot plan: it reads no files or notes. New work is planned in orchestrator mode before
   entering director mode.
 
