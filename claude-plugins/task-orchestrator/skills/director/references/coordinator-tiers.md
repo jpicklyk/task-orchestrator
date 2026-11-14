@@ -46,7 +46,7 @@ A director session cannot run run-wave itself: the guard denies the `node` helpe
 snapshot reads note bodies. So the work splits into five steps:
 
 1. The director dispatches one named background coordinator agent (`run_in_background: true`,
-   `model` set) for run-wave Steps 0-5a with `--altitude-safe --method A`. The coordinator records
+   `model` set, Agent `description` `coordinator:<target-short>`, see the post-run.md Label rule) for run-wave Steps 0-5a with `--altitude-safe --method A`. The coordinator records
    run phase `planned`, writes its coordinator token to `tokens/coordinator.token` (the `tokenFile`
    `run-ops --phase open` names), and returns the `planned` report plus `{runId, serverRunId, args}`.
 2. When that report says `needs: approve launch` (excluded items or degradations), the director gets
@@ -116,6 +116,7 @@ Run /task-orchestrator:run-wave <scope> --altitude-safe   (tier 2 also: --method
 Report to <director address> with SendMessage, only the output of the report helper
 (events planned, decision, paused, closed). Never send note bodies, diffs or tokens.
 Budget: <X>. Stop on a director close and report closed.
+At post-run Step 3 pass --coordinator coordinator:<target-short> to provenance (tier 2; exact label only).
 ```
 
 ### Ralph as a tier-3 coordinator

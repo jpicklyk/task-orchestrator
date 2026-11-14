@@ -55,7 +55,6 @@ export type BoardRun = {
   rootId?: string
   /** The scope item (else the root) as read, so line 1 names the run's container when the session has no focus. */
   container?: ItemFacts | null
-  tokens: number
 }
 
 /**

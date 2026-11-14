@@ -2424,19 +2424,69 @@ function modelAliasOf(meta, modelId) {
 export { sumUsage }
 
 /**
- * collectDispatchMeta({io, roots, labels, since?}) -> {[label]: {label, model, modelId, effort?,
- * effortSource?, transcript, mtimeMs}}. Claude Code writes an 'agent-<id>.meta.json' beside every
- * subagent transcript ('agent-<id>.jsonl') with the dispatch description (= the run-wave label,
- * display tag included) and the model alias. For each root, io.walkMeta(root) lists those meta
- * files with their mtime; a file whose stripped description is one of `labels` is read, the newest
- * per label wins (re-dispatches of the same seat), and `since` (epoch ms) drops older files. The
- * transcript's assistant lines carry the model id and the effort the turn ran at: effort is the
- * most frequent value over those lines (ties -> the later value), modelId the last one seen; a
- * missing or empty transcript leaves effort absent. A fix-cycle label '<seat>-a<n>:<short>' is
- * matched too when '<seat>:<short>' is wanted. usage = transcriptMeters(text) (lib/meters.mjs): the
- * four meters of message.usage summed over the assistant lines, one count per message.id:
- * {input, cacheWrite, cacheRead, output, tokens} with tokens = input + cacheWrite + output; absent
- * when no line carries usage. Pure: io supplies walkMeta/readInput/readText.
+ * transcriptFacts(text) -> {modelId, effort} of one subagent transcript, the one reader both
+ * collectDispatchMeta and sessionMeters use. The assistant lines carry the model id and the effort
+ * the turn ran at: effort is the most frequent value over those lines (ties -> the later value),
+ * '' when none carries one; modelId is the last one seen, '' when none.
+ */
+function transcriptFacts(text) {
+  const counts = {}
+  let modelId = ''
+  for (const line of String(text || '').split('\n')) {
+    if (!line.includes('"assistant"')) continue
+    let rec
+    try { rec = JSON.parse(line) } catch (e) { continue }
+    if (!rec || rec.type !== 'assistant') continue
+    if (typeof rec.effort === 'string' && rec.effort) counts[rec.effort] = (counts[rec.effort] || 0) + 1
+    if (rec.message && typeof rec.message.model === 'string') modelId = rec.message.model
+  }
+  let effort = ''
+  let best = 0
+  for (const [k, n] of Object.entries(counts)) {
+    if (n >= best) { best = n; effort = k }
+  }
+  return { modelId, effort }
+}
+
+const METER_KEYS = ['input', 'cacheWrite', 'cacheRead', 'output', 'tokens']
+
+/** addMeters(acc, u) -> acc with each of u's five meters added field-wise; an absent u adds 0. */
+function addMeters(acc, u) {
+  if (u) for (const k of METER_KEYS) acc[k] += Number.isFinite(u[k]) ? u[k] : 0
+  return acc
+}
+
+const zeroMeters = () => ({ input: 0, cacheWrite: 0, cacheRead: 0, output: 0, tokens: 0 })
+
+/**
+ * sessionFolderOf(path) -> the Claude Code session folder a subagent file belongs to. Backslashes
+ * are normalised to '/'; when a segment equals 'subagents' the result is the segments before the
+ * LAST such segment, otherwise the file's directory. '<s>/subagents/workflows/wf_1/agent-2.meta.json'
+ * -> '<s>'; '/s/agent-a.meta.json' -> '/s'.
+ */
+export function sessionFolderOf(path) {
+  const segs = String(path).replace(/\\/g, '/').split('/')
+  const at = segs.lastIndexOf('subagents')
+  return (at !== -1 ? segs.slice(0, at) : segs.slice(0, -1)).join('/')
+}
+
+/**
+ * collectDispatchMeta({io, roots, labels, since?}) -> {[label]: {label, model, modelId,
+ * transcript, mtimeMs, effort?, effortSource?, usage?, dispatches}}. Claude Code writes an
+ * 'agent-<id>.meta.json' beside every subagent transcript ('agent-<id>.jsonl') with the dispatch
+ * description (= the run-wave label, display tag included) and the model alias. For each root,
+ * io.walkMeta(root) lists those meta files with their mtime; `since` (epoch ms) drops older files,
+ * and a file whose stripped description is wanted is kept. Per label the newest file (highest
+ * mtime; a tie keeps the first in walk order) supplies label, model, modelId, effort, effortSource,
+ * transcript and mtimeMs, read by transcriptFacts. usage is the field-wise sum of transcriptMeters
+ * (lib/meters.mjs: {input, cacheWrite, cacheRead, output, tokens}, tokens = input + cacheWrite +
+ * output, one count per message.id) over every same-label file in the newest file's session folder
+ * (sessionFolderOf), so a re-dispatch of a seat inside one session adds its spend; a same-label file
+ * of another session adds nothing; usage is absent when none of them carries usage. dispatches
+ * counts those files and is the last key. Wanted: the label itself, its fix-cycle form
+ * '<seat>-a<n>:<short>' when '<seat>:<short>' is wanted, and a review-lane label
+ * '<seat>.<skill>:<short>' (recorded under its own full label) when '<seat>:<short>' or its fix-cycle
+ * base is wanted. Pure: io supplies walkMeta/readInput/readText.
  */
 export function collectDispatchMeta({ io, roots, labels, since }) {
   const wanted = new Set(labels || [])
@@ -2444,10 +2494,14 @@ export function collectDispatchMeta({ io, roots, labels, since }) {
     if (wanted.has(label)) return true
     const colon = label.lastIndexOf(':')
     if (colon === -1) return false
-    const m = FIX_CYCLE_SEAT_RE.exec(label.slice(0, colon))
-    return Boolean(m) && wanted.has(`${m[1]}${label.slice(colon)}`)
+    const prefix = label.slice(0, colon)
+    const suffix = label.slice(colon)
+    const seatPart = prefix.includes('.') ? prefix.slice(0, prefix.indexOf('.')) : prefix
+    if (wanted.has(`${seatPart}${suffix}`)) return true
+    const m = FIX_CYCLE_SEAT_RE.exec(seatPart)
+    return Boolean(m) && wanted.has(`${m[1]}${suffix}`)
   }
-  const out = {}
+  const byLabel = new Map()
   for (const root of roots || []) {
     for (const entry of io.walkMeta(root) || []) {
       if (since !== undefined && entry.mtimeMs < since) continue
@@ -2455,33 +2509,187 @@ export function collectDispatchMeta({ io, roots, labels, since }) {
       if (!meta || typeof meta.description !== 'string') continue
       const label = stripDisplayTag(meta.description)
       if (!isWanted(label)) continue
-      const prev = out[label]
-      if (prev && prev.mtimeMs >= entry.mtimeMs) continue
-      const transcript = entry.path.replace(/\.meta\.json$/, '.jsonl')
-      const text = io.readText(transcript)
-      const counts = {}
-      let modelId = ''
-      for (const line of (text || '').split('\n')) {
-        if (!line.includes('"assistant"')) continue
-        let rec
-        try { rec = JSON.parse(line) } catch (e) { continue }
-        if (!rec || rec.type !== 'assistant') continue
-        if (typeof rec.effort === 'string' && rec.effort) counts[rec.effort] = (counts[rec.effort] || 0) + 1
-        if (rec.message && typeof rec.message.model === 'string') modelId = rec.message.model
-      }
-      let effort = ''
-      let best = 0
-      for (const [k, n] of Object.entries(counts)) {
-        if (n >= best) { best = n; effort = k }
-      }
-      const rec = { label, model: modelAliasOf(meta, modelId), modelId, transcript, mtimeMs: entry.mtimeMs }
-      if (effort) { rec.effort = effort; rec.effortSource = 'transcript' }
-      const usage = transcriptMeters(text)
-      if (usage) rec.usage = usage
-      out[label] = rec
+      if (!byLabel.has(label)) byLabel.set(label, [])
+      byLabel.get(label).push({ entry, meta })
     }
   }
+  const out = {}
+  for (const [label, found] of byLabel) {
+    let newest = found[0]
+    for (const f of found) if (f.entry.mtimeMs > newest.entry.mtimeMs) newest = f
+    const transcriptOf = (f) => f.entry.path.replace(/\.meta\.json$/, '.jsonl')
+    const transcript = transcriptOf(newest)
+    const { modelId, effort } = transcriptFacts(io.readText(transcript))
+    const rec = { label, model: modelAliasOf(newest.meta, modelId), modelId, transcript, mtimeMs: newest.entry.mtimeMs }
+    if (effort) { rec.effort = effort; rec.effortSource = 'transcript' }
+    const folder = sessionFolderOf(newest.entry.path)
+    let usage
+    let dispatches = 0
+    for (const f of found) {
+      if (sessionFolderOf(f.entry.path) !== folder) continue
+      dispatches += 1
+      const u = transcriptMeters(io.readText(transcriptOf(f)))
+      if (u) usage = addMeters(usage || zeroMeters(), u)
+    }
+    if (usage) rec.usage = usage
+    rec.dispatches = dispatches
+    out[label] = rec
+  }
   return out
+}
+
+const SHORT = '[0-9a-f]{8}'
+const NAME = '[a-z][a-z0-9-]*'
+const RESERVED_CLASSES = ['red-proofs', 'retrospective', 'coordinator', 'research']
+
+/**
+ * classifyAgentLabel(label) -> 'seat' | 'lane' | 'red-proofs' | 'retrospective' | 'coordinator' |
+ * 'research' | 'unlabelled', by the Label rule (skills/run-wave/references/post-run.md). Whole-label,
+ * case-sensitive match; <short> is 8 lowercase hex. A '<name>[-a<n>]:<short>' label whose name is a
+ * reserved class prefix is not a seat; anything else, null or '' included, is unlabelled.
+ */
+export function classifyAgentLabel(label) {
+  if (typeof label !== 'string' || label === '') return 'unlabelled'
+  for (const cls of ['red-proofs', 'retrospective', 'coordinator']) {
+    if (new RegExp(`^${cls}:${SHORT}$`).test(label)) return cls
+  }
+  if (/^research:[\s\S]+$/.test(label)) return 'research'
+  if (new RegExp(`^${NAME}\\.${NAME}:${SHORT}$`).test(label)) return 'lane'
+  const m = new RegExp(`^(${NAME}):${SHORT}$`).exec(label)
+  if (m) {
+    const fix = FIX_CYCLE_SEAT_RE.exec(m[1])
+    const name = fix ? fix[1] : m[1]
+    if (!RESERVED_CLASSES.includes(name)) return 'seat'
+  }
+  return 'unlabelled'
+}
+
+/**
+ * sessionMeters({io, sessionDir, labels?, since?, until?, warnings}) -> the
+ * 'run-wave/session-meters-v1' document. Every 'agent-*.jsonl' under sessionDir (io.walkTranscripts)
+ * is one dispatch; its label is the stripped description of the sibling '.meta.json', null when
+ * there is none. Labelled transcripts group by exact label, each null-label transcript is its own
+ * row, and no transcript is dropped. model and effort come from the row's newest transcript
+ * (tie -> the later path); meters are the field-wise sum of transcriptMeters after the
+ * [since, until] window (windowTranscript; a transcript with no timestamped usage line counts
+ * whole). main = the meters of '<sessionDir>.jsonl', null when it cannot be read. byClass sums the
+ * rows of each class; lines holds one 'agent-meters=' line per requested label, '<label>:unknown'
+ * plus a warning when no transcript carries it. Pure: io supplies walkTranscripts/readInput/readText.
+ */
+export function sessionMeters({ io, sessionDir, labels, since, until, warnings }) {
+  const dir = String(sessionDir).replace(/[\\/]+$/, '') || String(sessionDir)
+  const bounded = since !== undefined || until !== undefined
+  let noTimestamps = 0
+  let dropped = 0
+  const meter = (raw) => {
+    let text = String(raw || '')
+    if (bounded) {
+      const w = windowTranscript(text, since, until)
+      if (!w.windowed) noTimestamps += 1
+      dropped += w.dropped
+      text = w.text
+    }
+    return transcriptMeters(text)
+  }
+  const groups = new Map()
+  const nullRows = []
+  for (const entry of io.walkTranscripts(dir) || []) {
+    const meta = io.readInput(entry.path.replace(/\.jsonl$/, '.meta.json'))
+    const stripped = meta && typeof meta.description === 'string' ? stripDisplayTag(meta.description) : ''
+    const label = stripped === '' ? null : stripped
+    const raw = io.readText(entry.path)
+    const t = { path: String(entry.path).replace(/\\/g, '/'), mtimeMs: entry.mtimeMs, meta, facts: transcriptFacts(raw), usage: meter(raw) }
+    if (label === null) nullRows.push({ label, transcripts: [t] })
+    else {
+      if (!groups.has(label)) groups.set(label, { label, transcripts: [] })
+      groups.get(label).transcripts.push(t)
+    }
+  }
+  const labelled = [...groups.values()].sort((a, b) => (a.label < b.label ? -1 : a.label > b.label ? 1 : 0))
+  nullRows.sort((a, b) => (a.transcripts[0].path < b.transcripts[0].path ? -1 : a.transcripts[0].path > b.transcripts[0].path ? 1 : 0))
+  const agents = [...labelled, ...nullRows].map((g) => {
+    let newest = g.transcripts[0]
+    for (const t of g.transcripts) {
+      if (t.mtimeMs > newest.mtimeMs || (t.mtimeMs === newest.mtimeMs && t.path > newest.path)) newest = t
+    }
+    const m = zeroMeters()
+    for (const t of g.transcripts) addMeters(m, t.usage)
+    return {
+      label: g.label,
+      class: classifyAgentLabel(g.label),
+      model: modelAliasOf(newest.meta, newest.facts.modelId),
+      effort: newest.facts.effort || 'unknown',
+      dispatches: g.transcripts.length,
+      ...m,
+    }
+  })
+  const mainRaw = io.readText(`${dir}.jsonl`)
+  const main = mainRaw === null || mainRaw === undefined ? null : meter(mainRaw) || zeroMeters()
+  const byClass = {}
+  for (const row of agents) {
+    if (!byClass[row.class]) byClass[row.class] = { agents: 0, ...zeroMeters() }
+    byClass[row.class].agents += row.dispatches
+    addMeters(byClass[row.class], row)
+  }
+  if (bounded && noTimestamps > 0) warnings.push(`session-meters: ${noTimestamps} transcript(s) carry no timestamps; counted whole`)
+  if (bounded && dropped > 0) warnings.push(`session-meters: ${dropped} usage line(s) carry no timestamp and were not counted`)
+  const lines = []
+  for (const l of labels || []) {
+    const row = agents.find((r) => r.label === l)
+    if (row) lines.push(`agent-meters=${l}:${row.model}:${row.effort}:${row.input}/${row.cacheWrite}/${row.cacheRead}/${row.output} dispatches=${row.dispatches}`)
+    else {
+      lines.push(`agent-meters=${l}:unknown`)
+      warnings.push(`session-meters: no transcript carries label ${l} (a gap, not zero)`)
+    }
+  }
+  return { contract: 'run-wave/session-meters-v1', sessionDir, agents, main, byClass, lines }
+}
+
+/**
+ * session-meters --session-dir <dir> [--label <l>]... [--since <epoch-ms>] [--until <epoch-ms>]
+ * -> sessionMeters()'s document on stdout, its warnings as {warning} lines on stderr, exit 0. A
+ * missing or non-directory --session-dir, a bound that is not an all-digit epoch-ms value, or a
+ * --label without a value exits 2 with the invalid-args envelope naming the flag.
+ */
+function execSessionMeters(argv, io) {
+  const sessionDir = flagValue(argv, '--session-dir')
+  if (sessionDir === undefined) {
+    io.fail(2, 'invalid args', '--session-dir is required')
+    return
+  }
+  if (!io.isDir(sessionDir)) {
+    io.fail(2, 'invalid args', `--session-dir ${sessionDir} is not a directory`)
+    return
+  }
+  const bound = (flag) => {
+    if (!argv.includes(flag)) return { ok: true }
+    const v = flagValue(argv, flag)
+    if (v === undefined || !/^\d+$/.test(v)) {
+      io.fail(2, 'invalid args', `${flag} must be an epoch-milliseconds integer`)
+      return { ok: false }
+    }
+    return { ok: true, value: Number(v) }
+  }
+  const since = bound('--since')
+  if (!since.ok) return
+  const until = bound('--until')
+  if (!until.ok) return
+  const labels = []
+  for (let i = 0; i < argv.length; i += 1) {
+    if (argv[i] !== '--label') continue
+    const v = argv[i + 1]
+    if (v === undefined || v.startsWith('--')) {
+      io.fail(2, 'invalid args', '--label needs a value')
+      return
+    }
+    labels.push(v)
+    i += 1
+  }
+  const warnings = []
+  const doc = sessionMeters({ io, sessionDir, labels, since: since.value, until: until.value, warnings })
+  for (const w of warnings) io.warn(w)
+  io.writeOut(JSON.stringify(doc))
+  io.exit(0)
 }
 
 /**
@@ -2538,28 +2746,31 @@ function parseWindowBound(flag, value) {
 }
 
 /**
- * windowTranscript(text, since, until) -> {text, windowed}. When at least one usage-bearing
- * assistant line has a parseable top-level `timestamp`, only those lines whose timestamp lies in
- * [since, until] (inclusive; an absent bound is open) are kept and windowed is true; otherwise the
- * text is returned whole and windowed is false. Pure.
+ * windowTranscript(text, since, until) -> {text, windowed, dropped}. When at least one
+ * usage-bearing assistant line has a parseable top-level `timestamp`, only those lines whose
+ * timestamp lies in [since, until] (inclusive; an absent bound is open) are kept and windowed is
+ * true; otherwise the text is returned whole and windowed is false. dropped counts the
+ * usage-bearing assistant lines left out for an unparseable timestamp when windowed is true, else 0.
+ * Pure.
  */
 export function windowTranscript(text, since, until) {
   const kept = []
   let anyTimestamp = false
+  let untimed = 0
   for (const line of String(text || '').split('\n')) {
     if (!line.includes('"assistant"')) continue
     let rec
     try { rec = JSON.parse(line) } catch (e) { continue }
     if (!rec || rec.type !== 'assistant' || !rec.message || !rec.message.usage || typeof rec.message.usage !== 'object') continue
     const t = typeof rec.timestamp === 'string' ? Date.parse(rec.timestamp) : NaN
-    if (!Number.isFinite(t)) continue
+    if (!Number.isFinite(t)) { untimed += 1; continue }
     anyTimestamp = true
     if (since !== undefined && t < since) continue
     if (until !== undefined && t > until) continue
     kept.push(line)
   }
-  if (!anyTimestamp) return { text: String(text || ''), windowed: false }
-  return { text: kept.join('\n'), windowed: true }
+  if (!anyTimestamp) return { text: String(text || ''), windowed: false, dropped: 0 }
+  return { text: kept.join('\n'), windowed: true, dropped: untimed }
 }
 
 /**
@@ -2815,6 +3026,7 @@ export const EXEC_COMMANDS = {
   'notes-audit': execNotesAudit,
   'dispatch-meta': execDispatchMeta,
   provenance: execProvenance,
+  'session-meters': execSessionMeters,
   'review-prompt': execReviewPrompt,
   reseat: execReseat,
   'run-ops': execRunOps,

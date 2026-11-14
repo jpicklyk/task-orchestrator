@@ -93,7 +93,7 @@ function runEndedOutput(data, toolInput, state, statePath, opts) {
   if (state.retro.includes(runId)) return {};
   const mode = typeof opts.retroMode === 'string' ? opts.retroMode : parseRetrospectiveConfig(locate().text).mode;
   if (mode !== 'nudge' && mode !== 'dispatch') return {};
-  const text = buildDispatch([runId], dispatchAncestorId(locate()));
+  const text = buildDispatch([runId], dispatchAncestorId(locate()), undefined, { transcriptPath: opts.transcriptPath });
   state.retro.push(runId);
   writeState(statePath, state);
   return contextOutput('PostToolUse', text);
@@ -120,7 +120,7 @@ export function run(input, env = process.env, opts = {}) {
     if (select !== 'decisions' && select !== 'get') return {};
     const statePath = typeof o.statePath === 'string' && o.statePath !== '' ? o.statePath : sessionMarkerPath(input.session_id, WATCH_STATE_NAME);
     const state = readState(statePath);
-    return select === 'decisions' ? decisionsOutput(parsed.data, state, statePath) : runEndedOutput(parsed.data, toolInput, state, statePath, o);
+    return select === 'decisions' ? decisionsOutput(parsed.data, state, statePath) : runEndedOutput(parsed.data, toolInput, state, statePath, { ...o, transcriptPath: input.transcript_path });
   } catch {
     return {};
   }

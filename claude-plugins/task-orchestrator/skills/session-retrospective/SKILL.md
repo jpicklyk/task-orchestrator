@@ -1,7 +1,7 @@
 ---
 name: session-retrospective
 description: "Analyzes the current implementation run - evaluates schema effectiveness, delegation alignment, note quality, and plan-to-execution fit. Captures cross-session trends and proposes improvements when patterns repeat. Use after implementation runs, or when user says 'retrospective', 'session review', 'what did we learn', 'analyze this run', 'how did that go', 'evaluate our process', 'wrap up', 'end of session review'. Also use after a run closes, when the retrospective nudge fires."
-argument-hint: "[optional: root item UUID] [--run <runId>]... (repeatable) [--dry-run to preview without creating items] [--deep: workflow-backed matching, main session only]"
+argument-hint: "[optional: root item UUID] [--run <runId>]... (repeatable) [--session-dir <dir>] [--dry-run to preview without creating items] [--deep: workflow-backed matching, main session only]"
 ---
 
 # Session Retrospective
@@ -25,6 +25,8 @@ Both ask REST `runs_read` `list` with `unmarked: retro` and `endedSince = now - 
 
 **Director sessions.** A director never runs a retrospective in its own context, so for it both hooks always dispatch (mode `dispatch`, threshold 0, whatever the config says; `off` stays off): every closed unmarked run it sees is marked first and then dispatched, so a later session does not dispatch it again. Without REST, `director-watch` dispatches once per run per session and only for a run closed within the last 24 h. The dispatch is ONE background agent that invokes this skill with a repeated `--run`.
 
+**Label and session folder.** The dispatched agent is labelled `retrospective:<run8>` (`<run8>` is the first 8 characters of the first run id; `retrospective:unknown` with no run id) and its invocation gains `--session-dir "<dir>"` when the hook saw a transcript path ending in `.jsonl` (the folder is that path without the extension, backslashes turned into `/`). The label rule is in the run-wave `references/post-run.md`.
+
 The settings (`mode`: `nudge` | `dispatch` | `off`, and `dispatchThreshold`) are read ONLY from `extensions.claude-code.retrospective`; a top-level `retrospective:` block is ignored and `cooldownMinutes` is gone. Headless iterations, `to_mod_retro` and `mode: off` make both hooks inert.
 
 **Honest limit.** The mark is REST-only. Without a resolvable REST API URL (Step 8b prints `not marked ...: no REST API configured`), a manually run retrospective leaves its run unmarked, so it can nudge or dispatch again in a later session inside the 24 h window; Step 5b's `run:<runId>` search keeps that repeat from creating a second retrospective item.
@@ -35,6 +37,7 @@ The settings (`mode`: `nudge` | `dispatch` | `off`, and `dispatchThreshold`) are
 
 - `--dry-run` sets **DRY_RUN = true**: perform steps 1-4 and render the report (step 9); skip steps 5-8 (no item creation, no memory updates). Announce: `**Dry run** - no items created, no memory updated.`
 - `--run <runId>` scopes the analysis to a run (step 1a). It repeats (`--run A --run B`): the scope is the union of the runs' members, and one retrospective covers them all. It wins over a root UUID.
+- `--session-dir <dir>` is a Claude Code session folder (the main transcript is `<dir>.jsonl` beside it). Step 1b's session sweep reads it; the dispatch directive passes it when the hook saw a transcript path ending in `.jsonl`. Without it the sweep is skipped.
 - `--deep` is handled in 4.3.
 
 ---
@@ -97,6 +100,8 @@ For each item in scope (up to 20), list its notes by key. A list carries no bodi
 
 `session-tracking` holds per-item outcome, commits, verified line, deviations, friction and observations; `delegation-metadata` (optional) holds the orchestrator-recorded model and isolation (structured provenance line or legacy prose).
 
+**Session sweep.** With `--session-dir <dir>`, run `node "<helper>" session-meters --session-dir "<dir>"` (the helper resolved as in the run-wave SKILL.md, Step 0) and keep its JSON (`agents`, `main`, `byClass`, `lines`). It reports token volume by meter and model for every agent transcript of the session, not only the run's seats. Also read the run target parent's `red-proof-results` note for its `agent-meters=` lines. A missing folder or a failed sweep leaves the sweep unmeasured; say so in 5c and carry on.
+
 ### 1c. Early exit
 If no items are in scope, or no item has a `session-tracking` note, exit with: `No implementation run data found. Nothing to retrospect - run /implement first, then try again.`
 
@@ -133,6 +138,8 @@ Optional effort tails: `efforts=<seat>:<effort>,...` (`low`/`medium`/`high`/`xhi
 
 **Layer meters.** A line `layer-meters=<layer>:<i>/<cw>/<cr>/<o>,... run=<runId>[ session-window=run|whole-session]` (on the run's target parent's `delegation-metadata`, one per run id, or in the run report) is the cost of the two layers above the seats: `coordinator` (the tier-2 coordinator's own transcript) and `session` (the launching session's transcript; `session-window=run` when limited to the run window, `whole-session` when no window flag was given, or when one was given but no usage line carried a timestamp, which also printed a no-timestamps warning). It is layer cost, not a delegation and not legacy prose: it is not scored in 3b and not counted in the Step 9 delegations count. `<layer>:unknown` is a gap, never zero. A retrospective with no such line skips the per-layer table.
 
+An `extra-seats` row's six-field form carries meters that belong to the item's seats layer (3b). A row with five or three fields has none: flag it `legacy basis` and keep it out of the sums.
+
 **Fix-cycle cost.** A failed review or test sends the fix to a fresh seat one effort level higher per cycle (post-run, Fix cycle), so the failure loop's cost is measured here. The loop is every seat of a cycle `A<n>`: the amending planner, the implementer, the test author and the re-review (the `-a<n>` rows with cause `review` or `test`, plus the re-review and amendment-planner rows of the same cycle). Carry-in and breach rows are reported separately and are not part of the loop. For a fix-cycle run (`<runId>-a<n>`), report the base run's whole loop: every cycle so far, read from the item's `delegation-metadata`. Write these figures into `session-metrics` (5c):
 
 | Figure | Source |
@@ -166,9 +173,9 @@ If `delegation-metadata` notes exist, cross-reference the expected model: the mo
 - Report effort beside model: list each `seat:model/effort` (from `efforts=`; `-` when unset) in the per-run table with its `effort-source`, and the distribution of efforts per seat type across runs. Effort is not scored against an expected value; flag it as a finding for 5b when a pattern stands out (a seat type always at `max`, a review seat below `medium`, an effort set on a seat whose model was substituted) so a trend can form over sessions. Every `effort-substituted=` entry is a dispatch-versus-runtime mismatch and is always a finding; a run whose lines all read `effort-source=assigned` is noted as "effort not observed" (the post-run `dispatch-meta` step was skipped).
 - **Score:** fraction of delegations matching the expected model. With no `delegation-metadata`, note "delegation metadata not recorded" and skip scoring.
 
-With at least one structured line, show a per-run table before 3c: `| adapter | run | agents | tokens | duration | orchestrator-turns |`.
+With at least one structured line, show a per-run table before 3c: `| adapter | run | agents | tokens | cacheRead | duration | orchestrator-turns |` (`cacheRead` is the sum of the item `meters=` cacheRead values; an item reading `unknown` is shown as `+<n> unknown` beside the known sum, `n` counting the items that read `unknown`).
 
-With at least one `layer-meters=` line, show a separate per-layer table after it: `| run | layer | input | cacheWrite | cacheRead | output | tokens |`, three rows per run: `seats` (the sum of that run's item `meters=` tails; `unknown` when any item reads `unknown`), `coordinator` and `session` (from the line; a layer the line omits is left out, `unknown` stays `unknown`). `tokens` = input + cacheWrite + output; cacheRead stays its own column.
+With at least one `layer-meters=` line, show a separate per-layer table after it: `| run | layer | input | cacheWrite | cacheRead | output | tokens |`, three rows per run: `seats` (the sum of that run's item `meters=` tails plus the meters of the six-field `extra-seats` rows of those items; an item or row reading `unknown` is shown as `+<n> unknown` beside the known sum and never blanks the row; five- and three-field rows are flagged `legacy basis` and kept out of the sums), `coordinator` and `session` (from the line; a layer the line omits is left out, `unknown` stays `unknown`). `tokens` = input + cacheWrite + output; cacheRead stays its own column.
 
 ### 3c. Note Effectiveness
 For items with both queue-phase notes (specs) and work-phase notes: compare themes; "deviated from spec", "unexpected" or "assumption was wrong" flags a spec gap, and so does a fix-cycle amendment (an `Amendment A<n>` section or amendments note raised after a failed first review); then take the derivability sample: the longest `implementation-notes` of the run, each sentence marked derivable (it states what the diff, git log or CI show) or not, and report the non-derivable share (a sanctioned empty-form body scores fully non-derivable). **Score:** effective at >= 70% non-derivable / mixed / ineffective.
@@ -283,8 +290,10 @@ Check `ok` and `data.results[0].ok`; on a failure read `data.results[0].error.co
 The `session-retrospective` schema has four required notes: queue-phase `session-metrics`, `workflow-evaluation`, `improvement-signals`, and work-phase `actions-taken` (filled at 8b). Fill the three queue notes now as one `notes_write` call with three `upsert` elements (one shown):
 
 ```to-call
-{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<retro-uuid>", "key": "session-metrics", "role": "queue", "body": "<Step 3 quantitative data: item counts, outcomes, schema usage, token estimates, note-volume figures (work-role avgBytes, maxLength overruns), fix-cycle cost figures (Step 2)>"}}
+{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<retro-uuid>", "key": "session-metrics", "role": "queue", "body": "<Step 3 quantitative data: item counts, outcomes, schema usage, token estimates, note-volume figures (work-role avgBytes, maxLength overruns), fix-cycle cost figures (Step 2), session coverage (below)>"}}
 ```
+
+`session-metrics` also carries **Session coverage** from the 1b sweep: `| class | agents | input | cacheWrite | cacheRead | output | tokens |`, one row each for `seat`, `lane`, `red-proofs`, `retrospective`, `coordinator`, `research` and `unlabelled` from `byClass` (a class absent from it reads 0), then a `main` row from `main` (`null` reads unknown). Then one line `Recorded share: <r> of <t> tokens (<p>%)`: `r` is the summed `tokens` of the `agents` rows whose label appears in a `delegation-metadata` note of a run item, `t` the summed `tokens` of all `agents` rows (the `main` row is in neither), and `n/a` when `t` is 0. A label `<name>:<short>` is recorded when `<short>` is a run member (the target parent for `reviewer:`) whose `delegation-metadata` names `<name>` in `seats=` or as an `extra-seats` row seat. List the unlabelled agents by label (`(no description)` for a null label) with their tokens. List the red-proof `agent-meters=` lines beside the table; they are not in the recorded set. Figures are token volume by meter and model. With no session folder or a failed sweep write `Session coverage: not measured (<reason>)`.
 
 `workflow-evaluation` holds the Step 3 per-dimension scores and findings; `improvement-signals` the Step 4 trend analysis (new, reinforced, proposals, and the scope classification of Step 7b). Check `data.results[i].ok` for all three.
 

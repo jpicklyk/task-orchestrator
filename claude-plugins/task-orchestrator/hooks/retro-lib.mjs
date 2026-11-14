@@ -226,12 +226,12 @@ export function directorConfig(config) {
  * Directive text for an evaluateRuns result, or null when nothing is eligible. With `director`, every
  * eligible run (won or nudged) is named in one dispatch directive and nothing is nudged.
  */
-export function directiveFor(result, located, { director = false } = {}) {
+export function directiveFor(result, located, { director = false, transcriptPath } = {}) {
   if (director) {
     const runs = [...result.won, ...result.nudge];
-    return runs.length > 0 ? buildDispatch(runs, dispatchAncestorId(located), result.fixCycle) : null;
+    return runs.length > 0 ? buildDispatch(runs, dispatchAncestorId(located), result.fixCycle, { transcriptPath }) : null;
   }
-  if (result.won.length > 0) return buildDispatch(result.won, dispatchAncestorId(located), result.fixCycle);
+  if (result.won.length > 0) return buildDispatch(result.won, dispatchAncestorId(located), result.fixCycle, { transcriptPath });
   if (result.nudge.length > 0) return buildNudge(result.nudge);
   return null;
 }
@@ -284,8 +284,16 @@ function runCommands(runIds) {
 }
 
 // ONE invocation covering every run: `--run` repeats and the skill analyzes the union of the runs.
-function runCommand(runIds) {
-  return `\`/session-retrospective ${runIds.map((id) => `--run ${id}`).join(' ')}\``;
+function runCommand(runIds, sessionDir) {
+  const dir = sessionDir ? ` --session-dir "${sessionDir}"` : '';
+  return `\`/session-retrospective ${runIds.map((id) => `--run ${id}`).join(' ')}${dir}\``;
+}
+
+// The session folder of a main transcript path: `<dir>.jsonl` sits beside `<dir>`. A path that does not end
+// in `.jsonl` (case-sensitive) names no folder.
+function sessionDirOf(transcriptPath) {
+  if (typeof transcriptPath !== 'string' || !transcriptPath.endsWith('.jsonl')) return '';
+  return transcriptPath.replaceAll('\\', '/').slice(0, -'.jsonl'.length);
 }
 
 export function buildNudge(runIds) {
@@ -305,10 +313,12 @@ export function buildNudge(runIds) {
  * fixCycle ({[runId]: baseRunLabel}, optional): runs in `runIds` that are fix-cycle runs. Their
  * retrospective reports the base run's whole failure loop, so the directive names each base run.
  */
-export function buildDispatch(runIds, ancestorId, fixCycle) {
+export function buildDispatch(runIds, ancestorId, fixCycle, opts = {}) {
   const list = (runIds || []).filter(Boolean);
   const ancestor = ancestorId || 'none configured';
-  const invoke = list.length === 0 ? '`/session-retrospective`' : runCommand(list);
+  const sessionDir = sessionDirOf(isPlain(opts) ? opts.transcriptPath : undefined);
+  const invoke = list.length === 0 ? (sessionDir ? `\`/session-retrospective --session-dir "${sessionDir}"\`` : '`/session-retrospective`') : runCommand(list, sessionDir);
+  const run8 = list.length === 0 ? 'unknown' : String(list[0]).slice(0, 8).toLowerCase();
   // The retrospective agent runs at the dispatch policy's `research` class.
   const { model, effort } = forClass('research');
   const loops = list.filter((id) => isPlain(fixCycle) && typeof fixCycle[id] === 'string').map((id) => `${id} (base run ${fixCycle[id]})`);
@@ -318,8 +328,8 @@ export function buildDispatch(runIds, ancestorId, fixCycle) {
     `This directive is durable — act on it at the next run boundary: if background tasks or subagents ` +
     `are still running, hold it and dispatch only after the last of them completes and its results are ` +
     `processed. If further dispatch directives arrive while holding, merge them: dispatch ONE retrospective ` +
-    `covering the union of their runs. Dispatch exactly ONE background retrospective via the Agent tool: ` +
-    `subagent_type "general-purpose", model "${model}", effort "${effort}", run_in_background true, prompt: invoke ` +
+    `covering the union of their runs, with the description of the first run of the union and the session folder. Dispatch exactly ONE background retrospective via the Agent tool: ` +
+    `subagent_type "general-purpose", description "retrospective:${run8}", model "${model}", effort "${effort}", run_in_background true, prompt: invoke ` +
     `${invoke}, project ancestorId ${ancestor}, work ONLY from durable MCP ` +
     `state (session-tracking + delegation-metadata notes, schema config, agent-observation items — no ` +
     `conversation context), write the retrospective into the process-global 'Session Retrospectives' ` +

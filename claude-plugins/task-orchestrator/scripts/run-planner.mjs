@@ -230,6 +230,34 @@ function runValidate(args) {
   process.exit(result.ok ? 0 : 3);
 }
 
+// walkFiles(dir, nameTest) -> [{path, mtimeMs}] for every file under dir (depth bound 8) whose name
+// passes nameTest; an unreadable dir or a file that vanishes before its stat contributes nothing.
+function walkFiles(dir, nameTest) {
+  const out = [];
+  const walk = (d, depth) => {
+    if (depth > 8) return;
+    let entries;
+    try {
+      entries = readdirSync(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const p = join(d, e.name);
+      if (e.isDirectory()) walk(p, depth + 1);
+      else if (e.isFile() && nameTest(e.name)) {
+        try {
+          out.push({ path: p, mtimeMs: statSync(p).mtimeMs });
+        } catch {
+          // skipped: vanished between listing and stat
+        }
+      }
+    }
+  };
+  walk(dir, 0);
+  return out;
+}
+
 // ---------------------------------------------------------------------------------------
 // EXEC_IO — the injected io object run-exec-lib.mjs's EXEC_COMMANDS handlers call instead of
 // referencing fs/process/git directly. Built from this file's own existing helpers
@@ -279,29 +307,19 @@ const EXEC_IO = {
   // walkMeta(dir) -> [{path, mtimeMs}] for every '*.meta.json' under dir (bounded depth), the
   // files Claude Code writes beside subagent transcripts; an unreadable dir contributes nothing.
   walkMeta(dir) {
-    const out = [];
-    const walk = (d, depth) => {
-      if (depth > 8) return;
-      let entries;
-      try {
-        entries = readdirSync(d, { withFileTypes: true });
-      } catch {
-        return;
-      }
-      for (const e of entries) {
-        const p = join(d, e.name);
-        if (e.isDirectory()) walk(p, depth + 1);
-        else if (e.isFile() && e.name.endsWith('.meta.json')) {
-          try {
-            out.push({ path: p, mtimeMs: statSync(p).mtimeMs });
-          } catch {
-            // skipped: vanished between listing and stat
-          }
-        }
-      }
-    };
-    walk(dir, 0);
-    return out;
+    return walkFiles(dir, (name) => name.endsWith('.meta.json'));
+  },
+  // walkTranscripts(dir) -> [{path, mtimeMs}] for every 'agent-*.jsonl' subagent transcript under
+  // dir, by the same walker; a transcript with no meta file beside it is listed too.
+  walkTranscripts(dir) {
+    return walkFiles(dir, (name) => /^agent-.*\.jsonl$/.test(name));
+  },
+  isDir(path) {
+    try {
+      return statSync(path).isDirectory();
+    } catch {
+      return false;
+    }
   },
   homeDir() {
     return homedir();
@@ -313,7 +331,8 @@ const EXEC_IO = {
 
 // ---------------------------------------------------------------------------------------
 // Subcommand table. run-exec-lib.mjs supplies: next, prompt, stage-result, scan-declarations,
-// verify, notes-audit, dispatch-meta, provenance, review-prompt, reseat, run-ops, follow-ups, report, review-args.
+// verify, notes-audit, dispatch-meta, provenance, session-meters, review-prompt, reseat, run-ops,
+// follow-ups, report, review-args.
 // ---------------------------------------------------------------------------------------
 const SUBCOMMANDS = {
   probe: runProbe,
@@ -329,6 +348,7 @@ const SUBCOMMANDS = {
   'notes-audit': (args) => exec.EXEC_COMMANDS['notes-audit'](args, EXEC_IO),
   'dispatch-meta': (args) => exec.EXEC_COMMANDS['dispatch-meta'](args, EXEC_IO),
   provenance: (args) => exec.EXEC_COMMANDS.provenance(args, EXEC_IO),
+  'session-meters': (args) => exec.EXEC_COMMANDS['session-meters'](args, EXEC_IO),
   'review-prompt': (args) => exec.EXEC_COMMANDS['review-prompt'](args, EXEC_IO),
   reseat: (args) => exec.EXEC_COMMANDS.reseat(args, EXEC_IO),
   'run-ops': (args) => exec.EXEC_COMMANDS['run-ops'](args, EXEC_IO),

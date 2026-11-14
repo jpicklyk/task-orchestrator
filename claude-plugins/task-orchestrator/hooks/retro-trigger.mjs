@@ -96,7 +96,7 @@ try {
   }
 
   const result = await evaluateRuns({ rootId, config, state });
-  const text = directiveFor(result, located, { director });
+  const text = directiveFor(result, located, { director, transcriptPath: hookInput.transcript_path });
   if (result.nudge.length > 0) writeSessionState(sessionId, state);
   if (text) emitContext(text);
   emitEmpty();
