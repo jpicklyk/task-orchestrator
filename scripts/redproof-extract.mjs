@@ -12,10 +12,15 @@
 //
 // Exit codes
 //   0  extracted and the control is green; stdout is the single line `control N/N`
-//   1  extracted, the control ran and is not green; stdout `control P/N` (P of N tests passing).
-//      A control that runs 0 tests is not green (`control 0/0`).
+//   1  extracted, the control ran and is not green; stdout `control P/N` (P of N run tests passing).
+//      A skipped or todo test is run by nobody: it is in neither P nor N and is reported as a
+//      trailing ` skipped S` (S = skipped + todo), printed only when S > 0, on any exit code.
+//      Green needs N >= 1 and P = N, so a control that runs 0 tests is not green (`control 0/0`,
+//      or `control 0/0 skipped S` when every test was skipped).
 //   2  input refused (arguments, SHA, a listed path or test file absent at the SHA, a non-empty
 //      outDir, a test file outside the extraction); stderr says why, no `control` line, nothing run.
+//      A test file refused as absolute, holding a `..` segment, or not under a listed path says
+//      `outside the extraction` in that message; a file merely absent at the SHA does not.
 //
 // Known control trap: a test that reads git history (bundled-rules-parity runs `git log`) cannot be
 // green in an extraction, which has no .git; it is not a valid control file.
@@ -62,22 +67,23 @@ const normalizeTestFile = (raw) => {
   // A backslash separates path segments only on Windows; elsewhere it is a name character.
   const value = process.platform === 'win32' ? raw.replace(/\\/g, '/') : raw;
   if (path.posix.isAbsolute(value) || path.win32.isAbsolute(value)) {
-    refuse(`test file must be repo-relative, got an absolute path: ${raw}`);
+    refuse(`test file is outside the extraction (must be repo-relative, got an absolute path): ${raw}`);
   }
   if (value.split('/').includes('..')) {
-    refuse(`test file must stay inside the extraction, got: ${raw}`);
+    refuse(`test file is outside the extraction (a `..` segment): ${raw}`);
   }
   const normalized = path.posix.normalize(value);
   const underListedPath = EXTRACT_PATHS.some((entry) =>
     entry.endsWith('/') ? normalized.startsWith(entry) : normalized === entry,
   );
   if (!underListedPath) {
-    refuse(`test file is not under an extracted path (${EXTRACT_PATHS.join(', ')}): ${raw}`);
+    refuse(`test file is outside the extraction (not under an extracted path: ${EXTRACT_PATHS.join(', ')}): ${raw}`);
   }
   return normalized;
 };
 
-// Counts leaf tests from the TAP summary. A file that defines no test is reported by node as one
+// Counts run tests from the TAP summary: tests minus skipped and todo (a skipped or todo test, failing
+// or not, is in neither pass nor the total). A file that defines no test is reported by node as one
 // passing pseudo-test named after the file; that is not a test, so it is subtracted (a file that
 // fails to load stays counted as a failure).
 const parseControl = (output, testFiles) => {
@@ -85,7 +91,8 @@ const parseControl = (output, testFiles) => {
     const match = output.match(new RegExp('^# ' + name + ' (\\d+)\\s*$', 'm'));
     return match ? Number(match[1]) : 0;
   };
-  let tests = read('tests');
+  const skipped = read('skipped') + read('todo');
+  let tests = read('tests') - skipped;
   let pass = read('pass');
   const baseNames = new Set(testFiles.map((file) => path.posix.basename(file)));
   for (const line of output.split(/\r?\n/)) {
@@ -95,7 +102,7 @@ const parseControl = (output, testFiles) => {
       pass -= 1;
     }
   }
-  return { tests, pass };
+  return { tests, pass, skipped };
 };
 
 export function run(argv) {
@@ -150,8 +157,8 @@ export function run(argv) {
     encoding: 'utf8',
     maxBuffer: 256 * 1024 * 1024,
   });
-  const { tests, pass } = parseControl(control.stdout || '', testFiles);
-  process.stdout.write(`control ${pass}/${tests}\n`);
+  const { tests, pass, skipped } = parseControl(control.stdout || '', testFiles);
+  process.stdout.write(`control ${pass}/${tests}${skipped > 0 ? ` skipped ${skipped}` : ''}\n`);
   return tests > 0 && pass === tests ? 0 : 1;
 }
 
