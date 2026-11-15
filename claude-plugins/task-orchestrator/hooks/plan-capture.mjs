@@ -5,7 +5,7 @@
 // the plan body into note text.
 //
 // Fail-open by design: ANY error, missing env, non-2xx response, or unreachable API results in exit 0
-// — it must never block ExitPlanMode or the plan-approval flow. A session with no project config stays
+// - it must never block ExitPlanMode or the plan-approval flow. A session with no project config stays
 // silent; in a project session a no-op emits one 'plan not stashed' context line saying why.
 //
 // Requires (all optional — absent = no-op):

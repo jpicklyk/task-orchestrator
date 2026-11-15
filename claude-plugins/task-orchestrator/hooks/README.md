@@ -55,7 +55,7 @@ the hook has no check for that column; "non-injecting" means it adds no context.
 | `plan-capture.mjs` | Not gated; non-injecting | Not gated; non-injecting | Not read | Not gated; non-injecting |
 | `skill-enforcement.mjs` | Not gated | Not gated | Not read | Not gated |
 | `dispatch-model-guard.mjs` | `{}` | Not gated (guards the dispatch) | `off` gives `{}`; `schema` changes the deny reason | Not gated (still guarded) |
-| `decision-guard.mjs` | Not gated | Not gated | Not read | Not gated |
+| `decision-guard.mjs` | Not gated | Acts only inside a subagent (`agent_id` set): denies a `runs_write` call when any `ops[]` element has `op` exactly `answer`, `ack`, `pause` or `resume`; `{}` otherwise and outside a subagent | Not read | Not gated |
 | `dispatch-hint.mjs` | `{}` | `{}` | `off` gives `{}`; `schema` changes the model token | Not gated |
 | `retro-trigger.mjs` | `{}` | Records the close for the main session; no nudge | Not read (`extensions.claude-code.retrospective.mode` `off` gives `{}`) | Always dispatch mode: `nudge` acts as `dispatch` and a would-be nudge is dispatched |
 | `phase-guard-record.mjs` | `{}` | Acts only inside a subagent (`agent_id` set); run seats are not recorded; a context read is recorded only for an `implementer` or `reviewer` agent | Not read | Not gated |
