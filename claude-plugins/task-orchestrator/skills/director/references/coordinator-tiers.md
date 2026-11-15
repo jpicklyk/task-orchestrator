@@ -50,15 +50,19 @@ snapshot reads note bodies. So the work splits into five steps:
    run phase `planned`, writes its coordinator token to `tokens/coordinator.token` (the `tokenFile`
    `run-ops --phase open` names), and returns the `planned` report plus `{runId, serverRunId, args}`.
 2. When that report says `needs: approve launch` (excluded items or degradations), the director gets
-   the user's approval first.
+   the user's approval first. When the line also reads `allow rules missing: <n> (<names>)`, the
+   director shows the user those names with three answers: the user adds the rules (nobody edits
+   settings for them), launch anyway and accept the permission prompts, or stop.
 3. The director calls `Workflow` with the `args`, then sends the coordinator a `SendMessage`
    `launched` carrying the Workflow call's taskId, run id and script path. Only then does the
    coordinator record phase `launched` (and those keys) in `state.json`. `args.altitudeSafe: true`
    makes implement-wave return the altitude-safe result: `rollup` counts, item and stage statuses,
    commit SHAs, file lists, note keys and seat-raised `decisionId`s, with every reason cut to 120
    characters and `redProofShape` cut to 200, and no other seat prose.
-4. On the task notification, the director sends the coordinator the result JSON verbatim. The
-   coordinator writes `result.json` and runs post-run (Step 0 saves and verifies the safe result the same way as a full
+4. On the task notification, the director sends the coordinator the result JSON verbatim. When the
+   notification is cut short, the director sends the output file path the notification names
+   instead; it never reads that file. The coordinator writes `result.json` (recovering `result` from
+   that file per post-run Step 0) and runs post-run (Step 0 saves and verifies the safe result the same way as a full
    one; the prose is in the seats' notes).
 5. The coordinator reports per "Coordinator reports" below.
 
@@ -116,6 +120,7 @@ Run /task-orchestrator:run-wave <scope> --altitude-safe   (tier 2 also: --method
 Report to <director address> with SendMessage, only the output of the report helper
 (events planned, decision, paused, closed). Never send note bodies, diffs or tokens.
 Budget: <X>. Stop on a director close and report closed.
+Never ask the user anything: put what you need (a decision, a permission) on the report's `needs:` line.
 At post-run Step 3 pass --coordinator coordinator:<target-short> to provenance (tier 2; exact label only).
 ```
 

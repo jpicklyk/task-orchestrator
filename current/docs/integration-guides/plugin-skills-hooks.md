@@ -41,7 +41,9 @@ See [Quick Start](../quick-start.md) Step 4 for the full installation walkthroug
 | the orchestration entry (for example `mcp-task-orchestrator`) | `orchestration` | `advance`, `config`, `deps_*`, `docs_*`, `items_*`, `notes_*`, `runs_*` |
 | `mcp-task-orchestrator-director` | `director` | `deps_read`, `items_read`, `report`, `runs_read`, `runs_write`, and no read that returns a note, document or transition-summary body |
 
-An HTTP director entry is the orchestration URL with `/mcp/director` in place of `/mcp`; a stdio director entry is the orchestration command with `-e MCP_TOOL_PROFILE=director`. Pass `--no-director` to skip it. In credential mode both entries carry the `${TASK_ORCHESTRATOR_API_TOKEN}` header placeholder, never a token. Details: `skills/init/SKILL.md` Step 2 and [fleet-deployment.md](../fleet-deployment.md).
+The orchestration entry carries all item, note and run work. The director entry is where decisions are answered and acknowledged and runs are paused or resumed, and what director mode uses; a subagent or coordinator raises a decision and never answers one.
+
+An HTTP director entry is the orchestration URL with `/mcp/director` in place of `/mcp`; a stdio director entry is the orchestration command with `-e MCP_TOOL_PROFILE=director`. Pass `--no-director` to skip it. In credential mode the orchestration entry carries the `${TASK_ORCHESTRATOR_API_TOKEN}` header placeholder and the director entry carries `${TASK_ORCHESTRATOR_DIRECTOR_TOKEN}`, never a token. Details: `skills/init/SKILL.md` Step 2 and [fleet-deployment.md](../fleet-deployment.md).
 
 ### Plugin settings
 

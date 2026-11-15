@@ -1325,7 +1325,7 @@ One session used to be both the user's point of contact and the coordinator of e
 - **Seat**: one agent on one phase of one item (planner, implementer, test author, reviewer), with one dispatch and a fresh context.
 - **Orchestrator** (the default): the user's own session. It plans, sizes, dispatches seats and makes every later transition. When it opens a run it is also that run's coordinator.
 - **Coordinator**: whoever presents a run's coordinator token. It owns one run (one wave) and is disposable.
-- **Director**: an optional session mode that runs the board instead of the code.
+- **Director**: an opt-in session mode that runs the board instead of the code. `/task-orchestrator:init` registers the director MCP entry by default, because decisions are answered through it; `--no-director` opts out.
 
 "Director" names two things: a server tool profile (`/mcp/director`, `MCP_TOOL_PROFILE=director`) and a session mode entered with `/task-orchestrator:director`. The seat named `orchestrator` is the one whose note keys the coordinator token may write; it is a seat of the item's schema, not a session.
 
@@ -1427,7 +1427,7 @@ Operator-side detail, including what the numbers mean and what is only an estima
 
 ### Answering a decision as a single developer
 
-A person working alone usually has one stdio server, and stdio serves the orchestration profile, which cannot answer decisions. Start a second stdio entry with `MCP_TOOL_PROFILE=director` (or point at `/mcp/director` over HTTP). That entry lists, acknowledges and answers decisions, pauses and resumes runs, and closes them. If you have no director entry and a run is paused for a limit, the only way out from the orchestration side is to `close` it. See the [director endpoint](./fleet-deployment.md#mcp-authentication---read-first) notes for the HTTP and REST forms. The director path is hygiene that keeps a session at altitude, not a security boundary.
+A person working alone usually has one stdio server, and stdio serves the orchestration profile, which cannot answer decisions. `/task-orchestrator:init` registers that second entry by default (`--no-director` opts out); by hand, start a second stdio entry with `MCP_TOOL_PROFILE=director` (or point at `/mcp/director` over HTTP). That entry lists, acknowledges and answers decisions, pauses and resumes runs, and closes them. If you have no director entry and a run is paused for a limit, the only way out from the orchestration side is to `close` it. See the [director endpoint](./fleet-deployment.md#mcp-authentication---read-first) notes for the HTTP and REST forms. The director path is hygiene that keeps a session at altitude, not a security boundary.
 
 ---
 
