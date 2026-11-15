@@ -111,10 +111,21 @@ function run({ cwd, home, url, plan = PLAN, token, ceiling }) {
 
 const planOf = (text) => ({ tool_input: { plan: text } });
 
-// a8b9ebfb S5-S6 (D1, D2): on a project-configured failure path the hook says why in ONE PostToolUse context line
-// starting with the frozen prefix, exits 0, and never emits a decision. Oracle: test-plan D2 (prefix frozen).
+// a8b9ebfb S5-S6 (D1, D2): on a project-configured failure path the hook says why in ONE PostToolUse context line,
+// exits 0, and never emits a decision. The WHOLE line is pinned, not its prefix. Oracle: the notStashed template
+// from the dispatch declarations, `Task Orchestrator: plan not stashed (${why}). Materialize from the plan text in
+// this conversation.`, plus the why each case must produce:
+//   no plan text or readable plan file -> the literal 'no plan text or readable plan file in the hook input'
+//   no REST API URL                    -> the literal 'no REST API URL configured'
+//   a write that does not stash        -> `write failed: ${code}`, where code is the first of results[0].error.code,
+//     then error.code of what callOp resolves, then `http ${status}`, then 'unknown'. callOp resolves a parsed
+//     envelope with its data.results flattened to results (lib-api-client.test.mjs S13, S15), a refused or timed-out
+//     connection and a non-envelope body as error.code 'client_error', and a 401 without an envelope as
+//     'unauthenticated'. Each caller below states the code from the response its own fixture serves.
 const NOT_STASHED = 'Task Orchestrator: plan not stashed';
-function assertNotStashed(res) {
+const notStashedLine = (why) => `${NOT_STASHED} (${why}). Materialize from the plan text in this conversation.`;
+function assertNotStashed(res, why) {
+  assert.equal(typeof why, 'string', 'every not-stashed assertion pins its reason');
   assert.equal(res.status, 0, res.stderr);
   const out = JSON.parse(res.stdout);
   assert.deepEqual(Object.keys(out), ['hookSpecificOutput']);
@@ -122,7 +133,7 @@ function assertNotStashed(res) {
   assert.equal(h.hookEventName, 'PostToolUse');
   assert.ok(!('permissionDecision' in h) && !('decision' in out), 'a no-op never blocks or decides');
   assert.equal(typeof h.additionalContext, 'string');
-  assert.ok(h.additionalContext.startsWith(NOT_STASHED), h.additionalContext);
+  assert.equal(h.additionalContext, notStashedLine(why));
   assert.ok(!h.additionalContext.trim().includes(NL), 'one line');
 }
 
@@ -164,18 +175,19 @@ test('S8 probe (AC7): the bearer token travels as an Authorization header', asyn
   });
 });
 
-test('S14 (AC7): a failed element (207 duplicate, an adopted plan) - silent, exit 0, still the one call', async () => {
+test('S14 (AC7): a failed element (207 duplicate, an adopted plan) - one not-stashed line naming the element code duplicate, exit 0, still the one call', async () => {
   const cwd = mkTemp('dup');
   writeConfig(cwd, PROJECT_CONFIG);
   await withStub(() => elementFailReply('duplicate', { kind: 'document', id: 'my-great-plan' }), async (url, requests) => {
     const res = await run({ cwd, home: mkTemp('home'), url });
     assert.equal(res.status, 0, res.stderr);
-    assertNotStashed(res);
+    // The fixture serves data.results[0].error.code 'duplicate'; the element code wins over the batch code partial_failure.
+    assertNotStashed(res, 'write failed: duplicate');
     assert.equal(requests.length, 1);
   });
 });
 
-test('S14 (AC7): other element failures (forbidden write-docs, version_conflict, payload_too_large) - silent, exit 0', async () => {
+test('S14 (AC7): other element failures (forbidden write-docs, version_conflict, payload_too_large) - one not-stashed line naming each element code, exit 0', async () => {
   for (const [code, detail] of [
     ['forbidden', { scope: 'capability', required: 'write-docs' }],
     ['version_conflict', { kind: 'document', id: 'my-great-plan', expected: 1, actual: 2 }],
@@ -186,44 +198,48 @@ test('S14 (AC7): other element failures (forbidden write-docs, version_conflict,
     await withStub(() => elementFailReply(code, detail), async (url, requests) => {
       const res = await run({ cwd, home: mkTemp('home'), url });
       assert.equal(res.status, 0, `${code}: ${res.stderr}`);
-      assertNotStashed(res);
+      // The fixture serves data.results[0].error.code = code, so the reason is that code (underscores survive the sanitizer).
+      assertNotStashed(res, `write failed: ${code}`);
       assert.equal(requests.length, 1, code);
     });
   }
 });
 
-test('S14 (AC7): 401 unauthenticated, 403 forbidden and 500 internal (top-level errors) - silent, exit 0', async () => {
+test('S14 (AC7): 401 unauthenticated, 403 forbidden and 500 internal (top-level errors) - one not-stashed line naming the error code of the envelope, exit 0', async () => {
   for (const [status, code] of [[401, 'unauthenticated'], [403, 'forbidden'], [500, 'internal']]) {
     const cwd = mkTemp('top');
     writeConfig(cwd, PROJECT_CONFIG);
     await withStub(() => topFailReply(status, code), async (url, requests) => {
       const res = await run({ cwd, home: mkTemp('home'), url });
       assert.equal(res.status, 0, `${status}: ${res.stderr}`);
-      assertNotStashed(res);
+      // The fixture serves no data.results, so results is empty and the reason is error.code of the envelope, not `http ${status}`.
+      assertNotStashed(res, `write failed: ${code}`);
       assert.equal(requests.length, 1, String(status));
     });
   }
 });
 
-test('S14 (AC7): an unreachable API - silent, exit 0', async () => {
+test('S14 (AC7): an unreachable API - one not-stashed line naming client_error (a refused connection), exit 0', async () => {
   const cwd = mkTemp('unreach');
   writeConfig(cwd, PROJECT_CONFIG);
   const res = await run({ cwd, home: mkTemp('home'), url: 'http://127.0.0.1:1' });
   assert.equal(res.status, 0, res.stderr);
-  assertNotStashed(res);
+  // callOp resolves a refused connection as error.code client_error (reason network, no status).
+  assertNotStashed(res, 'write failed: client_error');
 });
 
-test('S14 probe (AC7): a 200 body that is not an envelope (a 3.x server) is silent, exit 0', async () => {
+test('S14 probe (AC7): a 200 body that is not an envelope (a 3.x server) - one not-stashed line naming client_error, exit 0', async () => {
   const cwd = mkTemp('legacy');
   writeConfig(cwd, PROJECT_CONFIG);
   await withStub(() => ({ status: 200, json: { slug: 'my-great-plan', status: 'pending' } }), async (url) => {
     const res = await run({ cwd, home: mkTemp('home'), url });
     assert.equal(res.status, 0, res.stderr);
-    assertNotStashed(res);
+    // callOp resolves a 200 body that is not an envelope as error.code client_error (reason bad_body).
+    assertNotStashed(res, 'write failed: client_error');
   });
 });
 
-test('S14 probe (AC7): a 200 envelope whose results[0] is ok:false is not reported as stashed', async () => {
+test('S14 probe (AC7): a 200 envelope whose results[0] is ok:false is not reported as stashed - one not-stashed line naming the element code internal', async () => {
   const cwd = mkTemp('okfalse');
   writeConfig(cwd, PROJECT_CONFIG);
   const reply = {
@@ -233,7 +249,8 @@ test('S14 probe (AC7): a 200 envelope whose results[0] is ok:false is not report
   await withStub(() => reply, async (url) => {
     const res = await run({ cwd, home: mkTemp('home'), url });
     assert.equal(res.status, 0, res.stderr);
-    assertNotStashed(res);
+    // The fixture serves data.results[0].error.code 'internal'.
+    assertNotStashed(res, 'write failed: internal');
   });
 });
 
@@ -284,7 +301,7 @@ test('importing the module performs no stdin read and exports no config parser',
   assert.equal(mod.parseRootId, undefined);
 });
 
-test('S18 (AC9): no API URL configured - silent, exit 0; the same fixture sends once a URL resolves', async () => {
+test('S18 (AC9): no API URL configured - one not-stashed line saying no REST API URL configured, exit 0; the same fixture sends once a URL resolves', async () => {
   const T = mkTemp('nourl');
   const cwd = join(T, 'proj');
   writeConfig(cwd, PROJECT_CONFIG);
@@ -295,7 +312,7 @@ test('S18 (AC9): no API URL configured - silent, exit 0; the same fixture sends 
   });
   const without = await run({ cwd, home: mkTemp('home'), ceiling: T });
   assert.equal(without.status, 0, without.stderr);
-  assertNotStashed(without);
+  assertNotStashed(without, 'no REST API URL configured');
 });
 
 // ---- slug derivation: what reaches the server must satisfy the docs_write slug grammar ----
@@ -455,33 +472,34 @@ test('a8b9ebfb S5 (AC2): no text and no path, a missing file, an empty file -> n
   for (const [name, plan] of Object.entries(inputs)) {
     await withStub(echoSlug, async (url, requests) => {
       const res = await run({ cwd, home: mkTemp('home'), url, plan });
-      assertNotStashed(res);
+      assertNotStashed(res, 'no plan text or readable plan file in the hook input');
       assert.equal(requests.length, 0, name);
     });
   }
 });
 
-test('a8b9ebfb S6 (AC2): the real shape with a failing write (207 duplicate, 401, 403, 500, ok:false element, non-envelope) -> one not-stashed line', async () => {
+test('a8b9ebfb S6 (AC2): the real shape with a failing write (207 duplicate, 401, 403, 500, ok:false element, non-envelope) -> one not-stashed line naming that failure', async () => {
+  // name -> [the reply the fixture serves, the code that reply must put in `write failed: ${code}`]
   const replies = {
-    duplicate: elementFailReply('duplicate', { kind: 'document', id: 'my-great-plan' }),
-    401: topFailReply(401, 'unauthenticated'),
-    403: topFailReply(403, 'forbidden'),
-    500: topFailReply(500, 'internal'),
-    okfalse: { status: 200, json: { ok: true, data: { results: [{ ok: false, error: { code: 'internal', kind: 'transient', message: 'x' } }], summary: { ok: 0, failed: 1 } }, meta: META } },
-    nonenvelope: { status: 200, json: { slug: 'my-great-plan', status: 'pending' } },
+    duplicate: [elementFailReply('duplicate', { kind: 'document', id: 'my-great-plan' }), 'duplicate'],
+    401: [topFailReply(401, 'unauthenticated'), 'unauthenticated'],
+    403: [topFailReply(403, 'forbidden'), 'forbidden'],
+    500: [topFailReply(500, 'internal'), 'internal'],
+    okfalse: [{ status: 200, json: { ok: true, data: { results: [{ ok: false, error: { code: 'internal', kind: 'transient', message: 'x' } }], summary: { ok: 0, failed: 1 } }, meta: META } }, 'internal'],
+    nonenvelope: [{ status: 200, json: { slug: 'my-great-plan', status: 'pending' } }, 'client_error'],
   };
-  for (const [name, reply] of Object.entries(replies)) {
+  for (const [name, [reply, code]] of Object.entries(replies)) {
     const cwd = mkTemp('real-fail');
     writeConfig(cwd, PROJECT_CONFIG);
     await withStub(() => reply, async (url, requests) => {
       const res = await run({ cwd, home: mkTemp('home'), url, plan: REAL_SHAPE(GONE, GONE) });
-      assertNotStashed(res);
+      assertNotStashed(res, `write failed: ${code}`);
       assert.equal(requests.length, 1, name);
     });
   }
   const cwd = mkTemp('real-unreach');
   writeConfig(cwd, PROJECT_CONFIG);
-  assertNotStashed(await run({ cwd, home: mkTemp('home'), url: 'http://127.0.0.1:1', plan: REAL_SHAPE(GONE, GONE) }));
+  assertNotStashed(await run({ cwd, home: mkTemp('home'), url: 'http://127.0.0.1:1', plan: REAL_SHAPE(GONE, GONE) }), 'write failed: client_error');
 });
 
 test('a8b9ebfb S6 probe: the not-stashed line carries no secret - the bearer token never appears on stdout or stderr', async () => {
@@ -489,7 +507,7 @@ test('a8b9ebfb S6 probe: the not-stashed line carries no secret - the bearer tok
   writeConfig(cwd, PROJECT_CONFIG);
   await withStub(() => topFailReply(401, 'unauthenticated'), async (url) => {
     const res = await run({ cwd, home: mkTemp('home'), url, token: 'dummy-leak-token', plan: REAL_SHAPE(GONE, GONE) });
-    assertNotStashed(res);
+    assertNotStashed(res, 'write failed: unauthenticated');
     assert.ok(!res.stdout.includes('dummy-leak-token') && !res.stderr.includes('dummy-leak-token'));
   });
 });
