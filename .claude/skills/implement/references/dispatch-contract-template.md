@@ -314,9 +314,11 @@ Wave-boundary red-proof results (the decision-point budget mutations, run AFTER 
 batched across the wave in one scratch worktree at the merged SHA, each mutation against the test
 classes the item's `test-manifest` maps to it, one full suite only for a survivor): recorded on the
 wave parent's `red-proof-results` note, per item — `<proofs run, gaps found, equivalents, approx
-minutes>`; a reviewer of a LATER wave reads it there. Mutations on node tests run in an extraction made by
-`node scripts/redproof-extract.mjs <sha> <outDir> <control test file>...` and count only after a green control
-(`control N/N`, recorded on the note). Each survivor is classified on the note: weak test = real gap (carry-in or
+minutes>`; a reviewer of a LATER wave reads it there. Mutations on node tests under `claude-plugins/` run in an
+extraction made by `node scripts/redproof-extract.mjs <sha> <outDir> <control test file>...` and count only after
+a green control there (exit 0; record its `control` line on the note). A test under the repo-root `scripts/tests/`
+reads no extracted path: mutate it in the scratch worktree itself, after an unmutated control run of the same file
+there (record pass/tests). Each survivor is classified on the note: weak test = real gap (carry-in or
 follow-up), equivalent, unreachable or covered at another seam = disposed by the feature review; an unclassified
 survivor blocks the feature review's red-proof line.
 
