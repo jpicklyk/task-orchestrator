@@ -231,7 +231,7 @@ No REST, no port, no config-sync — say so. When asked, or when this skill runs
    `hooks/lib/api-client.mjs` finds no URL) —
    in that case always render it, never treat it as optional polish.
 
-4. **The director entry (optional).** `/task-orchestrator:init` registers it by default; render it here
+4. **The director entry.** `/task-orchestrator:init` registers it by default; render it here
    when the user asks for it or runs this skill alone. A second entry, `mcp-task-orchestrator-director`
    (its key must contain `task-orchestrator`), whose `url` is `http://localhost:3001/mcp/director`. In
    bearer mode its header is a separate placeholder, with no nested fallback to the agents' token:

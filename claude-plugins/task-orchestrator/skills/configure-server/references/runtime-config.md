@@ -224,7 +224,7 @@ token; Claude Code expands `${...}` from its environment:
 }
 ```
 
-**Director entry** (optional second entry; the key must contain `task-orchestrator`). HTTP serves the
+**Director entry** (`/task-orchestrator:init` registers it unless `--no-director`; the key must contain `task-orchestrator`). HTTP serves the
 director profile at `/mcp/director`; in bearer mode add the `headers` object with its own placeholder (no
 nested fallback to the agents' token; see the "Director credential" block of `configure-server/SKILL.md`):
 ```json
