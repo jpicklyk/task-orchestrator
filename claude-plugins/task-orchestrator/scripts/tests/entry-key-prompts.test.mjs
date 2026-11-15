@@ -4,7 +4,8 @@
 // Oracles: parent interface-contract items 1 and 2 (IC1, IC2), task-scope AC1, AC2, AC4, AC6, AC7 and
 // planner decisions D3, D4, D5, D6 - never observed output. Only exported surfaces and the public CLI are
 // used; no production source was opened. Each negative assertion names the fixture condition that fails it.
-// Not covered here: S6's reviewWaveArgs half (its signature is not among the supplied declarations).
+// S6's second half (reviewWaveArgs carries capabilities.mcpServerKey, IC1) was added in completion cycle A1
+// once its declaration was supplied; its oracle is the test-plan and interface-contract item 1.
 
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -385,6 +386,56 @@ test('S6 (D4): a null, empty or missing probe key leaves capabilities without an
   for (const probe of [{ mcpServerKey: null }, { mcpServerKey: '' }, {}]) {
     const caps = planWith(probe).args.capabilities
     assert.equal(Object.hasOwn(caps, 'mcpServerKey'), false, JSON.stringify(probe))
+    assert.ok(Array.isArray(caps.features) && caps.features.includes('seats'), 'other capabilities are kept')
+  }
+})
+
+// ---- S6 second half: reviewWaveArgs carries the key (A1) ----
+
+const REVIEW_ITEM = 'aaaaaaaa-1111-4111-8111-111111111111'
+
+/** A review-wave args object built from a plan doc whose probe resolved `probe`; the item has review notes. */
+function reviewArgsFor(probe) {
+  const snap = snapshot()
+  snap.schemas[REVIEW_ITEM].notes.push(
+    { key: 'review-checklist', role: 'review', required: true, seat: 'reviewer', skill: 'review-quality' }
+  )
+  snap.probe = { ...snap.probe, ...probe }
+  const built = buildPlanDoc(snap, { now: NOW })
+  assert.equal(built.ok, true, JSON.stringify(built.errors))
+  const doc = built.doc
+  const item = doc.args.items.find((i) => i.id === REVIEW_ITEM)
+  assert.ok(item, 'the fixture item is in the plan')
+  const result = {
+    contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, planDocSlug: 'run/x',
+    items: [{
+      id: item.id, short: item.short, status: 'done', reason: 'ok',
+      stages: item.stages.map((s) => ({ seat: s.seat, status: 'done', reason: 'ok', modelReported: 'sonnet', notes: [], commits: { pre: '', post: '' }, files: [] })),
+      outputs: {},
+    }],
+    refused: [], deferred: [],
+  }
+  return execLib.reviewWaveArgs(loadWaveCore(), doc, snap, result, [item.short])
+}
+
+test('S6 (IC1): reviewWaveArgs carries a non-empty mcpServerKey as capabilities.mcpServerKey, and a review lane prompt then uses it', () => {
+  const args = reviewArgsFor({ mcpServerKey: ALT })
+  assert.equal(args.contract, 'review-wave/args-v1')
+  assert.equal(args.capabilities.mcpServerKey, ALT)
+  // the carried key is the one a review lane's TOOLS line is built from (IC2)
+  const { normalizeArgs, lanePrompt } = loadCoreNamed(REVIEW_PATH, ['normalizeArgs', 'lanePrompt'])
+  const norm = normalizeArgs(args)
+  assert.equal(norm.ok, true, `normalizeArgs accepted: ${norm.reason}`)
+  const item = norm.plan.items[0]
+  const prompt = lanePrompt(norm.plan, item, item.stages[0], {})
+  assert.equal(toolsLine(prompt).includes(`mcp__${ALT}__`), true, toolsLine(prompt))
+  assert.equal(prompt.includes('mcp__mcp-task-orchestrator__'), false)
+})
+
+test('S6 (IC1, D4): a null, empty or missing probe key means the default key in the review args (the member is not required to be present)', () => {
+  for (const probe of [{ mcpServerKey: null }, { mcpServerKey: '' }, {}]) {
+    const caps = reviewArgsFor(probe).capabilities
+    assert.equal(caps.mcpServerKey ?? DEFAULT_KEY, DEFAULT_KEY, JSON.stringify(probe))
     assert.ok(Array.isArray(caps.features) && caps.features.includes('seats'), 'other capabilities are kept')
   }
 })
