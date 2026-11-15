@@ -609,7 +609,7 @@ export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
   const tokenFile = core.seatTokenFile(plan, item, baseStage)
   const promptPlan = tokenFile ? Object.assign({}, plan, { serverRunId: null }) : plan
   let text = core.seatPrompt(promptPlan, item, stage, outs)
-  if (tokenFile) text += `\n${reseatTokenPart(plan, baseStage, tokenFile)}`
+  if (tokenFile) text = withRunsWriteTool(text, plan) + `\n${reseatTokenPart(plan, baseStage, tokenFile)}`
   const hasAmendmentsNote = (item.stages || []).some((st) => Array.isArray(st.notes) && st.notes.includes('amendments'))
   const rewriteSentence = noteRewriteSentence(baseStage)
   text += hasAmendmentsNote
@@ -654,6 +654,24 @@ export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
   }
 }
 
+const DEFAULT_MCP_SERVER_KEY = 'mcp-task-orchestrator'
+
+/** plan.capabilities.mcpServerKey when a non-empty string, else the default entry key. */
+function planMcpServerKey(plan) {
+  const key = plan && plan.capabilities && plan.capabilities.mcpServerKey
+  return typeof key === 'string' && key !== '' ? key : DEFAULT_MCP_SERVER_KEY
+}
+
+/**
+ * A bound fix cycle's prompt is rendered token-less (serverRunId null), so its TOOLS line lacks
+ * runs_write: add it to that one line, so the seat needs no second ToolSearch for END SEAT.
+ */
+function withRunsWriteTool(text, plan) {
+  const name = `mcp__${planMcpServerKey(plan)}__runs_write`
+  return text.replace(/^(TOOLS: load with ToolSearch select:)(\S+?)(\. If that finds nothing)/m, (m, head, names, tail) =>
+    names.split(',').includes(name) ? m : `${head}${names},${name}${tail}`)
+}
+
 /**
  * The SEAT TOKEN, DEVIATION and END SEAT parts of a fix-cycle seat on a bound run. The fix cycle is
  * not a schema seat, so it runs under the base seat's fresh assignment and token file.
@@ -664,7 +682,7 @@ function reseatTokenPart(plan, baseStage, tokenFile) {
       'Read it with your file tool, trim it, and pass it as the top-level seatToken field of every task-orchestrator call you make, reads included. ' +
       'Never print, quote, echo, log or commit the token or the file content. A call refused unauthenticated ("The seat token is not accepted.") means ' +
       'this assignment was superseded or ended: stop at once and return status "stopped", reason "seat-token-rejected".',
-    'END SEAT: load runs_write too (ToolSearch select:mcp__mcp-task-orchestrator__runs_write). As your last task-orchestrator call, end the seat with your seat token: runs_write(ops:[{op:"end_seat", outcome, summary}]); ' +
+    'END SEAT: as your last task-orchestrator call, end the seat with your seat token: runs_write(ops:[{op:"end_seat", outcome, summary}]); ' +
       'outcome "done" for status done, "failed" for stopped, "abandoned" for deferred. Set seatEnded: true in the envelope when it succeeded.',
   ].join('\n')
 }
@@ -2041,7 +2059,12 @@ export function reportFields(doc, opts = {}) {
     const admitted = (args.items || []).length
     fields.headline = `${admitted} item${admitted === 1 ? '' : 's'} planned, ${deferredPlan.length} deferred`
     fields.counts.deferred = deferredPlan.length
-    if (!fields.needs && ((meta.excluded || []).length > 0 || (meta.degradations || []).length > 0)) {
+    // A member exactly false in meta.allow (the probe's allow rules) is a missing allow rule.
+    const allow = meta.allow && typeof meta.allow === 'object' && !Array.isArray(meta.allow) ? meta.allow : {}
+    const missingAllow = ['workflow', 'mcp', 'bashGit', 'bashNode'].filter((k) => allow[k] === false)
+    if (!fields.needs && missingAllow.length > 0) {
+      fields.needs = `approve launch; allow rules missing: ${missingAllow.length} (${missingAllow.join(', ')})`
+    } else if (!fields.needs && ((meta.excluded || []).length > 0 || (meta.degradations || []).length > 0)) {
       fields.needs = 'approve launch'
     }
   } else if (event === 'paused') {

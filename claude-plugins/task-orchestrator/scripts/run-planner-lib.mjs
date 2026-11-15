@@ -320,15 +320,18 @@ export function compareVersions(a, b) {
 }
 
 /**
- * probeFrom({pluginRoot, pluginJsonText, subagentStartText, phaseGuardText, settings, serverCompat})
+ * probeFrom({pluginRoot, pluginJsonText, subagentStartText, phaseGuardText, settings, serverCompat, mcpServerKey})
  * -> {pluginRoot, pluginVersion|null, phase0Hooks, hookMarkers:{subagentSkip, seatTokenFilter},
- *     workflowSizeGuideline|null, allow:{workflow, mcp, bashGit, bashNode}, serverCompat:null|string}
+ *     workflowSizeGuideline|null, allow:{workflow, mcp, bashGit, bashNode}, serverCompat:null|string,
+ *     mcpServerKey:null|string}
+ * mcpServerKey is passed through (the CLI resolves it with hooks/lib/mcp-registrations.mjs
+ * resolveOrchestratorEntryKey): the registered orchestration entry key, null when none.
  * phase0Hooks needs plugin >= 3.8.0, the subagent-start workflow-subagent skip and the 4.0
  * phase-guard-record seat filter (it skips any call that carries a top-level seatToken). serverCompat
  * is passed through: null when compatible or no API URL resolved, else the server-compat warning line
  * (the CLI computes it with hooks/lib/server-compat.mjs checkServer; this function stays pure).
  */
-export function probeFrom({ pluginRoot, pluginJsonText, subagentStartText, phaseGuardText, settings, serverCompat } = {}) {
+export function probeFrom({ pluginRoot, pluginJsonText, subagentStartText, phaseGuardText, settings, serverCompat, mcpServerKey } = {}) {
   let pluginVersion = null;
   if (typeof pluginJsonText === 'string' && pluginJsonText.trim() !== '') {
     try {
@@ -377,7 +380,8 @@ export function probeFrom({ pluginRoot, pluginJsonText, subagentStartText, phase
     hookMarkers: { subagentSkip, seatTokenFilter },
     workflowSizeGuideline,
     allow,
-    serverCompat: typeof serverCompat === 'string' && serverCompat !== '' ? serverCompat : null
+    serverCompat: typeof serverCompat === 'string' && serverCompat !== '' ? serverCompat : null,
+    mcpServerKey: typeof mcpServerKey === 'string' && mcpServerKey !== '' ? mcpServerKey : null
   };
 }
 
@@ -1249,6 +1253,7 @@ export function assembleArgs(snap, planned, opts) {
 
   const capabilities = { features: snap.features || [], phase0Hooks: !!probe.phase0Hooks };
   if (probe.pluginVersion) capabilities.pluginVersion = probe.pluginVersion;
+  if (typeof probe.mcpServerKey === 'string' && probe.mcpServerKey !== '') capabilities.mcpServerKey = probe.mcpServerKey;
 
   return {
     contract: ARGS_CONTRACT,
@@ -1530,7 +1535,9 @@ export function buildPlanDoc(snap, opts = {}) {
       scopeId: snap.ancestorId || null,
       runBudget: profile && profile.runBudget && typeof profile.runBudget === 'object' && !Array.isArray(profile.runBudget)
         ? profile.runBudget
-        : null
+        : null,
+      // The probe's allow-rule findings, read by the planned launch report's needs line.
+      ...(probe.allow && typeof probe.allow === 'object' && !Array.isArray(probe.allow) ? { allow: { ...probe.allow } } : {})
     }
   };
 

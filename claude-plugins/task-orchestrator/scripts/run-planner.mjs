@@ -26,6 +26,7 @@ import * as exec from './run-exec-lib.mjs';
 import { loadWaveCore } from './lib/wave-core.mjs';
 import { checkServer } from '../hooks/lib/server-compat.mjs';
 import { apiBaseUrl } from '../hooks/lib/api-client.mjs';
+import { resolveOrchestratorEntryKey } from '../hooks/lib/mcp-registrations.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -125,6 +126,7 @@ async function runProbe(args) {
   const projectSettings = safeRead(join(cwd, '.claude', 'settings.json'));
   const user = safeRead(join(homeDir(), '.claude', 'settings.json'));
   const serverCompat = await probeServerCompat(args, cwd);
+  const mcpServerKey = resolveOrchestratorEntryKey({ cwd, env: process.env });
 
   const result = lib.probeFrom({
     pluginRoot,
@@ -132,7 +134,8 @@ async function runProbe(args) {
     subagentStartText,
     phaseGuardText,
     settings: [local, projectSettings, user],
-    serverCompat
+    serverCompat,
+    mcpServerKey
   });
   emit(JSON.stringify(result));
   process.exit(0);

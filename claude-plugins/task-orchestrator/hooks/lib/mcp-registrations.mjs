@@ -92,10 +92,46 @@ export function entryMentionsOrchestrator(entry) {
   }
 }
 
+const AUXILIARY_PROFILES = ['director', 'knowledge'];
+
+function auxiliaryProfileValue(value) {
+  if (typeof value !== 'string') return null;
+  const v = value.trim().toLowerCase();
+  return AUXILIARY_PROFILES.includes(v) ? v : null;
+}
+
+// The auxiliary profile an entry serves (`director` or `knowledge`), or null for an orchestration
+// entry: a url path /mcp/director or /mcp/knowledge (trailing slash allowed), an env member
+// MCP_TOOL_PROFILE, or an args element that is or ends with `MCP_TOOL_PROFILE=<value>`.
+function entryProfile(entry) {
+  try {
+    if (!entry || typeof entry !== 'object') return null;
+    if (typeof entry.url === 'string' && isAuxiliaryPath(entry.url.trim())) {
+      return new URL(entry.url.trim()).pathname.replace(/\/+$/, '').slice('/mcp/'.length);
+    }
+    if (entry.env && typeof entry.env === 'object') {
+      const p = auxiliaryProfileValue(entry.env.MCP_TOOL_PROFILE);
+      if (p) return p;
+    }
+    if (Array.isArray(entry.args)) {
+      for (const arg of entry.args) {
+        if (typeof arg !== 'string') continue;
+        const m = /MCP_TOOL_PROFILE=(.*)$/.exec(arg);
+        const p = m ? auxiliaryProfileValue(m[1]) : null;
+        if (p) return p;
+      }
+    }
+  } catch {
+    // fall through
+  }
+  return null;
+}
+
 /**
  * Every mcpServers entry across the discoverable surfaces that is an orchestrator registration (key or
- * entry body mentions the token): `{key, source, scope, url}` (`url` null when the entry has none),
- * ordered local, project, user. Never throws.
+ * entry body mentions the token): `{key, source, scope, url, profile}` (`url` null when the entry has
+ * none; `profile` is `director` or `knowledge` for an auxiliary entry, else null), ordered local,
+ * project, user. Never throws.
  */
 export function collectOrchestratorRegistrations({ cwd = process.cwd(), env = process.env } = {}) {
   const found = [];
@@ -104,7 +140,13 @@ export function collectOrchestratorRegistrations({ cwd = process.cwd(), env = pr
       if (!mcpServers || typeof mcpServers !== 'object') return;
       for (const [key, entry] of Object.entries(mcpServers)) {
         if (isOrchestratorServerKey(key) || entryMentionsOrchestrator(entry)) {
-          found.push({ key, source, scope, url: entry && typeof entry.url === 'string' ? entry.url : null });
+          found.push({
+            key,
+            source,
+            scope,
+            url: entry && typeof entry.url === 'string' ? entry.url : null,
+            profile: entryProfile(entry),
+          });
         }
       }
     };
@@ -167,6 +209,24 @@ function isAuxiliaryPath(url) {
     return p === '/mcp/director' || p === '/mcp/knowledge';
   } catch {
     return false;
+  }
+}
+
+/**
+ * The registered orchestration entry key: among entries whose key contains `task-orchestrator` and
+ * that are not director or knowledge entries, `mcp-task-orchestrator` when present, else the first in
+ * local, project, user order. Null when none. Never throws.
+ */
+export function resolveOrchestratorEntryKey({ cwd = process.cwd(), env = process.env } = {}) {
+  try {
+    const rows = collectOrchestratorRegistrations({ cwd, env }).filter(
+      (r) => isOrchestratorServerKey(r.key) && !r.profile,
+    );
+    if (rows.length === 0) return null;
+    const preferred = rows.find((r) => r.key === PREFERRED_KEY);
+    return (preferred || rows[0]).key;
+  } catch {
+    return null;
   }
 }
 
