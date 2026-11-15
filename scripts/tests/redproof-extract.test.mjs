@@ -1,10 +1,16 @@
 // Tests for scripts/redproof-extract.mjs, written against the frozen test-plan contract of
-// item dea8ed0d (scenarios S1-S13). Oracles: proposal 6fedc0f6 change 1 (P), the task-scope
-// planner decisions (TS), and the CI rule that a run of 0 tests is not green (CI).
+// item dea8ed0d (scenarios S1-S16, S14-S16 and the S10/S11 refusal-token checks added by the
+// planner's amendment A1). Oracles: proposal 6fedc0f6 change 1 (P), the task-scope planner
+// decisions (TS), the CI rule that a run of 0 tests is not green (CI), and amendment A1 (A1).
 //
 // CLI: node scripts/redproof-extract.mjs <sha> <outDir> <testFile>...
-// Exit 0 extracted and control green (stdout `control N/N`); exit 1 control ran and is not
-// green (stdout `control P/N`); exit 2 input refused (no `control` line, control not run).
+// Green control: every test that ran passed and at least one ran. A skipped or todo test is
+// outside the count and is reported on the control line.
+// Exit 0 extracted and control green (stdout `control P/P`, plus ` skipped S` when S > 0);
+// exit 1 control ran and is not green (stdout `control P/N`, same optional part);
+// exit 2 input refused (no `control` line, control not run). A test file refused by the
+// outside-extraction guards (absolute, a `..` segment, not under a listed path) puts the
+// phrase `outside the extraction` on stderr; a file merely absent at the SHA does not.
 
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -30,6 +36,14 @@ const FAIL1_OF_3 =
   "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\n" +
   "test('ok1', () => {});\ntest('ok2', () => {});\ntest('bad', () => { assert.equal(1, 2); });\n";
 const NO_TESTS = "// a file that defines no test\nexport const x = 1;\n";
+// two passing tests, one skipped, one todo that would fail if it ran as a plain test
+const SKIP_AND_TODO =
+  "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\n" +
+  "test('p1', () => {});\ntest('p2', () => {});\n" +
+  "test('sk', { skip: true }, () => {});\n" +
+  "test('td', { todo: true }, () => { assert.equal(1, 2); });\n";
+const ONLY_SKIPPED = "import { test } from 'node:test';\ntest('sk', { skip: true }, () => {});\n";
+const OUTSIDE = /outside the extraction/;
 
 const roots = [];
 
@@ -104,9 +118,10 @@ function run(repo, args) {
   return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', all: `${r.stdout ?? ''}${r.stderr ?? ''}` };
 }
 
+// The whole control line (`control P/N` or `control P/N skipped S`), or null when there is none.
 function controlLine(stdout) {
-  const m = stdout.match(/^control (\d+)\/(\d+)\s*$/m);
-  return m ? `control ${m[1]}/${m[2]}` : null;
+  const m = stdout.match(/^control \d+\/\d+( skipped \d+)?\s*$/m);
+  return m ? m[0].trim() : null;
 }
 
 function norm(s) {
@@ -201,6 +216,24 @@ describe('control gate', () => {
     assert.equal(res.status, 1, res.all);
     assert.equal(controlLine(res.stdout), 'control 0/0');
   });
+
+  // Oracles P and CI: node itself exits 0 on skip and todo, so the green rule is the script's
+  // own: a skipped or todo test, failing or not, is in neither P nor N.
+  test('S15 2 passing + 1 skipped + 1 failing todo: exit 0 and control 2/2 skipped 2', () => {
+    const { repo, sha } = makeRepo({ tests: { 'claude-plugins/t/st.test.mjs': SKIP_AND_TODO } });
+    const out = path.join(tmp('out'), 'x');
+    const res = run(repo, [sha, out, 'claude-plugins/t/st.test.mjs']);
+    assert.equal(res.status, 0, res.all);
+    assert.equal(controlLine(res.stdout), 'control 2/2 skipped 2');
+  });
+
+  test('S16 only a skipped test: exit 1 and control 0/0 skipped 1 (0 run tests is not green)', () => {
+    const { repo, sha } = makeRepo({ tests: { 'claude-plugins/t/sk.test.mjs': ONLY_SKIPPED } });
+    const out = path.join(tmp('out'), 'x');
+    const res = run(repo, [sha, out, 'claude-plugins/t/sk.test.mjs']);
+    assert.equal(res.status, 1, res.all);
+    assert.equal(controlLine(res.stdout), 'control 0/0 skipped 1');
+  });
 });
 
 describe('refusals (exit 2, control not run)', () => {
@@ -261,12 +294,13 @@ describe('refusals (exit 2, control not run)', () => {
     for (const r of [noTest, noOut, noArgs]) assert.equal(controlLine(r.stdout), null);
   });
 
-  test('S10 a testFile absent at the SHA: exit 2 naming it', () => {
+  test('S10 a testFile absent at the SHA: exit 2 naming it, not as outside the extraction', () => {
     const { repo, sha } = makeStandardRepo();
     const out = path.join(tmp('out'), 'x');
     const res = run(repo, [sha, out, 'claude-plugins/t/missing.test.mjs']);
     assert.equal(res.status, 2, res.all);
     assert.match(res.all, /claude-plugins\/t\/missing\.test\.mjs/);
+    assert.doesNotMatch(res.stderr, OUTSIDE);
     assert.equal(controlLine(res.stdout), null);
   });
 
@@ -283,17 +317,30 @@ describe('refusals (exit 2, control not run)', () => {
     const out = path.join(tmp('out'), 'x');
     const res = run(repo, [sha, out, live]);
     assert.equal(res.status, 2, res.all);
+    assert.match(res.stderr, OUTSIDE);
     assert.equal(controlLine(res.stdout), null);
   });
 
   test('S11 a testFile outside the extraction (../x.test.mjs): exit 2', () => {
     const { repo, sha } = makeStandardRepo();
     const out = path.join(tmp('out'), 'x');
-    // a passing file one level above the repo root would be reachable as ../x.test.mjs from a
-    // testFile-relative resolution at the extraction root
     const res = run(repo, [sha, out, '../x.test.mjs']);
     assert.equal(res.status, 2, res.all);
+    assert.match(res.stderr, OUTSIDE);
     assert.equal(controlLine(res.stdout), null);
+  });
+
+  // Oracle A1: a file committed in the repo but not under a listed path exists at the SHA and is
+  // not in the extraction; without the listed-path guard it would be run in the extraction,
+  // found absent there, and the control would not be green (exit 1) instead of a refusal.
+  test('S14 a passing testFile in the tree but not under an extracted path: exit 2, outside the extraction', () => {
+    const { repo, sha } = makeRepo({ tests: { 'scripts/t/x.test.mjs': PASS1 } });
+    const out = path.join(tmp('out'), 'x');
+    const res = run(repo, [sha, out, 'scripts/t/x.test.mjs']);
+    assert.equal(res.status, 2, res.all);
+    assert.match(res.stderr, OUTSIDE);
+    assert.equal(controlLine(res.stdout), null);
+    assert.equal(fs.existsSync(path.join(out, 'CHANGELOG.md')), false, 'nothing may be extracted');
   });
 });
 
@@ -366,15 +413,17 @@ describe('edges and probes', () => {
   });
 
   // A backslash is a separator on Windows and a name character on Linux: assert by platform.
-  test(
-    'probe: a backslash in a testFile names no file on a POSIX platform (exit 2)',
-    { skip: process.platform === 'win32' ? 'backslash is a path separator on Windows' : false },
-    () => {
-      const { repo, sha } = makeStandardRepo();
-      const out = path.join(tmp('out'), 'x');
-      const res = run(repo, [sha, out, 'claude-plugins\\t\\a.test.mjs']);
+  // win32: it names claude-plugins/t/a.test.mjs (2 passing tests); elsewhere it names no file.
+  test('probe: a backslash in a testFile is a separator on win32 and a name character elsewhere', () => {
+    const { repo, sha } = makeStandardRepo();
+    const out = path.join(tmp('out'), 'x');
+    const res = run(repo, [sha, out, 'claude-plugins\\t\\a.test.mjs']);
+    if (process.platform === 'win32') {
+      assert.equal(res.status, 0, res.all);
+      assert.equal(controlLine(res.stdout), 'control 2/2');
+    } else {
       assert.equal(res.status, 2, res.all);
       assert.equal(controlLine(res.stdout), null);
-    },
-  );
+    }
+  });
 });
