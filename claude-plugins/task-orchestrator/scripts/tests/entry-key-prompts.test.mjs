@@ -1,9 +1,11 @@
 // Item 331ff0a4: the registered MCP entry key reaches the probe, the plan args and every seat prompt;
-// a reseat prompt names exactly one ToolSearch; a blind test-author seat's RERUN CHECK shows subjects and
-// the Seat trailer only. Scenario ids S5-S9, S12 and S13 match the item's frozen `test-plan` note.
+// a reseat prompt names exactly one ToolSearch; the RERUN CHECK command of a blind test-author seat, run in a
+// shell against a temporary repository, lists only its own Seat commits by hash and subject. Scenario ids
+// S5-S9, S12 and S13 match the item's frozen `test-plan` note (S13 as ruled by `amendments` R1).
 // Oracles: parent interface-contract items 1 and 2 (IC1, IC2), task-scope AC1, AC2, AC4, AC6, AC7 and
-// planner decisions D3, D4, D5, D6 - never observed output. Only exported surfaces and the public CLI are
-// used; no production source was opened. Each negative assertion names the fixture condition that fails it.
+// planner decisions D3, D4, D5, amendments R1 (S13) - never observed output. Only exported surfaces and the
+// public CLI are used; no production source was opened. Each negative assertion names the fixture condition
+// that fails it.
 // S6's second half (reviewWaveArgs carries capabilities.mcpServerKey, IC1) was added in completion cycle A1
 // once its declaration was supplied; its oracle is the test-plan and interface-contract item 1.
 
@@ -228,13 +230,14 @@ const DECL_NONE = { declarations: 'none', harnessPointers: 'ptr-kept', gaps: 'no
 const SHORT = 'aaaaaaaa'
 const PRE = 'c'.repeat(40)
 
-function reseatDoc({ key, bound }) {
-  const item = itemFixture({ short: SHORT, stages: stages.bugFixLike() })
+function reseatDoc({ key, bound, short = SHORT, worktree, baseSha }) {
+  const item = itemFixture({ short, stages: stages.bugFixLike(), ...(worktree ? { worktree } : {}) })
   const args = planFixture({
     items: [item],
     project: PROJECT,
     capabilities: capsWith(key),
     ...(bound ? { serverRunId: SERVER_RUN } : {}),
+    ...(baseSha ? { baseSha } : {}),
   })
   return { contract: 'run-wave/plan-doc-v1', args, meta: {} }
 }
@@ -250,10 +253,10 @@ function reseatResult(doc) {
     refused: [], deferred: [],
   }
 }
-function reseatPrompt({ key, bound, seat }) {
-  const doc = reseatDoc({ key, bound })
-  const opts = { cause: 'review', pre: PRE, ...(seat.startsWith('test-author') ? { declarations: 'export function f(x)' } : {}) }
-  const out = execLib.reseat(loadWaveCore(), doc, reseatResult(doc), SHORT, seat, opts)
+function reseatPrompt({ key, bound, seat, short = SHORT, worktree, baseSha, pre = PRE }) {
+  const doc = reseatDoc({ key, bound, short, worktree, baseSha })
+  const opts = { cause: 'review', pre, ...(seat.startsWith('test-author') ? { declarations: 'export function f(x)' } : {}) }
+  const out = execLib.reseat(loadWaveCore(), doc, reseatResult(doc), short, seat, opts)
   assert.equal(out.ok, true, JSON.stringify(out))
   return out.prompt
 }
@@ -293,32 +296,225 @@ test('S9 (AC2): a reseat under no key matches the default key byte for byte', ()
   )
 })
 
-// ---- S13: RERUN CHECK for a blind test-author seat ----
+// ---- S13: the RERUN CHECK command of a blind test-author seat, run against a repository ----
+//
+// Oracle: amendments ruling R1 (B1 of review-checklist v2). A test-author-v1 stage and its -a<n> reseats
+// are told to run a git log that lists, by hash and subject only, the commits whose message has the line
+// "Seat: <its seat>"; every other seat keeps the log with bodies. The prompt text is not the oracle: the
+// command the rendered prompt prints is taken from the prompt (never retyped) and run in each available
+// shell against commits written in the plugin COMMIT form, where "Seat: ..." and "Co-Authored-By: ..." are
+// separate -m paragraphs (so git parses only Co-Authored-By as a trailer, the shape that blinded the
+// earlier trailer-column form). A format-string pin could not fail on that; the command's output can.
 
-const SUBJECTS_ONLY = '--format="%H%x09%s%x09%(trailers:key=Seat,valueonly)"'
-const WITH_BODY = '%H%x09%s%x09%b'
+const BODY_MARKER = 'BODY-MARKER'
+const COAUTHOR = 'Co-Authored-By: Fixture Model <fixture@example.invalid>'
+const RERUN_SHORT = '13131313'
+const OTHER_SHORT = '24242424'
 
-test('S13 (AC6, D6): a test-author seat RERUN CHECK logs subjects and the Seat trailer, no %b or %B; an implementer keeps %b', () => {
-  const core = loadCore(IMPLEMENT_PATH)
-  const item = makeItem('13131313', stages.bugFixLike())
-  const plan = makePlan([item], { key: ALT, bound: true })
-  const ta = paragraphFrom(core.seatPrompt(plan, item, stageOf(item, 'test-author'), {}), 'RERUN CHECK')
-  assert.ok(ta.includes(SUBJECTS_ONLY), `test-author RERUN CHECK: ${ta}`)
-  assert.ok(ta.includes('e77c3e95..HEAD'), 'the range is still baseSha..HEAD')
-  assert.equal(/%[bB]/.test(ta), false, 'no body placeholder (a %b or %B would fail this)')
-  assert.ok(ta.includes('Seat: test-author'), 'the trailer check text survives')
-  const impl = paragraphFrom(core.seatPrompt(plan, item, stageOf(item, 'implementer'), {}), 'RERUN CHECK')
-  assert.ok(impl.includes(WITH_BODY), `implementer RERUN CHECK: ${impl}`)
-  assert.equal(impl.includes('%(trailers'), false, 'the implementer line is unchanged')
+/** The environment for every git and shell run: no inherited GIT_* variables, no user or system git config. */
+function isolatedGitEnv(home) {
+  const env = {}
+  for (const [k, v] of Object.entries(process.env)) if (!/^GIT_/i.test(k)) env[k] = v
+  const emptyConfig = join(home, 'empty-gitconfig')
+  writeFileSync(emptyConfig, '')
+  return {
+    ...env,
+    HOME: home,
+    USERPROFILE: home,
+    XDG_CONFIG_HOME: join(home, 'xdg'),
+    GIT_CONFIG_GLOBAL: emptyConfig,
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_AUTHOR_NAME: 'Fixture',
+    GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
+    GIT_COMMITTER_NAME: 'Fixture',
+    GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
+  }
+}
+
+function gitOut(env, args) {
+  const r = spawnSync('git', args, { encoding: 'utf8', env })
+  assert.equal(r.status, 0, `git ${args.join(' ')}: ${r.stderr}`)
+  return r.stdout
+}
+
+let rerunRepoCache
+/**
+ * A temporary repository: base B0, then C1 implementer, C2 test-author, C3 test-author-a1,
+ * C4 test-author (another item, 24242424), C5 no Seat line; C1-C3 and C5 carry [13131313]. Every commit is
+ * made with the argv of the COMMIT form: --only, subject, why paragraph holding BODY-MARKER, an optional
+ * "Seat: <seat>" paragraph, a Co-Authored-By paragraph, then the path. B0 also names Seat test-author
+ * but sits at the base, so a range limited to base..HEAD must not list it.
+ */
+function rerunRepo() {
+  if (rerunRepoCache) return rerunRepoCache
+  const root = tempDir('rerun')
+  const home = join(root, 'home')
+  const hooks = join(root, 'no-hooks')
+  const repoDir = join(root, 'repo')
+  for (const d of [home, hooks, repoDir]) mkdirSync(d, { recursive: true })
+  const env = isolatedGitEnv(home)
+  const fwd = (p) => p.replace(/\\/g, '/')
+  const wt = fwd(repoDir)
+  assert.equal(/\s/.test(wt), false, `the rendered command takes the worktree path unquoted, so the temp path must hold no whitespace: ${wt}`)
+  gitOut(env, ['init', '-q', wt])
+  for (const [k, v] of [
+    ['user.name', 'Fixture'], ['user.email', 'fixture@example.invalid'], ['commit.gpgsign', 'false'],
+    ['tag.gpgsign', 'false'], ['core.hooksPath', fwd(hooks)], ['core.autocrlf', 'false'],
+  ]) gitOut(env, ['-C', wt, 'config', k, v])
+
+  let n = 0
+  const subjects = {}
+  const commitAs = (id, { seat, short }) => {
+    n += 1
+    writeFileSync(join(repoDir, 'f.txt'), `${id} ${n}\n`)
+    gitOut(env, ['-C', wt, 'add', 'f.txt'])
+    const subject = `test(plugin): ${id} change [${short}]`
+    const args = ['-C', wt, 'commit', '--only', '-m', subject, '-m', `${BODY_MARKER} why ${id}`]
+    if (seat) args.push('-m', `Seat: ${seat}`)
+    args.push('-m', COAUTHOR, '--', 'f.txt')
+    gitOut(env, args)
+    subjects[id] = subject
+    return gitOut(env, ['-C', wt, 'rev-parse', 'HEAD']).trim()
+  }
+  const hash = {}
+  hash.B0 = commitAs('B0', { seat: 'test-author', short: RERUN_SHORT })
+  hash.C1 = commitAs('C1', { seat: 'implementer', short: RERUN_SHORT })
+  hash.C2 = commitAs('C2', { seat: 'test-author', short: RERUN_SHORT })
+  hash.C3 = commitAs('C3', { seat: 'test-author-a1', short: RERUN_SHORT })
+  hash.C4 = commitAs('C4', { seat: 'test-author', short: OTHER_SHORT })
+  hash.C5 = commitAs('C5', { seat: null, short: RERUN_SHORT })
+
+  // The fixture must reproduce the shape that blinded the old form: git parses no Seat trailer here, only Co-Authored-By.
+  const seatTrailers = gitOut(env, ['-C', wt, 'log', '--format=%(trailers:key=Seat,valueonly)'])
+  assert.equal(seatTrailers.trim(), '', 'no commit has a parsed Seat trailer')
+  const coAuthors = gitOut(env, ['-C', wt, 'log', '--format=%(trailers:key=Co-Authored-By,valueonly)']).split('\n').filter((l) => l.trim() !== '')
+  assert.equal(coAuthors.length, 6, 'every commit has a parsed Co-Authored-By trailer')
+
+  rerunRepoCache = { root, wt, env, base: hash.B0, hash, subjects }
+  return rerunRepoCache
+}
+
+/** The shell executables a rendered command may be run in: POSIX sh and pwsh. A missing one is skipped by name. */
+function locateSh() {
+  const candidates = ['sh']
+  if (process.platform === 'win32') {
+    const exec = spawnSync('git', ['--exec-path'], { encoding: 'utf8' })
+    if (exec.status === 0) {
+      const gitRoot = resolve(exec.stdout.trim(), '..', '..', '..')
+      candidates.push(join(gitRoot, 'bin', 'sh.exe'), join(gitRoot, 'usr', 'bin', 'sh.exe'))
+    }
+    for (const base of [process.env.ProgramFiles, process.env.ProgramW6432, process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'Programs')]) {
+      if (base) candidates.push(join(base, 'Git', 'bin', 'sh.exe'), join(base, 'Git', 'usr', 'bin', 'sh.exe'))
+    }
+  }
+  return candidates.find((c) => spawnSync(c, ['-c', 'exit 0']).status === 0) ?? null
+}
+function locatePwsh() {
+  return spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command', 'exit 0']).status === 0 ? 'pwsh' : null
+}
+const SHELLS = [
+  { name: 'POSIX sh', exe: locateSh(), argv: (command) => ['-c', command] },
+  { name: 'pwsh', exe: locatePwsh(), argv: (command) => ['-NoProfile', '-NonInteractive', '-Command', command] },
+]
+
+/** The command a rendered prompt's RERUN CHECK tells the seat to run: from "git -C" to the end of the range. */
+function rerunCommand(prompt) {
+  const start = prompt.indexOf('RERUN CHECK')
+  assert.ok(start !== -1, 'prompt has a RERUN CHECK part')
+  const line = prompt.slice(start).split('\n')[0]
+  const m = /\brun (git -C \S+ log \S.*?\.\.HEAD)(?=\s|$)/.exec(line)
+  assert.ok(m, `the RERUN CHECK line names a git log command ending in ..HEAD: ${line}`)
+  return m[1]
+}
+
+/** Stdout of the command run in the shell inside the temp repo's environment, as lines without the final newline. */
+function runInShell(shell, repo, command) {
+  const r = spawnSync(shell.exe, shell.argv(command), { encoding: 'utf8', env: repo.env, cwd: repo.root })
+  assert.equal(r.status, 0, `${shell.name} exit ${r.status} for: ${command}\n${r.stderr}`)
+  const lines = r.stdout.replace(/\r\n/g, '\n').split('\n')
+  if (lines[lines.length - 1] === '') lines.pop()
+  return { lines, text: lines.join('\n') }
+}
+
+function seatPromptFor(repo, seat, { entryMode = 'seat', bound = true } = {}) {
+  const item = itemFixture({
+    short: RERUN_SHORT, title: `Item ${RERUN_SHORT}`, configFingerprint: `fp-${RERUN_SHORT}`, traits: ['delegated'],
+    worktree: repo.wt, stages: stages.bugFixLike(),
+  })
+  const plan = makePlan([item], { key: ALT, bound, entryMode, baseSha: repo.base })
+  return loadCore(IMPLEMENT_PATH).seatPrompt(plan, item, stageOf(item, seat), {})
+}
+const reseatPromptFor = (repo, seat) =>
+  reseatPrompt({ key: ALT, bound: true, seat, short: RERUN_SHORT, worktree: repo.wt, baseSha: repo.base, pre: repo.base })
+
+/** Asserts every line is "hash TAB subject" and that the listed (hash, subject) pairs are exactly the expected commits. */
+function assertListsExactly(lines, repo, ids, where) {
+  for (const l of lines) assert.match(l, /^[0-9a-f]{40}\t[^\t]*$/, `${where}: each line is hash TAB subject, got ${JSON.stringify(l)}`)
+  const got = lines.map((l) => l.split('\t').join(' | ')).sort()
+  const want = ids.map((id) => `${repo.hash[id]} | ${repo.subjects[id]}`).sort()
+  assert.deepEqual(got, want, `${where}: listed commits`)
+}
+function assertNoBody(text, where) {
+  assert.equal(text.includes(BODY_MARKER), false, `${where}: a commit body (why paragraph) is shown`)
+  assert.equal(text.includes('Co-Authored-By'), false, `${where}: a commit body (Co-Authored-By paragraph) is shown`)
+  assert.equal(text.includes('Seat:'), false, `${where}: a commit body (Seat line) is shown`)
+}
+
+test('S13 (R1 fixture): the temp repository is built from the plugin COMMIT form - Seat and Co-Authored-By are separate -m paragraphs - and the rendered COMMIT line says so', () => {
+  const repo = rerunRepo()
+  const prompt = seatPromptFor(repo, 'test-author')
+  assert.ok(prompt.includes('-m "Seat: test-author" -m "Co-Authored-By: '), 'the COMMIT form gives Seat its own -m paragraph before Co-Authored-By')
+  assert.ok(prompt.includes(`[${RERUN_SHORT}]" -m "<why>"`), 'the COMMIT form is subject [short], why, Seat, Co-Authored-By')
 })
 
-test('S13 (D6): the -a1 test-author reseat uses the subjects-only form; the -a1 implementer reseat keeps %b', () => {
-  const ta = paragraphFrom(reseatPrompt({ key: ALT, bound: true, seat: 'test-author-a1' }), 'RERUN CHECK')
-  assert.ok(ta.includes(SUBJECTS_ONLY), ta)
-  assert.equal(/%[bB]/.test(ta), false)
-  const impl = paragraphFrom(reseatPrompt({ key: ALT, bound: true, seat: 'implementer-a1' }), 'RERUN CHECK')
-  assert.ok(impl.includes(WITH_BODY), impl)
+test('S13 (R1): at least one of POSIX sh and pwsh is installed to run the rendered command', () => {
+  const found = SHELLS.filter((s) => s.exe)
+  assert.ok(found.length >= 1, `no shell ran: ${SHELLS.map((s) => `${s.name} not installed`).join(', ')}`)
 })
+
+for (const shell of SHELLS) {
+  const opts = { skip: shell.exe ? false : `${shell.name} is not installed on this machine` }
+
+  test(`S13 (AC6, R1) [${shell.name}]: a test-author seat's RERUN CHECK command lists exactly its own Seat commits since the base - hash and subject only, never a body`, opts, () => {
+    const repo = rerunRepo()
+    const commands = new Set()
+    for (const entryMode of ['seat', 'pre-entered']) {
+      for (const bound of [true, false]) commands.add(rerunCommand(seatPromptFor(repo, 'test-author', { entryMode, bound })))
+    }
+    assert.equal(commands.size, 1, 'the command is the same in both entry modes, bound and unbound')
+    const [command] = commands
+    const { lines, text } = runInShell(shell, repo, command)
+    // C2 (this item) and C4 (another item) have Seat: test-author; C1, C3 (test-author-a1), C5 (no Seat line) and the base B0 must not be listed.
+    assertListsExactly(lines, repo, ['C2', 'C4'], 'test-author')
+    assertNoBody(text, 'test-author')
+    assert.deepEqual(
+      lines.filter((l) => l.includes(`[${RERUN_SHORT}]`)).map((l) => l.slice(0, 40)),
+      [repo.hash.C2],
+      'its own commit is the one whose subject names the item short'
+    )
+  })
+
+  test(`S13 (AC6, R1) [${shell.name}]: the test-author-a1 reseat's command lists only the commit whose Seat line is test-author-a1, and no body`, opts, () => {
+    const repo = rerunRepo()
+    const { lines, text } = runInShell(shell, repo, rerunCommand(reseatPromptFor(repo, 'test-author-a1')))
+    assertListsExactly(lines, repo, ['C3'], 'test-author-a1')
+    assertNoBody(text, 'test-author-a1')
+  })
+
+  test(`S13 (AC6, R1) [${shell.name}]: an implementer's command keeps the bodies - every commit since the base, with its Seat line - and the -a1 implementer reseat too`, opts, () => {
+    const repo = rerunRepo()
+    const impl = rerunCommand(seatPromptFor(repo, 'implementer'))
+    assert.equal(impl.includes('--grep'), false, 'the implementer log is not narrowed by a Seat grep')
+    for (const [where, command] of [['implementer', impl], ['implementer-a1', rerunCommand(reseatPromptFor(repo, 'implementer-a1'))]]) {
+      const { text } = runInShell(shell, repo, command)
+      assert.ok(text.includes(BODY_MARKER), `${where}: the body is shown`)
+      assert.ok(text.includes('Seat: implementer'), `${where}: the Seat line of C1 is shown`)
+      const listed = new Set(text.match(/^[0-9a-f]{40}(?=\t)/gm))
+      assert.deepEqual([...listed].sort(), ['C1', 'C2', 'C3', 'C4', 'C5'].map((id) => repo.hash[id]).sort(), `${where}: every commit since the base, and not the base`)
+    }
+  })
+}
 
 // ---- S5: probe CLI and probeFrom ----
 

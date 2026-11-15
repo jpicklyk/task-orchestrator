@@ -3,6 +3,11 @@
 // item 1 (prefer mcp-task-orchestrator, else the first non-auxiliary key containing "task-orchestrator",
 // else null), task-scope AC1/AC3 and planner decisions D1/D2 (auxiliary rows dropped first, the preferred
 // key included; collect order is local, project, user) - never observed output.
+// S14 (fix cycle A1, review finding O1; oracle: `amendments` ruling R3 and the AC3/D2 rule that an auxiliary
+// registration is never the orchestration entry): a url in `${VAR}` form that names /mcp/director or
+// /mcp/knowledge is excluded whether or not the variable is set - the url is env-expanded first, and one
+// that still does not parse as an http(s) URL is read as text (cut at the first ? or #, trailing slashes
+// dropped, matched on its /mcp/director or /mcp/knowledge ending).
 // Hermetic: every case passes an explicit cwd and env pointing at fresh temp dirs.
 
 import './hermetic-claude-config.mjs';
@@ -36,7 +41,9 @@ const writeUser = (fx, servers, local) =>
     JSON.stringify({ mcpServers: servers, ...(local ? { projects: { [fx.W]: { mcpServers: local } } } : {}) })
   );
 const writeProject = (fx, servers) => writeFileSync(join(fx.W, '.mcp.json'), JSON.stringify({ mcpServers: servers }));
-const keyOf = (fx) => resolveOrchestratorEntryKey({ cwd: fx.W, env: fx.env });
+// `vars` are extra environment members (the ${VAR} forms of a url expand from them), absent unless given.
+const keyOf = (fx, vars = {}) => resolveOrchestratorEntryKey({ cwd: fx.W, env: { ...fx.env, ...vars } });
+const rowsOf = (fx, vars = {}) => collectOrchestratorRegistrations({ cwd: fx.W, env: { ...fx.env, ...vars } });
 
 test('S1: a single user entry under another key containing task-orchestrator is returned', () => {
   const fx = fixture();
@@ -149,4 +156,108 @@ test('S4: no configuration at all gives null and does not throw; a malformed .cl
   assert.equal(keyOf(fx), null);
   writeFileSync(join(fx.C, '.claude.json'), '{ not json');
   assert.equal(keyOf(fx), null);
+});
+
+// ---- S14: env-form urls (${VAR}) naming an auxiliary path (R3, O1) ----
+
+const TO_URL = 'http://localhost:3001';
+const TO_PORT = '3001';
+/** Every case runs with the variable unset and set as two tests; the answer must not depend on it. */
+const URL_VARS = [['unset', {}], ['set', { TO_URL, TO_PORT }]];
+/** ids[0] names the unset test, ids[1] the set one (they are the same id when the scenario does not tell them apart). */
+function perState(ids, title, body) {
+  URL_VARS.forEach(([label, vars], i) => test(`${ids[i]} [env ${label}]: ${title}`, () => body(vars, label)));
+}
+const profileOfRow = (fx, vars, key) => rowsOf(fx, vars).find((r) => r.key === key)?.profile;
+
+perState(['S14a', 'S14b'], 'an entry whose only url is ${TO_URL}/mcp/director is auxiliary: null, and its row profile is director', (vars) => {
+  const fx = fixture();
+  writeUser(fx, { 'task-orchestrator-director': http('${TO_URL}/mcp/director') });
+  assert.equal(keyOf(fx, vars), null);
+  assert.equal(profileOfRow(fx, vars, 'task-orchestrator-director'), 'director');
+});
+
+perState(['S14c', 'S14c'], '${TO_URL:-http://localhost:3001}/mcp/knowledge/ is auxiliary: null, and its row profile is knowledge', (vars) => {
+  const fx = fixture();
+  writeUser(fx, { 'task-orchestrator-knowledge': http('${TO_URL:-http://localhost:3001}/mcp/knowledge/') });
+  assert.equal(keyOf(fx, vars), null);
+  assert.equal(profileOfRow(fx, vars, 'task-orchestrator-knowledge'), 'knowledge');
+});
+
+perState(['S14d', 'S14d'], 'the preferred key mcp-task-orchestrator at ${TO_URL}/mcp/director is dropped, so task-orchestrator-main at ${TO_URL}/mcp is returned', (vars) => {
+  const fx = fixture();
+  writeUser(fx, {
+    'mcp-task-orchestrator': http('${TO_URL}/mcp/director'),
+    'task-orchestrator-main': http('${TO_URL}/mcp'),
+  });
+  assert.equal(keyOf(fx, vars), 'task-orchestrator-main');
+});
+
+perState(['S14d probe', 'S14d probe'], 'an orchestration preferred key at ${TO_URL}/mcp still wins over a ${TO_URL}/mcp/director entry', (vars) => {
+  const fx = fixture();
+  writeUser(fx, {
+    'task-orchestrator-director': http('${TO_URL}/mcp/director'),
+    'mcp-task-orchestrator': http('${TO_URL}/mcp'),
+  });
+  assert.equal(keyOf(fx, vars), 'mcp-task-orchestrator');
+});
+
+perState(['S14e', 'S14e'], 'an entry at ${TO_URL}/mcp is an orchestration entry: returned by its key, row profile null', (vars) => {
+  const fx = fixture();
+  writeUser(fx, { 'task-orchestrator-alt': http('${TO_URL}/mcp') });
+  assert.equal(keyOf(fx, vars), 'task-orchestrator-alt');
+  assert.equal(profileOfRow(fx, vars, 'task-orchestrator-alt'), null);
+});
+
+perState(['S14f1', 'S14f1'], '/mcp/directory is not /mcp/director: a literal url and a ${TO_URL} url both give an orchestration row', (vars) => {
+  const fx = fixture();
+  writeUser(fx, {
+    'task-orchestrator-lit': http('http://localhost:3001/mcp/directory'),
+    'task-orchestrator-var': http('${TO_URL}/mcp/directory'),
+  });
+  assert.equal(profileOfRow(fx, vars, 'task-orchestrator-lit'), null);
+  assert.equal(profileOfRow(fx, vars, 'task-orchestrator-var'), null);
+  const fx2 = fixture();
+  writeUser(fx2, { 'task-orchestrator-var': http('${TO_URL}/mcp/directory') });
+  assert.equal(keyOf(fx2, vars), 'task-orchestrator-var');
+});
+
+perState(['S14f2', 'S14f2'], 'a query after the auxiliary path does not hide it: ${TO_URL}/mcp/director?x=1 gives null', (vars) => {
+  const fx = fixture();
+  writeUser(fx, { 'task-orchestrator-aux': http('${TO_URL}/mcp/director?x=1') });
+  assert.equal(keyOf(fx, vars), null);
+});
+
+perState(['S14f3', 'S14f3'], 'a fragment after the auxiliary path does not hide it: ${TO_URL}/mcp/knowledge#top gives null', (vars) => {
+  const fx = fixture();
+  writeUser(fx, { 'task-orchestrator-aux': http('${TO_URL}/mcp/knowledge#top') });
+  assert.equal(keyOf(fx, vars), null);
+});
+
+perState(['S14g', 'S14g'], 'http://localhost:${TO_PORT}/mcp/director is auxiliary: null, row profile director', (vars) => {
+  const fx = fixture();
+  writeUser(fx, { 'task-orchestrator-director': http('http://localhost:${TO_PORT}/mcp/director') });
+  assert.equal(keyOf(fx, vars), null);
+  assert.equal(profileOfRow(fx, vars, 'task-orchestrator-director'), 'director');
+});
+
+perState(['S14 probe', 'S14 probe'], 'surrounding whitespace and trailing slashes are ignored in an env-form auxiliary url', (vars) => {
+  for (const url of ['  ${TO_URL}/mcp/director  ', '${TO_URL}/mcp/knowledge/', '${TO_URL}/mcp/director//']) {
+    const fx = fixture();
+    writeUser(fx, { 'task-orchestrator-aux': http(url) });
+    assert.equal(keyOf(fx, vars), null, JSON.stringify(url));
+  }
+});
+
+perState(['S14 probe', 'S14 probe'], 'an auxiliary path that is not the ending of an env-form url, or sits inside its query or fragment, does not exclude it', (vars) => {
+  const cases = [
+    ['${TO_URL}/mcp/director/extra', 'task-orchestrator-extra'],
+    ['${TO_URL}/mcp?next=/mcp/director', 'task-orchestrator-query'],
+    ['${TO_URL}/mcp#/mcp/knowledge', 'task-orchestrator-fragment'],
+  ];
+  for (const [url, key] of cases) {
+    const fx = fixture();
+    writeUser(fx, { [key]: http(url) });
+    assert.equal(keyOf(fx, vars), key, url);
+  }
 });
