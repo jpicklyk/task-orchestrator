@@ -310,7 +310,7 @@ class McpProfileHttpTest {
     }
 
     @Test
-    fun `S5 initialize instructions name the profile mention describe and list no tool names`() {
+    fun `S1 initialize instructions name the profile, describe and exactly the tools it serves`() {
         val s = newServers()
         testApplication {
             application { installMcpStreamableHttp(s.orchestration, cfg(), knowledgeServer = s.knowledge, mcpAuth = McpAuthMode.Local) }
@@ -331,15 +331,8 @@ class McpProfileHttpTest {
                         "instructions for $profile"
                     )
                 texts += instructions
-                assertTrue(profile.wire in instructions, "instructions must name the profile '${profile.wire}': $instructions")
-                assertTrue("describe" in instructions, "instructions must point at describe: $instructions")
+                ToolTextOracle.assertInstructions(profile, instructions)
                 assertFalse("v3" in instructions.lowercase(), "no v3 reference: $instructions")
-                val allNames = orchestrationTools + setOf("get_context", "create_work_tree", "query_items", "manage_items")
-                allNames.forEach { name ->
-                    val word = Regex("(?<![A-Za-z0-9_])" + Regex.escape(name) + "(?![A-Za-z0-9_])")
-                    assertFalse(word.containsMatchIn(instructions), "no tool-name list ($name): $instructions")
-                }
-                assertTrue(instructions.length < 600, "one short sentence, not a manual: ${instructions.length} chars")
             }
             assertNotEquals(texts[0], texts[1], "the two profiles carry different instructions")
         }

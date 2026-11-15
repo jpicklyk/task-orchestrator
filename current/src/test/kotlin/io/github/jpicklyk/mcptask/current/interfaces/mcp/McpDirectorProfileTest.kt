@@ -332,7 +332,7 @@ class McpDirectorProfileTest {
     // ------------------------------------------------------------------ S6 instructions
 
     @Test
-    fun `S6 director instructions are one sentence naming the profile and describe with no tool list`() {
+    fun `S1 director instructions name the profile, describe and exactly the five director tools`() {
         val s = newServers()
         testApplication {
             application { mountAll(s) }
@@ -340,16 +340,7 @@ class McpDirectorProfileTest {
             val byPath = listOf("/mcp", "/mcp/knowledge", "/mcp/director").associateWith { client.handshake(it).second.instructions }
             val instructions = assertNotNull(byPath.getValue("/mcp/director"), "the director initialize result carries instructions")
 
-            assertTrue("director" in instructions, "names the profile: $instructions")
-            assertTrue("describe" in instructions, "points at describe: $instructions")
-            val sentences = instructions.trim().split(Regex("(?<=[.!?])\\s+"))
-            assertEquals(1, sentences.size, "AC10: one sentence: $instructions")
-            assertTrue(instructions.length < 600, "one short sentence, not a manual: ${instructions.length} chars")
-            val everyToolName = orchestrationTools + setOf("get_context", "create_work_tree", "query_items", "manage_items")
-            for (name in everyToolName) {
-                val word = Regex("(?<![A-Za-z0-9_])" + Regex.escape(name) + "(?![A-Za-z0-9_])")
-                assertFalse(word.containsMatchIn(instructions), "no tool-name list ($name): $instructions")
-            }
+            ToolTextOracle.assertInstructions(ToolProfile.DIRECTOR, instructions)
             assertEquals(3, byPath.values.toSet().size, "the three profiles carry three different instructions: $byPath")
             assertNotEquals(byPath.getValue("/mcp"), instructions)
         }
