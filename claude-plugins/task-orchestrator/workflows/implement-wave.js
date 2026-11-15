@@ -1402,14 +1402,19 @@ function promptRerunAndEntry(plan, item, stage) {
   const lines = []
   const tokenFile = seatTokenFile(plan, item, stage)
   if (stage.writes) {
-    // A blind test-author seat never sees commit bodies: subject and Seat trailer only.
-    const logFormat = stage.output === 'test-author-v1'
-      ? '"%H%x09%s%x09%(trailers:key=Seat,valueonly)"'
-      : '%H%x09%s%x09%b'
+    // A blind test-author seat never sees commit bodies: --grep matches its own "Seat: <seat>" line
+    // anywhere in the message (the COMMIT form puts it in its own paragraph, so it is not a parsed
+    // trailer) and the format prints hash and subject only. The anchors keep test-author off
+    // test-author-a1.
+    const rerunCheck = stage.output === 'test-author-v1'
+      ? `RERUN CHECK: before doing any work, run git -C ${item.worktree} log --format=%H%x09%s --grep="^Seat: ${stage.seat}$" ${plan.baseSha}..HEAD ` +
+        `(it lists only commits whose message has the line "Seat: ${stage.seat}", hash and subject only) and look for a ` +
+        `subject containing "[${item.short}]". If found, `
+      : `RERUN CHECK: before doing any work, run git -C ${item.worktree} log --format=%H%x09%s%x09%b ${plan.baseSha}..HEAD ` +
+        `and look for a commit subject containing "[${item.short}]" with trailer "Seat: ${stage.seat}". If found, `
     lines.push(
-      `RERUN CHECK: before doing any work, run git -C ${item.worktree} log --format=${logFormat} ${plan.baseSha}..HEAD ` +
-        `and look for a commit subject containing "[${item.short}]" with trailer "Seat: ${stage.seat}". If found, your ` +
-        'own notes are already filled (verify with notes_read(select:"list", itemId, keys:[<your keys>]), which returns no ' +
+      rerunCheck +
+        'your own notes are already filled (verify with notes_read(select:"list", itemId, keys:[<your keys>]), which returns no ' +
         `bodies) — ${tokenFile ? 'end your seat (END SEAT, outcome done) and ' : ''}stop, do not redo the work.`
     )
     lines.push(
