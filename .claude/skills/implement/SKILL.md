@@ -1117,8 +1117,16 @@ After review passes:
    (`git worktree add --detach <unique-tmp> origin/main`), each mutation applied with
    `references/patch-anchored.py` (`DRY=1` first) and run only against the test classes the
    item's `test-manifest` maps to that scenario (`--tests`), one full suite only for a survivor
-   (to classify it as covered at another seam). Record proofs run, gaps, equivalents and minutes
-   in the item's `red-proof-results` note (orchestrator-owned). A real gap becomes a test-only
+   (to classify it as covered at another seam). Mutations on node tests (plugin or `scripts/`) run in
+   an extraction made by `node scripts/redproof-extract.mjs <sha> <outDir> <control test file>...`:
+   a mutation counts only after a green control (`control N/N`) in the same extraction, and the
+   control count is recorded on the note. Record proofs run, gaps, equivalents and minutes
+   in the item's `red-proof-results` note (orchestrator-owned). Each survivor is classified there:
+   a weak test is a real gap (name the missing assertion; carry-in to an open item that owns the
+   file, or a follow-up; re-run the mutation after it lands); an equivalent, unreachable or
+   covered-at-another-seam (name the test) survivor needs no new test, is disposed by the feature
+   review and dropped from the budget. An unclassified survivor blocks the feature review's
+   red-proof line. A real gap becomes a test-only
    follow-up item via `/task-orchestrator:create-item` (exempt from further proofs by policy),
    never a reopen. Skip categories per the rule. Run it in the background when other work is
    waiting; it never gates the merge or the terminal transition. Dispatch the runner with the Agent `description`
@@ -1248,7 +1256,12 @@ merge, step 8):
    worktree at the merged `main` SHA, each mutation applied with `references/patch-anchored.py`
    and run only against the test classes that child's `test-manifest` maps to it, one incremental
    whole-suite run per survivor, results recorded once on the parent's `red-proof-results` note.
-   A real gap becomes a carry-in on the next item touching that seam or one test-only follow-up
+   Mutations on node tests run in a `node scripts/redproof-extract.mjs <sha> <outDir> <control test
+   file>...` extraction, counted only after a green control (`control N/N`) there; record the control
+   count on the note. Classify each survivor on the note: weak test = real gap (name the missing
+   assertion, carry-in or follow-up, re-run after it lands); equivalent, unreachable or covered at
+   another seam (name the test) = no new test, disposed by the feature review and dropped from the
+   budget. An unclassified survivor blocks the feature review's red-proof line. A real gap becomes a carry-in on the next item touching that seam or one test-only follow-up
    item, never a reopen. Background; it gates nothing. The runner is dispatched as `red-proofs:<parent-short>`
    and its meters are recorded per `post-run.md` Step 7a item 7.
 11. Retrospective - the plugin's retrospective hook fires on a successful `runs_write` `close`

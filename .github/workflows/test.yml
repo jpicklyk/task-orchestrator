@@ -107,6 +107,18 @@ jobs:
         fi
         echo "Ran $test_count plugin script tests."
 
+    - name: Run repo script tests
+      if: ${{ !cancelled() }}
+      run: |
+        set -o pipefail
+        node --test "scripts/tests/*.test.mjs" | tee /tmp/repo-script-test-output.txt
+        test_count=$(grep '^# tests ' /tmp/repo-script-test-output.txt | awk '{print $3}')
+        if [ -z "$test_count" ] || [ "$test_count" -lt 1 ]; then
+          echo "::error::No repo script tests ran (test_count=${test_count:-0}) — the test glob matched nothing. Failing so an empty glob can't go silently green."
+          exit 1
+        fi
+        echo "Ran $test_count repo script tests."
+
     - name: Run project skill helper tests
       if: ${{ !cancelled() }}
       run: |

@@ -319,6 +319,11 @@ surface was actually exercised.
   order is assumed but not guaranteed.
 - **Replay / idempotency** — repeating the same write or transition twice; confirm the documented
   idempotency contract (or lack of one) holds.
+- **Platform-bound probes** — a probe whose outcome depends on the host platform (path
+  separators, a trailing slash or backslash, drive letters, case sensitivity, line endings, clock
+  resolution) is written platform-neutrally (build paths with `path.join`/`path.sep`, or assert both
+  outcomes by platform) or is marked in `test-manifest` as platform-bound with the CI image it must
+  be proven on.
 
 Not every probe applies to every surface — a pure in-memory computation has no path-encoding
 surface. Record the ones that don't apply as `N/A: <reason>` rather than omitting them silently,
@@ -462,6 +467,8 @@ original as written.
   or `not-covered: <reason>`.
 - **Probes executed** — every probe from §6 attempted, with its result, including no-finding
   probes.
+- **Platform-bound probes** — `platform-bound probes: <none | list>`; each listed probe names the
+  CI image it must be proven on (§6). The `test-independence-audit` checks them: listed and neutralized.
 - **Forbidden-pattern declaration** — every use of `assumeTrue`, a disjunctive assertion, or any
   other §7 pattern present in the authored tests, each with a justification. An empty declaration
   asserts none were used — it is itself a claim the reviewer checks.
