@@ -70,7 +70,7 @@ const normalizeTestFile = (raw) => {
     refuse(`test file is outside the extraction (must be repo-relative, got an absolute path): ${raw}`);
   }
   if (value.split('/').includes('..')) {
-    refuse(`test file is outside the extraction (a `..` segment): ${raw}`);
+    refuse(`test file is outside the extraction (a '..' segment): ${raw}`);
   }
   const normalized = path.posix.normalize(value);
   const underListedPath = EXTRACT_PATHS.some((entry) =>
