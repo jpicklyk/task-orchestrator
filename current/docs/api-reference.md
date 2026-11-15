@@ -357,9 +357,9 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 | `children[].noteAnchors[].noteKey` | string | yes | Note key. |
 | `children[].noteAnchors[].role` | string: queue \| work \| review | yes | Note role. |
 | `children[].noteAnchors[].anchor` | string | yes | Heading to cut. |
-| `deps` | array of object | no | Dependencies between refs. |
-| `deps[].from` | string | yes | From ref (the blocker). |
-| `deps[].to` | string | yes | To ref (the blocked). |
+| `deps` | array of object | no | Edges between refs. |
+| `deps[].from` | string | yes | From ref (blocker for blocks). |
+| `deps[].to` | string | yes | To ref (blocked for blocks). |
 | `deps[].type` | string: blocks \| relates_to | no | blocks (default) or relates_to. |
 | `deps[].unblockAt` | string: queue \| work \| review \| terminal | no | Unblocks at this role; default terminal. |
 | `notes` | array of object | no | Notes; win over noteAnchors and createNotes. |
@@ -370,7 +370,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 | `createNotes` | boolean | no | true: blank notes for unwritten schema keys. |
 | `docRef` | object | no | Plan document for noteAnchors; root adopts it. |
 | `docRef.slug` | string | yes | Slug (not rule/). |
-| `docRef.rootId` | string | no | Must be the tree's root (default). |
+| `docRef.rootId` | string | no | Tree's root only (default). |
 
 Errors: `ambiguous_id`, `cycle_detected`, `duplicate`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_claim_holder`, `not_found`, `note_too_long`, `partial_failure`, `payload_too_large`, `schema_violation`, `unauthenticated`, `unavailable`, `unknown_parameter`
 

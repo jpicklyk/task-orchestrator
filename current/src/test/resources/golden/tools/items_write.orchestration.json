@@ -324,17 +324,17 @@
             },
             "deps": {
               "type": "array",
-              "description": "Dependencies between refs. [ops: create_tree]",
+              "description": "Edges between refs. [ops: create_tree]",
               "items": {
                 "type": "object",
                 "properties": {
                   "from": {
                     "type": "string",
-                    "description": "From ref (the blocker)."
+                    "description": "From ref (blocker for blocks)."
                   },
                   "to": {
                     "type": "string",
-                    "description": "To ref (the blocked)."
+                    "description": "To ref (blocked for blocks)."
                   },
                   "type": {
                     "type": "string",
@@ -410,7 +410,7 @@
                 },
                 "rootId": {
                   "type": "string",
-                  "description": "Must be the tree's root (default)."
+                  "description": "Tree's root only (default)."
                 }
               },
               "required": [

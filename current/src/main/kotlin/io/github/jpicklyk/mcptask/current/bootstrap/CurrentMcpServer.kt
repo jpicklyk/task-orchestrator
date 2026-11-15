@@ -663,7 +663,8 @@ internal fun profileInstructions(profile: ToolProfile): String =
                 "phase transitions and claims. config: a root's schemas and rule text. runs_read and runs_write: " +
                 "runs, seats and raising decisions. Start with items_read context (an item's gate state) or next " +
                 "(what to pick up). Under a run seat, pass its token as the top-level seatToken of every call. " +
-                "Decisions are answered, and runs paused or resumed, on the director profile. A client that loads " +
+                "Decisions are answered, and runs paused or resumed, on the director profile: HTTP path " +
+                "/mcp/director, or stdio with MCP_TOOL_PROFILE=director. A client that loads " +
                 "tool schemas on demand should load the tools a task needs together, in one step."
     }
 
