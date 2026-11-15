@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCodec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -33,7 +34,8 @@ internal object RunsWriteCodec : IdempotencyCodec<JsonObject> {
  * The runs_write tool: open, update, close, pause, resume and mark runs, assign and end seats, and raise, acknowledge,
  * answer and withdraw decisions. Every op needs the runs capability except ack and answer, which need decide. mark is
  * REST-only (it is on no MCP profile); pause, resume, ack and answer are director ops; update, assign, end_seat
- * and raise are orchestration ops; withdraw is on both profiles.
+ * and raise are orchestration ops; withdraw is on both profiles. The shared description is the full (REST) form; each MCP
+ * profile gets its own, naming only the ops it serves.
  */
 fun runsWriteTool(): OpsToolSpec<JsonObject> =
     OpsToolSpec(
@@ -44,6 +46,17 @@ fun runsWriteTool(): OpsToolSpec<JsonObject> =
                 "coordinator, director or a human; update, assign: coordinator token; end_seat: the seat's own token; " +
                 "pause and resume: director or human only; mark: REST only. Result: the run (close adds snapshot, mark " +
                 "adds marked) or the decision.",
+        profileDescriptions =
+            mapOf(
+                ToolProfile.ORCHESTRATION to
+                    "Open, update and close runs; assign and end seats; raise and withdraw decisions. Each op needs the " +
+                    "runs capability and a root in scope. close: coordinator, director or a human; update, assign: " +
+                    "coordinator token; end_seat: the seat's own token. Result: the run (close adds snapshot) or the decision.",
+                ToolProfile.DIRECTOR to
+                    "Open, close, pause and resume runs; ack, answer and withdraw decisions. Each op needs the runs " +
+                    "capability (ack, answer: decide) and a root in scope. close: coordinator, director or a human; pause " +
+                    "and resume: director or human only. Result: the run (close adds snapshot) or the decision."
+            ),
         ops =
             listOf(
                 runsOpenOp,

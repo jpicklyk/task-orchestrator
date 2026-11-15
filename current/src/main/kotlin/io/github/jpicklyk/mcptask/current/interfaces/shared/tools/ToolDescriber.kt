@@ -45,7 +45,7 @@ object ToolDescriber {
 
         return buildJsonObject {
             put("tool", spec.name)
-            put("description", spec.description)
+            put("description", spec.descriptionFor(profile))
             ToolSchemaRenderer.inputSchema(spec, profile)?.let { put("inputSchema", it) }
             put("operations", JsonArray(operations.map { it.render() }))
         }

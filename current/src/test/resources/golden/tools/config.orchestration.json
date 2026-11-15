@@ -4,7 +4,7 @@
     "properties": {
       "ops": {
         "type": "array",
-        "description": "Write operations, one flat object per op, run in order. A field marked [ops: ...] applies only to the ops named.",
+        "description": "Operations, one flat object each, run in order. A field marked [ops: ...] applies only to the ops named.",
         "items": {
           "type": "object",
           "properties": {
@@ -82,12 +82,12 @@
       },
       "describe": {
         "type": "boolean",
-        "description": "true: return the operations, their parameters and errors instead of running the tool."
+        "description": "true: return each operation's parameters and errors; nothing runs."
       }
     },
     "type": "object"
   },
-  "description": "Per-root config and rules. Each ops[] element has an op: get, history, push, validate, rollback, reset (a root's versioned config document), effective (the resolved view), or rules (rule text). Reads need the read capability, push, rollback and reset the write-config capability. rootId is a depth-0 item. Call with describe:true for each operation's parameters and errors.",
+  "description": "Per-root config and rules. Each ops[] element has an op: get, history, push, validate, rollback, reset (a root's versioned config document), effective (the resolved view), or rules (rule text). Reads need the read capability, push, rollback and reset the write-config capability. rootId is a depth-0 item. Call with describe:true for parameters and errors.",
   "annotations": {
     "readOnlyHint": false,
     "destructiveHint": true,

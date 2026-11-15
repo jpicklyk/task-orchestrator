@@ -4,7 +4,7 @@
     "properties": {
       "ops": {
         "type": "array",
-        "description": "Write operations, one flat object per op, run in order. A field marked [ops: ...] applies only to the ops named.",
+        "description": "Operations, one flat object each, run in order. A field marked [ops: ...] applies only to the ops named.",
         "items": {
           "type": "object",
           "properties": {
@@ -19,7 +19,7 @@
             },
             "title": {
               "type": "string",
-              "description": "Item title. [ops: create, update]"
+              "description": "Item title, max 500 chars. [ops: create, update]"
             },
             "type": {
               "type": "string",
@@ -35,11 +35,11 @@
             },
             "summary": {
               "type": "string",
-              "description": "Short summary. [ops: create, update]"
+              "description": "Short summary, max 2000 chars. [ops: create, update]"
             },
             "statusLabel": {
               "type": "string",
-              "description": "Free-form status label. [ops: create, update]"
+              "description": "Status label. [ops: create, update]"
             },
             "priority": {
               "type": "string",
@@ -60,7 +60,7 @@
             },
             "metadata": {
               "type": "string",
-              "description": "Free-form metadata text. [ops: create, update]"
+              "description": "Metadata text. [ops: create, update]"
             },
             "tags": {
               "type": "array",
@@ -71,14 +71,14 @@
             },
             "traits": {
               "type": "array",
-              "description": "Declared trait names. Update: [] clears. [ops: create, update]",
+              "description": "Declared traits, max 100 chars each. Update: [] clears. [ops: create, update]",
               "items": {
                 "type": "string"
               }
             },
             "properties": {
               "type": "object",
-              "description": "Free-form JSON object without a traits key. [ops: create, update]"
+              "description": "JSON object; no traits key. [ops: create, update]"
             },
             "id": {
               "type": "string",
@@ -123,12 +123,12 @@
       },
       "describe": {
         "type": "boolean",
-        "description": "true: return the operations, their parameters and errors instead of running the tool."
+        "description": "true: return each operation's parameters and errors; nothing runs."
       }
     },
     "type": "object"
   },
-  "description": "Create, update and delete work items or whole trees, one ops[] element each. Call with describe:true for each operation's parameters and errors.",
+  "description": "Create, update and delete work items, one ops[] element each. Call with describe:true for parameters and errors.",
   "annotations": {
     "readOnlyHint": false,
     "destructiveHint": true,

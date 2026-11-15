@@ -20,7 +20,7 @@ internal object TreeDocs {
     const val CHILDREN = "Child items, any order; nest with parentRef."
     const val DEPS = "Dependencies between refs."
     const val DEP_FROM = "From ref (the blocker)."
-    const val DEP_TO = "Target ref."
+    const val DEP_TO = "To ref (the blocked)."
     const val DEP_TYPE = "blocks (default) or relates_to."
     const val DEP_UNBLOCK_AT = "Unblocks at this role; default terminal."
     const val NOTES = "Notes; win over noteAnchors and createNotes."

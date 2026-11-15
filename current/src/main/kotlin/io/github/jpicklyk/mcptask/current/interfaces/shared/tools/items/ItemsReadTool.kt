@@ -21,6 +21,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.ClaimStatus
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -45,28 +46,44 @@ import java.util.UUID
 object ItemsReadTool {
     const val NAME = "items_read"
 
-    /** Select enumeration only; every field documents itself (doc single-source policy). */
-    const val DESCRIPTION =
+    /** The knowledge selects, the opening every profile's text shares (select enumeration only: doc single-source policy). */
+    private const val KNOWLEDGE_SELECTS =
         "Read work items. Selects: get (one item), list (a filtered page), schema (the note schema of a type or an " +
             "item), search (full text over item, note and document content), overview (a hierarchy summary), related " +
-            "(items and documents related to an item by dependencies, links, shared tags and similar text)."
+            "(items and documents related to an item by dependencies, links, shared tags and similar text)"
+
+    /** The shared (full) description, served to orchestration and REST: every select. */
+    const val DESCRIPTION =
+        KNOWLEDGE_SELECTS +
+            ", context (an item's gate state, or a health view without itemId), next (ranked items ready to pick up), " +
+            "blocked (blocked items with their blockers), history (the transition audit trail)."
+
+    /** The knowledge profile's description: it serves no context, next, blocked or history. */
+    const val KNOWLEDGE_DESCRIPTION = "$KNOWLEDGE_SELECTS."
+
+    /** The director profile's description: it serves get, list, overview and blocked only. */
+    const val DIRECTOR_DESCRIPTION =
+        "Read work items. Selects: get (one item), list (a filtered page), overview (a hierarchy summary), " +
+            "blocked (blocked items with their blockers)."
 
     val spec: SelectToolSpec =
         SelectToolSpec(
-            NAME,
-            DESCRIPTION,
-            listOf(
-                ItemsReadGet.select,
-                ItemsReadList.select,
-                ItemsReadSchema.select,
-                ItemsReadSearch.select,
-                ItemsReadOverview.select,
-                ItemsReadRelated.select,
-                ItemsReadContext.select,
-                ItemsReadNext.select,
-                ItemsReadBlocked.select,
-                ItemsReadHistory.select,
-            )
+            name = NAME,
+            description = DESCRIPTION,
+            profileDescriptions = mapOf(ToolProfile.KNOWLEDGE to KNOWLEDGE_DESCRIPTION, ToolProfile.DIRECTOR to DIRECTOR_DESCRIPTION),
+            selects =
+                listOf(
+                    ItemsReadGet.select,
+                    ItemsReadList.select,
+                    ItemsReadSchema.select,
+                    ItemsReadSearch.select,
+                    ItemsReadOverview.select,
+                    ItemsReadRelated.select,
+                    ItemsReadContext.select,
+                    ItemsReadNext.select,
+                    ItemsReadBlocked.select,
+                    ItemsReadHistory.select,
+                )
         )
 }
 

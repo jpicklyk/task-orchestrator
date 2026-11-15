@@ -27,14 +27,26 @@ import kotlinx.serialization.json.JsonObject
  */
 sealed interface ToolSpec {
     val name: String
+
+    /** The shared description: the full form, shown by REST and by every profile without an entry in [profileDescriptions]. */
     val description: String
+
+    /**
+     * A profile's own description, for a tool whose shared [description] names a select or op that profile lacks. A
+     * description never names a member its serving profile hides; see [descriptionFor].
+     */
+    val profileDescriptions: Map<ToolProfile, String>
 }
+
+/** The description [view] shows: its entry in [ToolSpec.profileDescriptions] when [view] is a profile that has one, else the shared one. */
+fun ToolSpec.descriptionFor(view: ToolView): String = (view as? ToolProfile)?.let { profileDescriptions[it] } ?: description
 
 /** A read tool dispatched by its top-level `select`. */
 class SelectToolSpec(
     override val name: String,
     override val description: String,
-    val selects: List<SelectSpec<*, *>>
+    val selects: List<SelectSpec<*, *>>,
+    override val profileDescriptions: Map<ToolProfile, String> = emptyMap()
 ) : ToolSpec
 
 /**
@@ -163,6 +175,7 @@ class OpsToolSpec<R>(
     override val description: String,
     val ops: List<OpSpec<*, R>>,
     val codec: IdempotencyCodec<R>,
+    override val profileDescriptions: Map<ToolProfile, String> = emptyMap(),
     val element: (R) -> JsonObject
 ) : ToolSpec
 

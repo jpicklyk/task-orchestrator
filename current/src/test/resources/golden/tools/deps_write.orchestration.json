@@ -4,7 +4,7 @@
     "properties": {
       "ops": {
         "type": "array",
-        "description": "Write operations, one flat object per op, run in order. A field marked [ops: ...] applies only to the ops named.",
+        "description": "Operations, one flat object each, run in order. A field marked [ops: ...] applies only to the ops named.",
         "items": {
           "type": "object",
           "properties": {
@@ -90,12 +90,12 @@
       },
       "describe": {
         "type": "boolean",
-        "description": "true: return the operations, their parameters and errors instead of running the tool."
+        "description": "true: return each operation's parameters and errors; nothing runs."
       }
     },
     "type": "object"
   },
-  "description": "Create and delete dependency edges between items: create, delete, and the patterns linear, fan_out and fan_in (one element, all edges or none). Each op needs the manage-dependencies capability and sees only items in scope. Result: an edge {id, from, to, type, unblockAt?}, {created: [edge]} or {deleted: n}. Call with describe:true for each operation's parameters and errors.",
+  "description": "Create and delete dependency edges between items: create, delete, and the patterns linear, fan_out and fan_in (one element, all edges or none). Each op needs the manage-dependencies capability and sees only items in scope. Result: an edge {id, from, to, type, unblockAt?}, {created: [edge]} or {deleted: n}. Call with describe:true for parameters and errors.",
   "annotations": {
     "readOnlyHint": false,
     "destructiveHint": true,

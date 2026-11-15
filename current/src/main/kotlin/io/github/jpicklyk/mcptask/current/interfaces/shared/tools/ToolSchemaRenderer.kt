@@ -23,13 +23,13 @@ import kotlinx.serialization.json.put
  */
 object ToolSchemaRenderer {
     const val SELECT_DOC = "Which read to run. A field marked [select: ...] applies only to the selects named."
-    const val OPS_DOC = "Write operations, one flat object per op, run in order. A field marked [ops: ...] applies only to the ops named."
+    const val OPS_DOC = "Operations, one flat object each, run in order. A field marked [ops: ...] applies only to the ops named."
     const val OP_DOC = "The operation this element runs."
     const val ATOMIC_DOC = "true: the first failing op rolls back the whole batch. Default false: each op commits on its own."
     const val IDEMPOTENCY_KEY_DOC =
         "Optional client key (1-128 chars). Resending the same op with the same key returns the stored result."
-    const val DESCRIBE_DOC = "true: return the operations, their parameters and errors instead of running the tool."
-    const val DESCRIBE_HINT = "Call with describe:true for each operation's parameters and errors."
+    const val DESCRIBE_DOC = "true: return each operation's parameters and errors; nothing runs."
+    const val DESCRIBE_HINT = "Call with describe:true for parameters and errors."
 
     /** The input schema `{type:object, properties}` of [spec] in [profile], or null when nothing is visible. */
     fun inputSchema(
@@ -47,8 +47,14 @@ object ToolSchemaRenderer {
         }
     }
 
-    /** The rendered tool description: the spec's description plus [DESCRIBE_HINT]. */
-    fun description(spec: ToolSpec): String = spec.description + " " + DESCRIBE_HINT
+    /**
+     * The rendered tool description in [profile]: [descriptionFor] (the profile's own text, else the shared one) plus
+     * [DESCRIBE_HINT]. The default [ToolView.Rest] renders the shared text.
+     */
+    fun description(
+        spec: ToolSpec,
+        profile: ToolView = ToolView.Rest
+    ): String = spec.descriptionFor(profile) + " " + DESCRIBE_HINT
 
     /**
      * MCP annotations. Select tool: read-only, not destructive, idempotent, closed world. Ops tool: not

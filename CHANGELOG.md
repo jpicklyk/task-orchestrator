@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `runs_write` `withdraw` is now served by the orchestration profile as well as the director profile, so the raiser and a run's coordinator can withdraw a decision on the connection they already use. The director profile is unchanged.
+- **Tool text that works when tool schemas are deferred.** Each profile's `initialize` `instructions` now say what its tools are for and name every tool the profile serves (and no other); the orchestration text adds where decisions are answered and asks a client that loads schemas on demand to load a task's tools together. A tool description names only the selects and ops its serving profile has: `items_read`, `items_write`, `runs_read` and `runs_write` carry per-profile descriptions (REST keeps the full form), `describe: true` on an MCP profile returns that profile's text, and the orchestration `items_read` description names `context`, `next`, `blocked` and `history`. Parameter text states the title (500), summary (2000) and trait-name (100) character limits, the 65,536-byte note body limit and both ends of a `create_tree` dependency. Only description strings change; no name, type, enum or required flag.
 
 ### Plugin
 

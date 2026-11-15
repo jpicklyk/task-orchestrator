@@ -632,22 +632,39 @@ internal fun productionServerCapabilities(): ServerCapabilities =
     )
 
 /**
- * The `initialize` `instructions` of [profile]'s Server: one sentence naming the profile and `describe`, no tool-name
- * list (plan section 3.1). The director profile's sentence is shorter: its tools are reads only. The orchestration
- * profile adds the one place `seatToken` is documented (R22): a top-level field of every call made under a run seat,
- * on every tool, unadvertised in the per-tool schemas.
+ * The `initialize` `instructions` of [profile]'s Server, written for a client that sees only tool names and these
+ * instructions until it loads a tool's schema: the profile and `describe`, what the tools are for, and every tool the
+ * profile serves by name (and no other tool). Caps: orchestration 1,200 characters, director and knowledge 700. The
+ * orchestration text is the one place `seatToken` is documented (R22): a top-level field of every call made under a
+ * run seat, on every tool, unadvertised in the per-tool schemas.
  */
 internal fun profileInstructions(profile: ToolProfile): String =
     when (profile) {
         ToolProfile.DIRECTOR ->
-            "Task Orchestrator MCP server, director tool profile: call any tool with describe: true for its reads."
+            "Task Orchestrator MCP server, ${profile.wire} tool profile: the run board and the decision inbox. Call any " +
+                "tool with describe: true for its selects, operations and parameters. runs_read: runs, their frontier " +
+                "and the open decisions. runs_write: open, close, pause and resume runs; ack, answer and withdraw " +
+                "decisions. report: aggregate metrics and the rollup of a subtree or run. items_read: items, the " +
+                "hierarchy and what is blocked. deps_read: dependency edges. No read here returns a note or document " +
+                "body, and there is no item or note write."
         ToolProfile.KNOWLEDGE ->
-            "Task Orchestrator MCP server, ${profile.wire} tool profile: call any tool with describe: true " +
-                "for its selects, operations and parameters."
+            "Task Orchestrator MCP server, ${profile.wire} tool profile: work items, their notes, dependencies and " +
+                "versioned documents, without phase transitions or runs. Call any tool with describe: true for its " +
+                "selects, operations and parameters. items_read and items_write: find, read, create, update and " +
+                "delete items. notes_read and notes_write: the notes on an item. deps_read and deps_write: dependency " +
+                "edges between items. docs_read and docs_write: plans, rules and other versioned documents of a " +
+                "project root."
         ToolProfile.ORCHESTRATION ->
-            "Task Orchestrator MCP server, ${profile.wire} tool profile: call any tool with describe: true " +
-                "for its selects, operations and parameters. Under a run seat, pass its token as the top-level " +
-                "seatToken of every call."
+            "Task Orchestrator MCP server, ${profile.wire} tool profile: work items that move through gated phases, " +
+                "with the notes each phase requires, dependencies, documents and runs. Call any tool with describe: " +
+                "true for its selects, operations and parameters. items_read and items_write: find, read and write " +
+                "items and trees. notes_read and notes_write: the notes a phase gate asks for. deps_read and " +
+                "deps_write: dependency edges. docs_read and docs_write: versioned plans, rules and pages. advance: " +
+                "phase transitions and claims. config: a root's schemas and rule text. runs_read and runs_write: " +
+                "runs, seats and raising decisions. Start with items_read context (an item's gate state) or next " +
+                "(what to pick up). Under a run seat, pass its token as the top-level seatToken of every call. " +
+                "Decisions are answered, and runs paused or resumed, on the director profile. A client that loads " +
+                "tool schemas on demand should load the tools a task needs together, in one step."
     }
 
 /**

@@ -46,7 +46,7 @@ over MCP.
 `/mcp/knowledge` and `/mcp/director` are exact and case-sensitive; any other `/mcp/<x>` is `404`. A session keeps the
 profile it was initialised with. `MCP_TOOL_PROFILE` is validated on both transports (an unknown value fails startup) and
 applied to stdio only. `POST /api/v1/ops/{tool}` serves every registered select and op whatever its profile set,
-REST-only members included. The `runs_read` and `runs_write` tool descriptions are shared by the profiles, so a description can name an op the connected profile lacks; the table above and the per-op blocks under [Runs](#category-runs) name the profiles of each op. The `initialize` `instructions` is one sentence naming the profile and `describe`. Every 4.0 MCP call's `call_log.request_shape` carries `"profile": "<wire>"`.
+REST-only members included. A tool description names only the selects and ops the connected profile serves: `items_read`, `items_write`, `runs_read` and `runs_write` carry a per-profile description, and `describe: true` on an MCP profile returns that profile's text; REST and this reference show the full form. The `initialize` `instructions` name the profile and `describe`, say what the tools are for and name every tool the profile serves (and no other), for a client that sees only tool names until it loads a schema; the orchestration text also documents `seatToken`, says decisions are answered and runs paused or resumed on the director profile, and asks an on-demand client to load the tools a task needs together. Every 4.0 MCP call's `call_log.request_shape` carries `"profile": "<wire>"`.
 
 ## Tool Categories
 
@@ -63,8 +63,8 @@ REST-only members included. The `runs_read` and `runs_write` tool descriptions a
 | `advance` | Workflow | Write | Phase transitions (cascade and gate enforcement) and claim ownership: ops `transition`, `claim`, `release`, `heartbeat` |
 | `config` | System | Write/Read | Per-root config (get, history, push, validate, rollback, reset), the effective resolved view, and rule text: ops of one 4.0 tool, orchestration profile only |
 | `report` | Reports | Read | Aggregate reports: `usage` (call-log calls, errors, bytes, tokens, latency, retries and replays per group over a window), `gates` (rejected transitions per note key, type, trait or error code), `notes` (note upserts: writes, rewrites and bytes per role, key, seat, type, principal kind or day), `contention` (claim and lease acquire, reject, expire and release counts per resource) and `waste` (redundant reads, over-fetch, reads with no later write, empty `next`, related follow-through and lifecycle-free rejections as ratios) and `rollup` (one subtree or one run: items per role, blocked, transitions, notes written and call cost, plus a run's decisions, seats and attempts); director profile only on MCP |
-| `runs_read` | Runs | Read | Get one run, list runs (newest first; `status`, `rootId`, `endedSince`, `unmarked`) or read a run's frontier (ready, in-flight and waiting members); orchestration and director profiles (`seats`: orchestration only) |
-| `runs_write` | Runs | Write | Open, update, close, pause, resume, assign and end seats, raise, ack, answer and withdraw decisions, and mark runs: ops of one 4.0 tool; `mark` is REST only |
+| `runs_read` | Runs | Read | Get one run, list runs (newest first; `status`, `rootId`, `endedSince`, `unmarked`) or read a run's frontier (ready, in-flight and waiting members); orchestration and director profiles (`seats`: orchestration only; `decisions`, `decision`: director only) |
+| `runs_write` | Runs | Write | Open, update, close, pause, resume and mark runs, assign and end seats, raise, ack, answer and withdraw decisions: ops of one 4.0 tool; orchestration serves `update`, `assign`, `end_seat` and `raise`, director `pause`, `resume`, `ack` and `answer`, both `open`, `close` and `withdraw`; `mark` is REST only |
 
 ---
 
@@ -266,19 +266,19 @@ Create, update and delete work items or whole trees, one ops[] element each.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `title` | string | yes | Item title. |
+| `title` | string | yes | Item title, max 500 chars. |
 | `type` | string | yes | Declared item type; required on create. |
 | `parentId` | string | no | Parent id; omit for a root. Update moves the item. |
 | `description` | string | no | Long description. |
-| `summary` | string | no | Short summary. |
-| `statusLabel` | string | no | Free-form status label. |
+| `summary` | string | no | Short summary, max 2000 chars. |
+| `statusLabel` | string | no | Status label. |
 | `priority` | string: high \| medium \| low | no | Create defaults to medium. |
 | `complexity` | integer | no | 1 to 10. |
 | `requiresVerification` | boolean | no | Completion needs verification. |
-| `metadata` | string | no | Free-form metadata text. |
+| `metadata` | string | no | Metadata text. |
 | `tags` | array of string | no | Lowercase, hyphenated. Update: [] clears. |
-| `traits` | array of string | no | Declared trait names. Update: [] clears. |
-| `properties` | object | no | Free-form JSON object without a traits key. |
+| `traits` | array of string | no | Declared traits, max 100 chars each. Update: [] clears. |
+| `properties` | object | no | JSON object; no traits key. |
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_found`, `partial_failure`, `schema_violation`, `unavailable`, `unknown_parameter`
 
@@ -288,19 +288,19 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 | --- | --- | --- | --- |
 | `id` | string | yes | Item UUID or 8+ hex prefix. |
 | `expectedVersion` | integer | no | Fails version_conflict if the item is at another version. |
-| `title` | string | no | Item title. |
+| `title` | string | no | Item title, max 500 chars. |
 | `type` | string | no | Declared item type; required on create. |
 | `parentId` | string | no | Parent id; omit for a root. Update moves the item. |
 | `description` | string | no | Long description. |
-| `summary` | string | no | Short summary. |
-| `statusLabel` | string | no | Free-form status label. |
+| `summary` | string | no | Short summary, max 2000 chars. |
+| `statusLabel` | string | no | Status label. |
 | `priority` | string: high \| medium \| low | no | Create defaults to medium. |
 | `complexity` | integer | no | 1 to 10. |
 | `requiresVerification` | boolean | no | Completion needs verification. |
-| `metadata` | string | no | Free-form metadata text. |
+| `metadata` | string | no | Metadata text. |
 | `tags` | array of string | no | Lowercase, hyphenated. Update: [] clears. |
-| `traits` | array of string | no | Declared trait names. Update: [] clears. |
-| `properties` | object | no | Free-form JSON object without a traits key. |
+| `traits` | array of string | no | Declared traits, max 100 chars each. Update: [] clears. |
+| `properties` | object | no | JSON object; no traits key. |
 | `clear` | array of string: description \| statusLabel \| metadata \| complexity \| properties \| parentId | no | Update only: optional fields to set to null. |
 
 Errors: `ambiguous_id`, `cycle_detected`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_transition`, `not_claim_holder`, `not_found`, `partial_failure`, `schema_violation`, `unauthenticated`, `unavailable`, `unknown_parameter`, `version_conflict`
@@ -325,14 +325,14 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 | `root.type` | string | no | Declared type; required without id. |
 | `root.priority` | string: high \| medium \| low | no | Create defaults to medium. |
 | `root.tags` | array of string | no | Lowercase, hyphenated. Update: [] clears. |
-| `root.traits` | array of string | no | Declared trait names. Update: [] clears. |
-| `root.summary` | string | no | Short summary. |
+| `root.traits` | array of string | no | Declared traits, max 100 chars each. Update: [] clears. |
+| `root.summary` | string | no | Short summary, max 2000 chars. |
 | `root.description` | string | no | Long description. |
-| `root.statusLabel` | string | no | Free-form status label. |
+| `root.statusLabel` | string | no | Status label. |
 | `root.complexity` | integer | no | 1 to 10. |
 | `root.requiresVerification` | boolean | no | Completion needs verification. |
-| `root.metadata` | string | no | Free-form metadata text. |
-| `root.properties` | object | no | Free-form JSON object without a traits key. |
+| `root.metadata` | string | no | Metadata text. |
+| `root.properties` | object | no | JSON object; no traits key. |
 | `root.noteAnchors` | array of object | no | Notes cut from docRef sections. |
 | `root.noteAnchors[].noteKey` | string | yes | Note key. |
 | `root.noteAnchors[].role` | string: queue \| work \| review | yes | Note role. |
@@ -340,26 +340,26 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 | `parentId` | string | no | Parent id; omit for a root. Update moves the item. |
 | `children` | array of object | no | Child items, any order; nest with parentRef. |
 | `children[].ref` | string | yes | Unique ref; not root. |
-| `children[].title` | string | yes | Item title. |
+| `children[].title` | string | yes | Item title, max 500 chars. |
 | `children[].type` | string | yes | Declared item type. |
 | `children[].parentRef` | string | no | Parent ref; default root. |
 | `children[].priority` | string: high \| medium \| low | no | Create defaults to medium. |
 | `children[].tags` | array of string | no | Lowercase, hyphenated. Update: [] clears. |
-| `children[].traits` | array of string | no | Declared trait names. Update: [] clears. |
-| `children[].summary` | string | no | Short summary. |
+| `children[].traits` | array of string | no | Declared traits, max 100 chars each. Update: [] clears. |
+| `children[].summary` | string | no | Short summary, max 2000 chars. |
 | `children[].description` | string | no | Long description. |
-| `children[].statusLabel` | string | no | Free-form status label. |
+| `children[].statusLabel` | string | no | Status label. |
 | `children[].complexity` | integer | no | 1 to 10. |
 | `children[].requiresVerification` | boolean | no | Completion needs verification. |
-| `children[].metadata` | string | no | Free-form metadata text. |
-| `children[].properties` | object | no | Free-form JSON object without a traits key. |
+| `children[].metadata` | string | no | Metadata text. |
+| `children[].properties` | object | no | JSON object; no traits key. |
 | `children[].noteAnchors` | array of object | no | Notes cut from docRef sections. |
 | `children[].noteAnchors[].noteKey` | string | yes | Note key. |
 | `children[].noteAnchors[].role` | string: queue \| work \| review | yes | Note role. |
 | `children[].noteAnchors[].anchor` | string | yes | Heading to cut. |
 | `deps` | array of object | no | Dependencies between refs. |
 | `deps[].from` | string | yes | From ref (the blocker). |
-| `deps[].to` | string | yes | Target ref. |
+| `deps[].to` | string | yes | To ref (the blocked). |
 | `deps[].type` | string: blocks \| relates_to | no | blocks (default) or relates_to. |
 | `deps[].unblockAt` | string: queue \| work \| review \| terminal | no | Unblocks at this role; default terminal. |
 | `notes` | array of object | no | Notes; win over noteAnchors and createNotes. |
@@ -719,7 +719,7 @@ a `tags` array, `limit` / `cursor` with exact `page.total`, and the shapes above
 **Request reference.** Generated from the registry (see [Overview](#overview)); every select or op below lists its complete input, its profile and capability, and the error codes it can return.
 
 <!-- generated:tool items_read -->
-Read work items. Selects: get (one item), list (a filtered page), schema (the note schema of a type or an item), search (full text over item, note and document content), overview (a hierarchy summary), related (items and documents related to an item by dependencies, links, shared tags and similar text).
+Read work items. Selects: get (one item), list (a filtered page), schema (the note schema of a type or an item), search (full text over item, note and document content), overview (a hierarchy summary), related (items and documents related to an item by dependencies, links, shared tags and similar text), context (an item's gate state, or a health view without itemId), next (ranked items ready to pick up), blocked (blocked items with their blockers), history (the transition audit trail).
 
 **`items_read` select `get`** (knowledge, orchestration and director profiles; capability `read`): One item by id: the full view; fields adds timestamps or ancestors; ifVersion short-circuits an unchanged item.
 
@@ -1015,7 +1015,7 @@ Create, replace or delete notes on work items, in batches. Every element commits
 | `itemId` | string | yes | Id of the work item that owns the note: a full UUID or 8 to 32 hex characters of one. |
 | `key` | string | yes | Note key, unique per item (1 to 200 characters, case-sensitive). |
 | `role` | string | yes | Note role: queue, work or review (case-insensitive). |
-| `body` | string | no | Inline note text (may be empty). Exactly one of body and bodyFromFile is required. |
+| `body` | string | no | Inline note text (may be empty), at most 65,536 bytes. Exactly one of body and bodyFromFile is required. |
 | `bodyFromFile` | string | no | Server-side path whose text becomes the body. Exactly one of body and bodyFromFile is required. Resolved strictly inside the agent config root: no absolute path, no '..', no symlink out of it; a regular UTF-8 file of at most 65536 bytes; CRLF becomes LF. An idempotency replay does not re-read the file. |
 | `expectedVersion` | integer | no | Guard on the note's version: omit to write unconditionally, 0 to require that the note does not exist, n to require that its current version is n. Anything else is version_conflict and nothing is written. |
 | `takeover` | boolean | no | Admin only: take over a note owned by another principal. Never with a seat token. |
@@ -2020,7 +2020,7 @@ retention changes in an answer; [Data Retention](./fleet-deployment.md#data-rete
 **Request reference.** Generated from the registry (see [Overview](#overview)); every select or op below lists its complete input, its profile and capability, and the error codes it can return.
 
 <!-- generated:tool report -->
-Reports. select: usage (call metrics), gates (rejections), notes (writes), contention (claims, leases), waste, rollup (subtree or run).
+Aggregate metrics to see how work is going and where it stalls. select: usage (call metrics), gates (rejections), notes (writes), contention (claims, leases), waste, rollup (subtree or run).
 
 **`report` select `usage`** (director profile only; capability `read`): Call-log usage per group over [since, until), default the 7 days before now. groupBy tool (default), operation, host, surface, principalKind, errorCode, day (UTC date) or principal (admin only). Metrics: calls, errors, responseBytes, responseTokensEst (sums), avgLatencyMs (rounded half up), maxLatencyMs, retries (attempts - 1) and replays. Ordered by calls desc, then key asc. A missing group value is omitted from key ({}), never null, and sorts first. data.window gives since, until, retainedSince (the oldest raw row held), basis and truncatedByRetention when the window starts before the oldest data held. Basis raw reads the raw call log (window of at most 31 days inside the raw horizon); otherwise basis daily reads per-day summaries (at most 400 days; since floors and a folded until ceils to UTC midnight; groupBy principal is raw-only). A tag-scoped credential is forbidden; a root-scoped one sees only rows of its roots.
 

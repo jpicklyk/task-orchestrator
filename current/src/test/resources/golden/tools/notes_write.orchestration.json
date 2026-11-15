@@ -4,7 +4,7 @@
     "properties": {
       "ops": {
         "type": "array",
-        "description": "Write operations, one flat object per op, run in order. A field marked [ops: ...] applies only to the ops named.",
+        "description": "Operations, one flat object each, run in order. A field marked [ops: ...] applies only to the ops named.",
         "items": {
           "type": "object",
           "properties": {
@@ -30,7 +30,7 @@
             },
             "body": {
               "type": "string",
-              "description": "Inline note text (may be empty). Exactly one of body and bodyFromFile is required. [ops: upsert]"
+              "description": "Inline note text (may be empty), at most 65,536 bytes. Exactly one of body and bodyFromFile is required. [ops: upsert]"
             },
             "bodyFromFile": {
               "type": "string",
@@ -60,12 +60,12 @@
       },
       "describe": {
         "type": "boolean",
-        "description": "true: return the operations, their parameters and errors instead of running the tool."
+        "description": "true: return each operation's parameters and errors; nothing runs."
       }
     },
     "type": "object"
   },
-  "description": "Create, replace or delete notes on work items, in batches. Every element commits on its own unless atomic is true. Call with describe:true for each operation's parameters and errors.",
+  "description": "Create, replace or delete notes on work items, in batches. Every element commits on its own unless atomic is true. Call with describe:true for parameters and errors.",
   "annotations": {
     "readOnlyHint": false,
     "destructiveHint": true,

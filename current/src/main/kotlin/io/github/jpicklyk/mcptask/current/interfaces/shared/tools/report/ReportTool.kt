@@ -17,8 +17,8 @@ fun reportTool(): SelectToolSpec =
     SelectToolSpec(
         name = REPORT,
         description =
-            "Reports. select: usage (call metrics), gates (rejections), " +
-                "notes (writes), contention (claims, leases), waste, rollup (subtree or run).",
+            "Aggregate metrics to see how work is going and where it stalls. select: usage (call metrics), gates " +
+                "(rejections), notes (writes), contention (claims, leases), waste, rollup (subtree or run).",
         selects =
             listOf(
                 reportUsageSelect,

@@ -226,7 +226,7 @@ class McpOperationAdapter(
             return Tool(
                 name = spec.name,
                 inputSchema = ToolSchema(properties = schema["properties"] as JsonObject),
-                description = ToolSchemaRenderer.description(spec),
+                description = ToolSchemaRenderer.description(spec, profile),
                 annotations = ToolSchemaRenderer.annotations(spec, profile)
             )
         }
