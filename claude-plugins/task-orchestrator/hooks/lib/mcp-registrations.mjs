@@ -100,14 +100,38 @@ function auxiliaryProfileValue(value) {
   return AUXILIARY_PROFILES.includes(v) ? v : null;
 }
 
+// The auxiliary profile a url names, or null. The url is env-expanded first (`${VAR}` forms); one
+// that still does not parse as an http(s) URL (an unset variable) is read as text: cut at the first
+// `?` or `#`, trailing slashes dropped, then matched on its /mcp/director or /mcp/knowledge ending.
+function urlProfile(url, env) {
+  const s = url.trim();
+  const e = expandEnv(s, env) ?? s;
+  let parsed = null;
+  try {
+    const u = new URL(e);
+    if (u.protocol === 'http:' || u.protocol === 'https:') parsed = u;
+  } catch {
+    parsed = null;
+  }
+  if (parsed) {
+    return isAuxiliaryPath(e) ? parsed.pathname.replace(/\/+$/, '').slice('/mcp/'.length) : null;
+  }
+  const text = e.split(/[?#]/, 1)[0].replace(/\/+$/, '');
+  if (text.endsWith('/mcp/director')) return 'director';
+  if (text.endsWith('/mcp/knowledge')) return 'knowledge';
+  return null;
+}
+
 // The auxiliary profile an entry serves (`director` or `knowledge`), or null for an orchestration
-// entry: a url path /mcp/director or /mcp/knowledge (trailing slash allowed), an env member
-// MCP_TOOL_PROFILE, or an args element that is or ends with `MCP_TOOL_PROFILE=<value>`.
-function entryProfile(entry) {
+// entry: a url path /mcp/director or /mcp/knowledge (trailing slash allowed, `${VAR}` forms expanded
+// from env), an env member MCP_TOOL_PROFILE, or an args element that is or ends with
+// `MCP_TOOL_PROFILE=<value>`.
+function entryProfile(entry, env) {
   try {
     if (!entry || typeof entry !== 'object') return null;
-    if (typeof entry.url === 'string' && isAuxiliaryPath(entry.url.trim())) {
-      return new URL(entry.url.trim()).pathname.replace(/\/+$/, '').slice('/mcp/'.length);
+    if (typeof entry.url === 'string') {
+      const p = urlProfile(entry.url, env || {});
+      if (p) return p;
     }
     if (entry.env && typeof entry.env === 'object') {
       const p = auxiliaryProfileValue(entry.env.MCP_TOOL_PROFILE);
@@ -145,7 +169,7 @@ export function collectOrchestratorRegistrations({ cwd = process.cwd(), env = pr
             source,
             scope,
             url: entry && typeof entry.url === 'string' ? entry.url : null,
-            profile: entryProfile(entry),
+            profile: entryProfile(entry, env),
           });
         }
       }
