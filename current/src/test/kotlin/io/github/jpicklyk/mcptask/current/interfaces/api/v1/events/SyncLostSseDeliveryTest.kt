@@ -28,12 +28,12 @@ import io.ktor.server.testing.testApplication
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -71,6 +71,10 @@ class SyncLostSseDeliveryTest {
 
     companion object {
         private const val TOKEN = "sync-lost-sse-test-token-xyz789"
+
+        /** S7b: one below the 4-slot connection queue, so warm-ups alone cannot overflow it. */
+        private const val MAX_WARM_UPS = 3
+        private val WARM_UP_WAIT = 3.seconds
 
         private val replayJson = Json { ignoreUnknownKeys = true }
 
@@ -259,17 +263,25 @@ class SyncLostSseDeliveryTest {
             val sseClient = createClient { install(ClientSSE) }
 
             val collected = mutableListOf<ApiEvent>()
-            withTimeout(10.seconds) {
+            withTimeout(30.seconds) {
                 coroutineScope {
                     val warmUpDelivered = CompletableDeferred<Unit>()
                     launch {
-                        // Handshake: a new subscriber registers BEFORE it reads its tail cursor, so rows committed in
-                        // that gap are skipped and never overflow. Emit warm-up events until the client has RECEIVED
-                        // one -- that proves the cursor is set and delivery is live. Only then commit the burst.
-                        while (bus.subscriberCount() == 0) delay(10) // settle-ok: S7b warm-up handshake poll (#460), left as-is
-                        while (!warmUpDelivered.isCompleted) {
+                        // Handshake: ApiEventBus.connect registers the subscriber and sets its tail cursor under one lock,
+                        // so a row committed once subscriberCount() > 0 is delivered. One warm-up the client RECEIVES
+                        // proves delivery is live; only then commit the burst. At most 3 warm-ups (one below the 4-slot
+                        // queue), so the warm-ups alone can never overflow the queue and fake the sentinel.
+                        bus.awaitSubscribers()
+                        var emitted = 0
+                        while (emitted < MAX_WARM_UPS && !warmUpDelivered.isCompleted) {
                             bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
-                            delay(25) // settle-ok: S7b warm-up emit spacing (#460), left as-is
+                            emitted++
+                            withTimeoutOrNull(WARM_UP_WAIT) { warmUpDelivered.await() }
+                        }
+                        if (!warmUpDelivered.isCompleted) {
+                            throw AssertionError(
+                                "S7b: no warm-up event was delivered after $emitted emits in ${WARM_UP_WAIT * emitted}. Got: $collected"
+                            )
                         }
                         // Deterministic overflow: commit all ten rows under ONE commit signal. The bus fans a signal
                         // out without suspending, so the 4-slot queue overflows however fast the client drains it.
