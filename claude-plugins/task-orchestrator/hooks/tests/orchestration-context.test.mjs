@@ -371,3 +371,14 @@ test('S5: each variant stays under 9000 characters (ctxOf asserts it); the two v
   assert.ok(w.length < 9000 && s.length < 9000);
   assert.notEqual(w, s);
 });
+// a8b9ebfb S1 (AC1). Oracle: parent interface-contract item 3 (the sentence, verbatim) and task-scope AC1
+// (exactly once in each variant, each under 9000 characters).
+const LOAD_TOGETHER = 'When the Task Orchestrator tools are listed as deferred, load every tool a step needs in one ToolSearch call.';
+
+test('a8b9ebfb S1: both variants carry the load-together sentence exactly once and stay under 9000 characters', () => {
+  for (const [name, cfg] of VARIANTS) {
+    const c = textOf(cfg);
+    assert.ok(c.length < 9000, `${name}: ${c.length}`);
+    assert.equal(c.split(LOAD_TOGETHER).length - 1, 1, `${name}: sentence must appear exactly once`);
+  }
+});

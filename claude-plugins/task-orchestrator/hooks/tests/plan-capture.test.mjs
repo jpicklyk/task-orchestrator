@@ -111,6 +111,21 @@ function run({ cwd, home, url, plan = PLAN, token, ceiling }) {
 
 const planOf = (text) => ({ tool_input: { plan: text } });
 
+// a8b9ebfb S5-S6 (D1, D2): on a project-configured failure path the hook says why in ONE PostToolUse context line
+// starting with the frozen prefix, exits 0, and never emits a decision. Oracle: test-plan D2 (prefix frozen).
+const NOT_STASHED = 'Task Orchestrator: plan not stashed';
+function assertNotStashed(res) {
+  assert.equal(res.status, 0, res.stderr);
+  const out = JSON.parse(res.stdout);
+  assert.deepEqual(Object.keys(out), ['hookSpecificOutput']);
+  const h = out.hookSpecificOutput;
+  assert.equal(h.hookEventName, 'PostToolUse');
+  assert.ok(!('permissionDecision' in h) && !('decision' in out), 'a no-op never blocks or decides');
+  assert.equal(typeof h.additionalContext, 'string');
+  assert.ok(h.additionalContext.startsWith(NOT_STASHED), h.additionalContext);
+  assert.ok(!h.additionalContext.trim().includes(NL), 'one line');
+}
+
 // A plan slug must satisfy the docs_write upsert grammar (api-reference.md docs_write "upsert"): 1 to 200
 // characters, no leading or trailing whitespace, no control characters, none of [ ] #, and not starting with rule/.
 function assertValidPlanSlug(slug) {
@@ -155,7 +170,7 @@ test('S14 (AC7): a failed element (207 duplicate, an adopted plan) - silent, exi
   await withStub(() => elementFailReply('duplicate', { kind: 'document', id: 'my-great-plan' }), async (url, requests) => {
     const res = await run({ cwd, home: mkTemp('home'), url });
     assert.equal(res.status, 0, res.stderr);
-    assert.equal(res.stdout, '');
+    assertNotStashed(res);
     assert.equal(requests.length, 1);
   });
 });
@@ -171,7 +186,7 @@ test('S14 (AC7): other element failures (forbidden write-docs, version_conflict,
     await withStub(() => elementFailReply(code, detail), async (url, requests) => {
       const res = await run({ cwd, home: mkTemp('home'), url });
       assert.equal(res.status, 0, `${code}: ${res.stderr}`);
-      assert.equal(res.stdout, '', code);
+      assertNotStashed(res);
       assert.equal(requests.length, 1, code);
     });
   }
@@ -184,7 +199,7 @@ test('S14 (AC7): 401 unauthenticated, 403 forbidden and 500 internal (top-level 
     await withStub(() => topFailReply(status, code), async (url, requests) => {
       const res = await run({ cwd, home: mkTemp('home'), url });
       assert.equal(res.status, 0, `${status}: ${res.stderr}`);
-      assert.equal(res.stdout, '', String(status));
+      assertNotStashed(res);
       assert.equal(requests.length, 1, String(status));
     });
   }
@@ -195,7 +210,7 @@ test('S14 (AC7): an unreachable API - silent, exit 0', async () => {
   writeConfig(cwd, PROJECT_CONFIG);
   const res = await run({ cwd, home: mkTemp('home'), url: 'http://127.0.0.1:1' });
   assert.equal(res.status, 0, res.stderr);
-  assert.equal(res.stdout, '');
+  assertNotStashed(res);
 });
 
 test('S14 probe (AC7): a 200 body that is not an envelope (a 3.x server) is silent, exit 0', async () => {
@@ -204,7 +219,7 @@ test('S14 probe (AC7): a 200 body that is not an envelope (a 3.x server) is sile
   await withStub(() => ({ status: 200, json: { slug: 'my-great-plan', status: 'pending' } }), async (url) => {
     const res = await run({ cwd, home: mkTemp('home'), url });
     assert.equal(res.status, 0, res.stderr);
-    assert.equal(res.stdout, '');
+    assertNotStashed(res);
   });
 });
 
@@ -218,7 +233,7 @@ test('S14 probe (AC7): a 200 envelope whose results[0] is ok:false is not report
   await withStub(() => reply, async (url) => {
     const res = await run({ cwd, home: mkTemp('home'), url });
     assert.equal(res.status, 0, res.stderr);
-    assert.equal(res.stdout, '');
+    assertNotStashed(res);
   });
 });
 
@@ -280,7 +295,7 @@ test('S18 (AC9): no API URL configured - silent, exit 0; the same fixture sends 
   });
   const without = await run({ cwd, home: mkTemp('home'), ceiling: T });
   assert.equal(without.status, 0, without.stderr);
-  assert.equal(without.stdout, '');
+  assertNotStashed(without);
 });
 
 // ---- slug derivation: what reaches the server must satisfy the docs_write slug grammar ----
@@ -359,5 +374,139 @@ test('4e15b651 S47: plan-capture sends nothing for a hostile rootId, then exactl
     assert.equal(requests.length, 1);
     assert.equal(requests[0].url, '/api/v1/ops/docs_write');
     assert.equal(requests[0].body.ops[0].rootId, UUID);
+  });
+});
+
+// ---- a8b9ebfb: the real ExitPlanMode PostToolUse shape (task-scope item 2) ----
+// Oracle: task-scope item 2 (transcript of session 899f5f7e): tool_input {plan, planFilePath},
+// tool_response {plan, isAgent, filePath, hasTaskTool}; AC2 (stash and report the slug; a no-op says why in one line).
+// The stub reply echoes the slug the hook sent, so the context line is checked against what reached the server.
+
+const REAL_SHAPE = (planFilePath, filePath) => ({
+  tool_name: 'ExitPlanMode',
+  tool_input: { plan: PLAN_TEXT, planFilePath },
+  tool_response: { plan: PLAN_TEXT, isAgent: false, filePath, hasTaskTool: true },
+});
+const GONE = '/nonexistent/plan.md';
+const echoSlug = (call) => okReply(call.body.ops[0].slug);
+
+function assertStashed(res, requests, text = PLAN_TEXT) {
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(requests.length, 1);
+  const op = requests[0].body.ops[0];
+  assert.equal(op.op, 'upsert');
+  assert.equal(op.kind, 'plan');
+  assert.equal(op.rootId, ROOT_ID);
+  assert.equal(op.body, text);
+  const ctx = JSON.parse(res.stdout).hookSpecificOutput.additionalContext;
+  assert.ok(ctx.includes(`plan stashed as plan document '${op.slug}'`), ctx);
+  assert.ok(ctx.includes(ROOT_ID), ctx);
+}
+
+test('a8b9ebfb S2 (AC2): the full real shape stashes the plan once, body is the plan text, context names the slug', async () => {
+  const cwd = mkTemp('real');
+  writeConfig(cwd, PROJECT_CONFIG);
+  await withStub(echoSlug, async (url, requests) => {
+    const res = await run({ cwd, home: mkTemp('home'), url, plan: REAL_SHAPE(GONE, GONE) });
+    assertStashed(res, requests);
+    assert.equal(requests[0].body.ops[0].slug, 'my-great-plan');
+  });
+});
+
+test('a8b9ebfb S3 (AC2): tool_input has only planFilePath, tool_response.plan carries the text -> stashed with that body', async () => {
+  const cwd = mkTemp('respplan');
+  writeConfig(cwd, PROJECT_CONFIG);
+  const plan = { tool_name: 'ExitPlanMode', tool_input: { planFilePath: GONE }, tool_response: { plan: PLAN_TEXT, isAgent: false, filePath: GONE, hasTaskTool: true } };
+  await withStub(echoSlug, async (url, requests) => {
+    assertStashed(await run({ cwd, home: mkTemp('home'), url, plan }), requests);
+  });
+});
+
+test('a8b9ebfb S4 (AC2): no plan text anywhere; the text is only in the file at tool_input.planFilePath, then only at tool_response.filePath', async () => {
+  const cwd = mkTemp('file');
+  writeConfig(cwd, PROJECT_CONFIG);
+  const dir = mkTemp('planfiles');
+  const viaInput = join(dir, 'via-input.md');
+  const viaResponse = join(dir, 'via-response.md');
+  writeFileSync(viaInput, PLAN_TEXT);
+  writeFileSync(viaResponse, PLAN_TEXT);
+  await withStub(echoSlug, async (url, requests) => {
+    const a = await run({ cwd, home: mkTemp('home'), url, plan: { tool_name: 'ExitPlanMode', tool_input: { planFilePath: viaInput }, tool_response: { isAgent: false, hasTaskTool: true } } });
+    assertStashed(a, requests);
+  });
+  await withStub(echoSlug, async (url, requests) => {
+    const b = await run({ cwd, home: mkTemp('home'), url, plan: { tool_name: 'ExitPlanMode', tool_input: {}, tool_response: { isAgent: false, filePath: viaResponse, hasTaskTool: true } } });
+    assertStashed(b, requests);
+  });
+});
+
+test('a8b9ebfb S5 (AC2): no text and no path, a missing file, an empty file -> no request, one not-stashed line', async () => {
+  const cwd = mkTemp('nothing');
+  writeConfig(cwd, PROJECT_CONFIG);
+  const dir = mkTemp('planfiles');
+  const empty = join(dir, 'empty.md');
+  writeFileSync(empty, '');
+  const inputs = {
+    'no text, no path': { tool_name: 'ExitPlanMode', tool_input: {}, tool_response: { isAgent: false, hasTaskTool: true } },
+    'missing file': { tool_name: 'ExitPlanMode', tool_input: { planFilePath: join(dir, 'gone.md') }, tool_response: { filePath: join(dir, 'gone.md') } },
+    'empty file': { tool_name: 'ExitPlanMode', tool_input: { planFilePath: empty }, tool_response: { filePath: empty } },
+    'no tool_input or tool_response': { tool_name: 'ExitPlanMode' },
+  };
+  for (const [name, plan] of Object.entries(inputs)) {
+    await withStub(echoSlug, async (url, requests) => {
+      const res = await run({ cwd, home: mkTemp('home'), url, plan });
+      assertNotStashed(res);
+      assert.equal(requests.length, 0, name);
+    });
+  }
+});
+
+test('a8b9ebfb S6 (AC2): the real shape with a failing write (207 duplicate, 401, 403, 500, ok:false element, non-envelope) -> one not-stashed line', async () => {
+  const replies = {
+    duplicate: elementFailReply('duplicate', { kind: 'document', id: 'my-great-plan' }),
+    401: topFailReply(401, 'unauthenticated'),
+    403: topFailReply(403, 'forbidden'),
+    500: topFailReply(500, 'internal'),
+    okfalse: { status: 200, json: { ok: true, data: { results: [{ ok: false, error: { code: 'internal', kind: 'transient', message: 'x' } }], summary: { ok: 0, failed: 1 } }, meta: META } },
+    nonenvelope: { status: 200, json: { slug: 'my-great-plan', status: 'pending' } },
+  };
+  for (const [name, reply] of Object.entries(replies)) {
+    const cwd = mkTemp('real-fail');
+    writeConfig(cwd, PROJECT_CONFIG);
+    await withStub(() => reply, async (url, requests) => {
+      const res = await run({ cwd, home: mkTemp('home'), url, plan: REAL_SHAPE(GONE, GONE) });
+      assertNotStashed(res);
+      assert.equal(requests.length, 1, name);
+    });
+  }
+  const cwd = mkTemp('real-unreach');
+  writeConfig(cwd, PROJECT_CONFIG);
+  assertNotStashed(await run({ cwd, home: mkTemp('home'), url: 'http://127.0.0.1:1', plan: REAL_SHAPE(GONE, GONE) }));
+});
+
+test('a8b9ebfb S6 probe: the not-stashed line carries no secret - the bearer token never appears on stdout or stderr', async () => {
+  const cwd = mkTemp('tokleak');
+  writeConfig(cwd, PROJECT_CONFIG);
+  await withStub(() => topFailReply(401, 'unauthenticated'), async (url) => {
+    const res = await run({ cwd, home: mkTemp('home'), url, token: 'dummy-leak-token', plan: REAL_SHAPE(GONE, GONE) });
+    assertNotStashed(res);
+    assert.ok(!res.stdout.includes('dummy-leak-token') && !res.stderr.includes('dummy-leak-token'));
+  });
+});
+
+test('a8b9ebfb S7 (D1): a session without a project rootId stays silent on the real shape, with and without plan text', async () => {
+  await withStub(echoSlug, async (url, requests) => {
+    const noText = { tool_name: 'ExitPlanMode', tool_input: {}, tool_response: { isAgent: false, hasTaskTool: true } };
+    for (const plan of [REAL_SHAPE(GONE, GONE), noText]) {
+      const res = await run({ cwd: mkTemp('empty'), home: mkTemp('home'), url, plan });
+      assert.equal(res.status, 0, res.stderr);
+      assert.equal(res.stdout, '');
+    }
+    const noProj = mkTemp('noproj2');
+    writeConfig(noProj, 'retrospective:' + NL + '  mode: nudge' + NL);
+    const res = await run({ cwd: noProj, home: mkTemp('home'), url, plan: noText });
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(res.stdout, '');
+    assert.equal(requests.length, 0);
   });
 });
