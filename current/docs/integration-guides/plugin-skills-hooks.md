@@ -2,7 +2,7 @@
 
 ## What You Get
 
-- Seventeen hook scripts (everything registered in `claude-plugins/task-orchestrator/hooks/hooks-config.json`) that fire on session start, plan mode, plan approval, subagent launch and stop, run close, director mode and, when the REST API is configured, config sync and gate enforcement
+- The hook scripts (everything registered in `claude-plugins/task-orchestrator/hooks/hooks-config.json`) that fire on session start, plan mode, plan approval, subagent launch and stop, run close, director mode and, when the REST API is configured, config sync and gate enforcement
 - User-invocable skills as `/task-orchestrator:*` slash commands (see "User Skills" below)
 - Internal skills that power the plan-mode pipeline (see "Internal Skills" below)
 - The Agent-Owned-Phase Protocol injected into every phase-owner subagent automatically (see "Execution modes" below for exactly which subagents that covers)
@@ -41,7 +41,7 @@ See [Quick Start](../quick-start.md) Step 4 for the full installation walkthroug
 | the orchestration entry (for example `mcp-task-orchestrator`) | `orchestration` | `advance`, `config`, `deps_*`, `docs_*`, `items_*`, `notes_*`, `runs_*` |
 | `mcp-task-orchestrator-director` | `director` | `deps_read`, `items_read`, `report`, `runs_read`, `runs_write`, and no read that returns a note, document or transition-summary body |
 
-The orchestration entry carries item, note, dependency, document and config work and the run ops of a coordinator and its seats; not answer, ack, pause, resume, the decision reads or `report`. The director entry is where decisions are answered and acknowledged and runs are paused or resumed, and what director mode uses; a subagent or coordinator raises a decision and never answers one.
+The orchestration entry carries item, note, dependency, document and config work, phase transitions and claims, and the run ops of a coordinator and its seats; not answer, ack, pause, resume, the decision reads or `report`. The director entry is where decisions are answered and acknowledged and runs are paused or resumed, and what director mode uses; a subagent or coordinator raises a decision and never answers one.
 
 An HTTP director entry is the orchestration URL with `/mcp/director` in place of `/mcp`; a stdio director entry is the orchestration command with `-e MCP_TOOL_PROFILE=director`. Pass `--no-director` to skip it. In credential mode the orchestration entry carries the `${TASK_ORCHESTRATOR_API_TOKEN}` header placeholder and the director entry carries `${TASK_ORCHESTRATOR_DIRECTOR_TOKEN}`, never a token. Details: `skills/init/SKILL.md` Step 2 and [fleet-deployment.md](../fleet-deployment.md).
 
@@ -142,9 +142,11 @@ Details: [config-format.md](../../../claude-plugins/task-orchestrator/skills/man
 
 **Script:** `plan-capture.mjs`. **Event:** `PostToolUse` on `ExitPlanMode`, after Post-Plan.
 
-**What it does:** stashes the just-approved plan as one `docs_write` `upsert` of kind `plan` over the REST API, so `post-plan-workflow` can materialize items from the stored document instead of the model re-typing the plan body into note text. The token needs `write-docs`.
+**What it does:** stashes the just-approved plan as one `docs_write` `upsert` of kind `plan` over the REST API, so `post-plan-workflow` can materialize items from the stored document instead of the model re-typing the plan body into note text. The token needs `write-docs`. It takes the plan text from `tool_input.plan`, else `tool_response.plan`, else the file at `tool_input.planFilePath`, else the file at `tool_response.filePath` (a non-blank string, or a readable non-blank file).
 
-**Inert when:** no REST API URL resolves (stdio and local setups). It is not gated by execution mode, injects no context, and never blocks plan approval: any error or non-2xx answer exits silently.
+**Inert when:** the located config is not a project config, or the project config has no `rootId`: the hook adds nothing. It also adds nothing when its stdin is unreadable or the runtime has no global `fetch`. It is not gated by execution mode.
+
+**What it adds:** in a project session (a located project config with a `rootId`) the hook adds one context line. When the write is accepted it says `plan stashed as plan document '<slug>' (root <rootId>)` and prefers that docRef over re-authoring note bodies. When nothing is stashed it says `plan not stashed (<why>). Materialize from the plan text in this conversation.`, where `<why>` is one of: no plan text or readable plan file in the hook input; no REST API URL configured; or `write failed: <code>` (the server's error code, else `http <status>`, else `unknown`, cleaned and cut to 40 characters). A thrown error adds nothing. It never blocks plan approval: it always exits 0.
 
 ### Skill Enforcement
 
@@ -153,6 +155,14 @@ Details: [config-format.md](../../../claude-plugins/task-orchestrator/skills/man
 **What it does:** for each `ops[]` element with `op: "upsert"`, suggests loading the skill a note's schema entry names (`skill`) when the body is too thin to reflect that skill's output (a default floor of 200 characters, scaled down for a note whose schema `maxLength` is small). The `skill` and `maxLength` facts come from the server, not from `config.yaml`: one `config` op `effective` read per session, cached in a session marker, and the item's `items_read` `select: "schema"` view per op. It is advisory only (it never blocks the call) and suggests at most once per (session, item, key).
 
 **Inert when:** no REST API URL is configured with a located config, in which case it says so once per session in a `systemMessage` and then stays silent. It is not gated by execution mode or `orchestration.mode`: it checks the claimed item's own writes, whoever runs them.
+
+### Decision Guard
+
+**Script:** `decision-guard.mjs`. **Event:** `PreToolUse` on `runs_write` of any MCP entry whose name contains `task-orchestrator` (matcher `^mcp__.*task-orchestrator.*__runs_write$`).
+
+**What it does:** denies the call when it comes from a subagent (the hook input carries a non-empty string `agent_id`) and any `ops[]` element has `op` exactly `answer`, `ack`, `pause` or `resume`. The deny reason is: "A subagent never answers, acknowledges, pauses or resumes. Raise the decision (runs_write raise) or report it in your return; the director or the user answers." Every other call is allowed with `{}`, including all calls from the main session and every other op from a subagent.
+
+**Inert when:** the call is from the main session, or no `ops[]` element carries one of the four ops. It is not gated by execution mode, `orchestration.mode` or a director session. It fails open: malformed input or any error emits `{}`, because the server stays the authority and this is a guard rail.
 
 ### Subagent Start
 
