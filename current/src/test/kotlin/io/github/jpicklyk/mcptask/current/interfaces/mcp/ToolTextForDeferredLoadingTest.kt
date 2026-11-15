@@ -320,7 +320,8 @@ class ToolTextForDeferredLoadingTest {
     @Test
     fun `S12 describe true answers with the description of the serving profile`() {
         val faults = mutableListOf<String>()
-        for (profile in listOf(ToolProfile.ORCHESTRATION, ToolProfile.DIRECTOR)) {
+        // Every profile, knowledge included: its items_read and items_write hide members and carry their own texts.
+        for (profile in ToolProfile.entries) {
             for (spec in ToolTextOracle.served(profile)) {
                 val text =
                     ToolDescriber
@@ -347,6 +348,15 @@ class ToolTextForDeferredLoadingTest {
         assertTrue(
             ToolTextOracle.mentions(runsWrite, "assign"),
             "control: orchestration runs_write describe still names assign: $runsWrite"
+        )
+        // Control for the knowledge pass: the loop above is not vacuous because these members are hidden from knowledge.
+        assertTrue(
+            ToolTextOracle.hidden(spec("items_read"), ToolProfile.KNOWLEDGE).containsAll(setOf("context", "next", "blocked")),
+            "control: knowledge hides the orchestration reads"
+        )
+        assertTrue(
+            ToolTextOracle.hidden(spec("items_write"), ToolProfile.KNOWLEDGE).containsAll(setOf("create_tree", "complete_tree")),
+            "control: knowledge hides the tree writes"
         )
     }
 
