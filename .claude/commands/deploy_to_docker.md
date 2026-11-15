@@ -174,7 +174,7 @@ In **bearer** mode the entry also carries the token as a header placeholder (nev
 ```json
 "mcp-task-orchestrator": { "type": "http", "url": "http://localhost:3001/mcp", "headers": { "Authorization": "Bearer ${TASK_ORCHESTRATOR_API_TOKEN}" } }
 ```
-The optional director entry (`/task-orchestrator:init` registers it unless `--no-director`) points at the director mount, with the same `headers` object in bearer mode:
+The director entry (`/task-orchestrator:init` registers it unless `--no-director`) points at the director mount; in bearer mode its `headers` carries the separate `${TASK_ORCHESTRATOR_DIRECTOR_TOKEN}` placeholder, not the orchestration entry's:
 ```json
 "mcp-task-orchestrator-director": { "type": "http", "url": "http://localhost:3001/mcp/director" }
 ```

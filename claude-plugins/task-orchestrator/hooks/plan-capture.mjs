@@ -4,9 +4,9 @@
 // so post-plan-workflow can materialize items from a stored docRef instead of the model re-typing
 // the plan body into note text.
 //
-// Fail-open by design: ANY error, missing env, non-2xx response, or unreachable API results in a
-// silent exit 0 — it must never block ExitPlanMode or the plan-approval flow. It no-ops entirely
-// for stdio/local setups (no API env vars set), mirroring config-sync.mjs's discipline exactly.
+// Fail-open by design: ANY error, missing env, non-2xx response, or unreachable API results in exit 0
+// - it must never block ExitPlanMode or the plan-approval flow. A session with no project config stays
+// silent; in a project session a no-op emits one 'plan not stashed' context line saying why.
 //
 // Requires (all optional — absent = no-op):
 //   TASK_ORCHESTRATOR_API_URL    base URL of the REST API, e.g. http://localhost:3001 (no URL = "no REST
@@ -16,6 +16,7 @@
 //                                API_ALLOW_UNAUTHENTICATED=true) needs no token at all — when
 //                                absent, requests are sent with no Authorization header.
 
+import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { locateConfig } from './config-locator.mjs';
@@ -50,38 +51,70 @@ function emit(line) {
   emitContext('PostToolUse', line);
 }
 
+/** Reads a plan file the hook input points at; null when the path is unusable, missing or empty. */
+function readPlanFile(path) {
+  try {
+    if (typeof path !== 'string' || path.trim() === '') return null;
+    const text = readFileSync(path, 'utf8');
+    return text.trim() === '' ? null : text;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The approved plan text: tool_input.plan, else tool_response.plan, else the file at
+ * tool_input.planFilePath, else the file at tool_response.filePath. Null when none carries text.
+ */
+function findPlanText(hookInput) {
+  const input = hookInput?.tool_input;
+  const response = hookInput?.tool_response;
+  for (const candidate of [input?.plan, response?.plan]) {
+    if (typeof candidate === 'string' && candidate.trim() !== '') return candidate;
+  }
+  return readPlanFile(input?.planFilePath) ?? readPlanFile(response?.filePath);
+}
+
+function notStashed(why) {
+  emit(`Task Orchestrator: plan not stashed (${why}). Materialize from the plan text in this conversation.`);
+}
+
 async function main() {
   if (typeof fetch !== 'function') return; // node < 18 — no global fetch; nothing we can do, stay silent
 
   const hookInput = readHookInput();
   if (!hookInput) return;
 
-  const planText = hookInput?.tool_input?.plan;
-  if (typeof planText !== 'string' || planText.trim() === '') return; // nothing to stash
-
   const loc = locateConfig();
   if (loc.scope !== 'project') return; // user scope or no config → silent
   const rootId = loc.rootId;
   if (!rootId) return; // not project-scoped → no root to stash under
 
+  // From here a project root is known, so a no-op says why in one context line (never blocks).
+  const planText = findPlanText(hookInput);
+  if (planText === null) return notStashed('no plan text or readable plan file in the hook input');
+
   const slug = deriveSlug(planText);
 
   // One unconditional upsert (as the 3.x PUT was). callOp resolves null when no REST API is
-  // configured (stdio/local setups) and never rejects; every failure stays silent.
+  // configured (stdio/local setups) and never rejects.
   try {
     const res = await callOp('docs_write', {
       ops: [{ op: 'upsert', rootId, kind: 'plan', slug, body: planText }],
     });
-    if (res && res.results[0] && res.results[0].ok === true) {
+    if (res === null) return notStashed('no REST API URL configured');
+    const first = res.results && res.results[0];
+    if (first && first.ok === true) {
       emit(
         `Task Orchestrator: plan stashed as plan document '${slug}' (root ${rootId}). ` +
           `Prefer referencing this docRef during materialization instead of re-authoring note bodies.`,
       );
+      return;
     }
-    // Any failure (unauthenticated, forbidden, not_found, duplicate for an adopted plan,
-    // payload_too_large, ...) is fail-open: stay completely silent, never block plan approval.
+    const code = (first && first.error && first.error.code) || (res.error && res.error.code) || (res.httpStatus ? `http ${res.httpStatus}` : 'unknown');
+    notStashed(`write failed: ${String(code).replace(/[^A-Za-z0-9 _.-]/g, '').slice(0, 40)}`);
   } catch {
-    // fail-open, stay silent.
+    // fail-open: never block plan approval.
   }
 }
 

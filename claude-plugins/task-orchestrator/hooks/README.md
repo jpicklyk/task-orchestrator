@@ -43,7 +43,7 @@ rejects them on push, and `session-start` prints a `## Config Shape` line when i
 file exists at `directorMarkerPath(session_id)`, written by `director-guard.mjs` when the director skill is invoked), or `null`.
 
 The table lists one row per script registered in `hooks-config.json` and what it does at this version. "Not gated" means
-the hook has no check for that column; "non-injecting" means it adds no context.
+the hook has no check for that column; "non-injecting" means it adds no context. `plan-capture.mjs` is not gated and injects only in a project session: there (a located project config with a `rootId`) it adds one line, `plan stashed as plan document ...` or `plan not stashed (<why>)`, and in any other session nothing; it never blocks plan approval.
 
 | Script | Headless iteration | Subagent (`agent_id`) | `orchestration.mode` | Director session |
 |--------|--------------------|-----------------------|----------------------|------------------|
@@ -52,9 +52,10 @@ the hook has no check for that column; "non-injecting" means it adds no context.
 | `config-sync.mjs` | Not gated; non-injecting | Not gated; non-injecting | Not read | Not gated; non-injecting |
 | `pre-plan.mjs` | `{}` | `{}` | `off` gives `{}` | `{}` |
 | `post-plan.mjs` | `{}` | `{}` | `off` gives `{}` | `{}` |
-| `plan-capture.mjs` | Not gated; non-injecting | Not gated; non-injecting | Not read | Not gated; non-injecting |
+| `plan-capture.mjs` | Not gated; non-injecting outside a project session, one context line in one | Not gated; non-injecting outside a project session, one context line in one | Not read | Not gated; non-injecting outside a project session, one context line in one |
 | `skill-enforcement.mjs` | Not gated | Not gated | Not read | Not gated |
 | `dispatch-model-guard.mjs` | `{}` | Not gated (guards the dispatch) | `off` gives `{}`; `schema` changes the deny reason | Not gated (still guarded) |
+| `decision-guard.mjs` | Not gated | Acts only inside a subagent (`agent_id` set): denies a `runs_write` call when any `ops[]` element has `op` exactly `answer`, `ack`, `pause` or `resume`; `{}` otherwise and outside a subagent | Not read | Not gated |
 | `dispatch-hint.mjs` | `{}` | `{}` | `off` gives `{}`; `schema` changes the model token | Not gated |
 | `retro-trigger.mjs` | `{}` | Records the close for the main session; no nudge | Not read (`extensions.claude-code.retrospective.mode` `off` gives `{}`) | Always dispatch mode: `nudge` acts as `dispatch` and a would-be nudge is dispatched |
 | `phase-guard-record.mjs` | `{}` | Acts only inside a subagent (`agent_id` set); run seats are not recorded; a context read is recorded only for an `implementer` or `reviewer` agent | Not read | Not gated |

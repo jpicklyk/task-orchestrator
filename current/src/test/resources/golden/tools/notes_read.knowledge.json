@@ -43,12 +43,12 @@
       },
       "describe": {
         "type": "boolean",
-        "description": "true: return the operations, their parameters and errors instead of running the tool."
+        "description": "true: return each operation's parameters and errors; nothing runs."
       }
     },
     "type": "object"
   },
-  "description": "Read the notes on work items: get one note with its body, or list an item's notes without bodies. Call with describe:true for each operation's parameters and errors.",
+  "description": "Read the notes on work items: get one note with its body, or list an item's notes without bodies. Call with describe:true for parameters and errors.",
   "annotations": {
     "readOnlyHint": true,
     "destructiveHint": false,

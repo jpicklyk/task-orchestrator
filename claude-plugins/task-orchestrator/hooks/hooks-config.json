@@ -66,6 +66,16 @@
         ]
       },
       {
+        "matcher": "^mcp__.*task-orchestrator.*__runs_write$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/decision-guard.mjs\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "Agent",
         "hooks": [
           {

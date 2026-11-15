@@ -22,7 +22,8 @@ const TOOL_NAMES = Object.freeze({
   RUNS_WRITE: 'runs_write',
 })
 // @generated:tool-names-end
-const MCP_TOOL_PREFIX = 'mcp__mcp-task-orchestrator__'
+// Default MCP entry key; plan.capabilities.mcpServerKey (from run-planner probe) overrides it.
+const DEFAULT_MCP_SERVER_KEY = 'mcp-task-orchestrator'
 const ENVELOPE_VERSION = 'envelope-v1'
 
 /** Output schema catalog, keyed by output-schema id (versioned seat contracts, never item types). */
@@ -994,7 +995,17 @@ function promptTools(plan, item, stage) {
   if (!isReadOnlyStage(stage)) names.push(TOOL_NAMES.NOTES_WRITE)
   if (stage.enters && plan.entryMode !== 'pre-entered') names.push(TOOL_NAMES.ADVANCE)
   if (seatTokenFile(plan, item, stage)) names.push(TOOL_NAMES.RUNS_WRITE)
-  return `TOOLS: load with ToolSearch select:${names.map((n) => MCP_TOOL_PREFIX + n).join(',')}`
+  const prefix = `mcp__${mcpServerKey(plan)}__`
+  return (
+    `TOOLS: load with ToolSearch select:${names.map((n) => prefix + n).join(',')}. ` +
+    'If that finds nothing, search ToolSearch for "task-orchestrator".'
+  )
+}
+
+/** The registered MCP entry key: plan.capabilities.mcpServerKey when a non-empty string, else the default. */
+function mcpServerKey(plan) {
+  const key = plan && plan.capabilities && plan.capabilities.mcpServerKey
+  return typeof key === 'string' && key !== '' ? key : DEFAULT_MCP_SERVER_KEY
 }
 
 /**
@@ -1391,10 +1402,19 @@ function promptRerunAndEntry(plan, item, stage) {
   const lines = []
   const tokenFile = seatTokenFile(plan, item, stage)
   if (stage.writes) {
+    // A blind test-author seat never sees commit bodies: --grep matches its own "Seat: <seat>" line
+    // anywhere in the message (the COMMIT form puts it in its own paragraph, so it is not a parsed
+    // trailer) and the format prints hash and subject only. The anchors keep test-author off
+    // test-author-a1.
+    const rerunCheck = stage.output === 'test-author-v1'
+      ? `RERUN CHECK: before doing any work, run git -C ${item.worktree} log --format=%H%x09%s --grep="^Seat: ${stage.seat}$" ${plan.baseSha}..HEAD ` +
+        `(it lists only commits whose message has the line "Seat: ${stage.seat}", hash and subject only) and look for a ` +
+        `subject containing "[${item.short}]". If found, `
+      : `RERUN CHECK: before doing any work, run git -C ${item.worktree} log --format=%H%x09%s%x09%b ${plan.baseSha}..HEAD ` +
+        `and look for a commit subject containing "[${item.short}]" with trailer "Seat: ${stage.seat}". If found, `
     lines.push(
-      `RERUN CHECK: before doing any work, run git -C ${item.worktree} log --format=%H%x09%s%x09%b ${plan.baseSha}..HEAD ` +
-        `and look for a commit subject containing "[${item.short}]" with trailer "Seat: ${stage.seat}". If found, your ` +
-        'own notes are already filled (verify with notes_read(select:"list", itemId, keys:[<your keys>]), which returns no ' +
+      rerunCheck +
+        'your own notes are already filled (verify with notes_read(select:"list", itemId, keys:[<your keys>]), which returns no ' +
         `bodies) — ${tokenFile ? 'end your seat (END SEAT, outcome done) and ' : ''}stop, do not redo the work.`
     )
     lines.push(

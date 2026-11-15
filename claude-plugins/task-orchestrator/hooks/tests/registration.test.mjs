@@ -73,6 +73,7 @@ test('hooks-config.json matchers match the registration.mjs builder output (no d
     'phase-guard-record.mjs': orchestratorToolMatcher(['advance', 'items_read']),
     'dispatch-hint.mjs': orchestratorToolMatcher(['advance']),
     'director-watch.mjs': orchestratorToolMatcher(['runs_read']),
+    'decision-guard.mjs': orchestratorToolMatcher(['runs_write']),
   };
 
   const allMatchers = [];

@@ -23,6 +23,8 @@ An item's \`type\` selects its schema in \`.taskorchestrator/config.yaml\`: per-
 
 const CORE_CALLS = `## Core Calls
 
+When the Task Orchestrator tools are listed as deferred, load every tool a step needs in one ToolSearch call.
+
 \`\`\`to-call
 {"tool":"advance","op":"transition","args":{"itemId":"<item-uuid>","trigger":"start"}}
 \`\`\`

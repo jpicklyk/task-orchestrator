@@ -22,7 +22,8 @@ const TOOL_NAMES = Object.freeze({
   RUNS_WRITE: 'runs_write',
 })
 // @generated:tool-names-end
-const MCP_TOOL_PREFIX = 'mcp__mcp-task-orchestrator__'
+// Default MCP entry key; plan.capabilities.mcpServerKey (from run-planner probe) overrides it.
+const DEFAULT_MCP_SERVER_KEY = 'mcp-task-orchestrator'
 const ENVELOPE_VERSION = 'envelope-v1'
 const VERDICTS = ['pass', 'pass-with-observations', 'fail-blocking']
 const INDEPENDENCE_MODES = ['independent', 'independent-degraded', 'not-independent', 'n/a']
@@ -354,10 +355,20 @@ function promptScope(plan, item) {
 }
 
 /** Part 3: tool selection. notes_write only for a note-owning lane; advance and items_write never named. */
-function promptTools(stage) {
+function promptTools(plan, stage) {
   const names = [TOOL_NAMES.ITEMS_READ, TOOL_NAMES.NOTES_READ, TOOL_NAMES.CONFIG]
   if (stage.notes && stage.notes.length > 0) names.push(TOOL_NAMES.NOTES_WRITE)
-  return `TOOLS: load with ToolSearch select:${names.map((n) => MCP_TOOL_PREFIX + n).join(',')}`
+  const prefix = `mcp__${mcpServerKey(plan)}__`
+  return (
+    `TOOLS: load with ToolSearch select:${names.map((n) => prefix + n).join(',')}. ` +
+    'If that finds nothing, search ToolSearch for "task-orchestrator".'
+  )
+}
+
+/** The registered MCP entry key: plan.capabilities.mcpServerKey when a non-empty string, else the default. */
+function mcpServerKey(plan) {
+  const key = plan && plan.capabilities && plan.capabilities.mcpServerKey
+  return typeof key === 'string' && key !== '' ? key : DEFAULT_MCP_SERVER_KEY
 }
 
 /**
@@ -548,7 +559,7 @@ function lanePrompt(plan, item, stage, outs) {
   const parts = [
     promptSeatLine(plan, item, stage),
     promptScope(plan, item),
-    promptTools(stage),
+    promptTools(plan, stage),
     promptSeatToken(plan, stage),
     promptOwnedNotes(item, stage),
     promptRules(plan, stage),

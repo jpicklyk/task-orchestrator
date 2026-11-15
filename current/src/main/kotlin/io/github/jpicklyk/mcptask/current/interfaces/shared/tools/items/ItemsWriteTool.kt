@@ -17,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.PersistenceFaults
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
@@ -91,19 +92,19 @@ enum class ClearField {
 /** Field documentation shared by the ops: a field in two ops must carry the same text (one generated schema). */
 internal object ItemDocs {
     const val ID = "Item UUID or 8+ hex prefix."
-    const val TITLE = "Item title."
+    const val TITLE = "Item title, max 500 chars."
     const val TYPE = "Declared item type; required on create."
     const val PARENT_ID = "Parent id; omit for a root. Update moves the item."
     const val DESCRIPTION = "Long description."
-    const val SUMMARY = "Short summary."
-    const val STATUS_LABEL = "Free-form status label."
+    const val SUMMARY = "Short summary, max 2000 chars."
+    const val STATUS_LABEL = "Status label."
     const val PRIORITY = "Create defaults to medium."
     const val COMPLEXITY = "1 to 10."
     const val REQUIRES_VERIFICATION = "Completion needs verification."
-    const val METADATA = "Free-form metadata text."
+    const val METADATA = "Metadata text."
     const val TAGS = "Lowercase, hyphenated. Update: [] clears."
-    const val TRAITS = "Declared trait names. Update: [] clears."
-    const val PROPERTIES = "Free-form JSON object without a traits key."
+    const val TRAITS = "Declared traits, max 100 chars each. Update: [] clears."
+    const val PROPERTIES = "JSON object; no traits key."
     const val EXPECTED_VERSION = "Fails version_conflict if the item is at another version."
     const val CLEAR = "Update only: optional fields to set to null."
     const val RECURSIVE = "Delete the subtree; required when the item has children."
@@ -111,10 +112,13 @@ internal object ItemDocs {
 
 internal const val ITEMS_WRITE_DESCRIPTION = "Create, update and delete work items or whole trees, one ops[] element each."
 
+/** The knowledge profile's description: it serves no tree op. */
+internal const val ITEMS_WRITE_KNOWLEDGE_DESCRIPTION = "Create, update and delete work items, one ops[] element each."
+
 /**
  * The `items_write` tool: `create`, `update`, `delete`, `create_tree`, `complete_tree` and `repin` over one `ops[]`
- * array. `create_tree`, `complete_tree` and `repin` are orchestration-only, so the description names only the knowledge
- * ops and trees (each orchestration op documents itself on the orchestration profile).
+ * array. `create_tree`, `complete_tree` and `repin` are orchestration-only, so the knowledge profile gets its own
+ * description without trees (each orchestration op documents itself on the orchestration profile).
  */
 internal fun itemsWriteTool(): OpsToolSpec<ItemWriteResult> =
     OpsToolSpec(
@@ -122,7 +126,8 @@ internal fun itemsWriteTool(): OpsToolSpec<ItemWriteResult> =
         description = ITEMS_WRITE_DESCRIPTION,
         ops = listOf(createItemOp(), updateItemOp(), deleteItemOp(), createTreeOp(), completeTreeOp(), repinItemOp()),
         codec = ItemWriteCodec,
-        element = ::itemWriteElement
+        element = ::itemWriteElement,
+        profileDescriptions = mapOf(ToolProfile.KNOWLEDGE to ITEMS_WRITE_KNOWLEDGE_DESCRIPTION)
     )
 
 /** The `results[i]` fields of a successful element. */

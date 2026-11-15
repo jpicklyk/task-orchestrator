@@ -4,7 +4,7 @@
     "properties": {
       "ops": {
         "type": "array",
-        "description": "Write operations, one flat object per op, run in order. A field marked [ops: ...] applies only to the ops named.",
+        "description": "Operations, one flat object each, run in order. A field marked [ops: ...] applies only to the ops named.",
         "items": {
           "type": "object",
           "properties": {
@@ -115,12 +115,12 @@
       },
       "describe": {
         "type": "boolean",
-        "description": "true: return the operations, their parameters and errors instead of running the tool."
+        "description": "true: return each operation's parameters and errors; nothing runs."
       }
     },
     "type": "object"
   },
-  "description": "Open, update, close, pause, resume and mark runs; assign and end seats; raise, ack, answer and withdraw decisions. Each op needs the runs capability (ack, answer: decide) and a root in scope. close: coordinator, director or a human; update, assign: coordinator token; end_seat: the seat's own token; pause and resume: director or human only; mark: REST only. Result: the run (close adds snapshot, mark adds marked) or the decision. Call with describe:true for each operation's parameters and errors.",
+  "description": "Open, close, pause and resume runs; ack, answer and withdraw decisions. Each op needs the runs capability (ack, answer: decide) and a root in scope. close: coordinator, director or a human; pause and resume: director or human only. Result: the run (close adds snapshot) or the decision. Call with describe:true for parameters and errors.",
   "annotations": {
     "readOnlyHint": false,
     "destructiveHint": true,

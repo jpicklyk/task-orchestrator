@@ -61,12 +61,12 @@
       },
       "describe": {
         "type": "boolean",
-        "description": "true: return the operations, their parameters and errors instead of running the tool."
+        "description": "true: return each operation's parameters and errors; nothing runs."
       }
     },
     "type": "object"
   },
-  "description": "Read runs, the bounded budgeted passes over a set of items. select: get (one run), list (runs, newest first), seats (a run's seat assignments), frontier (ready, in-flight and waiting members), decisions or decision. A run or decision is outside the call scope when its root is. Call with describe:true for each operation's parameters and errors.",
+  "description": "Read runs, the bounded budgeted passes over a set of items. select: get (one run), list (runs, newest first), frontier (ready, in-flight and waiting members), decisions or decision (the decision inbox). A run or decision is outside the call scope when its root is. Call with describe:true for parameters and errors.",
   "annotations": {
     "readOnlyHint": true,
     "destructiveHint": false,

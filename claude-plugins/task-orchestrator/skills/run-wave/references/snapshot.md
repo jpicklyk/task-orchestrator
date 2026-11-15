@@ -35,10 +35,13 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
   phase's, then its `dispatch-policy.json` class (see `task-orchestrator:model-effort`). A profile
   that still carries `defaultModels` gets one plan warning and the key is ignored.
 - `probe` — the verbatim JSON the `probe` subcommand prints (`pluginVersion`, `phase0Hooks`,
-  `hookMarkers`, `workflowSizeGuideline`, `allow`, `serverCompat`, and whatever else it emits — copy
-  it as-is, do not curate the fields). Required. `chooseEntry` reads `probe.phase0Hooks` for entry
+  `hookMarkers`, `workflowSizeGuideline`, `allow`, `serverCompat`, `mcpServerKey`, and whatever else
+  it emits - copy it as-is, do not curate the fields). Required. `chooseEntry` reads `probe.phase0Hooks` for entry
   mode and `plan` copies `probe.pluginVersion`/`probe.workflowSizeGuideline` into
-  `capabilities`/`sizeGuideline`. `serverCompat` is checked in Step 0 F2 (non-null stops the run);
+  `capabilities`/`sizeGuideline`. `mcpServerKey` is the registered orchestration entry key (null when
+  none); `plan` copies a non-null one into `capabilities.mcpServerKey`, which names the tools on every
+  seat prompt's TOOLS line (absent means `mcp-task-orchestrator`). `plan` copies `allow` into
+  `meta.allow`; the `planned` report names its false members on the `needs:` line. `serverCompat` is checked in Step 0 F2 (non-null stops the run);
   `probe --no-server-check` skips that network check and `--api-url <url>` overrides the resolved URL.
 - `profile.verify[].appliesTo` — optional, a non-empty array of repo-relative glob patterns (same
   segment-glob matching as `appendOnlyFiles`, case-insensitive). `promptVerify` renders the entry only when

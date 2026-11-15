@@ -60,12 +60,12 @@
       },
       "describe": {
         "type": "boolean",
-        "description": "true: return the operations, their parameters and errors instead of running the tool."
+        "description": "true: return each operation's parameters and errors; nothing runs."
       }
     },
     "type": "object"
   },
-  "description": "Read the versioned documents of a project root. select: get (one document or one stored version), list (metadata only), history (versions) or links (what the document links to and what links to it). Call with describe:true for each operation's parameters and errors.",
+  "description": "Read the versioned documents of a project root. select: get (one document or one stored version), list (metadata only), history (versions) or links (what the document links to and what links to it). Call with describe:true for parameters and errors.",
   "annotations": {
     "readOnlyHint": true,
     "destructiveHint": false,

@@ -1,12 +1,14 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 
 const val RUNS_READ = "runs_read"
 
 /**
  * The runs_read tool: one run, a filtered page of runs, a run's seats, a run's frontier, a page of decisions or one
- * decision. Orchestration and director profiles (seats: orchestration; decisions and decision: director).
+ * decision. Orchestration and director profiles (seats: orchestration; decisions and decision: director). The shared
+ * description is the full (REST) form; each MCP profile gets its own, naming only the selects it serves.
  */
 fun runsReadTool(): SelectToolSpec =
     SelectToolSpec(
@@ -15,6 +17,17 @@ fun runsReadTool(): SelectToolSpec =
             "Read runs, the bounded budgeted passes over a set of items. select: get (one run), list (runs, newest " +
                 "first), seats (a run's seat assignments), frontier (ready, in-flight and waiting members), decisions " +
                 "or decision. A run or decision is outside the call scope when its root is.",
+        profileDescriptions =
+            mapOf(
+                ToolProfile.ORCHESTRATION to
+                    "Read runs, the bounded budgeted passes over a set of items. select: get (one run), list (runs, " +
+                    "newest first), seats (a run's seat assignments) or frontier (ready, in-flight and waiting members). " +
+                    "A run is outside the call scope when its root is.",
+                ToolProfile.DIRECTOR to
+                    "Read runs, the bounded budgeted passes over a set of items. select: get (one run), list (runs, " +
+                    "newest first), frontier (ready, in-flight and waiting members), decisions or decision (the decision " +
+                    "inbox). A run or decision is outside the call scope when its root is."
+            ),
         selects =
             listOf(
                 runsGetSelect,

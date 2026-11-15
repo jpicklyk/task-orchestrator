@@ -47,7 +47,8 @@ data class NoteUpsertRequest(
     @Doc(NoteDocs.ITEM_ID) val itemId: IdRef,
     @Doc(NoteDocs.KEY) val key: String,
     @Doc(NoteDocs.ROLE) val role: String,
-    @Doc("Inline note text (may be empty). Exactly one of body and bodyFromFile is required.") val body: String? = null,
+    @Doc("Inline note text (may be empty), at most 65,536 bytes. Exactly one of body and bodyFromFile is required.")
+    val body: String? = null,
     @Doc(
         "Server-side path whose text becomes the body. Exactly one of body and bodyFromFile is required. " +
             "Resolved strictly inside the agent config root: no absolute path, no '..', no symlink out of it; " +

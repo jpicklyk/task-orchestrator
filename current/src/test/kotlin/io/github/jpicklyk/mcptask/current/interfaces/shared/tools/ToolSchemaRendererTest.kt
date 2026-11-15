@@ -1,11 +1,14 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -260,7 +263,7 @@ class ToolSchemaRendererTest {
     @Test
     fun `S5 the fixed ops texts are the frozen sentences`() {
         assertEquals(
-            "Write operations, one flat object per op, run in order. A field marked [ops: ...] applies only to the ops named.",
+            "Operations, one flat object each, run in order. A field marked [ops: ...] applies only to the ops named.",
             ToolSchemaRenderer.OPS_DOC
         )
         assertEquals("The operation this element runs.", ToolSchemaRenderer.OP_DOC)
@@ -272,11 +275,8 @@ class ToolSchemaRendererTest {
             "Optional client key (1-128 chars). Resending the same op with the same key returns the stored result.",
             ToolSchemaRenderer.IDEMPOTENCY_KEY_DOC
         )
-        assertEquals(
-            "true: return the operations, their parameters and errors instead of running the tool.",
-            ToolSchemaRenderer.DESCRIBE_DOC
-        )
-        assertEquals("Call with describe:true for each operation's parameters and errors.", ToolSchemaRenderer.DESCRIBE_HINT)
+        assertEquals("true: return each operation's parameters and errors; nothing runs.", ToolSchemaRenderer.DESCRIBE_DOC)
+        assertEquals("Call with describe:true for parameters and errors.", ToolSchemaRenderer.DESCRIBE_HINT)
     }
 
     @Test
@@ -302,10 +302,88 @@ class ToolSchemaRendererTest {
     @Test
     fun `S5 description is the spec description, one space, then the describe hint`() {
         assertEquals(
-            "Fixture read tool. Call with describe:true for each operation's parameters and errors.",
+            "Fixture read tool. Call with describe:true for parameters and errors.",
             ToolSchemaRenderer.description(fx.readTool)
         )
         assertEquals("Fixture write tool. ${ToolSchemaRenderer.DESCRIBE_HINT}", ToolSchemaRenderer.description(fx.writeTool))
+    }
+
+    // ------------------------------------------------------------------ S13 per-profile description (NEW-SURFACE)
+
+    private val knowledgeText = "Knowledge-only wording."
+    private val orchestrationText = "Orchestration-only wording."
+
+    private fun readToolWithProfileText() =
+        SelectToolSpec(
+            name = "fx_read",
+            description = "Shared wording.",
+            selects = listOf(fx.getSelect, fx.listSelect, fx.auditSelect),
+            profileDescriptions = mapOf(ToolProfile.KNOWLEDGE to knowledgeText)
+        )
+
+    private fun writeToolWithProfileText() =
+        OpsToolSpec<String>(
+            name = "fx_write",
+            description = "Shared wording.",
+            ops = listOf(fx.createOp, fx.renameOp, fx.purgeOp),
+            codec = FixtureTools.StringCodec,
+            profileDescriptions = mapOf(ToolProfile.ORCHESTRATION to orchestrationText),
+            element = { buildJsonObject { put("id", it) } }
+        )
+
+    @Test
+    fun `S13 a select tool renders its profile description only in that profile`() {
+        val spec = readToolWithProfileText()
+        val knowledge = ToolSchemaRenderer.description(spec, ToolProfile.KNOWLEDGE)
+        assertTrue(knowledge.startsWith(knowledgeText), knowledge)
+        assertFalse("Shared wording." in knowledge, "the profile text replaces the shared text: $knowledge")
+        assertTrue(knowledge.endsWith(ToolSchemaRenderer.DESCRIBE_HINT), "the describe hint is still appended: $knowledge")
+
+        val shared = "Shared wording. ${ToolSchemaRenderer.DESCRIBE_HINT}"
+        assertEquals(shared, ToolSchemaRenderer.description(spec, ToolProfile.ORCHESTRATION))
+        assertEquals(shared, ToolSchemaRenderer.description(spec, ToolProfile.DIRECTOR))
+        assertEquals(shared, ToolSchemaRenderer.description(spec, ToolView.Rest))
+        assertEquals(shared, ToolSchemaRenderer.description(spec))
+    }
+
+    @Test
+    fun `S13 an ops tool renders its orchestration description in orchestration and the shared text elsewhere`() {
+        val spec = writeToolWithProfileText()
+        val orchestration = ToolSchemaRenderer.description(spec, ToolProfile.ORCHESTRATION)
+        assertTrue(orchestration.startsWith(orchestrationText), orchestration)
+        assertFalse("Shared wording." in orchestration, orchestration)
+
+        val shared = "Shared wording. ${ToolSchemaRenderer.DESCRIBE_HINT}"
+        assertEquals(shared, ToolSchemaRenderer.description(spec, ToolProfile.KNOWLEDGE))
+        assertEquals(shared, ToolSchemaRenderer.description(spec, ToolView.Rest))
+    }
+
+    @Test
+    fun `S13 the served tool and the profile aware descriptionFor carry the same profile text`() {
+        val read = readToolWithProfileText()
+        assertEquals(knowledgeText, read.descriptionFor(ToolProfile.KNOWLEDGE))
+        assertEquals("Shared wording.", read.descriptionFor(ToolProfile.ORCHESTRATION))
+        assertEquals("Shared wording.", read.descriptionFor(ToolView.Rest))
+        assertEquals(
+            ToolSchemaRenderer.description(read, ToolProfile.KNOWLEDGE),
+            McpOperationAdapter.toolFor(read, ToolProfile.KNOWLEDGE)?.description
+        )
+        assertEquals(
+            ToolSchemaRenderer.description(read, ToolProfile.ORCHESTRATION),
+            McpOperationAdapter.toolFor(read, ToolProfile.ORCHESTRATION)?.description
+        )
+
+        val write = writeToolWithProfileText()
+        assertEquals(orchestrationText, write.descriptionFor(ToolProfile.ORCHESTRATION))
+        assertEquals("Shared wording.", write.descriptionFor(ToolProfile.KNOWLEDGE))
+        assertEquals(
+            ToolSchemaRenderer.description(write, ToolProfile.ORCHESTRATION),
+            McpOperationAdapter.toolFor(write, ToolProfile.ORCHESTRATION)?.description
+        )
+        assertEquals(
+            ToolSchemaRenderer.description(write, ToolProfile.KNOWLEDGE),
+            McpOperationAdapter.toolFor(write, ToolProfile.KNOWLEDGE)?.description
+        )
     }
 
     // ------------------------------------------------------------------ S6 annotations
