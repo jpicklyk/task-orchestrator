@@ -75,6 +75,8 @@ const protocol = `## Agent-Owned-Phase Protocol
 
 **Follow your dispatch prompt's seat assignment.** If your dispatch prompt names a seat for you (e.g. \`implementer\`, \`reviewer\`, or another named seat), that seat's own transition rule governs — follow it exactly. Only an **entry seat** (the seat that starts the item's current phase), or a single agent that owns the whole phase with no seat named, calls \`advance\` with \`ops: [{op: "transition", itemId: "<your-item-UUID>", trigger: "start"}]\`. A non-entry seat or a **read-only** agent never calls \`advance\` — it does its assigned work and fills its own notes without transitioning the item. When you do own the transition: enter your phase, do the work, and fill the phase's required notes via \`notes_write\` (\`ops: [{op: "upsert", itemId, key, role, body}]\`). When your dispatch prompt carries a \`seatToken\`, send it as a top-level field of every call you make. Read the item's gate with \`items_read\` (\`select: "context"\`, \`itemId\`); it names the owed keys and a \`guidanceKey\`, and the guidance text itself comes from \`items_read\` \`select: "schema"\` with \`fields: ["guidance"]\`.
 
+When your dispatch names a protocol rule (\`protocol.entry-seat\`, \`protocol.in-phase-seat\` or \`protocol.read-only-agent\`), fetch it with \`docs_read\` \`get\` (\`kind\` \`rule\`, \`slug\`, \`rootId\`) and follow it over this summary.
+
 Every result is an envelope: branch on \`ok\` and on \`error.code\` / \`error.kind\` (and \`retryAfterMs\` when present) of the element, never on the absence of an error.
 
 **Read the role before you send \`start\`.** Call \`items_read\` (\`select: "context"\`, \`itemId\`) first. A \`start\` is not idempotent: a second \`start\` moves the item forward whenever its gate passes, so retrying it can advance the item past your phase. Send \`start\` only when the role is the one just before your phase: \`queue\`, for a seat that enters the work phase. A review-phase seat never sends \`start\`: the orchestrator moves the item to review before dispatching you. When the context already shows your phase, do not send \`start\`; read the guidance as above and begin. For any other role (blocked, terminal, or a phase past yours), do not send \`start\`: stop and report the role back to the orchestrator.
@@ -91,10 +93,10 @@ If you stop with your phase's required notes still unfilled, you will be sent ba
 
 ## Subagent Discipline
 
-1. **Commit before returning.** Stage and commit all file changes with a descriptive message — the orchestrator squash-merges your branch.
-2. **Stay in scope.** Touch only files for your assigned task. No version bumps, shared config, or CI edits. Deliver what the task asked at the scope intended: finish the whole task rather than leaving stubs, and stop short of work clearly beyond it.
+1. **Commit before returning.** Commit and revert as the rule \`commit-discipline\` directs (point 6).
+2. **Stay in scope.** Stay inside the task's limits as the rule \`commit-discipline\` directs (point 7); finish the whole task rather than leaving stubs.
 3. **Notes are the report.** Write findings into your item's notes — distill inline; route verbatim artifacts (test output, diffs, logs) via \`bodyFromFile\`. Your final message to the orchestrator is 1-2 lines: item ID, outcome, and which note keys were filled. Do not restate note content.
-4. **Leave nothing running.** Never start a background command (run_in_background, \`&\`, nohup) that can outlive your return; wait for it or stop it before your final message. Bound filesystem searches to the repo/worktree and known caches (e.g. \`~/.gradle/caches\`); never search from \`/\` or a drive root.`;
+4. **Leave nothing running.** Never start a background command (run_in_background, \`&\`, nohup) that can outlive your return; wait for it or stop it before your final message. Bound filesystem searches to the repo/worktree and known caches; never search from \`/\` or a drive root.`;
 
 const output = {
   hookSpecificOutput: {

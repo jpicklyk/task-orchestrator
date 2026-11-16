@@ -41,7 +41,7 @@ The skill reads the item's schema at runtime (guidance text via `items_read` `sc
 - **Do the actual work** the notes describe. Could be code changes, research, configuration edits, anything. The schema decides what; you execute.
 - **Run any verification** the spec note calls for (tests, linters, etc.).
 - **On a seat-aware schema** your seat token writes only keys with no seat or `seat: implementer`. Planner, reviewer, test-author and orchestrator keys answer `note_owned_by_other`: never take them over; emit `gate-blocked` with that code and the key in `reason`.
-- **On a seat-less schema, bug-fix items may carry the `needs-test-author` notes** (when the project's bug-fix schema includes that trait - check the expected notes) - if so, fill `test-plan` before advancing to work, write the regression test red-first, and record verdict `independent-degraded (temporal-only)` in the `test-independence-audit` note.
+- **On a seat-less schema, an item may carry a trait's notes** (check the expected notes) - if so, fill them per their guidance; the `test-independence-audit` guidance names the single-author verdict.
 
 When a call fails, branch on its `error.code` using the outcome table below, and put that code in your `RALPH_OUTCOME` as `code` (with `retryAfterMs` when the error carries one). In particular:
 

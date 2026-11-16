@@ -226,7 +226,7 @@ The seat's end follows the final status: `ready-to-complete` (once the driver's 
 
 **Complete handshake.** Entering terminal clears the claim, so the iteration stops at `ready-to-complete`; the driver sends `transition` `complete` under the seat token (a transient answer is retried up to 3 times). Between claim and the end of the iteration the driver also heartbeats the claim every `--heartbeat-interval` seconds (default half of `--ttl`), so a long iteration outlives the TTL. **Skip-listing.** An item whose iteration ends `gate-blocked` or `error` is skip-listed for the rest of the loop.
 
-**Which items ralph can drain.** Ralph drains only types the `implementer` seat can carry to terminal. On a seat-aware schema (such as this repository's `bug-fix`) the review and orchestrator steps belong to other seats, so those iterations end `gate-blocked`.
+**Which items ralph can drain.** Ralph drains only types the `implementer` seat can carry to terminal. On a seat-aware schema (such as a `bug-fix` type whose review and orchestrator notes belong to other seats) the review and orchestrator steps belong to other seats, so those iterations end `gate-blocked`.
 
 **Contention is a skip, never a release.** A claim the driver cannot take (`claim_held`) and a resource lease the iteration cannot take (`resource_unavailable`) both skip-list the item for its `retryAfterMs` (30s when absent); `invalid_transition`, `not_found` and `duplicate` skip it for the rest of the loop. The next selection picks a different item. A shedding or transient fault on a driver call (`unavailable`, `internal`, a network timeout) backs the loop off and retries the same step; it never skip-lists the item. See [Workflow Guide section 11 - Resource Leasing](../../../../current/docs/workflow-guide.md#11-resource-leasing) for the lease model.
 
@@ -273,7 +273,7 @@ User: "ralph the quick-fix backlog"
 $ARGUMENTS = "type=quick-fix"
 ```
 
-(`quick-fix` stands for any type whose schema is seat-less, or whose every note the implementer seat owns. This repository's `bug-fix` is seat-aware, so ralph drains only types the implementer seat can carry to terminal.)
+(`quick-fix` stands for any type whose schema is seat-less, or whose every note the implementer seat owns. A seat-aware type such as `bug-fix` is drained only if the implementer seat can carry it to terminal.)
 
 **Step 1** parses the filter: `type=quick-fix`; the project root scopes it.
 

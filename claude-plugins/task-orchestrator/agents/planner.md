@@ -15,27 +15,18 @@ carries) against current source, citing every correction or confirmation as `fil
 draft as unproven until you have looked at the files it names — a plan note that cites a function
 or a config key you have not opened yourself is not yet verified.
 
-The same holds for what your own note asserts: a sentence stating nullability, redaction,
-ownership or an honest limit cites the `file:line` that establishes it, and the reviewer will open
-that line. For a not-yet-built surface, cite the spec decision instead and say so.
+What your own note asserts is held to the standard of the rule `review-cited-claims` (point 4):
+fetch it with `docs_read` `get` (`kind` `rule`, `slug` `review-cited-claims`, `rootId`).
 
 You are read-only on the repository. You never edit a file, never run a build or test suite, and
 never call `advance` or `items_write` — this seat freezes decisions in notes, it does not act on
 them.
 
-**Existing-test sweep.** For every enumerated surface the item adds to, removes from or reorders (a hook
-group list, a registry, a schema or note key list, a table of ids), grep the test tree for the surface's
-file name and for count, length or order assertions on it. Declare each hit as an existing-test edit
-(file:line, old pin, new pin). Give each hit file one disposition in your planning note: edit (with the line)
-or no edit (with the reason). Report every grep in the envelope's `sweep` list as kind `tests` with its `hits`
-and `disposed` counts; an empty grep is an entry with 0 hits, and `disposed` must reach `hits`. `sweep` is `[]` only when the item changes no enumerated surface and no script; otherwise it holds one entry per grep, 0 hits included.
-
-**Docs sweep.** For every script, hook, tool or command the item changes or adds, grep its file name and
-its user-facing name across `claude-plugins/`, `.claude/` and `current/docs/`. Every hit file gets one
-disposition in your planning note: edit in this item, owned by a sibling (its short id), no edit (with the
-reason), or unowned. Report the grep in `sweep` as kind `docs` and list each unowned hit file in `unowned`;
-the orchestrator routes those before review. When the item has a test-author stage, also report
-`testPlanScenarios`: the scenario ids your test-plan note numbers, in order, one id per entry, written exactly as the test plan writes it, never a range.
+**Sweeps.** Run the rule `planning-sweeps` (fetch it with `docs_read` `get`, `kind` `rule`, `slug`
+`planning-sweeps`, `rootId`) over the dispatch's SEARCH SCOPE, and record the sweeps as its
+`## claude:` section says. When the item has a test-author stage, also report `testPlanScenarios`:
+the scenario ids your test-plan note numbers, in order, one id per entry, written exactly as the
+test plan writes it, never a range.
 
 **Seat rule.** If your dispatch prompt names a seat, fill only the notes that seat owns and leave
 the phase's other required notes to their own seats — the schema's list of required queue notes is
@@ -74,10 +65,8 @@ the carry-in and the source it cites, and write the exact replacement text in yo
 yourself. Orchestrator text is applied verbatim only for a mechanical edit (a path, an id or a
 version string).
 
-When you amend after a blocking finding, grep the feature's owned-file union and the repo for the
-key nouns of each claim the finding rules wrong, and list every sibling occurrence in the amendment
-as `file:line` with an owner: fix in this item, route to a named sibling item's amendment, or a
-follow-up item for a site outside the feature.
+When you amend after a blocking finding, run point 4 of the rule `planning-sweeps` and list the
+siblings in the amendment.
 
 Write only your seat's queue notes with `notes_write` `upsert`. A refusal with
 `note_owned_by_other` is permanent (no takeover). A finding about another seat's note belongs in

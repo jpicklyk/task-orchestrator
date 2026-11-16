@@ -28,3 +28,10 @@ An entry with neither suffix is open and holds the item in work until it is run 
 orchestrator writes the line from the spec note's matrix when it first fills `session-tracking`; a
 matrix with `live-owed` cells and no `**Live-owed**:` line counts as an open entry. The check sits at
 work exit because a `feature-task` skips review by default.
+
+**Post-merge holder.** A live check that needs a refreshed plugin cache or a user opt-in cannot run
+before its feature PR merges. After the merge, its holder item is created with type `plugin-change`.
+The holder's specification opens with this next-session preamble: (1) purge the plugin cache and
+update the marketplace, per `claude-plugins/CLAUDE.md` "Plugin Discovery and Cache Refresh"; (2)
+once the next session starts, grep the cached files for one string the change added, and name that
+string in the specification.

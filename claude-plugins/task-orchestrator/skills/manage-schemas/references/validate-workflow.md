@@ -108,7 +108,7 @@ For each note in each schema (and trait):
 
   Warnings (recommended):
     ! bug-fix.implementation-notes: missing "required" field — defaults to false (set explicitly)
-    ! feature-implementation.deploy-notes: description is 94 chars (recommended: under 80)
+    ! feature-implementation.feature-summary: description is 94 chars (recommended: under 80)
     ! research-spike: all notes are optional — schema has no gate effect
     ! bug-fix.session-tracking: guidance asks for a file list or test counts — see edit-workflow.md, Legacy Closure-Note Guidance
     ! container: lifecycle is "auto" — consider "manual" for organizational containers
