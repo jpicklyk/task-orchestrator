@@ -18,15 +18,20 @@ orchestrator arbitrates, with exactly three dispositions.
 3. **Spec wrong or silent.** Escalate to the user. Amend `task-scope` or `diagnosis` first, then
    dispatch whichever side the amendment implicates.
 
-**The ledger.** Record every arbitration, and every other orchestrator ruling in a fix cycle, in the
-child's `orchestrator-confirmation` (an orchestrator-owned note; written under the coordinator token
-while the child is a member of an open run). One line per ruling, above the disposition lines:
+**The ledger.** Record every arbitration of a red author-authored test in the child's
+`orchestrator-confirmation` (an orchestrator-owned note; written under the coordinator token while
+the child is a member of an open run). One line per arbitration, above the disposition lines:
 
 `A<n>: case <1|2|3> - <the citation, for case 2> - <resolving sha>`
 
 Read the current body first (`notes_read` `get`) and upsert it whole. Never drop or rewrite an
 earlier line; mark a reversed one `REVERSED by A<m>` in place. The author's own report of the red
 test stays in its `test-manifest`.
+
+These `A<n>:` lines are records of red-test rulings only. The `amendments` note numbers its
+fix-cycle rulings `A<n>` too: when the schema declares `amendments` and a fix cycle follows, the
+fix-cycle ruling itself (decision, files, test edits, red-proof) is there, not in
+`orchestrator-confirmation`.
 
 **Never weaken, skip or `@Disable` a test to unblock a wave**, whatever the disposition. That is the
 failure the trait exists to prevent.
