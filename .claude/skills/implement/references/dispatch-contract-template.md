@@ -2,7 +2,7 @@
 
 Copy everything below the horizontal rule into the wave's plan file at Step 2 of `/implement` for
 every Parallel-tier run (3+ children), fill every `<placeholder>`, and reference the result by
-its **absolute path** from every Step 3, 4, 4b and 5 dispatch prompt.
+its **absolute path** from every hand-dispatch and review prompt.
 
 - **Where the file lives.** `plans/` is gitignored, so the plan file exists only in the MAIN
   checkout and never appears in the feature worktree an agent is pointed at. Write it to
@@ -107,8 +107,8 @@ oracles, and the public signatures tests compile against>`.
 
 One `planning`-class agent (`task-orchestrator:model-effort`) per stream returns this block verbatim (field names fixed; `none` is a valid
 value for any field except `main-files`/`test-files`, and `defect-class-siblings` may say `none`
-only with the sweep that found none). Field semantics: `/implement` SKILL.md
-Step 3, "Planning seat" subsection — prose describes, this states.
+only with the sweep that found none). Field semantics: `/implement` `WORKTREE.md` "Planner
+return fields" — prose describes, this states.
 
 Seat token (planning seat): `<token file path from the dispatch, or "none (hand-dispatch outside a run)">`. A dispatch-issued token goes in the top-level `seatToken` of EVERY call this seat makes, reads included; it is never printed, committed, copied into a prompt or written to a note. A call answered `unauthenticated` means the seat was superseded or ended: halt and write nothing more. A hand-dispatch outside a run carries none.
 
