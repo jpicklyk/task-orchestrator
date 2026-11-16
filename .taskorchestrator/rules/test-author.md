@@ -2,16 +2,14 @@
 
 Test authorship for a trait-gated item is separated from implementation because an agent that
 writes both the code and its tests has no adversary in the loop: the tests confirm what was built,
-not what was intended. This rule defines the two-seat split, the oracle-freeze and blindness rules
-that keep authorship independent, the scenario-labelling discipline, and the test-manifest record.
+not what was intended.
 
 ## 1. Two seats, two phases
 
 - **The plan seat**, before implementation starts, writes the scenarios, their oracle sources, and
   a probe list, frozen before any implementation exists. It also records a `declarationModules:`
   line in the test-plan note, listing each repo-relative module that any scenario touches, so the
-  extractor's coverage can be checked before the author is dispatched. This is the structural lever: an oracle
-  written before code exists cannot be derived from that code, no matter who writes it later.
+  extractor's coverage can be checked before the author is dispatched.
 - **The test-author seat**, after implementation lands, writes the actual test files -- compiling
   against the real, now-existing signatures, but without reading the implementation's reasoning or
   its own tests.
@@ -19,8 +17,6 @@ that keep authorship independent, the scenario-labelling discipline, and the tes
   may occupy both seats, but only under a declared, temporal-only degraded mode: the plan must
   still be frozen before implementation begins, and the record must say explicitly that separation
   was temporal only, never presented as if a second agent were involved.
-- Wherever a second agent IS available, never collapse the two seats to save a round-trip -- the
-  whole value of this rule is the second agent's blindness.
 
 ## 2. Scenarios and labelling
 
@@ -54,8 +50,7 @@ that keep authorship independent, the scenario-labelling discipline, and the tes
 ## 4. Blindness -- a capability boundary, not a reading discipline
 
 This holds only if the author's inputs are actually restricted, mechanically, not by asking the
-author to read narrowly (no reading tool has a declarations-only mode; any of them will put a
-function body in front of an author trying, in good faith, to resolve a signature).
+author to read narrowly (no reading tool has a declarations-only mode).
 
 - **Declarations are supplied, not looked up.** Every public declaration the author needs --
   constructors with full parameter lists and defaults, method signatures, constants, enum values,
@@ -76,8 +71,7 @@ function body in front of an author trying, in good faith, to resolve a signatur
   evidence used, for a reviewer to verify.
 - **Self-disclosure on breach.** A breach, deliberate or accidental, means: stop immediately,
   commit nothing, delete any draft written after it, and disclose exactly what was read -- in the
-  return report and in the manifest. A disclosed breach costs a re-dispatch; an undisclosed one
-  costs the item's independence verdict entirely.
+  return report and in the manifest.
 
 ## 5. Red-first and the red-proof budget
 
@@ -112,6 +106,7 @@ quality (rules 2 and 3) run after merge, at the wave boundary (rule 10).
    equivalent mutant, unreachable, or covered at another seam (name the test) before demanding a
    new test. A real gap found at the wave boundary does not reopen the merged item: it becomes a
    carry-in note on the next item touching that seam, or one test-only follow-up item per wave.
+   Each survivor is classified on `red-proof-results`; an unclassified one blocks the feature review's red-proof line.
 8. **Reviewers read the recorded results; they do not re-run them**, except to verify a specific
    result they doubt, and then scoped to the test classes in question, never as the whole suite.
 9. **Record per item:** proofs run, gaps found, equivalents, and approximate minutes — pre-merge
@@ -121,21 +116,16 @@ quality (rules 2 and 3) run after merge, at the wave boundary (rule 10).
     at the merged SHA, one mutation present at a time, and runs each only against the test
     classes the item's `test-manifest` maps to that scenario (`--tests`); one whole-suite run,
     incremental, only for a survivor, to tell "covered at another seam" from a real gap. Never
-    `--rerun-tasks`. Mutating the merged state is deliberate: it also catches a merge round that
-    weakened an oracle. The stage never gates a merge and runs in the background while the next
-    wave plans.
+    `--rerun-tasks`. The stage never gates a merge and runs in the background.
 11. **Who runs gradle.** The whole suite belongs to the orchestrator, once per wave. A seat
     verifies at the scope of what it wrote: the pinned compile self-check, and a scoped run of
     its own test classes to see them red then green. A seat never runs `:current:test`,
     `:current:ktlintCheck` or `--rerun-tasks`; the lock helper refuses them. A `VERIFY` line in
     `test-manifest` therefore cites the scoped classes and their result, never a suite count.
 
-The plan seat's `red-proof-shape` field carries this budget for the item: the bug-fix revert, up
-to about 5 decision-point mutations, or `skip: <category>`. The surface labels in section 2 still
-choose the recipe: EXISTING-SURFACE scenarios reach red by a plain revert; for NEW-SURFACE ones
-use the narrowest-revert recipe (keep the new type or parameter, revert its call sites) or the
-plan's named substitute. The test author lists at most the budget's decision-point recipes, not a
-recipe for every scenario, and observes red itself only where it can do so safely (below).
+The plan seat's `red-proof-shape` field carries the item's budget: the bug-fix revert, up to about
+5 decision-point mutations, or `skip: <category>`; the section 2 labels choose the recipe. The test
+author lists at most the budget's recipes and observes red itself only where it is safe (below).
 
 In a worktree shared with other seats, never run `git stash`, `git checkout -- <path>`,
 `git restore`, `git reset`, or any other tree-wide write: they discard or hide another seat's
@@ -151,8 +141,11 @@ Beyond scenario-derived tests, run the probes applicable to the surface under te
 suffix values around stated limits; alternate separators/casing/encoding for the same logical
 input; encoded or UNC-style path/identifier variants; case sensitivity mismatches across layers;
 empty vs. absent vs. null as three distinct states; duplicate entries and order sensitivity;
-replay/idempotency of the same write or transition. Record every probe attempted, including ones
-that found nothing, and mark inapplicable probes explicitly rather than omitting them.
+replay/idempotency of the same write or transition; platform-bound outcomes (path separators,
+trailing slash or backslash, drive letters, case sensitivity, line endings, clock resolution),
+written platform-neutrally (`path.join`/`path.sep`, or assert both outcomes by platform) or marked
+platform-bound with the CI image they must be proven on. Record every probe attempted, including
+ones that found nothing, and mark inapplicable probes explicitly rather than omitting them.
 
 ## 7. Scope and forbidden constructs
 
@@ -179,8 +172,8 @@ that found nothing, and mark inapplicable probes explicitly rather than omitting
 
 When a scenario's expected result is genuinely unclear, escalate rather than resolving it by
 reading the implementation -- that is exactly the shortcut the blindness rule exists to close.
-Record the ambiguity, what was unclear, and what each candidate resolution would require. The one
-carve-out is the same public-evidence self-resolution named in section 4. If an ambiguity truly
+Record the ambiguity, what was unclear, and what each candidate resolution would require. The only
+carve-out is section 4's public-evidence self-resolution. If an ambiguity truly
 cannot be escalated and must be resolved by consulting the implementation, mark the resulting
 scenario explicitly as oracle-degraded rather than folding it into an overall "independent"
 verdict.
@@ -189,16 +182,14 @@ verdict.
 
 A test that fails against the implementation as it stands is a finding, not a problem to make go
 away. Report it with the scenario id, the assertion, the observed value, and the oracle citation.
-Never weaken the assertion, skip it, or wrap it to unblock a merge -- a red test authored
-independently against a frozen oracle is the entire point; silencing it defeats the purpose as
-completely as never having written it. Whether the implementation, the test, or the spec is wrong
+Never weaken the assertion, skip it, or wrap it to unblock a merge. Whether the implementation, the test, or the spec is wrong
 is decided elsewhere, not by the test author.
 
 ## 10. The test-manifest record
 
 Record, per item: the seat and principal that own the note (the authoring identity); every test file created or modified; the commit
 range test authorship spans; a scenario-id-to-test mapping (covered, naming the test, or
-not-covered with a reason); every probe attempted and its result; every forbidden-construct
+not-covered with a reason); every probe attempted and its result; `platform-bound probes: <none | list>`; every forbidden-construct
 instance present, each with a justification (an empty declaration is itself a checked claim); the
 domain invariant each fixture satisfies by construction; the red-proof shape actually obtained for
 each scenario the item's budget covers (section 5); the arbitration record for every ambiguity raised; and any
