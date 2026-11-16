@@ -87,10 +87,11 @@ for (const path of targets) {
   const rows = Object.entries(policy.classes).map(
     ([name, c]) => `| \`${name}\` | ${c.model} | ${c.effort} | ${c.use} |`,
   );
-  const models = Object.entries(policy.models).map(([k, v]) => `${k} = ${v}`).join(', ');
+  const models = policy.models.map((m) => `\`${m}\``).join(', ');
   const table =
     '| Class | Model | Effort | Use |\n|---|---|---|---|\n' + rows.join('\n') + '\n\n' +
-    `Checked ${policy.checked} against ${models}. Automatic escalation ceiling: \`${policy.escalation.ceiling}\`.\n`;
+    `Models are Claude Code aliases (${models}); each resolves to the latest model of its family, so the policy names no version. ` +
+    `Automatic escalation ceiling: \`${policy.escalation.ceiling}\`.\n`;
   const pBegin = '<!-- BEGIN GENERATED:dispatch-policy';
   const pEnd = '<!-- END GENERATED:dispatch-policy';
   const skillPath = resolve(scriptDir, '../skills/model-effort/SKILL.md');
