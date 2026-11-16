@@ -978,42 +978,42 @@ test("S19 (integration): pre-entered mode clears waitsFor and turns S2's in-run 
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// S20 — the declarations-extractor is inserted ONLY before a work seat that has
-// BOTH a non-empty readsExclude AND a note whose skill is "test-author".
-// Either condition alone must not trigger insertion.
+// S20 — the declarations-extractor is inserted ONLY before a work seat NAMED
+// "test-author" that has a non-empty readsExclude. The seat name decides, not a
+// note skill; either condition alone must not trigger insertion.
 // ═══════════════════════════════════════════════════════════════════════════
 
-function schemaWithSeat(seatExtra, noteExtra) {
+function schemaWithSeat(seatExtra, noteExtra, seatName = "reviewer2") {
     return {
         status: "ok", type: "scratch-x", configFingerprint: "fpx", configSource: "per-root",
         notes: [
             { key: "implementation-notes", role: "work", required: true, seat: "implementer" },
-            { key: "review-note", role: "work", required: true, seat: "reviewer2", ...noteExtra },
+            { key: "review-note", role: "work", required: true, seat: seatName, ...noteExtra },
         ],
         seats: [
             { name: "implementer", phase: "work", enters: true },
-            { name: "reviewer2", phase: "work", after: ["implementer"], ...seatExtra },
+            { name: seatName, phase: "work", after: ["implementer"], ...seatExtra },
         ],
     };
 }
 
-test("S20: extractor is NOT inserted when readsExclude is present but no owned note has skill:test-author", () => {
+test("S20: extractor is NOT inserted when readsExclude is present but the seat is not named test-author", () => {
     const candidate = { id: "z1", short: "z1000000", title: "Z", priority: "high", complexity: 1, type: "scratch-x", role: "queue", parentId: null, traits: [], hasChildren: false, source: "ready" };
     const schemaEntry = schemaWithSeat({ readsExclude: ["implementation-notes"] }, {});
     const result = deriveStages(candidate, schemaEntry, { rulesServed: [{ key: "declarations-extractor", rulesVersion: "1" }], noteOwners: [] });
     assert.ok(!result.stages.some((s) => s.seat === "declarations-extractor"));
 });
 
-test("S20: extractor is NOT inserted when a note has skill:test-author but readsExclude is empty", () => {
+test("S20: extractor is NOT inserted when the seat is named test-author but readsExclude is empty", () => {
     const candidate = { id: "z2", short: "z2000000", title: "Z", priority: "high", complexity: 1, type: "scratch-x", role: "queue", parentId: null, traits: [], hasChildren: false, source: "ready" };
-    const schemaEntry = schemaWithSeat({}, { skill: "test-author" });
+    const schemaEntry = schemaWithSeat({}, {}, "test-author");
     const result = deriveStages(candidate, schemaEntry, { rulesServed: [{ key: "declarations-extractor", rulesVersion: "1" }], noteOwners: [] });
     assert.ok(!result.stages.some((s) => s.seat === "declarations-extractor"));
 });
 
-test("S20: extractor IS inserted when both readsExclude is non-empty AND the seat owns a skill:test-author note", () => {
+test("S20: extractor IS inserted when the seat is named test-author AND readsExclude is non-empty (note has no skill)", () => {
     const candidate = { id: "z3", short: "z3000000", title: "Z", priority: "high", complexity: 1, type: "scratch-x", role: "queue", parentId: null, traits: [], hasChildren: false, source: "ready" };
-    const schemaEntry = schemaWithSeat({ readsExclude: ["implementation-notes"] }, { skill: "test-author" });
+    const schemaEntry = schemaWithSeat({ readsExclude: ["implementation-notes"] }, {}, "test-author");
     const result = deriveStages(candidate, schemaEntry, { rulesServed: [{ key: "declarations-extractor", rulesVersion: "1" }], noteOwners: [] });
     assert.ok(result.stages.some((s) => s.seat === "declarations-extractor" && s.inserted === true));
 });
