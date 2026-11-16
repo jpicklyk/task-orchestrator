@@ -221,7 +221,7 @@ class McpStreamDisconnectTest {
     }
 
     @Test
-    fun `S1 probe a second GET with the same id replaces the first, which the server ends`() {
+    fun `S1 probe a second GET with the same id leaves exactly one stream open`() {
         val f = fixture()
         startEngine(f).use { live ->
             HttpClient(ClientCIO).use { client ->
@@ -234,28 +234,34 @@ class McpStreamDisconnectTest {
                         assertTrue(second.awaitHead(3000))
                         val secondHeadAt = System.nanoTime()
                         assertEquals(200, second.status, "never 409: a second GET is accepted")
-                        val ended = first.awaitStreamEnd(3000)
 
-                        // Built only on the failing path: kotlin.test assertTrue evaluates its message eagerly, and the
-                        // diagnosis reads the second stream for up to 1 s.
+                        // The SDK flushes the response head before the stream registers, so which of the two GETs is the
+                        // replaced one depends on the registration order, not on the order of the heads. Wait on both.
+                        val anyEnded = awaitCondition(3000) { first.awaitStreamEnd(25) || second.awaitStreamEnd(25) }
+                        val firstEnded = first.awaitStreamEnd(0)
+                        val secondEnded = second.awaitStreamEnd(0)
+
+                        // Built only on the failing path: kotlin.test assertTrue evaluates its message eagerly.
                         fun diag(): String {
-                            val secondEnded = second.awaitStreamEnd(1000)
-
                             fun tail(c: RawSseConnection) =
                                 c.text
                                     .takeLast(200)
-                                    .replace("\r", "\\r")
-                                    .replace("\n", "\\n")
+                                    .replace("\r", "\r")
+                                    .replace("\n", "\n")
                             val gapMs = (secondHeadAt - firstHeadAt) / 1_000_000
-                            return "replace probe: first ended=false (still open at the 3000 ms deadline)" +
-                                " status=${first.status} closedByServer=${first.closedByServer} tail='${tail(first)}'; " +
-                                "second ended=$secondEnded (read for up to 1000 ms) status=${second.status} " +
+                            return "replace probe: first ended=$firstEnded status=${first.status} " +
+                                "closedByServer=${first.closedByServer} tail='${tail(first)}'; " +
+                                "second ended=$secondEnded status=${second.status} " +
                                 "closedByServer=${second.closedByServer} tail='${tail(second)}'; " +
                                 "GET calls started=${live.getStarted.get()} ended=${live.getEnded.get()}; " +
                                 "gap between the two heads=$gapMs ms"
                         }
-                        if (!ended) fail("the replaced stream is ended by the server (its chunked response completes). ${diag()}")
-                        assertFalse(second.readFor(300), "the replacing stream stays open")
+                        if (!anyEnded) fail("exactly one of the two streams is ended by the server within 3000 ms, but none was. ${diag()}")
+                        if (firstEnded == secondEnded) fail("exactly one of the two streams is ended by the server, not both. ${diag()}")
+                        val open = if (firstEnded) second else first
+                        if (open.awaitStreamEnd(300)) fail("the stream that was not replaced stays open for 300 ms. ${diag()}")
+                        assertEquals(2, live.getStarted.get(), "two GET calls started: ${diag()}")
+                        assertTrue(awaitCondition(3000) { live.getEnded.get() == 1 }, "exactly one GET call has ended: ${diag()}")
                     }
                 }
                 assertEquals(200, f.pingOn(live, client, session).status.value)
