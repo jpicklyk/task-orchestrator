@@ -68,6 +68,6 @@ tells the sweep where to look first.
   `defect-class-siblings` field (proposal `bb191508`) is its special case.
 - Declare each repair commit in the wave's Review scoping commit map (implementer commits /
   author commits / declared notes), alongside which tightening it answers.
-- This sweep is `/implement` Step 4b's "Contract-change sweep discipline" -- it runs between the
+- This sweep is `/implement` `wave.md` Step 4's "Contract-change sweep discipline" -- it runs between the
   implementation wave and the orchestrator's build verification, before any child advances to
   review.

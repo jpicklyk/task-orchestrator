@@ -42,7 +42,7 @@ FROM data_steps
 ORDER BY applied_at;
 ```
 
-**Temp File Location:** Create `.tmp_check_schema.sql` in the project root directory (D:\Projects\task-orchestrator\)
+**Temp File Location:** Create `.tmp_check_schema.sql` in the current working directory (the project root or worktree), since Step 2 mounts `${PWD}`.
 
 **Step 2:** Run via Docker with mounted SQL file:
 ```bash

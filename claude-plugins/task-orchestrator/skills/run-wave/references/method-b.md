@@ -79,7 +79,7 @@ they are known, accepted gaps relative to Method A, not bugs to silently work ar
 ## Single-item exception
 
 A **Delegated-tier single item** (not part of a multi-item wave) dispatched through `/implement`
-stays on that skill's legacy hand-dispatch path rather than going through Method B — this run
+stays on that skill's Delegated path (`/implement` `delegated.md`) rather than going through Method B — this run
 plan machinery is for multi-item waves. If you find yourself about to run Method B over exactly
-one item outside an explicit `/task-orchestrator:run-wave` invocation, stop and use the legacy
+one item outside an explicit `/task-orchestrator:run-wave` invocation, stop and use the Delegated
 path instead.

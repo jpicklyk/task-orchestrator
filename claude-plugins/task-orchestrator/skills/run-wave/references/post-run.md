@@ -349,13 +349,13 @@ follow-up item created first, and the orchestrator's disposition for it names th
 no owner is not left for the reviewer to find.
 
 **Under `review: "handoff"`** (the project's `run-profile.json`), keep the run open through the project's
-own review step (this repo: `/implement` Step 5) and do not dispatch the generic reviewer yourself. In order:
+own review step (this repo: `/implement`, wave path `wave.md` Step 5) and do not dispatch the generic reviewer yourself. In order:
 Step 4 is done and the phase `review` is recorded; assign a reviewer seat per advanced item that entered a review
 phase (the `run-ops --phase assign --item <short> --seat reviewer` command below, under the coordinator token, its
 `seatToken` written to `tokens/<short>.reviewer.token`); hand off to the project's review step with the run open
 (its reviewers carry the label `reviewer:<short>`, see the Label rule). The hand-off returns once the project's review
-step has a verdict for every advanced item (this repo: `/implement` Step 5); the advance named below is that project's
-own advance (this repo: `/implement` Step 6), not a second one. After the hand-off returns: run Step 0b's
+step has a verdict for every advanced item (this repo: `/implement` `wave.md` Step 5); the advance named below is that project's
+own advance (this repo: `/implement` `wave.md` Step 6), not a second one. After the hand-off returns: run Step 0b's
 sweep, re-run `dispatch-meta` and `provenance --item <short> --extra-seats reviewer:<model>` (`provenance` reads
 the `reviewer:<short>` transcript from the meta file, and `--extra-seats` needs `--item`; a consolidated reviewer over several
 children is one agent labelled for the first child in plan order, so its `reviewer:<model>` row goes on that child only), and re-upsert the item's
@@ -391,7 +391,7 @@ turn. On the notification, aggregate the lane verdicts, run Step 0b's sweep, and
 `Workflow`, keep the generic `review-prompt` path above.
 
 **Wave parent review.** Before any reviewer for the wave parent itself is dispatched or handed off
-(a feature-level review; this repo's `/implement` Step 6 item 3; its reviewer's `description` is `reviewer:<parent-short>`, Label rule), `items_read(select:"context",
+(a feature-level review; this repo's `/implement` `wave.md` Step 6 item 3; its reviewer's `description` is `reviewer:<parent-short>`, Label rule), `items_read(select:"context",
 itemId:<parent>)` and branch on its role. No review-role entry in its schema → do not advance it:
 `start` from work with no review phase lands terminal. Role `work` and `gateStatus.canAdvance` →
 `advance` `transition` `start` (work→review) under the coordinator token first, then dispatch. Role
@@ -633,7 +633,7 @@ These are not automatable from inside this skill; surface them and wait as the p
 process requires:
 
 - Arbitration of a red test authored by an independent test-author seat (per the project's
-  arbitration rule — this repo: `/implement` Step 4b) is a **human or a separately-dispatched
+  arbitration rule — this repo: `/implement` "Arbitration — Red Author-Authored Tests") is a **human or a separately-dispatched
   arbitration agent's** call, not this skill's.
 - A decision a seat raised (`awaiting_decision`, with its `decisionId`) or a pause decision of the
   run is answered by a human or a director, never by the coordinator. Each one is reported with a
@@ -645,7 +645,7 @@ process requires:
   resume it under the coordinator token and carry the ruling; Step 9's re-snapshot re-dispatches it.
 - Opening a PR and merging it are the checkpoints that carry an item from review to terminal in
   most projects — this skill does not open PRs itself; that's the project workflow's job (this
-  repo: `/implement` Step 6).
+  repo: `/implement` `wave.md` Step 6).
 - Merge rounds that conflict on `CHANGELOG.md` (the `[Unreleased]` bullets) are resolved with
   `node claude-plugins/task-orchestrator/scripts/resolve-changelog.mjs --ancestor <f> --base <f>
   --branch <f> [--out <f>]`. It merges per bullet three-way: a one-sided edit or deletion is taken
@@ -753,7 +753,7 @@ Applies to a parent with 2 or more children whose resolved schema has a review p
 refreshed plugin cache or a user opt-in is the exception: see "Post-merge live acceptance" below). Shared mode: before the feature PR is
 pushed, so before Step 7a. Per-item mode: after the last child's PR has merged; it does not wait
 on Step 7a. Not covered here: a parent with one child (the project workflow's finalization decides how its
-independent parent review runs; this repo: `/implement` Step 6) and a
+independent parent review runs; this repo: `/implement` `wave.md` Step 6) and a
 parent whose schema has no review phase (it cascades to terminal when its last child completes and
 its required notes are filled).
 
@@ -803,7 +803,7 @@ review-role parent, and the parent leaves review only by the explicit advance in
    after N of N.
 
 **Post-merge live acceptance.** After the feature PR has merged (under `review: "handoff"` the
-project's finalization, this repo `/implement` Step 6, carries the same step), if the
+project's finalization, this repo `/implement` `wave.md` Step 6, carries the same step), if the
 only non-terminal children are live checks that need a refreshed plugin cache or a user opt-in: (a)
 create one `plugin-change` item titled `Post-merge live acceptance: <feature title>` under the
 feature's parent, its `specification` filled at creation; (b) `deps_write` `create` a `relates_to`
@@ -821,4 +821,4 @@ therefore wait for the merge. No server gate enforces the split: it is disciplin
 
 **Honest limit.** No server gate and no helper checks dispositions: `orchestrator-confirmation`
 is a declared optional note, so this is discipline, not enforcement. Under `review: "handoff"` the
-project's finalization applies the same rules (this repo: `/implement` Step 6 Parallel).
+project's finalization applies the same rules (this repo: `/implement` `wave.md` Step 6, shared mode).

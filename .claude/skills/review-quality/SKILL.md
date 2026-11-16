@@ -184,7 +184,8 @@ other finding above it:
   but not what the named oracle source specifies, that is a blocking issue — it means
   the oracle was derived from the implementation rather than the spec.
 - **Arbitration record.** Every ambiguity the test author flagged must have a named
-  resolver in the manifest's arbitration record. Give oracle-degraded scenarios — ones
+  resolver in the manifest's arbitration record, and every red-test ruling the orchestrator
+  made has its line in the item's `orchestrator-confirmation`. Give oracle-degraded scenarios — ones
   where the oracle source itself was uncertain — a second, closer look.
 - **Forbidden-pattern declaration is true.** Fetch the served rules
   `forbidden-test-patterns` and `test-assertion-vacuity`

@@ -83,7 +83,7 @@ The plugin's view of the 4.0 tool surface is generated, never hand-edited: `skil
 bodies and cannot import, which is why they carry the generated region instead of importing `tool-names.mjs`.
 
 Contract tests (`hooks/tests/contract-*.test.mjs`, library `scripts/lib/contract-checks.mjs`) pin the hook matchers
-to real tool names and reject a hard-coded retired 3.x tool name. The baseline `scripts/lib/contract-names-baseline.json` is now empty (`pendingPort: []`, `proseExceptions: []`): no file waits for a port, so a new
+to real tool names and reject a hard-coded retired 3.x tool name. The baseline `scripts/lib/contract-names-baseline.json` is empty (`pendingPort: []`, `proseExceptions: []`), so a new
 file that names a retired tool fails the test. The ratchet is two-way, so a row added for a file that no longer needs it also fails. Documented examples are ```to-call
 blocks (`{tool, select|op, args, profile?}`) validated against the catalog.
 

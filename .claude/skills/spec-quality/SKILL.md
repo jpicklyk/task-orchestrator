@@ -78,13 +78,9 @@ gate-block, 2026-07-31).
 This discipline applies to the **plan artifact** as much as to spec notes. Specification notes
 are generated from the plan and inherit its errors silently, so plan-mode output that names a
 file path, tool contract, or call sequence must cite the authoritative location and be verified
-against it before any child item inherits it. The rule above was first installed for spec notes
-only (2026-07-31); the next occurrence (retro `6d562acb`, 2026-08-04) originated one artifact
-upstream — the approved plan asserted a dispatch surface at `ralph-iteration.md` when the live
-file was `skills/ralph/iteration-prompt.md`, and a child's specification note and its first
-review verdict both inherited the wrong path. If a further occurrence still originates in a
-plan, treat that as evidence that prose rules cannot carry this load and add a mechanical check
-(every path a plan names must resolve on disk).
+against it before any child item inherits it: a wrong path in an approved plan reaches the
+child's spec note and its review verdict unchallenged. If a plan still ships an unverified path,
+add a mechanical check (every path a plan names must resolve on disk) rather than more prose.
 
 **Semantic claims carry a file:line.** Any sentence that states nullability, redaction,
 ownership, or an honest limit (what a guard does NOT cover) cites the `file:line` that
@@ -206,10 +202,10 @@ line is an omission, not a decision.
   `session-tracked` trait) lists every `live-owed` cell on a `**Live-owed**:` line. Each entry
   ends `run <date>: <result>` or `deferred: <item id>`; a deferral names a tracked item, never
   prose. An entry with neither suffix is open, and the item does not leave work while one is
-  open (`/implement` Step 4c).
+  open (`/implement`, Step 4c of each path file).
 
 The matrix lives in the item's spec note (`task-scope`, `diagnosis` or `specification`). A plan may
-carry it or point at it (`/implement` Step 3, "Plans carry the State matrix"); a dispatch contract
+carry it or point at it (`/implement` "Planning rules", "Plans carry the State matrix"); a dispatch contract
 only points at it and never copies its cells.
 
 ---

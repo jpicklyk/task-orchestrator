@@ -17,7 +17,7 @@ Rules for editing this plugin. They come from live and review findings on the ea
 
 8. **Element props are validated only at render.** An unsupported prop makes the engine refuse the whole tree and draw its own. Check props against the build's `d.ts` and mount-test on terminal and desktop.
 9. **Svg needs explicit pixel width and height.** A percentage falls back to about 300x150. Each side must be at most 4096 (`SVG_PX_LIMIT`). The desktop has no Svg background in dark theme, so paint one.
-10. **Tree budget.** The host binds 100,000 characters, 20,000 nodes and 32 levels deep; the mod budgets 90k (`src/graph-pane/budget.ts`). Measure unit costs with real 36-character UUIDs, open panels and redraws. Short test ids underestimated the cost and caused three review rounds (c858b28d).
+10. **Tree budget.** The host binds 100,000 characters, 20,000 nodes and 32 levels deep; the mod budgets 90k (`src/graph-pane/budget.ts`). Measure unit costs with real 36-character UUIDs, open panels and redraws; short test ids underestimate the cost.
 
 ## Files and tests
 
