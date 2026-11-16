@@ -41,10 +41,11 @@ retrospectives, bulk writes): the class alone decides.
 
 ## Escalation after a failure
 
-A fix after a failed test or review runs above the original dispatch. The step is 1 plus the earlier
-fix cycles (`-a1`, `-a2`) of the same base seat whose cause was a review or a test (a cycle recorded
-without a cause counts), and the effort is the base effort raised by that step. The ceiling is
-`xhigh`; automatic escalation never selects `max`. A carry-in or breach cycle does not raise a later
+A fix after a failed test or review runs above the original dispatch, unless the base effort is
+already at or above the ceiling, in which case it keeps the base effort. The step is 1 plus the
+earlier fix cycles (`-a1`, `-a2`) of the same base seat whose cause was a review or a test (a cycle
+recorded without a cause counts), and the effort is the base effort raised by that step. The ceiling
+is `xhigh`; automatic escalation never selects `max`. A carry-in or breach cycle does not raise a later
 one, a planner base keeps its effort and a reviewer is never reseated. A failure past the ceiling
 stays at `xhigh` and goes through the decision path, since a stronger model is a person's call. A
 replay of a recorded seat returns its recorded effort.

@@ -38,6 +38,7 @@ test('AC1: the Observation triage paragraph bounds fixed and keeps the Fail reci
   assert.ok(para.includes('exception, not the default'));
   assert.ok(para.includes('implementer-a<n>'));
   assert.ok(para.includes('no planner amendment'));
+  assert.ok(para.includes('blocking\nfindings only') || para.includes('blocking findings only'));
   assert.ok(para.includes('--findings'));
   assert.ok(s.includes('mechanical'));
   assert.ok(s.includes('ruling-needed'));

@@ -458,7 +458,7 @@ The ruling-needed recipe runs four seats, in order, each scoped to one amendment
    revert" above describes. The amendment's named budget mutations join the wave-boundary batch
    (Step 7a) with the rest of the item's budget.
 4. **Original reviewer, by name**, scoped to `git diff <prevReviewedSha>..HEAD -- <owned files>`
-   plus the blocking findings — see "Re-review after fixes" below. A mechanical fix keeps this
+   plus the blocking findings, as "Re-review after fixes" below describes. A mechanical fix keeps this
    re-review too: it reads only that diff against the cited ids.
 
 **Late carry-ins and orchestrator-originated fixes.** A carry-in that arrives after planning, or a
@@ -782,8 +782,8 @@ review-role parent, and the parent leaves review only by the explicit advance in
    re-numbered or "carried". The reviewer fills the parent's review-phase notes; the orchestrator
    never rewrites them.
 2. **On Fail**, the default fix path is a fix seat (a fresh `implementer-a<n>` with `description` `implementer-a<n>:<parent-short>`, scoped to the
-   finding's file, dispatched one effort level above the original implementer dispatch per
-   `orchestrate`'s hand-dispatch rule) against the PARENT feature: its dispatch prompt must name it a NON-ENTRY seat
+   finding's file, dispatched at the escalated effort: the step is 1 plus the seat's
+   earlier review or test fixes, as Step 5 states) against the PARENT feature: its dispatch prompt must name it a NON-ENTRY seat
    that never transitions the parent. In shared mode it commits on the feature branch; in per-item
    mode there is no feature branch, so the fix lands as its own small PR against the base branch
    and the re-check reads that PR's diff. Either way it carries a `Seat: implementer-a<n>` trailer
