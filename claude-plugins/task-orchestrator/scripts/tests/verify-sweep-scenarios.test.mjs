@@ -130,7 +130,7 @@ test('S5: hasSeatLine is false for a longer seat name, a bad -a suffix, a quoted
   no('SEAT: implementer')
   no('Seat: Implementer')
   no('Seat: implementer.')
-  no('Seat: implementer ')
+  no('Seat: implementer\u00a0')
   no('Seat: reviewerXdocs', 'reviewer.docs')
   no('Seat: reviewer', 'reviewer.docs')
   no('Seat: reviewer.docs-extra', 'reviewer.docs')
