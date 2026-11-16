@@ -233,9 +233,8 @@ Then edit `server.json` (the MCP Registry record) in the project root — **two 
 missed bump is invisible until the registry publish fails (or, before the guard existed, silently
 published a stale record — v3.3.0 through v3.13.1 shipped with `server.json` still at 3.2.0).
 
-> History: this paragraph was first added by #298 to a flat `.claude/skills/prepare-release.md`
-> that duplicated this file, and was lost when #321 deleted the duplicate. The skill lives only at
-> `.claude/skills/prepare-release/SKILL.md` — never recreate the flat file.
+The skill lives only at `.claude/skills/prepare-release/SKILL.md`; do not create a flat
+`.claude/skills/prepare-release.md` beside it, because the two copies drift.
 
 ### 8b. Update plugin version files (if plugin content changed)
 

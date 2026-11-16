@@ -78,13 +78,9 @@ gate-block, 2026-07-31).
 This discipline applies to the **plan artifact** as much as to spec notes. Specification notes
 are generated from the plan and inherit its errors silently, so plan-mode output that names a
 file path, tool contract, or call sequence must cite the authoritative location and be verified
-against it before any child item inherits it. The rule above was first installed for spec notes
-only (2026-07-31); the next occurrence (retro `6d562acb`, 2026-08-04) originated one artifact
-upstream — the approved plan asserted a dispatch surface at `ralph-iteration.md` when the live
-file was `skills/ralph/iteration-prompt.md`, and a child's specification note and its first
-review verdict both inherited the wrong path. If a further occurrence still originates in a
-plan, treat that as evidence that prose rules cannot carry this load and add a mechanical check
-(every path a plan names must resolve on disk).
+against it before any child item inherits it: a wrong path in an approved plan reaches the
+child's spec note and its review verdict unchallenged. If a plan still ships an unverified path,
+add a mechanical check (every path a plan names must resolve on disk) rather than more prose.
 
 **Semantic claims carry a file:line.** Any sentence that states nullability, redaction,
 ownership, or an honest limit (what a guard does NOT cover) cites the `file:line` that

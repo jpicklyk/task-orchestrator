@@ -140,9 +140,8 @@ current** — this includes the orchestrator's own session worktree. If the tree
 the file directly from the remote (`git show origin/main:<path>`, from PowerShell on Windows —
 the Bash tool's MSYS layer mangles the `ref:path` colon) or create a fresh worktree from
 `origin/main` (fallback block below). A stale base manufactures absent-looking evidence and
-absence reads as a discovery, not an error: a 6-commit-stale tree reported four already-adopted
-proposals as missing (2026-08-04), and a one-commit-stale dispatch re-implemented existing
-runtime into a conflicting 17-file commit (2026-05-01) — trend `760be80d`.
+absence reads as a discovery, not an error: even a one-commit-stale tree can report adopted
+work as missing or re-implement code that already exists.
 
 The branching/worktree strategy depends on tier:
 
@@ -217,12 +216,9 @@ working directory and then names a relative `plans/<slug>.md` points at a path t
 | Notes | Who fills which note key, and the maxLength each must respect. |
 | Review scoping | Reviews diff owned files, not SHA ranges; the commit map serves only the ownership check (#301). |
 
-Two runs (retros `202b5d42`, `6d562acb`) produced zero vocabulary deviations across up to five
-concurrent authors this way, with prompts roughly 60% smaller. The delivery surface is itself
-the point (proposal `728a3e57` / #307): in a same-day controlled comparison, the wave with no
-contract file recurred every previously-adopted failure class, while the waves that ran from one
-held the gains — a rule that lives only in skill prose does not reach the agents, because agents
-read the dispatch prompt and their item's schema guidance. The contract guarantees
+The delivery surface is the point: a rule that lives only in skill prose does not reach the
+agents, because agents read the dispatch prompt and their item's schema guidance, so a wave run
+without the contract file repeats failure classes the contract had already fixed. The contract guarantees
 deviation-free execution, not plan correctness — pair it with Step 3's "plans are spec inputs"
 rule so the plan's own factual claims are verified by the implementer rather than merely
 followed.
@@ -334,9 +330,8 @@ fills the File ownership and Planning seat return template slots for the rest of
 content — trimming a field to fit a target length is the failure this stage exists to prevent,
 not a virtue.
 
-**Evidence.** This seat produced a material correction on 15/15 items across three bug waves
-(retros `1b8bba5a`, `cc69671b`, `8e6a7cf7`) — every wave that ran it found at least one diagnosis
-error, cross-stream overlap, or missing seam the plan had missed.
+**Why it is mandatory.** Every wave that ran this seat found at least one diagnosis error,
+cross-stream overlap, or missing seam the plan had missed.
 
 ---
 
@@ -384,10 +379,9 @@ the
 rule: on `release/4.0` every seat was running the forced suite (~8,000 tests, 7+ minutes each) so
 a 1-4 hour item spent an hour or more in Gradle (retrospectives `7e698694`, `462a33bb`).
 
-**Who runs the lint cycle** (proposal `ee6f5d32`, ~9 sessions of evidence):
+**Who runs the lint cycle:**
 - **Delegated tier** (agent owns gradle): the implementation agent runs the
   `ktlintCheck` → `ktlintFormat` → re-verify cycle itself before committing.
-  Validated 2026-07-13 (PRs #213/#214/#215): zero orchestrator fix-up commits.
 - **Parallel tier:** per-seat gradle ownership is stated once, in the dispatch contract's
   **Compile self-check** slot ("Who runs gradle"); this bullet only adds the lint-cycle detail
   that slot's table implies — agents get `:current:ktlintFormat` as part of their single pinned

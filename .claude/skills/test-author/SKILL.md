@@ -166,20 +166,11 @@ model cannot hold, because no reading tool has a declarations-only mode. `Read` 
 a function body in front of an author who is trying, in good faith, to resolve a signature.
 Restraint fails at the tool boundary, so the boundary moves.
 
-**The evidence.** Bug wave 3 (2026-09), item `a3ebd108`, consumed THREE test authors:
-
-1. The first listed the item's notes with no `keys=` filter, received
-   `implementation-notes` in the response, and read the implementation files it named — an ingress
-   no reading-method rule had contemplated.
-2. The second, working under the previous wave's "use Grep with `-A2`, never Read" remedy, widened
-   to `sed -n <a>,<b>p` ranges "to catch wrapped signatures" and read the sentinel function's body.
-3. The third was handed every public declaration inline in its dispatch prompt and was barred from
-   `src/main` by any tool. Zero lookups; 12/12 scenarios plus 7 probes; reviewer verdict
-   `independent`.
-
-Authors 1 and 2 both self-disclosed and stopped before committing, so no contaminated artifact was
-ever tracked — the self-disclosure protocol worked, twice. What failed was the reading model, at a
-price of two burned dispatches. The rules below are the structural replacement.
+**Why reading-method rules are not enough.** Two ingress routes defeated them in practice: an
+unfiltered notes list returns `implementation-notes`, which names the implementation files; and a
+"Grep only" rule widens to `sed` ranges that expose a function body. Only inline declarations in
+the dispatch prompt plus no `src/main` access by any tool kept an author blind. Self-disclosure
+caught both breaches before a commit, so keep it; the rules below replace the reading model.
 
 **They are capability rules, not care rules.** A breach is a breach whether or not anything useful
 was seen, and it is disclosed the same way either way.
