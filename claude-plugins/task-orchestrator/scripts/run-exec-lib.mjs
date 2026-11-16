@@ -1004,13 +1004,30 @@ export function parseGitLog(text) {
 }
 
 /**
+ * hasSeatLine(body, seat) -> boolean. True when one line of body (split on \n) is exactly
+ * `Seat: <seat>`, optionally followed by `-a<n>` (n >= 1, no leading zero), then only spaces,
+ * tabs or a carriage return. The seat name is escaped before it enters the pattern, so a dot in
+ * a review-lane seat is literal. Leading whitespace, another casing, a missing or doubled space
+ * after the colon, a longer seat name (`implementer-extra`, `-a01`, `-a0`) and a Seat line
+ * quoted mid-line do not match. A null or undefined body is false.
+ */
+export function hasSeatLine(body, seat) {
+  if (typeof body !== 'string' || typeof seat !== 'string' || seat === '') return false
+  const escaped = seat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const re = new RegExp(`^Seat: ${escaped}(-a[1-9][0-9]*)?[ \\t\\r]*$`)
+  return body.split('\n').some((line) => re.test(line))
+}
+
+/**
  * attributeCommits(itemCommits, writingStages) -> Map<seat, {commits, indices}>.
  * itemCommits is this item's commits, oldest-first; writingStages is argItem.stages filtered
  * to stage.writes, in stage order, each `{seat, commits:{pre,post}}` (post resolved via
  * gitFacts; missing/unresolved post -> that stage gets an empty range here — the "missing sha"
  * finding is raised separately). Attribution order (frozen, B2'):
- *   (1) TRAILER: a commit whose body carries `Seat: <seat>` for one of writingStages' seats
- *       belongs to that seat's stage, regardless of position. This is a pure, position-
+ *   (1) TRAILER: a commit whose body has a Seat line for one of writingStages' seats
+ *       (hasSeatLine: one line exactly `Seat: <seat>`, optionally `-a<n>`, n >= 1 with no
+ *       leading zero, then only spaces, tabs or a carriage return) belongs to that seat's
+ *       stage, regardless of position. This is a pure, position-
  *       independent scan — a commit whose trailer names a stage that structurally falls
  *       earlier or later than its neighbours is still attributed by the trailer text, which
  *       is exactly what lets the pre-existing "test-author commit <sha7> precedes
@@ -1033,7 +1050,7 @@ function attributeCommits(itemCommits, writingStages) {
   const trailerSeatByIdx = new Map()
   itemCommits.forEach((c, idx) => {
     for (const seat of seatSet) {
-      if ((c.body || '').includes(`Seat: ${seat}`)) {
+      if (hasSeatLine(c.body, seat)) {
         trailerSeatByIdx.set(idx, seat)
         break
       }
@@ -1157,6 +1174,14 @@ export function scanTextEncoding(path, bytes) {
  * {[worktree]:{[path]:Uint8Array|null}} (keyed by the commit file path as git printed it) adds one
  * '<file>:<line> non-UTF-8 or double-encoded text' finding per scanTextEncoding hit over the files
  * of the item's tagged commits (a null blob is skipped; absent blobs means no check).
+ * A commit carries its Seat trailer when hasSeatLine(body, seat) holds (an exact line, see there).
+ * On an item with planner-v1 output: a planner `sweep` entry with disposed < hits is the finding
+ * 'planner sweep <kind> "<grep cut to 60 characters>" disposed <d> of <h>'; a sweep that is not an
+ * array is the warning '<short> planner sweep not reported' (`[]` is reported); each `unowned`
+ * file of an entry is the warning '<short> docs sweep unowned <file>'. When the planner's
+ * testPlanScenarios and the test-author-v1 output's manifestScenarios are both arrays, each
+ * distinct plan id absent from the manifest (exact compare, plan order) is the finding
+ * 'test-manifest misses plan scenario <id>'; manifest ids absent from the plan are ignored.
  */
 export function verify(doc, result, gitFacts) {
   const project = (doc.args && doc.args.project) || {}
@@ -1277,7 +1302,7 @@ export function verify(doc, result, gitFacts) {
     for (const stage of writingStages) {
       const range = rangeByStageSeat.get(stage.seat)
       for (const commit of range.commits) {
-        if (!(commit.body || '').includes(`Seat: ${stage.seat}`)) {
+        if (!hasSeatLine(commit.body, stage.seat)) {
           findings.push(`missing Seat trailer ${commit.sha.slice(0, 7)}`)
         }
         const files = (commit.files || []).map((f) => relativizePath(f, roots))
@@ -1342,6 +1367,36 @@ export function verify(doc, result, gitFacts) {
           for (const hit of scanTextEncoding(f, blobs[f])) {
             findings.push(`${relativizePath(f, roots)}:${hit.line} non-UTF-8 or double-encoded text`)
           }
+        }
+      }
+    }
+
+    // Planner sweep and test-plan scenario coverage: only on an item with planner output.
+    if (plannerOut) {
+      if (!Array.isArray(plannerOut.sweep)) {
+        warnings.push(`${argItem.short} planner sweep not reported`)
+      } else {
+        for (const entry of plannerOut.sweep) {
+          if (!entry || typeof entry !== 'object') continue
+          if (entry.disposed < entry.hits) {
+            const grep = String(entry.grep ?? '').slice(0, 60)
+            findings.push(`planner sweep ${entry.kind} "${grep}" disposed ${entry.disposed} of ${entry.hits}`)
+          }
+          for (const file of Array.isArray(entry.unowned) ? entry.unowned : []) {
+            if (typeof file === 'string') warnings.push(`${argItem.short} docs sweep unowned ${file}`)
+          }
+        }
+      }
+      const planIds = plannerOut.testPlanScenarios
+      const authorOut = outputForStageId(resItem, argItem, 'test-author-v1')
+      const manifestIds = authorOut ? authorOut.manifestScenarios : undefined
+      if (Array.isArray(planIds) && Array.isArray(manifestIds)) {
+        const inManifest = new Set(manifestIds)
+        const reported = new Set()
+        for (const id of planIds) {
+          if (inManifest.has(id) || reported.has(id)) continue
+          reported.add(id)
+          findings.push(`test-manifest misses plan scenario ${id}`)
         }
       }
     }
