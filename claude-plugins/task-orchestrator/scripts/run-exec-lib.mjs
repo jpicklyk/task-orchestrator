@@ -2199,12 +2199,10 @@ export function reportFields(doc, opts = {}) {
   return fields
 }
 
-const LANE_DEFAULT_SKILL = 'review-quality'
-
 /**
  * reviewWaveArgs(core, doc, snapshot, result, shorts) -> review-wave/args-v1 over the given items.
- * Lanes are the item's review-role schema notes grouped by (seat or reviewer, skill or review-quality);
- * no simplify lane. Throws 'invalid args: ...' for an unknown short or an item with no review notes.
+ * Lanes are the item's review-role schema notes grouped by (seat or reviewer, skill): the lane id is
+ * `<seat>.<skill>` when a note names a skill, else the seat alone (no framework is assumed). Throws 'invalid args: ...' for an unknown short or an item with no review notes.
  */
 export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
   const { plan } = resolvePlan(core, doc)
@@ -2233,9 +2231,9 @@ export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
     const groups = new Map()
     for (const n of reviewNotes) {
       const seat = n.seat || n.reviewer || 'reviewer'
-      const skill = n.skill || LANE_DEFAULT_SKILL
-      const key = `${seat}.${skill}`
-      if (!groups.has(key)) groups.set(key, { seat, skill, named: !!n.skill, notes: [] })
+      const skill = typeof n.skill === 'string' && n.skill ? n.skill : ''
+      const key = skill ? `${seat}.${skill}` : seat
+      if (!groups.has(key)) groups.set(key, { seat, skill, notes: [] })
       groups.get(key).notes.push(n.key)
     }
     const stages = []
@@ -2253,7 +2251,7 @@ export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
         dispatch,
         output: 'review-v1',
       }
-      if (g.named) stage.skills = [g.skill]
+      if (g.skill) stage.skills = [g.skill]
       const tokenFile = core.seatTokenFile(plan, item, { seat: g.seat })
       if (tokenFile) stage.tokenFile = tokenFile
       stages.push(stage)

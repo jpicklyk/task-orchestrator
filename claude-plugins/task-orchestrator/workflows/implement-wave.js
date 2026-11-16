@@ -1127,17 +1127,11 @@ function promptCarryIns(stage, item) {
 }
 
 /**
- * Smoke-run part: an implementer-v1 stage whose planner-declared files touch the plugin tree is told
- * to exercise plugin helpers only against a throwaway run root. No planner output or no plugin path:
- * nothing.
+ * Smoke-run part: every implementer-v1 stage is told to exercise plugin helpers only against a
+ * throwaway run root, which protects the session's run-wave directory. Other outputs: nothing.
  */
-function promptSmokeRoot(plan, item, stage, outsByOutput) {
+function promptSmokeRoot(plan, item, stage) {
   if (stage.output !== 'implementer-v1') return ''
-  const p = outsByOutput['planner-v1']
-  if (!p) return ''
-  const roots = itemRoots(plan, item)
-  const raw = [].concat(p.mainFiles || [], p.docFiles || [], p.testFiles || [])
-  if (!raw.some((f) => typeof f === 'string' && relativizePath(f, roots).startsWith('claude-plugins/'))) return ''
   return "Smoke-run plugin helpers only against a throwaway run root (a fresh mkdtemp directory passed as the run dir), never against the session's run-wave directory."
 }
 
@@ -1528,7 +1522,13 @@ function promptEndSeat(plan, item, stage) {
 }
 
 /** Part 18: return contract. */
-function promptReturn(stage, item) {
+function docsSweepScope(plan) {
+  const sc = plan && plan.project && plan.project.searchScope
+  const text = Array.isArray(sc) ? sc.join(', ') : typeof sc === 'string' ? sc : ''
+  return text ? `across ${text}` : 'across the whole repository'
+}
+
+function promptReturn(stage, item, plan) {
   const lines = [
     `RETURN: return the structured envelope (${stage.output}); notes are the report. Each notes[] entry is {key, chars?, warning?}.`,
   ]
@@ -1542,7 +1542,7 @@ function promptReturn(stage, item) {
     )
     lines.push(
       'Docs sweep: for every script, hook, tool or command this item changes or adds, grep its file name and ' +
-        'user-facing name across claude-plugins/, .claude/ and current/docs/; give every hit file one disposition in ' +
+        'user-facing name ' + docsSweepScope(plan) + '; give every hit file one disposition in ' +
         'your planning note (edit in this item; owned by sibling <short>; no edit, with the reason; unowned) and ' +
         'report the grep in sweep as kind docs, listing unowned hit files in unowned.'
     )
@@ -1624,12 +1624,12 @@ function seatPrompt(plan, item, stage, outs) {
     promptInlineBodies(),
     promptCommitForm(item, stage),
     promptVerify(plan, item, stage, outsByOutput),
-    promptSmokeRoot(plan, item, stage, outsByOutput),
+    promptSmokeRoot(plan, item, stage),
     handoff(stage, outsByOutput, itemRoots(plan, item), item),
     promptRerunAndEntry(plan, item, stage),
     promptDeviation(plan, item, stage),
     promptEndSeat(plan, item, stage),
-    promptReturn(stage, item),
+    promptReturn(stage, item, plan),
   ]
   return parts.filter((p) => p && p.length > 0).join('\n\n')
 }
