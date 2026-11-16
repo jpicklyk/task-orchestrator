@@ -99,13 +99,14 @@ const OUTPUT_SCHEMAS = {
   'test-author-v1': {
     type: 'object',
     required: [
-      'returnLine', 'testFiles', 'scenariosCovered', 'verify', 'redAuthorTests',
+      'returnLine', 'testFiles', 'scenariosCovered', 'manifestScenarios', 'verify', 'redAuthorTests',
       'missingDeclaration', 'breachDisclosure',
     ],
     properties: {
       returnLine: { type: 'string' },
       testFiles: { type: 'array', items: { type: 'string' } },
       scenariosCovered: { type: 'string' },
+      manifestScenarios: { type: 'array', items: { type: 'string' } },
       verify: {
         type: 'array',
         items: {
@@ -1052,6 +1053,30 @@ function promptOwnedNotes(stage, item) {
 }
 
 /**
+ * TEST PLAN part (after the owned-notes part): one paragraph per key of stage.inputNotes, in
+ * order. Only a non-empty inputNotes array renders; the stage's output, the item's other stages
+ * and a planner stage play no part. A seat that holds a token is also told to end its seat.
+ */
+function promptTestPlan(plan, item, stage) {
+  const keys = Array.isArray(stage.inputNotes) ? stage.inputNotes : []
+  if (!keys.length) return ''
+  const holdsToken = Boolean(seatTokenFile(plan, item, stage))
+  return keys
+    .map((k) => {
+      let out =
+        `TEST PLAN: before anything else, read notes_read(select:"get", itemId:"${item.id}", key:"${k}"); ` +
+        `when it is absent or empty, write no test and return status "stopped", reason "no ${k}".`
+      if (holdsToken) {
+        out +=
+          ' When you stop this way, first close your seat with runs_write(ops:[{op:"end_seat", outcome:"failed", ' +
+          'summary}]) using your seat token.'
+      }
+      return out
+    })
+    .join('\n\n')
+}
+
+/**
  * Carry-in part (after the owned-notes part). A planner-v1 stage with carry-in keys gets a
  * CARRY-INS block; an implementer-v1 stage with late carry-in keys gets a LATE CARRY-INS block;
  * every other stage gets nothing. Plan args carry key names only, never note bodies.
@@ -1521,6 +1546,9 @@ function promptReturn(stage, item) {
   }
   if (stage.output === 'test-author-v1') {
     lines.push(
+      'manifestScenarios: list every test-plan scenario id your test-manifest maps or marks dropped, exactly as numbered.'
+    )
+    lines.push(
       'missingDeclaration and breachDisclosure: exactly "none" (optionally followed by a dash and a note) ' +
         'when there is nothing to disclose.'
     )
@@ -1559,6 +1587,7 @@ function seatPrompt(plan, item, stage, outs) {
     promptTools(plan, item, stage),
     promptSeatToken(plan, item, stage),
     promptOwnedNotes(stage, item),
+    promptTestPlan(plan, item, stage),
     promptCarryIns(stage, item),
     promptRules(plan, stage),
     promptDriftPin(item, stage),
