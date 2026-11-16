@@ -18,7 +18,7 @@ Task Orchestrator mechanics and process are separate domains. The plugin encodes
 | Layer | Holds | Never holds |
 |-------|-------|-------------|
 | Plugin skills, agents, workflows and hook text (`claude-plugins/task-orchestrator/`) | Task Orchestrator mechanics (tools, phases, gates, runs, seats, dispatch, hooks); host integration (Agent `model`/`effort`, ToolSearch, plan mode, `AskUserQuestion`); pointers to rules and schema fields | A named Claude Code or Anthropic skill; a project's paths, commands or conventions; process steps a project could choose differently |
-| Bundled rules (`bundled-rules/`) | Generic process defaults, overridable per project | Anything specific to one repo |
+| Bundled rules (`claude-plugins/task-orchestrator/bundled-rules/`) | Generic process defaults, overridable per project | Anything specific to one repo |
 | Project config and rules (`.taskorchestrator/`) | This project's process: schemas, traits, rules, run-profile, and `skill:` pointers to Claude Code skills | - |
 | Project skills (`.claude/skills/`) | Repo mechanics (release, Gradle lock, migrations, deploy), and the skills a note's `skill:` points to | Copies of rules or schema guidance; decisions the schema makes (which notes exist, which phases are reviewed) |
 
