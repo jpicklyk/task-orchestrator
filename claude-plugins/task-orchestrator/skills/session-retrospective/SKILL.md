@@ -365,7 +365,7 @@ Read the **scope** classification captured in `improvement-signals`: **global** 
 
 **Project-specific** - find or create a per-project container under the project's rootId (the 5a search with `ancestorId: "<rootId>"`; if none, create `{"title": "Improvement Proposals", "type": "container", "tags": ["container"], "parentId": "<rootId>", "priority": "low"}` as in 5a), then create the proposal with that `parentId`. Check `ok` and `data.results[0].ok`. The `improvement-proposal` tag stays on the item so 3.x proposals and 4.0 ones are found by the same tag query.
 
-The proposal must carry a **concrete suggestion**: schema, trait, rule or run-profile edits with the exact YAML or rule text; skill text only for mechanics (Task Orchestrator mechanics in the plugin, this repository's mechanics in project skills), naming file and section; hook additions naming event, matcher and purpose.
+The proposal must carry a **concrete suggestion**: schema, trait, rule or run-profile edits with the exact YAML or rule text; skill text only for mechanics (Task Orchestrator mechanics in the plugin, a project's own mechanics in its project skills), naming file and section; hook additions naming event, matcher and purpose.
 
 **Fill the `proposal` note right after each create** (the floor schema requires it in the queue phase; without it `/review-proposals` is gate-blocked at `start`). One upsert per proposal, the new proposal's id as `itemId`:
 
