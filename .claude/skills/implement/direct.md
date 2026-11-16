@@ -63,8 +63,6 @@ ownership two-range check applies.
 
 ### Step 4c — Build Verification and Wrap-Up
 
-No `/simplify` pass on this tier.
-
 1. **Log findings as work items.** Any issue surfaced during implementation and not fixed here
    (pre-existing tech debt, related bugs) is logged via `/task-orchestrator:create-item` before
    moving on. Do not discard findings.

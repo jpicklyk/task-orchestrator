@@ -225,7 +225,7 @@ Then edit `server.json` (the MCP Registry record) in the project root — **two 
 - Update the OCI `identifier` in `packages[]` to the **immutable** release image tag:
   `ghcr.io/jpicklyk/task-orchestrator:X.Y.Z` (no `v` prefix — this is the Docker tag, not the git
   tag). Never leave it on `:latest`; the MCP Registry record for a version is immutable, so a mutable
-  tag makes that record drift to whatever image later owns `latest` (#297). `docker-publish.yml`
+  tag makes that record drift to whatever image later owns `latest`. `docker-publish.yml`
   fails the release if either field disagrees with `version.properties`, and then publishes the
   record to the registry via `mcp-publisher`.
 
@@ -415,17 +415,17 @@ last tag sees only this section; the release/3.x `[Unreleased]` is not where the
    done
    ```
 
-   A removed bullet whose feature still ships is restored verbatim (for 4.0.0 the #669 merge round
-   dropped two live Plugin bullets, found only by the post-tag sweep).
+   A removed bullet whose feature still ships is restored verbatim: a merge round can drop live
+   bullets that only this post-tag sweep finds.
 4. **Placement.** Plugin behaviour sits under `### Plugin`, server fixes under `### Fixed`; a removal is
    a Removed bullet or a `Breaking:` Plugin line, not a clause inside a Changed bullet.
 
 Over about 40 PRs, run steps 1 and 2 as two subagents (one per direction) with `/tmp/prs.txt` and
 `/tmp/section.md` as their only inputs and a table as their only output, then verify every reported
-defect against the code before editing: in the 4.0.0 sweep three of fifteen reported defects were
-wrong. Fixes go into the release commit (Step 8d, amend before push). When the section was cut and
+defect against the code before editing, because subagent sweeps report some defects that are
+not real. Fixes go into the release commit (Step 8d, amend before push). When the section was cut and
 merged earlier (a major release's P26-style version-bump PR), they go in their own docs PR before
-the tag, as #671 and #672 did for 4.0.0.
+the tag.
 
 ---
 
@@ -597,7 +597,7 @@ rm -f "$RELNOTES"
 is fragile: in a *dynamic* (string-built) regex the bracket escaping is interpreted twice, and on
 gawk it degrades to a character class — the match never fires and the extraction silently yields
 zero lines. `index($0, hdr) == 1` compares plain strings, so version dots and brackets carry no
-special meaning. Verified failing on gawk 2026-08-04 during the v3.13.1 release.
+special meaning.
 
 A major release body keeps two lines from its "Upgrading from 3.x" section even when the rest is trimmed:
 
@@ -672,7 +672,6 @@ find the twin (same bracketed item id in `git log <merge-base>..origin/release/4
 content on `release/4.0`, or the 4.0 code that replaced it. Every commit with none gets a 4.0 twin PR
 merged into `release/4.0` before the landing PR leaves draft. The landing keeps `release/4.0`'s tree
 (step c), so anything on `main` without a twin is dropped from `main` (it survives on `release/3.x`).
-For 4.0.0 the audit found 21 of 22 covered; `d8f23c81` (#574, carry-in plumbing) needed a twin.
 
 **c. Landing PR.** The two lines conflict widely (for 4.0.0, 270 paths), so GitHub cannot
 merge `release/4.0` into `main` directly. Cut a landing branch from `release/4.0`, retire the `guard`

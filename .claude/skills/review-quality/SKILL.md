@@ -1,6 +1,6 @@
 ---
 name: review-quality
-description: Review quality framework for the work-to-review transition gate. Guides verification of plan alignment, test quality, and code simplification before marking implementation complete. Referenced by schema guidance fields during review-phase note filling. Use when filling review-checklist notes or when asked to review completed implementation work.
+description: Review quality framework for the work-to-review transition gate. Guides verification of build state, plan alignment and test quality before marking implementation complete. Referenced by schema guidance fields during review-phase note filling. Use when filling review-checklist notes or when asked to review completed implementation work.
 user-invocable: false
 ---
 
@@ -199,23 +199,6 @@ other finding above it:
   whether the suite is green — a false declaration carries the same weight as
   `not-independent`, because the manifest is the audit trail everything above relies on.
 
-### 4. Simplification
-
-The reviewer does not run `/simplify` — that pass belongs at the feature level, not
-per-task review. Check the implementation notes for whether `/simplify` was run during
-implementation.
-
-**If `/simplify` made changes**, verify those changes have test coverage. This is the
-one thing the reviewer checks here — not the simplification itself, just whether the
-resulting code is tested. Report coverage gaps; do not re-run simplify or evaluate its
-judgment calls.
-
-**If `/simplify` was not run or made no changes**, there is nothing to check in this
-area — move on.
-
-Coverage gaps found here are not blocking unless they leave a structural change
-entirely unverified.
-
 ---
 
 ## Review Output
@@ -240,8 +223,8 @@ Every review must end with a clear verdict:
   the item even when the test suite is green — a compromised separation or a false
   manifest makes a passing suite untrustworthy. The item must go back for fixes before
   it can advance. List every blocking issue.
-- **Pass with observations** — no blocking issues, but simplification findings or
-  minor test quality concerns worth addressing. The item can advance; the orchestrator
+- **Pass with observations** — no blocking issues, but minor findings or
+  test quality concerns worth addressing. The item can advance; the orchestrator
   disposes each observation at child close as `fixed <sha>` (only a concrete failure in
   behaviour the item added or changed, per run-wave `post-run.md` Step 5 "Observation
   triage"), `follow-up <item-id>` or `accepted: <reason>`.
