@@ -118,7 +118,7 @@ function scriptedEnvelope(bound, short, seat) {
     return env({
       proceed: true, blockReason: 'none', diagnosisCorrections: 'none', defectClassSiblings: 'none',
       decisions: 'none', missingApiOrSeam: 'none', testPlanStatus: 'none',
-      mainFiles: [`src/${short}.js`], docFiles: [], testFiles: [], existingTestEdits: [], redProofShape: 'none',
+      mainFiles: [`src/${short}.js`], docFiles: [], testFiles: [], existingTestEdits: [], redProofShape: 'none', sweep: [],
     }, { notes })
   }
   return env({

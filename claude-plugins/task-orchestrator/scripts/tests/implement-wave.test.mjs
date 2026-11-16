@@ -32,7 +32,7 @@ function plannerEnvelope(output = {}) {
     output: {
       proceed: true, blockReason: 'none', diagnosisCorrections: 'none', defectClassSiblings: 'none',
       decisions: 'none', missingApiOrSeam: 'none', testPlanStatus: 'none',
-      mainFiles: [], docFiles: [], testFiles: [], existingTestEdits: [], redProofShape: 'none',
+      mainFiles: [], docFiles: [], testFiles: [], existingTestEdits: [], redProofShape: 'none', sweep: [],
       ...output,
     },
   }
@@ -132,7 +132,7 @@ const EXPECTED_OUTPUT_SCHEMA_REQUIRED = {
   'planner-v1': [
     'proceed', 'blockReason', 'diagnosisCorrections', 'defectClassSiblings', 'decisions',
     'missingApiOrSeam', 'testPlanStatus', 'mainFiles', 'docFiles', 'testFiles',
-    'existingTestEdits', 'redProofShape',
+    'existingTestEdits', 'redProofShape', 'sweep',
   ],
   'implementer-v1': [
     'mainFilesChanged', 'docFilesChanged', 'verify', 'failingExistingTests',
@@ -141,7 +141,7 @@ const EXPECTED_OUTPUT_SCHEMA_REQUIRED = {
   'declarations-v1': ['declarations', 'harnessPointers', 'gaps'],
   'test-author-v1': [
     'returnLine', 'testFiles', 'scenariosCovered', 'verify', 'redAuthorTests',
-    'missingDeclaration', 'breachDisclosure',
+    'manifestScenarios', 'missingDeclaration', 'breachDisclosure',
   ],
   'generic-v1': ['summary'],
 }
@@ -1030,6 +1030,20 @@ test('S8: mapStageResult does NOT report envelope-mismatch when only some of mai
   assert.notEqual(result.status, 'stopped')
 })
 
+test('AC8: a planner-v1 envelope with empty file arrays and one existingTestEdits entry is not stopped on a stage with owned notes', () => {
+  const core = loadCore(SCRIPT_PATH)
+  const stage = { seat: 'planner', phase: 'queue', writes: false, output: 'planner-v1', notes: ['task-scope'], dispatch: {} }
+  const env = plannerEnvelope({
+    proceed: true, mainFiles: [], docFiles: [], testFiles: [],
+    existingTestEdits: [{ file: 'scripts/tests/x.test.mjs', edit: 'line 3' }],
+  })
+  const result = core.mapStageResult(stage, env, 'seat')
+  assert.notEqual(result.status, 'stopped')
+  const none = core.mapStageResult(stage, plannerEnvelope({ proceed: true, mainFiles: [], docFiles: [], testFiles: [], existingTestEdits: [] }), 'seat')
+  assert.equal(none.status, 'stopped')
+  assert.match(none.reason, /^envelope-mismatch/)
+})
+
 // ---- S9 (D4c): the planner seat prompt gains the exactly-once StructuredOutput line ----
 
 test('S9: the planner seat prompt includes the exactly-once StructuredOutput line (D4c)', () => {
@@ -1103,7 +1117,7 @@ function testAuthorEnvelopeWith(field, value) {
     status: 'done', reason: 'ok', notes: [], commits: { pre: '', post: '' }, files: [],
     modelReported: 'x', entry: { applied: true, newRole: 'work' },
     output: {
-      returnLine: 'x', testFiles: [], scenariosCovered: 'none', verify: [], redAuthorTests: [],
+      returnLine: 'x', testFiles: [], scenariosCovered: 'none', manifestScenarios: [], verify: [], redAuthorTests: [],
       missingDeclaration: 'none', breachDisclosure: 'none',
       [field]: value,
     },

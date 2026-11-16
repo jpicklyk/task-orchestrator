@@ -64,7 +64,7 @@ function plannerOutput(overrides = {}) {
   return {
     proceed: true, blockReason: 'none', diagnosisCorrections: 'none', defectClassSiblings: 'none',
     decisions: 'none', missingApiOrSeam: 'none', testPlanStatus: 'none',
-    mainFiles: [], docFiles: [], testFiles: [], existingTestEdits: [], redProofShape: 'none',
+    mainFiles: [], docFiles: [], testFiles: [], existingTestEdits: [], redProofShape: 'none', sweep: [],
     ...overrides,
   }
 }

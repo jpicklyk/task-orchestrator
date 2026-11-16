@@ -18,7 +18,7 @@ const IMPL_OUTPUT = {
 const PLANNER_OUTPUT = {
   proceed: true, blockReason: 'none', diagnosisCorrections: 'none', defectClassSiblings: 'none',
   decisions: 'none', missingApiOrSeam: 'none', testPlanStatus: 'none',
-  mainFiles: [], docFiles: [], testFiles: [], existingTestEdits: [], redProofShape: 'none',
+  mainFiles: [], docFiles: [], testFiles: [], existingTestEdits: [], redProofShape: 'none', sweep: [],
 }
 
 function env(output, extra = {}) {
@@ -101,7 +101,7 @@ test('S15: Method B loop retries an implementer envelope lacking entry, then pro
     implementer: IMPL_OUTPUT,
     'declarations-extractor': { declarations: 'none', harnessPointers: 'none', gaps: 'none' },
     'test-author': {
-      returnLine: 'none', testFiles: [], scenariosCovered: 'none', verify: [],
+      returnLine: 'none', testFiles: [], scenariosCovered: 'none', manifestScenarios: [], verify: [],
       redAuthorTests: [], missingDeclaration: 'none', breachDisclosure: 'none',
     },
   }

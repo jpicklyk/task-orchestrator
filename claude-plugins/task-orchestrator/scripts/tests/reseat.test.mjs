@@ -51,7 +51,7 @@ function callReseat(core, doc, result, idOrShort, seat, opts) {
 const PLANNER_OUT = {
   proceed: true, blockReason: 'none', diagnosisCorrections: 'none', defectClassSiblings: 'none',
   decisions: 'none', missingApiOrSeam: 'none', testPlanStatus: 'none',
-  mainFiles: ['src/x.js'], docFiles: [], testFiles: ['scripts/tests/x.test.mjs'], existingTestEdits: [], redProofShape: 'none',
+  mainFiles: ['src/x.js'], docFiles: [], testFiles: ['scripts/tests/x.test.mjs'], existingTestEdits: [], redProofShape: 'none', sweep: [],
 }
 const IMPL_OUT = {
   mainFilesChanged: ['src/x.js'], docFilesChanged: [], verify: [], failingExistingTests: [],

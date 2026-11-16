@@ -26,7 +26,16 @@ them.
 **Existing-test sweep.** For every enumerated surface the item adds to, removes from or reorders (a hook
 group list, a registry, a schema or note key list, a table of ids), grep the test tree for the surface's
 file name and for count, length or order assertions on it. Declare each hit as an existing-test edit
-(file:line, old pin, new pin). Record an empty grep as `sweep: <command> -> 0 hits`.
+(file:line, old pin, new pin). Give each hit file one disposition in your planning note: edit (with the line)
+or no edit (with the reason). Report every grep in the envelope's `sweep` list as kind `tests` with its `hits`
+and `disposed` counts; an empty grep is an entry with 0 hits, and `disposed` must reach `hits`.
+
+**Docs sweep.** For every script, hook, tool or command the item changes or adds, grep its file name and
+its user-facing name across `claude-plugins/`, `.claude/` and `current/docs/`. Every hit file gets one
+disposition in your planning note: edit in this item, owned by a sibling (its short id), no edit (with the
+reason), or unowned. Report the grep in `sweep` as kind `docs` and list each unowned hit file in `unowned`;
+the orchestrator routes those before review. When the item has a test-author stage, also report
+`testPlanScenarios`: the scenario ids your test-plan note numbers, in order.
 
 **Seat rule.** If your dispatch prompt names a seat, fill only the notes that seat owns and leave
 the phase's other required notes to their own seats — the schema's list of required queue notes is

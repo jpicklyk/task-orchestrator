@@ -59,7 +59,8 @@ snapshot reads note bodies. So the work splits into five steps:
    coordinator record phase `launched` (and those keys) in `state.json`. `args.altitudeSafe: true`
    makes implement-wave return the altitude-safe result: `rollup` counts, item and stage statuses,
    commit SHAs, file lists, note keys and seat-raised `decisionId`s, with every reason cut to 120
-   characters and `redProofShape` cut to 200, and no other seat prose.
+   characters and `redProofShape` cut to 200, the planner `sweep` entries as counts with the grep cut to 120
+   characters, the `testPlanScenarios` and `manifestScenarios` id lists, and no other seat prose.
 4. On the task notification, the director sends the coordinator the result JSON verbatim. When the
    notification is cut short, the director sends the output file path the notification names
    instead; it never reads that file. The coordinator writes `result.json` (recovering `result` from
