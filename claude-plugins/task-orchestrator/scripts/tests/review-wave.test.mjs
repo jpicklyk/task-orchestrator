@@ -48,14 +48,14 @@ const RULES_DIR = join(REPO, '.taskorchestrator', 'rules')
 
 // ── Core, loaded once by name (Appendix A "Core names for loadCoreNamed") ──
 const CORE_NAMES = [
-  'ENVELOPE_VERSION', 'VERDICTS', 'INDEPENDENCE_MODES', 'SIMPLIFY_ANGLES', 'BRANCH_SCOPED_SKILLS',
+  'ENVELOPE_VERSION', 'VERDICTS', 'INDEPENDENCE_MODES', 'BRANCH_SCOPED_SKILLS',
   'PROTOCOL_KEY', 'SCOPING_RULE_KEY', 'REQUIRED_FEATURES', 'REVIEW_OUTPUT_SCHEMAS',
   'normalizePath', 'normalizeArgs', 'preflight', 'laneSchema', 'lanePrompt',
   'mapLaneResult', 'aggregateVerdict', 'runItem', 'runReview',
 ]
 const core = loadCoreNamed(SCRIPT_PATH, CORE_NAMES)
 const {
-  ENVELOPE_VERSION, VERDICTS, INDEPENDENCE_MODES, SIMPLIFY_ANGLES, BRANCH_SCOPED_SKILLS,
+  ENVELOPE_VERSION, VERDICTS, INDEPENDENCE_MODES, BRANCH_SCOPED_SKILLS,
   PROTOCOL_KEY, SCOPING_RULE_KEY, REQUIRED_FEATURES, REVIEW_OUTPUT_SCHEMAS,
   normalizePath, normalizeArgs, preflight, laneSchema, lanePrompt,
   mapLaneResult, aggregateVerdict, runItem, runReview,
@@ -78,14 +78,9 @@ function validRawItem(short = 'aaaaaaaa', overrides = {}) {
     worktree: `/tmp/wt-${short}`,
     stages: [
       {
-        seat: 'simplify', lane: 'simplify', phase: 'review', notes: [], writes: false,
-        protocol: 'protocol.read-only-agent', dispatch: {}, output: 'simplify-v1',
-      },
-      {
         seat: 'reviewer', lane: 'reviewer.review-quality', phase: 'review',
         notes: ['review-checklist', 'test-independence-audit'], writes: false,
         protocol: 'protocol.read-only-agent', dispatch: {}, output: 'review-v1',
-        after: ['simplify'],
       },
     ],
     review: {
@@ -150,19 +145,6 @@ function passEnvelope(notesFilled, { verdict = 'pass', findings = [], independen
   }
 }
 
-function simplifyEnvelope(findings = []) {
-  return {
-    status: 'done',
-    reason: 'ok',
-    notes: [],
-    commits: { pre: 'p', post: 'q' },
-    files: [],
-    modelReported: 'fake-model',
-    entry: { alreadyInPhase: true, previousRole: 'review' },
-    output: { findings },
-  }
-}
-
 // =============================================================================
 // T-meta / T-core-pure / T-schema — structural tests
 // =============================================================================
@@ -215,14 +197,13 @@ test('T-schema: constants match the declared literals verbatim', () => {
   assert.equal(ENVELOPE_VERSION, 'envelope-v1')
   assert.deepEqual(VERDICTS, ['pass', 'pass-with-observations', 'fail-blocking'])
   assert.deepEqual(INDEPENDENCE_MODES, ['independent', 'independent-degraded', 'not-independent', 'n/a'])
-  assert.deepEqual(SIMPLIFY_ANGLES, ['reuse', 'simplification', 'efficiency', 'altitude'])
   assert.deepEqual(BRANCH_SCOPED_SKILLS, ['security-review'])
   assert.equal(PROTOCOL_KEY, 'protocol.read-only-agent')
   assert.equal(SCOPING_RULE_KEY, 'review-scoping')
   assert.deepEqual(REQUIRED_FEATURES, ['seats', 'dispatchBySeat', 'rules'])
 })
 
-test('T-schema: REVIEW_OUTPUT_SCHEMAS matches the declared review-v1/simplify-v1 literal verbatim', () => {
+test('T-schema: REVIEW_OUTPUT_SCHEMAS matches the declared review-v1 literal verbatim and holds no other output id', () => {
   const expected = {
     'review-v1': {
       type: 'object',
@@ -267,29 +248,12 @@ test('T-schema: REVIEW_OUTPUT_SCHEMAS matches the declared review-v1/simplify-v1
         notesFilled: { type: 'array', items: { type: 'string' } },
       },
     },
-    'simplify-v1': {
-      type: 'object',
-      required: ['findings'],
-      properties: {
-        findings: {
-          type: 'array',
-          items: {
-            type: 'object',
-            required: ['file', 'line', 'angle', 'suggestion'],
-            properties: {
-              file: { type: 'string' }, line: { type: 'integer' },
-              angle: { enum: SIMPLIFY_ANGLES }, suggestion: { type: 'string' },
-            },
-          },
-        },
-      },
-    },
   }
   assert.deepEqual(REVIEW_OUTPUT_SCHEMAS, expected)
 })
 
 test('T-schema: laneSchema(outputId) required list, status enum, and entry shape (partial coverage — RW-P full byte-for-byte parity with implement-wave.js is orchestrator/reviewer-run per c1-dispatch-contract.md, the file is absent on this branch)', () => {
-  for (const outputId of ['review-v1', 'simplify-v1']) {
+  for (const outputId of ['review-v1']) {
     const schema = laneSchema(outputId)
     assert.equal(schema.type, 'object')
     assert.deepEqual(schema.required, ['status', 'reason', 'notes', 'commits', 'files', 'modelReported', 'output'])
@@ -317,7 +281,7 @@ test('laneActor is removed from the core (AC1): asking loadCoreNamed for it thro
 
 // =============================================================================
 // S1 — RW1: a mixed run dispatches exactly the args lanes per item
-// Oracle: test-plan S1 ("2 items, simplify+reviewer.review-quality (+reviewer.security-review on
+// Oracle: test-plan S1 ("2 items, reviewer.review-quality (+reviewer.security-review on
 // one) -> labels exactly {<lane>:<short>}, opts.phase 'Review', no isolation"); P §1.2 L1-L7, §1.4.
 // =============================================================================
 
@@ -325,8 +289,7 @@ test('S1: runReview dispatches exactly the args-declared lanes, one call per lan
   const itemA = validRawItem('aaaaaaaa')
   const itemB = validRawItem('bbbbbbbb', {
     stages: [
-      { seat: 'simplify', lane: 'simplify', phase: 'review', notes: [], writes: false, protocol: 'protocol.read-only-agent', dispatch: {}, output: 'simplify-v1' },
-      { seat: 'reviewer', lane: 'reviewer.review-quality', phase: 'review', notes: ['review-checklist', 'test-independence-audit'], writes: false, protocol: 'protocol.read-only-agent', dispatch: {}, output: 'review-v1', after: ['simplify'] },
+      { seat: 'reviewer', lane: 'reviewer.review-quality', phase: 'review', notes: ['review-checklist', 'test-independence-audit'], writes: false, protocol: 'protocol.read-only-agent', dispatch: {}, output: 'review-v1' },
       { seat: 'reviewer', lane: 'reviewer.security-review', phase: 'review', notes: ['security-assessment'], writes: false, protocol: 'protocol.read-only-agent', dispatch: { model: 'opus', effort: 'high' }, output: 'review-v1', skills: ['security-review'] },
     ],
     review: {
@@ -340,23 +303,20 @@ test('S1: runReview dispatches exactly the args-declared lanes, one call per lan
   const plan = normalize(validRawPlan({ items: [itemA, itemB] }))
 
   const expectedLabels = new Set([
-    'simplify:aaaaaaaa', 'reviewer.review-quality:aaaaaaaa',
-    'simplify:bbbbbbbb', 'reviewer.review-quality:bbbbbbbb', 'reviewer.security-review:bbbbbbbb',
+    'reviewer.review-quality:aaaaaaaa',
+    'reviewer.review-quality:bbbbbbbb', 'reviewer.security-review:bbbbbbbb',
   ])
   const notesByLabel = {
     'reviewer.review-quality:aaaaaaaa': ['review-checklist', 'test-independence-audit'],
     'reviewer.review-quality:bbbbbbbb': ['review-checklist', 'test-independence-audit'],
     'reviewer.security-review:bbbbbbbb': ['security-assessment'],
   }
-  const responder = async (label) => {
-    if (label.startsWith('simplify:')) return simplifyEnvelope([])
-    return passEnvelope(notesByLabel[label])
-  }
+  const responder = async (label) => passEnvelope(notesByLabel[label])
   const { agent, calls } = autoAgent(responder)
 
   const result = await runReview(plan, { agent, parallel: fakeParallel, log: () => {} })
 
-  assert.equal(calls.length, 5, `expected exactly 5 lane calls, got labels: ${calls.map((c) => c.label).join(',')}`)
+  assert.equal(calls.length, 3, `expected exactly 3 lane calls, got labels: ${calls.map((c) => c.label).join(',')}`)
   const gotLabels = new Set(calls.map((c) => c.label))
   assert.deepEqual(gotLabels, expectedLabels)
   for (const call of calls) {
@@ -404,64 +364,6 @@ test('S2: script text contains no review-note-key string', () => {
   for (const key of noteKeys) {
     assert.equal(text.includes(key), false, `script text must not contain note key "${key}"`)
   }
-})
-
-// =============================================================================
-// S3 — RW2: the primary lane starts only after simplify settles and carries its findings.
-// Oracle: test-plan S3; P §1.3.
-// =============================================================================
-
-test('S3a: primary lane call starts (t0) after simplify lane call settles (t1); non-primary-eligible lanes start before simplify resolves', async () => {
-  const plan = planFrom(() => {})
-  const item = plan.items[0]
-  const simplifyFindings = [{ file: 'a.js', line: 10, angle: 'simplification', suggestion: 'use const here' }]
-  const responder = async (label) => {
-    if (label === 'simplify:aaaaaaaa') return simplifyEnvelope(simplifyFindings)
-    if (label === 'reviewer.review-quality:aaaaaaaa') return passEnvelope(['review-checklist', 'test-independence-audit'])
-    throw new Error(`unexpected label ${label}`)
-  }
-  const { agent, calls } = autoAgent(responder)
-  await runItem(plan, item, { agent, log: () => {} })
-
-  const simplifyCall = calls.find((c) => c.label === 'simplify:aaaaaaaa')
-  const primaryCall = calls.find((c) => c.label === 'reviewer.review-quality:aaaaaaaa')
-  assert.ok(simplifyCall && primaryCall, 'both calls must have happened')
-  assert.ok(primaryCall.t0 > simplifyCall.t1, `primary t0 (${primaryCall.t0}) must be after simplify t1 (${simplifyCall.t1})`)
-})
-
-test('S3b: the primary lane prompt carries the SIMPLIFY LANE FINDINGS hand-off with the suggestion text when simplify returns findings', async () => {
-  const plan = planFrom(() => {})
-  const item = plan.items[0]
-  const suggestion = 'inline the single-use helper into its caller'
-  const responder = async (label) => {
-    if (label === 'simplify:aaaaaaaa') return simplifyEnvelope([{ file: 'a.js', line: 5, angle: 'simplification', suggestion }])
-    if (label === 'reviewer.review-quality:aaaaaaaa') return passEnvelope(['review-checklist', 'test-independence-audit'])
-    throw new Error(`unexpected label ${label}`)
-  }
-  const { agent, calls } = autoAgent(responder)
-  await runItem(plan, item, { agent, log: () => {} })
-
-  const primaryCall = calls.find((c) => c.label === 'reviewer.review-quality:aaaaaaaa')
-  assert.ok(primaryCall.prompt.includes('SIMPLIFY LANE FINDINGS'), 'prompt must carry the hand-off header')
-  assert.ok(primaryCall.prompt.includes(suggestion), 'prompt must carry the simplify finding suggestion text')
-})
-
-test('S3c: when simplify returns null, the primary lane still runs and its prompt says "simplify lane produced nothing"', async () => {
-  const plan = planFrom(() => {})
-  const item = plan.items[0]
-  const responder = async (label) => {
-    if (label === 'simplify:aaaaaaaa') return null
-    if (label === 'reviewer.review-quality:aaaaaaaa') return passEnvelope(['review-checklist', 'test-independence-audit'])
-    throw new Error(`unexpected label ${label}`)
-  }
-  const { agent, calls } = autoAgent(responder)
-  const result = await runItem(plan, item, { agent, log: () => {} })
-
-  const primaryCall = calls.find((c) => c.label === 'reviewer.review-quality:aaaaaaaa')
-  assert.ok(primaryCall, 'primary lane must still be called when simplify is null')
-  assert.ok(primaryCall.prompt.includes('simplify lane produced nothing'))
-  assert.equal(result.status, 'done')
-  assert.equal(result.verdict, 'pass')
 })
 
 // =============================================================================
@@ -529,40 +431,9 @@ test('S4: a reason starting with "note " is used verbatim, not lane-prefixed', (
   assert.deepEqual(result, { status: 'stopped', verdict: null, reason: 'note review-checklist missing' })
 })
 
-test('S4: no review-v1 lanes considered (only a simplify-v1 lane present) -> stopped/null/"no review lanes"', () => {
-  const result = aggregateVerdict([
-    { lane: 'simplify', output: 'simplify-v1', status: 'done', reason: 'ok', verdict: null },
-  ])
-  assert.deepEqual(result, { status: 'stopped', verdict: null, reason: 'no review lanes' })
-})
-
 test('S4: an empty lane-results array -> stopped/null/"no review lanes"', () => {
   const result = aggregateVerdict([])
   assert.deepEqual(result, { status: 'stopped', verdict: null, reason: 'no review lanes' })
-})
-
-test('S4: a stopped simplify-v1 lane is never considered — a passing review-v1 lane alongside it still yields done/pass', () => {
-  const result = aggregateVerdict([
-    { lane: 'simplify', output: 'simplify-v1', status: 'stopped', reason: 'agent returned null', verdict: null },
-    { lane: 'reviewer.review-quality', output: 'review-v1', status: 'done', reason: 'ok', verdict: 'pass' },
-  ])
-  assert.deepEqual(result, { status: 'done', verdict: 'pass', reason: 'review passed' })
-})
-
-test('S4: a "skipped" lane is ignored entirely, not treated as stopped — a passing sibling lane still yields done/pass', () => {
-  const result = aggregateVerdict([
-    { lane: 'a', output: 'review-v1', status: 'skipped', reason: 'skipped after x', verdict: null },
-    { lane: 'b', output: 'review-v1', status: 'done', reason: 'ok', verdict: 'pass' },
-  ])
-  assert.deepEqual(result, { status: 'done', verdict: 'pass', reason: 'review passed' })
-})
-
-test('S4: a "skipped" lane is excluded from the fail-blocking lane list even when a sibling did fail', () => {
-  const result = aggregateVerdict([
-    { lane: 'a', output: 'review-v1', status: 'skipped', reason: 'skipped after b', verdict: null },
-    { lane: 'b', output: 'review-v1', status: 'done', reason: 'ok', verdict: 'fail-blocking' },
-  ])
-  assert.deepEqual(result, { status: 'stopped', verdict: 'fail-blocking', reason: 'review-fail b' })
 })
 
 // =============================================================================
@@ -643,76 +514,6 @@ test('S5: independence.mode "independent-degraded" does NOT change the verdict �
   const result = mapLaneResult(stageV1, env)
   assert.equal(result.status, 'done')
   assert.equal(result.verdict, 'pass')
-})
-
-test('S5: a simplify-v1 stage maps to done with verdict null regardless of output.verdict-shaped fields', () => {
-  const stageSimplify = { output: 'simplify-v1', notes: [] }
-  const env = simplifyEnvelope([{ file: 'a.js', line: 1, angle: 'reuse', suggestion: 'x' }])
-  const result = mapLaneResult(stageSimplify, env)
-  assert.equal(result.status, 'done')
-  assert.equal(result.reason, 'ok')
-  assert.equal(result.verdict, null)
-})
-
-// =============================================================================
-// S6 — RW3/RW8: a non-primary lane's fail-blocking result settles before simplify (order
-// 'reverse'); the item halts, the primary lane is skipped without an agent call, and a sibling
-// item streams independently to done.
-// Oracle: test-plan S6; P §1.5 row 3 ("fail skips unstarted lanes"); §1.3 (no cross-item edges).
-// =============================================================================
-
-test('S6: a non-primary fail-blocking lane halts the item before simplify settles; the primary lane is skipped with 0 calls; a sibling item completes independently', async () => {
-  const itemA = validRawItem('aaaaaaaa', {
-    stages: [
-      { seat: 'simplify', lane: 'simplify', phase: 'review', notes: [], writes: false, protocol: 'protocol.read-only-agent', dispatch: {}, output: 'simplify-v1' },
-      { seat: 'reviewer', lane: 'reviewer.review-quality', phase: 'review', notes: ['review-checklist', 'test-independence-audit'], writes: false, protocol: 'protocol.read-only-agent', dispatch: {}, output: 'review-v1', after: ['simplify'] },
-      { seat: 'reviewer', lane: 'reviewer.security-review', phase: 'review', notes: ['security-assessment'], writes: false, protocol: 'protocol.read-only-agent', dispatch: {}, output: 'review-v1', skills: ['security-review'] },
-    ],
-    review: {
-      ownedFiles: { implementer: ['workflows/review-wave.js'], testAuthor: [], docs: [] },
-      commits: { implementer: ['ccccccc3'], testAuthor: [], fixtureRepairs: [] },
-      implementerActors: ['implementer:aaaaaaaa:r-impl-0002'],
-      testAuthorActors: ['test-author:aaaaaaaa:r-impl-0002'],
-      requiredReviewNotes: ['review-checklist', 'test-independence-audit', 'security-assessment'],
-    },
-  })
-  const itemB = validRawItem('bbbbbbbb')
-  const plan = normalize(validRawPlan({ items: [itemA, itemB] }))
-
-  const responder = async (label) => {
-    if (label === 'reviewer.review-quality:aaaaaaaa') {
-      throw new Error('primary lane for item A must never be called once a non-primary lane has already halted the item')
-    }
-    if (label === 'reviewer.security-review:aaaaaaaa') {
-      return passEnvelope(['security-assessment'], { verdict: 'fail-blocking' })
-    }
-    if (label === 'simplify:aaaaaaaa') return simplifyEnvelope([])
-    if (label === 'simplify:bbbbbbbb') return simplifyEnvelope([])
-    if (label === 'reviewer.review-quality:bbbbbbbb') return passEnvelope(['review-checklist', 'test-independence-audit'])
-    throw new Error(`unexpected label ${label}`)
-  }
-  // 'reverse' resolves calls queued in the same synchronous burst LIFO: since simplify:aaaaaaaa
-  // and reviewer.security-review:aaaaaaaa are both dispatched concurrently (neither has `after`),
-  // and security-review is issued second, it settles FIRST under 'reverse' — exactly the ordering
-  // this scenario needs (non-primary settles before simplify).
-  const { agent, calls } = autoAgent(responder, { order: 'reverse' })
-
-  const result = await runReview(plan, { agent, parallel: fakeParallel, log: () => {} })
-
-  const primaryCalls = calls.filter((c) => c.label === 'reviewer.review-quality:aaaaaaaa')
-  assert.equal(primaryCalls.length, 0, 'primary lane for item A must have 0 calls')
-
-  const itemAResult = result.items.find((i) => i.short === 'aaaaaaaa')
-  assert.equal(itemAResult.status, 'stopped')
-  assert.equal(itemAResult.verdict, 'fail-blocking')
-  assert.equal(itemAResult.reason, 'review-fail reviewer.security-review')
-  const primaryLaneResult = itemAResult.lanes.find((l) => l.lane === 'reviewer.review-quality')
-  assert.equal(primaryLaneResult.status, 'skipped')
-  assert.equal(primaryLaneResult.reason, 'skipped after reviewer.security-review')
-
-  const itemBResult = result.items.find((i) => i.short === 'bbbbbbbb')
-  assert.equal(itemBResult.status, 'done')
-  assert.equal(itemBResult.verdict, 'pass')
 })
 
 // =============================================================================
@@ -898,7 +699,7 @@ test('S7: a stage carrying extraLockKeys -> "extraLockKeys not allowed in review
 })
 
 test('S7: a stage carrying readsExclude -> "readsExclude not allowed in review-wave"', () => {
-  const plan = planFrom((raw) => { raw.items[0].stages[1].readsExclude = ['implementation-notes'] })
+  const plan = planFrom((raw) => { raw.items[0].stages[0].readsExclude = ['implementation-notes'] })
   const { refused } = preflight(plan)
   assert.deepEqual(refused, [{ id: plan.items[0].id, reason: 'readsExclude not allowed in review-wave' }])
 })
@@ -915,38 +716,35 @@ test('S7: two stages sharing the same lane id -> "duplicate lane <lane>"', () =>
   assert.deepEqual(refused, [{ id: plan.items[0].id, reason: 'duplicate lane reviewer.review-quality' }])
 })
 
-test('S7: no review-v1 stage at all -> "no review lanes"', () => {
-  const plan = planFrom((raw) => {
-    raw.items[0].stages = [
-      { seat: 'simplify', lane: 'simplify', phase: 'review', notes: [], writes: false, protocol: 'protocol.read-only-agent', dispatch: {}, output: 'simplify-v1' },
-    ]
-    raw.items[0].review.requiredReviewNotes = []
-  })
-  const { refused } = preflight(plan)
-  assert.deepEqual(refused, [{ id: plan.items[0].id, reason: 'no review lanes' }])
+test('S7: a simplify-v1 stage is refused by normalizeArgs - review-v1 is the only output id', () => {
+  const raw = validRawPlan()
+  raw.items[0].stages = [
+    { seat: 'simplify', lane: 'simplify', phase: 'review', notes: [], writes: false, protocol: 'protocol.read-only-agent', dispatch: {}, output: 'simplify-v1' },
+  ]
+  raw.items[0].review.requiredReviewNotes = []
+  const r = normalizeArgs(raw)
+  assert.equal(r.ok, false)
+  assert.equal(r.reason, 'invalid args: bad stage output')
 })
 
-test('S7: mixed-case lane id in `after` does not case-insensitively match — "lane <lane> after unknown lane <x>" (exact match only)', () => {
-  const plan = planFrom((raw) => { raw.items[0].stages[1].after = ['Simplify'] })
+test('S7: a stage carrying a non-empty `after` -> "after not allowed in review-wave"; an empty `after` is not refused', () => {
+  const plan = planFrom((raw) => { raw.items[0].stages[0].after = ['x'] })
   const { refused } = preflight(plan)
-  assert.deepEqual(refused, [{ id: plan.items[0].id, reason: 'lane reviewer.review-quality after unknown lane Simplify' }])
-})
-
-test('S7: a simplify-v1 lane with non-empty notes -> "simplify lane <lane> owns notes"', () => {
-  const plan = planFrom((raw) => { raw.items[0].stages[0].notes = ['review-checklist'] })
-  const { refused } = preflight(plan)
-  assert.deepEqual(refused, [{ id: plan.items[0].id, reason: 'simplify lane simplify owns notes' }])
+  assert.deepEqual(refused, [{ id: plan.items[0].id, reason: 'after not allowed in review-wave' }])
+  // fixture condition: the same item with after [] preflights clean, so the refusal above comes from `after` alone
+  const clean = planFrom((raw) => { raw.items[0].stages[0].after = [] })
+  assert.deepEqual(preflight(clean).refused, [])
 })
 
 test('S7: a review-v1 lane with empty notes -> "lane <lane> owns no notes"', () => {
-  const plan = planFrom((raw) => { raw.items[0].stages[1].notes = [] })
+  const plan = planFrom((raw) => { raw.items[0].stages[0].notes = [] })
   const { refused } = preflight(plan)
   assert.deepEqual(refused, [{ id: plan.items[0].id, reason: 'lane reviewer.review-quality owns no notes' }])
 })
 
 test('S7: a lane note key not in requiredReviewNotes ∪ optionalReviewNotes -> "lane <lane> note <key> is not a review note"', () => {
   const plan = planFrom((raw) => {
-    raw.items[0].stages[1].notes = ['review-checklist', 'test-independence-audit', 'bogus-key']
+    raw.items[0].stages[0].notes = ['review-checklist', 'test-independence-audit', 'bogus-key']
   })
   const { refused } = preflight(plan)
   assert.deepEqual(refused, [{ id: plan.items[0].id, reason: 'lane reviewer.review-quality note bogus-key is not a review note' }])
@@ -954,7 +752,7 @@ test('S7: a lane note key not in requiredReviewNotes ∪ optionalReviewNotes -> 
 
 test('S7: the same note key claimed by two lanes -> "note <key> in multiple lanes"', () => {
   const plan = planFrom((raw) => {
-    raw.items[0].stages[1].notes = ['review-checklist']
+    raw.items[0].stages[0].notes = ['review-checklist']
     raw.items[0].stages.push({
       seat: 'reviewer', lane: 'reviewer.other', phase: 'review', notes: ['review-checklist', 'test-independence-audit'],
       writes: false, protocol: 'protocol.read-only-agent', dispatch: {}, output: 'review-v1',
@@ -966,7 +764,7 @@ test('S7: the same note key claimed by two lanes -> "note <key> in multiple lane
 
 test('S7: an uncovered required review note -> "uncovered required review note(s) <keys>" in requiredReviewNotes order', () => {
   const plan = planFrom((raw) => {
-    raw.items[0].stages[1].notes = ['review-checklist']
+    raw.items[0].stages[0].notes = ['review-checklist']
     raw.items[0].review.requiredReviewNotes = ['review-checklist', 'test-independence-audit']
   })
   const { refused } = preflight(plan)
@@ -975,7 +773,7 @@ test('S7: an uncovered required review note -> "uncovered required review note(s
 
 test('S7 probe: requiredReviewNotes=[] with a lane covering only an optional note key preflights clean', () => {
   const plan = planFrom((raw) => {
-    raw.items[0].stages[1].notes = ['review-checklist']
+    raw.items[0].stages[0].notes = ['review-checklist']
     raw.items[0].review.requiredReviewNotes = []
     raw.items[0].review.optionalReviewNotes = ['review-checklist']
   })
@@ -1015,13 +813,12 @@ test('S8 (4.0): a testAuthorActors entry spelled like a lane id no longer refuse
 
 // =============================================================================
 // S9 — RW5: lane prompt content (diff command, keys=, READ-ONLY, protocol key, actor id,
-// no <sha>..<sha> content diff, no advance_item/manage_items, simplify forbids /simplify).
-// Direct lanePrompt() calls always use a stage WITHOUT `after`, so the (undeclared) shape of the
-// `outs` hand-off parameter never needs to be guessed — passing outs={} is always safe here.
+// no <sha>..<sha> content diff, no advance_item/manage_items).
+// Direct lanePrompt() calls pass outs={}; no lane carries `after` (preflight refuses it).
 // Oracle: test-plan S9; .taskorchestrator/rules/review-scoping.md:24-27; P §1.4; F7, F8.
 // =============================================================================
 
-function promptFor(mutateRaw, stageIndex = 1) {
+function promptFor(mutateRaw, stageIndex = 0) {
   const plan = planFrom(mutateRaw)
   const item = plan.items[0]
   const stage = item.stages[stageIndex]
@@ -1099,21 +896,8 @@ test('S9: a review-v1 lane with non-empty notes includes notes_write in its TOOL
 test('S9 (58facb39 AC4): exact TOOLS: entries - notes-owning lane is items_read, notes_read, config, notes_write; notes-less lane drops notes_write', () => {
   const owning = toolsEntriesOf(promptFor(() => {}).prompt)
   assert.deepEqual([...owning].sort(), ['config', 'items_read', 'notes_read', 'notes_write'])
-  const notesLess = toolsEntriesOf(promptFor(() => {}, 0).prompt)
+  const notesLess = toolsEntriesOf(promptFor((raw) => { raw.items[0].stages[0].notes = [] }).prompt)
   assert.deepEqual([...notesLess].sort(), ['config', 'items_read', 'notes_read'])
-})
-
-test('S9: the simplify lane prompt forbids invoking /simplify, has no manage_notes in its TOOLS: list, and its TOOLS: list never names advance_item/manage_items', () => {
-  const { prompt } = promptFor(() => {}, 0)
-  assert.ok(prompt.includes('Do not invoke /simplify'))
-  const toolsLine = toolsLineOf(prompt)
-  assert.ok(!toolsEntriesOf(prompt).includes('notes_write'), 'notes-less lane TOOLS: must not list notes_write')
-  assert.equal(toolsLine.includes('manage_notes'), false)
-  assert.equal(toolsLine.includes('advance_item'), false)
-  assert.ok(!toolsEntriesOf(prompt).includes('advance'), 'no exact advance entry in TOOLS:')
-  assert.equal(toolsLine.includes('manage_items'), false)
-  assert.equal(prompt.includes('manage_notes'), false, 'manage_notes must not appear anywhere in a notes-less lane prompt')
-  assert.equal(prompt.includes('manage_items'), false, 'manage_items must not appear anywhere in the prompt')
 })
 
 test('S9: DECLARED EXCEPTIONS text is carried into a review-v1 lane prompt when non-empty', () => {
@@ -1130,7 +914,7 @@ test('S9: a BOUNDARY line is emitted per listed implementer/test-author commit f
 test('S9 probe (W7 replay): calling lanePrompt twice with identical inputs yields byte-identical output', () => {
   const plan = planFrom(() => {})
   const item = plan.items[0]
-  const stage = item.stages[1]
+  const stage = item.stages[0]
   const p1 = lanePrompt(plan, item, stage, {})
   const p2 = lanePrompt(plan, item, stage, {})
   assert.equal(p1, p2)
@@ -1152,7 +936,7 @@ test('S10: a lane whose skills include "security-review" gets the BRANCH-SCOPED 
     raw.items[0].review.requiredReviewNotes.push('security-assessment')
   })
   const item = plan.items[0]
-  const stage = item.stages[2]
+  const stage = item.stages[1]
   const prompt = lanePrompt(plan, item, stage, {})
   assert.ok(prompt.includes('BRANCH-SCOPED'))
   assert.ok(prompt.includes('findings total, kept, dropped, dropped files'))
@@ -1160,10 +944,10 @@ test('S10: a lane whose skills include "security-review" gets the BRANCH-SCOPED 
 
 test('S10: stage.branchScoped === true also triggers the BRANCH-SCOPED instruction without security-review in skills', () => {
   const plan = planFrom((raw) => {
-    raw.items[0].stages[1].branchScoped = true
+    raw.items[0].stages[0].branchScoped = true
   })
   const item = plan.items[0]
-  const stage = item.stages[1]
+  const stage = item.stages[0]
   const prompt = lanePrompt(plan, item, stage, {})
   assert.ok(prompt.includes('BRANCH-SCOPED'))
 })
@@ -1289,7 +1073,7 @@ test('S12: a throw with no agentType (dispatch.agent absent) stops immediately w
 // required⊆properties). Kept as its own reference here for the S-id -> test mapping.
 // =============================================================================
 
-test('S13: laneSchema required list is a subset of its own properties for both output ids (required⊆properties)', () => {
+test('S13: laneSchema required list is a subset of its own properties (required⊆properties)', () => {
   function checkRequiredSubset(schema, path = 'schema') {
     if (!schema || typeof schema !== 'object') return
     if (schema.type === 'object') {
@@ -1301,7 +1085,6 @@ test('S13: laneSchema required list is a subset of its own properties for both o
     if (schema.type === 'array' && schema.items) checkRequiredSubset(schema.items, `${path}[]`)
   }
   checkRequiredSubset(laneSchema('review-v1'))
-  checkRequiredSubset(laneSchema('simplify-v1'))
 })
 
 test('RW-P (container review O1): review-wave laneSchema shares byte-identical status/reason/notes/commits/files/rulesFetched/modelReported/required[]/type with implement-wave envelopeSchema, and entry is a strict subset', () => {
@@ -1309,7 +1092,7 @@ test('RW-P (container review O1): review-wave laneSchema shares byte-identical s
   const implSchema = envelopeSchema('generic-v1')
   const SHARED_KEYS = ['status', 'reason', 'notes', 'commits', 'files', 'rulesFetched', 'modelReported']
 
-  for (const outputId of ['review-v1', 'simplify-v1']) {
+  for (const outputId of ['review-v1']) {
     const revSchema = laneSchema(outputId)
 
     assert.equal(revSchema.type, implSchema.type, `type mismatch for ${outputId}`)
@@ -1364,10 +1147,7 @@ test('S14: normalizeArgs accepts a JSON string identically to the equivalent obj
 
 test('S14: runReview result carries contract "review-wave/result-v1" and passes plan.deferred through verbatim', async () => {
   const plan = normalize(validRawPlan({ deferred: [{ id: 'zzzzzzzz', reason: 'blocked upstream' }] }))
-  const responder = async (label) => {
-    if (label.startsWith('simplify:')) return simplifyEnvelope([])
-    return passEnvelope(['review-checklist', 'test-independence-audit'])
-  }
+  const responder = async () => passEnvelope(['review-checklist', 'test-independence-audit'])
   const { agent } = autoAgent(responder)
   const result = await runReview(plan, { agent, parallel: fakeParallel, log: () => {} })
   assert.equal(result.contract, 'review-wave/result-v1')
@@ -1382,10 +1162,7 @@ test('S14: runReview.items lists only runnable items, in args order, with refuse
   const runnableC = validRawItem('cccccccc')
   const plan = normalize(validRawPlan({ items: [runnableA, refusedMiddle, runnableC] }))
 
-  const responder = async (label) => {
-    if (label.startsWith('simplify:')) return simplifyEnvelope([])
-    return passEnvelope(['review-checklist', 'test-independence-audit'])
-  }
+  const responder = async () => passEnvelope(['review-checklist', 'test-independence-audit'])
   const { agent } = autoAgent(responder)
   const result = await runReview(plan, { agent, parallel: fakeParallel, log: () => {} })
 
@@ -1514,21 +1291,24 @@ const TOKEN_FILE = '/tmp/scratch/tokens/aaaaaaaa.reviewer.token'
 function tokenPlan() {
   return planFrom((raw) => {
     raw.serverRunId = SERVER_RUN
-    raw.items[0].stages[1].tokenFile = TOKEN_FILE
+    raw.items[0].stages[0].tokenFile = TOKEN_FILE
   })
 }
 
 test('D10: a lane with a tokenFile gets a SEAT TOKEN part naming the file, the seatToken field and the rejection rule; a lane without one gets none', () => {
   const plan = tokenPlan()
   const item = plan.items[0]
-  const withToken = lanePrompt(plan, item, item.stages[1], {})
+  const withToken = lanePrompt(plan, item, item.stages[0], {})
   assert.ok(withToken.includes('SEAT TOKEN'), 'SEAT TOKEN part must be present when tokenFile is set')
   assert.ok(withToken.includes(TOKEN_FILE), 'the part names the token file path')
   assert.ok(withToken.includes('seatToken'), 'the part names the top-level seatToken field')
   assert.ok(withToken.includes('The seat token is not accepted.'), 'AC5: the unauthenticated message is quoted')
   assert.ok(withToken.includes('seat-token-rejected'), 'AC5: the stop reason is named')
-  // fixture condition: the simplify lane (stage 0) has no tokenFile in the same plan
-  const withoutToken = lanePrompt(plan, item, item.stages[0], {})
+  // fixture condition: the same stage in the same plan minus its tokenFile
+  const noTokenPlan = planFrom((raw) => { raw.serverRunId = SERVER_RUN })
+  const noTokenItem = noTokenPlan.items[0]
+  assert.equal(noTokenItem.stages[0].tokenFile, undefined)
+  const withoutToken = lanePrompt(noTokenPlan, noTokenItem, noTokenItem.stages[0], {})
   assert.equal(withoutToken.includes('SEAT TOKEN'), false)
 })
 
@@ -1543,13 +1323,13 @@ test('D10: the plan without serverRunId or tokenFile renders no SEAT TOKEN part 
 test('S12 (review lane): the token file content never reaches the prompt - only its path does', () => {
   const plan = tokenPlan()
   const item = plan.items[0]
-  const prompt = lanePrompt(plan, item, item.stages[1], {})
+  const prompt = lanePrompt(plan, item, item.stages[0], {})
   assert.equal(/seatToken["']?\s*[:=]\s*["'][^"']+["']/.test(prompt), false, 'no seatToken: "<value>" assignment')
 })
 
 test('D4: the runReview result carries serverRunId and no planDocSlug', async () => {
   const plan = tokenPlan()
-  const responder = async (label) => (label.startsWith('simplify:') ? simplifyEnvelope([]) : passEnvelope(['review-checklist', 'test-independence-audit']))
+  const responder = async () => passEnvelope(['review-checklist', 'test-independence-audit'])
   const { agent } = autoAgent(responder)
   const result = await runReview(plan, { agent, parallel: fakeParallel, log: () => {} })
   assert.equal(result.started, true)
@@ -1636,11 +1416,14 @@ test('REVIEW-ARGS S11: lanes group review notes by seat and skill, share one tok
   assert.equal(args.contract, 'review-wave/args-v1')
   assert.equal(args.serverRunId, RA_SERVER_RUN)
   const item = args.items[0]
-  assert.deepEqual(item.stages.map((s) => s.lane).sort(), ['reviewer.review-quality', 'reviewer.security-review'])
+  assert.deepEqual(item.stages.map((s) => s.lane).sort(), ['reviewer', 'reviewer.review-quality', 'reviewer.security-review'])
   const byLane = Object.fromEntries(item.stages.map((s) => [s.lane, s]))
   assert.deepEqual(byLane['reviewer.security-review'].notes, ['security-assessment'])
   assert.deepEqual(byLane['reviewer.security-review'].skills, ['security-review'])
-  assert.deepEqual(byLane['reviewer.review-quality'].notes.sort(), ['review-checklist', 'review-extra'])
+  assert.deepEqual(byLane['reviewer.review-quality'].notes, ['review-checklist'])
+  assert.deepEqual(byLane['reviewer.review-quality'].skills, ['review-quality'])
+  assert.deepEqual(byLane.reviewer.notes, ['review-extra'])
+  assert.equal(Object.hasOwn(byLane.reviewer, 'skills'), false, 'a skill-less note group carries no skills field')
   assert.equal(byLane['reviewer.review-quality'].dispatch.model, 'opus')
   const files = new Set(item.stages.map((s) => s.tokenFile))
   assert.equal(files.size, 1, 'lanes of one seat share one token file')
