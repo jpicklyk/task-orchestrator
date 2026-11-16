@@ -453,29 +453,51 @@ test('no state file for this agent (e.g. an internal Claude Code agent) yields {
 
 // ── Parallelism: N recorded items are fetched concurrently, not sequentially ────────────────
 
-test('recorded items are fetched in parallel — total time is close to one request, not the sum', async () => {
+test('recorded items are fetched in parallel — both gate reads are in flight at the same time', async () => {
   const tempDir = freshTempDir();
   const sessionId = `parallel-${randomUUID()}`;
   const agentId = 'agent-1';
   const itemA = '06061829-56f0-4259-5954-7c7cd17db471';
   const itemB = '17172930-67f1-536a-6a65-8d8de28ec582';
-  const DELAY_MS = 300;
+  // Fallback release, below the hook's GATE_TIMEOUT_MS (2000): a sequential fetcher still gets its first
+  // answer in time and fails on the peak below instead of failing open.
+  const RELEASE_FALLBACK_MS = 1500;
   seedMarker(tempDir, sessionId, agentId, { items: [itemA, itemB], blocks: 0 });
+  let inFlight = 0;
+  let peak = 0;
+  const waiting = [];
+  const releaseAll = () => {
+    while (waiting.length) waiting.pop()();
+  };
+  // Holds each response until both reads are in flight, so the peak is the hook's real concurrency and no
+  // wall-clock bound (which includes spawning the hook process) is involved.
   const delayedGate = (id) => (req, res) => {
-    setTimeout(() => {
+    inFlight += 1;
+    peak = Math.max(peak, inFlight);
+    const respond = () => {
+      inFlight -= 1;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(gateOk({ itemId: id, role: 'work', missing: [] }).body));
-    }, DELAY_MS);
+    };
+    const timer = setTimeout(() => {
+      const i = waiting.indexOf(release);
+      if (i >= 0) waiting.splice(i, 1);
+      respond();
+    }, RELEASE_FALLBACK_MS);
+    const release = () => {
+      clearTimeout(timer);
+      respond();
+    };
+    waiting.push(release);
+    if (inFlight >= 2) releaseAll();
   };
   const server = await startStub({ [itemA]: delayedGate(itemA), [itemB]: delayedGate(itemB) });
   try {
-    const start = Date.now();
     const res = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, `http://127.0.0.1:${server.address().port}`);
-    const elapsed = Date.now() - start;
     assert.equal(res.status, 0);
     assert.equal(res.stdout.trim(), '{}');
-    // Sequential would be >= 2 * DELAY_MS (600ms); parallel stays close to one request's delay.
-    assert.ok(elapsed < DELAY_MS * 2, `expected parallel fetch (< ${DELAY_MS * 2}ms), took ${elapsed}ms`);
+    assert.equal(server.requests.length, 2, 'one gate read per recorded item');
+    assert.equal(peak, 2, `expected both gate reads in flight together (parallel fetch), peak was ${peak}`);
   } finally {
     await stopStub(server);
     rmSync(tempDir, { recursive: true, force: true });

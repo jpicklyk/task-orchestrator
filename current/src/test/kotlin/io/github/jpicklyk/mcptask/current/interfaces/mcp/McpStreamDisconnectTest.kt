@@ -30,6 +30,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlin.test.fail
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -227,14 +228,33 @@ class McpStreamDisconnectTest {
                 val session = f.handshakeOn(live, client)
                 openStream(live, session).use { first ->
                     assertTrue(first.awaitHead(3000))
+                    val firstHeadAt = System.nanoTime()
                     assertEquals(200, first.status)
                     openStream(live, session).use { second ->
                         assertTrue(second.awaitHead(3000))
+                        val secondHeadAt = System.nanoTime()
                         assertEquals(200, second.status, "never 409: a second GET is accepted")
-                        assertTrue(
-                            first.awaitStreamEnd(3000),
-                            "the replaced stream is ended by the server (its chunked response completes)"
-                        )
+                        val ended = first.awaitStreamEnd(3000)
+
+                        // Built only on the failing path: kotlin.test assertTrue evaluates its message eagerly, and the
+                        // diagnosis reads the second stream for up to 1 s.
+                        fun diag(): String {
+                            val secondEnded = second.awaitStreamEnd(1000)
+
+                            fun tail(c: RawSseConnection) =
+                                c.text
+                                    .takeLast(200)
+                                    .replace("\r", "\\r")
+                                    .replace("\n", "\\n")
+                            val gapMs = (secondHeadAt - firstHeadAt) / 1_000_000
+                            return "replace probe: first ended=false (still open at the 3000 ms deadline)" +
+                                " status=${first.status} closedByServer=${first.closedByServer} tail='${tail(first)}'; " +
+                                "second ended=$secondEnded (read for up to 1000 ms) status=${second.status} " +
+                                "closedByServer=${second.closedByServer} tail='${tail(second)}'; " +
+                                "GET calls started=${live.getStarted.get()} ended=${live.getEnded.get()}; " +
+                                "gap between the two heads=$gapMs ms"
+                        }
+                        if (!ended) fail("the replaced stream is ended by the server (its chunked response completes). ${diag()}")
                         assertFalse(second.readFor(300), "the replacing stream stays open")
                     }
                 }
