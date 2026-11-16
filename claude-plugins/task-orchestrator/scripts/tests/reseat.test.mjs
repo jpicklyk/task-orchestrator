@@ -215,7 +215,7 @@ test('S2: the returned result gains one reseats entry; the input result is not m
   const out = callReseat(realCore(), doc, input, SHORT, 'implementer-a1', { pre: C2 })
   assert.equal(out.ok, true)
   assert.deepEqual(out.result.items[0].reseats, [
-    { seat: 'implementer-a1', baseSeat: 'implementer', cycle: 1, model: 'sonnet', tokens: 'unknown', effort: out.effort, cause: 'review', pre: C2 },
+    { seat: 'implementer-a1', baseSeat: 'implementer', cycle: 1, step: 1, model: 'sonnet', tokens: 'unknown', effort: out.effort, cause: 'review', pre: C2 },
   ])
   assert.deepEqual(input, before, 'input result must be unchanged')
   assert.notEqual(out.result, input)
