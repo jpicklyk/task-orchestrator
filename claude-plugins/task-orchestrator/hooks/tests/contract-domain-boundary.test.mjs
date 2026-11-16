@@ -237,6 +237,35 @@ test('S8: skill form hits and non-hits', () => {
   assert.equal(both.violations[0].form, 'slash');
 });
 
+// S8 amendment A2 (review finding O1): the skill form reports every host name of a single-line list,
+// not only the first element. Oracle: the review finding's three stated cases.
+test('S8 (A2): skill form reports every host name of a single-line list', () => {
+  const names = ['code-review', 'security-review'];
+
+  // A non-host first element must not hide a host name after it.
+  const second = scanText("SKILLS = ['spec-quality','security-review']", names);
+  assert.deepEqual(second.violations.map((v) => [v.name, v.form, v.line]), [['security-review', 'skill', 1]]);
+
+  // Host name first, non-host after it: still exactly the one host name.
+  const first = scanText("SKILLS = ['security-review','spec-quality']", names);
+  assert.deepEqual(first.violations.map((v) => v.name), ['security-review']);
+
+  // Two host names in one unquoted list: one violation each.
+  const both = scanText('skills: security-review, code-review', names);
+  assert.deepEqual(both.violations.map((v) => v.name).sort(), ['code-review', 'security-review']);
+  assert.ok(both.violations.every((v) => v.form === 'skill' && v.line === 1));
+
+  // Double-quoted list with a non-host element between two host names.
+  const mixed = scanText('skills: ["code-review", "spec-quality", "security-review"]', names);
+  assert.deepEqual(mixed.violations.map((v) => v.name).sort(), ['code-review', 'security-review']);
+
+  // A name that only contains a host name is no hit, wherever it sits in the list.
+  assert.equal(scanText("SKILLS = ['security-review-x']", names).violations.length, 0);
+  assert.equal(scanText("SKILLS = ['spec-quality','security-review-x']", names).violations.length, 0);
+  const partial = scanText("SKILLS = ['security-review-x','code-review']", names);
+  assert.deepEqual(partial.violations.map((v) => v.name), ['code-review']);
+});
+
 // ---- S10, S11 ------------------------------------------------------------------------------
 
 test('S10: project scan flags an undeclared host skill and passes a declared one', () => {
