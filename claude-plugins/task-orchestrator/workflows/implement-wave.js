@@ -1223,7 +1223,7 @@ function promptInlineBodies() {
 function promptCommitForm(item, stage) {
   if (!stage.writes) return ''
   return [
-    'COMMIT: stage only your own paths, then commit with the trailer:',
+    'COMMIT: per rule `commit-discipline`, keeping the `[short]` subject tag and the `Seat:` paragraph that verify reads:',
     `git -C ${item.worktree} commit --only -m "<type>(<scope>): <title> [${item.short}]" -m "<why>" -m "Seat: ${stage.seat}" -m "Co-Authored-By: <your model attribution line>" -- <paths>`,
   ].join('\n')
 }
