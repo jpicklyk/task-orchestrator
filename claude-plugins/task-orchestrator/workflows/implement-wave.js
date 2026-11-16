@@ -1562,7 +1562,7 @@ function promptReturn(stage, item) {
         'declarationModules: list every repo-relative module whose behavior a test-plan scenario oracle or harness ' +
           'depends on, mirroring the declarationModules line of the test-plan note.'
       )
-      lines.push('testPlanScenarios: list every scenario id your test-plan note numbers, in order.')
+      lines.push('testPlanScenarios: list every scenario id your test-plan note numbers, in order, one id per entry, written exactly as the test plan writes it, never a range.')
     }
   }
   if (stage.output === 'declarations-v1') {

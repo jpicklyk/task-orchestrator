@@ -14,7 +14,7 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
  candidates:[{id, short, title, priority, complexity?, type, role, parentId, traits[], hasChildren, source:"ready"|"work"}],
  blocked:[{itemId, role, blockType, blockedBy:[{itemId, role, effectiveUnblockRole, satisfied}]}],
  schemas:{<itemId>: {status:"ok"|"not-found"|"unavailable", type, configFingerprint, configSource,
-          notes:[{key, role, required, seat?, skill?}], seats?, dispatch?, dispatchBySeat?, resources?}},
+          notes:[{key, role, required, seat?, skill?, maxLength?}], seats?, dispatch?, dispatchBySeat?, resources?}},
  scopes?:{<itemId>: {files:[string], dependsOn?:[string]}},        // only candidates joined to a same-parent candidate by an unsatisfied dependency edge
  carryIns?:{<itemId>: {keys:[string], dispositions:string|null}},  // only candidates with >=1 carry-in-* note
  noteOwners:{<itemId>: [{key, seat}]},                 // only for role=work candidates (S4 resume)
@@ -43,6 +43,7 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
   seat prompt's TOOLS line (absent means `mcp-task-orchestrator`). `plan` copies `allow` into
   `meta.allow`; the `planned` report names its false members on the `needs:` line. `serverCompat` is checked in Step 0 F2 (non-null stops the run);
   `probe --no-server-check` skips that network check and `--api-url <url>` overrides the resolved URL.
+- `schemas[].notes[].maxLength` - optional, copied from the note's `maxLength` in the `items_read` `schema` answer when that is an integer of 1 or more, and left out otherwise. `plan` turns it into `noteLimits` on the stage that owns the note, and `reseat` then gives a fix seat a limit sentence for each note key its FIX CYCLE line names that the stage limits. Without it the plan carries no `noteLimits` and a fix seat gets no limit sentence.
 - `profile.verify[].appliesTo` — optional, a non-empty array of repo-relative glob patterns (same
   segment-glob matching as `appendOnlyFiles`, case-insensitive). `promptVerify` renders the entry only when
   some planned file (planner `mainFiles`, `docFiles`, `testFiles`, `existingTestEdits[].file`) matches;

@@ -35,7 +35,7 @@ its user-facing name across `claude-plugins/`, `.claude/` and `current/docs/`. E
 disposition in your planning note: edit in this item, owned by a sibling (its short id), no edit (with the
 reason), or unowned. Report the grep in `sweep` as kind `docs` and list each unowned hit file in `unowned`;
 the orchestrator routes those before review. When the item has a test-author stage, also report
-`testPlanScenarios`: the scenario ids your test-plan note numbers, in order.
+`testPlanScenarios`: the scenario ids your test-plan note numbers, in order, one id per entry, written exactly as the test plan writes it, never a range.
 
 **Seat rule.** If your dispatch prompt names a seat, fill only the notes that seat owns and leave
 the phase's other required notes to their own seats — the schema's list of required queue notes is

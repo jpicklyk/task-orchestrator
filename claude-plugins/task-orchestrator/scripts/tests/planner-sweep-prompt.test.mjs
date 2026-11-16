@@ -20,7 +20,7 @@ const DOCS_LINE =
   'report the grep in sweep as kind docs, listing unowned hit files in unowned.'
 const EMPTY_SWEEP_LINE =
   'sweep: [] only when this item changes no enumerated surface and no script; otherwise one entry per grep, 0 hits included.'
-const SCENARIO_LINE = 'testPlanScenarios: list every scenario id your test-plan note numbers, in order.'
+const SCENARIO_LINE = 'testPlanScenarios: list every scenario id your test-plan note numbers, in order, one id per entry, written exactly as the test plan writes it, never a range.'
 
 const countOf = (line) => (text) => text.split(line).length - 1
 const count = countOf(LINE)
