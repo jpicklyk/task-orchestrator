@@ -549,8 +549,11 @@ function deriveRulesSkills(ownedKeys, allNotes, servedKeys) {
     const note = allNotes.find((n) => n.key === k);
     const skill = note && note.skill;
     if (!skill) continue;
-    if (servedKeys.has(skill)) rules.push(skill);
-    else skills.push(skill);
+    if (servedKeys.has(skill)) {
+      if (!rules.includes(skill)) rules.push(skill);
+    } else if (!skills.includes(skill)) {
+      skills.push(skill);
+    }
   }
   return { rules, skills };
 }
