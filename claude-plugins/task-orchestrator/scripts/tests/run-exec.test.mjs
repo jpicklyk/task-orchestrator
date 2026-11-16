@@ -41,7 +41,7 @@ function outputFor(id, overrides = {}) {
     'planner-v1': {
       proceed: true, blockReason: 'none', diagnosisCorrections: 'none', defectClassSiblings: 'none',
       decisions: 'none', missingApiOrSeam: 'none', testPlanStatus: 'none',
-      mainFiles: [], docFiles: [], testFiles: [], existingTestEdits: [], redProofShape: 'none',
+      mainFiles: [], docFiles: [], testFiles: [], existingTestEdits: [], redProofShape: 'none', sweep: [],
     },
     'implementer-v1': {
       mainFilesChanged: [], docFilesChanged: [], verify: [], failingExistingTests: [],
@@ -49,7 +49,7 @@ function outputFor(id, overrides = {}) {
     },
     'declarations-v1': { declarations: 'none', harnessPointers: 'none', gaps: 'none' },
     'test-author-v1': {
-      returnLine: 'none', testFiles: [], scenariosCovered: 'none', verify: [],
+      returnLine: 'none', testFiles: [], scenariosCovered: 'none', manifestScenarios: [], verify: [],
       redAuthorTests: [], missingDeclaration: 'none', breachDisclosure: 'none',
     },
     'generic-v1': { summary: 'none' },

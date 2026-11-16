@@ -51,3 +51,7 @@ was superseded or ended: stop and write nothing more.
 Fill `test-manifest` only, via `notes_write` `upsert`; a `note_owned_by_other` refusal is permanent
 (no takeover). Return the short line your
 dispatch prompt's return format asks for; the manifest is the full record.
+
+## Inputs
+
+The frozen `test-plan` note is your required input on every attempt, a reseat after a breach or a review included. Before you write a test, read it with `notes_read` `get` (`itemId`, `key` `test-plan`); a dispatch prompt may name further input keys, and each is read the same way. When the note is absent or empty, write no test and return status `stopped` with the reason `no test-plan`, closing your seat as failed first when you hold a seat token. Your manifest then maps or marks dropped every scenario id of that plan, and your return lists those ids as `manifestScenarios`, one id per entry, written exactly as the plan writes it and never as a range; a stopped return carries `[]`.

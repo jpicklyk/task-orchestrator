@@ -46,6 +46,8 @@ const LONG = {
 }
 const RED_LONG = uniq('red')
 
+const SWEEP_GREP = uniq('sweep-grep')
+
 function plannerOutput(over = {}) {
   return {
     proceed: true, blockReason: 'none', diagnosisCorrections: LONG.corrections, defectClassSiblings: 'none',
@@ -53,6 +55,11 @@ function plannerOutput(over = {}) {
     mainFiles: ['src/a.js'], docFiles: ['docs/a.md'], testFiles: [],
     existingTestEdits: [{ file: 't/old.test.js', edit: LONG.testEdit }],
     redProofShape: 'none',
+    sweep: [{
+      kind: 'tests', grep: SWEEP_GREP, hits: 3, disposed: 2,
+      unowned: ['docs/a.md', 7], extra: 'dropped',
+    }],
+    testPlanScenarios: ['S1', 'S2', 9],
     ...over,
   }
 }
@@ -88,12 +95,23 @@ function fixtureRun({ altitudeSafe, implNotes } = {}) {
 
 const SAFE_OUTPUT_KEYS = new Set([
   'mainFiles', 'docFiles', 'testFiles', 'declarationModules', 'mainFilesChanged', 'docFilesChanged',
-  'testFilesChanged', 'existingTestEdits', 'proceed', 'redProofShape',
+  'testFilesChanged', 'existingTestEdits', 'proceed', 'redProofShape', 'sweep', 'testPlanScenarios', 'manifestScenarios',
 ])
 const SAFE_STAGE_KEYS = new Set([
   'seat', 'status', 'reason', 'modelReported', 'agentTypeUsed', 'agentTypeFallback', 'commits', 'files', 'notes', 'decisionId',
 ])
 const SAFE_ITEM_KEYS = new Set(['id', 'short', 'status', 'schemaFree', 'reason', 'stages', 'outputs'])
+
+test('AC4: safe planner output keeps the sweep as counts and a cut grep, and the scenario ids as strings', async () => {
+  const safe = await fixtureRun({ altitudeSafe: true })
+  const out = safe.items.find((it) => it.short === 'a1000001').outputs.planner
+  assert.equal(out.sweep.length, 1)
+  assert.deepEqual(out.sweep[0], {
+    kind: 'tests', grep: SWEEP_GREP.slice(0, 120), hits: 3, disposed: 2, unowned: ['docs/a.md'],
+  })
+  assert.ok(SWEEP_GREP.length > 120)
+  assert.deepEqual(out.testPlanScenarios, ['S1', 'S2'])
+})
 
 // S6 [N] AC2
 test('S6: altitudeSafe true returns the scrubbed shape: no long free-text survives, structural fields do', async () => {

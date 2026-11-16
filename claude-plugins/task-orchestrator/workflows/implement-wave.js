@@ -33,7 +33,7 @@ const OUTPUT_SCHEMAS = {
     required: [
       'proceed', 'blockReason', 'diagnosisCorrections', 'defectClassSiblings', 'decisions',
       'missingApiOrSeam', 'testPlanStatus', 'mainFiles', 'docFiles', 'testFiles',
-      'existingTestEdits', 'redProofShape',
+      'existingTestEdits', 'redProofShape', 'sweep',
     ],
     properties: {
       proceed: { type: 'boolean' },
@@ -56,6 +56,20 @@ const OUTPUT_SCHEMAS = {
       },
       redProofShape: { type: 'string' },
       declarationModules: { type: 'array', items: { type: 'string' } },
+      testPlanScenarios: { type: 'array', items: { type: 'string' } },
+      sweep: {
+        type: 'array',
+        items: {
+          type: 'object', required: ['kind', 'grep', 'hits', 'disposed'],
+          properties: {
+            kind: { type: 'string', enum: ['tests', 'docs'] },
+            grep: { type: 'string' },
+            hits: { type: 'integer', minimum: 0 },
+            disposed: { type: 'integer', minimum: 0 },
+            unowned: { type: 'array', items: { type: 'string' } },
+          },
+        },
+      },
     },
   },
   'implementer-v1': {
@@ -99,13 +113,14 @@ const OUTPUT_SCHEMAS = {
   'test-author-v1': {
     type: 'object',
     required: [
-      'returnLine', 'testFiles', 'scenariosCovered', 'verify', 'redAuthorTests',
+      'returnLine', 'testFiles', 'scenariosCovered', 'manifestScenarios', 'verify', 'redAuthorTests',
       'missingDeclaration', 'breachDisclosure',
     ],
     properties: {
       returnLine: { type: 'string' },
       testFiles: { type: 'array', items: { type: 'string' } },
       scenariosCovered: { type: 'string' },
+      manifestScenarios: { type: 'array', items: { type: 'string' } },
       verify: {
         type: 'array',
         items: {
@@ -803,7 +818,7 @@ function noTestOwner(item) {
  * Precedence: null envelope; schema-changed; config-unavailable; entry (when
  * stage.enters and not done); planner proceed===false; planner needsTestAuthor===true on a no-test-owner
  * item (when item is given); planner envelope-mismatch (proceed:true
- * with an empty mainFiles/docFiles/testFiles set while stage.notes is non-empty); no-test-owner (only
+ * with an empty mainFiles/docFiles/testFiles/existingTestEdits set while stage.notes is non-empty); no-test-owner (only
  * when item is given: planner proceed:true with testFiles, no test-author-v1 stage on the item, and the
  * item's implementer-v1 stage not implicitOwner); test-author
  * missingDeclaration/breachDisclosure; else env.status when stopped|deferred; else done.
@@ -837,6 +852,7 @@ function mapStageResult(stage, env, entryMode = 'seat', item) {
       (env.output.mainFiles || []).length === 0 &&
       (env.output.docFiles || []).length === 0 &&
       (env.output.testFiles || []).length === 0 &&
+      (env.output.existingTestEdits || []).length === 0 &&
       Array.isArray(stage.notes) && stage.notes.length > 0
     ) {
       return {
@@ -1049,6 +1065,30 @@ function promptOwnedNotes(stage, item) {
     out += ` Orchestrator-owned notes [${orch.join(', ')}]: never write them - the orchestrator records them after you return.`
   }
   return out
+}
+
+/**
+ * TEST PLAN part (after the owned-notes part): one paragraph per key of stage.inputNotes, in
+ * order. Only a non-empty inputNotes array renders; the stage's output, the item's other stages
+ * and a planner stage play no part. A seat that holds a token is also told to end its seat.
+ */
+function promptTestPlan(plan, item, stage) {
+  const keys = Array.isArray(stage.inputNotes) ? stage.inputNotes : []
+  if (!keys.length) return ''
+  const holdsToken = Boolean(seatTokenFile(plan, item, stage))
+  return keys
+    .map((k) => {
+      let out =
+        `TEST PLAN: before you write a test, read notes_read(select:"get", itemId:"${item.id}", key:"${k}"); ` +
+        `when it is absent or empty, write no test and return status "stopped", reason "no ${k}".`
+      if (holdsToken) {
+        out +=
+          ' When you stop this way, first close your seat with runs_write(ops:[{op:"end_seat", outcome:"failed", ' +
+          'summary}]) using your seat token.'
+      }
+      return out
+    })
+    .join('\n\n')
 }
 
 /**
@@ -1496,7 +1536,18 @@ function promptReturn(stage, item) {
     lines.push('Emit StructuredOutput exactly once, as your final action; a second call replaces the first.')
     lines.push(
       'existingTestEdits: include every existing test that pins the size, order or matcher list of an enumerated ' +
-        'surface this item changes; record the grep and its hit count in your planning note, including 0 hits.'
+        'surface this item changes; list every hit file in your planning note with one disposition (edit, with the line; ' +
+        'or no edit, with the reason) and report each grep in sweep as kind tests with its hits and disposed counts, ' +
+        'including 0 hits.'
+    )
+    lines.push(
+      'Docs sweep: for every script, hook, tool or command this item changes or adds, grep its file name and ' +
+        'user-facing name across claude-plugins/, .claude/ and current/docs/; give every hit file one disposition in ' +
+        'your planning note (edit in this item; owned by sibling <short>; no edit, with the reason; unowned) and ' +
+        'report the grep in sweep as kind docs, listing unowned hit files in unowned.'
+    )
+    lines.push(
+      'sweep: [] only when this item changes no enumerated surface and no script; otherwise one entry per grep, 0 hits included.'
     )
     if (item && item.stages.some((s) => s.output === 'test-author-v1')) {
       lines.push('Test-author stage: present')
@@ -1511,6 +1562,7 @@ function promptReturn(stage, item) {
         'declarationModules: list every repo-relative module whose behavior a test-plan scenario oracle or harness ' +
           'depends on, mirroring the declarationModules line of the test-plan note.'
       )
+      lines.push('testPlanScenarios: list every scenario id your test-plan note numbers, in order, one id per entry, written exactly as the test plan writes it, never a range.')
     }
   }
   if (stage.output === 'declarations-v1') {
@@ -1520,6 +1572,9 @@ function promptReturn(stage, item) {
     )
   }
   if (stage.output === 'test-author-v1') {
+    lines.push(
+      'manifestScenarios: list every test-plan scenario id your test-manifest maps or marks dropped, one id per entry, written exactly as the test plan writes it, never a range; a stopped return carries [].'
+    )
     lines.push(
       'missingDeclaration and breachDisclosure: exactly "none" (optionally followed by a dash and a note) ' +
         'when there is nothing to disclose.'
@@ -1559,6 +1614,7 @@ function seatPrompt(plan, item, stage, outs) {
     promptTools(plan, item, stage),
     promptSeatToken(plan, item, stage),
     promptOwnedNotes(stage, item),
+    promptTestPlan(plan, item, stage),
     promptCarryIns(stage, item),
     promptRules(plan, stage),
     promptDriftPin(item, stage),
@@ -1789,6 +1845,7 @@ const SAFE_RED_PROOF_MAX = 200
 const SAFE_OUTPUT_LISTS = [
   'mainFiles', 'docFiles', 'testFiles', 'declarationModules',
   'mainFilesChanged', 'docFilesChanged', 'testFilesChanged',
+  'testPlanScenarios', 'manifestScenarios',
 ]
 
 function safeText(v, max) {
@@ -1805,6 +1862,17 @@ function safeOutput(out) {
     kept.existingTestEdits = out.existingTestEdits
       .filter((e) => e && typeof e === 'object' && typeof e.file === 'string')
       .map((e) => ({ file: e.file }))
+  }
+  if (Array.isArray(out.sweep)) {
+    kept.sweep = out.sweep
+      .filter((e) => e && typeof e === 'object' && !Array.isArray(e))
+      .map((e) => ({
+        ...(typeof e.kind === 'string' ? { kind: e.kind } : {}),
+        grep: safeText(e.grep, SAFE_REASON_MAX),
+        ...(Number.isInteger(e.hits) ? { hits: e.hits } : {}),
+        ...(Number.isInteger(e.disposed) ? { disposed: e.disposed } : {}),
+        ...(Array.isArray(e.unowned) ? { unowned: e.unowned.filter((u) => typeof u === 'string') } : {}),
+      }))
   }
   if ('proceed' in out) kept.proceed = out.proceed
   if (typeof out.redProofShape === 'string') kept.redProofShape = out.redProofShape.slice(0, SAFE_RED_PROOF_MAX)

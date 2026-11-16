@@ -26,11 +26,13 @@ When the notification's result is cut short, read the task output file it points
 An altitude-safe result (`altitudeSafe: true`, from a plan made with `--altitude-safe`) is saved and
 verified the same way: it keeps `items[].stages` (status, commits, files, note keys) and the file
 lists under `items[].outputs.<seat>`, plus a `rollup` of counts, and cuts every reason to 120
-characters. The seat prose (planner decisions, corrections, deviations) is not in it; read it from
+characters. The planner `sweep` entries keep `kind`, `hits`, `disposed`, the `unowned` file names and
+the `grep` cut to 120 characters, and both scenario lists (`testPlanScenarios`, `manifestScenarios`)
+survive whole, so Step 1's sweep and coverage checks run on a safe result. The seat prose (planner decisions, corrections, deviations) is not in it; read it from
 the seats' notes when a later step needs it. `redProofShape` survives, cut to 200 characters; Step
 7c reads the full shape from the test-plan note's `red-proof-shape:` line. A `reseat` from a safe
 result passes scrubbed outputs, so a fix-cycle prompt shows `decisions: none` and
-`diagnosisCorrections: none`: tell the reseated seat to read the item's queue notes, and give a
+`diagnosisCorrections: none`: tell the reseated seat to read the item's queue notes (an amendment-free mechanical fix reads the review register), and give a
 test-author reseat `--declarations`.
 
 `runs_read(select:"get", runId:<serverRunId>)` shows the run's status: a `paused` run (`pauseReason`
@@ -69,6 +71,14 @@ existingTestEdits[].file`; never cross-owned), commit subjects carry the `[<shor
 derived for that item (`null` when the item had no planner-v1 output to derive one from). An
 untagged commit (no `[<short>]` in its subject) surfaces as a top-level `warnings` entry, not a
 per-item finding, and does not by itself fail the item.
+
+On an item with planner output, verify also checks the planner's sweep and the test author's scenario
+coverage. Two findings fail the item: `planner sweep <kind> "<grep>" disposed <d> of <h>` (a `sweep`
+entry with fewer disposed than hits; the grep is cut to 60 characters) and `test-manifest misses plan
+scenario <id>` (an id in the planner's `testPlanScenarios` that the test author's `manifestScenarios`
+lacks, reported once per id). Two warnings do not: `<short> planner sweep not reported` (the planner
+returned no `sweep` list) and `<short> docs sweep unowned <file>` (one per file in an entry's
+`unowned`); each carries the item's `<short> ` prefix. Step 5 routes the unowned files.
 
 **`appliesTo` and `knownRed`.** `orchestrator`-seat entries in `redProof.commands` carry `appliesTo` when the
 profile declares it: run such an entry only when a path in `git diff --name-only <baseSha>..HEAD` matches one
@@ -157,7 +167,8 @@ below. Carry each item's `redProof.shape` forward to that step unchanged.
 
 A `verify` failure (`items[].ok: false`, non-empty `findings`) on any item
 means that item **fails this run** — do not advance it in Step 4 below, and surface the specific
-failure (missing SHA, foreign file, missing trailer, failed red-proof) rather than a generic
+failure (missing SHA, foreign file, missing trailer, failed red-proof, an undisposed sweep hit, a plan
+scenario the manifest misses) rather than a generic
 "verify failed".
 
 **Applying a mutation or a narrowest revert in the scratch copy** is a text edit you must be able
@@ -331,6 +342,12 @@ Record the phase `review` before dispatching or handing off the reviewer — a r
 this point (Resume matrix, `SKILL.md`) continues at Step 8 there instead of re-running Step 4's
 batched advance.
 
+Before any reviewer is dispatched or handed off, route every unowned docs hit: each
+`<short> docs sweep unowned <file>` warning from Step 1 (the `unowned` file names also stay in a safe
+result's `sweep`) gets an owner, either a sibling item's amendment (`reseat --cause carry-in`) or a
+follow-up item created first, and the orchestrator's disposition for it names that owner. A hit with
+no owner is not left for the reviewer to find.
+
 **Under `review: "handoff"`** (the project's `run-profile.json`), keep the run open through the project's
 own review step (this repo: `/implement` Step 5) and do not dispatch the generic reviewer yourself. In order:
 Step 4 is done and the phase `review` is recorded; assign a reviewer seat per advanced item that entered a review
@@ -391,9 +408,23 @@ diff command, plus: "Apply the /security-review method to this item's owned-file
 worktree — `git -C <worktree> diff <baseSha>..HEAD -- <owned files>` — not by invoking the built-in
 command, which diffs the session cwd and is empty for a worktree branch."
 
-**Fix cycle after a Fail.** When a review returns Fail, run the same four seats again, in order,
-each scoped to one numbered amendment `A<n>` (A1 for the first Fail, A2 for the next). There is no
-cap on cycles.
+**Fix cycle after a Fail.** When a review returns Fail, classify each blocking finding, then run the
+recipe for its class. There is no cap on cycles. A cycle is numbered `A<n>` (A1 for the first Fail,
+A2 for the next); the seat suffix is the cycle number.
+
+- **Mechanical.** Every blocking finding states the exact fix and changes no scope, no oracle and no
+  design decision (a path, a wording, an off-by-one the finding already pins to `file:line`). No
+  amending planner runs and no amendment is written; the coordinator writes no planner-owned note.
+  The review register (`review-checklist`, or the first review note) is the ruling. One fresh seat
+  owns the touched files: `implementer-a<n>`, or `test-author-a<n>` for test files (which still
+  needs declarations, see `reseat` below). Render it with `reseat ... --cause review --findings
+  <ids>`, the blocking finding ids, so its FIX CYCLE line reads "work only blocking findings <ids>
+  in the item's review register". The original reviewer then re-checks the fix diff against those
+  ids (the Re-review step of the recipe below).
+- **Ruling-needed.** A scope, an oracle or a design decision changes, or the finding does not state
+  the fix. Run the four seats below. When unsure which class a Fail is, it is ruling-needed.
+
+The ruling-needed recipe runs four seats, in order, each scoped to one amendment `A<n>`:
 
 1. **Planner amends, by name.** Resume the item's planner seat with the blocking findings (via
    `SendMessage`). It writes the ruling into the item's `amendments` note (queue, planner seat;
@@ -404,23 +435,31 @@ cap on cycles.
    changes; the line-level trace belongs to the implementer's commit and the reviewer's re-check,
    not here. The ruling lists every existing test file it expects edited (planner-v1
    `existingTestEdits`) and the mutation red-proofs (within the item's budget) the fix must
-   satisfy. Keep amendments terse: accumulated ones made a 50k `task-scope` in one run.
-2. **Implementer, then blind test author, as fresh `<seat>-a<n>` seats, one effort level higher**,
+   satisfy. For each claim a blocking finding rules wrong, the amending planner greps the feature's
+   owned-file union and the repo for the claim's key nouns and lists every sibling occurrence in the
+   amendment as `file:line` with an owner: fix in this item, route to a named sibling item's
+   amendment, or follow-up item for a site outside the feature. Keep amendments terse: accumulated
+   ones made a 50k `task-scope` in one run.
+2. **Implementer, then blind test author, as fresh `<seat>-a<n>` seats, at the escalated effort**,
    each scoped to ruling `A<n>` only. Render each with `reseat ... --cause review` (`--cause test`
    for a post-run or wave-build test failure sent back to the owning seat) and dispatch a fresh
    Agent (description `<seat>-a<n>:<short>`, optionally followed by the display tag ` [<model>/<effort>]`) with the base stage's model and the `effort` the command returns, never a `SendMessage`
-   resume: a resumed subagent keeps its effort, so it cannot escalate. The effort rises one level
-   per cycle up to the policy's `escalation.ceiling`; when the output says `ceilingReached: true`
-   and that cycle fails too, the next step is the existing decision path (raise a blocking
-   decision), not another cycle at the same effort. The test author appends its own `A<n>` section
-   to `test-plan`/`test-manifest`; the planner does not touch those keys, which the test-author
-   seat owns.
+   resume: a resumed subagent keeps its effort, so it cannot escalate. The escalation `step` is 1
+   plus the earlier ledger rows of the same base seat (a lower cycle) whose cause is `review` or
+   `test`, and a row with no recorded cause counts; the effort is the base stage's effort raised by
+   `step` levels, capped at the policy's `escalation.ceiling`. A `carry-in` or `breach` cycle does
+   not raise a later one, planner bases keep their effort, and a reviewer is never reseated. When
+   the output says `ceilingReached: true` and that cycle fails too, the next step is the existing
+   decision path (raise a blocking decision), not another cycle at the same effort. The `test-plan`
+   is the planner's note and stays frozen: the test author rewrites `test-manifest` in full (replacing superseded
+   text, no `A<n>` section) and the implementer rewrites `implementation-notes` in full the same way.
 3. **Orchestrator runs the amendment's bug-fix revert, if it names one,** in a scratch copy, never
    the shared tree (same rule as Step 1), applying it as "Applying a mutation or a narrowest
    revert" above describes. The amendment's named budget mutations join the wave-boundary batch
    (Step 7a) with the rest of the item's budget.
 4. **Original reviewer, by name**, scoped to `git diff <prevReviewedSha>..HEAD -- <owned files>`
-   plus the blocking findings — see "Re-review after fixes" below.
+   plus the blocking findings, as "Re-review after fixes" below describes. A mechanical fix keeps this
+   re-review too: it reads only that diff against the cited ids.
 
 **Late carry-ins and orchestrator-originated fixes.** A carry-in that arrives after planning, or a
 fix the orchestrator originates, is applied through an amendment: seat `planner-a<n>` with the
@@ -433,6 +472,11 @@ applies orchestrator text verbatim only for a mechanical edit: a path, an id or 
 pre-launch late carry-in on an item with no planner stage (the `lateCarryIns` of SKILL.md Step 3)
 keeps its orchestrator disposition line, which states the obligation and source only.
 
+A sibling hit found after the amendment is written goes through a planner amendment (`reseat
+--cause carry-in`) or a follow-up item; it is never added to a fix seat's brief. A mechanical or
+observation fix seat returns any other occurrence of the claim it fixed as `file:line`, and the
+orchestrator gives each one an owner before the next dispatch.
+
 **Dispositions at child close.** When a child's review returns Pass or Pass with observations,
 write the child's `orchestrator-confirmation` before advancing it: one line per non-blocking
 finding id (`O#` from a review-checklist, `N#` from a docs-accuracy or similar review) as
@@ -444,14 +488,14 @@ merge only when it names a concrete failure in behaviour this item added or chan
 write, a wrong result on a stated input, a gate that lets the wrong thing through. A hardening,
 wording, test-depth or style observation is `follow-up` or `accepted`. The fix is one fresh
 `implementer-a<n>` seat (`test-author-a<n>` when the finding is about the tests), rendered with
-`reseat ... --cause review` and dispatched at the model and returned `effort`, scoped to the
-cited finding ids, with the review register as its ruling: no planner amendment is written, since
-the finding already carries the obligation and its `file:line` source, and the orchestrator's
-dispatch names the finding ids where the `reseat` prompt's FIX CYCLE line names an amendment. No
+`reseat ... --cause review --findings <ids>` and dispatched at the model and returned `effort`,
+scoped to the cited finding ids, with the review register as its ruling: no planner amendment is
+written, since the finding already carries the obligation and its `file:line` source, and the
+`reseat` prompt's FIX CYCLE line names those ids in place of an amendment. No
 re-review follows unless the fix changes behaviour beyond the finding, in which case the original
 reviewer re-checks that diff only. On a closed run the seat still runs under its own `<runId>-a<n>`
-run (Fallback below). The Fail recipe above (four seats, an amendment, a re-review) is for blocking
-findings only. Why: a wave whose two items both passed with observations spent about 80% of its own
+run (Fallback below). The Fail recipe above (the mechanical class, or the four seats of the
+ruling-needed class) is for blocking findings only. Why: a wave whose two items both passed with observations spent about 80% of its own
 seat tokens on full A1 cycles (trend `b1b8e194`).
 
 **Fallback.** Resume-by-name works in Method B or when seats are dispatched by hand, and is kept
@@ -487,8 +531,9 @@ Follow these steps in order:
    `seatToken` to the base seat's token file.
 4. Reseat each fix-cycle seat with `reseat --plan plan-a<n>.json` (the command below).
 5. After the re-review verdict, rewrite the item's `session-tracking` under this run's coordinator
-   token: the `Review: pending - ...` line becomes `Review: <verdict> after A<n> - <review-note key>`
-   and the Outcome line becomes `Outcome: implemented, review <verdict> after A<n>` (final on a Pass;
+   token: the `Review: pending - ...` line becomes `Review: <verdict> after A<n> (mechanical|ruling) -
+   <review-note key>` (`mechanical` for a cycle with no amending planner, `ruling` for the four-seat
+   cycle) and the Outcome line becomes `Outcome: implemented, review <verdict> after A<n>` (final on a Pass;
    a Fail opens cycle `a<n+1>` with its own run). In the same step, before the close, re-upsert
    `delegation-metadata` per "Recording out-of-run seats".
 6. Close the run (`runs_write` `close`, `runId` = this run's uuid, `reason` `completed`, coordinator
@@ -499,7 +544,7 @@ Render the seat's prompt with the helper's `reseat` command instead of writing i
 ```
 node "<helper>" reseat --plan <plan.json> --run <runId> --result <result.json> \
   --item <short> --seat <seat>-a<n> --cause review|test|carry-in|breach \
-  [--declarations <file>] [--model <m>] [--tokens <n>] [--pre <sha>] [--assignment <uuid>]
+  [--findings <id,...>] [--declarations <file>] [--model <m>] [--tokens <n>] [--pre <sha>] [--assignment <uuid>]
 ```
 
 `--seat` must be a stage seat of the item plus `-a<n>` (n >= 1, no leading zero); a reviewer seat
@@ -507,18 +552,20 @@ is not reseated (use `review-prompt`). `--cause` is required (missing or unknown
 for a review Fail or a `fixed` observation, `test` for a failed test sent back to the owning seat,
 `carry-in` for a late carry-in or orchestrator-originated fix, `breach` for a seat-breach
 replacement. Only `review` and `test` on an implementer or test-author base escalate: the output's
-`effort` is the base stage's dispatch effort raised one level per cycle and capped at the policy's
-`escalation.ceiling`; every other cause and base keeps the base effort. The output also carries
-`cause` and `ceilingReached` (true when the escalated cycle runs at the ceiling). Dispatch the seat
+`effort` is the base stage's dispatch effort raised by `step` levels and capped at the policy's
+`escalation.ceiling` (`step` is 1 plus the earlier rows of the same base seat with cause `review` or
+`test`, see step 2 of the ruling-needed recipe); every other cause and base keeps the base effort. The
+output also carries `cycle`, `step`, `cause` and `ceilingReached` (true when the escalated cycle runs at the ceiling). A replay of a recorded seat returns the row's recorded `effort` and `step`.
+`--findings <id,...>` (cause `review` only; any other cause is refused) is the mechanical class: it records the ids on the ledger row and names them in the FIX CYCLE line. Dispatch the seat
 with the Agent `effort` parameter set to that `effort`. At the escalation ceiling the prompt also tells the seat to
 stop and report once the checks pass. The prompt is the base stage's prompt under the `<seat>-a<n>`
 commit trailer, with no ENTRY block, the base seat's token file and END SEAT on a bound plan
-(`tokenFile` in the output), and a `FIX CYCLE A<n>` line that ends with a rewrite-in-full instruction for each of `implementation-notes` and `test-manifest` the base stage owns (replace superseded text, no per-cycle section, history only as a final `Amendments:` list; a base owning neither gets none). A test-author base on an item with a
+(`tokenFile` in the output), and a `FIX CYCLE A<n>` line. Its ruling clause is one of three: with `--findings`, `work only blocking findings <ids> in the item's review register`; on a schema with an `amendments` note, `work only ruling A<n> in the item's amendments note and the blocking findings it cites`; otherwise `work only section "## Amendment A<n>" of the item's planning note and the blocking findings it cites`. The line then ends with a rewrite-in-full instruction for each of `implementation-notes` and `test-manifest` the base stage owns (replace superseded text, no per-cycle section, history only as a final `Amendments:` list; a base owning neither gets none), and with one sentence `<key> is limited to <n> characters; rewrite it in full within that limit.` for each note the line names (`amendments`, `implementation-notes`, `test-manifest`) that the base stage's `noteLimits` carries. A test-author base on an item with a
 declarations stage needs declarations from the result or `--declarations <file>` (plain text;
 `none` or empty counts as absent), else the command exits 3 with `missingDeclaration:`. The output
 JSON carries a `result` copy with the seat appended to `items[].reseats`
-(`{seat, baseSeat, cycle, model, tokens, effort, cause, pre, assignment?}`; `pre` defaults to the item worktree's
-`HEAD`, is recorded once and never moves, and so are `effort` and `cause`; `assignment` is the `assignmentId` the base seat's
+(`{seat, baseSeat, cycle, step, model, tokens, effort, cause, findings?, pre, assignment?}`; `pre` defaults to the item worktree's
+`HEAD`, is recorded once and never moves, and so are `step`, `effort`, `cause` and `findings`; `assignment` is the `assignmentId` the base seat's
 re-`assign` answered): write it back to `result.json`. Verify then judges the
 test-author-before-implementer order only over item commits at or before the earliest recorded
 `pre`, so an implementer-after-author fix cycle is accepted; a `pre` outside the run's history is a
@@ -735,8 +782,8 @@ review-role parent, and the parent leaves review only by the explicit advance in
    re-numbered or "carried". The reviewer fills the parent's review-phase notes; the orchestrator
    never rewrites them.
 2. **On Fail**, the default fix path is a fix seat (a fresh `implementer-a<n>` with `description` `implementer-a<n>:<parent-short>`, scoped to the
-   finding's file, dispatched one effort level above the original implementer dispatch per
-   `orchestrate`'s hand-dispatch rule) against the PARENT feature: its dispatch prompt must name it a NON-ENTRY seat
+   finding's file, dispatched at the escalated effort: the step is 1 plus the seat's
+   earlier review or test fixes, as Step 5 states) against the PARENT feature: its dispatch prompt must name it a NON-ENTRY seat
    that never transitions the parent. In shared mode it commits on the feature branch; in per-item
    mode there is no feature branch, so the fix lands as its own small PR against the base branch
    and the re-check reads that PR's diff. Either way it carries a `Seat: implementer-a<n>` trailer

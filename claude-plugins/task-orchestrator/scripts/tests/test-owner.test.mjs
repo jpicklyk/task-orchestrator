@@ -42,7 +42,7 @@ function plannerOut(overrides = {}) {
   return {
     proceed: true, blockReason: 'none', diagnosisCorrections: 'none', defectClassSiblings: 'none',
     decisions: 'none', missingApiOrSeam: 'none', testPlanStatus: 'none',
-    mainFiles: [], docFiles: [], testFiles: [], existingTestEdits: [], redProofShape: 'none',
+    mainFiles: [], docFiles: [], testFiles: [], existingTestEdits: [], redProofShape: 'none', sweep: [],
     ...overrides,
   }
 }
@@ -207,7 +207,7 @@ test('S5 (Method A): bug-fix-like item with test-author stage runs to done and t
   const { r, implPrompt } = await runA(item, plannerOut({ mainFiles: ['src/x.js'], testFiles: ['t/a.test.mjs'], existingTestEdits: [{ file: 't/e.test.mjs', edit: 'adjust assertion' }] }), {
     [`declarations-extractor:${SHORT}`]: env({ declarations: 'the function returns a value', harnessPointers: 'none', gaps: 'none' }),
     [`test-author:${SHORT}`]: env({
-      returnLine: 'none', testFiles: [], scenariosCovered: 'none', verify: [],
+      returnLine: 'none', testFiles: [], scenariosCovered: 'none', manifestScenarios: [], verify: [],
       redAuthorTests: [], missingDeclaration: 'none', breachDisclosure: 'none',
     }),
   })
@@ -235,7 +235,7 @@ const EDIT_PLANNER = () => plannerOut({ mainFiles: ['src/x.js'], existingTestEdi
 const TA_SCRIPT = {
   [`declarations-extractor:${SHORT}`]: env({ declarations: 'the function returns a value', harnessPointers: 'none', gaps: 'none' }),
   [`test-author:${SHORT}`]: env({
-    returnLine: 'none', testFiles: [], scenariosCovered: 'none', verify: [],
+    returnLine: 'none', testFiles: [], scenariosCovered: 'none', manifestScenarios: [], verify: [],
     redAuthorTests: [], missingDeclaration: 'none', breachDisclosure: 'none',
   }),
 }

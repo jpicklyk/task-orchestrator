@@ -540,25 +540,60 @@ function noteRewriteSentence(baseStage) {
 }
 
 /**
+ * The note-limit sentences of a fix-cycle line: one per key the line names, in the order given,
+ * when the BASE stage's noteLimits carries it. A plan written before noteLimits existed gets ''.
+ */
+function noteLimitSentences(baseStage, keys) {
+  const limits = baseStage.noteLimits && typeof baseStage.noteLimits === 'object' ? baseStage.noteLimits : {}
+  let out = ''
+  for (const k of keys) {
+    const n = limits[k]
+    if (Number.isInteger(n) && n >= 1) out += ` ${k} is limited to ${n} characters; rewrite it in full within that limit.`
+  }
+  return out
+}
+
+/**
+ * The escalation step of a new fix-cycle row: 1 + the earlier ledger rows of the same base seat
+ * (lower cycle, another seat id) whose cause is review or test. A row with no cause (written before
+ * causes were recorded) counts, which matches the old rule of one level per cycle.
+ */
+function escalationStep(ledger, seat, baseSeat, cycle) {
+  let n = 0
+  for (const r of ledger) {
+    if (!r || r.baseSeat !== baseSeat || r.seat === seat) continue
+    if (!(Number(r.cycle) < cycle)) continue
+    if (r.cause === undefined || r.cause === null || ESCALATING_CAUSES.has(r.cause)) n += 1
+  }
+  return 1 + n
+}
+
+/**
  * reseat(core, doc, result, idOrShort, seat, opts) ->
- *   {ok:true, prompt, seat, baseSeat, cycle, cause, effort, ceilingReached, tokenFile, result}
+ *   {ok:true, prompt, seat, baseSeat, cycle, step, cause, effort, ceilingReached, tokenFile, result}
  *   | {ok:false, error}.
  * seat = '<stageSeat>-a<n>' (n >= 1, no leading zero; the base must be a non-reviewer stage seat
- * of the item). opts.cause is required, one of RESEAT_CAUSES. effort: for cause review|test on an
- * implementer or test-author base, escalate(base effort, cycle) (one level per cycle, capped at the
- * policy ceiling); otherwise the base effort. The base effort is the base stage's dispatch.effort,
- * else its policy class effort. ceilingReached is true when an escalating cycle runs at the ceiling
- * (a further failure goes to the decision path). The prompt is core.seatPrompt over a clone of the
- * base stage renamed to `seat` with enters:false, outs from the result item's outputs (keyed by base
- * seat), plus a FIX CYCLE line (ending with a rewrite-in-full instruction for each of implementation-notes and
- * test-manifest the base stage owns), CEILING_STOP_LINE when an escalated cycle runs at the policy escalation ceiling, and the
- * Method B addendum on Method B plans. opts = {cause, declarations?, model?, tokens?, pre?,
- * assignment?, policyPath?}. On a bound run the reseat runs under the BASE seat's server assignment (the
+ * of the item). opts.cause is required, one of RESEAT_CAUSES. cycle is the amendment index A<n> (the
+ * seat suffix). step = 1 + the earlier ledger rows of the same base seat (lower cycle, another seat
+ * id) whose cause is review or test; an old row without a cause counts. effort: for cause review|test
+ * on an implementer or test-author base, escalate(base effort, step) (capped at the policy ceiling);
+ * otherwise the base effort. The base effort is the base stage's dispatch.effort, else its policy class
+ * effort. ceilingReached is true when an escalating cycle runs at the ceiling (a further failure goes
+ * to the decision path). A replay of a recorded seat returns the row's recorded effort and step. The
+ * prompt is core.seatPrompt over a clone of the base stage renamed to `seat` with enters:false, outs
+ * from the result item's outputs (keyed by base seat), plus a FIX CYCLE line (ending with a
+ * rewrite-in-full instruction for each of implementation-notes and test-manifest the base stage owns,
+ * then a limit sentence for each key the line names that the base stage's noteLimits carries),
+ * CEILING_STOP_LINE when an escalated cycle runs at the policy escalation ceiling, and the Method B
+ * addendum on Method B plans. opts.findings (string[], cause review only) is the mechanical class: the
+ * line's ruling clause becomes "work only blocking findings <ids> in the item's review register", so no
+ * amending planner runs. opts = {cause, findings?, declarations?, model?, tokens?, pre?, assignment?,
+ * policyPath?}. On a bound run the reseat runs under the BASE seat's server assignment (the
  * orchestrator re-assigns the base seat first, which supersedes it as attempt n+1, and writes the new
  * token to the base seat's token file); the prompt names that file (tokenFile, null when unbound).
- * `result` in the return is a copy with items[i].reseats upserted {seat, baseSeat, cycle, model,
- * tokens, effort, cause, pre, assignment?}: model/tokens/assignment update only when passed; pre,
- * effort and cause are recorded once (effort/cause filled on an older row that lacks them); the
+ * `result` in the return is a copy with items[i].reseats upserted {seat, baseSeat, cycle, step, model,
+ * tokens, effort, cause, findings?, pre, assignment?}: model/tokens/assignment update only when passed;
+ * pre, step, effort, cause and findings are recorded once (filled on an older row that lacks them); the
  * input is not mutated. Throws 'invalid args: ...' for argument errors; returns {ok:false} for a
  * missing declaration.
  */
@@ -568,6 +603,15 @@ export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
   const cause = opts.cause
   if (!RESEAT_CAUSES.includes(cause)) {
     throw new Error(`invalid args: cause ${cause === undefined ? '(missing)' : cause} must be one of ${RESEAT_CAUSES.join('|')}`)
+  }
+  let findings = null
+  if (opts.findings !== undefined && opts.findings !== null) {
+    if (cause !== 'review') throw new Error(`invalid args: --findings requires cause review, got ${cause}`)
+    if (!Array.isArray(opts.findings) || opts.findings.length === 0) {
+      throw new Error('invalid args: --findings needs at least one finding id')
+    }
+    findings = opts.findings.map((f) => (typeof f === 'string' ? f.trim() : ''))
+    if (findings.some((f) => f === '')) throw new Error('invalid args: --findings has an empty finding id')
   }
   const baseSeat = m[1]
   const cycle = Number(m[2])
@@ -612,31 +656,51 @@ export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
   if (tokenFile) text = withRunsWriteTool(text, plan) + `\n${reseatTokenPart(plan, baseStage, tokenFile)}`
   const hasAmendmentsNote = (item.stages || []).some((st) => Array.isArray(st.notes) && st.notes.includes('amendments'))
   const rewriteSentence = noteRewriteSentence(baseStage)
-  text += hasAmendmentsNote
-    ? `\nFIX CYCLE A${cycle}: work only ruling A${cycle} in the item's amendments note and the blocking findings it cites. Commit your owned paths as soon as each fix is done (git commit --only -- <paths>) and revert only your own paths, never the whole tree.${rewriteSentence}`
-    : `\nFIX CYCLE A${cycle}: work only section "## Amendment A${cycle}" of the item's planning note and the blocking findings it cites. Commit your owned paths as soon as each fix is done (git commit --only -- <paths>) and revert only your own paths, never the whole tree.${rewriteSentence}`
+  const commitSentence = 'Commit your owned paths as soon as each fix is done (git commit --only -- <paths>) and revert only your own paths, never the whole tree.'
+  const ownedRewrites = ['implementation-notes', 'test-manifest']
+    .filter((k) => Array.isArray(baseStage.notes) && baseStage.notes.includes(k))
+  let rulingClause
+  let namedKeys
+  if (findings) {
+    rulingClause = `work only blocking findings ${findings.join(', ')} in the item's review register.`
+    namedKeys = ownedRewrites
+  } else if (hasAmendmentsNote) {
+    rulingClause = `work only ruling A${cycle} in the item's amendments note and the blocking findings it cites.`
+    namedKeys = ['amendments', ...ownedRewrites]
+  } else {
+    rulingClause = `work only section "## Amendment A${cycle}" of the item's planning note and the blocking findings it cites.`
+    namedKeys = ownedRewrites
+  }
+  text += `\nFIX CYCLE A${cycle}: ${rulingClause} ${commitSentence}${rewriteSentence}${noteLimitSentences(baseStage, namedKeys)}`
 
-  const baseEffort = (baseStage.dispatch && baseStage.dispatch.effort) ||
-    forClass(policyClassFor(baseSeat, baseStage.phase), opts.policyPath).effort
-  const escalates = ESCALATING_CAUSES.has(cause) && ESCALATING_OUTPUTS.has(baseStage.output)
-  const effort = escalates ? escalate(baseEffort, cycle, opts.policyPath) : baseEffort
-  const atCeiling = escalates ? ceilingReached(baseEffort, cycle, opts.policyPath) : false
-  if (escalates && effort === loadPolicy(opts.policyPath).escalation.ceiling) text += `\n${CEILING_STOP_LINE}`
-  if (isMethodB(doc)) text += `\n${methodBReturn(core, plan, stage)}`
-
-  const baseDispatch = baseStage.dispatch && baseStage.dispatch.model
   const out = JSON.parse(JSON.stringify(result))
   const outItem = out.items.find((r) => r.id === item.id)
   const ledger = Array.isArray(outItem.reseats) ? outItem.reseats : []
   let entry = ledger.find((e) => e.seat === seat)
+
+  const baseEffort = (baseStage.dispatch && baseStage.dispatch.effort) ||
+    forClass(policyClassFor(baseSeat, baseStage.phase), opts.policyPath).effort
+  const escalates = ESCALATING_CAUSES.has(cause) && ESCALATING_OUTPUTS.has(baseStage.output)
+  // A replay returns what the row recorded; a new row (or an old row lacking step) computes it.
+  const step = entry && Number.isInteger(entry.step) && entry.step >= 1
+    ? entry.step
+    : escalationStep(ledger, seat, baseSeat, cycle)
+  const computedEffort = escalates ? escalate(baseEffort, step, opts.policyPath) : baseEffort
+  const effort = entry && entry.effort ? entry.effort : computedEffort
+  const atCeiling = escalates ? ceilingReached(baseEffort, step, opts.policyPath) : false
+  if (escalates && effort === loadPolicy(opts.policyPath).escalation.ceiling) text += `\n${CEILING_STOP_LINE}`
+  if (isMethodB(doc)) text += `\n${methodBReturn(core, plan, stage)}`
+
+  const baseDispatch = baseStage.dispatch && baseStage.dispatch.model
   if (!entry) {
     entry = {
-      seat, baseSeat, cycle,
+      seat, baseSeat, cycle, step,
       model: opts.model || baseDispatch || 'unknown',
       tokens: opts.tokens !== undefined && opts.tokens !== null ? opts.tokens : 'unknown',
       effort, cause,
-      pre: opts.pre || '',
     }
+    if (findings) entry.findings = findings
+    entry.pre = opts.pre || ''
     if (opts.assignment) entry.assignment = opts.assignment
     ledger.push(entry)
   } else {
@@ -645,11 +709,13 @@ export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
     if (opts.assignment) entry.assignment = opts.assignment
     if (!entry.effort) entry.effort = effort
     if (!entry.cause) entry.cause = cause
+    if (!(Number.isInteger(entry.step) && entry.step >= 1)) entry.step = step
+    if (findings && !Array.isArray(entry.findings)) entry.findings = findings
   }
   outItem.reseats = ledger
 
   return {
-    ok: true, prompt: text, seat, baseSeat, cycle, cause, effort, ceilingReached: atCeiling,
+    ok: true, prompt: text, seat, baseSeat, cycle, step, cause, effort, ceilingReached: atCeiling,
     tokenFile: tokenFile || null, result: out,
   }
 }
@@ -1004,13 +1070,30 @@ export function parseGitLog(text) {
 }
 
 /**
+ * hasSeatLine(body, seat) -> boolean. True when one line of body (split on \n) is exactly
+ * `Seat: <seat>`, optionally followed by `-a<n>` (n >= 1, no leading zero), then only spaces,
+ * tabs or a carriage return. The seat name is escaped before it enters the pattern, so a dot in
+ * a review-lane seat is literal. Leading whitespace, another casing, a missing or doubled space
+ * after the colon, a longer seat name (`implementer-extra`, `-a01`, `-a0`) and a Seat line
+ * quoted mid-line do not match. A null or undefined body is false.
+ */
+export function hasSeatLine(body, seat) {
+  if (typeof body !== 'string' || typeof seat !== 'string' || seat === '') return false
+  const escaped = seat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const re = new RegExp(`^Seat: ${escaped}(-a[1-9][0-9]*)?[ \\t\\r]*$`)
+  return body.split('\n').some((line) => re.test(line))
+}
+
+/**
  * attributeCommits(itemCommits, writingStages) -> Map<seat, {commits, indices}>.
  * itemCommits is this item's commits, oldest-first; writingStages is argItem.stages filtered
  * to stage.writes, in stage order, each `{seat, commits:{pre,post}}` (post resolved via
  * gitFacts; missing/unresolved post -> that stage gets an empty range here — the "missing sha"
  * finding is raised separately). Attribution order (frozen, B2'):
- *   (1) TRAILER: a commit whose body carries `Seat: <seat>` for one of writingStages' seats
- *       belongs to that seat's stage, regardless of position. This is a pure, position-
+ *   (1) TRAILER: a commit whose body has a Seat line for one of writingStages' seats
+ *       (hasSeatLine: one line exactly `Seat: <seat>`, optionally `-a<n>`, n >= 1 with no
+ *       leading zero, then only spaces, tabs or a carriage return) belongs to that seat's
+ *       stage, regardless of position. This is a pure, position-
  *       independent scan — a commit whose trailer names a stage that structurally falls
  *       earlier or later than its neighbours is still attributed by the trailer text, which
  *       is exactly what lets the pre-existing "test-author commit <sha7> precedes
@@ -1033,7 +1116,7 @@ function attributeCommits(itemCommits, writingStages) {
   const trailerSeatByIdx = new Map()
   itemCommits.forEach((c, idx) => {
     for (const seat of seatSet) {
-      if ((c.body || '').includes(`Seat: ${seat}`)) {
+      if (hasSeatLine(c.body, seat)) {
         trailerSeatByIdx.set(idx, seat)
         break
       }
@@ -1157,6 +1240,14 @@ export function scanTextEncoding(path, bytes) {
  * {[worktree]:{[path]:Uint8Array|null}} (keyed by the commit file path as git printed it) adds one
  * '<file>:<line> non-UTF-8 or double-encoded text' finding per scanTextEncoding hit over the files
  * of the item's tagged commits (a null blob is skipped; absent blobs means no check).
+ * A commit carries its Seat trailer when hasSeatLine(body, seat) holds (an exact line, see there).
+ * On an item with planner-v1 output: a planner `sweep` entry with disposed < hits is the finding
+ * 'planner sweep <kind> "<grep cut to 60 characters>" disposed <d> of <h>'; a sweep that is not an
+ * array is the warning '<short> planner sweep not reported' (`[]` is reported); each `unowned`
+ * file of an entry is the warning '<short> docs sweep unowned <file>'. When the planner's
+ * testPlanScenarios and the test-author-v1 output's manifestScenarios are both arrays, each
+ * distinct plan id absent from the manifest (exact compare, plan order) is the finding
+ * 'test-manifest misses plan scenario <id>'; manifest ids absent from the plan are ignored.
  */
 export function verify(doc, result, gitFacts) {
   const project = (doc.args && doc.args.project) || {}
@@ -1277,7 +1368,7 @@ export function verify(doc, result, gitFacts) {
     for (const stage of writingStages) {
       const range = rangeByStageSeat.get(stage.seat)
       for (const commit of range.commits) {
-        if (!(commit.body || '').includes(`Seat: ${stage.seat}`)) {
+        if (!hasSeatLine(commit.body, stage.seat)) {
           findings.push(`missing Seat trailer ${commit.sha.slice(0, 7)}`)
         }
         const files = (commit.files || []).map((f) => relativizePath(f, roots))
@@ -1342,6 +1433,36 @@ export function verify(doc, result, gitFacts) {
           for (const hit of scanTextEncoding(f, blobs[f])) {
             findings.push(`${relativizePath(f, roots)}:${hit.line} non-UTF-8 or double-encoded text`)
           }
+        }
+      }
+    }
+
+    // Planner sweep and test-plan scenario coverage: only on an item with planner output.
+    if (plannerOut) {
+      if (!Array.isArray(plannerOut.sweep)) {
+        warnings.push(`${argItem.short} planner sweep not reported`)
+      } else {
+        for (const entry of plannerOut.sweep) {
+          if (!entry || typeof entry !== 'object') continue
+          if (entry.disposed < entry.hits) {
+            const grep = String(entry.grep ?? '').slice(0, 60)
+            findings.push(`planner sweep ${entry.kind} "${grep}" disposed ${entry.disposed} of ${entry.hits}`)
+          }
+          for (const file of Array.isArray(entry.unowned) ? entry.unowned : []) {
+            if (typeof file === 'string') warnings.push(`${argItem.short} docs sweep unowned ${file}`)
+          }
+        }
+      }
+      const planIds = plannerOut.testPlanScenarios
+      const authorOut = outputForStageId(resItem, argItem, 'test-author-v1')
+      const manifestIds = authorOut ? authorOut.manifestScenarios : undefined
+      if (Array.isArray(planIds) && Array.isArray(manifestIds)) {
+        const inManifest = new Set(manifestIds)
+        const reported = new Set()
+        for (const id of planIds) {
+          if (inManifest.has(id) || reported.has(id)) continue
+          reported.add(id)
+          findings.push(`test-manifest misses plan scenario ${id}`)
         }
       }
     }
@@ -2960,8 +3081,18 @@ function execReseat(argv, io) {
     io.fail(2, 'invalid args', `--assignment ${assignment} must be the assignment UUID runs_write assign returned`)
     return
   }
+  let findings
+  if (argv.includes('--findings')) {
+    const raw = flagValue(argv, '--findings')
+    if (raw === undefined) {
+      io.fail(2, 'invalid args', 'reseat: --findings needs <id,...>')
+      return
+    }
+    findings = raw.split(',').map((f) => f.trim())
+  }
   const out = reseat(core, doc, result, item, flagValue(argv, '--seat'), {
     cause,
+    findings,
     declarations: declText,
     model: flagValue(argv, '--model'),
     tokens: tokensRaw === undefined ? undefined : (Number.isFinite(Number(tokensRaw)) ? Number(tokensRaw) : tokensRaw),

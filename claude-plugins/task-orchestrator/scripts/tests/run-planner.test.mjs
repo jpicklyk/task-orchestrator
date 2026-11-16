@@ -2223,3 +2223,32 @@ test("CAP (probe): the same input planned twice yields the same method and the s
     assert.equal(a.doc.meta.method, b.doc.meta.method);
     assert.deepEqual(a.doc.meta.degradations, b.doc.meta.degradations);
 });
+
+// F1 (feature 416134d6): the plan carries noteLimits only from a snapshot note that has maxLength.
+// Oracle: snapshot.md documents schemas[].notes[].maxLength as the integer copied from the schema answer; a note
+// without it contributes no limit and a stage with no limited note carries no noteLimits field.
+test("F1 (plan level): a snapshot note with maxLength gives its stage noteLimits, a note without it gives none", () => {
+    const withLimit = () => {
+        const schema = bugFixLikeSchema();
+        for (const n of schema.notes) {
+            if (n.key === "diagnosis") n.maxLength = 4000;
+            if (n.key === "implementation-notes") n.maxLength = 3000;
+        }
+        return schema;
+    };
+    const planOf = (schema) => {
+        const snap = baseSnapshot({
+            candidates: [bugFixLikeCandidate({ id: A_ID, short: "aaaaaaaa", parentId: null })],
+            schemas: { [A_ID]: schema },
+        });
+        const result = buildPlanDoc(snap, { now: NOW });
+        assert.equal(result.ok, true, JSON.stringify(result.errors));
+        return result.doc.args.items[0].stages;
+    };
+    const limited = planOf(withLimit());
+    assert.deepEqual(limited.find((s) => s.seat === "planner").noteLimits, { diagnosis: 4000 });
+    assert.deepEqual(limited.find((s) => s.seat === "implementer").noteLimits, { "implementation-notes": 3000 });
+    assert.equal("noteLimits" in limited.find((s) => s.seat === "test-author"), false);
+    const unlimited = planOf(bugFixLikeSchema());
+    assert.equal(unlimited.some((s) => "noteLimits" in s), false, "no maxLength in the snapshot, no noteLimits on any stage");
+});

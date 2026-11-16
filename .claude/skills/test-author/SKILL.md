@@ -80,8 +80,9 @@ extractor did not cover is refused with `missingDeclaration:`.
 
 **Enumerated-surface pins.** When the item adds to, removes from or reorders an enumerated surface (a hook
 group list, a registry, a key list, a table of ids), `test-plan` carries the same sweep line the planner
-records: `sweep: <command> -> <n> hits` for a grep of the test tree over the surface's file name and its
-count, length or order assertions. Each hit becomes a scenario or an existing-test edit.
+reports: `sweep: <command> -> <n> hits` for a grep of the test tree over the surface's file name and its
+count, length or order assertions. Each hit file gets one disposition: a scenario, an existing-test edit, or
+no edit with the reason.
 
 **Stable S-ids.** Number scenarios `S1, S2, S3…` in the `test-plan` note and never renumber once
 written test code refers to them — the `test-manifest`'s S-id→test mapping is only auditable if

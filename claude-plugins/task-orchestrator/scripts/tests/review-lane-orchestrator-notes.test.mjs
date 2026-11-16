@@ -186,7 +186,7 @@ test('S6: reviewPrompt names the orchestrator-owned keys as never-write; an item
 const PLANNER_OUT = {
   proceed: true, blockReason: 'none', diagnosisCorrections: 'none', defectClassSiblings: 'none',
   decisions: 'none', missingApiOrSeam: 'none', testPlanStatus: 'none',
-  mainFiles: ['src/x.js'], docFiles: [], testFiles: ['scripts/tests/x.test.mjs'], existingTestEdits: [], redProofShape: 'none',
+  mainFiles: ['src/x.js'], docFiles: [], testFiles: ['scripts/tests/x.test.mjs'], existingTestEdits: [], redProofShape: 'none', sweep: [],
 }
 const IMPL_OUT = {
   mainFilesChanged: ['src/x.js'], docFilesChanged: [], verify: [], failingExistingTests: [],

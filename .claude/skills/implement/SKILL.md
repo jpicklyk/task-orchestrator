@@ -971,8 +971,9 @@ write the child's `orchestrator-confirmation` before advancing it: one line per 
 `follow-up <item-id>` (the item created first) or `accepted: <reason>`, `N of N disposed`. Nothing
 is left for the parent review to carry. `fixed` is bounded by run-wave `post-run.md` Step 5
 "Observation triage": only a concrete failure in behaviour the item added or changed, one
-`implementer-a<n>` (or `test-author-a<n>`) seat scoped to the finding ids, no planner amendment, no
-re-review unless the fix changes behaviour beyond the finding; the Fail recipe is for blocking
+`implementer-a<n>` (or `test-author-a<n>`) seat rendered with `reseat --cause review --findings
+<ids>` and scoped to the finding ids, no planner amendment, no re-review unless the fix changes
+behaviour beyond the finding; the Fail recipe (mechanical or ruling-needed) is for blocking
 findings only.
 
 Review failures surface issues that may indicate systemic problems worth learning
