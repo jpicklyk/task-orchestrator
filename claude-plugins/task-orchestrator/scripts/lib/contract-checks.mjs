@@ -382,6 +382,13 @@ function boundaryHits(line, names, phrases) {
         'g',
       );
       for (const m of line.matchAll(b)) hits.push({ name, form: 'skill', col: m.index });
+      // Form (b) sees only the first name of a list; every later item that is exactly this name hits too.
+      const list = new RegExp('(?<![A-Za-z])' + SKILL_WORD + '["\']?\\s*[:=]+\\s*[\\[(]?([^\\])]*)', 'g');
+      for (const m of line.matchAll(list)) {
+        m[1].split(',').forEach((item, i) => {
+          if (i > 0 && item.trim().replace(/^["'`]|["'`]$/g, '') === name) hits.push({ name, form: 'skill', col: m.index });
+        });
+      }
     }
   }
   for (const phrase of phrases) {
