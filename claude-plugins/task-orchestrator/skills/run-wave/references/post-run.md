@@ -795,9 +795,10 @@ feature's parent, its `specification` filled at creation; (b) `deps_write` `crea
 edge from it to the feature; (c) re-parent each such check under it (`items_write` `update`
 `parentId`); (d) add one line `Post-merge live acceptance: <holder short id> (<check short ids>)` to
 the feature's `session-tracking`, token-less when that note was created token-less (it stays re-writable after the runs close), else in `orchestrator-confirmation`, since per Step 3 a note created under a coordinator token takes a re-edit only inside an open run; (e) complete the feature. The holder's type and next-session preamble come from the
-project's `live-checks` rule when the root serves it (its "Post-merge holder" paragraph), else
-the checks' own type; opt-in step (3), the user's opt-in for any check that runs the Workflow tool, is
-always added. Then one line per re-parented check. The next session runs
+project's `live-checks` rule when the root serves it (its "Post-merge holder" paragraph, numbered
+steps (1)-(2)), else the checks' own type and no rule preamble. Either way the preamble always gets
+the user's opt-in for any check that runs the Workflow tool: as step (3) after the rule's steps, or
+as its only step when the rule is not served. Then one line per re-parented check. The next session runs
 the checks, fills the holder's `session-tracking` and completes it. Create the holder and re-parent
 the checks before (e): a terminal auto parent takes no new children. The complete in item 4 follows
 steps (a)-(d); in shared mode, where Step 7b runs before the feature PR is pushed, the split and item 4
