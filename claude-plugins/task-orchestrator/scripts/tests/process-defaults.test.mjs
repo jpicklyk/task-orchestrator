@@ -171,19 +171,22 @@ function envelope(notesFilled, { verdict = 'pass', findings = [] } = {}) {
   }
 }
 
-test('S5: a fail-blocking first lane does not halt or skip the second lane; no prompt mentions SIMPLIFY', async () => {
-  const norm = RW.normalizeArgs(rawPlan(twoLanes([])))
+test('S5: runReview refuses an item whose lane has after naming a sibling lane; no lane is dispatched or skipped', async () => {
+  // The sibling lane named by 'after' really exists, the old valid shape: the refusal comes from
+  // 'after' itself (task-scope D2), not from an unknown-lane check. A mutant that accepts 'after'
+  // dispatches both lanes (2 calls, refused []) and fails asserts 2 and 4.
+  const raw = rawPlan([
+    reviewStage('reviewer.review-quality', ['review-checklist']),
+    reviewStage('reviewer.security-review', ['security-assessment'], { skills: ['security-review'], after: ['reviewer.review-quality'] }),
+  ])
+  const norm = RW.normalizeArgs(raw)
   assert.equal(norm.ok, true, norm.reason)
-  const blocking = [{ severity: 'blocking', confidence: 'high', file: 'a.js', line: 1, expected: 'x', found: 'y' }]
-  const { agent, calls } = autoAgent(async (label) =>
-    label.startsWith('reviewer.review-quality:')
-      ? envelope(['review-checklist'], { verdict: 'fail-blocking', findings: blocking })
-      : envelope(['security-assessment']))
+  const { agent, calls } = autoAgent(async (label) => envelope(label.startsWith('reviewer.review-quality:') ? ['review-checklist'] : ['security-assessment']))
   const result = await RW.runReview(norm.plan, { agent, parallel: fakeParallel, log: () => {} })
-  assert.equal(calls.length, 2, `labels: ${calls.map((c) => c.label).join(',')}`)
-  assert.equal(result.items[0].verdict, 'fail-blocking')
+  assert.equal(calls.length, 0, `labels: ${calls.map((c) => c.label).join(',')}`)
+  assert.deepEqual(result.items, [])
+  assert.deepEqual(result.refused, [{ id: 'item-aaaaaaaa', reason: 'after not allowed in review-wave' }])
   assert.equal(JSON.stringify(result).includes('skipped'), false, 'no lane is skipped')
-  for (const call of calls) assert.equal(call.prompt.includes('SIMPLIFY'), false, `prompt of ${call.label}`)
 })
 
 test("S6: REVIEW_OUTPUT_SCHEMAS holds only 'review-v1' and SIMPLIFY_ANGLES is gone from the core", () => {
