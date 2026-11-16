@@ -449,8 +449,8 @@ Level names do not mean the same amount of work across models, so review a phase
 trait changes that phase's model.
 
 `implement-wave` passes a seat's `effort` on its `agent()` call and run-wave Method B `next`
-entries carry `effort` for the Agent call. A fix after a failed test or review runs one level above
-the original dispatch per cycle, capped at the policy's `escalation.ceiling`. Clients that call the
+entries carry `effort` for the Agent call. A fix after a failed test or review runs the base effort
+raised by the seat's earlier failed-review or failed-test fixes plus one, capped at the policy's `escalation.ceiling`. Clients that call the
 model API directly may apply a profile's `effort` field themselves. See
 [`orchestrate`](../../orchestrate/SKILL.md) -> Dispatching an item's phase owner for the
 consumer-side rule, which applies in both orchestration modes and is followed identically by

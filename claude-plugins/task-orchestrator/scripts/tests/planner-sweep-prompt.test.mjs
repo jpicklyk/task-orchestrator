@@ -18,12 +18,15 @@ const DOCS_LINE =
   'user-facing name across claude-plugins/, .claude/ and current/docs/; give every hit file one disposition in ' +
   'your planning note (edit in this item; owned by sibling <short>; no edit, with the reason; unowned) and ' +
   'report the grep in sweep as kind docs, listing unowned hit files in unowned.'
+const EMPTY_SWEEP_LINE =
+  'sweep: [] only when this item changes no enumerated surface and no script; otherwise one entry per grep, 0 hits included.'
 const SCENARIO_LINE = 'testPlanScenarios: list every scenario id your test-plan note numbers, in order.'
 
 const countOf = (line) => (text) => text.split(line).length - 1
 const count = countOf(LINE)
 const docsCount = countOf(DOCS_LINE)
 const scenarioCount = countOf(SCENARIO_LINE)
+const emptySweepCount = countOf(EMPTY_SWEEP_LINE)
 
 for (const [name, make] of [['featureTaskLike', stages.featureTaskLike], ['bugFixLike', stages.bugFixLike]]) {
   test(`planner prompt carries the enumerated-surface sweep line exactly once (${name})`, () => {
@@ -34,6 +37,7 @@ for (const [name, make] of [['featureTaskLike', stages.featureTaskLike], ['bugFi
     const prompt = core.seatPrompt(plan, item, planner, {})
     assert.equal(count(prompt), 1)
     assert.equal(docsCount(prompt), 1)
+    assert.equal(emptySweepCount(prompt), 1)
   })
 
   test(`non-planner prompts do not carry the sweep line (${name})`, () => {
@@ -46,6 +50,7 @@ for (const [name, make] of [['featureTaskLike', stages.featureTaskLike], ['bugFi
       const prompt = core.seatPrompt(plan, item, st, {})
       assert.equal(count(prompt), 0, st.output)
       assert.equal(docsCount(prompt), 0, st.output)
+      assert.equal(emptySweepCount(prompt), 0, st.output)
     }
   })
 }

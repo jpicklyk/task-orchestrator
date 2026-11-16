@@ -27,11 +27,11 @@ const SERVER_RUN_ID = '8f14e45f-ceea-4672-8a3e-5e8f4a9b7c10'
 const PROJECT = { searchScope: 'claude-plugins/task-orchestrator', scratchDir: '/tmp/scratch', shell: 'bash', verify: [] }
 const PRE = 'b'.repeat(40)
 
-const MANIFEST_LINE = 'manifestScenarios: list every test-plan scenario id your test-manifest maps or marks dropped, exactly as numbered.'
+const MANIFEST_LINE = 'manifestScenarios: list every test-plan scenario id your test-manifest maps or marks dropped, one id per entry, written exactly as the test plan writes it, never a range; a stopped return carries [].'
 
 /** [C7] the fact 7 sentence for note key k on item id id. */
 function sent(k, id = ITEM_ID) {
-  return `TEST PLAN: before anything else, read notes_read(select:"get", itemId:"${id}", key:"${k}"); when it is absent or empty, write no test and return status "stopped", reason "no ${k}".`
+  return `TEST PLAN: before you write a test, read notes_read(select:"get", itemId:"${id}", key:"${k}"); when it is absent or empty, write no test and return status "stopped", reason "no ${k}".`
 }
 
 function authorStage(overrides = {}) {

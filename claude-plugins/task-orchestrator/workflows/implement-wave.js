@@ -1079,7 +1079,7 @@ function promptTestPlan(plan, item, stage) {
   return keys
     .map((k) => {
       let out =
-        `TEST PLAN: before anything else, read notes_read(select:"get", itemId:"${item.id}", key:"${k}"); ` +
+        `TEST PLAN: before you write a test, read notes_read(select:"get", itemId:"${item.id}", key:"${k}"); ` +
         `when it is absent or empty, write no test and return status "stopped", reason "no ${k}".`
       if (holdsToken) {
         out +=
@@ -1546,6 +1546,9 @@ function promptReturn(stage, item) {
         'your planning note (edit in this item; owned by sibling <short>; no edit, with the reason; unowned) and ' +
         'report the grep in sweep as kind docs, listing unowned hit files in unowned.'
     )
+    lines.push(
+      'sweep: [] only when this item changes no enumerated surface and no script; otherwise one entry per grep, 0 hits included.'
+    )
     if (item && item.stages.some((s) => s.output === 'test-author-v1')) {
       lines.push('Test-author stage: present')
     } else if (item && noTestOwner(item)) {
@@ -1570,7 +1573,7 @@ function promptReturn(stage, item) {
   }
   if (stage.output === 'test-author-v1') {
     lines.push(
-      'manifestScenarios: list every test-plan scenario id your test-manifest maps or marks dropped, exactly as numbered.'
+      'manifestScenarios: list every test-plan scenario id your test-manifest maps or marks dropped, one id per entry, written exactly as the test plan writes it, never a range; a stopped return carries [].'
     )
     lines.push(
       'missingDeclaration and breachDisclosure: exactly "none" (optionally followed by a dash and a note) ' +

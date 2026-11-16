@@ -28,7 +28,7 @@ transition.
 **Semantic claims.** Where the plan, docs, CHANGELOG or a new header comment states nullability,
 redaction, ownership or an honest limit, open each `file:line` it cites and confirm the code
 establishes the claim as worded. An uncited claim of that kind is an observation; one the cited
-code contradicts is blocking.
+code contradicts is blocking. A finding about a factual claim names the claim's key nouns and lists the same claim's other occurrences across the reviewed range (`git diff --name-only <base>...HEAD` plus a grep of the repo), each as `file:line`.
 
 **One findings register.** `review-checklist` is the item's findings register. Number each
 finding once there and refer to it by id from every other review note you fill. A note that
