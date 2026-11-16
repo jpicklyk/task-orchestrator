@@ -1,0 +1,96 @@
+{
+  "plugin": [
+    {
+      "file": "skills/manage-schemas/references/config-format.md",
+      "name": "security-review",
+      "audit": "H15",
+      "reason": "Config-format example of a skill: value"
+    },
+    {
+      "file": "skills/manage-schemas/references/config-format.md",
+      "name": "clear",
+      "audit": "H17",
+      "reason": "Host session command named as such"
+    },
+    {
+      "file": "skills/manage-schemas/references/config-format.md",
+      "name": "compact",
+      "audit": "H17",
+      "reason": "Host session command named as such"
+    },
+    {
+      "file": "skills/manage-schemas/references/example-schemas.md",
+      "name": "api-compat-review",
+      "audit": "H15",
+      "reason": "Labelled example of a project skill a note can point to, not process routing"
+    },
+    {
+      "file": "skills/manage-schemas/references/example-schemas.md",
+      "name": "migration-review",
+      "audit": "H15",
+      "reason": "Labelled example of a project skill a note can point to, not process routing"
+    },
+    {
+      "file": "skills/manage-schemas/references/example-schemas.md",
+      "name": "perf-review",
+      "audit": "H15",
+      "reason": "Labelled example of a project skill a note can point to, not process routing"
+    },
+    {
+      "file": "skills/manage-schemas/references/example-schemas.md",
+      "name": "plugin-impact-review",
+      "audit": "H15",
+      "reason": "Labelled example of a project skill a note can point to, not process routing"
+    },
+    {
+      "file": "skills/manage-schemas/references/example-schemas.md",
+      "name": "review-quality",
+      "audit": "H15",
+      "reason": "Labelled example of a project skill a note can point to, not process routing"
+    },
+    {
+      "file": "skills/manage-schemas/references/example-schemas.md",
+      "name": "security-review",
+      "audit": "H15",
+      "reason": "Labelled example of a project skill a note can point to, not process routing"
+    },
+    {
+      "file": "skills/manage-schemas/references/example-schemas.md",
+      "name": "spec-quality",
+      "audit": "H15",
+      "reason": "Labelled example of a project skill a note can point to, not process routing"
+    },
+    {
+      "file": "skills/manage-schemas/references/workflow-patterns.md",
+      "name": "security-review",
+      "audit": "H15",
+      "reason": "Workflow pattern example of a skill: value"
+    },
+    {
+      "file": "skills/ralph/SKILL.md",
+      "name": "loop",
+      "audit": "H11",
+      "reason": "Host integration: the headless driver is run by the host loop command"
+    },
+    {
+      "file": "skills/run-wave/SKILL.md",
+      "name": "workflows",
+      "audit": "H8",
+      "reason": "Host integration: the host workflows command lists runs"
+    },
+    {
+      "file": "hooks/orchestration-context.mjs",
+      "name": "compact",
+      "audit": "H17",
+      "reason": "Host session command named as such"
+    }
+  ],
+  "project": [
+    {
+      "file": ".claude/skills/prepare-release/SKILL.md",
+      "name": "loop",
+      "audit": "H11",
+      "reason": "Host polling of a command, not a process routing choice"
+    }
+  ]
+}

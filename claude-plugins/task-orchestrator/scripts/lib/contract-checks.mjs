@@ -321,3 +321,130 @@ export function scanDispatchLiterals({ pluginRoot, dirs, allowlist }) {
   }
   return { violations, stale };
 }
+
+// ---------------------------------------------------------------------------------------------------
+// Domain boundary: plugin and project text never names a Claude Code or Anthropic skill the layer does
+// not own. Detection is a closed name set in two forms (slash, and next to the word skill), not every
+// /word: a generic scan hits paths and regex flags.
+
+/**
+ * Claude Code and Anthropic skills and slash commands. 'mcp' is left out on purpose: /mcp is also the
+ * server's own endpoint path, which a text scan cannot tell apart.
+ */
+export const HOST_SKILLS = Object.freeze([
+  'agents', 'claude-api', 'clear', 'code-review', 'compact', 'init', 'loop', 'review', 'schedule',
+  'security-review', 'simplify', 'skill-creator', 'workflows',
+]);
+
+const DECLARED_SKILL_RE = /^\s*skill:\s*["']?([A-Za-z0-9_.:-]+)["']?\s*(?:#.*)?$/;
+
+/** declaredSkills(yamlText) -> sorted unique values of the `skill:` lines of a config text. */
+export function declaredSkills(yamlText) {
+  const found = new Set();
+  for (const line of String(yamlText).replace(/\r\n/g, '\n').split('\n')) {
+    const m = DECLARED_SKILL_RE.exec(line);
+    if (m) found.add(m[1]);
+  }
+  return [...found].sort();
+}
+
+/** pluginShippedNames(pluginRoot) -> sorted unique names the plugin itself ships (skills, agents, workflows, rules). */
+export function pluginShippedNames(pluginRoot) {
+  const found = new Set();
+  const list = (dir) => {
+    try {
+      return readdirSync(join(pluginRoot, dir), { withFileTypes: true });
+    } catch {
+      return [];
+    }
+  };
+  for (const e of list('skills')) if (e.isDirectory() && !e.name.startsWith('_')) found.add(e.name);
+  for (const [dir, ext] of [['agents', '.md'], ['workflows', '.js'], ['bundled-rules', '.md']]) {
+    for (const e of list(dir)) if (e.isFile() && e.name.endsWith(ext)) found.add(e.name.slice(0, -ext.length));
+  }
+  return [...found].sort();
+}
+
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const SKILL_WORD = '[Ss][Kk][Ii][Ll][Ll][Ss]?';
+
+function boundaryHits(line, names, phrases) {
+  const hits = [];
+  for (const name of names) {
+    const n = escapeRe(name);
+    const slash = new RegExp('(?<=^|[\\s`\'"(\\[|,])/' + n + '(?![A-Za-z0-9_/-])', 'g');
+    for (const m of line.matchAll(slash)) hits.push({ name, form: 'slash', col: m.index });
+    if (name.includes('-') || name === 'simplify') {
+      const a = new RegExp('(?<![A-Za-z0-9_/-])' + n + '["\'`]?\\s+' + SKILL_WORD + '(?![A-Za-z])', 'g');
+      for (const m of line.matchAll(a)) hits.push({ name, form: 'skill', col: m.index });
+      const b = new RegExp(
+        '(?<![A-Za-z])' + SKILL_WORD + '(?:["\']?\\s*[:=]+\\s*[\\[(]?\\s*|\\s+)["\'`]?' + n + '(?![A-Za-z0-9_-])',
+        'g',
+      );
+      for (const m of line.matchAll(b)) hits.push({ name, form: 'skill', col: m.index });
+    }
+  }
+  for (const phrase of phrases) {
+    const re = new RegExp('(?<![A-Za-z])' + escapeRe(phrase) + '(?![A-Za-z])', 'gi');
+    for (const m of line.matchAll(re)) hits.push({ name: phrase, form: 'phrase', col: m.index });
+  }
+  return hits.sort((x, y) => x.col - y.col);
+}
+
+function collectBoundaryFiles(root, scopes) {
+  const out = new Set();
+  const visit = (dir, recursive) => {
+    let entries;
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const name of entries.sort()) {
+      if (SKIPPED_SEGMENTS.has(name)) continue;
+      const abs = join(dir, name);
+      const st = statSync(abs);
+      if (st.isDirectory()) {
+        if (recursive) visit(abs, true);
+      } else {
+        const dot = name.lastIndexOf('.');
+        if (dot >= 0 && SCANNED_EXTENSIONS.has(name.slice(dot))) out.add(abs);
+      }
+    }
+  };
+  for (const s of scopes) visit(join(root, s.dir), s.recursive !== false);
+  return [...out];
+}
+
+/**
+ * Scans scopes for a host skill name (slash or next to the word skill) or a banned phrase. allow and
+ * baseline rows ({file, name}) excuse every hit of that name in that file; both are two-way ratchets:
+ * a row whose file is missing or holds no hit of its name is stale.
+ * @param {{root: string, scopes: {dir: string, recursive?: boolean}[], names: string[], phrases?: string[], allow?: {file: string, name: string}[], baseline?: {file: string, name: string}[]}} args
+ * @returns {{violations: {file: string, line: number, name: string, form: string}[], stale: {file: string, name: string, reason: string}[]}}
+ */
+export function scanDomainBoundary({ root, scopes, names, phrases = [], allow = [], baseline = [] }) {
+  const excused = new Set([...allow, ...baseline].map((r) => `${r.file}\u0000${r.name}`));
+  const violations = [];
+  const hitKeys = new Set();
+  for (const abs of collectBoundaryFiles(root, scopes)) {
+    const file = toPosix(relative(root, abs));
+    readText(abs).split('\n').forEach((line, idx) => {
+      for (const h of boundaryHits(line, names, phrases)) {
+        const key = `${file}\u0000${h.name}`;
+        hitKeys.add(key);
+        if (!excused.has(key)) violations.push({ file, line: idx + 1, name: h.name, form: h.form });
+      }
+    });
+  }
+  const stale = [];
+  const checkRows = (rows, label) => {
+    for (const r of rows) {
+      if (!existsSync(join(root, r.file))) stale.push({ file: r.file, name: r.name, reason: `${label} file does not exist` });
+      else if (!hitKeys.has(`${r.file}\u0000${r.name}`)) stale.push({ file: r.file, name: r.name, reason: `${label} row has no hit` });
+    }
+  };
+  checkRows(allow, 'allow');
+  checkRows(baseline, 'baseline');
+  return { violations, stale };
+}

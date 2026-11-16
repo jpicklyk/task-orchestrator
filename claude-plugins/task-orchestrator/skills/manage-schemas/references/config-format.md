@@ -111,7 +111,7 @@ These fields serve different purposes and work together:
 
 - **`guidance`** provides project-specific instructions for *what* the note should cover. It's free text you write in config - "Cover: problem statement, acceptance criteria, alternatives considered, blast radius, test strategy." The agent sees this as `guidanceKey` when it's about to fill the note.
 
-- **`skill`** references a reusable evaluation framework that defines *how* to produce the note. The agent invokes the skill (e.g., `/spec-quality`) before writing, getting a structured methodology - rubrics, checklists, evaluation dimensions. The agent sees this as `skillPointer`.
+- **`skill`** references a reusable evaluation framework that defines *how* to produce the note. The agent invokes the skill (the one the `skill` value names) before writing, getting a structured methodology - rubrics, checklists, evaluation dimensions. The agent sees this as `skillPointer`.
 
 | Combination | When to use |
 |-------------|------------|
