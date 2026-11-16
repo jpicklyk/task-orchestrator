@@ -540,25 +540,60 @@ function noteRewriteSentence(baseStage) {
 }
 
 /**
+ * The note-limit sentences of a fix-cycle line: one per key the line names, in the order given,
+ * when the BASE stage's noteLimits carries it. A plan written before noteLimits existed gets ''.
+ */
+function noteLimitSentences(baseStage, keys) {
+  const limits = baseStage.noteLimits && typeof baseStage.noteLimits === 'object' ? baseStage.noteLimits : {}
+  let out = ''
+  for (const k of keys) {
+    const n = limits[k]
+    if (Number.isInteger(n) && n >= 1) out += ` ${k} is limited to ${n} characters; rewrite it in full within that limit.`
+  }
+  return out
+}
+
+/**
+ * The escalation step of a new fix-cycle row: 1 + the earlier ledger rows of the same base seat
+ * (lower cycle, another seat id) whose cause is review or test. A row with no cause (written before
+ * causes were recorded) counts, which matches the old rule of one level per cycle.
+ */
+function escalationStep(ledger, seat, baseSeat, cycle) {
+  let n = 0
+  for (const r of ledger) {
+    if (!r || r.baseSeat !== baseSeat || r.seat === seat) continue
+    if (!(Number(r.cycle) < cycle)) continue
+    if (r.cause === undefined || r.cause === null || ESCALATING_CAUSES.has(r.cause)) n += 1
+  }
+  return 1 + n
+}
+
+/**
  * reseat(core, doc, result, idOrShort, seat, opts) ->
- *   {ok:true, prompt, seat, baseSeat, cycle, cause, effort, ceilingReached, tokenFile, result}
+ *   {ok:true, prompt, seat, baseSeat, cycle, step, cause, effort, ceilingReached, tokenFile, result}
  *   | {ok:false, error}.
  * seat = '<stageSeat>-a<n>' (n >= 1, no leading zero; the base must be a non-reviewer stage seat
- * of the item). opts.cause is required, one of RESEAT_CAUSES. effort: for cause review|test on an
- * implementer or test-author base, escalate(base effort, cycle) (one level per cycle, capped at the
- * policy ceiling); otherwise the base effort. The base effort is the base stage's dispatch.effort,
- * else its policy class effort. ceilingReached is true when an escalating cycle runs at the ceiling
- * (a further failure goes to the decision path). The prompt is core.seatPrompt over a clone of the
- * base stage renamed to `seat` with enters:false, outs from the result item's outputs (keyed by base
- * seat), plus a FIX CYCLE line (ending with a rewrite-in-full instruction for each of implementation-notes and
- * test-manifest the base stage owns), CEILING_STOP_LINE when an escalated cycle runs at the policy escalation ceiling, and the
- * Method B addendum on Method B plans. opts = {cause, declarations?, model?, tokens?, pre?,
- * assignment?, policyPath?}. On a bound run the reseat runs under the BASE seat's server assignment (the
+ * of the item). opts.cause is required, one of RESEAT_CAUSES. cycle is the amendment index A<n> (the
+ * seat suffix). step = 1 + the earlier ledger rows of the same base seat (lower cycle, another seat
+ * id) whose cause is review or test; an old row without a cause counts. effort: for cause review|test
+ * on an implementer or test-author base, escalate(base effort, step) (capped at the policy ceiling);
+ * otherwise the base effort. The base effort is the base stage's dispatch.effort, else its policy class
+ * effort. ceilingReached is true when an escalating cycle runs at the ceiling (a further failure goes
+ * to the decision path). A replay of a recorded seat returns the row's recorded effort and step. The
+ * prompt is core.seatPrompt over a clone of the base stage renamed to `seat` with enters:false, outs
+ * from the result item's outputs (keyed by base seat), plus a FIX CYCLE line (ending with a
+ * rewrite-in-full instruction for each of implementation-notes and test-manifest the base stage owns,
+ * then a limit sentence for each key the line names that the base stage's noteLimits carries),
+ * CEILING_STOP_LINE when an escalated cycle runs at the policy escalation ceiling, and the Method B
+ * addendum on Method B plans. opts.findings (string[], cause review only) is the mechanical class: the
+ * line's ruling clause becomes "work only blocking findings <ids> in the item's review register", so no
+ * amending planner runs. opts = {cause, findings?, declarations?, model?, tokens?, pre?, assignment?,
+ * policyPath?}. On a bound run the reseat runs under the BASE seat's server assignment (the
  * orchestrator re-assigns the base seat first, which supersedes it as attempt n+1, and writes the new
  * token to the base seat's token file); the prompt names that file (tokenFile, null when unbound).
- * `result` in the return is a copy with items[i].reseats upserted {seat, baseSeat, cycle, model,
- * tokens, effort, cause, pre, assignment?}: model/tokens/assignment update only when passed; pre,
- * effort and cause are recorded once (effort/cause filled on an older row that lacks them); the
+ * `result` in the return is a copy with items[i].reseats upserted {seat, baseSeat, cycle, step, model,
+ * tokens, effort, cause, findings?, pre, assignment?}: model/tokens/assignment update only when passed;
+ * pre, step, effort, cause and findings are recorded once (filled on an older row that lacks them); the
  * input is not mutated. Throws 'invalid args: ...' for argument errors; returns {ok:false} for a
  * missing declaration.
  */
@@ -568,6 +603,15 @@ export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
   const cause = opts.cause
   if (!RESEAT_CAUSES.includes(cause)) {
     throw new Error(`invalid args: cause ${cause === undefined ? '(missing)' : cause} must be one of ${RESEAT_CAUSES.join('|')}`)
+  }
+  let findings = null
+  if (opts.findings !== undefined && opts.findings !== null) {
+    if (cause !== 'review') throw new Error(`invalid args: --findings requires cause review, got ${cause}`)
+    if (!Array.isArray(opts.findings) || opts.findings.length === 0) {
+      throw new Error('invalid args: --findings needs at least one finding id')
+    }
+    findings = opts.findings.map((f) => (typeof f === 'string' ? f.trim() : ''))
+    if (findings.some((f) => f === '')) throw new Error('invalid args: --findings has an empty finding id')
   }
   const baseSeat = m[1]
   const cycle = Number(m[2])
@@ -612,31 +656,51 @@ export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
   if (tokenFile) text = withRunsWriteTool(text, plan) + `\n${reseatTokenPart(plan, baseStage, tokenFile)}`
   const hasAmendmentsNote = (item.stages || []).some((st) => Array.isArray(st.notes) && st.notes.includes('amendments'))
   const rewriteSentence = noteRewriteSentence(baseStage)
-  text += hasAmendmentsNote
-    ? `\nFIX CYCLE A${cycle}: work only ruling A${cycle} in the item's amendments note and the blocking findings it cites. Commit your owned paths as soon as each fix is done (git commit --only -- <paths>) and revert only your own paths, never the whole tree.${rewriteSentence}`
-    : `\nFIX CYCLE A${cycle}: work only section "## Amendment A${cycle}" of the item's planning note and the blocking findings it cites. Commit your owned paths as soon as each fix is done (git commit --only -- <paths>) and revert only your own paths, never the whole tree.${rewriteSentence}`
+  const commitSentence = 'Commit your owned paths as soon as each fix is done (git commit --only -- <paths>) and revert only your own paths, never the whole tree.'
+  const ownedRewrites = ['implementation-notes', 'test-manifest']
+    .filter((k) => Array.isArray(baseStage.notes) && baseStage.notes.includes(k))
+  let rulingClause
+  let namedKeys
+  if (findings) {
+    rulingClause = `work only blocking findings ${findings.join(', ')} in the item's review register.`
+    namedKeys = ownedRewrites
+  } else if (hasAmendmentsNote) {
+    rulingClause = `work only ruling A${cycle} in the item's amendments note and the blocking findings it cites.`
+    namedKeys = ['amendments', ...ownedRewrites]
+  } else {
+    rulingClause = `work only section "## Amendment A${cycle}" of the item's planning note and the blocking findings it cites.`
+    namedKeys = ownedRewrites
+  }
+  text += `\nFIX CYCLE A${cycle}: ${rulingClause} ${commitSentence}${rewriteSentence}${noteLimitSentences(baseStage, namedKeys)}`
 
-  const baseEffort = (baseStage.dispatch && baseStage.dispatch.effort) ||
-    forClass(policyClassFor(baseSeat, baseStage.phase), opts.policyPath).effort
-  const escalates = ESCALATING_CAUSES.has(cause) && ESCALATING_OUTPUTS.has(baseStage.output)
-  const effort = escalates ? escalate(baseEffort, cycle, opts.policyPath) : baseEffort
-  const atCeiling = escalates ? ceilingReached(baseEffort, cycle, opts.policyPath) : false
-  if (escalates && effort === loadPolicy(opts.policyPath).escalation.ceiling) text += `\n${CEILING_STOP_LINE}`
-  if (isMethodB(doc)) text += `\n${methodBReturn(core, plan, stage)}`
-
-  const baseDispatch = baseStage.dispatch && baseStage.dispatch.model
   const out = JSON.parse(JSON.stringify(result))
   const outItem = out.items.find((r) => r.id === item.id)
   const ledger = Array.isArray(outItem.reseats) ? outItem.reseats : []
   let entry = ledger.find((e) => e.seat === seat)
+
+  const baseEffort = (baseStage.dispatch && baseStage.dispatch.effort) ||
+    forClass(policyClassFor(baseSeat, baseStage.phase), opts.policyPath).effort
+  const escalates = ESCALATING_CAUSES.has(cause) && ESCALATING_OUTPUTS.has(baseStage.output)
+  // A replay returns what the row recorded; a new row (or an old row lacking step) computes it.
+  const step = entry && Number.isInteger(entry.step) && entry.step >= 1
+    ? entry.step
+    : escalationStep(ledger, seat, baseSeat, cycle)
+  const computedEffort = escalates ? escalate(baseEffort, step, opts.policyPath) : baseEffort
+  const effort = entry && entry.effort ? entry.effort : computedEffort
+  const atCeiling = escalates ? ceilingReached(baseEffort, step, opts.policyPath) : false
+  if (escalates && effort === loadPolicy(opts.policyPath).escalation.ceiling) text += `\n${CEILING_STOP_LINE}`
+  if (isMethodB(doc)) text += `\n${methodBReturn(core, plan, stage)}`
+
+  const baseDispatch = baseStage.dispatch && baseStage.dispatch.model
   if (!entry) {
     entry = {
-      seat, baseSeat, cycle,
+      seat, baseSeat, cycle, step,
       model: opts.model || baseDispatch || 'unknown',
       tokens: opts.tokens !== undefined && opts.tokens !== null ? opts.tokens : 'unknown',
       effort, cause,
-      pre: opts.pre || '',
     }
+    if (findings) entry.findings = findings
+    entry.pre = opts.pre || ''
     if (opts.assignment) entry.assignment = opts.assignment
     ledger.push(entry)
   } else {
@@ -645,11 +709,13 @@ export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
     if (opts.assignment) entry.assignment = opts.assignment
     if (!entry.effort) entry.effort = effort
     if (!entry.cause) entry.cause = cause
+    if (!(Number.isInteger(entry.step) && entry.step >= 1)) entry.step = step
+    if (findings && !Array.isArray(entry.findings)) entry.findings = findings
   }
   outItem.reseats = ledger
 
   return {
-    ok: true, prompt: text, seat, baseSeat, cycle, cause, effort, ceilingReached: atCeiling,
+    ok: true, prompt: text, seat, baseSeat, cycle, step, cause, effort, ceilingReached: atCeiling,
     tokenFile: tokenFile || null, result: out,
   }
 }
@@ -3015,8 +3081,18 @@ function execReseat(argv, io) {
     io.fail(2, 'invalid args', `--assignment ${assignment} must be the assignment UUID runs_write assign returned`)
     return
   }
+  let findings
+  if (argv.includes('--findings')) {
+    const raw = flagValue(argv, '--findings')
+    if (raw === undefined) {
+      io.fail(2, 'invalid args', 'reseat: --findings needs <id,...>')
+      return
+    }
+    findings = raw.split(',').map((f) => f.trim())
+  }
   const out = reseat(core, doc, result, item, flagValue(argv, '--seat'), {
     cause,
+    findings,
     declarations: declText,
     model: flagValue(argv, '--model'),
     tokens: tokensRaw === undefined ? undefined : (Number.isFinite(Number(tokensRaw)) ? Number(tokensRaw) : tokensRaw),

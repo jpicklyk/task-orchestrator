@@ -431,6 +431,28 @@ function optionalOf(keys, notes) {
 }
 
 /**
+ * noteLimitsOf(keys, notes) -> {<key>: <maxLength>} over the owned keys whose schema entry has an
+ * integer maxLength >= 1, in key order; null when none has one (the stage then carries no field).
+ */
+function noteLimitsOf(keys, notes) {
+  const out = {};
+  for (const k of keys) {
+    const n = notes.find((x) => x.key === k);
+    if (n && Number.isInteger(n.maxLength) && n.maxLength >= 1) out[k] = n.maxLength;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * testPlanInputsOf(notes) -> the keys of the schema's queue-role notes whose skill is test-author,
+ * in schema order. Computed from the schema, so a resumed item whose queue stages are skipped still
+ * names them.
+ */
+function testPlanInputsOf(notes) {
+  return notes.filter((n) => n.role === 'queue' && n.skill === 'test-author').map((n) => n.key);
+}
+
+/**
  * ownership(schema, phases) -> {unowned:string[], orchestratorNotes:string[]}
  * In schema note order (notes scoped to `phases`); `unowned` lists only REQUIRED notes whose
  * seat is null, names an undeclared seat, or names a seat declared for a different phase.
@@ -548,6 +570,9 @@ function deriveRulesSkills(ownedKeys, allNotes, servedKeys) {
  * noteOwners are this item's notes whose owner seat notes_read list reported (owner.seat, shown only
  * when the caller may see attribution); a resumed work seat whose every owned note is owned by that
  * seat is skipped. A note with no owner row never skips a seat.
+ * A stage owning notes with an integer maxLength >= 1 carries noteLimits {<key>: <maxLength>}; a
+ * test-author-v1 stage carries inputNotes, the schema's queue-role test-author notes. Each is emitted
+ * only when non-empty.
  */
 export function deriveStages(candidate, schemaEntry, ctx = {}) {
   const rulesServed = ctx.rulesServed || [];
@@ -687,6 +712,12 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
       };
       const seatOptional = optionalOf(seatNotes, notes);
       if (seatOptional.length) stage.optionalNotes = seatOptional;
+      const seatLimits = noteLimitsOf(seatNotes, notes);
+      if (seatLimits) stage.noteLimits = seatLimits;
+      if (output === 'test-author-v1') {
+        const inputs = testPlanInputsOf(notes);
+        if (inputs.length) stage.inputNotes = inputs;
+      }
       if (enters) stage.enters = true;
       if (s.readsExclude) stage.readsExclude = s.readsExclude;
       if (s.extraLockKeys) stage.extraLockKeys = s.extraLockKeys;
@@ -710,6 +741,8 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
       };
       const plannerOptional = optionalOf(queueNotes, notes);
       if (plannerOptional.length) plannerStage.optionalNotes = plannerOptional;
+      const plannerLimits = noteLimitsOf(queueNotes, notes);
+      if (plannerLimits) plannerStage.noteLimits = plannerLimits;
       stages.push(plannerStage);
     }
     const workNotes = notes
@@ -730,6 +763,8 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
     };
     const implementerOptional = optionalOf(workNotes, notes);
     if (implementerOptional.length) implementerStage.optionalNotes = implementerOptional;
+    const implementerLimits = noteLimitsOf(workNotes, notes);
+    if (implementerLimits) implementerStage.noteLimits = implementerLimits;
     stages.push(implementerStage);
   }
 
