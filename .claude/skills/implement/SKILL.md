@@ -156,8 +156,10 @@ names in source, as the planning note's `skillPointer` requires.
 before the queue-to-work `start`, per rule `test-author` section 1 and the `test-plan` note's
 `seat: planner`.
 
-**Gate and lease failures.** Handle a `gate_blocked` or `resource_unavailable` refusal per rule
-`protocol.entry-seat` item 5 and its `claude:` section.
+**Gate and lease failures.** On a `gate_blocked` reply, fill the notes in `detail.missing` from
+their guidance and retry the transition. On `resource_unavailable` (a trait's lease is held
+elsewhere), do not fill more notes or retry at once: work another item and retry later, after
+`retryAfterMs` when it is set.
 
 ### Arbitration — Red Author-Authored Tests
 
