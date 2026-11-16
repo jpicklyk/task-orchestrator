@@ -9,7 +9,7 @@ config load or hot-reload, transport or REST behaviour. Otherwise the spec carri
 `State matrix: n/a - <reason>` (docs-only, test-only, pure refactor, domain logic fully unit-tested,
 agent-read process prose). A missing line is an omission, not a decision. The matrix lives in the
 item's spec note (`task-scope`, `diagnosis` or `specification`); a plan may carry it or point at it,
-and a dispatch contract only points at it.
+and a dispatch contract only points at it and never copies its cells.
 
 - **Rows (minimum):** fresh session (no prior markers or state); configured; unconfigured, one row per
   fallback the change reads, each with that fallback removed alone (for example no `project.rootId`,
@@ -18,7 +18,8 @@ and a dispatch contract only points at it.
 - **Columns:** terminal (interactive CLI), desktop app, headless `claude -p`.
 - **Cells:** exactly one of `test: <test file or S#>` (only when that test's fixture models the row's
   state), `live-owed: <command or steps, in the form that will be executed>`, or `n/a: <reason>`. A
-  desktop cell an agent cannot drive is `live-owed`, never `n/a` merely because an agent cannot run it.
+  desktop cell an agent cannot drive is `live-owed` (to the user, or carrying a `deferred: <item id>`
+  suffix on its Live-owed entry), never `n/a` merely because an agent cannot run it.
 
 **The Live-owed hold.** The item's `session-tracking` note lists every `live-owed` cell on a
 `**Live-owed**:` line. Each entry ends `run <date>: <result>` or `deferred: <item id>`; a deferral
