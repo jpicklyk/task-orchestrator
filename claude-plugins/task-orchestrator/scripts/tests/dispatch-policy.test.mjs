@@ -14,7 +14,7 @@ function tmpPolicy(obj) {
 
 test('default policy loads with the eleven classes', () => {
   assert.equal(classNames().length, 11);
-  assert.ok(loadPolicy().checked);
+  assert.deepEqual(loadPolicy().models, ['opus', 'sonnet', 'haiku', 'fable']);
 });
 
 test('forClass returns model and effort', () => {
@@ -72,6 +72,10 @@ test('malformed policies are rejected on load', () => {
   assert.throws(() => loadPolicy(tmpPolicy(p)), /class review effort/);
   p = base(); delete p.classes.review.model;
   assert.throws(() => loadPolicy(tmpPolicy(p)), /class review has no model/);
+  p = base(); p.classes.review.model = 'opus-5-5';
+  assert.throws(() => loadPolicy(tmpPolicy(p)), /class review model "opus-5-5" is not one of the models/);
+  p = base(); p.models = { opus: 'Opus 5.5' };
+  assert.throws(() => loadPolicy(tmpPolicy(p)), /models must list the model aliases/);
   p = base(); p.classes = {};
   assert.throws(() => loadPolicy(tmpPolicy(p)), /classes missing/);
   assert.throws(() => loadPolicy(tmpPolicy('not an object')), /not an object/);
