@@ -190,14 +190,9 @@ author-authored test is not a build failure (front door "Arbitration — Red Aut
 
 **Post-implementation steps** (in the feature worktree):
 
-1. Run the `/simplify` skill on the changed code to check for reuse, quality, and
-   efficiency — this is a cleanup pass before review, not a review itself.
-2. **If `/simplify` made changes**, the covering tests follow the ownership boundary (Step 4): on
-   items carrying `needs-test-author`, re-dispatch the test author; on items without the trait,
-   write or update tests inline. All code changes require test coverage before review.
-3. **Log findings as work items** — any issue surfaced by `/simplify` or during implementation and
+1. **Log findings as work items** — any issue surfaced during implementation and
    not addressed here is logged via `/task-orchestrator:create-item` before moving on.
-4. **CHANGELOG bullet** — written here, in the work phase, so the
+2. **CHANGELOG bullet** — written here, in the work phase, so the
    reviewer sees it, once, by the orchestrator or the docs seat after the implementation wave and
    before review — never an implementer (the dispatch contract's **Docs** slot). A user-visible
    change (server behaviour, the MCP or REST surface, config keys, plugin skills or hooks) adds ONE
@@ -276,7 +271,7 @@ Read ALL files from that directory. Do NOT read from the main working directory.
 Tests have already been verified green by the orchestrator after the most recent
 commit batch. Run no gradle — the contract's Compile self-check slot states who runs
 it, and the Review scoping slot records the build state you rely on. Focus on plan
-alignment, test quality, and simplification per the review-quality skill.
+alignment and test quality per the review-quality skill.
 
 Report every finding at every severity — do not self-filter to a high-severity-only
 bar. Mark each finding blocking or observation and state your confidence; the

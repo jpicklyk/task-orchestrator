@@ -163,7 +163,7 @@ The orchestrator does not write `review-checklist`. Dispatch one independent
 verdict and disposition count lines (a child with no review phase is listed as such). The
 reviewer follows
 the `review-quality` skill's framework - plan alignment against `feature-summary` and each
-child's `task-scope`, test quality, and (if `/simplify` ran) test coverage of its changes -
+child's `task-scope`, and test quality -
 and fills the feature's `review-checklist` with a feature-level verdict aggregating across
 children (see review-quality for the findings format and verdict types: Pass / Fail -
 blocking issues / Pass with observations). Record the orchestrator's dispositions in

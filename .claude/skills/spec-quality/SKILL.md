@@ -71,9 +71,8 @@ authority to the agent that implements it faithfully.
 
 If the spec claims something was verified, name exactly what was checked. "Verified
 against source" that checked one path while prescribing another is how a partially
-verified claim ships a defect (two sessions of evidence: task-scope facts contradicting
-target files, 2026-07-27; a design prescribing `advance` trigger sequences that
-gate-block, 2026-07-31).
+verified claim ships a defect: task-scope facts that contradict the target files, or a
+design that prescribes `advance` trigger sequences the gate blocks.
 
 This discipline applies to the **plan artifact** as much as to spec notes. Specification notes
 are generated from the plan and inherit its errors silently, so plan-mode output that names a
@@ -85,8 +84,7 @@ add a mechanical check (every path a plan names must resolve on disk) rather tha
 **Semantic claims carry a file:line.** Any sentence that states nullability, redaction,
 ownership, or an honest limit (what a guard does NOT cover) cites the `file:line` that
 establishes it. This holds for spec notes and for everything written from them — a CHANGELOG
-bullet, an API doc line, a hook or KDoc header comment. Historical worked case (2026-09-29, #384,
-a 3.x file that no longer exists): the spec and a hook header said note attribution is shown only
+bullet, an API doc line, a hook or KDoc header comment. Worked case: the spec and a hook header said note attribution is shown only
 when the caller is ADMIN and the flag is false; the code redacted only when
 `redactNoteAttribution && !isAdmin`, so it was shown when ADMIN OR the flag was false. The 4.0
 rule lives at `interfaces/api/v1/ops/OpsAccess.kt:22` (`attributionVisible = !redactNoteAttribution || ADMIN`). The error

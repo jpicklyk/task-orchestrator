@@ -183,19 +183,12 @@ checkout. A failure means the change broke something: send a fix to a fresh impl
 continuing, and never retry until green, since a retry hides a real bug. A red author-authored
 test is not a build failure (front door "Arbitration — Red Author-Authored Tests").
 
-Capture the changed files via `git diff main --name-only`, then:
+Then:
 
-1. Run the `/simplify` skill on the changed code to check for reuse, quality, and
-   efficiency — this is a cleanup pass before review, not a review itself.
-2. **If `/simplify` made changes**, the resulting test coverage work follows the ownership
-   boundary (Step 4). On items carrying `needs-test-author`, re-dispatch the test author to write
-   or update the covering tests (Step 4b); the implementer and orchestrator do not touch
-   `src/test/**` even for a simplify-driven update. On items without the trait, write or update
-   tests inline. All code changes require test coverage before advancing to review.
-3. **Log findings as work items** — any issue surfaced by `/simplify` or during implementation
+1. **Log findings as work items** — any issue surfaced during implementation
    and not addressed here (pre-existing tech debt, optimization opportunities, related bugs) is
    logged via `/task-orchestrator:create-item` before moving on. Do not discard findings.
-4. **CHANGELOG bullet**, committed with the change, written here so the reviewer sees it. A
+2. **CHANGELOG bullet**, committed with the change, written here so the reviewer sees it. A
    user-visible change (server behaviour, the MCP or REST surface, config keys, plugin skills or
    hooks) adds ONE bullet under `CHANGELOG.md`'s `## [Unreleased]` section, in its `### Added` /
    `### Changed` / `### Fixed` subsection (plugin skill and hook changes go under `### Plugin`).
@@ -237,8 +230,8 @@ You are reviewing MCP item <full UUID> (<short>) on its working branch.
 - Build state: the `Verified:` line of the item's session-tracking note (command, result,
   SHA). Run no gradle.
 
-Run ALL commands from that checkout. Focus on plan alignment, test quality, and
-simplification per the review-quality skill, and fill the review-phase notes the item's
+Run ALL commands from that checkout. Focus on plan alignment and test quality
+per the review-quality skill, and fill the review-phase notes the item's
 schema requires.
 
 Report every finding at every severity — do not self-filter to a high-severity-only
