@@ -1176,7 +1176,7 @@ export function liveKnownRed(profile, now) {
  * planned = {ids, waitsFor, derivedById, deferred}
  * opts = {now, runId, mode, entryMode, probe, profile, scratchpad, worktree, branch}
  * opts.worktree/opts.branch (E3): shared-mode only override of the derived feature worktree path
- * and branch (e.g. /implement Step 2 reusing its own already-created worktree instead of the
+ * and branch (e.g. /implement wave.md Step 2 reusing its own already-created worktree instead of the
  * planner deriving a second one). Both are set together by the caller (the CLI enforces "both or
  * neither" and "shared mode only" before calling in); this function trusts that precondition and
  * simply substitutes the pair, normalized, in place of the derived sharedPath/sharedBranch.

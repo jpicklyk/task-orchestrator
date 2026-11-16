@@ -1,6 +1,6 @@
 # Dispatch contract template
 
-Copy everything below the horizontal rule into the wave's plan file at Step 2 of `/implement` for
+Copy everything below the horizontal rule into the wave's plan file at `/implement` `wave.md` Step 2 for
 every Parallel-tier run (3+ children), fill every `<placeholder>`, and reference the result by
 its **absolute path** from every hand-dispatch and review prompt.
 
@@ -22,7 +22,7 @@ its **absolute path** from every hand-dispatch and review prompt.
 
 The Review scoping slot's commit map and the per-item bug-fix revert results are filled as the wave
 runs, not at Step 2; the budget-mutation results land after the wave's PR merges (the wave-boundary
-red-proof stage, `/implement` Step 6). Every other slot is complete before the first dispatch.
+red-proof stage, `/implement` "After merge"). Every other slot is complete before the first dispatch.
 
 ## Adoption reach
 
@@ -52,7 +52,7 @@ proposal item's own status says "terminal".
 | `234b50a0` | declarations-extractor seat and its accuracy contract | **Test author protocol** — moved to rule `declarations-extractor` (extractor seat, accuracy contract, orchestrator scan) and rule `test-author` §4's public-evidence self-resolution clause |
 | `b5bc3210` (#396) | cite a source line for every security or edge-case claim | **Docs** slot (doc lines carry file:line) plus `spec-quality/SKILL.md` ("Semantic claims carry a file:line"), `review-quality/SKILL.md` (Area 2 citation check, Fail list) and the `planner`/`reviewer` agent definitions |
 | `bb191508` | sweep the whole defect class during planning | **Planning seat return template** (`defect-class-siblings` field); the `bug-fix` schema's `diagnosis` guidance carries the same requirement at note-fill time |
-| `c068c943` (#360) | per-PR CHANGELOG `[Unreleased]` bullet | **Docs** — `CHANGELOG.md` is orchestrator- or docs-seat-owned, written before review, never an implementer's; the bullet itself (`/implement` Step 4c) and the Step 6 check plus the PR body's `## Changelog` section are orchestrator-side steps, not delegated facts |
+| `c068c943` (#360) | per-PR CHANGELOG `[Unreleased]` bullet | **Docs** — `CHANGELOG.md` is orchestrator- or docs-seat-owned, written before review, never an implementer's; the bullet itself (`/implement` `wave.md` Step 4c) and the Step 6 check plus the PR body's `## Changelog` section are orchestrator-side steps, not delegated facts |
 | `27c021b1` (#318) | hand-assembled Ktor test apps diverging from production | **Test author protocol** — moved to rules `declarations-extractor` (the declarations block's `harness:` line and its accuracy-contract bullet) and `test-harness.full-wiring` (the named-helper-or-stop-and-ask clause) |
 | `395f316f` (#374) | tests that bypass the runtime's validation order | **Test author protocol** — moved to rule `declarations-extractor` (the declarations block's `runtime call order:` line and its accuracy-contract bullet, the pinned `McpToolAdapter` sentence) |
 | `9023ed46` (#361) | unscoped dedup search before creating a root or feature item | out of scope: an item-creation step, adopted in the plugin skills `post-plan-workflow` (Phase 1) and `create-item` (Step 5), which run where items are materialized — no dispatched seat creates items |
@@ -61,7 +61,7 @@ proposal item's own status says "terminal".
 | `aacfc16b` (#336) | multi-row empirical probe for runtime-dependent at-rest/security guarantees | out of scope: adopted in `.claude/skills/migration-review/SKILL.md` Step 3, which the `needs-migration-review` trait's `migration-assessment` note routes the planning seat to at fill time |
 | `ef33c175` (#319) | negative and exhaustive claims must name their sweep | **Contract-change sweep** — moved to rule `contract-change-sweep` §3 (a planner's negative claim does not discharge the sweep); the general rule lives in `spec-quality/SKILL.md` → Blast Radius, and the `defect-class-siblings` field (`bb191508`) is its planning-seat special case |
 | `4048a4ee` (#320) | note length: schema-sourced targets and `note_limits` warn/reject semantics | **Notes** — the table's numbers are a convenience copy the resolved schema overrides, and `warn` accepts an over-limit note with a `warning` (no re-upsert) while `reject` fails it with `note_too_long` |
-| `8ecc28f1` | plan state matrix (lifecycle states x surfaces) | **Items** - the State matrix column; the matrix itself is adopted in `spec-quality/SKILL.md` (Test Strategy) and the work-exit check in `/implement` Step 4c |
+| `8ecc28f1` | plan state matrix (lifecycle states x surfaces) | **Items** - the State matrix column; the matrix itself is adopted in `spec-quality/SKILL.md` (Test Strategy) and the work-exit check in Step 4c of each `/implement` path file |
 | `1f635007` (#416) | per-file locks, not BLOCKS edges, for files shared in one worktree | **File ownership** - the Declared cross-stream overlaps line; materialization rule in `post-plan-workflow` step 2, advisory `shared-file edge` warning in `run-planner plan` |
 
 ---
@@ -107,8 +107,9 @@ oracles, and the public signatures tests compile against>`.
 
 One `planning`-class agent (`task-orchestrator:model-effort`) per stream returns this block verbatim (field names fixed; `none` is a valid
 value for any field except `main-files`/`test-files`, and `defect-class-siblings` may say `none`
-only with the sweep that found none). Field semantics: `/implement` `WORKTREE.md` "Planner
-return fields" — prose describes, this states.
+only with the sweep that found none). Field semantics: the table below the block. Under run-wave the
+`planner-v1` stage returns its own schema-checked shape instead, and its generated prompt does not
+read this slot.
 
 Seat token (planning seat): `<token file path from the dispatch, or "none (hand-dispatch outside a run)">`. A dispatch-issued token goes in the top-level `seatToken` of EVERY call this seat makes, reads included; it is never printed, committed, copied into a prompt or written to a note. A call answered `unauthenticated` means the seat was superseded or ended: halt and write nothing more. A hand-dispatch outside a run carries none.
 
@@ -123,6 +124,20 @@ main-files: <comma list>
 test-files: <comma list of NEW test files>
 red-proof-shape: <the item's red-proof budget (test-author rule section 5): bug-fix revert | up to ~5 decision-point mutations, each EXISTING-SURFACE | NEW-SURFACE + narrowest-revert recipe | no behavioural red possible, reviewer verifies <X> | skip: <category>>
 ```
+
+The fields are the budget: the return may exceed any line budget when the fields have content, and
+trimming a field to fit a target length is the failure this seat exists to prevent.
+
+| Field | Semantics |
+|---|---|
+| `diagnosis-corrections` | What the diagnosis/task-scope got wrong or missed, with current `file:line` — or `none`. |
+| `defect-class-siblings` | Every other site sharing the root-cause pattern (same cast/fallback idiom, same predicate, same wildcard or character class, same error-classification path, other readers or writers of the field), found by a named sweep (command + scope + hit count). Mark each one `frozen as D#` or `deferred: <reason>`, or return `none (sweep: <command>)`. |
+| `cross-stream-file-overlaps` | Files this stream must write that another stream in the same wave also touches, or `none`. In one shared worktree a shared file is lock-serialized and is never by itself a reason for a BLOCKS edge. |
+| `missing-api-or-seam` | A surface the fix needs that does not exist yet, with the exact proposed NEW signature — or `none`. |
+| `test-plan-status` | Whether `test-plan` is filled and frozen (`filled (<n> chars)`) or still open, and why. |
+| `main-files` | The stream's production files (`src/main`), comma-separated. |
+| `test-files` | The stream's NEW test files (author-owned), comma-separated. |
+| `red-proof-shape` | The item's red-proof budget (policy: served `test-author` rule, section 5): for a bug-fix, the revert-the-fix red-proof on the regression test; for new guard, gate, transition, classification, boundary or security behaviour, up to about 5 decision-point mutations (a cap, one per distinct decision point, one batched round), each labelled `EXISTING-SURFACE` (a plain revert gives behavioural red) or `NEW-SURFACE` (the fix introduces the surface; give the narrowest-revert recipe, typically revert only the call sites, or `no behavioural red possible, reviewer verifies <X>`); or `skip: <category>` for a test-only item, pure refactor, migration, or glue/config/docs. Not one recipe per scenario. |
 
 ## Commit discipline
 
@@ -173,7 +188,7 @@ points here instead of restating it):
 | Implementer | The three pinned tasks above, ONCE, through the lock helper. Plus, at most once more, a SCOPED run of the test classes in the packages it changed: `-TestFiles "<those test files>"` (the helper maps them to `--tests`). Never bare `:current:test`, never `:current:ktlintCheck`, never `--rerun-tasks` — the helper refuses them. |
 | Test author | The three pinned tasks above, ONCE, through the lock helper. Plus scoped runs of ITS OWN test files (`-TestFiles`, the run plan's `<ownedTests>`) to see them red and then green. The same three nevers; a `VERIFY` line in `test-manifest` that cites a whole-suite count is a contract breach, not evidence. |
 | Hand-dispatched post-run seats (fix implementer, `<seat>-a<n>`, a second test author, a docs seat) | Exactly their base seat's row. Being dispatched outside the run plan does not lift the rule; the prompt points at this table like any other. |
-| Orchestrator | `:current:test` and `:current:ktlintCheck` ONCE for the whole wave, serialized, after the last writer seat commits and before any PR opens — with `TO_GRADLE_OWNER=orchestrator` set inline on that call. `--rerun-tasks` only on the run after a dependency or Gradle upgrade, never routinely. Red-proofs: the bug-fix revert (and the coupled-authorship checks) per item before merge; the decision-point budget mutations at the wave boundary, after the PR merges, batched across the wave (`run-wave` `post-run.md` Step 7a; `/implement` Step 6). |
+| Orchestrator | `:current:test` and `:current:ktlintCheck` ONCE for the whole wave, serialized, after the last writer seat commits and before any PR opens — with `TO_GRADLE_OWNER=orchestrator` set inline on that call. `--rerun-tasks` only on the run after a dependency or Gradle upgrade, never routinely. Red-proofs: the bug-fix revert (and the coupled-authorship checks) per item before merge; the decision-point budget mutations at the wave boundary, after the PR merges, batched across the wave (`run-wave` `post-run.md` Step 7a; `/implement` "After merge"). |
 | Reviewer | None. The build state reviewers rely on is recorded in the Review scoping slot; a reviewer who wants a number reads it there or asks the orchestrator. A doubted red-proof result is re-run scoped (`-TestFiles`), never as the whole suite. |
 
 ## File ownership
@@ -249,7 +264,7 @@ Implementers do not edit `current/docs/**`, `README.md`, `CLAUDE.md` or `CHANGEL
 exact edits your change requires under `Not done:` ("Docs needed") in `implementation-notes`; a single
 serialized docs seat makes them after the implementation wave, so two agents never write the same
 doc. The `CHANGELOG.md` `[Unreleased]` bullet belongs to the orchestrator or the docs seat, written
-once after the implementation wave and before review (`/implement` Step 4c), never to an implementer: parallel streams appending under the
+once after the implementation wave and before review (`/implement` `wave.md` Step 4c), never to an implementer: parallel streams appending under the
 same `### Changed` heading collide on one shared anchor.
 
 Any CHANGELOG or doc line the docs seat writes that states nullability, redaction, ownership or an

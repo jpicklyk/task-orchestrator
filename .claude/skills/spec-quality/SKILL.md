@@ -202,10 +202,10 @@ line is an omission, not a decision.
   `session-tracked` trait) lists every `live-owed` cell on a `**Live-owed**:` line. Each entry
   ends `run <date>: <result>` or `deferred: <item id>`; a deferral names a tracked item, never
   prose. An entry with neither suffix is open, and the item does not leave work while one is
-  open (`/implement` Step 4c).
+  open (`/implement`, Step 4c of each path file).
 
 The matrix lives in the item's spec note (`task-scope`, `diagnosis` or `specification`). A plan may
-carry it or point at it (`/implement` Step 3, "Plans carry the State matrix"); a dispatch contract
+carry it or point at it (`/implement` "Planning rules", "Plans carry the State matrix"); a dispatch contract
 only points at it and never copies its cells.
 
 ---

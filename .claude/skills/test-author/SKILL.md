@@ -419,7 +419,7 @@ an overall "independent" verdict.
 
 This is distinct from implementation-vs-test arbitration proper (red author-test → is the
 implementation wrong, or the test wrong, or the spec wrong) — that triage is orchestrator-owned,
-per the `/implement` skill's Step 4b "Arbitration — Red Author-Authored Tests" subsection, not
+per the `/implement` skill's "Arbitration — Red Author-Authored Tests" section, not
 something the test author decides. The test author's job when a written test comes back red is
 to report it (§9), not to guess which side is at fault.
 
