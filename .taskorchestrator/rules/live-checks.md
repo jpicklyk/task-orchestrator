@@ -27,7 +27,7 @@ names a tracked item, never prose. Before the work-exit `advance`, the orchestra
 An entry with neither suffix is open and holds the item in work until it is run or deferred. The
 orchestrator writes the line from the spec note's matrix when it first fills `session-tracking`; a
 matrix with `live-owed` cells and no `**Live-owed**:` line counts as an open entry. The check sits at
-work exit because a `feature-task` skips review by default.
+work exit so it holds every item, whether or not its schema has a review phase.
 
 **Post-merge holder.** A live check that needs a refreshed plugin cache or a user opt-in cannot run
 before its feature PR merges. After the merge, its holder item is created with type `plugin-change`.
