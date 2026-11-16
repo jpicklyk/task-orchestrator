@@ -17,11 +17,15 @@ function validate(policy, path) {
   const ci = esc.levels.indexOf(esc.ceiling);
   if (ci === -1) fail(`escalation.ceiling "${esc.ceiling}" is not one of the levels`);
   if (ci >= esc.levels.length - 1) fail('escalation.ceiling must be a level below the top level');
-  if (!policy.models || typeof policy.models !== 'object') fail('models missing');
+  const models = policy.models;
+  if (!Array.isArray(models) || models.length === 0 || !models.every((m) => typeof m === 'string' && m)) {
+    fail('models must list the model aliases');
+  }
   const classes = policy.classes;
   if (!classes || typeof classes !== 'object' || Object.keys(classes).length === 0) fail('classes missing');
   for (const [name, c] of Object.entries(classes)) {
     if (!c || typeof c.model !== 'string' || !c.model) fail(`class ${name} has no model`);
+    if (!models.includes(c.model)) fail(`class ${name} model "${c.model}" is not one of the models`);
     if (!esc.levels.includes(c.effort)) fail(`class ${name} effort "${c.effort}" is not one of the levels`);
   }
   return policy;

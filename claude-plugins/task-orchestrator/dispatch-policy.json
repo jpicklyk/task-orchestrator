@@ -1,11 +1,5 @@
 {
-  "checked": "2026-11-07",
-  "models": {
-    "opus": "Opus 5.5",
-    "sonnet": "Sonnet 5.5",
-    "haiku": "Haiku 5.5",
-    "fable": "Fable 5.1"
-  },
+  "models": ["opus", "sonnet", "haiku", "fable"],
   "escalation": {
     "ceiling": "xhigh",
     "levels": ["low", "medium", "high", "xhigh", "max"]

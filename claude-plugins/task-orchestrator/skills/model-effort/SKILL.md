@@ -24,7 +24,7 @@ edited. This table is generated from it.
 | `bulk` | haiku | medium | Bulk writes and other checkable mechanical work |
 | `extraction` | sonnet | low | Extractors and retrospective data pulls |
 
-Checked 2026-11-07 against opus = Opus 5.5, sonnet = Sonnet 5.5, haiku = Haiku 5.5, fable = Fable 5.1. Automatic escalation ceiling: `xhigh`.
+Models are Claude Code aliases (`opus`, `sonnet`, `haiku`, `fable`); each resolves to the latest model of its family, so the policy names no version. Automatic escalation ceiling: `xhigh`.
 <!-- END GENERATED:dispatch-policy -->
 
 ## Decision order
