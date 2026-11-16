@@ -107,7 +107,7 @@ Below it list proposals awaiting verification (no decision offered), deferred pr
 
 ## Step 4 - Collect Decisions
 
-For each pending or stalled proposal, show the proposed change (the exact YAML it names, or the file and section it targets) and ask via `AskUserQuestion`:
+For each pending or stalled proposal, show the proposed change (the exact YAML or rule it names, or, for a mechanics change, the file and section it targets) and ask via `AskUserQuestion`:
 
 ```
 ◆ "<proposal title>"  [scope: project]
@@ -140,7 +140,7 @@ Check `data.results[0].ok`. Never write a note that is only a URL.
 
 1. **Extract the exact YAML** from the proposal note. If it has none ready to apply, draft the edit, show it as a diff against the current config file, and confirm via `AskUserQuestion` before applying anything.
 2. **A different `rootId`.** If the proposal targets a different `rootId` than this workspace's `project.rootId`, do not edit this config. Upsert `adoption-decision` recording that the change must be applied from the owning workspace, and treat the item as **deferred** (leave it in queue; do not advance).
-3. Otherwise **Edit** the config file to apply the change (additive and targeted, not a rewrite).
+3. Otherwise **Edit** the config file to apply the change (additive and targeted, not a rewrite). An accepted process change (which passes run, what a note must cover, which skill a note points to) lands in config or a rule, not in skill or plugin text; skill or plugin text changes only for Task Orchestrator mechanics. If the proposal names skill text for a process change, retarget it to the owning config layer and show that retargeted edit before applying it.
 4. **Validate** the full file text, LF-normalized, before pushing. Act on `data.results[0].valid` and `data.results[0].errors` (each `{path, reason}`); validate reports an invalid document there, it does not fail the element with `config_invalid`. Strict validation rejects an unknown key: a top-level `retrospective:` or `orchestration:` block fails, so move it under `extensions.claude-code`. Rules: [`current/docs/config-reference.md`](../../../../current/docs/config-reference.md).
 
 ```to-call
