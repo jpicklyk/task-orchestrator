@@ -24,6 +24,9 @@ work.
 6. **Commit promptly, revert narrowly.** Commit each owned path as soon as its edit is done, with the
    path-scoped form. Revert only your own paths; never a whole-tree checkout, reset, stash, or a
    formatter or revert pass over files another seat may be editing.
+7. **Stay inside the task's limits.** A delegated seat makes no version bump, no edit to shared
+   configuration and no edit to CI files unless its task names that file. Commit before returning;
+   the orchestrator merges the branch.
 
 ## claude:
 

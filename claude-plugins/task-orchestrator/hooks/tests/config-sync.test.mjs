@@ -187,6 +187,9 @@ const BUNDLED_KEYS = [
   'commit-discipline',
   'review-scoping',
   'closure-notes',
+  'review-cited-claims',
+  'planning-sweeps',
+  'orchestration-discipline',
 ];
 const PROTOCOL_BUNDLED_KEYS = BUNDLED_KEYS.filter((k) => k.startsWith('protocol.'));
 function bundledNormalizedBytes(key) {
@@ -1223,7 +1226,7 @@ test('S7 probe (AC5): sequential - one docs_write in flight at a time, protocol.
     const res = await runHook(dir, stub.url);
     assert.equal(res.status, 0, res.stderr);
     const slugs = stub.upserts().map(putKeyOf);
-    assert.equal(slugs.length, 8, slugs.join(','));
+    assert.equal(slugs.length, 2 + BUNDLED_KEYS.length, slugs.join(',')); // 2 workspace rules + every bundled rule
     assert.deepEqual(new Set(slugs.slice(0, 3)), new Set(PROTOCOL_BUNDLED_KEYS), `protocol keys first: ${slugs}`);
     assert.deepEqual(stub.tools().slice(0, 2), ['config', 'docs_read']);
   });
@@ -1252,7 +1255,7 @@ test('S7 probe (AC5): the hash compare is on LF-normalized bytes - a CRLF rule w
     const res = await runHook(dir, stub.url);
     assert.equal(res.status, 0, res.stderr);
     assert.equal(stub.upserts().length, 0);
-    assert.ok(lineOf(res).includes('7 in sync.'), lineOf(res)); // 1 workspace + 6 bundled
+    assert.ok(lineOf(res).includes(`${1 + BUNDLED_KEYS.length} in sync.`), lineOf(res)); // 1 workspace + every bundled rule
   });
 });
 
@@ -1287,7 +1290,7 @@ test('S7 probe (AC5): docs_read list follows page.next - a rule on page two coun
     assert.equal(lists[1].cursor, '2');
     for (const l of lists) assert.deepEqual({ select: l.select, rootId: l.rootId, kind: l.kind, limit: l.limit }, { select: 'list', rootId: 'root-pages', kind: 'rule', limit: 200 });
     assert.equal(stub.upserts().length, 0, JSON.stringify(stub.upserts()));
-    assert.ok(lineOf(res).includes('7 in sync.'), lineOf(res));
+    assert.ok(lineOf(res).includes(`${1 + BUNDLED_KEYS.length} in sync.`), lineOf(res));
   });
 });
 
@@ -1356,13 +1359,13 @@ test('S13 (AC5): an upsert version_conflict is failed (version_conflict) and not
 
 // ---- bundled rules: S16 --------------------------------------------------------------------------------------------------
 
-test('S16 (AC5): no workspace rules, none on the server - all six bundled rules pushed with normalized bundled bytes and expectedVersion 0', async () => {
+test('S16 (AC5): no workspace rules, none on the server - all bundled rules pushed with normalized bundled bytes and expectedVersion 0', async () => {
   const { dir, configState } = inSyncProject('root-s16');
   await withStub({ config: configState, seedBundled: false }, async (stub) => {
     const res = await runHook(dir, stub.url);
     assert.equal(res.status, 0, res.stderr);
     const ups = stub.upserts();
-    assert.equal(ups.length, 6);
+    assert.equal(ups.length, BUNDLED_KEYS.length);
     assert.deepEqual(new Set(ups.map(putKeyOf)), new Set(BUNDLED_KEYS));
     for (const u of ups) {
       assert.equal(u.kind, 'rule');
@@ -1374,13 +1377,13 @@ test('S16 (AC5): no workspace rules, none on the server - all six bundled rules 
   });
 });
 
-test('S16 (AC5): an unknown server hash for a bundled key is never overwritten; the other five are pushed and the key is named', async () => {
+test('S16 (AC5): an unknown server hash for a bundled key is never overwritten; every other bundled rule is pushed and the key is named', async () => {
   const { dir, configState } = inSyncProject('root-s16b');
   await withStub({ config: configState, seedBundled: false, docs: { 'commit-discipline': { hash: 'a'.repeat(64), version: 5 } } }, async (stub) => {
     const res = await runHook(dir, stub.url);
     assert.equal(res.status, 0, res.stderr);
     const slugs = stub.upserts().map(putKeyOf);
-    assert.equal(slugs.length, 5);
+    assert.equal(slugs.length, BUNDLED_KEYS.length - 1);
     assert.ok(!slugs.includes('commit-discipline'));
     assert.ok(lineOf(res).includes('kept unrecognized server copy: commit-discipline'), lineOf(res));
   });
@@ -1409,7 +1412,7 @@ test('75f0e354 S15 (AC5): listing elements that are null / non-object / lack a s
     const res = await runHook(dir, stub.url);
     assert.equal(res.status, 0, res.stderr);
     assert.equal(stub.upserts().length, 0);
-    assert.ok(lineOf(res).includes('6 in sync.'), lineOf(res));
+    assert.ok(lineOf(res).includes(`${BUNDLED_KEYS.length} in sync.`), lineOf(res));
     assert.ok(!lineOf(res).includes('unusable'), lineOf(res));
   });
 });
@@ -1504,14 +1507,14 @@ test('S16 (AC5): FileChanged pushes workspace rules only - no bundled sync', asy
 
 // ---- replay against a stateful server ------------------------------------------------------------------------------------
 
-test('probe: replay against the stateful stub - run one syncs config and seven rules, run two pushes and upserts nothing', async () => {
+test('probe: replay against the stateful stub - run one syncs config and every rule, run two pushes and upserts nothing', async () => {
   const dir = tmpConfigDir();
   writeConfig(dir, projectConfigText('root-replay'));
   writeRuleFile(dir, 'aaa.md', 'Replay rule.\r\n');
   await withStub({ seedBundled: false }, async (stub) => {
     const first = await runHook(dir, stub.url);
     assert.equal(first.status, 0, first.stderr);
-    assert.equal(stub.upserts().length, 7);
+    assert.equal(stub.upserts().length, 1 + BUNDLED_KEYS.length);
     assert.equal(stub.configOps().filter((o) => o.op === 'push').length, 1);
     const before = stub.calls.length;
     const second = await runHook(dir, stub.url);
@@ -1519,7 +1522,7 @@ test('probe: replay against the stateful stub - run one syncs config and seven r
     const delta = stub.calls.slice(before);
     assert.deepEqual(delta.map((c) => c.tool), ['config', 'docs_read'], 'run two: a get and a listing only');
     assert.ok(lineOf(second).includes('already in sync'), lineOf(second));
-    assert.ok(lineOf(second).includes('Rules: 7 in sync.'), lineOf(second));
+    assert.ok(lineOf(second).includes(`Rules: ${1 + BUNDLED_KEYS.length} in sync.`), lineOf(second));
   });
 });
 
@@ -1550,7 +1553,7 @@ test('S15 / 75f0e354 S9 + S13 (AC5, AC6) SessionStart: shared 8000ms budget - pr
     assert.ok(deferred, `deferral clause missing: ${line}`);
     const pushed = line.match(/pushed (\d+)/);
     const x = pushed ? Number(pushed[1]) : 0;
-    assert.equal(x + Number(deferred[1]), 14, `pushed ${x} + deferred ${deferred[1]} must cover all 14 rules: ${line}`);
+    assert.equal(x + Number(deferred[1]), 8 + BUNDLED_KEYS.length, `pushed ${x} + deferred ${deferred[1]} must cover all ${8 + BUNDLED_KEYS.length} rules: ${line}`);
     assert.ok(slugs.length === x || slugs.length === x + 1, `server received ${slugs.length} upserts, hook reports ${x} pushed`);
     const lastArrival = Math.max(...stub.calls.map((c) => c.at)) - started;
     assert.ok(lastArrival < 8000 + 1000, `nothing may be sent once the budget is spent (last request at +${lastArrival}ms)`);
