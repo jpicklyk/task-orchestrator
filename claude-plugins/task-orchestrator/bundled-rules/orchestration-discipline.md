@@ -12,9 +12,11 @@ Three habits keep the orchestrator's context lean and every seat's record intact
    writes in one call, so put them in one call before delegating. Reads in parallel are fine and
    encouraged. Write work that cannot be batched goes to a subagent at the bulk class, which keeps
    the orchestrator context lean.
-3. **Re-review follows the review level.** After fixes, an item-level review re-runs on a fresh
-   reviewer seat; a feature-level review is re-checked by the same reviewer, and a fresh seat only
-   when it cannot resume. Never rewrite the first reviewer's note, and never append to or re-upsert
+3. **The original reviewer re-checks the fixes.** After a blocking finding is fixed, at item or
+   feature level, the original reviewer re-checks the fix diff against the finding ids, by name; a
+   fresh reviewer seat is used only when the original cannot be resumed. An observation fix gets no
+   re-review unless it changes behaviour beyond the finding, and then the original reviewer
+   re-checks that diff only. Never rewrite the first reviewer's note, and never append to or re-upsert
    any note another seat owns (an ownership refusal is permanent; there is no takeover). The
    orchestrator's own confirmation of the fixes goes under its own orchestrator-owned key,
    `orchestrator-confirmation`, not into a seat's note.
