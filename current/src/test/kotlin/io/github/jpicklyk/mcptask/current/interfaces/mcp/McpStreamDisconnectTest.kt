@@ -246,8 +246,8 @@ class McpStreamDisconnectTest {
                             fun tail(c: RawSseConnection) =
                                 c.text
                                     .takeLast(200)
-                                    .replace("\r", "\r")
-                                    .replace("\n", "\n")
+                                    .replace("\r", "\\r")
+                                    .replace("\n", "\\n")
                             val gapMs = (secondHeadAt - firstHeadAt) / 1_000_000
                             return "replace probe: first ended=$firstEnded status=${first.status} " +
                                 "closedByServer=${first.closedByServer} tail='${tail(first)}'; " +
