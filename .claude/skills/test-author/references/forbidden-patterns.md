@@ -1,6 +1,7 @@
 # Forbidden Test Patterns — Before/After Examples
 
-Companion reference for `SKILL.md` §7. Each pattern below is shown as it actually recurred in
+Companion to the served rule `forbidden-test-patterns` (its claude section points here), alongside
+`SKILL.md` section 7. Each pattern below is shown as it actually recurred in
 this codebase's history (paraphrased to the general shape, not copy-pasted from a specific commit)
 alongside the fix. Use these as the concrete shape to watch for when writing or reviewing tests
 under the `needs-test-author` trait — declaring a pattern in `test-manifest` means recognizing it
@@ -9,63 +10,64 @@ looks like this, not just recognizing the pattern's name.
 All examples are Kotlin/JUnit5, matching this codebase's test conventions
 (`current/src/test/kotlin/...`).
 
-The tool classes and shapes in these examples are illustrative 3.x idioms and do not compile in 4.0; use the declarations block for the real signatures.
+Every type, function and constant named in these examples is declared in `current/src` at HEAD
+(`WorkItem`, `ClaimState`, `RrfFusion`, `etagForVersion`, `AdvanceService`, `WorkItemRepository`,
+`ItemsReadTool`); local helper names (`seedItem`, `advanceService`) stand for the test's own setup.
+Use the declarations block for the exact signatures.
 
 ---
 
 ## 1. `assumeTrue` on Non-Platform Conditions
 
 `assumeTrue` (and `org.junit.jupiter.api.Assumptions`) exists to skip a test on an environment it
-structurally cannot run in — a Windows-only path test on CI running Linux, a test requiring a
+structurally cannot run in - a Windows-only path test on CI running Linux, a test requiring a
 service that isn't provisioned locally. Using it to guard a *behavioral* precondition converts a
 would-be failure into a silent, permanently-green skip. Three real production bugs in this
-codebase's history shipped wrapped exactly this way — the test that would have caught each one
+codebase's history shipped wrapped exactly this way - the test that would have caught each one
 never ran red, because it never ran at all.
 
-**Before — behavioral condition disguised as an environment guard:**
+**Before - behavioral condition disguised as an environment guard:**
 
 ```kotlin
 @Test
-fun `claim rejects when TTL already expired`() {
-    val item = createClaimedItem(ttlExpiresAt = Instant.now().minusSeconds(5))
+fun `an expired claim is not active`() {
+    val now = Instant.parse("2026-01-01T12:00:00Z")
+    val item = claimedItem(claimedAt = now.minusSeconds(60), claimExpiresAt = now.minusSeconds(5))
 
-    // "only meaningful once the claim table is populated" — but this is the exact
+    // "only meaningful once the claim is populated" - but this is the exact
     // state under test, not an environment precondition.
-    assumeTrue(item.claim != null)
+    assumeTrue(ClaimState.of(item) != null)
 
-    val result = claimTool.execute(ClaimRequest(item.id, actor = "agent-2"))
-
-    assertTrue(result is ClaimResult.Rejected)
+    assertFalse(ClaimState.of(item)!!.isActive(now))
 }
 ```
 
-If `createClaimedItem` ever regresses and stops populating `claim`, this test silently stops
-running instead of failing — the exact failure mode that let a claim-expiry bug ship unnoticed.
+If `claimedItem` ever regresses and stops populating the claim fields, this test silently stops
+running instead of failing - the exact failure mode that let a claim-expiry bug ship unnoticed.
 
-**After — the precondition is asserted, not assumed away; a genuine platform guard (if any) is
+**After - the precondition is asserted, not assumed away; a genuine platform guard (if any) is
 separate and clearly labeled:**
 
 ```kotlin
 @Test
-fun `claim rejects when TTL already expired`() {
-    val item = createClaimedItem(ttlExpiresAt = Instant.now().minusSeconds(5))
-    check(item.claim != null) { "test setup invariant: createClaimedItem must populate claim" }
+fun `an expired claim is not active`() {
+    val now = Instant.parse("2026-01-01T12:00:00Z")
+    val item = claimedItem(claimedAt = now.minusSeconds(60), claimExpiresAt = now.minusSeconds(5))
+    val state = checkNotNull(ClaimState.of(item)) { "test setup invariant: claimedItem must populate the claim" }
 
-    val result = claimTool.execute(ClaimRequest(item.id, actor = "agent-2"))
-
-    assertTrue(result is ClaimResult.Rejected, "expected expired claim to be rejected, got $result")
+    assertFalse(state.isActive(now), "expected an expired claim to be inactive, got $state")
 }
 
 @Test
 @EnabledOnOs(OS.WINDOWS)
-fun `UNC path claim resolves against configured share`() {
-    // A genuine platform guard — this scenario only exists on Windows.
+fun `UNC path resolves against the configured share`() {
+    // A genuine platform guard - this scenario only exists on Windows.
     ...
 }
 ```
 
-`check()` fails loudly if the setup invariant breaks, instead of quietly removing the test from
-the suite. The platform-specific test uses `@EnabledOnOs`, JUnit5's actual mechanism for
+`checkNotNull` fails loudly if the setup invariant breaks, instead of quietly removing the test
+from the suite. The platform-specific test uses `@EnabledOnOs`, JUnit5's actual mechanism for
 environment gating, so it's visually distinct from a behavioral assumption.
 
 ---
@@ -80,48 +82,47 @@ feature works or is a no-op.
 
 ```kotlin
 @Test
-fun `search returns FTS-ranked results for a matching query`() {
-    val results = queryItemsTool.execute(QueryRequest(search = "authentication"))
+fun `items_read search returns the matching item for a matching query`() {
+    val hits = searchTitles(query = "authentication")   // titles from an items_read search call
 
-    // Accepts either a real ranked result set OR an empty one — passes either way.
-    assertTrue(results.hits.isNotEmpty() || results.hits.isEmpty())
+    // Accepts either a real result set OR an empty one - passes either way.
+    assertTrue(hits.isNotEmpty() || hits.isEmpty())
 }
 ```
 
-That assertion is a tautology — `isNotEmpty() || isEmpty()` is true of every possible list. Even
-a narrower version, `results.hits.any { it.title.contains("auth") } || results.hits.isEmpty()`,
-still passes if the search returns nothing at all, which is precisely the failure mode a search
-feature test needs to catch.
+That assertion is a tautology - `isNotEmpty() || isEmpty()` is true of every possible list. Even
+a narrower version, `hits.any { it.contains("auth") } || hits.isEmpty()`, still passes if the
+search returns nothing at all, which is precisely the failure mode a search feature test needs to
+catch.
 
-**After — the oracle states what must be true, with no no-op escape hatch:**
+**After - the oracle states what must be true, with no no-op escape hatch:**
 
 ```kotlin
 @Test
-fun `search returns FTS-ranked results for a matching query`() {
+fun `items_read search returns the matching item for a matching query`() {
     seedItem(title = "Implement authentication flow")
     seedItem(title = "Unrelated documentation update")
 
-    val results = queryItemsTool.execute(QueryRequest(search = "authentication"))
+    val hits = searchTitles(query = "authentication")
 
-    assertEquals(1, results.hits.size, "expected exactly the seeded matching item")
-    assertEquals("Implement authentication flow", results.hits.first().title)
+    assertEquals(listOf("Implement authentication flow"), hits, "expected exactly the seeded matching item")
 }
 ```
 
 If a genuine "no results" scenario needs coverage, it gets its own scenario with its own oracle
-(`assertTrue(results.hits.isEmpty())` against a query with no matching seed data) — never folded
-into the positive case as an alternate acceptable outcome.
+(`assertTrue(searchTitles("zzz-no-such-term").isEmpty())` against seed data with no match) - never
+folded into the positive case as an alternate acceptable outcome.
 
 ---
 
 ## 3. Oracle-From-Implementation
 
-The test's expected value was read from the implementation under test — either by literally
+The test's expected value was read from the implementation under test - either by literally
 calling into the same formula, or by running the code once and pasting whatever it returned.
 Either way, the test now verifies "the code agrees with itself," which stays green even if the
 formula or the pasted value is wrong.
 
-**Before — the test recomputes the same formula the implementation uses:**
+**Before - the test recomputes the same formula the implementation uses:**
 
 ```kotlin
 @Test
@@ -135,11 +136,11 @@ fun `RrfFusion scores rank 1 higher than rank 2`() {
 }
 ```
 
-If `RrfFusion.score`'s formula were wrong — say, `k - rank` instead of `k + rank` — this test
+If `RrfFusion.score`'s formula were wrong - say, `k - rank` instead of `k + rank` - this test
 would still pass, because the test derived its expectation from the same (wrong) formula rather
 than from the Reciprocal Rank Fusion definition the formula is supposed to implement.
 
-**After — the oracle is the documented algorithm (Reciprocal Rank Fusion, standard IR technique:
+**After - the oracle is the documented algorithm (Reciprocal Rank Fusion, standard IR technique:
 `score = 1/(k + rank)`, cited independently of this codebase), computed by hand for a fixed input,
 not read from the function under test:**
 
@@ -158,28 +159,27 @@ fun `RrfFusion scores rank 1 higher than rank 2`() {
 ```
 
 The literal expected values were computed outside the codebase (a calculator, or a second
-implementation) — not by calling `RrfFusion.score` and copying its output.
+implementation) - not by calling `RrfFusion.score` and copying its output.
 
-**A second shape of the same failure — tautological self-computation of a derived value**, seen
-in ETag-style ("compute a value from a timestamp/version, then assert the computed value equals
-itself") tests:
+**A second shape of the same failure - tautological self-computation of a derived value**, seen
+in ETag-style ("compute a value from a version, then assert the computed value equals itself")
+tests:
 
 ```kotlin
-// Before — asserts the function agrees with itself
+// Before - asserts the function agrees with itself
 @Test
-fun `etagFor produces a versioned tag`() {
-    val modifiedAt = Instant.parse("2026-07-31T12:00:00Z")
-    val expected = "\"v1-${modifiedAt.toEpochMilli()}\""   // re-derives etagFor's own body
-    assertEquals(expected, etagFor(modifiedAt))
+fun `etagForVersion produces a quoted version tag`() {
+    val version = 7L
+    val expected = "\"v$version\""   // re-derives etagForVersion's own body
+    assertEquals(expected, etagForVersion(version))
 }
 
-// After — the oracle is the documented format contract, with a value computed independently
+// After - the oracle is the documented format contract (RFC 9110 strong validator: a quoted
+// opaque string, here "v<version>"), written as a literal
 @Test
-fun `etagFor produces a versioned tag`() {
-    // Oracle: documented contract is "v1-<modifiedAtMillis>"; 2026-07-31T12:00:00Z is
-    // epoch millis 1785499200000 (computed independently via `date -d ... +%s%3N`).
-    val modifiedAt = Instant.parse("2026-07-31T12:00:00Z")
-    assertEquals("\"v1-1785499200000\"", etagFor(modifiedAt))
+fun `etagForVersion produces a quoted version tag`() {
+    assertEquals("\"v7\"", etagForVersion(7L))
+    assertNotEquals(etagForVersion(7L), etagForVersion(8L), "every write bumps the version, so the tag must change")
 }
 ```
 
@@ -199,39 +199,43 @@ correct one.
 
 ```kotlin
 @Test
-fun `context read returns resolved schema for item with traits`() {
-    val context = getContextTool.execute(GetContextRequest(itemId = itemWithTrait.id))
+fun `items_read context returns the resolved schema for an item with traits`() {
+    val context = readContext(itemWithTrait.id)   // the items_read context select, as JSON
 
     assertNotNull(context)
-    assertTrue(context.expectedNotes.isNotEmpty())
+    assertTrue(context.getValue("schema").jsonArray.isNotEmpty())
 }
 ```
 
-This passes if `expectedNotes` contains the wrong notes, the wrong roles, or the base schema
-notes with the trait notes silently missing — anything non-empty satisfies it.
+This passes if `schema` contains the wrong notes, the wrong roles, or the base schema notes with
+the trait notes silently missing - anything non-empty satisfies it.
 
 **After:**
 
 ```kotlin
 @Test
-fun `context read returns resolved schema for item with traits`() {
-    val context = getContextTool.execute(GetContextRequest(itemId = itemWithTrait.id))
+fun `items_read context returns the resolved schema for an item with traits`() {
+    val context = readContext(itemWithTrait.id)
 
-    val noteKeys = context.expectedNotes.map { it.key }.toSet()
+    val rows = context.getValue("schema").jsonArray.map { it.jsonObject }
     assertEquals(
-        setOf("task-scope", "test-plan"),  // base schema key + trait-merged key
-        noteKeys,
-        "expected base schema note merged with needs-test-author's queue-phase note"
+        setOf("task-scope", "test-plan"),   // base schema key + trait-merged key
+        rows.map { it.getValue("key").jsonPrimitive.content }.toSet(),
+        "expected the base schema note merged with needs-test-author's queue-phase note"
     )
-    assertEquals("queue", context.expectedNotes.first { it.key == "test-plan" }.role)
+    val testPlan = rows.first { it.getValue("key").jsonPrimitive.content == "test-plan" }
+    assertEquals("queue", testPlan.getValue("role").jsonPrimitive.content)
 }
 ```
+
+The tool under test is `ItemsReadTool` (`select` `context`); the wire shape is the tool's own
+`describe: true` schema, not a guess.
 
 ---
 
 ## 5. Mock-Order-Only Verification
 
-Every collaborator mocked, and the only assertion is that calls happened in some order — nothing
+Every collaborator mocked, and the only assertion is that calls happened in some order - nothing
 is asserted about the unit's actual output or resulting state. This confirms the code path was
 taken, not that it produced a correct result.
 
@@ -239,41 +243,41 @@ taken, not that it produced a correct result.
 
 ```kotlin
 @Test
-fun `advance evaluates the policy before persisting the transition`() {
-    val policy = mockk<TransitionPolicy>(relaxed = true)
+fun `advance reads the item before persisting the transition`() = runTest {
     val repository = mockk<WorkItemRepository>(relaxed = true)
-    val service = advanceServiceWith(repository, policy)
+    val service = advanceService(repository)
 
-    service.advance(item, trigger = "start")
+    service.advance(item, trigger = "start", summary = null, actorClaim = null, verification = null)
 
-    verifyOrder {
-        policy.evaluate(any(), Trigger.User.START)
+    coVerifyOrder {
+        repository.getById(item.id)
         repository.update(any())
     }
 }
 ```
 
-If `update` were called with the wrong target role, or `evaluate`'s decision were ignored
-entirely, this test would still pass — it never looks at what was actually passed or returned.
+If `update` were called with the wrong target role, or the policy's decision were ignored
+entirely, this test would still pass - it never looks at what was actually passed or returned.
 
-**After — order is verified where it matters, plus a real assertion on the resulting state:**
+**After - order is verified where it matters, plus a real assertion on the resulting state:**
 
 ```kotlin
 @Test
-fun `advance evaluates the policy before persisting the transition`() {
-    val policy = mockk<TransitionPolicy>()
-    every { policy.evaluate(any(), Trigger.User.START) } returns allowInto(Role.WORK)
-    val repository = mockk<WorkItemRepository>(relaxed = true)
-    val service = advanceServiceWith(repository, policy)
+fun `advance reads the item before persisting the transition`() = runTest {
+    val repository = mockk<WorkItemRepository>()
+    coEvery { repository.getById(item.id) } returns item
+    coEvery { repository.update(any()) } answers { firstArg() }
+    val service = advanceService(repository)
 
-    val result = service.advance(item, trigger = "start")
+    val outcome = service.advance(item, trigger = "start", summary = null, actorClaim = null, verification = null)
 
-    verifyOrder {
-        policy.evaluate(any(), Trigger.User.START)
-        repository.update(match { it.id == item.id && it.role == Role.WORK })
-    }
+    val result = (outcome as AdvanceOutcome.Success).result
     assertEquals(Role.WORK, result.newRole)
     assertTrue(result.applied)
+    coVerifyOrder {
+        repository.getById(item.id)
+        repository.update(match { it.id == item.id && it.role == Role.WORK })
+    }
 }
 ```
 
@@ -286,18 +290,17 @@ happened, and the return value is checked independently of the mock interactions
 
 An assertion placed inside a `try` block whose `catch` logs or silently ignores the exception
 means an assertion failure (which JUnit5 raises as an `AssertionError`, a `Throwable`) and a
-legitimately caught exception both read as "test passed" — because nothing outside the `try`
+legitimately caught exception both read as "test passed" - because nothing outside the `try`
 block observed the difference.
 
 **Before:**
 
 ```kotlin
 @Test
-fun `notes upsert accepts a note within maxLength`() {
+fun `advance start moves a queue item to work`() = runTest {
     try {
-        val result = manageNotesTool.execute(upsertRequest)
-        assertEquals(NOTE_LIMITS_OK, result.warning)
-        assertTrue(result.success)
+        val outcome = advanceService.advance(item, trigger = "start", summary = null, actorClaim = null, verification = null)
+        assertEquals(Role.WORK, (outcome as AdvanceOutcome.Success).result.newRole)
     } catch (e: Exception) {
         // "some environments don't have the schema loaded yet"
         println("skipping: ${e.message}")
@@ -305,25 +308,23 @@ fun `notes upsert accepts a note within maxLength`() {
 }
 ```
 
-If `manageNotesTool.execute` throws for any reason — including a real regression — the
-`AssertionError` from a failed `assertEquals` is caught by the same `catch (e: Exception)` as a
-genuine setup problem, logged, and the test reports green.
+If `advance` throws for any reason - including a real regression - the failure is caught by the
+same `catch (e: Exception)` as a genuine setup problem, logged, and the test reports green.
 
-**After — no `catch` around the assertions; a genuine setup precondition is checked before the
-`try`, not used to swallow failures after it:**
+**After - no `catch` around the assertions; a genuine setup precondition is checked before the
+call, not used to swallow failures after it:**
 
 ```kotlin
 @Test
-fun `notes upsert accepts a note within maxLength`() {
-    check(schemaService.isLoaded()) { "test setup invariant: schema must be loaded before this test" }
+fun `advance start moves a queue item to work`() = runTest {
+    check(item.role == Role.QUEUE) { "test setup invariant: the item must start in queue" }
 
-    val result = manageNotesTool.execute(upsertRequest)
+    val outcome = advanceService.advance(item, trigger = "start", summary = null, actorClaim = null, verification = null)
 
-    assertEquals(NOTE_LIMITS_OK, result.warning)
-    assertTrue(result.success)
+    assertEquals(Role.WORK, (outcome as AdvanceOutcome.Success).result.newRole)
 }
 ```
 
-If the tool call itself is expected to throw under some condition, assert that directly with
-`assertThrows<SpecificExceptionType> { ... }` — never a bare `catch` that treats any exception,
+If the call itself is expected to throw under some condition, assert that directly with
+`assertThrows<SpecificExceptionType> { ... }` - never a bare `catch` that treats any exception,
 assertion failures included, as an acceptable outcome.
