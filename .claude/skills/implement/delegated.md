@@ -101,10 +101,13 @@ Agent(
 ```
 
 **Model and effort.** Follow `task-orchestrator:orchestrate` "Dispatching an item's phase owner".
+A fix after a failed test or review runs on a fresh agent at the raised effort (run-wave
+`references/post-run.md` "Fix cycle after a Fail").
 
 **Contract-change sweep discipline (orchestrator-owned, after the implementer returns and before
 build verification).** Follow rule `contract-change-sweep`, and declare each repair SHA in the
-review handoff.
+review handoff. When a fix changes shipped behaviour after docs were written, grep the changed docs for claims
+about the old behaviour and fix or route each hit (dispositions as rule `planning-sweeps` point 3).
 
 **SHA capture and disjointness (whenever `needs-test-author` applies).** Capture HEAD before and
 after the implementer's dispatch, and again around the test author's (Step 4b), then run rule

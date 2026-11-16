@@ -130,7 +130,7 @@ effort and agent. By hand:
   "pre-existing" failures is contamination from an earlier parallel commit, not a baseline.
 
 **File-edit overlap discipline:** Scope each agent to its row in the dispatch contract's File
-ownership slot (materialized per `post-plan-workflow` step 2). When inherent overlap exists, under
+ownership slot (filled at Step 2 from the dispatch contract template). When inherent overlap exists, under
 run-wave declare the file in both scopes (`Shared file, lock-serialized: <path> (with <other short>)`)
 and add no BLOCKS edge; a hand-dispatch still dispatches sequentially, without an edge.
 
@@ -138,7 +138,8 @@ and add no BLOCKS edge; a hand-dispatch still dispatches sequentially, without a
 
 **Contract-change sweep discipline (orchestrator-owned, after the implementers return and before
 build verification).** Follow rule `contract-change-sweep`, and declare each repair SHA in the
-review handoff (the Review scoping commit map).
+review handoff (the Review scoping commit map). When a fix changes shipped behaviour after docs were written, grep the changed docs for claims
+about the old behaviour and fix or route each hit (dispositions as rule `planning-sweeps` point 3).
 
 **Model and effort.** Follow `task-orchestrator:orchestrate` "Dispatching an item's phase owner".
 
