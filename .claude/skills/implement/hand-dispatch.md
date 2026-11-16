@@ -95,9 +95,8 @@ git -C <FEATURE_WORKTREE> diff <pre-sha>..<post-sha> --name-only           # imp
 git -C <FEATURE_WORKTREE> diff <test-pre-sha>..<test-post-sha> --name-only # author range
 ```
 
-- impl-range ∩ `src/test/**` = ∅ (the implementer touched no test files)
-- author-range ∩ `src/main/**` = ∅ **and** author-range is non-empty (the author touched only
-  test files, and touched at least one)
+The ranges must pass rule `test-file-ownership` item 3; the per-contributor commit list serves only
+the narrower check of rule `review-scoping` item 2.
 
 A violation is reverted (`git -C <FEATURE_WORKTREE> revert` the offending commit, or a targeted
 `git checkout` of the crossed-boundary file back to the prior SHA) and recorded in the child's
@@ -105,21 +104,7 @@ A violation is reverted (`git -C <FEATURE_WORKTREE> revert` the offending commit
 
 ## Committing in a shared worktree
 
-One worktree means **one git index**, shared by every agent in the wave. `git add` stages into
-that shared index, so a bare `git commit` sweeps up whatever another agent staged in flight —
-the mechanism behind three cross-contaminated commits and one dropped commit in the 2026-09 bug
-wave (proposal `568e7f7e` / #301). Three consequences:
-
-- **Commit by pathspec, then verify.** `git commit --only -- <owned paths>` commits the named
-  paths regardless of what else is staged, and `git show --stat HEAD` proves it did; a mismatch
-  is undone with `reset --soft HEAD~1` and re-committed the same way. The exact sequence agents
-  are given — staging, commit, verification, recovery — is the **Commit discipline** slot of
-  [`references/dispatch-contract-template.md`](references/dispatch-contract-template.md);
-  dispatch prompts point there rather than restating it, so every agent in a wave uses one form.
-- **`--only` scopes by PATH, not by hunk.** It protects you from other agents' *files*, not from
-  unreviewed changes inside your own. A `ktlintFormat` pass that reformatted a neighbouring file
-  is excluded because that file is unowned; an unrelated edit inside a file you own is not. Read
-  the diff of your own paths before committing whenever a formatter has run.
-- **There is no git equivalent of the gradle lock.** Gradle contention is serialized by a lock
-  helper the orchestrator provides; the git index has no such gate, so path scoping is the
-  entire safety mechanism, not a belt-and-braces addition to one.
+One worktree means one shared git index. Every seat commits per rule `commit-discipline`, in the
+wave-specific form of the **Commit discipline** slot of
+[`references/dispatch-contract-template.md`](references/dispatch-contract-template.md); dispatch
+prompts point at that slot rather than restating it.

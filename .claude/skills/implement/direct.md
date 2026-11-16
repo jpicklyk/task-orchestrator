@@ -35,11 +35,11 @@ or refactoring.
 
 ## Step 3 — Queue Phase: Planning
 
-No plan mode and no queue-phase notes. Call `advance` `transition` with `trigger: "start"`
-immediately to move the item to work; the `quick-fix` schema has no required queue notes, so the
-gate passes. **Exception:** a bug-fix carrying `needs-test-author` (temporal-only degraded mode,
-front door Step 1) fills `test-plan` before this advance (front door "Planning rules", seat
-timing). A gate or lease refusal: front door "Planning rules".
+No plan mode. Fill any note `items_read` `context` lists in `gateStatus.missing`, then call
+`advance` `transition` with `trigger: "start"` to move the item to work. **Exception:** a bug-fix
+carrying `needs-test-author` (temporal-only degraded mode, rule `trait-selection`) fills
+`test-plan` before this advance (front door "Planning rules", seat timing). A gate or lease
+refusal: front door "Planning rules".
 
 ---
 
@@ -48,16 +48,10 @@ timing). A gate or lease refusal: front door "Planning rules".
 Implement directly: edit the files, then run front door "Verification command" on the branch's
 checkout.
 
-**A bug-fix carrying `needs-test-author`** runs test-first-then-fix instead of implementing
-first:
-(a) `test-plan` is filled at queue phase, before any implementation begins (Step 3);
-(b) write the regression test from the `diagnosis` note's reproduction steps and **observe it
-red against the pre-fix code**, recording the red evidence (assertion, observed value) in
-`test-manifest`;
-(c) implement the fix;
-(d) confirm the test is green post-fix and record that confirmation too.
-`test-manifest` declares the single seat. There is one seat and one commit range, so no
-ownership two-range check applies.
+**A bug-fix carrying `needs-test-author`** runs test-first-then-fix per rule `test-author`
+section 5 item 1, in the Direct degraded mode (section 1, single-item exception), recording the
+red and green evidence in `test-manifest`. `test-manifest` declares the single seat; no two-range
+check applies.
 
 ---
 
@@ -73,17 +67,11 @@ ownership two-range check applies.
    and carries no volatile counts. A docs-, process- or chore-only change adds none; its PR body
    states `Changelog: none (<why>)`. `/prepare-release` Step 8c folds these bullets into the
    release section.
-3. **Fill the `session-tracking` note** (required by both `quick-fix` and `default` schemas) as a
-   delta record per its schema guidance: outcome, the `Commits:` line, the `Verified:` line,
-   deviations and friction (for `quick-fix`, one short paragraph on what the fix was and why that
-   way, then those lines). No file list and no test counts.
-4. **Live-owed check.** Before the work-exit `advance`, read `session-tracking` for its
-   `**Live-owed**:` line (spec-quality, "State matrix"). Any entry not ending
-   `run <date>: <result>` or `deferred: <item id>` is open and holds the item in work until it is
-   run or deferred; a matrix with `live-owed` cells and no `**Live-owed**:` line counts as an open
-   entry.
+3. **Fill the `session-tracking` note** per its guidance (rule `closure-notes`).
+4. **Live-owed check.** Before the work-exit `advance`, apply rule `live-checks` "The Live-owed
+   hold".
 5. **Advance out of work:** `trigger: "start"` when the schema has a review phase, or
-   `trigger: "complete"` to terminal when it has none (`quick-fix`). Step 5 reads `newRole`.
+   `trigger: "complete"` to terminal when it has none. Step 5 reads `newRole`.
 
 ---
 
@@ -97,14 +85,9 @@ ownership two-range check applies.
   This inline, orchestrator-written review applies only outside a run (Direct never runs under
   one).
 
-**On a bug-fix carrying `needs-test-author`**, the `test-independence-audit` covers:
-- `test-plan` was frozen at queue phase, before implementation began, and the red-first
-  evidence (Step 4, (b)) is recorded in `test-manifest`.
-- No `assumeTrue`, `@Disabled` or other weakening was introduced after the test's first commit.
-- The ownership two-range check is recorded as `N/A: temporal-only, single seat`; it cannot fail.
-
-Verdict: `independent-degraded (temporal-only)` when every applicable check passes, never plain
-`independent` (the `test-author` skill, section 11 "Degraded Modes"); `not-independent` (blocking) when one fails.
+**On a bug-fix carrying `needs-test-author`**, fill `test-independence-audit` per its guidance and
+`skillPointer`. Direct is temporal-only: the verdict is at best `independent-degraded`, and the
+two-range check is recorded as `N/A: temporal-only, single seat`.
 
 Write the review note, then advance to terminal: `advance` `transition` with
 `trigger: "complete"`.
