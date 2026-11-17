@@ -145,8 +145,9 @@ components:
       required: [name, notes]
       description: >-
         dispatch and resources are omitted (not present) when the trait declares neither —
-        never an empty map/array. Reflects GLOBAL config only; a per-root override of the
-        same trait's dispatch/resources is not visible here.
+        never an empty map/array. dispatch and resources reflect GLOBAL config only; a per-root
+        override of the same trait's dispatch/resources is not visible here. description and
+        appliesWhen come from whichever layer declares the trait, per-root included.
       properties:
         name:
           type: string

@@ -112,7 +112,8 @@ migration aid. It checks `default_traits` lists only, because the validator does
 
 A note entry's `skill` is a string or a non-empty list of distinct non-blank strings, kept in invocation order.
 `skill_mode` is `invoke` (default) or `method-on-diff`. `method-on-diff` marks the skill as a method the reviewer
-applies to the item's owned diff, and the plugin's review-wave filters the diff for that mode only. A mode without a
+applies to the item's owned diff, and the plugin's review-wave then keeps only the findings whose file is owned (every
+review lane is given the owned-file diff; the mode adds that findings filter). A mode without a
 `skill`, or a value other than those two, counts as `invoke`. `items_read` `schema` serves `skills` only when a note names two
 or more skills and `skillMode` only when it is `method-on-diff`; a single-skill, `invoke` note serves as before.
 A malformed list (empty, a non-string or blank element, a repeated name) or an unusable `skill_mode` is a parser finding
@@ -123,8 +124,10 @@ A malformed list (empty, a non-string or blank element, a repeated name) or an u
 A review-role note entry may declare `lane`, a map of `output` (`verdict`, the default, or `findings`) and `after`
 (a note key or a list of note keys). `findings` lanes return findings only and never set the item verdict. `after` is an
 ordering hint: the lanes of those notes run first, and it never halts or skips a lane. The server checks the shape, not
-that an `after` key exists in the effective schema. `lane` on a note whose role is not `review`, an unknown key inside it,
-or an unusable value is a parser finding: an error under `STRICT`, dropped with a warning under `MIGRATION`.
+that an `after` key exists in the effective schema. A parser finding is an error under `STRICT` and a warning under
+`MIGRATION`, and each of these is one: `lane` on a note whose role is not `review` (the lane is dropped), a `lane` that is
+not a map (dropped), an unknown key inside it (ignored, the lane kept), and an `output` other than `verdict` or
+`findings` (it falls back to `verdict`).
 
 ### Trait `description` and `applies_when`
 
