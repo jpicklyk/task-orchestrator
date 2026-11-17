@@ -15,6 +15,7 @@ import {
   HOST_SKILLS,
   declaredSkills,
   pluginShippedNames,
+  pluginShippedSkillNames,
   scanDomainBoundary,
 } from '../../scripts/lib/contract-checks.mjs';
 
@@ -53,7 +54,7 @@ function scanText(text, names, extra = {}) {
 function pluginScan(allow, baseline) {
   const projectSkillDirs = readdirSync(join(REPO, '.claude', 'skills'))
     .filter((n) => statSync(join(REPO, '.claude', 'skills', n)).isDirectory());
-  const shipped = new Set(pluginShippedNames(PLUGIN));
+  const shipped = new Set(pluginShippedSkillNames(PLUGIN));
   const names = [...new Set([...HOST_SKILLS, ...projectSkillDirs])].filter((n) => !shipped.has(n)).sort();
   return scanDomainBoundary({
     root: PLUGIN,
