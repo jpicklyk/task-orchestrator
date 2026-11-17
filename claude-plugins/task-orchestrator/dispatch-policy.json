@@ -16,5 +16,23 @@
     "research": { "model": "sonnet", "effort": "medium", "use": "Read-only research and exploration" },
     "bulk": { "model": "haiku", "effort": "medium", "use": "Bulk writes and other checkable mechanical work" },
     "extraction": { "model": "sonnet", "effort": "low", "use": "Extractors and retrospective data pulls" }
+  },
+  "tiers": {
+    "thresholds": { "directMaxFiles": 2, "delegatedMaxFiles": 10 },
+    "rows": {
+      "Direct": { "criteria": "known fix, no migration/new API", "pipeline": "Orchestrator edits, tests, reviews inline" },
+      "Delegated": { "criteria": "single logical unit, clear or explorable scope", "pipeline": "Single subagent, separate review agent" },
+      "Parallel": { "criteria": "multiple independent work streams, dependency edges", "pipeline": "Worktree agents, full pipeline" }
+    },
+    "forceUp": [
+      { "when": "Database migration", "bound": "min", "tier": "Delegated" },
+      { "when": "New public API surface", "bound": "min", "tier": "Delegated" },
+      { "when": "Multiple independent work streams", "bound": "exact", "tier": "Parallel" },
+      { "when": "User says \"let's plan\" / collaborative language", "bound": "min", "tier": "Delegated" }
+    ],
+    "forceDown": [
+      { "when": "User says \"just fix it\" / \"quick\"", "bound": "exact", "tier": "Direct", "note": "unless complexity contradicts" },
+      { "when": "The item's type resolves to the `default` schema, or the item is schema-free", "bound": "eligible", "tier": "Direct" }
+    ]
   }
 }

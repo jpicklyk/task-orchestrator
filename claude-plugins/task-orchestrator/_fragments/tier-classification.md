@@ -5,11 +5,13 @@
 | 11+ files, multiple independent work streams, dependency edges | **Parallel** | Worktree agents, full pipeline |
 
 **Force-UP signals** (bump tier regardless of file count):
-- Database migration → min Delegated
-- New public API surface → min Delegated
-- Multiple independent work streams → Parallel
-- User says "let's plan" / collaborative language → min Delegated
+- Database migration -> min Delegated
+- New public API surface -> min Delegated
+- Multiple independent work streams -> Parallel
+- User says "let's plan" / collaborative language -> min Delegated
 
 **Force-DOWN signals:**
-- User says "just fix it" / "quick" → Direct (unless complexity contradicts)
+- User says "just fix it" / "quick" -> Direct (unless complexity contradicts)
 - The item's type resolves to the `default` schema, or the item is schema-free -> eligible for Direct
+
+Thresholds and signals are data: `tiers` in the plugin's `dispatch-policy.json`. When `.taskorchestrator/tier-policy.json` exists beside the project config, the table in force is the output of `node <plugin root>/scripts/tier-policy.mjs`.

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-// Regenerates the shared tier-classification block in every consumer file from the
-// single canonical fragment (tier-classification.md). Run this after
-// editing the fragment — the copies must never be hand-edited.
+// Renders the shared tier-classification fragment (tier-classification.md) from the `tiers` key of
+// dispatch-policy.json, then copies it into every consumer file. The fragment is generated, never
+// hand-edited: edit the data and run this. The generator never reads a project tier-policy.json
+// override (scripts/tier-policy.mjs renders that). Also: the copies must never be hand-edited. Run after
+// editing the data— the copies must never be hand-edited.
 //
 //   node claude-plugins/task-orchestrator/_fragments/generate.mjs            # rewrite copies in place
 //   node claude-plugins/task-orchestrator/_fragments/generate.mjs --check    # verify only, non-zero exit on drift (CI)
@@ -13,6 +15,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
+import { tierPolicy, renderTierBlock } from '../scripts/lib/dispatch-policy.mjs';
 
 const MARKER = 'tier-classification';
 const BEGIN = `<!-- BEGIN GENERATED:${MARKER}`;
@@ -22,8 +25,8 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, '../../..');
 const norm = (s) => s.replace(/\r\n/g, '\n');
 
-// Canonical content, normalized to exactly one trailing newline.
-const fragment = norm(readFileSync(resolve(scriptDir, 'tier-classification.md'), 'utf8')).replace(/\n*$/, '\n');
+// Canonical content: rendered from dispatch-policy.json (tiers), exactly one trailing newline.
+const fragment = renderTierBlock(tierPolicy());
 
 const check = process.argv.includes('--check');
 const extra = process.argv.slice(2).filter((a) => !a.startsWith('--'));
@@ -44,6 +47,22 @@ const targets = [
 
 let failures = 0;
 let changed = 0;
+
+// The fragment file itself is generated output too.
+{
+  const fragPath = resolve(scriptDir, 'tier-classification.md');
+  const current = existsSync(fragPath) ? norm(readFileSync(fragPath, 'utf8')) : null;
+  if (current !== fragment) {
+    if (check) {
+      console.error(`OUT OF SYNC: ${fragPath} - run: node claude-plugins/task-orchestrator/_fragments/generate.mjs`);
+      failures++;
+    } else {
+      writeFileSync(fragPath, fragment);
+      console.log(`updated: ${fragPath}`);
+      changed++;
+    }
+  }
+}
 for (const path of targets) {
   if (!existsSync(path)) {
     console.error(`ERROR: consumer missing: ${path}`);

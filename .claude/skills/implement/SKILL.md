@@ -50,7 +50,7 @@ that checks whether a change is present in the codebase.
 
 **Execution tier** — classify by this table (canonical source shared with the `task-orchestrator:orchestrate` skill; edit the fragment, not this copy):
 
-<!-- BEGIN GENERATED:tier-classification | source: claude-plugins/task-orchestrator/_fragments/tier-classification.md · regen: node claude-plugins/task-orchestrator/_fragments/generate.mjs -->
+<!-- BEGIN GENERATED:tier-classification | source: claude-plugins/task-orchestrator/dispatch-policy.json (tiers) · regen: node claude-plugins/task-orchestrator/_fragments/generate.mjs -->
 | Criteria | Tier | Pipeline |
 |----------|------|----------|
 | 1-2 files, known fix, no migration/new API | **Direct** | Orchestrator edits, tests, reviews inline |
@@ -58,14 +58,16 @@ that checks whether a change is present in the codebase.
 | 11+ files, multiple independent work streams, dependency edges | **Parallel** | Worktree agents, full pipeline |
 
 **Force-UP signals** (bump tier regardless of file count):
-- Database migration → min Delegated
-- New public API surface → min Delegated
-- Multiple independent work streams → Parallel
-- User says "let's plan" / collaborative language → min Delegated
+- Database migration -> min Delegated
+- New public API surface -> min Delegated
+- Multiple independent work streams -> Parallel
+- User says "let's plan" / collaborative language -> min Delegated
 
 **Force-DOWN signals:**
-- User says "just fix it" / "quick" → Direct (unless complexity contradicts)
+- User says "just fix it" / "quick" -> Direct (unless complexity contradicts)
 - The item's type resolves to the `default` schema, or the item is schema-free -> eligible for Direct
+
+Thresholds and signals are data: `tiers` in the plugin's `dispatch-policy.json`. When `.taskorchestrator/tier-policy.json` exists beside the project config, the table in force is the output of `node <plugin root>/scripts/tier-policy.mjs`.
 <!-- END GENERATED:tier-classification -->
 
 Delegated with ≥2 ready items, or Parallel → run `/task-orchestrator:run-wave` (the Route table's
