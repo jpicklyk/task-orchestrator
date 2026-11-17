@@ -845,7 +845,7 @@ function mapStageResult(stage, env, entryMode = 'seat', item) {
       return { status: 'stopped', reason: `planner: ${env.output.blockReason}` }
     }
     if (item && env.output.needsTestAuthor === true && noTestOwner(item)) {
-      return { status: 'stopped', reason: 'no-test-owner: needs-test-author requested by planner' }
+      return { status: 'stopped', reason: 'no-test-owner: planner requested a test-author seat' }
     }
     if (
       env.output.proceed === true &&
@@ -864,7 +864,7 @@ function mapStageResult(stage, env, entryMode = 'seat', item) {
       if (noTestOwner(item)) {
         return {
           status: 'stopped',
-          reason: `no-test-owner: add needs-test-author or clear testFiles (${env.output.testFiles.join(', ')})`,
+          reason: `no-test-owner: no test-author seat; apply a trait that declares one (config effective lists them) or clear testFiles (${env.output.testFiles.join(', ')})`,
         }
       }
     }

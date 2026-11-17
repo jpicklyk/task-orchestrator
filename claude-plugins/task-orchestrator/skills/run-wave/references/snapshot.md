@@ -131,12 +131,14 @@ paths are prefixed with the item worktree; directory and glob entries pass throu
   `implementer` on an item with no test-author stage owns the same union. An `implementer` on an item
   WITH a test-author stage owns no test files (its owned-tests verify renders `SKIP <name>: no owned test files`).
 - No test owner: a seat-aware item (implementer stage not `implicitOwner`) with no test-author stage whose planner returns
-  non-empty `testFiles` is stopped with `no-test-owner: add needs-test-author or clear testFiles (<list>)` before the
-  implementer is dispatched (`existingTestEdits` alone never stops it). A seat-less item (`implicitOwner` implementer) is
+  non-empty `testFiles` is stopped with
+  `no-test-owner: no test-author seat; apply a trait that declares one (config effective lists them) or clear testFiles (<list>)`
+  before the implementer is dispatched (`existingTestEdits` alone never stops it). A seat-less item (`implicitOwner` implementer) is
   exempt. The planner prompt states `Test-author stage: present|absent` (no line on a seat-less item), and a planner may
   return `needsTestAuthor: true`; on an item with no test owner that stops it before any implementer pass with
-  `no-test-owner: needs-test-author requested by planner` (checked right after `proceed: false`, before the
-  envelope-mismatch stop). On that reason the orchestrator adds the `needs-test-author` trait (`items_write` update),
+  `no-test-owner: planner requested a test-author seat` (checked right after `proceed: false`, before the
+  envelope-mismatch stop). On that reason the orchestrator applies a trait that declares a test-author seat (`config` `effective`
+  lists them; `items_write` update),
   writes the stopped planner's envelope (decisions, mainFiles, docFiles, existingTestEdits) into an orchestrator
   carry-in note `carry-in-frozen-plan` (under 1200 characters, carry-in shape of run-wave/SKILL.md Step 3) and
   relaunches; the rerun planner disposes it in scope and adds only the test-plan. Whenever an implementer has no test-author stage and the owned set is non-empty, its HANDOFF block ends with
