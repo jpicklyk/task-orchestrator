@@ -6,7 +6,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isLegacyShape, parseToolResult } from '../lib/envelope.mjs';
+import { isLegacyShape, parseEnvelopeText, parseToolResult } from '../lib/envelope.mjs';
+import { extractResponseJson } from '../retro-lib.mjs';
 
 const PARSED_KEYS = ['data', 'error', 'legacy', 'ok', 'reqId', 'results', 'summary'];
 const LEGACY_PARSED = { ok: false, legacy: true, data: null, error: null, results: [], summary: null, reqId: null };
@@ -272,4 +273,90 @@ test('S11 probe: a non-object structuredContent falls through to content[0].text
     assert.equal(p.ok, true, JSON.stringify(sc));
     assert.equal(p.reqId, 'k7f3q9ab', JSON.stringify(sc));
   }
+});
+
+// f2b33c33: a 4.0 MCP error text is `<code>: <message>`, a newline and the compact error envelope
+// (api-reference.md "Response envelope", the MCP text-content sentence). A client that sends no
+// structuredContent still yields the envelope from that last line.
+
+function errorText(env) {
+  return `${env.error.code}: ${env.error.message}\n${JSON.stringify(env)}`;
+}
+
+const NOT_FOUND = {
+  ok: false,
+  error: { code: 'not_found', kind: 'permanent', message: 'No item matches 0000.', detail: { kind: 'item', id: '0000' }, fix: 'Verify the id.' },
+  meta: { reqId: 'tail0001' },
+};
+
+test('f2b33c33: an error text with the JSON tail and no structuredContent yields the error envelope', () => {
+  const p = parseToolResult({ content: [{ type: 'text', text: errorText(NOT_FOUND) }], isError: true });
+  assert.ok(p);
+  assert.equal(p.ok, false);
+  assert.equal(p.error.code, 'not_found');
+  assert.equal(p.error.kind, 'permanent');
+  assert.equal(p.error.fix, 'Verify the id.');
+  assert.deepEqual(p.error.detail, { kind: 'item', id: '0000' });
+  assert.equal(p.reqId, 'tail0001');
+});
+
+test('f2b33c33: the same error text as a bare string parses identically', () => {
+  assert.deepEqual(parseToolResult(errorText(NOT_FOUND)), parseToolResult({ content: [{ type: 'text', text: errorText(NOT_FOUND) }] }));
+});
+
+test('f2b33c33: a partial_failure tail keeps the failing results with their index and the summary', () => {
+  const env = {
+    ok: false,
+    error: { code: 'partial_failure', kind: 'permanent', message: '1 of 2 elements failed.' },
+    data: { results: [{ index: 1, ok: false, error: { code: 'not_found', message: 'gone', fix: 'check id' } }], summary: { ok: 1, failed: 1 } },
+    meta: { reqId: 'tail0002' },
+  };
+  const p = parseToolResult({ content: [{ type: 'text', text: errorText(env) }], isError: true });
+  assert.equal(p.error.code, 'partial_failure');
+  assert.equal(p.results.length, 1);
+  assert.equal(p.results[0].index, 1);
+  assert.equal(p.results[0].error.code, 'not_found');
+  assert.deepEqual(p.summary, { ok: 1, failed: 1 });
+});
+
+test('f2b33c33: retryAfterMs in the tail is lifted as from structuredContent', () => {
+  const env = { ok: false, error: { code: 'unavailable', kind: 'shedding', message: 'busy', retryAfterMs: 250 }, meta: { reqId: 'tail0003' } };
+  const viaTail = parseToolResult({ content: [{ type: 'text', text: errorText(env) }], isError: true });
+  assert.deepEqual(viaTail, parseToolResult(viaStructured(env)));
+  assert.equal(viaTail.error.retryAfterMs, 250);
+});
+
+test('f2b33c33: a message containing a newline still takes the last line as the tail', () => {
+  const env = { ...NOT_FOUND, error: { ...NOT_FOUND.error, message: 'line one\nline two' } };
+  const p = parseToolResult({ content: [{ type: 'text', text: errorText(env) }], isError: true });
+  assert.equal(p.error.message, 'line one\nline two');
+});
+
+test('f2b33c33: a last line that is not an error envelope is ignored -> null', () => {
+  for (const text of [
+    'gate_blocked: missing notes\nnot json',
+    'not_found: x\n{"ok":true,"data":{}}',
+    'not_found: x\n{"ok":false}',
+    'not_found: x\n[1,2]',
+    'not_found: x\n',
+    'ok',
+  ]) {
+    assert.equal(parseToolResult({ content: [{ type: 'text', text }], isError: text !== 'ok' }), null, text);
+  }
+});
+
+test('f2b33c33: parseEnvelopeText takes a whole JSON text first, then only an error-envelope tail', () => {
+  assert.deepEqual(parseEnvelopeText(JSON.stringify(okEnvelope())), okEnvelope());
+  assert.deepEqual(parseEnvelopeText(errorText(NOT_FOUND)), NOT_FOUND);
+  assert.equal(parseEnvelopeText('ok'), null);
+  assert.equal(parseEnvelopeText(undefined), null);
+  assert.equal(parseEnvelopeText(42), null);
+});
+
+test('f2b33c33: retro-lib extractResponseJson reads the error tail in every text-bearing shape', () => {
+  const text = errorText(NOT_FOUND);
+  for (const shape of [text, [{ type: 'text', text }], { content: [{ type: 'text', text }] }, { type: 'text', text }]) {
+    assert.deepEqual(extractResponseJson(shape), NOT_FOUND, JSON.stringify(shape).slice(0, 40));
+  }
+  assert.equal(extractResponseJson({ content: [{ type: 'text', text: 'ok' }] }), null);
 });
