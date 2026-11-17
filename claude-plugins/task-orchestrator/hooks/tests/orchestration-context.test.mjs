@@ -20,7 +20,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { directorMarkerPath } from '../execution-mode.mjs';
@@ -82,6 +82,7 @@ function exec(fx, stdin, extraEnv = {}) {
       CLAUDE_CONFIG_DIR: '',
       TASK_ORCHESTRATOR_HOME: fx.toHome,
       TASK_ORCHESTRATOR_MODE: '',
+      CLAUDE_CODE_EXPERIMENTAL_CODE_MODE: '',
       TEMP: fx.tmpDir,
       TMP: fx.tmpDir,
       TMPDIR: fx.tmpDir,
@@ -377,4 +378,77 @@ test('a8b9ebfb S1: both variants carry the load-together sentence exactly once a
     assert.ok(c.length < 9000, `${name}: ${c.length}`);
     assert.equal(c.split(LOAD_TOGETHER).length - 1, 1, `${name}: sentence must appear exactly once`);
   }
+});
+
+// ---- CM: Code Mode routing hint ---------------------------------------------------------------
+
+const CM_ENV = { CLAUDE_CODE_EXPERIMENTAL_CODE_MODE: '1' };
+const CM_HEADING = '## Code Mode';
+const CM_FILES = ['references/code-mode.md', 'skills/_generated/call-shapes-js.md'];
+const PLUGIN_ROOT = fileURLToPath(new URL('../..', import.meta.url));
+
+function cmText(cfg, env) {
+  return ctxOf(run(cfg, { session_id: 's1' }, env));
+}
+
+test('CM1: with the variable at 1 each variant carries the section once and names both files', () => {
+  for (const [name, cfg] of VARIANTS) {
+    const c = cmText(cfg, CM_ENV);
+    assert.equal(c.split(CM_HEADING).length - 1, 1, name);
+    for (const f of CM_FILES) assert.ok(c.includes(f), `${name}: ${f}`);
+  }
+});
+
+test('CM2: unset or any other value leaves the output byte-equal to the plain output', () => {
+  for (const [name, cfg] of VARIANTS) {
+    const plain = cmText(cfg, {});
+    assert.ok(!plain.includes(CM_HEADING), name);
+    for (const v of ['', '0', 'true', ' 1', 'yes']) {
+      assert.equal(cmText(cfg, { CLAUDE_CODE_EXPERIMENTAL_CODE_MODE: v }), plain, `${name}: ${JSON.stringify(v)}`);
+    }
+  }
+});
+
+test('CM3: with the variable at 1 the output is the plain output plus an appended section only', () => {
+  for (const [name, cfg] of VARIANTS) {
+    const plain = cmText(cfg, {});
+    const cm = cmText(cfg, CM_ENV);
+    assert.ok(cm.startsWith(plain + '\n\n' + CM_HEADING + '\n'), name);
+    assert.ok(cm.length - plain.length < 700, name);
+  }
+});
+
+test('CM4: the variable never lifts a gate', () => {
+  for (const cfg of [BASE, SCHEMA_CFG]) {
+    assert.deepEqual(run(cfg, { session_id: 's1', agent_id: 'sub' }, CM_ENV), {});
+    assert.deepEqual(run(cfg, { session_id: 's1' }, { ...CM_ENV, TASK_ORCHESTRATOR_MODE: 'headless-iteration' }), {});
+    const fx = fixture(cfg);
+    plantDirector(fx, 'dir-session');
+    assert.deepEqual(exec(fx, { session_id: 'dir-session' }, CM_ENV), {});
+  }
+  assert.deepEqual(run(null, { session_id: 's1' }, CM_ENV), {});
+  assert.deepEqual(run(ext('off'), { session_id: 's1' }, CM_ENV), {});
+});
+
+test('CM5: the section keeps the to-call, retired-name and last-numbered-principle checks passing', () => {
+  for (const [name, cfg] of VARIANTS) {
+    const c = cmText(cfg, CM_ENV);
+    const section = c.slice(c.indexOf(CM_HEADING));
+    for (const b of parseToCallBlocks(c)) {
+      assert.ok(!('error' in b), `${name}:${b.line}`);
+      assert.deepEqual(checkToCall(b.value, CATALOG), [], `${name}:${b.line}`);
+    }
+    for (const t of RETIRED_3X_TOOLS) {
+      assert.ok(!new RegExp('(?<![A-Za-z0-9_])' + t + '(?![A-Za-z0-9_])').test(section), `${name}: ${t}`);
+    }
+    const starts = [...c.matchAll(/^[ \t]*\d+\.[ \t]/gm)].map((m) => m.index);
+    assert.ok(c.slice(starts[starts.length - 1]).includes('orchestrator-confirmation'), name);
+    assert.ok(!section.includes('mcp__'), name);
+    for (const ch of section) assert.ok(ch.charCodeAt(0) < 128, `${name}: non-ASCII`);
+  }
+});
+
+test('CM6: both routed files exist under the plugin root', () => {
+  assert.ok(existsSync(join(PLUGIN_ROOT, 'skills', 'run-wave', 'references', 'code-mode.md')));
+  assert.ok(existsSync(join(PLUGIN_ROOT, 'skills', '_generated', 'call-shapes-js.md')));
 });

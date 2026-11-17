@@ -7,6 +7,9 @@
 // Gates, in order (each emits `{}`): suppressionReason (headless iteration, subagent, director session)
 // -> no located config -> orchestration mode off (read from extensions.claude-code.orchestration).
 // Mode `workflow` (default, also for absent/invalid) or `schema` selects the variant.
+// When CLAUDE_CODE_EXPERIMENTAL_CODE_MODE is exactly '1' a short `## Code Mode` section is appended
+// after the variant: a routing hint to the run-wave Code Mode recipes, never a gate (the per-session
+// code-mode marker cannot exist at SessionStart, so the variable is the only signal there).
 // Fail-open: any throw yields `{}` and exit 0.
 
 import { suppressionReason } from './execution-mode.mjs';
@@ -136,6 +139,10 @@ ${ACTION_ITEMS}
 
 ${VISUAL}`;
 
+const CODE_MODE_SECTION = `## Code Mode
+
+This session runs in Code Mode: every tool is a global inside a \`REPL\` script. Run each run-wave coordinator step through its recipe in the \`task-orchestrator:run-wave\` skill's \`references/code-mode.md\`, and take Task Orchestrator call shapes from \`skills/_generated/call-shapes-js.md\`. Keep seat prompts, tokens and note bodies inside the script and return only a projection.`;
+
 function buildOrchestrationContext(mode) {
   if (mode === 'schema') return SCHEMA_CONTEXT;
   if (mode === 'workflow') return WORKFLOW_CONTEXT;
@@ -148,7 +155,8 @@ function main() {
   if (!loc || loc.scope === 'none' || typeof loc.text !== 'string' || !loc.text) return {};
   const ctx = buildOrchestrationContext(parseOrchestrationConfig(loc.text).mode);
   if (!ctx) return {};
-  return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: ctx } };
+  const full = process.env.CLAUDE_CODE_EXPERIMENTAL_CODE_MODE === '1' ? ctx + '\n\n' + CODE_MODE_SECTION : ctx;
+  return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: full } };
 }
 
 let out = {};
