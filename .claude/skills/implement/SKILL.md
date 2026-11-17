@@ -238,19 +238,21 @@ update-branch), before merge.
 - **Final `complete`.** An item with its own PR (Direct, Delegated, a per-item wave item, a
   shared-mode parent) completes only after the `MERGED` check above. The closure notes are not
   rewritten to record the merge; the merged PR is the record. Two post-merge writes still happen:
-  the live acceptance line (`post-run.md` Step 7b (d)) and the wave parent's
-  `red-proof-results` note (the item itself when it is a single item) (`post-run.md` Step 7a). Exceptions: a shared-mode child (`wave.md` Step 6) and
+  the steps this repo's `run-profile.json` `postRun` declares with `when` `post-merge`: the live acceptance
+  line (rule `live-checks` "Post-merge holder", step (d)) and the wave parent's `red-proof-results` note
+  (the item itself when it is a single item; rule `red-proofs`), per `post-run.md` Step 7a. Exceptions: a shared-mode child (`wave.md` Step 6) and
   a review-less run member (`post-run.md` Step 4).
 
 ### After merge
 
 **Post-merge live acceptance.** Split off live checks that need a refreshed plugin cache or a user
-opt-in as run-wave `references/post-run.md` Step 7b and rule `live-checks` "Post-merge holder" say,
-BEFORE completing the item or feature. For an item that is not a feature, put the item in the
+opt-in as the `live-acceptance` step (rule `live-checks` "Post-merge holder", steps (a)-(e)) and run-wave
+`references/post-run.md` Step 7b say, BEFORE completing the item or feature. For an item that is not a feature, put the item in the
 feature's place and its parent as the holder's parent.
 
-**Wave-boundary red-proofs** (background; they gate nothing) run per rule `test-author` section 5
-(points 7, 9, 10) and run-wave `references/post-run.md` Step 7a items 1-7. Beyond those:
+**Wave-boundary red-proofs** (the `red-proofs` post-merge step; background, they gate nothing) run per rule
+`red-proofs` (which points at rule `test-author` section 5, points 7, 9, 10) and run-wave
+`references/post-run.md` Step 7a. Beyond those:
 - A single item is its own wave parent.
 - Apply each mutation with `references/patch-anchored.py`, `DRY=1` first.
 - Mutations on node tests under `claude-plugins/` run in an extraction made by

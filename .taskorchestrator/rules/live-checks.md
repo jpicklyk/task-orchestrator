@@ -35,3 +35,25 @@ The holder's specification opens with this next-session preamble: (1) purge the 
 update the marketplace, per `claude-plugins/CLAUDE.md` "Plugin Discovery and Cache Refresh"; (2)
 once the next session starts, grep the cached files for one string the change added, and name that
 string in the specification.
+
+The same holder is this project's post-merge step `live-acceptance` (`run-profile.json` `postRun`,
+`when` `post-merge`). After the feature PR has merged (under review handoff the project's finalization
+carries the same step), if the only non-terminal children are live checks that need a refreshed plugin
+cache or a user opt-in:
+
+- (a) Create one holder item (type `plugin-change`) titled `Post-merge live acceptance: <feature title>`
+  under the feature's parent, its `specification` filled at creation and opening with the preamble above.
+- (b) `deps_write` `create` a `relates_to` edge from the holder to the feature.
+- (c) Re-parent each such check under the holder (`items_write` `update` `parentId`).
+- (d) Add one line `Post-merge live acceptance: <holder short id> (<check short ids>)` to the feature's
+  `session-tracking`, token-less when that note was created token-less (it stays re-writable after the
+  runs close), else in `orchestrator-confirmation`, since a note created under a coordinator token takes a
+  re-edit only inside an open run.
+- (e) Complete the feature.
+
+The preamble always gets the user's opt-in for any check that runs the Workflow tool, as its step (3).
+Then one line per re-parented check. The next session runs the checks, fills the holder's
+`session-tracking` and completes it. Create the holder and re-parent the checks before (e): a terminal
+parent takes no new children. In shared mode, where the feature review runs before the feature PR is
+pushed, the split and the feature's complete wait for the merge. No server gate enforces the split: it
+is discipline.

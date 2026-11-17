@@ -51,6 +51,16 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
 - `profile.knownRed` — optional array of `{test, reason, expires?, tracking?}` (`expires` as `YYYY-MM-DD`, or
   `tracking`, required). `plan` copies live entries into `args.project.knownRed` and drops one whose
   `expires` is before the plan date with a warning `knownRed <test> expired <date>`.
+- `profile.postRun` - optional array of `{step, when, rule, command?, appliesTo?}`: the project's declared
+  post-run and post-merge steps. `step` and `rule` are rule keys (lowercase letters, digits, dot, underscore,
+  hyphen; start alphanumeric; 1-100 characters), `when` is `post-run` or `post-merge`, `command` a non-empty
+  string, `appliesTo` the same pattern list as `profile.verify[].appliesTo`; unknown entry keys are ignored.
+  `plan` copies the entries in order to `meta.postRun` (`[]` when absent); `post-run-steps` selects them.
+- `profile.review` - optional: `"handoff"`, `"generic"` or `{mode, skill?, step?, onFail?}` (`mode` handoff or
+  generic; `skill` required for handoff; `onFail` `stop` or `fix-cycle`, default `fix-cycle`; unknown keys
+  ignored). `plan` copies the normalized value to `meta.review`: absent or `"generic"` is
+  `{mode:"generic", onFail:"fix-cycle"}`, `"handoff"` is `{mode:"handoff", onFail:"fix-cycle"}`, an object keeps
+  its `mode` and `onFail` plus `skill` and `step` for handoff only. A profile without either key plans as before.
 - `profile.runBudget` — optional `{attemptsPerSeat?, maxActiveSeats?}`: when set,
   `plan` copies it to `meta.runBudget` and `run-ops --phase open` sends it as the run's `budget`
   (absent means no cap; the server refuses a budget above its configured ceiling). `plan` also copies
@@ -99,6 +109,19 @@ Structural checks beyond the ones already documented in the helper's own doc com
   absolute, contains a `..` segment, is empty (`.`, `./`), or has only `*`/`**` segments.
 - `profile.verify[<i>].appliesTo must be an array of repo-relative patterns` - the key is present but is
   empty, not an array of non-empty strings, or holds an absolute, drive-letter or `..` pattern.
+- `profile.postRun must be an array` - present and not an array (including `null`).
+- `profile.postRun[<i>] must have step, when (post-run or post-merge) and rule` - the entry is not an object,
+  or `step` or `rule` is absent or not a rule key, or `when` is absent or not in the enum.
+- `profile.postRun[<i>].command must be a non-empty string` - `command` is present and is not.
+- `profile.postRun[<i>].appliesTo must be an array of repo-relative patterns` - the same predicate as
+  `profile.verify[<i>].appliesTo`.
+- `profile.postRun[<i>].step "<step>" repeats an earlier step` - an equal `step` at a later index.
+- `profile.review must be "handoff", "generic" or an object` - any other string, number, boolean, `null` or array.
+- `profile.review.mode must be handoff or generic` - the object's `mode` is absent or another value.
+- `profile.review.skill must be a non-empty string` - `mode` handoff with no `skill`, or a `skill` that is not
+  a non-empty string.
+- `profile.review.step must be a non-empty string` - `step` is present and is not.
+- `profile.review.onFail must be stop or fix-cycle` - `onFail` is present and is neither.
 - `profile.knownRed must be an array` - the key is present but is not an array (including `null`).
 - `profile.knownRed[<i>] must have test, reason and expires (YYYY-MM-DD) or tracking` - one per entry that
   lacks a non-empty `test` or `reason`, or has neither a valid `expires` date nor a `tracking` reference.

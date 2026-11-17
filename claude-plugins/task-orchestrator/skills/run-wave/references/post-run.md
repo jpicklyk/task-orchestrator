@@ -29,8 +29,8 @@ lists under `items[].outputs.<seat>`, plus a `rollup` of counts, and cuts every 
 characters. The planner `sweep` entries keep `kind`, `hits`, `disposed`, the `unowned` file names and
 the `grep` cut to 120 characters, and both scenario lists (`testPlanScenarios`, `manifestScenarios`)
 survive whole, so Step 1's sweep and coverage checks run on a safe result. The seat prose (planner decisions, corrections, deviations) is not in it; read it from
-the seats' notes when a later step needs it. `redProofShape` survives, cut to 200 characters; Step
-7c reads the full shape from the test-plan note's `red-proof-shape:` line. A `reseat` from a safe
+the seats' notes when a later step needs it. `redProofShape` survives, cut to 200 characters; a
+declared post-merge step (Step 7a) reads the full shape from the test-plan note's `red-proof-shape:` line. A `reseat` from a safe
 result passes scrubbed outputs, so a fix-cycle prompt shows `decisions: none` and
 `diagnosisCorrections: none`: tell the reseated seat to read the item's queue notes (an amendment-free mechanical fix reads the review register), and give a
 test-author reseat `--declarations`.
@@ -143,17 +143,17 @@ returns the budget (`items[].redProof.shape`, plus `items[].redProof.commands` f
 of the project's `run-profile.json` -> `verify[]` entries name the `orchestrator` seat).
 
 **The red-proof policy is a targeted budget, not one proof per scenario, and it runs in two
-places.** The full statement is section 5 of the `test-author` rule when the root serves it
-(fetch it with `docs_read` `get`, `kind` `rule`, `slug` `test-author`, `rootId`); without it,
-run what `items[].redProof.shape` names. What you run HERE, per item, before the item advances
-or merges, is the per-item part of that section. Record per item in the Review scoping slot:
+places.** The full policy is in the rules the item's stages list (`plan.json`
+`args.items[].stages[].rules`, fetched with `config` `op` `rules`); with none listed, run what
+`items[].redProof.shape` names. What you run HERE, per item, before the item advances
+or merges, is the per-item part of that policy. Record per item in the Review scoping slot:
 proofs run, gaps found, approximate minutes. Reviewers read these results and do not re-run
 them, except to verify one they doubt, and then scoped to the owned tests (the `verify[]` entry
 carrying `ownedTestsPattern`), never as the whole suite.
 
 The decision-point **budget mutations** are not run here: they run after the wave's PRs merge,
-batched across the wave, at the merged SHA - Step 7a below. Carry each item's `redProof.shape`
-forward to that step unchanged.
+batched across the wave, at the merged SHA, by the project's declared post-merge step (Step 7a below).
+Carry each item's `redProof.shape` forward to that step unchanged.
 
 A `verify` failure (`items[].ok: false`, non-empty `findings`) on any item
 means that item **fails this run** — do not advance it in Step 4 below, and surface the specific
@@ -297,7 +297,7 @@ run report instead.
 open entry holds that item in work — leave it out of the call below and report it. When the line
 is absent, read the item's spec note's State matrix the same way; no line and no open matrix
 entry means no hold. A live-owed item whose only open entry needs a refreshed plugin cache is the case
-the Step 7b post-merge split handles once the PR merges.
+the Step 7b post-merge steps handle once the PR merges.
 
 **One** `advance` call, under the coordinator token, with one `transition` element per item that
 passed Steps 1–2 and is not held: `trigger: "start"` for an item whose schema has a review phase,
@@ -337,8 +337,11 @@ result's `sweep`) gets an owner, either a sibling item's amendment (`reseat --ca
 follow-up item created first, and the orchestrator's disposition for it names that owner. A hit with
 no owner is not left for the reviewer to find.
 
-**Under `review: "handoff"`** (the project's `run-profile.json`), keep the run open through the project's
-own review step and do not dispatch the generic reviewer yourself. In order:
+**Under `meta.review.mode` `handoff`** (`plan.json` `meta.review`, from the project's `run-profile.json`
+`review`; `generic` or an absent `review` is the Otherwise branch), keep the run open through the review
+step the project names and do not dispatch the generic reviewer yourself: hand off to the skill
+`meta.review.skill` names, at `meta.review.step` when it is set (without one, the project's own review step
+in that skill). In order:
 Step 4 is done and the phase `review` is recorded; assign a reviewer seat per advanced item that entered a review
 phase (the `run-ops --phase assign --item <short> --seat reviewer` command below, under the coordinator token, its
 `seatToken` written to `tokens/<short>.reviewer.token`); hand off to the project's review step with the run open
@@ -394,7 +397,9 @@ review as soon as its work notes are filled.
 built in a worktree, append the worktree path beside the diff command in the generated review
 prompt; each review note's guidance says how its pointed skill applies to that diff.
 
-**Fix cycle after a Fail.** When a review returns Fail, classify each blocking finding, then run the
+**Fix cycle after a Fail.** First read `meta.review.onFail` (`plan.json`): `stop` makes a Fail a Step 6
+human checkpoint, and the recipe below runs only after the human rules the class; `fix-cycle` (the
+default) runs it at once. When a review returns Fail, classify each blocking finding, then run the
 recipe for its class. There is no cap on cycles. A cycle is numbered `A<n>` (A1 for the first Fail,
 A2 for the next); the seat suffix is the cycle number.
 
@@ -414,10 +419,10 @@ The ruling-needed recipe runs four seats, in order, each scoped to one amendment
 
 1. **Planner amends, by name.** Resume the item's planner seat with the blocking findings (via
    `SendMessage`). It writes the ruling into the item's `amendments` note (queue, planner seat;
-   rewritten in full each cycle per its guidance) and never edits the frozen planning note, so
-   `task-scope`, `diagnosis` or `specification` keeps its freeze `modifiedAt` for the independence
-   audit. On a schema with no `amendments` key (plugin-change), append `## Amendment A<n>` to
-   `specification` under the same length rule. An amendment states rulings and behavioural
+   rewritten in full each cycle per its guidance) and never edits the frozen planning body above any
+   amendment, so the item's queue-phase planning note keeps its freeze `modifiedAt` for the independence
+   audit. With no `amendments` key on the schema, it appends `## Amendment A<n>` to that note under the
+   same length rule. An amendment states rulings and behavioural
    changes; the line-level trace belongs to the implementer's commit and the reviewer's re-check,
    not here. The ruling lists every existing test file it expects edited (planner-v1
    `existingTestEdits`) and the mutation red-proofs (within the item's budget) the fix must
@@ -441,8 +446,8 @@ The ruling-needed recipe runs four seats, in order, each scoped to one amendment
    text, no `A<n>` section) and the implementer rewrites `implementation-notes` in full the same way.
 3. **Orchestrator runs the amendment's bug-fix revert, if it names one,** in a scratch copy, never
    the shared tree (same rule as Step 1), applying it as "Applying a mutation or a narrowest
-   revert" above describes. The amendment's named budget mutations join the wave-boundary batch
-   (Step 7a) with the rest of the item's budget.
+   revert" above describes. The amendment's named budget mutations carry forward to the declared
+   post-merge steps (Step 7a) with the rest of the item's budget.
 4. **Original reviewer, by name**, scoped to `git diff <prevReviewedSha>..HEAD -- <owned files>`
    plus the blocking findings, as "Re-review after fixes" below describes. A mechanical fix keeps this
    re-review too: it reads only that diff against the cited ids.
@@ -493,7 +498,7 @@ same scope, so the audit trail distinguishes the cycle. The server knows only sc
 so a fix-cycle seat runs under its **base** seat's assignment: on a still-open run, first re-`assign`
 the base seat (`run-ops --phase assign --item <short> --seat <base seat>`, coordinator token; this
 supersedes the old assignment as attempt n+1) and write the new `seatToken` to the base seat's token
-file. A `review: "handoff"` fix cycle takes this still-open-run branch: the item is still a member of
+file. A `meta.review.mode` `handoff` fix cycle takes this still-open-run branch: the item is still a member of
 the open run, and a second `open` over it is refused (an item must be in no other open run). After that re-assign,
 reseat each fix-cycle seat with the run's own `plan.json` (`reseat --plan plan.json`, the command below), and after the
 re-review verdict do step 5 below (the `session-tracking` and Outcome rewrite, then the `delegation-metadata` re-upsert)
@@ -585,7 +590,7 @@ not restate it.
 | Run seat, fix seat | `<seat>[-a<n>]:<short>` | seat |
 | Review lane | `<seat>.<skill>:<short>` | lane |
 | Item reviewer, feature reviewer | `reviewer:<short>` (the parent's short id for the feature) | seat |
-| Post-merge red-proof runner | `red-proofs:<parent-short>` | red-proofs |
+| Post-merge step runner | `<step>:<parent-short>` | red-proofs when the step is named so |
 | Retrospective agent | `retrospective:<run8>` (first 8 hex of the server run id) | retrospective |
 | Tier 2 coordinator | `coordinator:<target-short>` | coordinator |
 | Research, audit, mining | `research:<topic>` | research |
@@ -618,9 +623,10 @@ item; `--extra-seats` requires `--item`.
 These are not automatable from inside this skill; surface them and wait as the project's own
 process requires:
 
-- Arbitration of a red test authored by an independent test-author seat (per the project's
-  arbitration rule, when the root serves it) is a **human or a separately-dispatched
-  arbitration agent's** call, not this skill's.
+- Ruling on a red test authored by an independent test-author seat is a **human or a
+  separately-dispatched agent's** call, not this skill's.
+- Under `meta.review.onFail` `stop`, a review Fail waits here for a human ruling on its class; the
+  fix-cycle recipe of Step 5 runs only after it.
 - A decision a seat raised (`awaiting_decision`, with its `decisionId`) or a pause decision of the
   run is answered by a human or a director, never by the coordinator. Each one is reported with a
   `decision` report (a decision the coordinator raises itself is reported the same way).
@@ -631,14 +637,14 @@ process requires:
   resume it under the coordinator token and carry the ruling; Step 9's re-snapshot re-dispatches it.
 - Opening a PR and merging it are the checkpoints that carry an item from review to terminal in
   most projects — this skill does not open PRs itself; that's the project workflow's job.
-- Merge rounds that conflict on `CHANGELOG.md` (the `[Unreleased]` bullets) are resolved with
-  `node claude-plugins/task-orchestrator/scripts/resolve-changelog.mjs --ancestor <f> --base <f>
-  --branch <f> [--out <f>]`. It merges per bullet three-way: a one-sided edit or deletion is taken
-  from the side that made it, and when both sides changed the same bullet differently the base
-  branch's copy wins and the branch copy is printed to stderr as `DISCARDED [<section>] <key>`.
+- A merge round that conflicts on an `appendOnlyFiles` file in Keep a Changelog form is resolved with
+  `node "<scripts>/resolve-changelog.mjs" --ancestor <f> --base <f> --branch <f> [--out <f>]`
+  (`<scripts>` is the directory holding `<helper>`). It merges per bullet three-way: a one-sided edit or
+  deletion is taken from the side that made it, and when both sides changed the same bullet differently the
+  base branch's copy wins and the branch copy is printed to stderr as `DISCARDED [<section>] <key>`.
   A merge conflict on any other `appendOnlyFiles` file is resolved by keeping both sides' added lines.
   Exit 0 resolved, 1 duplicate heading (`DUPLICATE <kind> <name>`; fix by hand), 2 invalid input
-  (`--out` is not written on 1 or 2). Stage mapping: `git show :1:CHANGELOG.md` is the ancestor;
+  (`--out` is not written on 1 or 2). Stage mapping: `git show :1:<file>` is the ancestor;
   merging the base into the feature branch, `:2:` (ours) is the branch and `:3:` (theirs) is the
   base; in a rebase onto the base the two swap.
 - A merge round git completes without conflict is not yet a semantic merge. Merge the base with
@@ -654,8 +660,13 @@ process requires:
 
 ## Step 7 — Close and loop
 
-Once the review hand-off (Step 5) has returned (`review: "handoff"`) or been dispatched (otherwise), any review seats of this run have
-been swept (Step 0b again), and any immediate human checkpoints (Step 6) are surfaced, close the run: `node "<helper>" run-ops --plan <plan> --phase close --result <result.json>` renders
+Once the review hand-off (Step 5) has returned (`meta.review.mode` `handoff`) or been dispatched (otherwise), any review seats of this run have
+been swept (Step 0b again), and any immediate human checkpoints (Step 6) are surfaced, run the declared
+post-run steps, then close the run. Write `git diff --name-only <args.baseSha>..HEAD` of each worktree to
+`<scratchpad>/run-wave/<runId>/changed-files.txt` (one path per line), run
+`node "<helper>" post-run-steps --plan <plan.json> --when post-run --files-from <that file>`, and take
+each returned step in order, fetching its rule (`config` `op` `rules`, `rootId`, `key` the step's `rule`) and
+following it; a step in `skipped` did not apply and is reported with its reason. Then close the run: `node "<helper>" run-ops --plan <plan> --phase close --result <result.json>` renders
 `{op: "close", runId, reason}` — `completed` when the result says `started: true`, `failed` when it
 says `started: false` or the launch threw (no result); pass `--reason cancelled` for an explicit user
 stop or `--reason abandoned` for a Resume re-plan of an unrecoverable run (any other `--reason` exits
@@ -679,65 +690,52 @@ reads only open and paused runs, so a finished run is never mistaken for an open
 
 ---
 
-## Step 7a — Wave-boundary red-proofs
+## Step 7a — Declared post-merge steps
 
 Runs once the wave's PRs have merged (per-item mode: every item's PR; shared mode: the feature
-PR, so for a shared wave this step follows the project's finalization) — never before a merge,
-and never as a gate on one. It is the decision-point budget-mutation audit Step 1 deferred, done
-once for the whole wave instead of once per item against the whole suite. Launch it in the
-background and go on to `SKILL.md` Step 9; the next wave's planners do not wait for it.
+PR, so for a shared wave this step follows the project's finalization) - never before a merge,
+and never as a gate on one. The steps are the project's: `plan.json` `meta.postRun` holds the entries its
+`run-profile.json` `postRun` declared, and this step runs those whose `when` is `post-merge`. Launch each
+in the background and go on to `SKILL.md` Step 9; the next wave's planners do not wait for it.
 
-1. **One scratch worktree at the merged SHA:** `git worktree add --detach <unique-tmp>
-   <merged base branch SHA>` (`origin/main`, or the release branch the wave targets). Mutating
-   the merged state is the point: it also catches a merge round that weakened an oracle, which a
-   pre-merge per-item proof cannot see.
-2. **Batch every item's budget** (`items[].redProof.shape` carried from Step 1, plus any fix-cycle
-   amendment's named mutations; skip categories stay skipped). Apply each mutation with the
-   anchored-patch helper ("Applying a mutation or a narrowest revert", Step 1), one mutation
-   present at a time, the tree restored between them.
-3. **Run each mutation scoped**, against the test classes the item's `test-manifest` maps to
-   that scenario, using the run-profile `verify[]` entry carrying `ownedTestsPattern` for the
-   scoped run. Red = the mapped tests failed. A survivor gets ONE whole-suite run, using the
-   entry whose `seats` lists `orchestrator`, to tell "covered at another seam (name the test)"
-   from a real gap; that is the only whole-suite run in this step.
-4. **Triage survivors** per the rule: weak test, equivalent mutant, unreachable, or covered at
-   another seam. A real gap does NOT reopen the item: it becomes a carry-in note on the next
-   item that touches the same seam when one is queued, else one test-only follow-up item per wave
-   (`/task-orchestrator:create-item`, type by the project's convention), which the policy exempts
-   from further proofs. Escalate on evidence as the rule says — a real gap expands the audit to
-   the rest of that item's scenarios, still scoped.
-   A carry-in note is a requirement, not a hand-off dump: the source (item and finding id, or
-   the red-proof survivor), what the receiving item must do in at most five lines, how it is
-   verified (one command), and the acceptance criterion it should become. Anything that enumerates
-   files or lines goes in a `page` document the note names by slug. Target under 1200 characters.
-5. **Record once, on the wave parent** (the feature or container the run was scoped to; the
-   single item when the run had one), under `red-proof-results` (`notes_write` `upsert`, no
-   token): one line per item — proofs run, red/survived, gaps, equivalents, approximate minutes,
-   the scratch path and merged SHA. Reviewers of later waves read it there; nobody re-runs it.
-6. **Remove the scratch worktree** (`git worktree remove --force <unique-tmp>`) and set
-   `redProofs: "done"` in the run's local `state.json` so a resume does not repeat the step.
-7. **Record the runner's meters.** The runner is one background Agent with `description`
-   `red-proofs:<parent-short>` (Label rule) and an explicit `model` and `effort` (the dispatch-model guard requires
-   both). Once it returns, find the runner's own session folder: this step runs after the merge, so it can be a later
-   session than the run's, and the run's session folder is not the one to use. Look under `~/.claude/projects` for the
-   `agent-*.meta.json` whose `description`, display tag stripped, is `red-proofs:<parent-short>`; the folder is the part
-   of its path before `/subagents/` (as in Step 3's layer meters). Run
-   `node "<helper>" session-meters --session-dir <that folder> --label red-proofs:<parent-short>` and append one line to
-   the wave parent's `red-proof-results`: the `agent-meters=` entry of `lines` that command prints for that label,
-   followed by ` run=<runId>` (the plan run id). On `agent-meters=red-proofs:<parent-short>:unknown`, run the command
-   once more on that folder; if the entry is still `unknown`, append it as it is, with ` run=<runId>` (a gap, never
-   zero) and name the gap in the Step 7 report. The write is a token-less `upsert` of the whole body (the note was
-   created token-less in item 5, so it stays writable after the close); no minutes are added.
+1. **Select.** Write `git diff --name-only <meta.featureBaseSha>..<merged SHA>` to
+   `<scratchpad>/run-wave/<runId>/changed-files.txt` (one path per line), then run
+   `node "<helper>" post-run-steps --plan <plan.json> --when post-merge --files-from <that file>`. It prints
+   `{when, review, steps, skipped}`: `steps` are the declared steps that apply, in declared order, and
+   `skipped` lists each step its `appliesTo` dropped with the reason `appliesTo matched no changed file`.
+   Exit 2 is an argument error (a missing flag, a `--when` outside `post-run` and `post-merge`, an
+   unreadable file): fix the call, do not retry it unchanged.
+2. **Per step, in order,** fetch its rule (`config` `op` `rules`, `rootId`, `key` the step's `rule`) and follow
+   the returned body. A `not_found` result means the step was not run: report it with its rule key, and never
+   improvise the procedure. A step's `command`, when declared, is the command the rule names for it.
+3. **The runner.** A step's background runner is one Agent with `description` `<step>:<parent-short>` (Label
+   rule) and an explicit `model` and `effort` (the dispatch-model guard requires both). Once it returns, find
+   the runner's own session folder: this step runs after the merge, so it can be a later session than the
+   run's, and the run's session folder is not the one to use. Look under `~/.claude/projects` for the
+   `agent-*.meta.json` whose `description`, display tag stripped, is `<step>:<parent-short>`; the folder is the
+   part of its path before `/subagents/` (as in Step 3's layer meters). Run
+   `node "<helper>" session-meters --session-dir <that folder> --label <step>:<parent-short>` and record the
+   `agent-meters=` entry of `lines` that command prints for that label, followed by ` run=<runId>` (the plan
+   run id), on the note the step's rule names. On `agent-meters=<step>:<parent-short>:unknown`, run the command
+   once more on that folder; if the entry is still `unknown`, record it as it is, with ` run=<runId>` (a gap,
+   never zero) and name the gap in the Step 7 report.
+4. **Resume.** Record `postMerge.<step>: "done"` in the run's local `state.json` when a step finishes, so a
+   resume does not repeat it.
+
+A carry-in note is a requirement, not a hand-off dump: the source (item and finding id, or
+the red-proof survivor), what the receiving item must do in at most five lines, how it is
+verified (one command), and the acceptance criterion it should become. Anything that enumerates
+files or lines goes in a `page` document the note names by slug. Target under 1200 characters.
 
 ---
 
 ## Step 7b - Feature closure
 
 Applies to a parent with 2 or more children whose resolved schema has a review phase (for example a
-`feature-implementation` type), once EVERY child is terminal (a child that is only a live check needing a
-refreshed plugin cache or a user opt-in is the exception: see "Post-merge live acceptance" below). Shared mode: before the feature PR is
-pushed, so before Step 7a. Per-item mode: after the last child's PR has merged; it does not wait
-on Step 7a. Not covered here: a parent with one child (the project workflow's finalization decides how its
+`feature-implementation` type), once EVERY child is terminal (a child a declared post-merge step moves out, such as a live
+check that needs a refreshed plugin cache or a user opt-in, is the exception: see "Post-merge steps"
+below). Shared mode: before the feature PR is pushed, so before Step 7a. Per-item mode: after the last
+child's PR has merged; it does not wait on Step 7a. Not covered here: a parent with one child (the project workflow's finalization decides how its
 independent parent review runs) and a
 parent whose schema has no review phase (it cascades to terminal when its last child completes and
 its required notes are filled).
@@ -766,7 +764,8 @@ review-role parent, and the parent leaves review only by the explicit advance in
    of the children together); a child's already-disposed observation is never re-listed,
    re-numbered or "carried". The reviewer fills the parent's review-phase notes; the orchestrator
    never rewrites them.
-2. **On Fail**, the default fix path is a fix seat (a fresh `implementer-a<n>` with `description` `implementer-a<n>:<parent-short>`, scoped to the
+2. **On Fail**, first read `meta.review.onFail` (Step 5): `stop` makes the Fail a Step 6 human checkpoint, and the
+   path below runs only after the human rules the class. Under `fix-cycle` the default fix path is a fix seat (a fresh `implementer-a<n>` with `description` `implementer-a<n>:<parent-short>`, scoped to the
    finding's file, dispatched at the escalated effort: the step is 1 plus the seat's
    earlier review or test fixes, as Step 5 states) against the PARENT feature: its dispatch prompt must name it a NON-ENTRY seat
    that never transitions the parent. In shared mode it commits on the feature branch; in per-item
@@ -787,23 +786,12 @@ review-role parent, and the parent leaves review only by the explicit advance in
 4. **Complete.** The orchestrator's explicit `advance` `transition` `complete` on the parent, only
    after N of N.
 
-**Post-merge live acceptance.** After the feature PR has merged (under `review: "handoff"` the
-project's finalization carries the same step), if the
-only non-terminal children are live checks that need a refreshed plugin cache or a user opt-in: (a)
-create one holder item (type per the `live-checks` rule) titled `Post-merge live acceptance: <feature title>` under the
-feature's parent, its `specification` filled at creation; (b) `deps_write` `create` a `relates_to`
-edge from it to the feature; (c) re-parent each such check under it (`items_write` `update`
-`parentId`); (d) add one line `Post-merge live acceptance: <holder short id> (<check short ids>)` to
-the feature's `session-tracking`, token-less when that note was created token-less (it stays re-writable after the runs close), else in `orchestrator-confirmation`, since per Step 3 a note created under a coordinator token takes a re-edit only inside an open run; (e) complete the feature. The holder's type and next-session preamble come from the
-project's `live-checks` rule when the root serves it (its "Post-merge holder" paragraph, numbered
-steps (1)-(2)), else the checks' own type and no rule preamble. Either way the preamble always gets
-the user's opt-in for any check that runs the Workflow tool: as step (3) after the rule's steps, or
-as its only step when the rule is not served. Then one line per re-parented check. The next session runs
-the checks, fills the holder's `session-tracking` and completes it. Create the holder and re-parent
-the checks before (e): a terminal auto parent takes no new children. The complete in item 4 follows
-steps (a)-(d); in shared mode, where Step 7b runs before the feature PR is pushed, the split and item 4
-therefore wait for the merge. No server gate enforces the split: it is discipline, like the dispositions below.
+**Post-merge steps.** After the feature PR has merged, run Step 7a's declared post-merge steps before item 4's
+complete. A step that moves children out of the feature (the rule it names says whether it does) runs before
+that complete, because a terminal parent takes no new children. Under `meta.review.mode` `handoff` the
+project's finalization carries the same steps. No server gate enforces them: it is discipline, like the
+dispositions below.
 
 **Honest limit.** No server gate and no helper checks dispositions: `orchestrator-confirmation`
-is a declared optional note, so this is discipline, not enforcement. Under `review: "handoff"` the
+is a declared optional note, so this is discipline, not enforcement. Under `meta.review.mode` `handoff` the
 project's finalization applies the same rules.

@@ -96,6 +96,99 @@ function canonAppendOnly(raw) {
   return String(raw).replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/{2,}/g, '/');
 }
 
+// Rule-key format (the config rule-key shape): lowercase letters, digits, dot, underscore, hyphen;
+// starts alphanumeric; 1-100 characters.
+const RULE_KEY_RE = /^[a-z0-9][a-z0-9._-]{0,99}$/;
+const POST_RUN_WHEN = ['post-run', 'post-merge'];
+const REVIEW_MODES = ['handoff', 'generic'];
+const REVIEW_ON_FAIL = ['stop', 'fix-cycle'];
+const isNonEmptyString = (v) => typeof v === 'string' && v.trim() !== '';
+// The one predicate for a repo-relative appliesTo pattern list (profile.verify[] and profile.postRun[]).
+function badAppliesTo(ap) {
+  let bad = !Array.isArray(ap) || ap.length === 0 || ap.some((e) => typeof e !== 'string' || e === '');
+  if (!bad) {
+    bad = ap.some((raw) => {
+      const c = canonAppendOnly(raw);
+      const segs = c.split('/');
+      return c === '' || c === '.' || /^\//.test(c) || /^[a-zA-Z]:/.test(c) || segs.includes('..');
+    });
+  }
+  return bad;
+}
+const genericReview = () => ({ mode: 'generic', onFail: 'fix-cycle' });
+
+/**
+ * normalizeReview(review) -> {mode, onFail, skill?, step?}
+ * The plan doc's meta.review for a validated profile.review: absent or "generic" is generic with
+ * onFail fix-cycle; "handoff" is handoff with onFail fix-cycle; an object keeps its mode, its
+ * declared onFail (default fix-cycle) and, for mode handoff only, its declared skill and step.
+ */
+function normalizeReview(review) {
+  if (review === undefined || review === 'generic') return genericReview();
+  if (review === 'handoff') return { mode: 'handoff', onFail: 'fix-cycle' };
+  const out = { mode: review.mode, onFail: review.onFail === undefined ? 'fix-cycle' : review.onFail };
+  if (review.mode === 'handoff') {
+    if (review.skill !== undefined) out.skill = review.skill;
+    if (review.step !== undefined) out.step = review.step;
+  }
+  return out;
+}
+
+/** normalizePostRun(postRun) -> declared entries in order, {step, when, rule} plus command/appliesTo when declared. */
+function normalizePostRun(postRun) {
+  if (!Array.isArray(postRun)) return [];
+  return postRun.map((e) => {
+    const out = { step: e.step, when: e.when, rule: e.rule };
+    if (e.command !== undefined) out.command = e.command;
+    if (e.appliesTo !== undefined) out.appliesTo = e.appliesTo;
+    return out;
+  });
+}
+
+// Segment glob match for appliesTo: the appendOnlyFiles semantics (backslash to '/', leading './'
+// dropped, case-insensitive, '*' and '?' inside a segment, '**' any number of whole segments).
+function appliesToMatch(claim, patterns) {
+  const canon = (x) => String(x).replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/{2,}/g, '/');
+  const segs = canon(claim).toLowerCase().split('/');
+  const segMatch = (pat, text) => {
+    let re = '';
+    for (const ch of pat) re += ch === '*' ? '[^/]*' : ch === '?' ? '[^/]' : ch.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    return new RegExp('^' + re + '$').test(text);
+  };
+  const walk = (ps, pi, ti) => {
+    if (pi === ps.length) return ti === segs.length;
+    if (ps[pi] === '**') {
+      for (let k = ti; k <= segs.length; k++) if (walk(ps, pi + 1, k)) return true;
+      return false;
+    }
+    return ti < segs.length && segMatch(ps[pi], segs[ti]) && walk(ps, pi + 1, ti + 1);
+  };
+  return (patterns || []).some((pat) => walk(canon(pat).toLowerCase().split('/'), 0, 0));
+}
+
+/**
+ * selectPostRunSteps(doc, when, files) -> {when, review, steps, skipped}
+ * review is doc.meta.review (the generic default when absent). steps are the doc.meta.postRun
+ * entries of this `when`, in declared order, kept when they declare no appliesTo or some changed
+ * file matches some pattern. skipped lists the same-`when` entries dropped by appliesTo.
+ */
+export function selectPostRunSteps(doc, when, files) {
+  const meta = (doc && doc.meta) || {};
+  const review = meta.review && typeof meta.review === 'object' ? meta.review : genericReview();
+  const list = Array.isArray(files) ? files : [];
+  const steps = [];
+  const skipped = [];
+  for (const e of Array.isArray(meta.postRun) ? meta.postRun : []) {
+    if (!e || e.when !== when) continue;
+    if (Array.isArray(e.appliesTo) && e.appliesTo.length > 0 && !list.some((f) => appliesToMatch(f, e.appliesTo))) {
+      skipped.push({ step: e.step, reason: 'appliesTo matched no changed file' });
+      continue;
+    }
+    steps.push(e);
+  }
+  return { when, review, steps, skipped };
+}
+
 /**
  * validateSnapshot(snap) -> {ok:true} | {ok:false, errors:string[]}
  * Structural check: contract id, UUID-shaped ids, role enum membership (case-sensitive),
@@ -255,17 +348,50 @@ export function validateSnapshot(snap) {
     if (Array.isArray(snap.profile.verify)) {
       snap.profile.verify.forEach((entry, i) => {
         if (!entry || typeof entry !== 'object' || !('appliesTo' in entry)) return;
-        const ap = entry.appliesTo;
-        let bad = !Array.isArray(ap) || ap.length === 0 || ap.some((e) => typeof e !== 'string' || e === '');
-        if (!bad) {
-          bad = ap.some((raw) => {
-            const c = canonAppendOnly(raw);
-            const segs = c.split('/');
-            return c === '' || c === '.' || /^\//.test(c) || /^[a-zA-Z]:/.test(c) || segs.includes('..');
-          });
-        }
-        if (bad) errors.push(`profile.verify[${i}].appliesTo must be an array of repo-relative patterns`);
+        if (badAppliesTo(entry.appliesTo)) errors.push(`profile.verify[${i}].appliesTo must be an array of repo-relative patterns`);
       });
+    }
+    if ('postRun' in snap.profile) {
+      const pr = snap.profile.postRun;
+      if (!Array.isArray(pr)) {
+        errors.push('profile.postRun must be an array');
+      } else {
+        const seen = new Set();
+        pr.forEach((e, i) => {
+          const isObj = e && typeof e === 'object' && !Array.isArray(e);
+          const stepOk = isObj && typeof e.step === 'string' && RULE_KEY_RE.test(e.step);
+          const ruleOk = isObj && typeof e.rule === 'string' && RULE_KEY_RE.test(e.rule);
+          if (!isObj || !stepOk || !ruleOk || !POST_RUN_WHEN.includes(e.when)) {
+            errors.push(`profile.postRun[${i}] must have step, when (post-run or post-merge) and rule`);
+          }
+          if (!isObj) return;
+          if ('command' in e && !isNonEmptyString(e.command)) {
+            errors.push(`profile.postRun[${i}].command must be a non-empty string`);
+          }
+          if ('appliesTo' in e && badAppliesTo(e.appliesTo)) {
+            errors.push(`profile.postRun[${i}].appliesTo must be an array of repo-relative patterns`);
+          }
+          if (typeof e.step === 'string') {
+            if (seen.has(e.step)) errors.push(`profile.postRun[${i}].step "${e.step}" repeats an earlier step`);
+            seen.add(e.step);
+          }
+        });
+      }
+    }
+    if ('review' in snap.profile) {
+      const rv = snap.profile.review;
+      if (typeof rv === 'string') {
+        if (!REVIEW_MODES.includes(rv)) errors.push('profile.review must be "handoff", "generic" or an object');
+      } else if (!rv || typeof rv !== 'object' || Array.isArray(rv)) {
+        errors.push('profile.review must be "handoff", "generic" or an object');
+      } else {
+        if (!REVIEW_MODES.includes(rv.mode)) errors.push('profile.review.mode must be handoff or generic');
+        if ('skill' in rv ? !isNonEmptyString(rv.skill) : rv.mode === 'handoff') {
+          errors.push('profile.review.skill must be a non-empty string');
+        }
+        if ('step' in rv && !isNonEmptyString(rv.step)) errors.push('profile.review.step must be a non-empty string');
+        if ('onFail' in rv && !REVIEW_ON_FAIL.includes(rv.onFail)) errors.push('profile.review.onFail must be stop or fix-cycle');
+      }
     }
     if ('knownRed' in snap.profile) {
       const kr = snap.profile.knownRed;
@@ -1558,6 +1684,9 @@ export function buildPlanDoc(snap, opts = {}) {
       inRunEdges,
       advisoryResources: resourceResult.advisory,
       lateCarryIns: args.items.flatMap((it) => (it.lateCarryIns || []).map((key) => ({ id: it.id, short: it.short, key }))),
+      // The profile's review handoff target and Fail policy, and its declared post-run and post-merge steps.
+      review: normalizeReview(profile.review),
+      postRun: normalizePostRun(profile.postRun),
       // runs_write open inputs: the snapshot's target scope and the profile's opt-in run budget.
       scopeId: snap.ancestorId || null,
       runBudget: profile && profile.runBudget && typeof profile.runBudget === 'object' && !Array.isArray(profile.runBudget)

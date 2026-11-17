@@ -22,7 +22,7 @@ import { sumUsage, transcriptMeters } from './lib/meters.mjs'
 import { formatCoordinatorReport, REPORT_EVENTS } from './lib/coordinator-report.mjs'
 // The dispatch policy is the one file read outside io: reseat escalates a fix cycle's effort with it.
 import { escalate, ceilingReached, forClass, loadPolicy } from './lib/dispatch-policy.mjs'
-import { policyClassFor } from './run-planner-lib.mjs'
+import { policyClassFor, selectPostRunSteps } from './run-planner-lib.mjs'
 
 export const STATE_CONTRACT = 'run-wave/state-v1'
 
@@ -3167,7 +3167,35 @@ function execReviewArgs(argv, io) {
   io.exit(0)
 }
 
+function execPostRunSteps(argv, io) {
+  const planPath = flagValue(argv, '--plan')
+  const when = flagValue(argv, '--when')
+  const filesPath = flagValue(argv, '--files-from')
+  if (!planPath || !when || !filesPath) {
+    io.fail(2, 'invalid args', 'post-run-steps: --plan, --when and --files-from are required')
+    return
+  }
+  if (when !== 'post-run' && when !== 'post-merge') {
+    io.fail(2, 'invalid args', `post-run-steps: --when ${when} must be post-run or post-merge`)
+    return
+  }
+  const doc = io.readInput(planPath)
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
+    io.fail(2, 'invalid args', `--plan ${planPath} could not be read or parsed as a plan`)
+    return
+  }
+  const text = io.readText(filesPath)
+  if (text == null) {
+    io.fail(2, 'invalid args', `--files-from ${filesPath} could not be read`)
+    return
+  }
+  const files = String(text).split('\n').map((l) => l.replace(/\r$/, '').trim()).filter((l) => l !== '')
+  io.writeOut(JSON.stringify(selectPostRunSteps(doc, when, files)))
+  io.exit(0)
+}
+
 export const EXEC_COMMANDS = {
+  'post-run-steps': execPostRunSteps,
   report: execReport,
   'review-args': execReviewArgs,
   next: execNext,
