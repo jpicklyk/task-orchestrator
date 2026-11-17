@@ -152,7 +152,7 @@ Details: [config-format.md](../../../claude-plugins/task-orchestrator/skills/man
 
 **Script:** `skill-enforcement.mjs`. **Event:** `PreToolUse` on `notes_write`.
 
-**What it does:** for each `ops[]` element with `op: "upsert"`, suggests loading the skill a note's schema entry names (`skill`) when the body is too thin to reflect that skill's output (a default floor of 200 characters, scaled down for a note whose schema `maxLength` is small). The `skill` and `maxLength` facts come from the server, not from `config.yaml`: one `config` op `effective` read per session, cached in a session marker, and the item's `items_read` `select: "schema"` view per op. It is advisory only (it never blocks the call) and suggests at most once per (session, item, key).
+**What it does:** for each `ops[]` element with `op: "upsert"`, suggests loading the skill, or each skill of a list, a note's schema entry names (`skill`) when the body is too thin to reflect that skill's output (a default floor of 200 characters, scaled down for a note whose schema `maxLength` is small). The `skill` and `maxLength` facts come from the server, not from `config.yaml`: one `config` op `effective` read per session, cached in a session marker, and the item's `items_read` `select: "schema"` view per op. It is advisory only (it never blocks the call) and suggests at most once per (session, item, key).
 
 **Inert when:** no REST API URL is configured with a located config, in which case it says so once per session in a `systemMessage` and then stays silent. It is not gated by execution mode or `orchestration.mode`: it checks the claimed item's own writes, whoever runs them.
 

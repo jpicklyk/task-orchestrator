@@ -27,7 +27,7 @@ const DEFAULT_MCP_SERVER_KEY = 'mcp-task-orchestrator'
 const ENVELOPE_VERSION = 'envelope-v1'
 const VERDICTS = ['pass', 'pass-with-observations', 'fail-blocking']
 const INDEPENDENCE_MODES = ['independent', 'independent-degraded', 'not-independent', 'n/a']
-const BRANCH_SCOPED_SKILLS = ['security-review']
+const SKILL_MODES = ['invoke', 'method-on-diff']
 const PROTOCOL_KEY = 'protocol.read-only-agent'
 const SCOPING_RULE_KEY = 'review-scoping'
 const REQUIRED_FEATURES = ['seats', 'dispatchBySeat', 'rules']
@@ -180,6 +180,9 @@ function normalizeArgs(raw) {
       if (st.protocol !== PROTOCOL_KEY) return { ok: false, reason: 'invalid args: bad stage protocol' }
       if (st.output !== 'review-v1') {
         return { ok: false, reason: 'invalid args: bad stage output' }
+      }
+      if (st.skillMode !== undefined && !SKILL_MODES.includes(st.skillMode)) {
+        return { ok: false, reason: 'invalid args: bad stage skillMode' }
       }
       if (st.tokenFile !== undefined && st.tokenFile !== null && (typeof st.tokenFile !== 'string' || st.tokenFile === '')) {
         return { ok: false, reason: 'invalid args: bad stage tokenFile' }
@@ -473,17 +476,14 @@ function promptIndependence(item, stage) {
   )
 }
 
-/** Part 12: lane mode: the branch-scoped skill filter. */
+/** Part 12: lane mode: the branch-scoped skill filter, set by the note's skill_mode (stage.skillMode). */
 function promptLaneMode(stage) {
   const lines = []
   const skillNames = Array.isArray(stage.skills) ? stage.skills : []
-  const ruleNames = Array.isArray(stage.rules) ? stage.rules : []
-  const branchScopedName =
-    skillNames.find((s) => BRANCH_SCOPED_SKILLS.includes(s)) || ruleNames.find((r) => BRANCH_SCOPED_SKILLS.includes(r))
-  if (stage.branchScoped === true || branchScopedName) {
-    const name = branchScopedName || BRANCH_SCOPED_SKILLS[0]
+  if (stage.skillMode === 'method-on-diff') {
+    const label = skillNames.length > 0 ? `BRANCH-SCOPED SKILL ${skillNames.join(', ')}` : 'BRANCH-SCOPED SKILL'
     lines.push(
-      `BRANCH-SCOPED SKILL ${name}: apply its method to the DIFF lines above (the built-in command diffs the session cwd, which is empty for a worktree branch); keep only findings whose file ` +
+      `${label}: apply its method to the DIFF lines above (the built-in command diffs the session cwd, which is empty for a worktree branch); keep only findings whose file ` +
         'is in this item\'s owned files, and record the filter in your note (findings total, kept, dropped, dropped files).'
     )
   }

@@ -16,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.application.service.buildMissingBySeat
 import io.github.jpicklyk.mcptask.current.application.service.buildSeatsJson
 import io.github.jpicklyk.mcptask.current.application.service.computeMissingBySeat
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
+import io.github.jpicklyk.mcptask.current.application.service.putSkillExtras
 import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallResultCounts
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallRoot
@@ -201,6 +202,7 @@ object ItemsReadContext {
                 put("transitions", transitions(schema, item))
                 phase?.guidanceKey?.let { put("guidanceKey", it) }
                 phase?.skillPointer?.let { put("skillPointer", it) }
+                phase?.let { putSkillExtras(it) }
                 dispatch?.let { put("dispatch", buildDispatchProfileJson(it)) }
                 buildSeatsJson(seats)?.let { put("seats", it) }
                 buildDispatchBySeatFlatJson(dispatchBySeat)?.let { put("dispatchBySeat", it) }
@@ -396,6 +398,7 @@ object ItemsReadContext {
                     put("missing", JsonArray(phase.missingKeys.map { JsonPrimitive(it) }))
                     phase.guidanceKey?.let { put("guidanceKey", it) }
                     phase.skillPointer?.let { put("skillPointer", it) }
+                    putSkillExtras(phase)
                 }
             )
         }

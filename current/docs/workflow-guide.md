@@ -195,7 +195,8 @@ note_schemas:
 | `required`    | boolean | no       | Whether this note must be filled before advancing past this phase. Defaults to `false` if omitted — set it explicitly. |
 | `description` | string  | no       | Short description of expected content (defaults to `""`; recommended). Fetch via `items_read` `select: "schema"`. |
 | `guidance`    | string  | no       | Longer authoring guidance for agents. Named by `guidanceKey` in `items_read` `context`; the text comes from `select: "schema"` with `fields: ["guidance"]`. |
-| `skill`       | string  | no       | Skill to invoke when filling this note. Shown in `items_read` `context` as `skillPointer`.    |
+| `skill`       | string or list | no | Skill to invoke when filling this note, or a list of skills in invocation order. Shown in `items_read` `context` as `skillPointer` (the first skill) and, for two or more, `skillPointers`. |
+| `skill_mode`  | string  | no       | `invoke` (default) or `method-on-diff`: apply the skill's method to the diff of the files the seat owns instead of the skill's own default target. Shown as `skillMode` only when `method-on-diff`. |
 
 #### Constraints
 
@@ -494,8 +495,8 @@ The `guidance` field in note schemas is a communication channel from schema auth
 
 In 4.0 the responses that name a note carry a **key**, not the guidance text, so a response stays small. The text is read once with the `schema` select:
 
-- **`items_read` `select: "context"` (with `itemId`)** - `guidanceKey` at the top level names the first unfilled required note of the current phase, and `skillPointer` its skill. Both are omitted when every required note of the phase is filled or the entry has no guidance or skill.
-- **`advance` `transition` result** - `expectedNotes` (the keys the new phase expects), `guidanceKey` and `skillPointer`, for the phase just entered.
+- **`items_read` `select: "context"` (with `itemId`)** - `guidanceKey` at the top level names the first unfilled required note of the current phase, and `skillPointer` its (first) skill; `skillPointers` lists every skill when there are two or more and `skillMode` is `method-on-diff` when the note says so. All are omitted when every required note of the phase is filled or the entry has no guidance or skill.
+- **`advance` `transition` result** - `expectedNotes` (the keys the new phase expects), `guidanceKey` and `skillPointer` (with `skillPointers` and `skillMode` as above), for the phase just entered.
 - **`advance` gate error** - a `gate_blocked` error's `detail.missing[]` names the missing notes (`key`, `role`, and `seat` for a seat-aware schema).
 - **`items_read` `select: "schema"`** - the full note list of a type or an item (`description`, `skill`, `maxLength`, `seat`); the per-note `guidance` text is stripped unless the call passes `fields: ["guidance"]`.
 
@@ -954,7 +955,8 @@ Additional top-level keys (`resources`, `note_limits`, `status_labels`, `project
 | `required`    | boolean | no       | `true`, `false`           | If true, must be filled before `start` advances past this phase. Defaults to `false` if omitted — set it explicitly. |
 | `description` | string  | no       | Any string                | Short description (defaults to `""`; recommended). Fetch via `items_read` `select: "schema"`. |
 | `guidance`    | string  | no       | Any string                | Longer authoring hint. Named by `guidanceKey` in the gate status; read with `fields: ["guidance"]`.  |
-| `skill`       | string  | no       | Skill name                | Skill to invoke before filling. Shown as `skillPointer`.           |
+| `skill`       | string or list | no | Skill name, or a non-empty list of distinct names | Skill to invoke before filling; a list is invoked in order. Shown as `skillPointer` (the first) and `skillPointers`. |
+| `skill_mode`  | string  | no       | `invoke`, `method-on-diff` | How the skill is used; `method-on-diff` applies its method to the diff of the files the seat owns. Shown as `skillMode`. |
 
 ### Matching Rules
 

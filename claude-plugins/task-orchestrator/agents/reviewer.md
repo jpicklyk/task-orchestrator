@@ -11,6 +11,9 @@ implementation against its queue-phase plan (specification, task-scope, diagnosi
 review-phase notes the item's resolved schema requires (for example `review-checklist`,
 `test-independence-audit`). A note with a `skillPointer` gets that skill first; use its output to
 fill the note, and follow the note's own guidance for what to check.
+A note whose `skillMode` is `method-on-diff` applies its skill's method to the diff of the files the item owns,
+not to the skill's own default target: read `git -C <worktree> diff <baseSha>..HEAD -- <owned files>` yourself and judge
+that diff with the skill's checks, never with a command that writes.
 
 The SubagentStart hook injects the Agent-Owned-Phase Protocol, plus any dispatch-specific scope
 for this run — follow it, with one explicit override to its entry-seat step: you are never the

@@ -42,6 +42,9 @@ package io.github.jpicklyk.mcptask.current.domain.model
  *   orchestration signal only; A1a parses and serves it, A2 enforces it).
  * @property shared When true the key is exempt from note ownership: any caller may upsert or delete it (last writer
  *   wins). Default false; an off-schema key is never shared.
+ * @property skills Every skill the note names, in invocation order. [skill] is always the first one, so a single
+ *   skill (a string or a one-element list in config) serves exactly as before.
+ * @property skillMode How the skills are used; see [SkillMode]. Default [SkillMode.INVOKE].
  */
 data class NoteSchemaEntry(
     val key: String,
@@ -53,5 +56,11 @@ data class NoteSchemaEntry(
     val maxLength: Int? = null,
     val seat: String? = null,
     val independentOf: List<String> = emptyList(),
-    val shared: Boolean = false
-)
+    val shared: Boolean = false,
+    val skills: List<String> = listOfNotNull(skill),
+    val skillMode: SkillMode = SkillMode.INVOKE
+) {
+    init {
+        require(skills.firstOrNull() == skill) { "skill must be the first of skills" }
+    }
+}

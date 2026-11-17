@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.SkillMode
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DispatchProfileDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.EffectiveConfigDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.EffectiveSchemaDto
@@ -95,6 +96,8 @@ private fun NoteSchemaEntry.toDto(): NoteSchemaEntryDto =
         description = description,
         guidance = guidance,
         skill = skill,
+        skills = skills.takeIf { it.size >= 2 },
+        skillMode = skillMode.takeIf { it == SkillMode.METHOD_ON_DIFF }?.wire,
         maxLength = maxLength,
         shared = shared.takeIf { it }
     )

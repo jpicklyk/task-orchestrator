@@ -575,8 +575,15 @@ function noteLimitsOf(keys, notes) {
  * whose queue stages are skipped still names them.
  */
 function testPlanInputsOf(notes, seatName) {
-  const skills = new Set(notes.filter((n) => n.seat === seatName && n.skill).map((n) => n.skill));
-  return notes.filter((n) => n.role === 'queue' && n.skill && skills.has(n.skill)).map((n) => n.key);
+  const skills = new Set(notes.filter((n) => n.seat === seatName).flatMap(noteSkills));
+  return notes.filter((n) => n.role === 'queue' && noteSkills(n).some((s) => skills.has(s))).map((n) => n.key);
+}
+
+/** Every skill a schema note names, in order: its `skills` array when non-empty, else `[skill]`, else []. */
+function noteSkills(n) {
+  if (!n) return [];
+  if (Array.isArray(n.skills) && n.skills.length > 0) return n.skills.filter((s) => typeof s === 'string' && s);
+  return typeof n.skill === 'string' && n.skill ? [n.skill] : [];
 }
 
 /**
@@ -673,12 +680,12 @@ function deriveRulesSkills(ownedKeys, allNotes, servedKeys) {
   const skills = [];
   for (const k of ownedKeys) {
     const note = allNotes.find((n) => n.key === k);
-    const skill = note && note.skill;
-    if (!skill) continue;
-    if (servedKeys.has(skill)) {
-      if (!rules.includes(skill)) rules.push(skill);
-    } else if (!skills.includes(skill)) {
-      skills.push(skill);
+    for (const skill of noteSkills(note)) {
+      if (servedKeys.has(skill)) {
+        if (!rules.includes(skill)) rules.push(skill);
+      } else if (!skills.includes(skill)) {
+        skills.push(skill);
+      }
     }
   }
   return { rules, skills };

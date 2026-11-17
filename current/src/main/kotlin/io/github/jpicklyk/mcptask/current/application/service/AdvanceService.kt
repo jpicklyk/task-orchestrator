@@ -260,7 +260,7 @@ data class AdvanceUnblockedItem(
  *
  * Carries everything the caller needs to build its response without re-querying: the role
  * change, the applied item, the resolved schema + target role (for expectedNotes /
- * guidanceKey / skillPointer), and the cascade + unblock side effects.
+ * guidanceKey / skillPointer, plus skillPointers / skillMode for a multi-skill or method-on-diff note), and the cascade + unblock side effects.
  *
  * Contains NO JSON - the `advance` tool's `transition` op maps this to its response element (MCP and
  * `POST /api/v1/ops/advance` share the mapping).

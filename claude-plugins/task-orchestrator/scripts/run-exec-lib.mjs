@@ -2201,8 +2201,11 @@ export function reportFields(doc, opts = {}) {
 
 /**
  * reviewWaveArgs(core, doc, snapshot, result, shorts) -> review-wave/args-v1 over the given items.
- * Lanes are the item's review-role schema notes grouped by (seat or reviewer, skill): the lane id is
- * `<seat>.<skill>` when a note names a skill, else the seat alone (no framework is assumed). Throws 'invalid args: ...' for an unknown short or an item with no review notes.
+ * Lanes are the item's review-role schema notes grouped by (seat or reviewer, skills): the lane id is
+ * `<seat>.<skill>` when a note names one skill, `<seat>.<a>--<b>` for several (in order), else the seat alone (no
+ * framework is assumed). A note's skills are its `skills` array when non-empty, else its `skill` string. The stage
+ * carries `skillMode: 'method-on-diff'` only when the note says so; two notes in one lane that disagree throw.
+ * Throws 'invalid args: ...' for an unknown short, an item with no review notes or a lane that mixes skill modes.
  */
 export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
   const { plan } = resolvePlan(core, doc)
@@ -2231,10 +2234,18 @@ export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
     const groups = new Map()
     for (const n of reviewNotes) {
       const seat = n.seat || n.reviewer || 'reviewer'
-      const skill = typeof n.skill === 'string' && n.skill ? n.skill : ''
-      const key = skill ? `${seat}.${skill}` : seat
-      if (!groups.has(key)) groups.set(key, { seat, skill, notes: [] })
-      groups.get(key).notes.push(n.key)
+      const skills =
+        Array.isArray(n.skills) && n.skills.length > 0
+          ? n.skills.filter((s) => typeof s === 'string' && s)
+          : typeof n.skill === 'string' && n.skill
+            ? [n.skill]
+            : []
+      const mode = n.skillMode === 'method-on-diff' ? 'method-on-diff' : 'invoke'
+      const key = skills.length > 0 ? `${seat}.${skills.join('--')}` : seat
+      if (!groups.has(key)) groups.set(key, { seat, skills, mode, notes: [] })
+      const group = groups.get(key)
+      if (group.mode !== mode) throw new Error(`invalid args: ${item.short} lane ${key} mixes skill modes`)
+      group.notes.push(n.key)
     }
     const stages = []
     for (const [lane, g] of groups) {
@@ -2251,7 +2262,8 @@ export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
         dispatch,
         output: 'review-v1',
       }
-      if (g.skill) stage.skills = [g.skill]
+      if (g.skills.length > 0) stage.skills = g.skills.slice()
+      if (g.mode === 'method-on-diff') stage.skillMode = 'method-on-diff'
       const seatRules = item.reviewRules && item.reviewRules[g.seat]
       if (Array.isArray(seatRules) && seatRules.length > 0) stage.rules = seatRules.slice()
       const tokenFile = core.seatTokenFile(plan, item, { seat: g.seat })

@@ -30,11 +30,20 @@ const ITEM_ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 export const INERT_MESSAGE =
   'task-orchestrator: skill-enforcement.mjs is inert: no REST API URL resolves (register the MCP server over http(s), set TASK_ORCHESTRATOR_API_URL, or write a client.json apiUrl); in 4.0 schema facts and gate state come from the server.';
 
+/** A note entry's skills: its `skills` array when non-empty, else `[skill]` when a non-empty string, else []. */
+function skillsOf(n) {
+  if (Array.isArray(n.skills) && n.skills.length > 0) return n.skills.filter((s) => typeof s === 'string' && s);
+  return typeof n.skill === 'string' && n.skill ? [n.skill] : [];
+}
+
 function isPlain(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
 
-/** {skillMap, maxLengthMap} (plain objects) over note entries; a later entry wins on a duplicate key. */
+/**
+ * {skillMap, maxLengthMap} (plain objects) over note entries; a later entry wins on a duplicate key. A skillMap value
+ * is the note's list of skills in invocation order (`skills` when 2+, else `[skill]`).
+ */
 function mapsFromNotes(lists) {
   const skillMap = {};
   const maxLengthMap = {};
@@ -42,7 +51,8 @@ function mapsFromNotes(lists) {
     if (!Array.isArray(notes)) continue;
     for (const n of notes) {
       if (!isPlain(n) || typeof n.key !== 'string' || !n.key || n.key === '__proto__') continue;
-      if (typeof n.skill === 'string' && n.skill) skillMap[n.key] = n.skill;
+      const list = skillsOf(n);
+      if (list.length > 0) skillMap[n.key] = list;
       if (Number.isInteger(n.maxLength) && n.maxLength >= 0) maxLengthMap[n.key] = n.maxLength;
     }
   }
@@ -177,7 +187,9 @@ for (const note of ops) {
   const dedupKey = `${itemId}::${key}`;
   if (warnedPairs[dedupKey]) continue; // already suggested once this session for this item+key
 
-  const skill = skillMap[key];
+  const raw = skillMap[key];
+  const skills = (Array.isArray(raw) ? raw : [raw]).filter((s) => typeof s === 'string' && s);
+  if (skills.length === 0) continue;
   const trimmedBody = (body || '').trim();
   const bodyLen = trimmedBody.length;
   const floor = substantiveFloor(maxLengthMap, key);
@@ -189,8 +201,8 @@ for (const note of ops) {
 
   if (!body || bodyLen < floor || isPlaceholder) {
     warnings.push(
-      `⊘ SKILL SUGGESTED — the note "${key}" is schema-bound to the /${skill} framework. ` +
-      `If you have not already, invoke the Skill tool with skill="${skill}" and incorporate ` +
+      `⊘ SKILL SUGGESTED — the note "${key}" is schema-bound to the ${skills.map((s) => `/${s}`).join(', ')} framework${skills.length > 1 ? 's' : ''}. ` +
+      `If you have not already, invoke the Skill tool with ${skills.map((s) => `skill="${s}"`).join(', then ')} and incorporate ` +
       `its structured evaluation before finalizing this note. If the Skill tool reports ` +
       `'Unknown skill', the schema's skill pointer is invalid — log that as an observation ` +
       `instead of retrying. (Shown once per item+key per session.)`

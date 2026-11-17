@@ -133,7 +133,13 @@
         "required": { "type": "boolean" },
         "description": { "type": "string" },
         "guidance": { "type": "string" },
-        "skill": { "type": "string" },
+        "skill": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true }
+          ]
+        },
+        "skill_mode": { "enum": ["invoke", "method-on-diff"] },
         "maxLength": { "type": "integer", "minimum": 1 },
         "seat": { "type": "string" },
         "independent_of": { "type": "array", "items": { "type": "string" } },

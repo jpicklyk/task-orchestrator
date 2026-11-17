@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
+import io.github.jpicklyk.mcptask.current.domain.model.SkillMode
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import kotlinx.serialization.json.*
 
@@ -96,6 +97,8 @@ fun buildFullSchemaEntriesJson(
                 put("description", JsonPrimitive(entry.description))
                 entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
                 entry.skill?.let { put("skill", JsonPrimitive(it)) }
+                if (entry.skills.size >= 2) put("skills", JsonArray(entry.skills.map { JsonPrimitive(it) }))
+                if (entry.skillMode == SkillMode.METHOD_ON_DIFF) put("skillMode", JsonPrimitive(entry.skillMode.wire))
                 entry.maxLength?.let { put("maxLength", JsonPrimitive(it)) }
                 if (seatAware) {
                     put("seat", entry.seat?.let { JsonPrimitive(it) } ?: JsonNull)
@@ -274,3 +277,12 @@ fun buildMissingBySeatJson(missingBySeat: Map<String, List<String>>?): JsonObjec
 
 /** Lowercase wire name of a [Role] (`queue`, `work`, ...), as every schema-entry JSON field spells it. */
 private fun Role.toJsonString(): String = name.lowercase()
+
+/**
+ * Adds the skill members of a [PhaseNoteContext] right after `skillPointer`: `skillPointers` only when the note names
+ * two or more skills, `skillMode` only when it is [SkillMode.METHOD_ON_DIFF]. A single-skill note serves unchanged.
+ */
+fun JsonObjectBuilder.putSkillExtras(phase: PhaseNoteContext) {
+    if (phase.skillPointers.size >= 2) put("skillPointers", JsonArray(phase.skillPointers.map { JsonPrimitive(it) }))
+    if (phase.skillMode == SkillMode.METHOD_ON_DIFF) put("skillMode", JsonPrimitive(SkillMode.METHOD_ON_DIFF.wire))
+}

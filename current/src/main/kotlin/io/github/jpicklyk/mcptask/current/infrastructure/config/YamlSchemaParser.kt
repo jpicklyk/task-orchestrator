@@ -23,6 +23,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.RunBudget
 import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.SeatDispatchOverride
+import io.github.jpicklyk.mcptask.current.domain.model.SkillMode
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 
 /**
@@ -80,7 +81,7 @@ internal object ConfigKeyCatalog {
     val SCHEMA_LEVEL: Set<String> = setOf("lifecycle", "default_traits", "notes", "seats")
     val TRAIT_LEVEL: Set<String> = setOf("notes", "resources", "dispatch", "seats", "description", "applies_when")
     val NOTE_ENTRY: Set<String> =
-        setOf("key", "role", "required", "description", "guidance", "skill", "maxLength", "seat", "independent_of", "shared")
+        setOf("key", "role", "required", "description", "guidance", "skill", "maxLength", "seat", "independent_of", "shared", "skill_mode")
     val SEAT_ENTRY: Set<String> = setOf("name", "phase", "enters", "after", "reads_exclude", "transitions", "rules")
     val INDEPENDENCE: Set<String> = setOf("mode", "require_verified")
     val NOTE_LIMITS: Set<String> = setOf("mode")
@@ -1439,7 +1440,9 @@ internal object YamlSchemaParser {
 
         val description = raw["description"] as? String ?: ""
         val guidance = raw["guidance"] as? String
-        val skill = raw["skill"] as? String
+        val skills = parseSkills(raw["skill"], entryPath, warnings)
+        val skill = skills.firstOrNull() ?: (raw["skill"] as? String)
+        val skillMode = parseSkillMode(raw["skill_mode"], skill != null || skills.isNotEmpty(), entryPath, warnings)
 
         val maxLengthRaw = raw["maxLength"]
         val maxLength =
@@ -1502,7 +1505,74 @@ internal object YamlSchemaParser {
             seat = seat,
             independentOf = independentOf,
             shared = shared,
+            skills = if (skills.isNotEmpty()) skills else listOfNotNull(skill),
+            skillMode = skillMode,
         )
+    }
+
+    /**
+     * Reads a note entry's `skill`: a string (kept as-is, blank included) or a non-empty list of distinct non-blank
+     * strings. Returns the skills in invocation order; empty when there is none or the value is unusable (a soft
+     * finding says why). A blank single string yields no list but the caller keeps it as the legacy `skill`.
+     */
+    private fun parseSkills(
+        raw: Any?,
+        entryPath: String,
+        warnings: ParseFindings
+    ): List<String> {
+        when (raw) {
+            null -> return emptyList()
+            is String -> return if (raw.isBlank()) emptyList() else listOf(raw)
+            is List<*> -> {
+                if (raw.isEmpty()) {
+                    warnings.soft("$entryPath/skill", "Note entry 'skill' is an empty list; ignoring")
+                    return emptyList()
+                }
+                val out = mutableListOf<String>()
+                for ((i, element) in raw.withIndex()) {
+                    if (element !is String || element.isBlank()) {
+                        warnings.soft(
+                            "$entryPath/skill/$i",
+                            "Note entry 'skill' element $i is not a non-blank string; ignoring the whole skill"
+                        )
+                        return emptyList()
+                    }
+                    if (element in out) {
+                        warnings.soft("$entryPath/skill/$i", "Note entry 'skill' names '$element' twice; ignoring the later copy")
+                    } else {
+                        out += element
+                    }
+                }
+                return out
+            }
+            else -> {
+                warnings.soft("$entryPath/skill", "Note entry 'skill' must be a string or a list of strings; ignoring")
+                return emptyList()
+            }
+        }
+    }
+
+    /** Reads `skill_mode`: `invoke` or `method-on-diff`; anything else, or a mode with no skill, is invoke. */
+    private fun parseSkillMode(
+        raw: Any?,
+        hasSkill: Boolean,
+        entryPath: String,
+        warnings: ParseFindings
+    ): SkillMode {
+        if (raw == null) return SkillMode.INVOKE
+        val mode = (raw as? String)?.let { SkillMode.fromConfigString(it) }
+        if (mode == null) {
+            warnings.soft(
+                "$entryPath/skill_mode",
+                "Note entry 'skill_mode' '$raw' is not one of ${SkillMode.entries.map { it.wire }}; using invoke"
+            )
+            return SkillMode.INVOKE
+        }
+        if (!hasSkill) {
+            warnings.soft("$entryPath/skill_mode", "Note entry 'skill_mode' has no 'skill' to apply to; using invoke")
+            return SkillMode.INVOKE
+        }
+        return mode
     }
 
     /**

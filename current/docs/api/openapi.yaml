@@ -92,6 +92,18 @@ components:
         skill:
           type: string
           nullable: true
+          description: The entry's first skill (its only skill when it names one).
+        skills:
+          type: array
+          items:
+            type: string
+          description: Every skill of the entry in invocation order. Present only when the entry names two or more.
+        skillMode:
+          type: string
+          enum: [method-on-diff]
+          description: >-
+            Present only when the entry's skill_mode is method-on-diff (apply the skill's method to the diff of the
+            files the seat owns); omitted for the default invoke.
         maxLength:
           type: integer
           description: Maximum note-body length configured for this entry. Present only when configured.
@@ -383,6 +395,18 @@ components:
         skill:
           type: string
           nullable: true
+          description: The entry's first skill (its only skill when it names one).
+        skills:
+          type: array
+          items:
+            type: string
+          description: Every skill of the entry in invocation order. Present only when the entry names two or more.
+        skillMode:
+          type: string
+          enum: [method-on-diff]
+          description: >-
+            Present only when the entry's skill_mode is method-on-diff (apply the skill's method to the diff of the
+            files the seat owns); omitted for the default invoke.
         maxLength:
           type: integer
           description: Maximum note-body length configured for this entry. Present only when configured.

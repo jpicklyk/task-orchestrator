@@ -1,11 +1,3 @@
 {
-  "pendingConfig": [
-    {
-      "file": "workflows/review-wave.js",
-      "name": "security-review",
-      "owner": "0f4099f8",
-      "gap": "G2",
-      "reason": "G2 (BRANCH_SCOPED_SKILLS names a project skill; moves to config)"
-    }
-  ]
+  "pendingConfig": []
 }
