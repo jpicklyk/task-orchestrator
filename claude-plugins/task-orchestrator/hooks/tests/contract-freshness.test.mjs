@@ -1,4 +1,4 @@
-// Freshness + content tests for scripts/gen-call-shapes.mjs and its five managed outputs (58facb39).
+// Freshness + content tests for scripts/gen-call-shapes.mjs and its six managed outputs (58facb39).
 // Scenarios S1-S5 match the item's frozen `test-plan` note. Oracles are independent of the generator:
 //   G   = current/src/test/resources/golden/tools/<tool>.<profile>.json  (profile membership via the
 //         select/op enum of each profile's golden; write tools = goldens whose inputSchema has `ops`)
@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import {
   MANAGED_FILES,
   OUT_CALL_SHAPES,
+  OUT_CALL_SHAPES_JS,
   OUT_CATALOG,
   OUT_TOOL_NAMES,
   OUT_WORKFLOWS,
@@ -26,6 +27,7 @@ import {
   renderOutputs,
   replaceRegion,
 } from '../../scripts/gen-call-shapes.mjs';
+import { parseToCallBlocks } from '../../scripts/lib/contract-checks.mjs';
 import { TOOLS, PROFILES, WRITE_TOOLS, ERROR_KINDS } from '../lib/tool-names.mjs';
 
 const PLUGIN = fileURLToPath(new URL('../../', import.meta.url)).replace(/[/]$/, '');
@@ -112,12 +114,12 @@ test('S1: --check on the repository exits 0 with no stale paths', () => {
   assert.deepEqual(checkOutputs().stale, []);
 });
 
-test('S1: managed-file set is exactly the five declared outputs', () => {
+test('S1: managed-file set is exactly the six declared outputs', () => {
   assert.deepEqual(
     [...MANAGED_FILES].sort(),
-    [OUT_CALL_SHAPES, OUT_CATALOG, OUT_TOOL_NAMES, ...OUT_WORKFLOWS].sort(),
+    [OUT_CALL_SHAPES, OUT_CALL_SHAPES_JS, OUT_CATALOG, OUT_TOOL_NAMES, ...OUT_WORKFLOWS].sort(),
   );
-  assert.equal(MANAGED_FILES.length, 5);
+  assert.equal(MANAGED_FILES.length, 6);
   assert.deepEqual([...renderOutputs(buildCatalog(), { pluginRoot: PLUGIN }).keys()].sort(), [...MANAGED_FILES].sort());
 });
 
@@ -163,7 +165,7 @@ test('S2: editing tool-catalog.json and deleting call-shapes.md makes --check ex
   assert.equal(r.status, 1, `stdout: ${r.stdout} stderr: ${r.stderr}`);
   assert.ok(r.stderr.includes(OUT_CATALOG), `stderr must name ${OUT_CATALOG}: ${r.stderr}`);
   assert.ok(r.stderr.includes(OUT_CALL_SHAPES), `stderr must name ${OUT_CALL_SHAPES}: ${r.stderr}`);
-  for (const other of [OUT_TOOL_NAMES, ...OUT_WORKFLOWS]) {
+  for (const other of [OUT_CALL_SHAPES_JS, OUT_TOOL_NAMES, ...OUT_WORKFLOWS]) {
     assert.ok(!r.stderr.includes(other), `stderr must not name fresh file ${other}`);
   }
   assert.ok(r.stderr.includes('gen-call-shapes.mjs'), 'stderr must print the regenerate command');
@@ -344,4 +346,98 @@ test('replaceRegion: replaces only the marked region and throws naming the label
   assert.ok(!out.includes('old body'));
   assert.throws(() => replaceRegion('no markers here\n', 'x', 'wf-label'), /wf-label/);
   assert.throws(() => replaceRegion([REGION_END, REGION_BEGIN].join('\n'), 'x', 'wf-label'), /wf-label/, 'end before begin');
+});
+
+// ---- S6: Code Mode call shapes (call-shapes-js.md) --------------------------------------------
+
+const JS_MD = readFileSync(join(PLUGIN, OUT_CALL_SHAPES_JS), 'utf8');
+const ORCH_PREFIX = 'mcp__mcp-task-orchestrator__';
+const DIR_PREFIX = 'mcp__mcp-task-orchestrator-director__';
+
+function jsSections() {
+  const parts = JS_MD.split(/(?=^<a id=")/m).slice(1);
+  const map = new Map();
+  for (const p of parts) {
+    map.set(/^<a id="([^"]+)"><\/a>/.exec(p)[1], p);
+  }
+  return map;
+}
+const JS_SECTIONS = jsSections();
+
+function codeLines(section) {
+  const m = /```js\n([\s\S]*?)\n```/.exec(section);
+  return m ? m[1].split('\n') : [];
+}
+
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+test('S6a: call-shapes-js.md anchors are unique and equal the API entry set', () => {
+  const ids = [...JS_MD.matchAll(/<a id="([^"]+)"><\/a>/g)].map((m) => m[1]);
+  assert.equal(new Set(ids).size, ids.length, 'anchors must be unique');
+  assert.deepEqual([...ids].sort(), API.entries.map((e) => `${e.tool}-${e.name}`).sort());
+});
+
+test('S6b: each entry has one code line per serving MCP entry, REST-only entries none, Profiles line matches', () => {
+  for (const e of API.entries) {
+    const sec = JS_SECTIONS.get(`${e.tool}-${e.name}`);
+    assert.ok(sec, `section for ${e.tool}-${e.name}`);
+    const profiles = expectedProfiles(e.tool, e.name);
+    const lines = codeLines(sec);
+    const orch = lines.filter((l) => l.includes(`tools['${ORCH_PREFIX}${e.tool}']`));
+    const dir = lines.filter((l) => l.includes(`tools['${DIR_PREFIX}${e.tool}']`));
+    assert.equal(orch.length, profiles.includes('orchestration') ? 1 : 0, `${e.tool} ${e.name} orchestration lines`);
+    assert.equal(dir.length, profiles.includes('director') ? 1 : 0, `${e.tool} ${e.name} director lines`);
+    assert.equal(lines.length, orch.length + dir.length);
+    if (profiles.length === 0) {
+      assert.ok(sec.includes('REST only'), `${e.tool} ${e.name} says REST only`);
+      assert.ok(!sec.includes('```js'));
+    } else {
+      assert.ok(sec.includes(`Profiles: ${profiles.join(', ')}.`), `${e.tool} ${e.name} Profiles line`);
+    }
+  }
+});
+
+test('S6c: each line opens with the right call shape, carries every required top-level field and no optional one', () => {
+  const reserved = new Set(['class', 'default', 'delete', 'new', 'function', 'return', 'import', 'export']);
+  for (const e of API.entries) {
+    const sec = JS_SECTIONS.get(`${e.tool}-${e.name}`);
+    const open = e.kind === 'op' ? `({ops: [{op: '${e.name}'` : `({select: '${e.name}'`;
+    const topLevel = Object.keys(e.fields).filter((f) => !f.includes('.') && !f.includes('[]'));
+    for (const line of codeLines(sec)) {
+      assert.ok(line.includes(open), `${e.tool} ${e.name} opens with ${open}: ${line}`);
+      const literal = line.slice(line.indexOf(open));
+      for (const f of topLevel) {
+        const token = reserved.has(f) ? `${f}: ${f}Value` : f;
+        const present = new RegExp(`[ {,]${escapeRe(token)}(?=[,}])`).test(literal);
+        assert.equal(present, e.fields[f].required, `${e.tool} ${e.name} field ${f} required=${e.fields[f].required} in: ${line}`);
+      }
+    }
+  }
+});
+
+test('S6d: every code line compiles as an async function body; raise carries class', () => {
+  for (const e of API.entries) {
+    for (const line of codeLines(JS_SECTIONS.get(`${e.tool}-${e.name}`))) {
+      assert.doesNotThrow(() => new Function('tools', 'return (async () => { ' + line + ' })'), line);
+    }
+  }
+  const raise = codeLines(JS_SECTIONS.get('runs_write-raise'));
+  assert.ok(raise.length >= 1 && raise.every((l) => l.includes('class: classValue')), 'raise uses class: classValue');
+});
+
+test('S6e: call-shapes-js.md has no to-call blocks', () => {
+  assert.deepEqual(parseToCallBlocks(JS_MD), []);
+});
+
+test('S6f: appending a character to call-shapes-js.md makes --check exit 1 naming only that file', () => {
+  const tmp = tmpCopyOfPlugin();
+  const args = ['--plugin-root', tmp, '--golden-dir', GOLDEN_DIR, '--api-reference', API_PATH];
+  writeFileSync(join(tmp, OUT_CALL_SHAPES_JS), readFileSync(join(tmp, OUT_CALL_SHAPES_JS), 'utf8') + 'x');
+  const r = cli(['--check', ...args]);
+  assert.equal(r.status, 1, r.stderr);
+  assert.ok(r.stderr.includes(OUT_CALL_SHAPES_JS));
+  for (const other of MANAGED_FILES.filter((m) => m !== OUT_CALL_SHAPES_JS)) {
+    assert.ok(!r.stderr.includes(other), `stderr must not name ${other}`);
+  }
+  assert.deepEqual(checkOutputs({ pluginRoot: tmp, goldenDir: GOLDEN_DIR, apiReferencePath: API_PATH }).stale, [OUT_CALL_SHAPES_JS]);
 });

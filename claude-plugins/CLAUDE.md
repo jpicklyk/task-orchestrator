@@ -79,6 +79,7 @@ Two skill systems — do not confuse them: **project-level skills** in `.claude/
 
 The plugin's view of the 4.0 tool surface is generated, never hand-edited: `skills/_generated/call-shapes.md`
 (per select/op fields, profiles, capability, errors, with `<a id="<tool>-<name>">` anchors),
+`skills/_generated/call-shapes-js.md` (the same entries as Code Mode script lines, same anchors),
 `hooks/lib/tool-catalog.json`, `hooks/lib/tool-names.mjs`, and the `TOOL_NAMES` region (between
 `// @generated:tool-names-begin` and `// @generated:tool-names-end`) of `workflows/implement-wave.js` and
 `workflows/review-wave.js`. After the server's tool goldens or `current/docs/api-reference.md` change, run
