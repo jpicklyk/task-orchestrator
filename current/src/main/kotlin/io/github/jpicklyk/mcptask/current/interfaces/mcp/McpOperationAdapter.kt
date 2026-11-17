@@ -47,7 +47,9 @@ import kotlin.time.TimeSource
  * (`transport`, `tool`, `sessionId`, `reqId`, and a length-capped `actorId`: the audited id of the call's principal)
  * and a [CallTelemetry] for the MCP surface. The call runs under the [access] of its session; the principal's `host`
  * is the MCP client's `clientInfo.name` when the client sent one. The result carries the envelope body as `structuredContent`,
- * `isError = !ok`, one text content (`ok`, or `<code>: <message>`) and `_meta.reqId`. One `call_log`
+ * `isError = !ok`, one text content and `_meta.reqId`. The text is `ok`, or on an error `<code>: <message>`, a newline and one
+ * compact JSON line (the envelope, so a text-only client keeps `fix`, `detail` and `retryAfterMs`; for `partial_failure`
+ * `data.results` holds only the failing entries, each with its `index`, at most the first 10). One `call_log`
  * record is submitted, and one INFO `tool call:` line is logged inside the call's MDC, per call that was not
  * cancelled; the line carries the tool name, operation, outcome, error code, latency and response bytes, never an
  * argument value or body text. No `notifications/message` is sent.
@@ -125,7 +127,7 @@ class McpOperationAdapter(
             val body = dispatched.envelope.body
             val result =
                 CallToolResult(
-                    content = listOf(TextContent(text = summary(body))),
+                    content = listOf(TextContent(text = text(body))),
                     isError = !ok(body),
                     structuredContent = body,
                     meta = buildJsonObject { put("reqId", reqId) }
@@ -240,6 +242,41 @@ class McpOperationAdapter(
                 CallLogFields.utf8Length(body.toString())
 
         private fun ok(body: JsonObject): Boolean = (body["ok"] as? JsonPrimitive)?.contentOrNull == "true"
+
+        /** Max failing entries kept in the JSON tail of a `partial_failure` text. */
+        private const val TAIL_MAX_FAILED = 10
+
+        /**
+         * The text content: `ok`, or [summary] and a newline and the compact JSON tail, always the last line. The tail is
+         * the envelope body; for `partial_failure` its `data.results` is cut to the failing entries (each `{index, ...entry}`,
+         * ascending, first [TAIL_MAX_FAILED]) with `data.summary` unchanged. An `internal` error carries the tail too; its
+         * message is already the fixed text, so no exception text reaches the client.
+         */
+        private fun text(body: JsonObject): String {
+            val line = summary(body)
+            if (ok(body)) return line
+            return line + "\n" + tail(body).toString()
+        }
+
+        private fun tail(body: JsonObject): JsonObject {
+            val error = body["error"] as? JsonObject
+            val data = body["data"] as? JsonObject
+            val results = data?.get("results") as? JsonArray
+            if ((error?.get("code") as? JsonPrimitive)?.contentOrNull != "partial_failure" || results == null) return body
+            val failed =
+                results
+                    .withIndex()
+                    .filter { (_, entry) -> ((entry as? JsonObject)?.get("ok") as? JsonPrimitive)?.contentOrNull != "true" }
+                    .take(TAIL_MAX_FAILED)
+                    .map { (index, entry) ->
+                        buildJsonObject {
+                            put("index", index)
+                            (entry as? JsonObject)?.forEach { (key, value) -> put(key, value) }
+                        }
+                    }
+            val newData = JsonObject(data + ("results" to JsonArray(failed)))
+            return JsonObject(body + ("data" to newData))
+        }
 
         /** `ok`, or `<code>: <message>` of the envelope error. */
         private fun summary(body: JsonObject): String {

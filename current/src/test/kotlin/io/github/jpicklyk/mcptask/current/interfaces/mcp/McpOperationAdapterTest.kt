@@ -45,7 +45,8 @@ import kotlin.test.assertTrue
  * test-plan (NEW-SURFACE), driven through a real SDK [Server]/[Client] pair over `ChannelTransport.createLinkedPair()`.
  *
  * Oracles: the task-scope Contract for the adapter (registers `name`, rendered description, input schema and annotations;
- * `structuredContent` = the envelope body, `isError` = `!ok`, one `TextContent` = "ok" or "<code>: <message>", `_meta.reqId` =
+ * `structuredContent` = the envelope body, `isError` = `!ok`, one `TextContent` = "ok", or on an error the first line
+ * "<code>: <message>" followed by a newline and the compact JSON tail (see McpErrorTextTest), `_meta.reqId` =
  * `meta.reqId`; one `call_log` record per non-cancelled call with `tool`, `operation` (D8), `error_code` = the body's error
  * code, `batch_size`, `failed_count` = `data.summary.failed`, `result_count` = size of `data.items` when present,
  * `request_shape` = `CallLogFields.requestShapeJson(arguments)`), MCP tools spec (annotations in `tools/list`), D9 (an escaping
@@ -215,7 +216,7 @@ class McpOperationAdapterTest {
             )
             val error = structured.getValue("error").jsonObject
             assertEquals("not_found", error.str("code"))
-            assertEquals("not_found: ${error.str("message")}", result.text())
+            assertEquals("not_found: ${error.str("message")}", result.text().substringBeforeLast('\n'))
             assertEquals(result.reqIdMeta(), structured.getValue("meta").jsonObject.str("reqId"))
         }
 
@@ -275,7 +276,7 @@ class McpOperationAdapterTest {
                 """{"ok":false,"error":{"code":"internal","kind":"transient","message":"Internal server error"},"meta":{"reqId":"$reqId"}}""",
                 assertNotNull(result.structuredContent).toString()
             )
-            assertEquals("internal: Internal server error", result.text())
+            assertEquals("internal: Internal server error", result.text().substringBeforeLast('\n'))
             assertFalse(FixtureTools.SECRET in result.toString(), "no part of the result may carry the exception text")
         }
 

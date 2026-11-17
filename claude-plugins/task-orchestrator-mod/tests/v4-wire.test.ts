@@ -2,7 +2,7 @@
 //
 // Authored blind to the implementation: every expected value below comes from the 4.0 response envelope
 // (current/docs/api-reference.md "Response envelope": `{ok, data | error{code,kind,message,detail}, meta}`,
-// carried in MCP `structuredContent`; the text content is only `ok` or `<code>: <message>`), from the
+// carried in MCP `structuredContent`; the text content is `ok` or `<code>: <message>` plus a JSON tail line), from the
 // 8-hex short-id rule ("Item views": compact views carry the first 8 hex of the UUID), and from the
 // tool catalog (claude-plugins/task-orchestrator/hooks/lib/tool-catalog.json: 13 tools, 7 of kind `ops`).
 import { expect, test } from 'claude-code/testing'

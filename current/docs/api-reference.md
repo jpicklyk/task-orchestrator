@@ -2449,7 +2449,10 @@ Keys come in the fixed order shown and nulls are never sent; there is no top-lev
 | `meta.replayed` | `true` when the whole call replayed a stored rejection. |
 
 The HTTP status of a REST answer is the code's status (200 on success). Over MCP, `isError` is `!ok`, the single text
-content is `ok` or `<code>: <message>`, and the result also carries `_meta.reqId`.
+content is `ok` or, on an error, `<code>: <message>` followed by a newline and the error envelope as one compact JSON line
+(so a text-only client keeps `fix`, `detail` and `retryAfterMs`; for a `partial_failure` its `data.results` holds only the
+failing entries, each with its `index`, at most the first 10, and `data.summary` is unchanged), and the result also
+carries `_meta.reqId`.
 
 **Batch answers.** A write tool answers `data: {results, summary: {ok, failed}}`. `results[i]` is `{ok: true, ...}` or
 `{ok: false, error}` (with `replayed: true` for a replayed element). When a non-atomic batch has failures the call
