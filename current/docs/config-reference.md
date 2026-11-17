@@ -126,8 +126,10 @@ A review-role note entry may declare `lane`, a map of `output` (`verdict`, the d
 ordering hint: the lanes of those notes run first, and it never halts or skips a lane. The server checks the shape, not
 that an `after` key exists in the effective schema. A parser finding is an error under `STRICT` and a warning under
 `MIGRATION`, and each of these is one: `lane` on a note whose role is not `review` (the lane is dropped), a `lane` that is
-not a map (dropped), an unknown key inside it (ignored, the lane kept), and an `output` other than `verdict` or
-`findings` (it falls back to `verdict`).
+not a map (dropped), an unknown key inside it (ignored, the lane kept), an `output` other than `verdict` or
+`findings` (it falls back to `verdict`), an `after` that is neither a note key nor a list (dropped), an `after` list
+element that is not a non-blank string (the whole `after` is dropped), and an `after` element that names the note's
+own key or repeats an earlier one (that element is dropped).
 
 ### Trait `description` and `applies_when`
 
