@@ -46,7 +46,7 @@ import kotlin.test.assertTrue
  * `config_invalid` at `<entry>/lane/output`, a lane on a work entry at `<entry>/lane`; a valid lane is admitted and then served
  * per root.
  *
- * Fixture condition for each absence assertion: the paired entries in the same fixture do carry the member.
+ * Fixture condition for each absence assertion: the paired entries in the same fixture do carry the member; the S14 plain schema holds one review note (rp) with no lane, so a server that served a default lane on every review note would fail it.
  * Forbidden-construct declaration: none.
  */
 @Timeout(value = 300, unit = TimeUnit.SECONDS)
@@ -87,7 +87,10 @@ class ReviewLaneServingMcpTest {
                 lane:
                   after: [ra, rb]
           traited:
-            notes: []
+            notes:
+              - key: rp
+                role: review
+                required: true
         traits:
           t-lane:
             notes:
@@ -220,8 +223,11 @@ class ReviewLaneServingMcpTest {
         runBlocking {
             val f = fixture()
             val plain = f.itemEntries(f.item("traited"))
+            val viaType = f.typeEntries("traited")
 
-            assertTrue(plain.isEmpty() || plain.none { "lane" in it }, "entries: $plain")
+            assertEquals(listOf("rp"), plain.map { it.str("key") }, "entries: $plain")
+            assertFalse("lane" in plain.entry("rp"), "item path entry: ${plain.entry("rp")}")
+            assertFalse("lane" in viaType.entry("rp"), "type path entry: ${viaType.entry("rp")}")
             assertNull(f.typeEntries("lanes").entry("rc").laneFacts())
         }
 
