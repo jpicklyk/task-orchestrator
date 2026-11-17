@@ -340,8 +340,8 @@ for (const key of PROTOCOL_KEYS) {
   });
 }
 
-test('S12: commit-discipline history gains point 6, review-scoping history is unchanged', () => {
-  assert.deepEqual(MANIFEST['commit-discipline'], ['7f0235ee3031df777d915245d5bb72c2ee73c2d61665b64a82b9f808183566cd', 'a99549664ae6ff2bb3deca22f92a18f949e42e2da141e54cec52032fb43dd39b']);
+test('S12: commit-discipline history gains points 6 and 7, review-scoping history is unchanged', () => {
+  assert.deepEqual(MANIFEST['commit-discipline'], ['7f0235ee3031df777d915245d5bb72c2ee73c2d61665b64a82b9f808183566cd', 'a99549664ae6ff2bb3deca22f92a18f949e42e2da141e54cec52032fb43dd39b', '7ae8e863e5fcda4798bb40a57ff5799fb1226642141a172d6246f650f8912686']);
   assert.deepEqual(MANIFEST['review-scoping'], ['3374170b94cd15cef7a931063f22c502e415a5b3c15045e3cbfacc0b3bb03a6f']);
 });
 

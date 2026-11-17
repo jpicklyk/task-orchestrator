@@ -10,12 +10,11 @@ This skill defines the minimum thinking floor for plans and specifications. The 
 below represent what every plan must address. They are not a ceiling — if the problem
 demands additional analysis, add it. But these areas must not be skipped.
 
-**Where this applies at each level:** for a `feature-implementation` parent, the queue-phase
-`feature-summary` note stays lean by design (goal, findings→tasks table, dependency edges,
-a pointer to non-goals — target under 2k chars) and does not carry the full disciplines below.
-The disciplines below apply in full to each child's `task-scope` note (or to `specification`/
-`diagnosis` notes on schemas without a parent/child split) — that is where alternatives,
-blast radius, risk flags, and test strategy must actually be worked through.
+**Where this applies:** the note's own guidance sets the depth. A `feature-summary` stays lean
+(goal, findings-to-tasks table, dependency edges, a pointer to non-goals). A `task-scope` gets the
+full pass only for a behaviour-touching item; a docs-class or single-file item is goal, files,
+acceptance criteria and a verify command (the `task-scope` guidance). `specification` and
+`diagnosis` notes on schemas without a parent/child split take the full disciplines below.
 
 The value of a spec is entirely in the thinking it forces before code is written. If a
 section doesn't change how you'd approach implementation, it isn't earning its place.
@@ -91,7 +90,8 @@ rule lives at `interfaces/api/v1/ops/OpsAccess.kt:22` (`attributionVisible = !re
 survived from spec to header because the sentence was written from intent and no line was
 opened. For a NEW-SURFACE claim with no code yet, cite the spec decision that fixes the
 behavior and mark the claim for the reviewer to confirm in the diff. Prose that is not a
-semantic claim needs no citation — this is not a blanket citation rule.
+semantic claim needs no citation - this is not a blanket citation rule. Authors hold their own
+notes to this standard (rule `review-cited-claims` rule 4).
 
 ### Verification Commands
 
@@ -133,8 +133,8 @@ its scope and result count — for example
 `grep -rn "createSuspend" current/src → 0 hits (src/main + src/test)`. A negative claim
 with no named sweep is not a finding; write "not checked" instead. A sweep that covered
 only part of the surface states the part it covered, and the reader treats the remainder
-as unchecked, not as clear. The `defect-class-siblings` field of `/implement`'s planning
-seat return template is this rule's special case for a bug's root-cause pattern.
+as unchecked, not as clear. The planning seat's `defect-class-siblings` return field is this rule's
+special case for a bug's root-cause pattern; rule `planning-sweeps` covers fixed-list and script sweeps.
 
 ### Risk Flags
 
@@ -178,41 +178,20 @@ artifacts map coverage back to this spec without duplicating it — most directl
 `needs-test-author` trait's `test-plan` and `test-manifest` notes, which reference these
 same ids; cite the trait by name rather than restating its note schema here.
 
-**State matrix (user-visible runtime changes).** Required when the change alters behaviour
-observed in a running session or server process: plugin hooks, hook-injected context or skill
-text, output styles, mod modules, server startup, config load or hot-reload, transport or REST
-behaviour. Otherwise the spec carries one line, `State matrix: n/a - <reason>` (docs-only,
-test-only, pure refactor, domain logic fully unit-tested, agent-read process prose). A missing
-line is an omission, not a decision.
-
-- **Rows (minimum set):** fresh session (no prior markers or state); configured; unconfigured,
-  one row per fallback the change reads, each with that fallback removed alone (for example no
-  `project.rootId`, empty API URL, no `config.yaml`); reload or restart mid-use (plugin reload,
-  server restart, config hot-reload); resume after compaction or `--resume`. An item may add
-  rows; none may be dropped silently.
-- **Columns:** terminal (interactive CLI), desktop app, headless `claude -p`.
-- **Cells:** exactly one of `test: <test file or S#>` (only when that test's fixture actually
-  models the row's state), `live-owed: <command or steps, in the form that will be executed>`,
-  or `n/a: <reason>`. A desktop cell an agent cannot drive is `live-owed` (to the user, or carrying
-  a `deferred: <item id>` suffix on its Live-owed entry), never `n/a` merely because an agent
-  cannot run it.
-- **Owed cells:** the item's `session-tracking` note (the orchestrator's, under the
-  `session-tracked` trait) lists every `live-owed` cell on a `**Live-owed**:` line. Each entry
-  ends `run <date>: <result>` or `deferred: <item id>`; a deferral names a tracked item, never
-  prose. An entry with neither suffix is open, and the item does not leave work while one is
-  open (`/implement`, Step 4c of each path file).
-
-The matrix lives in the item's spec note (`task-scope`, `diagnosis` or `specification`). A plan may
-carry it or point at it (`/implement` "Planning rules", "Plans carry the State matrix"); a dispatch contract
-only points at it and never copies its cells.
+**State matrix.** Rule `live-checks` holds the rows, columns, cell forms and the Live-owed hold.
+Required for a user-visible runtime change; otherwise one line, `State matrix: n/a - <reason>`.
+The matrix lives in the item's spec note; a plan may carry or point at it, and a dispatch contract
+only points at it.
 
 ---
 
 ## Completion Checklist
 
-Validate spec completeness before advancing past queue phase:
+Validate spec completeness before advancing past queue phase. The note's guidance decides which
+boxes apply (see "Where this applies"): a docs-class or single-file task keeps goal, files,
+acceptance criteria and the verify command.
 
-- [ ] At least 2 real alternatives evaluated (not strawmen)
+- [ ] At least 2 real alternatives evaluated (not strawmen); "do nothing" counts as one
 - [ ] No "open decisions" or "options under consideration" sections remain in the spec
 - [ ] At least 1 non-goal named (scope boundary explicit)
 - [ ] Downstream consumers of changed interfaces traced
@@ -223,7 +202,7 @@ Validate spec completeness before advancing past queue phase:
 - [ ] 1-2 concrete risk flags identified
 - [ ] Test scenarios named for happy paths, failure paths, and edge cases
 - [ ] Scenarios carry stable numbered ids (S1…) with an oracle source recorded for each
-- [ ] State matrix present for a user-visible runtime change (or one `n/a` line with reason); every cell `test` | `live-owed` | `n/a: reason`
+- [ ] State matrix present for a user-visible runtime change, or one `n/a` line with reason (rule `live-checks`)
 - [ ] Shared interface breakage assessed (if applicable)
 
 ---

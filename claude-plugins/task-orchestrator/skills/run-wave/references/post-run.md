@@ -140,30 +140,20 @@ now pointing at another item's commit).
 
 **Red-proofs themselves are run by you, the orchestrator**, not the helper — `verify` only
 returns the budget (`items[].redProof.shape`, plus `items[].redProof.commands` for whichever
-of the project's `run-profile.json` -> `verify[]` entries name the `orchestrator` seat); this
-repo's profile names `wave-build` (the locked `:current:test` and `:current:ktlintCheck` run) and
-`plugin-node-tests` (the plugin `scripts/tests` and `hooks/tests` node suites).
+of the project's `run-profile.json` -> `verify[]` entries name the `orchestrator` seat).
 
 **The red-proof policy is a targeted budget, not one proof per scenario, and it runs in two
-places.** The full statement lives in the served `test-author` rule, section 5. What you run
-HERE, per item, before the item advances or merges:
+places.** The full statement is section 5 of the `test-author` rule when the root serves it
+(fetch it with `docs_read` `get`, `kind` `rule`, `slug` `test-author`, `rootId`); without it,
+run what `items[].redProof.shape` names. What you run HERE, per item, before the item advances
+or merges, is the per-item part of that section. Record per item in the Review scoping slot:
+proofs run, gaps found, approximate minutes. Reviewers read these results and do not re-run
+them, except to verify one they doubt, and then scoped to the owned tests (the `verify[]` entry
+carrying `ownedTestsPattern`), never as the whole suite.
 
-- **Bug fix:** one revert-the-fix run on the regression test (red before, green after), scoped
-  to that test class.
-- **Coupled authorship** (the author read the implementation, or one agent wrote both): the red
-  check on every scenario asserting new behaviour.
-- **Skip** test-only items, pure refactors and package moves, migrations, and glue, config,
-  wiring, logging or docs.
-- **Record per item** in the Review scoping slot: proofs run, gaps found, approximate minutes.
-  Reviewers read these results and do not re-run them, except to verify one they doubt, and then
-  scoped (`-TestFiles`), never as the whole suite.
-
-What you do NOT run here: the decision-point **budget mutations** (up to about 5 per item for
-new guard, gate, transition, classification, boundary or security behaviour; concurrency and
-atomicity faults). Those are a test-quality audit, not a defect finder (phase 1 of 4.0: about
-228 runs for 8 gaps; phase 2: 3 gaps, while the blind tests themselves found the real defects),
-so they run after the wave's PRs merge, batched across the wave, at the merged SHA — Step 7a
-below. Carry each item's `redProof.shape` forward to that step unchanged.
+The decision-point **budget mutations** are not run here: they run after the wave's PRs merge,
+batched across the wave, at the merged SHA - Step 7a below. Carry each item's `redProof.shape`
+forward to that step unchanged.
 
 A `verify` failure (`items[].ok: false`, non-empty `findings`) on any item
 means that item **fails this run** — do not advance it in Step 4 below, and surface the specific
@@ -177,8 +167,7 @@ those lose backslashes in the Bash tool and miss anchors in a CRLF checkout, and
 leaves the file unchanged, so the red-proof is wasted or falsely green. Write the edit spec or script with
 the Write tool into the scratchpad, normalize line endings before matching, require each anchor
 to match exactly once, dry-run first, and confirm the diff in the scratch copy before building.
-When the project ships an anchored-patch helper (this repo:
-`.claude/skills/implement/references/patch-anchored.py`, `DRY=1` first), use it instead of a
+When the project ships an anchored-patch helper, use it instead of a
 hand-written script.
 
 ---
@@ -349,13 +338,13 @@ follow-up item created first, and the orchestrator's disposition for it names th
 no owner is not left for the reviewer to find.
 
 **Under `review: "handoff"`** (the project's `run-profile.json`), keep the run open through the project's
-own review step (this repo: `/implement`, wave path `wave.md` Step 5) and do not dispatch the generic reviewer yourself. In order:
+own review step and do not dispatch the generic reviewer yourself. In order:
 Step 4 is done and the phase `review` is recorded; assign a reviewer seat per advanced item that entered a review
 phase (the `run-ops --phase assign --item <short> --seat reviewer` command below, under the coordinator token, its
 `seatToken` written to `tokens/<short>.reviewer.token`); hand off to the project's review step with the run open
 (its reviewers carry the label `reviewer:<short>`, see the Label rule). The hand-off returns once the project's review
-step has a verdict for every advanced item (this repo: `/implement` `wave.md` Step 5); the advance named below is that project's
-own advance (this repo: `/implement` `wave.md` Step 6), not a second one. After the hand-off returns: run Step 0b's
+step has a verdict for every advanced item; the advance named below is that project's
+own advance, not a second one. After the hand-off returns: run Step 0b's
 sweep, re-run `dispatch-meta` and `provenance --item <short> --extra-seats reviewer:<model>` (`provenance` reads
 the `reviewer:<short>` transcript from the meta file, and `--extra-seats` needs `--item`; a consolidated reviewer over several
 children is one agent labelled for the first child in plan order, so its `reviewer:<model>` row goes on that child only), and re-upsert the item's
@@ -391,7 +380,7 @@ turn. On the notification, aggregate the lane verdicts, run Step 0b's sweep, and
 `Workflow`, keep the generic `review-prompt` path above.
 
 **Wave parent review.** Before any reviewer for the wave parent itself is dispatched or handed off
-(a feature-level review; this repo's `/implement` `wave.md` Step 6 item 3; its reviewer's `description` is `reviewer:<parent-short>`, Label rule), `items_read(select:"context",
+(a feature-level review; its reviewer's `description` is `reviewer:<parent-short>`, Label rule), `items_read(select:"context",
 itemId:<parent>)` and branch on its role. No review-role entry in its schema → do not advance it:
 `start` from work with no review phase lands terminal. Role `work` and `gateStatus.canAdvance` →
 `advance` `transition` `start` (work→review) under the coordinator token first, then dispatch. Role
@@ -401,12 +390,9 @@ parent check first. Already `review` → dispatch. On 4.0 a review-role parent i
 child's terminal cascade (it is suppressed with reason `review-pending`), so the parent can enter
 review as soon as its work notes are filled.
 
-**Security-assessment items.** The review-prompt helper does not know the item's schema. When the
-item's resolved schema has a `security-assessment` note (check `items_read(select:"context")`'s
-`schema` list), append to the generated review prompt a line naming the worktree path beside the
-diff command, plus: "Apply the /security-review method to this item's owned-file diff in its
-worktree — `git -C <worktree> diff <baseSha>..HEAD -- <owned files>` — not by invoking the built-in
-command, which diffs the session cwd and is empty for a worktree branch."
+**Worktree items.** The review-prompt helper does not know where an item was built. For an item
+built in a worktree, append the worktree path beside the diff command in the generated review
+prompt; each review note's guidance says how its pointed skill applies to that diff.
 
 **Fix cycle after a Fail.** When a review returns Fail, classify each blocking finding, then run the
 recipe for its class. There is no cap on cycles. A cycle is numbered `A<n>` (A1 for the first Fail,
@@ -633,7 +619,7 @@ These are not automatable from inside this skill; surface them and wait as the p
 process requires:
 
 - Arbitration of a red test authored by an independent test-author seat (per the project's
-  arbitration rule — this repo: `/implement` "Arbitration — Red Author-Authored Tests") is a **human or a separately-dispatched
+  arbitration rule, when the root serves it) is a **human or a separately-dispatched
   arbitration agent's** call, not this skill's.
 - A decision a seat raised (`awaiting_decision`, with its `decisionId`) or a pause decision of the
   run is answered by a human or a director, never by the coordinator. Each one is reported with a
@@ -644,8 +630,7 @@ process requires:
   (see status-progression/references/decisions.md). When it is `resumable` before the run closes,
   resume it under the coordinator token and carry the ruling; Step 9's re-snapshot re-dispatches it.
 - Opening a PR and merging it are the checkpoints that carry an item from review to terminal in
-  most projects — this skill does not open PRs itself; that's the project workflow's job (this
-  repo: `/implement` `wave.md` Step 6).
+  most projects — this skill does not open PRs itself; that's the project workflow's job.
 - Merge rounds that conflict on `CHANGELOG.md` (the `[Unreleased]` bullets) are resolved with
   `node claude-plugins/task-orchestrator/scripts/resolve-changelog.mjs --ancestor <f> --base <f>
   --branch <f> [--out <f>]`. It merges per bullet three-way: a one-sided edit or deletion is taken
@@ -711,10 +696,10 @@ background and go on to `SKILL.md` Step 9; the next wave's planners do not wait 
    anchored-patch helper ("Applying a mutation or a narrowest revert", Step 1), one mutation
    present at a time, the tree restored between them.
 3. **Run each mutation scoped**, against the test classes the item's `test-manifest` maps to
-   that scenario (`gradle-locked.ps1 -TestFiles "<those files>"`, which renders `--tests`), with
-   `TO_GRADLE_OWNER=orchestrator` set inline. Red = the mapped tests failed. A survivor gets ONE
-   whole-suite run, incremental, to tell "covered at another seam (name the test)" from a real
-   gap; that is the only whole-suite run in this step.
+   that scenario, using the run-profile `verify[]` entry carrying `ownedTestsPattern` for the
+   scoped run. Red = the mapped tests failed. A survivor gets ONE whole-suite run, using the
+   entry whose `seats` lists `orchestrator`, to tell "covered at another seam (name the test)"
+   from a real gap; that is the only whole-suite run in this step.
 4. **Triage survivors** per the rule: weak test, equivalent mutant, unreachable, or covered at
    another seam. A real gap does NOT reopen the item: it becomes a carry-in note on the next
    item that touches the same seam when one is queued, else one test-only follow-up item per wave
@@ -748,12 +733,12 @@ background and go on to `SKILL.md` Step 9; the next wave's planners do not wait 
 
 ## Step 7b - Feature closure
 
-Applies to a parent with 2 or more children whose resolved schema has a review phase (this repo:
-`feature-implementation`), once EVERY child is terminal (a child that is only a live check needing a
+Applies to a parent with 2 or more children whose resolved schema has a review phase (for example a
+`feature-implementation` type), once EVERY child is terminal (a child that is only a live check needing a
 refreshed plugin cache or a user opt-in is the exception: see "Post-merge live acceptance" below). Shared mode: before the feature PR is
 pushed, so before Step 7a. Per-item mode: after the last child's PR has merged; it does not wait
 on Step 7a. Not covered here: a parent with one child (the project workflow's finalization decides how its
-independent parent review runs; this repo: `/implement` `wave.md` Step 6) and a
+independent parent review runs) and a
 parent whose schema has no review phase (it cascades to terminal when its last child completes and
 its required notes are filled).
 
@@ -803,17 +788,17 @@ review-role parent, and the parent leaves review only by the explicit advance in
    after N of N.
 
 **Post-merge live acceptance.** After the feature PR has merged (under `review: "handoff"` the
-project's finalization, this repo `/implement` `wave.md` Step 6, carries the same step), if the
+project's finalization carries the same step), if the
 only non-terminal children are live checks that need a refreshed plugin cache or a user opt-in: (a)
-create one `plugin-change` item titled `Post-merge live acceptance: <feature title>` under the
+create one holder item (type per the `live-checks` rule) titled `Post-merge live acceptance: <feature title>` under the
 feature's parent, its `specification` filled at creation; (b) `deps_write` `create` a `relates_to`
 edge from it to the feature; (c) re-parent each such check under it (`items_write` `update`
 `parentId`); (d) add one line `Post-merge live acceptance: <holder short id> (<check short ids>)` to
-the feature's `session-tracking`, token-less when that note was created token-less (it stays re-writable after the runs close), else in `orchestrator-confirmation`, since per Step 3 a note created under a coordinator token takes a re-edit only inside an open run; (e) complete the feature. The holder's specification opens with
-this fixed next-session preamble: (1) purge the plugin cache and update the marketplace, per
-`claude-plugins/CLAUDE.md` "Plugin Discovery and Cache Refresh"; (2) after the next session starts,
-grep the cached files for one string the change added (name the string); (3) the user's opt-in for
-any check that runs the Workflow tool. Then one line per re-parented check. The next session runs
+the feature's `session-tracking`, token-less when that note was created token-less (it stays re-writable after the runs close), else in `orchestrator-confirmation`, since per Step 3 a note created under a coordinator token takes a re-edit only inside an open run; (e) complete the feature. The holder's type and next-session preamble come from the
+project's `live-checks` rule when the root serves it (its "Post-merge holder" paragraph, numbered
+steps (1)-(2)), else the checks' own type and no rule preamble. Either way the preamble always gets
+the user's opt-in for any check that runs the Workflow tool: as step (3) after the rule's steps, or
+as its only step when the rule is not served. Then one line per re-parented check. The next session runs
 the checks, fills the holder's `session-tracking` and completes it. Create the holder and re-parent
 the checks before (e): a terminal auto parent takes no new children. The complete in item 4 follows
 steps (a)-(d); in shared mode, where Step 7b runs before the feature PR is pushed, the split and item 4
@@ -821,4 +806,4 @@ therefore wait for the merge. No server gate enforces the split: it is disciplin
 
 **Honest limit.** No server gate and no helper checks dispositions: `orchestrator-confirmation`
 is a declared optional note, so this is discipline, not enforcement. Under `review: "handoff"` the
-project's finalization applies the same rules (this repo: `/implement` `wave.md` Step 6, shared mode).
+project's finalization applies the same rules.

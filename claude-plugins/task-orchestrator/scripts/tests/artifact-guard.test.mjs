@@ -161,8 +161,8 @@ test('prompt: smoke line renders for a claude-plugins path, absolute worktree pa
   assert.match(promptFor({ planner: { mainFiles: ['/tmp/wt-aaaaaaaa/claude-plugins/task-orchestrator/scripts/x.mjs'] } }), SMOKE)
 })
 
-test('prompt: smoke line absent for a current/-only item, no planner output, or a non-implementer stage', () => {
-  assert.doesNotMatch(promptFor({ planner: { mainFiles: ['current/src/Main.kt'] } }), SMOKE)
-  assert.doesNotMatch(promptFor({}), SMOKE)
+test('prompt: smoke line present for a current/-only item and with no planner output; absent for a non-implementer stage', () => {
+  assert.match(promptFor({ planner: { mainFiles: ['current/src/Main.kt'] } }), SMOKE)
+  assert.match(promptFor({}), SMOKE)
   assert.doesNotMatch(promptFor({ planner: { mainFiles: ['claude-plugins/a.mjs'] }, seat: 'planner' }), SMOKE)
 })

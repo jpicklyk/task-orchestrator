@@ -1,14 +1,14 @@
 ---
 name: implement
-description: End-to-end workflow for taking MCP work items from backlog to merged PR. Handles git branching, schema-driven planning, implementation, independent review, and PR creation. Composes spec-quality, review-quality, and schema-workflow skills into a single pipeline. Use when a user says "implement this", "work on this item", "fix these bugs", "pick up the next task", "create a PR for this", "go through the backlog", or references specific MCP item IDs for implementation.
+description: End-to-end workflow for taking MCP work items from backlog to merged PR. Handles git branching, schema-driven planning, implementation, independent review, and PR creation; planning and review follow each note's `skillPointer`. Use when a user says "implement this", "work on this item", "fix these bugs", "pick up the next task", "create a PR for this", "go through the backlog", or references specific MCP item IDs for implementation.
 user-invocable: true
 ---
 
 # Implement
 
-End-to-end workflow for taking MCP work items from queue to PR. This skill composes
-the schema-driven planning (spec-quality), implementation, review (review-quality),
-and git/PR workflow into a single pipeline.
+End-to-end workflow for taking MCP work items from queue to PR: repo mechanics and routing live
+here; planning and review follow each note's `skillPointer`, and process rules are served rules
+(`docs_read` `get`, `kind` `rule`) that each section names by key.
 
 **Usage:**
 - `/implement <item-id>` — work on a specific item
@@ -73,29 +73,12 @@ Delegated with ≥2 ready items, or Parallel → run `/task-orchestrator:run-wav
 
 If the item's type has no schema, give it `quick-fix` for Direct tier; for Delegated/Parallel the `default` schema (when configured) catches it.
 
-**Traits, before any dispatch.** A `traits` update replaces the list and re-pins the item, so send
-every trait the item carries (`items_write` `update`, or `traits` at item creation):
+**Traits, before any dispatch.** Apply the item's traits per rule `trait-selection` before the
+first dispatch:
 
 ```to-call
 {"tool":"items_write","op":"update","args":{"id":"4b7d0e19","traits":["delegated"]}}
 ```
-
-- `delegated` - Delegated or Parallel tier. Feature-implementation, feature-task and bug-fix carry
-  it by default; apply it by hand to other types (`config` `effective` lists the declared traits).
-  It makes the orchestrator-filled `delegation-metadata` note schema-visible. Never on Direct.
-- `complex-implementation` - implementer on opus: new public API, cross-layer seams, subtle state
-  machines or concurrency.
-- `high-stakes` - planner and reviewer on fable, sparingly: security predicates, auth, data-loss
-  paths, hard-to-reverse design. `needs-security-review` does not imply it.
-- `needs-test-author` (the trigger rule) - bug-fix carries it by default. On a `feature-task`, apply it when acceptance
-  criteria involve a predicate, algorithm, parser, validator or state transition, or on a force-ON
-  signal (new public API, a migration, a security predicate, a prior vacuous-test finding in the
-  area). No other type carries it. Direct tier: bug-fix only, in its **temporal-only degraded
-  mode** (the `test-plan` gate and red-first still apply, `test-manifest` declares one actor, no
-  separate dispatch).
-
-Seat models come from the resolved `dispatchBySeat` (`items_read` `context` or `schema`); pass its
-`model` and `effort` on every dispatch.
 
 **Interaction mode** — orthogonal to tier:
 
@@ -119,7 +102,10 @@ parent feature.
 
 ### Envelope
 
-Call shapes are in `claude-plugins/task-orchestrator/skills/_generated/call-shapes.md` and field semantics in `current/docs/api-reference.md`; ids below are 8-hex shorts (any id field also takes the full UUID). Read every answer through the envelope: `ok`, then `data.results[i]` (`ok` or `error`). When a write element fails, the call-level `error` is only `partial_failure` (no detail, no fix): read `code`, `kind`, `detail` and `fix` from `data.results[i].error`. A read (`select`) call reports its failure in the call-level `error`. A dispatch-issued seat token goes in the top-level `seatToken` of every call, reads included; it is never printed, committed or written to a note.
+Call shapes are in `claude-plugins/task-orchestrator/skills/_generated/call-shapes.md`; read every
+answer per `current/docs/api-reference.md` "Response envelope". Ids below are 8-hex shorts (any id
+field also takes the full UUID). A dispatch-issued seat token is handled per rule
+`protocol.in-phase-seat` `claude:`.
 
 ### Base freshness
 
@@ -160,77 +146,36 @@ explains a held or reclaimed lock (`LOCK HELD`, `LOCK RECLAIMED`).
 
 ### Planning rules
 
-**Plans are spec inputs.** Every file path, tool contract, or call sequence a plan names must
-cite its authoritative location and be verified on disk or in source before the plan is
-approved — child items' specification notes are generated from the plan and inherit its errors
-silently (spec-quality, "Cite Contracts, Don't Restate Them"). This reminder lives here because
-spec-quality is reached via note `guidance` pointers that plan mode does not traverse.
+**Plans are spec inputs.** Plan mode skips note guidance, so verify every path and contract a plan
+names in source, as the planning note's `skillPointer` requires.
 
-**Plans carry the State matrix.** For each item that changes user-visible runtime behaviour, the
-plan's Verification / Test strategy section carries (or points at) the item's State matrix, or
-one `State matrix: n/a - <reason>` line (spec-quality, "State matrix"). Same reason as above:
-plan mode does not traverse the guidance pointer that would surface it.
+**Plans carry the State matrix.** Each plan carries or points at the item's State matrix, or one
+`State matrix: n/a - <reason>` line, per rule `live-checks`.
 
-**Seat timing for `needs-test-author` items.** The queue-phase `test-plan` note is filled by the
-**planning seat** (the orchestrator on Direct tier, the plan author on Delegated/Parallel), using
-the `test-author` skill's scenario- and oracle-derivation sections, **before** the queue-to-work
-`start`: it gates work entry like any required queue note. It is not the **test author** seat,
-which writes test code and fills `test-manifest` at work phase.
+**Seat timing for `needs-test-author` items.** The planning seat fills and freezes `test-plan`
+before the queue-to-work `start`, per rule `test-author` section 1 and the `test-plan` note's
+`seat: planner`.
 
-**Gate and lease failures.** The gate rejects an advance with missing required notes
-(`gate_blocked`, with `data.results[0].error.detail.missing[]`): fill them and retry. Do not
-confuse this with resource-lease contention. A queue→work `advance` can also fail
-`resource_unavailable` (`error.kind: "transient"`): a resource a trait on this item declares
-(`resources:`) is held by another item. Filling notes will not fix it. Work a different item and
-retry later (`error.retryAfterMs` is a hint), or report the keys in `error.detail.resources[]` to the user.
+**Gate and lease failures.** On a `gate_blocked` reply, fill the notes in `detail.missing` from
+their guidance and retry the transition. On `resource_unavailable` (a trait's lease is held
+elsewhere), do not fill more notes or retry at once: work another item and retry later, after
+`retryAfterMs` when it is set.
 
 ### Arbitration — Red Author-Authored Tests
 
-Applies to items carrying `needs-test-author` with a separate test author (not Direct). When a
-test the author wrote comes back red against the implementation, the test author does not
-decide who is at fault (`test-author` §8/§9) — it reports. The **orchestrator arbitrates**, with
-exactly three dispositions:
-
-1. **Implementation wrong.** Re-dispatch the implementer, scoped to `src/main/**` only.
-2. **Test wrong.** REQUIRES a spec citation before this disposition is available: the note key
-   plus the quoted acceptance criterion plus the asserted-vs-observed values. "The implementation
-   does X" is not evidence for this case — it is evidence for case 1. If no covering criterion
-   exists to cite, this disposition is not available; fall through to case 3. Before ruling case 2,
-   confirm the failing test's INPUT fixture matches the declared input contract (the declarations
-   file or the producing stage's schema, e.g. planner-v1): a fixture-shape mismatch is a fixture fix
-   on the test side that keeps the oracle, not a case-2 oracle change. A case-2 fix keeps the S-id's
-   oracle assertion; name the oracle in the re-dispatch prompt. Once cited, re-dispatch the test
-   author, scoped to `src/test/**` only.
-3. **Spec wrong or silent.** Escalate to the user. Amend `task-scope`/`diagnosis` first, then
-   dispatch whichever side the amendment implicates.
-
-**Record every arbitration**, and every other orchestrator ruling in a fix cycle, in the child's
-`orchestrator-confirmation` (orchestrator-owned; under the coordinator token while the child is a
-member of an open run): one line per ruling, `A<n>: case <1|2|3> - <the citation, for case 2> -
-<resolving sha>`, above the disposition lines. The author's own report of the red test stays in its
-`test-manifest`. Read the current body first (`notes_read` `get`) and upsert it whole; never drop or
-rewrite an earlier line, and mark a reversed one `REVERSED by A<m>` in place. **Never weaken, skip, or `@Disable` a
-test to unblock a wave**, regardless of disposition; that is exactly the failure mode this trait
-exists to prevent (`test-author` §7, §9).
-
-**A red author-authored test is not a broken build.** Route it to arbitration above, never to a
-generic fix agent. If arbitration does not resolve before build verification needs to conclude,
-hold the child in work and report the unresolved red test rather than forcing green.
+A red test from a separate test author goes to the orchestrator's arbitration per rule
+`arbitration`: its three dispositions, the `A<n>` ledger in the child's `orchestrator-confirmation`,
+and the routing of a red author-authored test (never a broken build, never a generic fix agent).
 
 ### Merge gate
 
-**Commit form** (orchestrator commits; stage only the files the change owns):
+**Commit form** (orchestrator commits; stage only the files the change owns), per rule
+`commit-discipline` `claude:`:
 
 ```bash
-git add <specific-files>
-git commit -m "$(cat <<'EOF'
-<type>(<scope>): <description>
-
-<body — what changed and why, referencing the MCP item>
-
-Co-Authored-By: Claude <noreply@anthropic.com>
-EOF
-)"
+git -C <wt> add <paths>
+git -C <wt> commit --only -m "<type>(<scope>): <title> [<short>]" -m "<why>" -m "Co-Authored-By: <the session's model attribution line>" -- <paths>
+git -C <wt> show --stat HEAD
 ```
 
 **Commit types:** `feat` for features, `fix` for bugs, `refactor` for tech debt,
@@ -271,44 +216,26 @@ update-branch), before merge.
 
 ### After merge
 
-**Post-merge live acceptance.** If, after the merge, the only non-terminal children of the item
-or feature are live checks that need a refreshed plugin cache or a user opt-in, split them off
-exactly as run-wave `references/post-run.md` Step 7b "Post-merge live acceptance" says, (a) to
-(d), BEFORE completing the item or feature: a terminal parent takes no new children. For an item
-that is not a feature, put the item in the feature's place and its parent as the holder's parent.
+**Post-merge live acceptance.** Split off live checks that need a refreshed plugin cache or a user
+opt-in as run-wave `references/post-run.md` Step 7b and rule `live-checks` "Post-merge holder" say,
+BEFORE completing the item or feature. For an item that is not a feature, put the item in the
+feature's place and its parent as the holder's parent.
 
-**Wave-boundary red-proofs** (run in the background; they gate neither the merge nor the
-terminal transition). Only the bug-fix revert ran before merge. The decision-point budget
-mutations (each planner's `red-proof-shape`; policy and skip categories in rule `test-author`
-section 5) run now, per run-wave `references/post-run.md` Step 7a items 1-6, in ONE batch for the
-wave parent (for a single item, the item is the wave parent): one scratch worktree at the merged
-`main` SHA, each mutation applied with `references/patch-anchored.py` (`DRY=1` first) and run
-scoped to the test classes `test-manifest` maps to it (`-TestFiles`, `TO_GRADLE_OWNER=orchestrator`),
-one full suite only for a survivor, results recorded once on the wave parent's
-`red-proof-results` note. Beyond Step 7a:
+**Wave-boundary red-proofs** (background; they gate nothing) run per rule `test-author` section 5
+(items 7, 9, 10) and run-wave `references/post-run.md` Step 7a items 1-7. Beyond those:
+- A single item is its own wave parent.
+- Apply each mutation with `references/patch-anchored.py`, `DRY=1` first.
 - Mutations on node tests under `claude-plugins/` run in an extraction made by
   `node scripts/redproof-extract.mjs <sha> <outDir> <control test file>...` and count only after
   a green control there (exit 0; record its `control` line on the note). A test under the
   repo-root `scripts/tests/` reads no extracted path: mutate it in the scratch worktree itself,
   after an unmutated control run of the same file there (record pass/tests).
-- Classify every survivor on the note. A weak test is a real gap: name the missing assertion,
-  carry it in to an open item that owns the file or create one test-only follow-up via
-  `/task-orchestrator:create-item` (exempt from further proofs), re-run the mutation after it
-  lands, and never reopen the item. An equivalent, unreachable or covered-at-another-seam (name
-  the test) survivor needs no new test and is disposed by the feature review. An unclassified
-  survivor blocks the feature review's red-proof line.
-
-Dispatch the runner with the Agent `description` `red-proofs:<wave parent short>` (the Label rule
-of run-wave `post-run.md`) and an explicit `model` and `effort`. When there is a run id, record
-its meters as `post-run.md` Step 7a item 7 says; with none, write no meters line and say so in
-the report.
+- With no run id, write no meters line and say so in the report.
 
 ### Retrospective
 
-The hook fires on a successful `runs_write` `close` (or the Stop backstop for a closed run
-without the `retro` mark), never on a terminal transition (mode
-`extensions.claude-code.retrospective.mode`). In `dispatch` mode follow its directive; in `nudge`
-mode or outside a run, run `/session-retrospective` by hand.
+The retrospective hook fires on a run's close (mode `extensions.claude-code.retrospective.mode`);
+outside a run, run `/session-retrospective` by hand.
 
 ---
 

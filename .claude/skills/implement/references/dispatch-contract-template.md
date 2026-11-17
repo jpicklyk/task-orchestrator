@@ -24,45 +24,7 @@ The Review scoping slot's commit map and the per-item bug-fix revert results are
 runs, not at Step 2; the budget-mutation results land after the wave's PR merges (the wave-boundary
 red-proof stage, `/implement` "After merge"). Every other slot is complete before the first dispatch.
 
-## Adoption reach
-
-Each proposal below maps to the slot that now carries its adopted fix, or is declared out of
-scope with the reason. Adoption test: a retrospective checks recurrence of an adopted rule's
-failure class against whether the rule occupies a slot in this file — not against whether the
-proposal item's own status says "terminal".
-
-| Proposal | Topic | Slot / disposition |
-|---|---|---|
-| `82034e9a` | contract-change sweep checklist | **Contract-change sweep** — moved to rule `contract-change-sweep`; the post-wave sweep of call sites and fixtures after any contract-tightening change, and its construction-only repair rule |
-| `31a1abeb` | RepositoryProvider strict-mock breakage | **Contract-change sweep** — moved to rule `contract-change-sweep`; a new accessor on a strict-mocked interface is a contract tightening; the sweep's grep-and-repair step and its declaration in the commit map are the delivery |
-| `4c25e3c7` | measure automated-budget headroom during planning | out of scope: adopted in `spec-quality/SKILL.md`, which queue-phase note `guidance` pointers route agents to at fill time — a delivery surface of its own that fires before this file exists for a wave, not skill prose an agent may never open |
-| `ee6f5d32` | add `ktlintFormat` to the agent compile self-check | **Compile self-check** — `:current:ktlintFormat` is first in the pinned task list |
-| `64be7e4b` | explicit-exit-code gradle pattern | **Compile self-check** — the `EXIT=0`/`EXIT≠0` branching; the proposal's `--rerun-tasks` clause is orchestrator-only and only after a dependency or Gradle upgrade — the checked-in lock helper refuses it from a seat |
-| `a8c08a0d` | finalize closure notes only after confirmed merge/advance | out of scope: an orchestrator closeout-sequencing rule (merge-check → advance → note), not an agent dispatch fact |
-| `568e7f7e` (#301) | `git commit --only` + owned-file-diff review scoping | **Commit discipline** and **Review scoping** — moved to rules `commit-discipline` and `review-scoping` |
-| `b82537e4` (#302) | early exit on unowned-file compile errors + pinned build invocation | **Compile self-check** — the foreign-file early-exit rule and the array-literal `-Tasks` invocation |
-| `4cef371c` (#303) | fixtures must satisfy domain `validate()` | **Test author protocol** — moved to rule `test-author` §7, "Fixture invariants" |
-| `98d0a3b2` (#304) | planning seat as a named stage + structured return | **Planning seat return template** |
-| `fc55c183` (#306) | EXISTING-SURFACE/NEW-SURFACE labels + red-proof-shape | **Planning seat return template** (`red-proof-shape` field) and **Test author protocol** — moved to rule `test-author` §2, "Surface labels" |
-| `728a3e57` (#307) | deliver adopted rules through the dispatch contract, not skill prose | this document — the template's existence plus this Adoption reach table is the shipped fix |
-| `7e9b37bb` (#310) | test-author blindness as a structural, tool-barred boundary | **Test author protocol** — moved to rule `test-author` §4 (declarations block, hard `src/main` ban, mandatory `keys=`, stop-and-ask) |
-| `a85d2b5d` (#312) | re-read shared files before editing; exact-text anchors | **File ownership** — "Shared files: re-read immediately before editing" |
-| `82ca5395` | assertions that cannot fail given their fixture or harness | **Test author protocol** — moved to rules `forbidden-test-patterns` and `test-assertion-vacuity`; the vacuity, harness-transformation and rejection-reason checks live there and in `test-author/SKILL.md` §7 |
-| `d1484a3e` | worktree writes landing in the main checkout | **Header** — the "Write root" line and the two-checkout `git status --short` before the first commit |
-| `234b50a0` | declarations-extractor seat and its accuracy contract | **Test author protocol** — moved to rule `declarations-extractor` (extractor seat, accuracy contract, orchestrator scan) and rule `test-author` §4's public-evidence self-resolution clause |
-| `b5bc3210` (#396) | cite a source line for every security or edge-case claim | **Docs** slot (doc lines carry file:line) plus `spec-quality/SKILL.md` ("Semantic claims carry a file:line"), `review-quality/SKILL.md` (Area 2 citation check, Fail list) and the `planner`/`reviewer` agent definitions |
-| `bb191508` | sweep the whole defect class during planning | **Planning seat return template** (`defect-class-siblings` field); the `bug-fix` schema's `diagnosis` guidance carries the same requirement at note-fill time |
-| `c068c943` (#360) | per-PR CHANGELOG `[Unreleased]` bullet | **Docs** — `CHANGELOG.md` is orchestrator- or docs-seat-owned, written before review, never an implementer's; the bullet itself (`/implement` `wave.md` Step 4c) and the Step 6 check plus the PR body's `## Changelog` section are orchestrator-side steps, not delegated facts |
-| `27c021b1` (#318) | hand-assembled Ktor test apps diverging from production | **Test author protocol** — moved to rules `declarations-extractor` (the declarations block's `harness:` line and its accuracy-contract bullet) and `test-harness.full-wiring` (the named-helper-or-stop-and-ask clause) |
-| `395f316f` (#374) | tests that bypass the runtime's validation order | **Test author protocol** — moved to rule `declarations-extractor` (the declarations block's `runtime call order:` line and its accuracy-contract bullet, the pinned `McpToolAdapter` sentence) |
-| `9023ed46` (#361) | unscoped dedup search before creating a root or feature item | out of scope: an item-creation step, adopted in the plugin skills `post-plan-workflow` (Phase 1) and `create-item` (Step 5), which run where items are materialized — no dispatched seat creates items |
-| `610b9a9f` (#373) | anchored byte-level edits when Edit/Write is refused | **Header** — the conditional "File-edit method" clause on the Write root line, pointing at `references/patch-anchored.py` (exact-once anchors, `DRY=1`, validate-all-then-write, per-file CRLF/LF preserved) |
-| `c71ff3cb` (#356) | subagents leaving background commands running after they return | out of scope: delivered where the phase-owner seats already read it — the SubagentStart hook's Subagent Discipline item 4 (phase-owner seats), the `implementer`/`reviewer` agent definitions (plain dispatches), and the `implement-wave`/`review-wave` workflow prompts |
-| `aacfc16b` (#336) | multi-row empirical probe for runtime-dependent at-rest/security guarantees | out of scope: adopted in `.claude/skills/migration-review/SKILL.md` Step 3, which the `needs-migration-review` trait's `migration-assessment` note routes the planning seat to at fill time |
-| `ef33c175` (#319) | negative and exhaustive claims must name their sweep | **Contract-change sweep** — moved to rule `contract-change-sweep` §3 (a planner's negative claim does not discharge the sweep); the general rule lives in `spec-quality/SKILL.md` → Blast Radius, and the `defect-class-siblings` field (`bb191508`) is its planning-seat special case |
-| `4048a4ee` (#320) | note length: schema-sourced targets and `note_limits` warn/reject semantics | **Notes** — the table's numbers are a convenience copy the resolved schema overrides, and `warn` accepts an over-limit note with a `warning` (no re-upsert) while `reject` fails it with `note_too_long` |
-| `8ecc28f1` | plan state matrix (lifecycle states x surfaces) | **Items** - the State matrix column; the matrix itself is adopted in `spec-quality/SKILL.md` (Test Strategy) and the work-exit check in Step 4c of each `/implement` path file |
-| `1f635007` (#416) | per-file locks, not BLOCKS edges, for files shared in one worktree | **File ownership** - the Declared cross-stream overlaps line; materialization rule in `post-plan-workflow` step 2, advisory `shared-file edge` warning in `run-planner plan` |
+Each adopted proposal's `adoption-decision` note names where its change landed.
 
 ---
 
@@ -111,7 +73,7 @@ only with the sweep that found none). Field semantics: the table below the block
 `planner-v1` stage returns its own schema-checked shape instead, and its generated prompt does not
 read this slot.
 
-Seat token (planning seat): `<token file path from the dispatch, or "none (hand-dispatch outside a run)">`. A dispatch-issued token goes in the top-level `seatToken` of EVERY call this seat makes, reads included; it is never printed, committed, copied into a prompt or written to a note. A call answered `unauthenticated` means the seat was superseded or ended: halt and write nothing more. A hand-dispatch outside a run carries none.
+Seat token (planning seat): `<path, or "none (hand-dispatch outside a run)">`, handled per rule `protocol.in-phase-seat` `claude:`.
 
 ```
 <short-uuid>:
@@ -196,8 +158,8 @@ points here instead of restating it):
 One row per stream. The listed files are that agent's ENTIRE writable scope; anything absent
 belongs to another agent or to the orchestrator. **Impl model** is not a free choice for a
 seat-aware item: copy model and effort from the item's resolved `dispatchBySeat` (implementer seat),
-else the `implementation` class, and change them by applying a model-selection trait (`/implement`
-Step 1), never by editing this column alone.
+else the `implementation` class, and change them by applying a model-selection trait (rule
+`trait-selection`), never by editing this column alone.
 
 | Stream | Item | Impl model | Production files owned (src/main unless noted) | New test files (author-owned) | Declared edits to EXISTING test files (author-owned) |
 |---|---|---|---|---|---|
@@ -206,8 +168,8 @@ Step 1), never by editing this column alone.
 The last column is the ONLY way an author may touch a file it did not create: a contract change
 that invalidates an existing test is declared here, named down to the edit, before dispatch —
 never discovered and performed mid-wave. An undeclared edit to an existing test file is a scope
-breach under Test author protocol rule 8, and its absence from this column is what makes that
-rule checkable. Anything listed here is also declared in the Review scoping commit map.
+breach under rule `review-scoping` item 4 and rule `test-author` section 7, and its absence from
+this column is what makes that rule checkable. Anything listed here is also declared in the Review scoping commit map.
 
 **Shared files: re-read immediately before editing.** Before editing a file you share ownership
 of with another stream in this wave, re-read it immediately before the edit — a sibling's commit
@@ -242,13 +204,12 @@ harness: <fully-qualified src/test helper fn + file:line | NONE + the exact plug
 runtime call order: <MCP: the pinned sentence below | REST: the route's check order from the frozen error table>
 ```
 
-`keys=` allow-list for the author's `notes_read` calls (the queue-phase keys it may read):
-`["task-scope","diagnosis","test-plan"]`. The seat's `readsExclude` is the opposite list
-(`implementation-notes`, `session-tracking`).
+`keys=` filter for the author's `notes_read` calls: the item's queue-phase keys (`items_read`
+`schema`), never the seat's `reads_exclude` keys.
 
-Seat token (test author): `<token file path from the dispatch, or "none (hand-dispatch outside a run)">`. A dispatch-issued token goes in the top-level `seatToken` of EVERY call this seat makes, reads included; it is never printed, committed, copied into a prompt or written to a note. A call answered `unauthenticated` means the seat was superseded or ended: halt and write nothing more. A hand-dispatch outside a run carries none.
+Seat token (test author): `<path, or "none (hand-dispatch outside a run)">`, handled per rule `protocol.in-phase-seat` `claude:`.
 
-Return line (rule 13): `<short-uuid>: commit <sha> | files: <list> | scenarios: <covered>/<total> | compile: EXIT=<n> [(foreign-only) | (own-file-errors: <files>)] | missing-declaration: <none or name>`
+Return line (rule `test-author` `claude:`): `<short-uuid>: commit <sha> | files: <list> | scenarios: <covered>/<total> | compile: EXIT=<n> [(foreign-only) | (own-file-errors: <files>)] | missing-declaration: <none or name>`
 
 ## Contract-change sweep
 
@@ -300,7 +261,7 @@ re-upsert. Under `reject` the note element fails `note_too_long` and must be sho
 Only the run plan's entry seat calls `advance` `transition` with `trigger: "start"`; the
 orchestrator owns every later transition.
 
-Seat token (every seat that writes notes): `<token file path from the dispatch, or "none (hand-dispatch outside a run)">`. A dispatch-issued token goes in the top-level `seatToken` of EVERY call this seat makes, reads included; it is never printed, committed, copied into a prompt or written to a note. A call answered `unauthenticated` means the seat was superseded or ended: halt and write nothing more. A hand-dispatch outside a run carries none.
+Seat token (every seat that writes notes): `<path, or "none (hand-dispatch outside a run)">`, handled per rule `protocol.in-phase-seat` `claude:`.
 
 ## Review scoping
 
@@ -320,22 +281,14 @@ violation.
 
 Build state reviewers rely on: `Build state: <:current:test and :current:ktlintCheck> green|red at <sha>` (no tally; the orchestrator's one wave run). Reviewers run no gradle — see the Compile self-check slot's "Who runs gradle" table.
 
-Seat token (reviewer): `<token file path from the dispatch, or "none (hand-dispatch outside a run)">`. A dispatch-issued token goes in the top-level `seatToken` of EVERY call this seat makes, reads included; it is never printed, committed, copied into a prompt or written to a note. A call answered `unauthenticated` means the seat was superseded or ended: halt and write nothing more. A hand-dispatch outside a run carries none.
+Seat token (reviewer): `<path, or "none (hand-dispatch outside a run)">`, handled per rule `protocol.in-phase-seat` `claude:`.
 Pre-merge red-proof results (orchestrator-run in a scratch worktree, item tests only: the bug-fix
 revert and any coupled-authorship checks; every revert applied with
 `.claude/skills/implement/references/patch-anchored.py`, spec written with the Write tool, `DRY=1` first):
 `<per item - "revert red / fix green", or "n/a: budget mutations deferred to the wave boundary", or "skip: <category>">`.
-Wave-boundary red-proof results (the decision-point budget mutations, run AFTER the wave's PR merges,
-batched across the wave in one scratch worktree at the merged SHA, each mutation against the test
-classes the item's `test-manifest` maps to it, one full suite only for a survivor): recorded on the
-wave parent's `red-proof-results` note, per item — `<proofs run, gaps found, equivalents, approx
-minutes>`; a reviewer of a LATER wave reads it there. Mutations on node tests under `claude-plugins/` run in an
-extraction made by `node scripts/redproof-extract.mjs <sha> <outDir> <control test file>...` and count only after
-a green control there (exit 0; record its `control` line on the note). A test under the repo-root `scripts/tests/`
-reads no extracted path: mutate it in the scratch worktree itself, after an unmutated control run of the same file
-there (record pass/tests). Each survivor is classified on the note: weak test = real gap (carry-in or
-follow-up), equivalent, unreachable or covered at another seam = disposed by the feature review; an unclassified
-survivor blocks the feature review's red-proof line.
+Wave-boundary red-proof results (run per rule `test-author` section 5 and `/implement` "After
+merge"), on the wave parent's `red-proof-results` note, per item: `<proofs run, gaps found,
+equivalents, approx minutes>`.
 
 Red-proof run rules (every red-proof run and any red-proof runner prompt; proposal `4ba93956`):
 1. Expected durations: the full Kotlin suite takes about 6-7 minutes on 4.0; a targeted class run

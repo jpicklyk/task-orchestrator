@@ -27,7 +27,6 @@ const DEFAULT_MCP_SERVER_KEY = 'mcp-task-orchestrator'
 const ENVELOPE_VERSION = 'envelope-v1'
 const VERDICTS = ['pass', 'pass-with-observations', 'fail-blocking']
 const INDEPENDENCE_MODES = ['independent', 'independent-degraded', 'not-independent', 'n/a']
-const SIMPLIFY_ANGLES = ['reuse', 'simplification', 'efficiency', 'altitude']
 const BRANCH_SCOPED_SKILLS = ['security-review']
 const PROTOCOL_KEY = 'protocol.read-only-agent'
 const SCOPING_RULE_KEY = 'review-scoping'
@@ -76,23 +75,6 @@ const REVIEW_OUTPUT_SCHEMAS = {
         },
       },
       notesFilled: { type: 'array', items: { type: 'string' } },
-    },
-  },
-  'simplify-v1': {
-    type: 'object',
-    required: ['findings'],
-    properties: {
-      findings: {
-        type: 'array',
-        items: {
-          type: 'object',
-          required: ['file', 'line', 'angle', 'suggestion'],
-          properties: {
-            file: { type: 'string' }, line: { type: 'integer' },
-            angle: { enum: SIMPLIFY_ANGLES }, suggestion: { type: 'string' },
-          },
-        },
-      },
     },
   },
 }
@@ -196,7 +178,7 @@ function normalizeArgs(raw) {
       if (st.phase !== 'review') return { ok: false, reason: 'invalid args: bad stage phase' }
       if (st.writes !== false) return { ok: false, reason: 'invalid args: stage writes must be false' }
       if (st.protocol !== PROTOCOL_KEY) return { ok: false, reason: 'invalid args: bad stage protocol' }
-      if (st.output !== 'review-v1' && st.output !== 'simplify-v1') {
+      if (st.output !== 'review-v1') {
         return { ok: false, reason: 'invalid args: bad stage output' }
       }
       if (st.tokenFile !== undefined && st.tokenFile !== null && (typeof st.tokenFile !== 'string' || st.tokenFile === '')) {
@@ -240,6 +222,9 @@ function preflightItem(item) {
     if (Array.isArray(st.readsExclude) && st.readsExclude.length > 0) {
       return 'readsExclude not allowed in review-wave'
     }
+    if (Array.isArray(st.after) && st.after.length > 0) {
+      return 'after not allowed in review-wave'
+    }
   }
   const lanesSeen = new Set()
   for (const st of item.stages) {
@@ -248,17 +233,6 @@ function preflightItem(item) {
   }
   const reviewLanes = item.stages.filter((s) => s.output === 'review-v1')
   if (reviewLanes.length === 0) return 'no review lanes'
-  const simplifyLaneIds = new Set(item.stages.filter((s) => s.output === 'simplify-v1').map((s) => s.lane))
-  for (const st of item.stages) {
-    for (const a of st.after || []) {
-      if (!simplifyLaneIds.has(a)) return `lane ${st.lane} after unknown lane ${a}`
-    }
-  }
-  for (const st of item.stages) {
-    if (st.output === 'simplify-v1' && Array.isArray(st.notes) && st.notes.length > 0) {
-      return `simplify lane ${st.lane} owns notes`
-    }
-  }
   for (const st of reviewLanes) {
     if (!st.notes || st.notes.length === 0) return `lane ${st.lane} owns no notes`
   }
@@ -499,15 +473,9 @@ function promptIndependence(item, stage) {
   )
 }
 
-/** Part 12: lane mode — simplify angles, branch-scoped skill filter, and hand-off from a completed simplify lane. */
-function promptLaneMode(stage, outs) {
+/** Part 12: lane mode: the branch-scoped skill filter. */
+function promptLaneMode(stage) {
   const lines = []
-  if (stage.output === 'simplify-v1') {
-    lines.push(
-      'SIMPLIFY LANE: apply the reuse, simplification, efficiency and altitude angles to the ' +
-        'owned-file diff. Do not invoke /simplify (it edits files). Return simplify-v1 findings only.'
-    )
-  }
   const skillNames = Array.isArray(stage.skills) ? stage.skills : []
   const ruleNames = Array.isArray(stage.rules) ? stage.rules : []
   const branchScopedName =
@@ -518,14 +486,6 @@ function promptLaneMode(stage, outs) {
       `BRANCH-SCOPED SKILL ${name}: apply its method to the DIFF lines above (the built-in command diffs the session cwd, which is empty for a worktree branch); keep only findings whose file ` +
         'is in this item\'s owned files, and record the filter in your note (findings total, kept, dropped, dropped files).'
     )
-  }
-  if (Array.isArray(stage.after) && stage.after.length > 0) {
-    const dep = outs && outs[stage.after[0]]
-    let body = 'simplify lane produced nothing'
-    if (dep && dep.status === 'done' && dep.output && Array.isArray(dep.output.findings)) {
-      body = JSON.stringify(dep.output.findings)
-    }
-    lines.push(`SIMPLIFY LANE FINDINGS — not yours to fix; judge coverage only:\n${body}`)
   }
   return lines.join('\n\n')
 }
@@ -551,11 +511,10 @@ function promptReturn(stage) {
 }
 
 /**
- * lanePrompt(plan, item, stage, outs) -> string
- * Joins the 14 non-empty prompt parts with "\n\n". `outs` is the item's in-flight lane
- * results keyed by lane id, consulted only for the hand-off in part 12.
+ * lanePrompt(plan, item, stage) -> string
+ * Joins the 14 non-empty prompt parts with a blank line between them.
  */
-function lanePrompt(plan, item, stage, outs) {
+function lanePrompt(plan, item, stage) {
   const parts = [
     promptSeatLine(plan, item, stage),
     promptScope(plan, item),
@@ -569,7 +528,7 @@ function lanePrompt(plan, item, stage, outs) {
     promptInlineBodies(stage),
     promptDiff(plan, item, stage),
     promptIndependence(item, stage),
-    promptLaneMode(stage, outs),
+    promptLaneMode(stage),
     promptEntryVerdict(stage),
     promptReturn(stage),
   ]
@@ -579,7 +538,7 @@ function lanePrompt(plan, item, stage, outs) {
 /**
  * mapLaneResult(stage, env) -> {status, reason, verdict}
  * Precedence: null envelope; schema-changed; config-unavailable; missing/false entry;
- * env.status stopped|deferred; simplify-v1 (never a verdict); review-v1 with a missing
+ * env.status stopped|deferred; review-v1 with a missing
  * required notesFilled key; else done, verdict forced fail-blocking on not-independent.
  */
 function mapLaneResult(stage, env) {
@@ -591,9 +550,6 @@ function mapLaneResult(stage, env) {
   }
   if (env.status === 'stopped' || env.status === 'deferred') {
     return { status: env.status, reason: env.reason, verdict: null }
-  }
-  if (stage.output === 'simplify-v1') {
-    return { status: 'done', reason: env.reason, verdict: null }
   }
   const notesFilled = (env.output && env.output.notesFilled) || []
   const missingKey = (stage.notes || []).find((k) => !notesFilled.includes(k))
@@ -608,10 +564,10 @@ function mapLaneResult(stage, env) {
 /**
  * aggregateVerdict(laneResults) -> {status, verdict, reason}
  * laneResults in args order, each {lane, output, status, reason, verdict}. Only
- * output:'review-v1' lanes are considered; 'skipped' lanes are ignored.
+ * output:'review-v1' lanes are considered.
  */
 function aggregateVerdict(laneResults) {
-  const considered = laneResults.filter((r) => r.output === 'review-v1' && r.status !== 'skipped')
+  const considered = laneResults.filter((r) => r.output === 'review-v1')
   const failLanes = considered.filter((r) => r.verdict === 'fail-blocking').map((r) => r.lane)
   if (failLanes.length > 0) {
     return { status: 'stopped', verdict: 'fail-blocking', reason: `review-fail ${failLanes.join(',')}` }
@@ -661,8 +617,8 @@ function emptyLaneResult(stage, status, reason, agentTypeFallback) {
   }
 }
 
-async function callLane(plan, item, stage, outs, deps) {
-  const prompt = lanePrompt(plan, item, stage, outs)
+async function callLane(plan, item, stage, deps) {
+  const prompt = lanePrompt(plan, item, stage)
   const opts = laneAgentOpts(stage, item, plan)
   let env
   let agentTypeFallback = false
@@ -692,56 +648,17 @@ async function callLane(plan, item, stage, outs, deps) {
   }
 }
 
-function haltingLane(laneResults) {
-  for (const r of laneResults) {
-    if (r.output === 'review-v1' && r.status !== 'skipped' && (r.verdict === 'fail-blocking' || r.status !== 'done')) {
-      return r.lane
-    }
-  }
-  return null
-}
-
 /**
  * runItem(plan, item, deps) -> {id, short, status, verdict, reason, lanes, observations}
- * deps = {agent, log}. Lanes with no `after` start concurrently; a lane with `after`
- * awaits those lanes' settlement, then either runs or (if the item has already halted —
- * any settled review-v1 lane is fail-blocking or non-done) is marked skipped without
- * calling agent(). `lanes` and `observations` are ordered by the item's own stages.
+ * deps = {agent, log}. Every lane starts at once. `lanes` and `observations` are ordered by the
+ * item's own stages.
  */
 async function runItem(plan, item, deps) {
   const stages = item.stages
-  const outs = {}
-  const laneResults = []
-  const settled = {}
-
-  function record(stage, result) {
-    outs[stage.lane] = { status: result.status, output: result.rawOutput }
-    laneResults.push(result)
-    return result
-  }
-
-  const noAfter = stages.filter((s) => !s.after || s.after.length === 0)
-  const withAfter = stages.filter((s) => s.after && s.after.length > 0)
-
-  for (const st of noAfter) {
-    settled[st.lane] = callLane(plan, item, st, outs, deps).then((r) => record(st, r))
-  }
-  await Promise.all(noAfter.map((st) => settled[st.lane]))
-
-  for (const st of withAfter) {
-    settled[st.lane] = Promise.all(st.after.map((a) => settled[a]).filter(Boolean)).then(async () => {
-      const haltLane = haltingLane(laneResults)
-      if (haltLane) {
-        return record(st, emptyLaneResult(st, 'skipped', `skipped after ${haltLane}`, false))
-      }
-      const r = await callLane(plan, item, st, outs, deps)
-      return record(st, r)
-    })
-  }
-  await Promise.all(withAfter.map((st) => settled[st.lane]))
+  const laneResults = await Promise.all(stages.map((st) => callLane(plan, item, st, deps)))
 
   // Args order, not completion order (aggregateVerdict/observations/lanes must be deterministic).
-  const orderedResults = stages.map((st) => laneResults.find((x) => x.lane === st.lane))
+  const orderedResults = laneResults
   const agg = aggregateVerdict(orderedResults)
   const observations = []
   for (const r of orderedResults) {

@@ -1,6 +1,7 @@
 // Regression coverage for item fd401229 (#676): a stage owning implementation-notes or
-// session-tracking must receive the closure-notes rule through stage.rules, even when no note
-// names it as a skill and dispatch.agent is unset.
+// session-tracking must receive the closure-notes rule through stage.rules when the note names
+// it as its skill (the rule comes from the note's skill:, not from a hard-coded key list), and
+// dispatch.agent is unset.
 //
 // BLIND test author: written from the frozen test-plan and diagnosis notes plus the supplied
 // declarations; no implementation source was opened. Oracles are cited per scenario.
@@ -50,8 +51,8 @@ function fixtureA(notesOverride) {
         configSource: "per-root",
         notes: notesOverride ?? [
             { key: "diagnosis", role: "queue", required: true, seat: "planner" },
-            { key: "implementation-notes", role: "work", required: true, seat: "implementer" },
-            { key: "session-tracking", role: "work", required: true, seat: "orchestrator" },
+            { key: "implementation-notes", role: "work", required: true, seat: "implementer", skill: "closure-notes" },
+            { key: "session-tracking", role: "work", required: true, seat: "orchestrator", skill: "closure-notes" },
             { key: "test-manifest", role: "work", required: true, seat: "test-author", skill: "test-author" },
         ],
         seats: [
@@ -87,7 +88,7 @@ test("S2: planner and test-author stages do not receive closure-notes", () => {
 test("S3: a seat owning only session-tracking receives closure-notes", () => {
     const schema = fixtureA([
         { key: "diagnosis", role: "queue", required: true, seat: "planner" },
-        { key: "session-tracking", role: "work", required: true, seat: "implementer" },
+        { key: "session-tracking", role: "work", required: true, seat: "implementer", skill: "closure-notes" },
     ]);
     const result = deriveStages(candidate(), schema, { rulesServed: SERVED, noteOwners: [] });
     const implementer = stageOf(result, "implementer");
@@ -103,7 +104,7 @@ test("S4: seat-less schema gives the implicit implementer closure-notes and the 
         configSource: "per-root",
         notes: [
             { key: "specification", role: "queue", required: true, seat: null },
-            { key: "session-tracking", role: "work", required: true, seat: null },
+            { key: "session-tracking", role: "work", required: true, seat: null, skill: "closure-notes" },
         ],
     };
     const cand = { ...candidate(), type: "scratch-a", traits: [] };
@@ -116,12 +117,14 @@ test("S4: seat-less schema gives the implicit implementer closure-notes and the 
     assert.equal(countOf(planner.rules, CLOSURE), 0);
 });
 
-test("S5: closure-notes not served -> absent from every stage's rules and skills, no closure degradation", () => {
+test("S5: closure-notes not served -> absent from every stage's rules; the generic fallback puts it in the implementer's skills only; no closure degradation", () => {
     const result = deriveStages(candidate(), fixtureA(), { rulesServed: SERVED_WITHOUT_CLOSURE, noteOwners: [] });
     assert.ok(result.stages.length >= 2);
     for (const stage of result.stages) {
         assert.equal(countOf(stage.rules, CLOSURE), 0, `${stage.seat} rules`);
-        assert.equal(countOf(stage.skills, CLOSURE), 0, `${stage.seat} skills`);
+        // Oracle: run-planner.test.mjs S6 - an unserved note skill falls back to stage.skills,
+        // and only the stage owning a note that names the skill gets it.
+        assert.equal(countOf(stage.skills, CLOSURE), stage.seat === "implementer" ? 1 : 0, `${stage.seat} skills`);
     }
     assert.ok(
         !(result.degradations ?? []).some((d) => String(d).includes("closure")),
@@ -210,8 +213,8 @@ test("probe: empty rulesServed adds no closure-notes anywhere", () => {
 test("probe: a stage owning both keys receives closure-notes once", () => {
     const schema = fixtureA([
         { key: "diagnosis", role: "queue", required: true, seat: "planner" },
-        { key: "implementation-notes", role: "work", required: true, seat: "implementer" },
-        { key: "session-tracking", role: "work", required: true, seat: "implementer" },
+        { key: "implementation-notes", role: "work", required: true, seat: "implementer", skill: "closure-notes" },
+        { key: "session-tracking", role: "work", required: true, seat: "implementer", skill: "closure-notes" },
     ]);
     const result = deriveStages(candidate(), schema, { rulesServed: SERVED, noteOwners: [] });
     assert.equal(countOf(stageOf(result, "implementer").rules, CLOSURE), 1);
@@ -220,8 +223,8 @@ test("probe: a stage owning both keys receives closure-notes once", () => {
 test("probe: duplicate note entries for one key still yield closure-notes once", () => {
     const schema = fixtureA([
         { key: "diagnosis", role: "queue", required: true, seat: "planner" },
-        { key: "implementation-notes", role: "work", required: true, seat: "implementer" },
-        { key: "implementation-notes", role: "work", required: false, seat: "implementer" },
+        { key: "implementation-notes", role: "work", required: true, seat: "implementer", skill: "closure-notes" },
+        { key: "implementation-notes", role: "work", required: false, seat: "implementer", skill: "closure-notes" },
     ]);
     const result = deriveStages(candidate(), schema, { rulesServed: SERVED, noteOwners: [] });
     assert.equal(countOf(stageOf(result, "implementer").rules, CLOSURE), 1);

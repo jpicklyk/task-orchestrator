@@ -33,25 +33,26 @@ optional extra.
 The reviewer is given an MCP item ID. Use MCP tools and codebase access to gather what
 you need — do not expect context to be pre-loaded for you.
 
-1. **Load the item's notes** — `notes_read` `list` (`itemId`) names them, and `notes_read` `get`
-   (`itemId`, `key`) returns the planning note and `implementation-notes`. The planning note's key depends on the
-   item's schema: `feature-summary` (feature-implementation), `task-scope` (feature-task),
-   or `diagnosis` (bug-fix).
-2. **Read the changed files** — use the implementation notes to identify which files were
-   modified, then read them directly. Review the actual code, not just summaries.
-3. **Read the recorded build state** - per Area 1, take the count, breakdown and SHA the
-   orchestrator recorded. Do not run the suite, and do not assume tests pass because the
-   implementation agent said they did.
-4. **For items carrying the `needs-test-author` trait** — load the trait's `test-plan`
+1. **Load the item's notes** - `notes_read` `list` (`itemId`) names them, and `notes_read` `get`
+   (`itemId`, `key`) returns a body. The planning notes are the item's queue-role notes
+   (`items_read` `schema` lists them), e.g. `feature-summary`, `task-scope`, `diagnosis`,
+   `specification`, plus `amendments` when present; `implementation-notes` is the work-role note.
+2. **Read the changed files** - take them from `git -C <worktree> diff --name-only <base>..HEAD`
+   filtered to the owned files (rule `review-scoping`); `implementation-notes` carries no file list
+   (rule `closure-notes` rule 3). Review the actual code, not just summaries.
+3. **Read the recorded build state** - per Area 1, take the command and SHA the orchestrator
+   recorded, never a count or breakdown. Do not run the suite, and do not assume tests pass because
+   the implementation agent said they did.
+4. **For items carrying the `needs-test-author` trait** - load the trait's `test-plan`
    and `test-manifest` notes with `notes_read` `get` (`itemId`, `key`), which carries the test author's own commit SHA range field, and
    obtain the orchestrator-provided per-child SHA table (Pre-SHA/Post-SHA/Test-Pre-SHA/
    Test-Post-SHA) plus any declared orchestrator fixture-repair commit SHAs from the review
    handoff, for cross-checking. A trait-bearing item with no `test-plan` note is a
-   blocking issue on its own — do not proceed to the Area 3 independence verification
+   blocking issue on its own - do not proceed to the Area 3 independence verification
    until the note exists.
 
-If the planning note (feature-summary / task-scope / diagnosis) or implementation notes
-are missing, the review cannot proceed. Report this as a blocking issue.
+If a planning note the schema requires or the implementation notes are missing, the review
+cannot proceed. Report this as a blocking issue.
 
 Before reporting any file or artifact as missing, or any behavior as broken, verify with
 a direct check — Read the exact expected path, an exact-path Glob, or a reproduction —
@@ -62,7 +63,7 @@ Two review false-positives reached verdicts this way before being caught downstr
 
 ## Review Areas
 
-These four areas form the minimum review. Each one catches a different class of failure.
+These three areas form the minimum review. Each one catches a different class of failure.
 If the review surfaces additional concerns, include them — this is a floor, not a ceiling.
 
 ### 1. Build State Verification
@@ -74,31 +75,28 @@ Gradle per item and no information.
 
 Read the recorded build state: the Review scoping slot's "Build state reviewers rely on"
 line, the orchestrator's `session-tracking` `Verified:` line, or the `test-manifest` VERIFY line
-(which cites scoped classes, not a suite count). Record one line,
-`Build state: <command> green|red at <sha>`, with no test tally.
+(which cites scoped classes, not a suite count). Record the `Build state:` line in the format the
+`review-checklist` guidance gives.
 
 **If no build state is recorded, or it is for an older SHA than the diff under review:**
-that is a blocking finding — say so and stop; do not run the suite to fill the gap.
+that is a blocking finding - say so and stop; do not run the suite to fill the gap.
 
-**If a recorded failure is listed:** Document every failure — test name, assertion message,
-and the file where the test lives. Do not attempt to fix failures. Do not speculate about
-whether failures are pre-existing or new. Test failures are a blocking issue — the item
-cannot advance with a failing test suite.
+**If a recorded failure is listed:** document every failure (test name, assertion message, test
+file); do not fix or speculate about it. A failing test is blocking.
 
-**If you doubt one specific result** (a red-proof line, a mapped test's claimed red): re-run
-only the test classes in question, scoped (`--tests`), never the whole suite, and record what
-you ran.
+**Re-runs:** rule `test-author` section 5 rules 8 and 11 - read the recorded results; re-run only
+one specific doubted result, scoped (`--tests`), and record what you ran.
 
-**If the recorded state is green and current:** Record it and move on.
+**If the recorded state is green and current:** record it and move on.
 
 ### 2. Plan Alignment
 
-Compare what was built against the planning note (feature-summary / task-scope /
-diagnosis). The goal is to catch drift in both directions — work that was planned but
+Compare what was built against the item's planning notes (the queue-role notes, e.g.
+feature-summary / task-scope / diagnosis / specification, plus amendments when present). The goal is to catch drift in both directions - work that was planned but
 not done, and work that was done but not planned.
 
 **Check each acceptance criterion.** Walk through the acceptance criteria from the
-planning note one by one. For each criterion, identify the specific code change that
+planning notes one by one. For each criterion, identify the specific code change that
 satisfies it. If a criterion has no corresponding implementation, flag it — either the
 work is incomplete or the criterion was intentionally descoped (which should appear in
 the implementation notes).
@@ -108,20 +106,15 @@ trace back to any acceptance criterion. Unplanned changes aren't automatically w
 sometimes implementation reveals necessary adjacent work. But they should be
 acknowledged and justified in the implementation notes, not silent.
 
-**Check non-goals weren't violated.** Review the planning note's non-goals list. If the
+**Check non-goals weren't violated.** Review the planning notes' non-goals list. If the
 implementation touched areas that were explicitly scoped out, flag it.
 
-**Check semantic-claim citations.** Every sentence in the planning note, the changed docs,
-the CHANGELOG bullet and any new header or KDoc comment that states nullability, redaction,
-ownership or an honest limit should cite a `file:line`. Open each cited line and confirm it
-establishes the claim as worded (watch for inverted conditions such as ADMIN-AND vs ADMIN-OR).
-An uncited claim of this kind is an observation. A claim the cited code contradicts is
-blocking. For a NEW-SURFACE claim that cites a spec decision, confirm it against the diff.
-Prose that is not a semantic claim needs no citation.
+**Check semantic-claim citations.** Rule `review-cited-claims` (rules 1-3): open every cited
+line, and treat an uncited claim as an observation and a contradicted claim as blocking.
 
 ### 3. Test Quality
 
-The planning note's test strategy defined what should be tested — happy paths, failure
+The planning notes' test strategy defined what should be tested — happy paths, failure
 paths, and edge cases. The reviewer verifies that the tests actually deliver on that
 strategy, not just that they exist and pass.
 
@@ -129,75 +122,29 @@ This is where the separation of concerns matters most. The agent that wrote the 
 has an inherent bias toward believing they're correct. An independent reviewer can
 evaluate whether the tests verify real behavior or just confirm that code runs.
 
-**Map tests to the test strategy.** For each scenario in the planning note's test
+**Map tests to the test strategy.** For each scenario in the planning notes' test
 strategy, identify the corresponding test. Missing coverage is a gap to report.
 
-**Evaluate test substance.** Watch for these patterns that produce green results
-without catching real bugs:
-
-- **Tautological assertions** — asserting something equals itself, or that a non-null
-  value is not null, without verifying the actual value is correct.
-- **Mock-heavy tests that verify nothing real** — every dependency mocked, test only
-  confirms mocks were called in order. Mocks are fine for isolation, but the test must
-  still assert something meaningful about the unit's output or state change.
-- **Happy-path-only coverage** — if the test strategy called for failure paths, those
-  tests need to exist and need to verify the failure behavior is correct (right
-  exception type, right error message, right fallback behavior).
-- **Overly broad assertions** — `result != null` or `list.isNotEmpty()` when specific
-  values, sizes, or contents should be checked. These pass even when the implementation
-  is wrong.
-- **Assumption escapes** — `assumeTrue` (or an equivalent guard) gating out a real
-  failure instead of asserting against it, so the test silently skips rather than
-  reporting the bug it was written to catch.
-- **Implementation-derived oracles** — an expected value computed from the
-  implementation's own formula or output rather than from an independent oracle source.
-  These pass by construction and verify nothing.
+**Evaluate test substance.** The patterns that produce green results without catching real bugs
+are rules `forbidden-test-patterns` and `test-assertion-vacuity`; read the test bodies against
+them. Coverage check kept here: **happy-path-only coverage**. If the test strategy called for
+failure paths, those tests need to exist and verify the failure behavior (right exception type,
+right error message, right fallback).
 
 **Check edge cases.** Verify each boundary condition from the test strategy has a
 corresponding test. If implementation notes documented new edge cases discovered during
 development, check whether tests were added for those too.
 
-**Independence verification (items with the `needs-test-author` trait).** When the item
-carries this trait, verify the test-author/implementer separation actually held before
-trusting anything else found in this area — a compromised separation undermines every
-other finding above it:
+**Independence verification (items with the `needs-test-author` trait).** Follow the
+`test-independence-audit` guidance (`items_read` `schema`, `fields` `["guidance"]`): separation held,
+manifest maps to spec scenarios, oracle spot-check, arbitration record, forbidden-pattern
+declaration true. Verify it before trusting any other finding in this area. Addendum:
 
-- **Separation held.** Confirm the test files were *introduced* within the test author's
-  commit range, not the implementer's — check `git log` over both ranges using the
-  `test-manifest`'s commit SHA range field together with the orchestrator's per-child SHA
-  table. Record the result as `independent` when seat and commit-range separation both
-  hold, `independent-degraded (temporal-only)` when only ordering separates them (for
-  example a Direct-tier bug-fix run in single-seat mode), or `not-independent` when
-  separation did not hold. Any silent implementer edit to a test file after the author's
-  range is a blocking issue, regardless of whether the edit looks benign — **except**
-  orchestrator fixture-repair commits that were declared in the review handoff (listed
-  with their SHAs). Those are not silent edits; verify they touched only construction/
-  setup code, never assertions, before excluding them from the blocking rule.
-- **Manifest maps to spec scenarios.** Cross-check the `test-manifest`'s S-id-to-test
-  mapping against the `test-plan`'s numbered scenarios (S1…): every scenario must be
-  marked covered or explicitly not-covered with a reason. Do not take "covered" on
-  faith — open at least two of the claimed tests and read their bodies to verify the
-  claimed coverage is real.
-- **Oracle spot-check.** Pick one non-trivial scenario and trace its expected value back
-  to the oracle source recorded in the `test-plan` (spec clause, stated algorithm, or
-  external reference). If the expected value matches what the implementation produces
-  but not what the named oracle source specifies, that is a blocking issue — it means
-  the oracle was derived from the implementation rather than the spec.
-- **Arbitration record.** Every ambiguity the test author flagged must have a named
-  resolver in the manifest's arbitration record, and every red-test ruling the orchestrator
-  made has its line in the item's `orchestrator-confirmation`. Give oracle-degraded scenarios — ones
-  where the oracle source itself was uncertain — a second, closer look.
-- **Forbidden-pattern declaration is true.** Fetch the served rules
-  `forbidden-test-patterns` and `test-assertion-vacuity`
-  (`docs_read` `get`, `rootId` the item's root, `kind` `rule`, `slug` the rule name; fall back to the `test-author` skill's §7
-  if either is unserved) and read the test bodies behind the `test-manifest`'s
-  forbidden-pattern declaration — do not take "none used" on faith. Every instance of a
-  listed pattern (skip-guards on behavioral conditions, disjunctive escapes, not-null-only
-  or `assert.ok`-only assertions, assertions that cannot fail given their fixture or
-  harness) must appear in the declaration with a justification. An undeclared instance,
-  or a declaration claiming none when instances exist, is a blocking issue regardless of
-  whether the suite is green — a false declaration carries the same weight as
-  `not-independent`, because the manifest is the audit trail everything above relies on.
+- Declared orchestrator fixture repairs are judged by rules `test-file-ownership` rule 4 and
+  `review-scoping` rule 3; verify they touched only construction or setup code, never assertions.
+- An oracle that matches the implementation but not its cited source is blocking.
+- Orchestrator red-test rulings are `A<n>` lines in `orchestrator-confirmation` (rule `arbitration`).
+- A false forbidden-pattern declaration carries the same weight as `not-independent`.
 
 ---
 
@@ -243,10 +190,8 @@ For each finding, state:
 - **Severity** (blocking or observation)
 - **Confidence** (how sure you are this is a real issue, not a false positive)
 
-Write each finding once, in the register note (`review-checklist`, or the first review-role note
-you fill when the schema declares none), as one line carrying the four facts above. Sibling
-review notes cite the id. Four facts in one line is specific enough; a paragraph per finding is
-not more actionable, only longer.
+The line format and where the register lives are in the review note's findings-register guidance
+(`items_read` `schema`, `fields` `["guidance"]`); sibling review notes cite the finding id.
 
 Be specific. "Tests could be better" is not actionable. "Test `testCreateItem` asserts
 only that the result is not null — it should verify the item's title and status match
@@ -254,10 +199,6 @@ the input parameters" is actionable.
 
 ### Gate Enforcement
 
-The reviewer does not advance the item. It fills the `review-checklist` note and
-reports the verdict. The orchestrator reads the verdict and decides whether to:
-- Advance the item (pass or pass-with-observations)
-- Send the item back to the implementation agent with the blocking issues list (fail)
-
-A failing verdict with clear findings gives the implementation agent exactly what to
-fix without ambiguity.
+Rule `protocol.read-only-agent`: the reviewer does not advance the item, fills only the review
+notes it owns and reports the verdict. The orchestrator reads the verdict and either advances the
+item (pass or pass-with-observations) or sends it back with the blocking list (fail).

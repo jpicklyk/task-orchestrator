@@ -11,6 +11,19 @@ A Kotlin MCP server for hierarchical work items with dependencies, note schemas 
 - Environment variables: read only in `infrastructure/config/AppConfig.kt`; catalogue and defaults in [current/docs/fleet-deployment.md](current/docs/fleet-deployment.md). Schema and trait resolution: [current/docs/config-reference.md](current/docs/config-reference.md) and `application/config/` (`EffectiveConfigResolver`, `LayeredConfig`, `TraitResolver`). The trait dimensions, and the rule that a per-root trait entry replaces every dimension of the server's trait of the same name: [claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md](claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md).
 - Two skill systems, do not confuse them: project skills in `.claude/skills/` (auto-discovered) and plugin skills in `claude-plugins/task-orchestrator/skills/` (enabled through `enabledPlugins` in `.claude/settings.json`). Edits to plugin files are not picked up by a plain marketplace update; the cache refresh procedure is in [claude-plugins/CLAUDE.md](claude-plugins/CLAUDE.md).
 
+## Domains and responsibilities
+
+Task Orchestrator mechanics and process are separate domains. The plugin encodes how Task Orchestrator works; a project's process lives in config it can override (note schemas with `guidance` and `skill:`/`skillPointer`, traits, served rules, run-profile, `dispatch-policy.json`).
+
+| Layer | Holds | Never holds |
+|-------|-------|-------------|
+| Plugin skills, agents, workflows and hook text (`claude-plugins/task-orchestrator/`) | Task Orchestrator mechanics (tools, phases, gates, runs, seats, dispatch, hooks); host integration (Agent `model`/`effort`, ToolSearch, plan mode, `AskUserQuestion`); pointers to rules and schema fields | A named Claude Code or Anthropic skill; a project's paths, commands or conventions; process steps a project could choose differently |
+| Bundled rules (`claude-plugins/task-orchestrator/bundled-rules/`) | Generic process defaults, overridable per project | Anything specific to one repo |
+| Project config and rules (`.taskorchestrator/`) | This project's process: schemas, traits, rules, run-profile, and `skill:` pointers to Claude Code skills | - |
+| Project skills (`.claude/skills/`) | Repo mechanics (release, Gradle lock, migrations, deploy), and the skills a note's `skill:` points to | Copies of rules or schema guidance; decisions the schema makes (which notes exist, which phases are reviewed) |
+
+A Claude Code skill is reached only through a note's `skill:` (or `skillPointer`), never named in plugin or orchestration-skill prose. A process change goes to the layer that owns it: schema, rule or run-profile first, skill or plugin text only for mechanics. The guard test that enforces this boundary is `claude-plugins/task-orchestrator/hooks/tests/contract-domain-boundary.test.mjs`.
+
 ## Rules a guard test enforces
 
 Tests are under `current/src/test/kotlin/io/github/jpicklyk/mcptask/current/`. Of the ratchet baselines under `current/src/test/resources/architecture/`, the layering, package-cycle and dialect-neutrality ones are empty, so any violation of those rules fails; in every baseline a line that no longer matches fails too. Fix the code; never add a baseline line.
@@ -21,6 +34,7 @@ Tests are under `current/src/test/kotlin/io/github/jpicklyk/mcptask/current/`. O
 - **Environment access** (`architecture/EnvAccessTest`): `System.getenv` only in `AppConfig.kt`, `EnvBoolean.kt` and `LogFileAppenderInstaller.kt`; everything else receives a typed value from the composition root.
 - **Flyway is the only schema path** (`architecture/NoSchemaUtilsInProductionTest`): a new table or column starts with a migration. Released migration files are byte-immutable (Flyway checksums every line, comments included). The Exposed table objects must match the DDL and the compiler does not check it: `SchemaParityTest` and the snapshots in `current/src/test/resources/schema/snapshot/` do, so a schema change edits the migration, the Exposed object and the snapshot together.
 - **Tool parameters are documented once**, in the `@Doc` of the request-class field; a tool `description` or select/op `doc` covers only operation choice, triggers, gates and cross-field constraints. After a `@Doc` edit run and commit both `./gradlew :current:regenerateToolGoldens` and `./gradlew :current:regenerateApiReference` (`ToolSchemaGoldenTest`, `ApiReferenceFreshnessTest`, `ToolSurfaceGuardsTest` check it). Checklists for a new tool, op, migration or dependency: `.claude/skills/add-component/SKILL.md`.
+- **Domain boundary** (`claude-plugins/task-orchestrator/hooks/tests/contract-domain-boundary.test.mjs`, library `scanDomainBoundary` in `scripts/lib/contract-checks.mjs`): plugin text and project skills never name a Claude Code or Anthropic skill the layer does not own. Rows live in `scripts/lib/domain-boundary-allowlist.json` (host integration, per file and name) and `scripts/lib/domain-boundary-baseline.json` (only rows an open item owns); a row whose hit is gone fails. Fix the text; never add a baseline row.
 - **Test functions** need a block body or an explicit `: Unit`; JUnit 5 silently skips a non-void test (`architecture/TestFunctionReturnTypeTest`).
 
 ## Config traps

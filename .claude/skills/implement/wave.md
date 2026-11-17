@@ -68,19 +68,15 @@ plan mode:
    materialization). **Autonomous:** read and follow the `pre-plan-workflow` skill yourself
    (existing MCP state, schema requirements, the definition floor), then research the codebase.
 2. Fill every queue-phase note following its guidance text (`items_read` `schema`,
-   `fields: ["guidance"]`); the guidance routes to spec-quality where it applies, in either mode.
+   `fields: ["guidance"]`) and its `skillPointer`, in either mode.
    Front door "Planning rules" applies in full.
 3. After plan approval, materialize child items if the plan calls for them (`post-plan-workflow`:
    the exit hook in collaborative mode, by hand in autonomous mode).
 4. Advance the item: `advance` `transition` with `trigger: "start"`.
 
 **Planning seat (one `planning`-class agent per stream, after materialization and before any
-implementer).** Under run-wave this is the `planner-v1` stage, and its return is schema-checked.
-By hand: give it the stream's `diagnosis`/`task-scope` note, the current codebase and the
-contract's absolute path. It verifies every claim against source (`file:line`), writes or revises
-the note, freezes `test-plan`, and returns the contract's Planning seat return template, whose
-field table states the semantics. Its return fills the contract's File ownership slot. Never trim a
-field to fit a length: the fields are the budget.
+implementer).** Under run-wave this is the `planner-v1` stage; by hand, dispatch it as
+[hand-dispatch.md](hand-dispatch.md) says.
 
 ---
 
@@ -133,28 +129,19 @@ effort and agent. By hand:
   to set a clean baseline, then dispatch the rest in parallel. Several agents reporting the same
   "pre-existing" failures is contamination from an earlier parallel commit, not a baseline.
 
-**File-edit overlap discipline:** Parallel agents in a shared worktree must operate on
-non-overlapping files. The orchestrator scopes each agent's prompt to a specific file list
-(the dispatch contract's File ownership slot carries the rule). When inherent overlap exists, under run-wave declare the file in both scopes (`Shared file, lock-serialized: <path> (with <other short>)`) and add no BLOCKS edge; a hand-dispatch still dispatches sequentially, without an edge.
+**File-edit overlap discipline:** Scope each agent to its row in the dispatch contract's File
+ownership slot (filled at Step 2 from the dispatch contract template). When inherent overlap exists, under
+run-wave declare the file in both scopes (`Shared file, lock-serialized: <path> (with <other short>)`)
+and add no BLOCKS edge; a hand-dispatch still dispatches sequentially, without an edge.
 
-**Test-file ownership boundary.** Every implementation dispatch excludes `src/test/**` from
-scope — implementers do not create or modify test files. When a change surfaces a needed test
-update, the agent reports it in its return (or in `implementation-notes`) rather than editing the
-test itself; the test author (Step 4b) owns that file tree exclusively on items carrying
-`needs-test-author`.
+**Test-file ownership boundary.** Rule `test-file-ownership`.
 
 **Contract-change sweep discipline (orchestrator-owned, after the implementers return and before
-build verification).** When a change tightens a contract (a now-required parameter, a new
-`validate()` invariant, a new sealed arm, a new accessor on a strict-mocked interface such as
-`RepositoryProvider`), follow served rule `contract-change-sweep` (`docs_read` `get`, `kind` `rule`):
-search `src/main` and `src/test`, repair construction only (never an assertion), and declare each
-repair SHA in the review handoff (the Review scoping commit map). A repair that would touch an
-expectation goes to the test author. When a fix changes shipped behaviour after docs were written,
-grep the changed docs for claims about the old behaviour before finalizing.
+build verification).** Follow rule `contract-change-sweep`, and declare each repair SHA in the
+review handoff (the Review scoping commit map). When a fix changes shipped behaviour after docs were written, grep the changed docs for claims
+about the old behaviour and fix or route each hit (dispositions as rule `planning-sweeps` point 3).
 
-**Model and effort.** Pass both explicitly on every Agent dispatch (`dispatch-model-guard` denies an
-omission): under run-wave from `dispatchBySeat`; otherwise follow `task-orchestrator:orchestrate`
-"Dispatching an item's phase owner" (read the profile of the phase dispatched INTO).
+**Model and effort.** Follow `task-orchestrator:orchestrate` "Dispatching an item's phase owner".
 
 **Ownership.** Under run-wave, `post-run.md` Step 1 matches each item's commits to its owned files.
 By hand, capture each agent's pre/post SHAs and run the disjointness check (front door Route
@@ -201,16 +188,16 @@ author-authored test is not a build failure (front door "Arbitration — Red Aut
    describes behaviour, not the diff, and carries no volatile counts. A docs-, process- or
    chore-only change adds none; its PR body states `Changelog: none (<why>)`. `/prepare-release`
    Step 8c folds these bullets into the release section.
-5. Fill all work-phase notes the orchestrator owns, following their guidance text
+3. Fill all work-phase notes the orchestrator owns, following their guidance text
    (`items_read` `schema`, `fields: ["guidance"]`).
-6. **Live-owed check** - before the work-exit `advance`, read the
-   item's `session-tracking` note for its `**Live-owed**:` line (spec-quality, "State matrix").
-   Any entry not ending `run <date>: <result>` or `deferred: <item id>` is open and holds the
-   item in work until it is run or deferred. The orchestrator writes that line from the spec
-   note's matrix when it first fills `session-tracking`; a matrix with `live-owed` cells and no
-   `**Live-owed**:` line counts as an open entry. This check sits at work exit because
-   `feature-task` items skip review by default (Step 5).
-7. Advance each child out of work: `trigger: "start"` when its schema has a review phase, or
+4. **Live-owed check** - before the work-exit `advance`, apply rule `live-checks` "The Live-owed
+   hold".
+   - A `live-owed` cell on server behaviour runs `/deploy_to_docker --reuse` from the checkout
+     under test, reconnects (`/mcp`), exercises the changed capability through the tools against
+     the spec note's acceptance criteria, and records `run <date>: <result>` on its Live-owed
+     entry. A change with a migration is never deployed to the shared data volume before merge:
+     its entry is `deferred: <holder id>` (rule `live-checks` "Post-merge holder").
+5. Advance each child out of work: `trigger: "start"` when its schema has a review phase, or
    `trigger: "complete"` when it has none (under run-wave this is `post-run.md` Step 4's batched
    advance). Step 5 reads `newRole`.
 
@@ -221,30 +208,26 @@ author-authored test is not a build failure (front door "Arbitration — Red Aut
 A coordinator handed the review by run-wave (`review: "handoff"`) starts here, with the run open
 and a reviewer seat assigned per item (`post-run.md` Step 5).
 
-- **`newRole` is `terminal`:** the schema has no review phase (`feature-task` children skip review
-  by default; the `needs-task-review` trait re-enables it). Go to Step 6.
+- **`newRole` is `terminal`:** the schema has no review phase (its resolved schema has no
+  review-role note). Go to Step 6.
 - **`newRole` is `review`:** dispatch a **separate** review agent; the agent that implemented the
   code must not review its own work.
 
 **Reviewer scoping.** Per-child reviewers remain the default for code-bearing
 waves. When every child in the wave is content-only (config, skill, or doc edits — no `src/main`
 or `src/test` changes) AND the wave shares a pinned plan-file contract (Step 2), dispatch ONE
-consolidated `opus` reviewer over the full feature-branch diff (`git diff main...<FEATURE_BRANCH>`)
+consolidated reviewer (model and effort from the review seat's `dispatchBySeat`) over the full feature-branch diff (`git diff main...<FEATURE_BRANCH>`)
 instead of N per-child reviewers. Cross-file coherence defects — sibling skills stating
 contradictory rules, gate placement contradicting seat timing, an example contradicting its own
 rule — are visible only to a reviewer holding the whole diff; per-child reviewers structurally
 cannot see them, and a shared naming contract does not prevent them. The consolidated reviewer
-fills the review-phase `review-checklist` note of each reviewed CHILD (one note per child, all
-under the same reviewer actor). When the children's schema has no review phase (the
-`feature-task` default), this Step 5 consolidated pass is skipped. Either way the parent feature's
+fills each reviewed child's review-phase notes (all under the same reviewer actor). When the
+children's schema has no review phase, this Step 5 consolidated pass is skipped. Either way the parent feature's
 `review-checklist` is never filled here: the parent is reviewed once, in Step 6 item 3 (`run-wave`
 `post-run.md` Step 7b), after every child is terminal.
 
-A per-child reviewer reads **that child's owned files** in the shared worktree: the diff of those
-paths from the wave's base SHA to current `HEAD`, per the contract's **Review scoping** slot. Never
-the child's `<pre-sha>..<post-sha>` range: in a shared worktree that range interleaves other
-streams' commits and excludes any later fix-up, formatter or fixture-repair commit to the same
-files, so it both over- and under-reports.
+A per-child reviewer reads **that child's owned files** in the shared worktree, per rule
+`review-scoping` item 1 and the contract's **Review scoping** slot.
 
 **Review agent template (copy verbatim, fill placeholders):**
 
@@ -270,8 +253,9 @@ Read ALL files from that directory. Do NOT read from the main working directory.
 
 Tests have already been verified green by the orchestrator after the most recent
 commit batch. Run no gradle — the contract's Compile self-check slot states who runs
-it, and the Review scoping slot records the build state you rely on. Focus on plan
-alignment and test quality per the review-quality skill.
+it, and the Review scoping slot records the build state you rely on. For each
+review-phase note the item's schema requires, read its `skillPointer`
+(`items_read` `schema`, `itemId`) and follow that framework, then fill those notes.
 
 Report every finding at every severity — do not self-filter to a high-severity-only
 bar. Mark each finding blocking or observation and state your confidence; the
@@ -307,14 +291,10 @@ finalization (fix and re-review), is descoped (cancelled), or has its commits re
 Once the user rules a fix on a run-wave item under `review: "handoff"`, the fix cycle takes the still-open-run branch of run-wave `post-run.md` Step 5 "Fallback" (re-assign the base seat, reseat with the run's own `plan.json`, and after the re-review rewrite `session-tracking` and re-upsert `delegation-metadata` as that Fallback's step 5 says, under the run's coordinator token); it opens no `<runId>-a<n>` run, and the numbered steps 1-6 apply only once the run has closed.
 
 **Dispositions at child close.** When a child's review returns Pass or Pass with observations,
-write the child's `orchestrator-confirmation` before advancing it: one line per O# as `fixed <sha>`,
-`follow-up <item-id>` (the item created first) or `accepted: <reason>`, `N of N disposed`. Nothing
-is left for the parent review to carry. `fixed` is bounded by run-wave `post-run.md` Step 5
-"Observation triage": only a concrete failure in behaviour the item added or changed, one
-`implementer-a<n>` (or `test-author-a<n>`) seat rendered with `reseat --cause review --findings
-<ids>` and scoped to the finding ids, no planner amendment, no re-review unless the fix changes
-behaviour beyond the finding; the Fail recipe (mechanical or ruling-needed) is for blocking
-findings only.
+write the child's `orchestrator-confirmation` before advancing it, per its guidance and run-wave
+`post-run.md` Step 5 "Observation triage"; a `fixed` finding goes to one `implementer-a<n>` (or
+`test-author-a<n>`) seat rendered with `reseat --cause review --findings <ids>` and scoped to the
+finding ids.
 
 Review failures surface issues that may indicate systemic problems worth learning
 from. Automatically retrying hides these signals.
@@ -330,7 +310,7 @@ from. Automatically retrying hides these signals.
 1. For children whose schema/trait declares a review phase (e.g. `needs-task-review`),
    confirm `review-checklist` is filled. Children without one advance work→terminal
    directly — there is nothing to confirm.
-2. Advance the child to terminal only if it is not already terminal (Step 4c item 7 already
+2. Advance the child to terminal only if it is not already terminal (Step 4c item 5 already
    advanced each child out of work; a review-less child is terminal by now, so skip it). A child
    sitting in review takes one `advance` `transition` with `trigger: "complete"` (`itemId` the
    child's id) to reach terminal, and only after its review passes. While the run is open (under
@@ -345,13 +325,10 @@ from. Automatically retrying hides these signals.
 check needing a refreshed plugin cache or a user opt-in counts as done here; it is split off after the
 merge, step 8):
 
-1. Fill the parent's `implementation-notes` (cross-child content only, per the
-   `feature-implementation` schema guidance: decisions between children, post-review merges, routed
-   findings, deferred scope, or the one-line empty form) and `session-tracking` (the run record,
-   per the `session-tracked` guidance; the children's notes are not re-listed) - under the coordinator token
-   while the parent is a member of an open run; final content written once, in confirmed past tense;
-   the only re-edits are the ones run-wave `references/post-run.md` Step 3 sanctions, and the step 8
-   post-merge live acceptance line is written as that file's Step 7b (d) says).
+1. Fill the parent's `implementation-notes` and `session-tracking` per each note's guidance and
+   rule `closure-notes` item 5 - under the coordinator token while the parent is a member of an
+   open run; the only re-edits are the ones run-wave `references/post-run.md` Step 3 sanctions, and
+   the step 8 post-merge live acceptance line is written as that file's Step 7b (d) says.
 2. **No second suite run.** The wave's one whole-suite run is Step 4c's, after the last writer
    commit. If a writer seat committed after it (a fix seat, a merge round), that run was not the
    last writer's, so Step 4c runs again before the PR.
@@ -437,8 +414,7 @@ parent with 2+ children and a review phase gets `post-run.md` Step 7b's feature 
 last child's PR has merged. Then front door "After merge" (one red-proof batch for the wave
 parent) and "Retrospective".
 
-### Hand-off note
+### Hand-off
 
-A hand-off note to a later wave or session (`wave<n>-handoff`, `phase<n>-handoff`) is the index:
-merged PRs, what is unblocked, owed cells. File or line inventories go in a `docs_write` page
-document that the note names by slug.
+A hand-off to a later wave or session is a `docs_write` `page` document: merged PRs, what is
+unblocked, owed cells, and any file or line inventories. No note key holds it.

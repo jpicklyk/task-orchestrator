@@ -1,6 +1,6 @@
 # Example Schemas
 
-Real schemas from the MCP Task Orchestrator project — use as reference when designing new schemas. The `spec-quality` and `review-quality` skill pointers below are this repo's project-level skills, not plugin-shipped; keep a `skill:` only for a skill your workspace has.
+Real schemas from the Task Orchestrator project's own skills — use as reference when designing new schemas. The `spec-quality` and `review-quality` skill pointers below are project-level skills, not plugin-shipped; keep a `skill:` only for a skill your workspace has.
 
 ## `feature-implementation` (queue + work + review)
 

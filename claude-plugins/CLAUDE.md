@@ -38,6 +38,10 @@ Two files must stay in sync for each plugin:
 | `.claude-plugin/marketplace.json` | `plugins[name="<plugin>"].version` |
 | `claude-plugins/<plugin>/.claude-plugin/plugin.json` | `version` |
 
+## Domain boundary for plugin text
+
+Skills, agents, workflows and hook prompt strings under `claude-plugins/task-orchestrator/` carry only Task Orchestrator mechanics and host integration, plus pointers to rules and schema fields. They never name a Claude Code or Anthropic skill, never state a project's paths, commands or conventions, and never fix a process step a project could choose differently: that belongs in config or a rule. `hooks/tests/contract-domain-boundary.test.mjs` enforces it, with the exceptions in `scripts/lib/domain-boundary-allowlist.json` and the rows an open item owns in `scripts/lib/domain-boundary-baseline.json`. The layer table is in [CLAUDE.md](../CLAUDE.md) under "Domains and responsibilities".
+
 ## Delegation Warning
 
 When multiple subagents edit plugin files in parallel, subagents must NOT modify version files.

@@ -107,12 +107,12 @@ Below it list proposals awaiting verification (no decision offered), deferred pr
 
 ## Step 4 - Collect Decisions
 
-For each pending or stalled proposal, show the proposed change (the exact YAML it names, or the file and section it targets) and ask via `AskUserQuestion`:
+For each pending or stalled proposal, show the proposed change (the exact YAML or rule it names, or, for a mechanics change, the file and section it targets) and ask via `AskUserQuestion`:
 
 ```
 ◆ "<proposal title>"  [scope: project]
   Proposed change:
-  <exact YAML or file+section from the proposal note>
+  <exact YAML or rule text, or the file+section of a mechanics change, from the proposal note>
 
   1. Accept - apply this change
   2. Reject - do not adopt, record why
@@ -140,14 +140,14 @@ Check `data.results[0].ok`. Never write a note that is only a URL.
 
 1. **Extract the exact YAML** from the proposal note. If it has none ready to apply, draft the edit, show it as a diff against the current config file, and confirm via `AskUserQuestion` before applying anything.
 2. **A different `rootId`.** If the proposal targets a different `rootId` than this workspace's `project.rootId`, do not edit this config. Upsert `adoption-decision` recording that the change must be applied from the owning workspace, and treat the item as **deferred** (leave it in queue; do not advance).
-3. Otherwise **Edit** the config file to apply the change (additive and targeted, not a rewrite).
-4. **Validate** the full file text, LF-normalized, before pushing. Act on `data.results[0].valid` and `data.results[0].errors` (each `{path, reason}`); validate reports an invalid document there, it does not fail the element with `config_invalid`. Strict validation rejects an unknown key: a top-level `retrospective:` or `orchestration:` block fails, so move it under `extensions.claude-code`. Rules: [`current/docs/config-reference.md`](../../../../current/docs/config-reference.md).
+3. Otherwise apply the change (additive and targeted, not a rewrite). A config change is an **Edit** of the config file. A rule change is an edit of `.taskorchestrator/rules/<key>.md`, which config-sync pushes at the next session start (the file-change hook watches only `config.yaml`), so confirm it is served (`config` `rules`) before closing: steps 4 and 5 (validate and push `config.yaml`) apply only to config changes, so for a rule change skip to step 6. An accepted process change (which passes run, what a note must cover, which skill a note points to) lands in config or a rule, not in skill or plugin text; skill text changes only for mechanics (Task Orchestrator mechanics in the plugin, a project's own mechanics in its project skills). If the proposal names skill text for a process change, retarget it to the owning config layer and show that retargeted edit before applying it.
+4. **Validate** (config changes only) the full file text, LF-normalized, before pushing. Act on `data.results[0].valid` and `data.results[0].errors` (each `{path, reason}`); validate reports an invalid document there, it does not fail the element with `config_invalid`. Strict validation rejects an unknown key: a top-level `retrospective:` or `orchestration:` block fails, so move it under `extensions.claude-code`. Rules: [`current/docs/config-reference.md`](../../../../current/docs/config-reference.md).
 
 ```to-call
 {"tool": "config", "op": "validate", "args": {"rootId": "<rootId>", "configYaml": "<full file text>"}}
 ```
 
-5. **Read the head version**, then **push** with it as `expectedVersion`:
+5. **Read the head version** (config changes only), then **push** with it as `expectedVersion`:
 
 ```to-call
 {"tool": "config", "op": "get", "args": {"rootId": "<rootId>"}}
@@ -161,7 +161,7 @@ Check `data.results[0].ok`. Never write a note that is only a URL.
 6. Upsert the closure note:
 
 ```to-call
-{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<uuid>", "key": "adoption-decision", "role": "work", "body": "accepted - <rationale>. Applied to <config file actually edited> (<section>), pushed per-root <rootId> on <YYYY-MM-DD>."}}
+{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<uuid>", "key": "adoption-decision", "role": "work", "body": "accepted - <rationale>. Applied to <config or rule file actually edited> (<section>), pushed per-root <rootId> on <YYYY-MM-DD> (a rule change: record the date `config` `rules` first served it, not the edit date)."}}
 ```
 
 7. Advance with `start` twice, as two sequential calls (queue to work, then work to review):

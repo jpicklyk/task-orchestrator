@@ -103,7 +103,7 @@ For each item in scope (up to 20), list its notes by key. A list carries no bodi
 **Session sweep.** With `--session-dir <dir>`, run `node "<helper>" session-meters --session-dir "<dir>"` (the helper resolved as in the run-wave SKILL.md, Step 0) and keep its JSON (`agents`, `main`, `byClass`, `lines`). It reports token volume by meter and model for every agent transcript of the session, not only the run's seats. Also read the run target parent's `red-proof-results` note for its `agent-meters=` lines. A missing folder or a failed sweep leaves the sweep unmeasured; say so in 5c and carry on.
 
 ### 1c. Early exit
-If no items are in scope, or no item has a `session-tracking` note, exit with: `No implementation run data found. Nothing to retrospect - run /implement first, then try again.`
+If no items are in scope, or no item has a `session-tracking` note, exit with: `No implementation run data found. Nothing to retrospect - finish an implementation run first, then try again.`
 
 ---
 
@@ -365,12 +365,12 @@ Read the **scope** classification captured in `improvement-signals`: **global** 
 
 **Project-specific** - find or create a per-project container under the project's rootId (the 5a search with `ancestorId: "<rootId>"`; if none, create `{"title": "Improvement Proposals", "type": "container", "tags": ["container"], "parentId": "<rootId>", "priority": "low"}` as in 5a), then create the proposal with that `parentId`. Check `ok` and `data.results[0].ok`. The `improvement-proposal` tag stays on the item so 3.x proposals and 4.0 ones are found by the same tag query.
 
-The proposal must carry a **concrete suggestion**: schema edits with the exact YAML; skill updates naming the section; orchestration-context changes naming section and content; hook additions naming event, matcher and purpose.
+The proposal must carry a **concrete suggestion**: schema, trait, rule or run-profile edits with the exact YAML or rule text; skill text only for mechanics (Task Orchestrator mechanics in the plugin, a project's own mechanics in its project skills), naming file and section; hook additions naming event, matcher and purpose.
 
 **Fill the `proposal` note right after each create** (the floor schema requires it in the queue phase; without it `/review-proposals` is gate-blocked at `start`). One upsert per proposal, the new proposal's id as `itemId`:
 
 ```to-call
-{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<proposal-uuid>", "key": "proposal", "role": "queue", "body": "Problem and evidence: <the pattern, with the retrospective item ids and session counts that surfaced it>.\nChange: <the exact YAML, the skill file and section, or the hook event, matcher and purpose>.\nExpected effect: <the measurable effect and how later sessions will measure it>.\nBlast radius: <schemas, skills or agents touched>.\nScope: <global | project-specific; target rootId when project-specific>."}}
+{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<proposal-uuid>", "key": "proposal", "role": "queue", "body": "Problem and evidence: <the pattern, with the retrospective item ids and session counts that surfaced it>.\nChange: <the exact YAML or rule text, or, for a mechanics change, the skill file and section or the hook event, matcher and purpose>.\nExpected effect: <the measurable effect and how later sessions will measure it>.\nBlast radius: <schemas, skills or agents touched>.\nScope: <global | project-specific; target rootId when project-specific>."}}
 ```
 
 Check `data.results[0].ok`. A global proposal later gets a final `github-issue: <url>` line from 7c.

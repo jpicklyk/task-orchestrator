@@ -444,12 +444,13 @@ function noteLimitsOf(keys, notes) {
 }
 
 /**
- * testPlanInputsOf(notes) -> the keys of the schema's queue-role notes whose skill is test-author,
- * in schema order. Computed from the schema, so a resumed item whose queue stages are skipped still
- * names them.
+ * testPlanInputsOf(notes, seatName) -> the keys of the schema's queue-role notes whose skill equals the
+ * skill of a note the seat `seatName` owns, in schema order. Computed from the schema, so a resumed item
+ * whose queue stages are skipped still names them.
  */
-function testPlanInputsOf(notes) {
-  return notes.filter((n) => n.role === 'queue' && n.skill === 'test-author').map((n) => n.key);
+function testPlanInputsOf(notes, seatName) {
+  const skills = new Set(notes.filter((n) => n.seat === seatName && n.skill).map((n) => n.skill));
+  return notes.filter((n) => n.role === 'queue' && n.skill && skills.has(n.skill)).map((n) => n.key);
 }
 
 /**
@@ -548,17 +549,11 @@ function deriveRulesSkills(ownedKeys, allNotes, servedKeys) {
     const note = allNotes.find((n) => n.key === k);
     const skill = note && note.skill;
     if (!skill) continue;
-    if (servedKeys.has(skill)) rules.push(skill);
-    else skills.push(skill);
-  }
-  // closure-notes: no schema note names it as a skill, so a seat that owns a closure note gets it here
-  // (once, after the note-derived rules); when the server does not serve it, it is neither a rule nor a skill.
-  if (
-    !rules.includes('closure-notes') &&
-    servedKeys.has('closure-notes') &&
-    ownedKeys.some((k) => k === 'implementation-notes' || k === 'session-tracking')
-  ) {
-    rules.push('closure-notes');
+    if (servedKeys.has(skill)) {
+      if (!rules.includes(skill)) rules.push(skill);
+    } else if (!skills.includes(skill)) {
+      skills.push(skill);
+    }
   }
   return { rules, skills };
 }
@@ -671,18 +666,15 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
       if (isFirstQueue) firstQueueAssigned = true;
       const enters = !!s.enters;
       const writes = s.phase === 'work';
-      const ownsTestAuthorNote = seatNotes.some((k) => {
-        const note = notes.find((n) => n.key === k);
-        return note && note.skill === 'test-author';
-      });
+      const isTestAuthorSeat = s.name === 'test-author';
 
       let output;
       if (isFirstQueue) output = 'planner-v1';
       else if (s.phase === 'work' && enters) output = 'implementer-v1';
-      else if (ownsTestAuthorNote) output = 'test-author-v1';
+      else if (isTestAuthorSeat) output = 'test-author-v1';
       else output = 'generic-v1';
 
-      if (s.phase === 'work' && (s.readsExclude || []).length && ownsTestAuthorNote) {
+      if (s.phase === 'work' && (s.readsExclude || []).length && isTestAuthorSeat) {
         const served = servedKeys.has('declarations-extractor');
         if (!served) degradations.push('extractor without accuracy rule');
         stages.push({
@@ -715,7 +707,7 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
       const seatLimits = noteLimitsOf(seatNotes, notes);
       if (seatLimits) stage.noteLimits = seatLimits;
       if (output === 'test-author-v1') {
-        const inputs = testPlanInputsOf(notes);
+        const inputs = testPlanInputsOf(notes, s.name);
         if (inputs.length) stage.inputNotes = inputs;
       }
       if (enters) stage.enters = true;
@@ -1176,7 +1168,7 @@ export function liveKnownRed(profile, now) {
  * planned = {ids, waitsFor, derivedById, deferred}
  * opts = {now, runId, mode, entryMode, probe, profile, scratchpad, worktree, branch}
  * opts.worktree/opts.branch (E3): shared-mode only override of the derived feature worktree path
- * and branch (e.g. /implement wave.md Step 2 reusing its own already-created worktree instead of the
+ * and branch (e.g. a project workflow reusing its own already-created worktree instead of the
  * planner deriving a second one). Both are set together by the caller (the CLI enforces "both or
  * neither" and "shared mode only" before calling in); this function trusts that precondition and
  * simply substitutes the pair, normalized, in place of the derived sharedPath/sharedBranch.

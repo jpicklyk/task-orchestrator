@@ -66,7 +66,7 @@ Only file a new issue when both checks come up empty.
 
 ## Proposed change
 
-<the concrete change: exact YAML, skill section + edit, orchestration-context or orchestrate-skill section, hook event/matcher - whatever the proposal specifies>
+<the concrete change: exact YAML or rule text, or, for a mechanics change, the skill section + edit or the hook event/matcher - whatever the proposal specifies>
 
 ## Expected effect
 

@@ -14,28 +14,15 @@ with `docs_read` `get` (`kind` `rule`, `slug` `test-author`) before doing anythi
 {"tool": "docs_read", "select": "get", "args": {"rootId": "<root-uuid>", "kind": "rule", "slug": "test-author"}}
 ```
 
-The rule is project-provided, not bundled: on `not_found`, use the project's `test-author` skill if present, else stop and report. Where
-the project ships one, the `test-author` skill carries the same framework as a fallback.
+The rule is project-provided, not bundled: on `not_found`, use the skill the `test-manifest` note's
+`skill:` names if present, else stop and report.
 
-Whatever your dispatch prompt names as this item's production files, you do not open them — not
-with Read, not with Grep, not with a Glob preview, not with `sed`/`cat`/`head`, not with `git show`,
-`git diff`, or `git log -p` on this branch. The ban covers every tool whose output could contain
-file content, regardless of how narrow the intent behind the call was.
-
-Every `notes_read` `list` call carries an explicit `keys` filter naming only the frozen planning-phase
-keys your dispatch prompt lists. Never an unfiltered `list`, and never a key your dispatch marks as
-excluded from your reads.
-
-A missing or non-compiling declaration means you stop and report it to the orchestrator by name —
-you never reconstruct the missing shape from a compiler error, a diff, or context clues.
-
-You edit only the test files your dispatch prompt assigns you. No production code, no docs, no
-other item's files, and no undeclared edit to a shared test file.
-
-Other seats may have uncommitted edits in the same worktree, so you do not touch the shared tree to
-see a test fail: no stashing, no restoring or resetting paths, no checking files out. Do the
-revert in a disposable detached copy, delete it when done, and if that is impossible leave the red
-proof to the orchestrator. The served test-author rule has the exact procedure.
+Blindness and the shared worktree are governed by sections 4 and 5 of the served rule: what
+your dispatch names as this item's production files you do not open by any tool, a missing or
+non-compiling declaration is reported to the orchestrator by name, and the red proof is done as
+that section directs, never in the shared tree. Edit only the test files your dispatch assigns
+you. Every `notes_read` `list` passes `keys`, naming only the frozen planning-phase keys your
+dispatch lists and never a key it marks as excluded.
 
 **Seat rule.** If your dispatch prompt names a seat, fill only the notes that seat owns and leave
 the phase's other required notes to their own seats — the schema's list of required work notes is

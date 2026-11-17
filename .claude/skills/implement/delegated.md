@@ -44,9 +44,9 @@ the first missing required note). `pre-plan-workflow` is optional (use it only i
 exploration); `post-plan-workflow` only if child items need materialization. In collaborative
 mode, ask the user to enter plan mode first.
 
-Front door "Planning rules" applies in full: the plan's claims are verified in source, the plan
-carries the State matrix, and on an item carrying `needs-test-author` the plan author fills and
-freezes `test-plan` before the advance.
+Front door "Planning rules" applies in full: the planning note's `skillPointer` (claims verified in
+source), rule `live-checks` (the State matrix) and rule `test-author` section 1 (`test-plan` frozen
+before the advance).
 
 Advance: `advance` `transition` with `trigger: "start"`.
 
@@ -68,10 +68,8 @@ Use `items_read` `schema` (`itemId`) with `fields: ["guidance"]` for the work-ph
 `/task-orchestrator:orchestrate` (model table, return formats, UUID inclusion). Delegate to one
 implementation subagent, or implement directly; the subagent works on the working branch.
 
-**Test-file ownership boundary.** The implementation dispatch excludes `src/test/**` from scope:
-the implementer does not create or modify test files. When a change surfaces a needed test
-update, it reports it in its return (or in `implementation-notes`) rather than editing the test
-itself; on an item carrying `needs-test-author` the test author (Step 4b) owns that file tree.
+**Test-file ownership boundary.** Rule `test-file-ownership`; the template's `src/test/**` lines
+are its item 1.
 
 **Implementer dispatch (by hand).** Paste the `run-profile.json` `verify` entries whose `seats`
 list `implementer`, `<worktree>` substituted (per `orchestrate` "Hand-dispatched seats carry the
@@ -102,31 +100,23 @@ Agent(
 )
 ```
 
-**Model and effort.** Pass both explicitly on every Agent dispatch (`dispatch-model-guard` denies an
-omission); follow `task-orchestrator:orchestrate` "Dispatching an item's phase owner" (read the
-profile of the phase dispatched INTO). A fix after a failed test or review goes to a fresh agent
-at the raised effort `orchestrate` states.
+**Model and effort.** Follow `task-orchestrator:orchestrate` "Dispatching an item's phase owner".
+A fix after a failed test or review runs on a fresh agent at the raised effort (run-wave
+`references/post-run.md` "Fix cycle after a Fail").
 
 **Contract-change sweep discipline (orchestrator-owned, after the implementer returns and before
-build verification).** When a change tightens a contract (a now-required parameter, a new
-`validate()` invariant, a new sealed arm, a new accessor on a strict-mocked interface such as
-`RepositoryProvider`), follow served rule `contract-change-sweep` (`docs_read` `get`, `kind` `rule`):
-search `src/main` and `src/test`, repair construction only (never an assertion), and declare each
-repair SHA in the review handoff. A repair that would touch an expectation goes to the test
-author. When a fix changes shipped behaviour after docs were written, grep the changed docs for
-claims about the old behaviour before finalizing.
+build verification).** Follow rule `contract-change-sweep`, and declare each repair SHA in the
+review handoff. When a fix changes shipped behaviour after docs were written, grep the changed docs for claims
+about the old behaviour and fix or route each hit (dispositions as rule `planning-sweeps` point 3).
 
 **SHA capture and disjointness (whenever `needs-test-author` applies).** Capture HEAD before and
-after the implementer's dispatch, and again around the test author's (Step 4b). Then verify:
+after the implementer's dispatch, and again around the test author's (Step 4b), then run rule
+`test-file-ownership` item 3 on the two ranges:
 
 ```bash
 git -C <checkout> diff <pre-sha>..<post-sha> --name-only           # impl range
 git -C <checkout> diff <test-pre-sha>..<test-post-sha> --name-only # author range
 ```
-
-- impl-range ∩ `src/test/**` = ∅ (the implementer touched no test files)
-- author-range ∩ `src/main/**` = ∅ **and** author-range is non-empty (the author touched only
-  test files, and touched at least one)
 
 A violation is reverted (`git -C <checkout> revert` the offending commit, or a targeted
 `git checkout` of the crossed-boundary file back to the prior SHA) and recorded in the item's
@@ -155,8 +145,8 @@ Agent(
   Fetch these rules first (docs_read get, kind rule, slug the rule name): test-author,
   forbidden-test-patterns, test-assertion-vacuity, test-harness.full-wiring, declarations-extractor.
   Declarations file (the public surface you may compile against): <path>
-  Read notes only with keys=["task-scope","diagnosis","test-plan"]; never read
-  implementation-notes or session-tracking, and never open src/main by any tool.
+  Read notes only with a keys filter naming the item's queue-phase keys (items_read schema),
+  never the seat's reads_exclude keys, and never open src/main by any tool.
   Before committing, run exactly: <the pasted verify command(s) for seat test-author>
   Run only your own test classes (-TestFiles) to see them red, then green. Never :current:test,
   :current:ktlintCheck or --rerun-tasks.
@@ -195,15 +185,16 @@ Then:
    The bullet describes behaviour, not the diff, and carries no volatile counts. A docs-, process-
    or chore-only change adds none; its PR body states `Changelog: none (<why>)`.
    `/prepare-release` Step 8c folds these bullets into the release section.
-5. Fill all work-phase notes the orchestrator owns, following their guidance text
+3. Fill all work-phase notes the orchestrator owns, following their guidance text
    (`items_read` `schema`, `fields: ["guidance"]`), with what downstream agents need to know.
-6. **Live-owed check.** Before the work-exit `advance`, read the item's `session-tracking` for its
-   `**Live-owed**:` line (spec-quality, "State matrix"). Any entry not ending
-   `run <date>: <result>` or `deferred: <item id>` is open and holds the item in work until it is
-   run or deferred. The orchestrator writes that line from the spec note's matrix when it first
-   fills `session-tracking`; a matrix with `live-owed` cells and no `**Live-owed**:` line counts as
-   an open entry.
-7. **Advance out of work** once the agent has returned and the notes are filled:
+4. **Live-owed check.** Before the work-exit `advance`, apply rule `live-checks` "The Live-owed
+   hold".
+   - A `live-owed` cell on server behaviour runs `/deploy_to_docker --reuse` from the checkout
+     under test, reconnects (`/mcp`), exercises the changed capability through the tools against
+     the spec note's acceptance criteria, and records `run <date>: <result>` on its Live-owed
+     entry. A change with a migration is never deployed to the shared data volume before merge:
+     its entry is `deferred: <holder id>` (rule `live-checks` "Post-merge holder").
+5. **Advance out of work** once the agent has returned and the notes are filled:
    `trigger: "start"` when the schema has a review phase, or `trigger: "complete"` when it has none.
    Step 5 reads `newRole`.
 
@@ -217,7 +208,7 @@ Then:
 
 **Before dispatching the reviewer**, record the Step 4c build run as the `Verified:` line
 (command, result, SHA) in the item's `session-tracking`. The reviewer runs no gradle and reads the
-build state from there (`review-quality` Area 1).
+build state from there (rule `closure-notes` item 2).
 
 **Review agent template (copy verbatim, fill placeholders):**
 
@@ -230,9 +221,9 @@ You are reviewing MCP item <full UUID> (<short>) on its working branch.
 - Build state: the `Verified:` line of the item's session-tracking note (command, result,
   SHA). Run no gradle.
 
-Run ALL commands from that checkout. Focus on plan alignment and test quality
-per the review-quality skill, and fill the review-phase notes the item's
-schema requires.
+Run ALL commands from that checkout. For each review-phase note the item's
+schema requires, read its `skillPointer` (`items_read` `schema`, `itemId`) and
+follow that framework, then fill those notes.
 
 Report every finding at every severity — do not self-filter to a high-severity-only
 bar. Mark each finding blocking or observation and state your confidence; the
@@ -250,11 +241,9 @@ the item's review profile (Step 4 "Model and effort"), and `subagent_type` its `
 | **Pass with observations** | Dispose each observation (below), then proceed to Step 6 |
 | **Fail — blocking issues** | Stop and report to the user with the full findings. Do not attempt to fix autonomously — bring the human into the loop. |
 
-**Dispositions.** Before advancing, write the item's `orchestrator-confirmation`: one line per
-finding as `fixed <sha>`, `follow-up <item-id>` (the item created first) or `accepted: <reason>`,
-ending `N of N disposed`. `fixed` is for a concrete failure in behaviour the item added or
-changed, fixed by a fresh implementer (or test author) scoped to the finding ids; there is no
-re-review unless the fix changes behaviour beyond the finding.
+**Dispositions.** Before advancing, write the item's `orchestrator-confirmation` per its guidance
+and run-wave `references/post-run.md` Step 5 "Observation triage"; a `fixed` finding goes to a
+fresh implementer or test author scoped to the finding ids.
 
 Review failures surface issues that may indicate systemic problems worth learning
 from. Automatically retrying hides these signals.

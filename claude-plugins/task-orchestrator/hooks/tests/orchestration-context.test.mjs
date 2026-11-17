@@ -340,18 +340,14 @@ test('S5: the last numbered principle is the P36 feature-closure principle, in b
     assert.ok(starts.length >= 2, `${name}: expected a numbered list of principles`);
     const last = starts[starts.length - 1];
     const tail = c.slice(last);
-    for (const needle of ['follow-up <item-id>', 'N of N disposed', 'orchestrator-confirmation', 'accepted: <reason>', 'fixed']) {
+    for (const needle of ['orchestrator-confirmation', '`orchestration-discipline`']) {
       assert.ok(tail.includes(needle), `${name}: last numbered principle lacks "${needle}"`);
     }
-    assert.match(tail, /blocking/i, name);
+    assert.ok(!tail.includes('N of N disposed'), `${name}: the disposition format lives in the rule, not the tail`);
     assert.match(tail, /feature-level review|feature review|review of the feature/i, name);
     assert.match(tail, /terminal/i, name);
-    assert.match(tail, /same reviewer/i, name);
-    assert.match(tail, /fresh/i, name);
-    assert.match(tail, /non-entry seat/i, name);
     assert.match(tail, /explicit/i, name);
     assert.match(tail, /no cascade|not cascade|never cascade|does not cascade|without cascad/i, name);
-    assert.match(tail, /existing item/i, name);
   }
 });
 

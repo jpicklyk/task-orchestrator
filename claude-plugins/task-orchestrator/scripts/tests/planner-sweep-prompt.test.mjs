@@ -15,7 +15,7 @@ const LINE =
   'including 0 hits.'
 const DOCS_LINE =
   'Docs sweep: for every script, hook, tool or command this item changes or adds, grep its file name and ' +
-  'user-facing name across claude-plugins/, .claude/ and current/docs/; give every hit file one disposition in ' +
+  'user-facing name across the whole repository; give every hit file one disposition in ' +
   'your planning note (edit in this item; owned by sibling <short>; no edit, with the reason; unowned) and ' +
   'report the grep in sweep as kind docs, listing unowned hit files in unowned.'
 const EMPTY_SWEEP_LINE =

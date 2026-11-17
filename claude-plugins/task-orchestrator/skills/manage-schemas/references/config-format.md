@@ -111,7 +111,7 @@ These fields serve different purposes and work together:
 
 - **`guidance`** provides project-specific instructions for *what* the note should cover. It's free text you write in config - "Cover: problem statement, acceptance criteria, alternatives considered, blast radius, test strategy." The agent sees this as `guidanceKey` when it's about to fill the note.
 
-- **`skill`** references a reusable evaluation framework that defines *how* to produce the note. The agent invokes the skill (e.g., `/spec-quality`) before writing, getting a structured methodology - rubrics, checklists, evaluation dimensions. The agent sees this as `skillPointer`.
+- **`skill`** references a reusable evaluation framework that defines *how* to produce the note. The agent invokes the skill (the one the `skill` value names) before writing, getting a structured methodology - rubrics, checklists, evaluation dimensions. The agent sees this as `skillPointer`.
 
 | Combination | When to use |
 |-------------|------------|
@@ -169,7 +169,7 @@ operating-rule TEXT, not just a skill invocation. This is a second, independent 
 - **Writing style.** Client-neutral prose usable by any executor invoking the rule, not
   Claude-specific - with an optional trailing `## claude:` section for Claude Code-specific detail.
   The server never parses the body; it is served exactly as stored.
-- **This repo's own rules.** This repository keeps its source rule text git-tracked under
+- **Workspace rules.** A workspace may keep its source rule text git-tracked under
   `.taskorchestrator/rules/<key>.md` - readable and diffable like any other file, and the
   authoritative source an agent edits. The `config-sync` SessionStart hook pushes these files
   automatically: after its usual config sync it lists the root's rule documents (`docs_read` `list`,
@@ -182,8 +182,7 @@ operating-rule TEXT, not just a skill invocation. This is a second, independent 
   that's absent, or any error talking to the API, degrades to a no-op or a one-line note rather than
   blocking session start.
 - **Bundled rules.** On SessionStart only (not on FileChanged) the hook also syncs the plugin's
-  bundled rule keys (`protocol.entry-seat`, `protocol.in-phase-seat`, `protocol.read-only-agent`,
-  `commit-discipline`, `review-scoping`, `closure-notes`), protocol keys first. `bundled-rules/manifest.json` is an
+  bundled rule keys, protocol keys first; `bundled-rules/manifest.json` lists every key. It is an
   append-only list of known body hashes per key, and the push policy follows it: a key absent from the
   server is pushed; a server copy matching a known older hash is overwritten with the current body; a
   server copy matching no known hash is never touched. A same-named file in the workspace's
@@ -432,8 +431,7 @@ dispatch policy (`claude-plugins/task-orchestrator/dispatch-policy.json`, descri
 `task-orchestrator:model-effort` skill) supplies it: each seat resolves to a class (planner,
 research, implementer, test author, reviewer and so on) with a default `model` and `effort`.
 A profile therefore needs to declare only a real override: a `model` or `effort` that differs
-from the class default. Repeating a class default in a trait adds nothing, and this repo's own
-config no longer does. A trait value of `null` for `model` or `effort` falls back to the class.
+from the class default. Repeating a class default in a trait adds nothing. A trait value of `null` for `model` or `effort` falls back to the class.
 
 ### How effort reaches a dispatch
 
@@ -690,7 +688,7 @@ Each schema is independent. An item matches at most one schema.
 
 ## Project Scoping
 
-The `project:` section is a top-level key alongside `work_item_schemas` and `traits`. It anchors this repository's work to a single depth-0 MCP item.
+The `project:` section is a top-level key alongside `work_item_schemas` and `traits`. It anchors a workspace's work to a single depth-0 MCP item.
 
 ```yaml
 project:
@@ -707,7 +705,7 @@ Default: absent - a workspace with no `project:` block is unscoped.
 
 | Field | Required | Type | Notes |
 |-------|----------|------|-------|
-| `rootId` | yes | string (UUID) | UUID of the depth-0 item (`type: project`) that anchors this repo's work. The hooks use it only when it is 1 to 64 letters, digits or hyphens and does not start with a hyphen (a UUID qualifies); any other value is treated as if no `rootId` were set |
+| `rootId` | yes | string (UUID) | UUID of the depth-0 item (`type: project`) that anchors a workspace's work. The hooks use it only when it is 1 to 64 letters, digits or hyphens and does not start with a hyphen (a UUID qualifies); any other value is treated as if no `rootId` were set |
 | `name` | no | string | Human-readable project name shown in dashboards and skill output |
 
 ### Behavior

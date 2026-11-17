@@ -10,7 +10,9 @@ Evaluate database migration safety for SQLite-specific constraints. This project
 
 ## Step 1: Identify Schema Changes
 
-Read the changed files and migration SQL to determine:
+This runs at queue phase, as a planner, before code exists. Derive the needed changes from the
+spec note, the existing migrations in `current/src/main/resources/db/migration/sqlite/` and the Exposed
+table objects, to determine:
 - **New columns** — `ALTER TABLE ADD COLUMN` works in SQLite
 - **Modified columns** — SQLite has NO `ALTER COLUMN`. Requires table recreation:
   1. Create new table with desired schema
@@ -41,12 +43,12 @@ For migrations that modify existing data:
 
 ## Step 4: Flyway Integration
 
-- [ ] Migration file follows naming: `V{N}__{Description}.sql`
-- [ ] Version number is sequential (no gaps, no conflicts with existing migrations)
+- [ ] The planned migration file follows naming: `V{N}__{Description}.sql`
+- [ ] The planned version number is sequential (no gaps, no conflicts with existing migrations)
 - [ ] Migration is idempotent where possible
 - [ ] Migration files stay byte-identical once released: Flyway's checksum covers every line including comments, so never edit one (V9's header comment, lines 12-14, says FK enforcement is off by default in this project; in fact the application connection runs `foreign_keys=ON` (DatabaseManager) and only Flyway's own connection runs with it OFF. That correction lives here, not in the file, because Flyway checksums comment lines)
 - [ ] Expand/contract: ship additive changes first and remove the old shape in a later release; flag any table-recreating migration in the release notes
-- [ ] Upgrade harness seed added: `upgrade/seeds/SeedV{N}.kt` extends `MigrationSeed({N})`, declares the exact expected values of any column it rewrites in `expected(table, row)`, seeds rows the migration transforms, and asserts the result in `verify`; any new column also needs a seeded value in `BaselineDataset` (`BaselineColumnCoverageTest`). The harness migrates a populated database from N-1 and checks rows, foreign keys, FTS counts and integrity, the trigger inventory and `foreign_keys = 0` on Flyway's connection; it fails for a V18-or-later migration without a seed
+- [ ] Upgrade harness seed planned: `upgrade/seeds/SeedV{N}.kt` extends `MigrationSeed({N})`, declares the exact expected values of any column it rewrites in `expected(table, row)`, seeds rows the migration transforms, and asserts the result in `verify`; any new column also needs a seeded value in `BaselineDataset` (`BaselineColumnCoverageTest`). The harness migrates a populated database from N-1 and checks rows, foreign keys, FTS counts and integrity, the trigger inventory and `foreign_keys = 0` on Flyway's connection; it fails for a V18-or-later migration without a seed
 
 ### Table-recreation template
 
@@ -67,4 +69,7 @@ Startup then verifies the trigger/FTS inventory and runs the FTS `integrity-chec
 
 ## Output
 
-Compose the `migration-assessment` note with findings from each step. Flag any SQLite-specific risks. Reference `.claude/skills/spec-quality/references/project-concerns.md` for additional codebase constraints.
+Compose the `migration-assessment` note against the guidance items (1)-(6) (`items_read` `schema`,
+`fields` `["guidance"]`); do not restate their parts. Item (6), the Docker upgrade rehearsal the
+implementer owns, is written as a plan: the throwaway volumes, expected row counts, the injected
+malformed row and the count log line. Reference `.claude/skills/spec-quality/references/project-concerns.md` for additional codebase constraints.
