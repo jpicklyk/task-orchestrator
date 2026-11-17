@@ -118,7 +118,9 @@
         "notes": { "type": "array", "items": { "$ref": "#/$defs/noteEntry" } },
         "resources": { "type": "array", "items": { "$ref": "#/$defs/resourceRequirement" } },
         "dispatch": { "$ref": "#/$defs/dispatch" },
-        "seats": { "type": "array", "items": { "$ref": "#/$defs/seat" } }
+        "seats": { "type": "array", "items": { "$ref": "#/$defs/seat" } },
+        "description": { "type": "string" },
+        "applies_when": { "type": "string" }
       }
     },
     "noteEntry": {

@@ -210,6 +210,8 @@ work_item_schemas:
 
 traits:
   needs-migration-review:
+    description: "Adds the migration-assessment planning note: schema change, table recreation and rollback plan."
+    applies_when: "a Flyway migration, ALTER TABLE or any other database schema change."
     notes:
       - key: migration-assessment
         role: queue
@@ -220,6 +222,8 @@ traits:
         guidance: "Document: (1) what schema changes are needed (new columns, table recreation, index changes), (2) SQLite constraints (no ALTER COLUMN — requires table recreation if modifying existing columns), (3) data migration strategy for existing rows, (4) Flyway migration file name and version number, (5) FTS trigger/rebuild impact if a table with FTS triggers is recreated (see the migration-review table-recreation template), (6) for any migration that copies, backfills or drops data: a Docker upgrade rehearsal on throwaway volumes named q<item>smoke-* (never a live volume) with expected before/after row counts, one injected malformed row, and the count log line the rehearsal must show. The implementer owns the rehearsal. Reference .claude/skills/spec-quality/references/project-concerns.md for SQLite-specific gotchas."
 
   needs-api-compat-review:
+    description: "Adds the api-compatibility review note: MCP tool surface and REST surface assessed separately."
+    applies_when: "a tool parameter or response shape changes, or a REST endpoint or DTO changes."
     notes:
       - key: api-compatibility
         role: review
@@ -230,6 +234,8 @@ traits:
         guidance: "Assess the MCP surface and the REST surface separately — their compatibility models differ, see the api-compat-review skill for the full framework. For any REST-facing change, update openapi.yaml and api-rest.md."
 
   needs-plugin-update:
+    description: "Adds the plugin-impact review note: which plugin skills, hooks and docs the change affects."
+    applies_when: "plugin skill or hook behaviour changes, or a server change that plugin text or hooks depend on."
     notes:
       - key: plugin-impact
         role: review
@@ -240,6 +246,8 @@ traits:
         guidance: "Check: (1) which skills reference the changed behavior (grep skill files for affected tool names, config keys, or concepts), (2) which hooks inject context that references the changed behavior, (3) whether config-format.md needs updating, (4) whether the orchestration-context hook or the orchestrate skill need updating. List specific files and sections that need changes. Plugin content is cached — note the cache refresh and session restart the change needs."
 
   needs-security-review:
+    description: "Adds the security-assessment review note."
+    applies_when: "authentication, input validation, access control or external data handling is touched."
     notes:
       - key: security-assessment
         role: review
@@ -251,6 +259,8 @@ traits:
         maxLength: 4000
 
   needs-perf-review:
+    description: "Adds the performance-baseline planning note: affected hot paths and a measurement plan."
+    applies_when: "a hot path or per-request or per-item work is touched."
     notes:
       - key: performance-baseline
         role: queue
@@ -261,6 +271,8 @@ traits:
         guidance: "Document: (1) which hot paths are affected (per-request, per-item loops, startup), (2) expected performance impact (new DB queries, JSON parsing, file I/O), (3) whether the change is O(n) where n could be large, (4) measurement plan — how to verify performance is acceptable. This note is optional — use it when the change touches known hot paths or adds significant new work."
 
   delegated:
+    description: "Makes the orchestrator-filled delegation-metadata note visible and routes work and review to the implementer and reviewer agents."
+    applies_when: "the item runs at Delegated or Parallel tier; feature-implementation, feature-task and bug-fix carry it by default; never on Direct tier."
     notes:
       - key: delegation-metadata
         role: work
@@ -284,12 +296,16 @@ traits:
   # "Seat dispatch precedence"), while inheriting its phase agent/effort. Both are opt-in, applied per
   # item at tier classification (/implement Step 1).
   complex-implementation:
+    description: "Raises the implementer seat to the opus model."
+    applies_when: "a new public API, a cross-layer seam, a subtle state machine or concurrency."
     dispatch:
       work:
         seats:
           implementer: { model: opus }   # architecture-heavy / multi-file synthesis work
 
   high-stakes:
+    description: "Raises the planner and reviewer seats to the fable model."
+    applies_when: "security predicates, auth, data-loss paths or hard-to-reverse design; use sparingly (needs-security-review does not imply it)."
     dispatch:
       queue:
         seats:
@@ -299,6 +315,7 @@ traits:
           reviewer: { model: fable }     # security predicates, auth, data-loss paths
 
   needs-task-review:
+    description: "Adds the review-checklist note: scope alignment and test coverage at the work-to-review gate."
     notes:
       - key: review-checklist
         role: review
@@ -309,6 +326,8 @@ traits:
         guidance: "Verify: (1) what was built matches the task-scope note — flag scope creep or missed acceptance criteria, (2) tests cover the stated acceptance criteria and aren't strawman tests, (3) no unintended side effects on files outside the task scope. This note is the item's findings register: number every finding once here (B1.. blocking, O1.. observation), one line each: location, what was expected, what was found, confidence. Sibling review notes cite these ids and never restate a finding. This note owns acceptance-criteria proof: state `AC n: met (<one citation>)` for each criterion and move on. Dispose a child's findings on the child when it closes; a parent review lists only feature-level findings and never re-lists a child's. Target 1500-2500 characters whatever the item size; the 4000 maxLength is a backstop. A review that needs more is a sign the plan should have been split, not that the note should grow. Beyond the findings register and the `AC n: met` lines, the only other content is one `Build state: <command> green|red at <sha>` line; walkthroughs that re-derive the code (SQL traces, per-field doc audits, \"plan alignment: met\" paragraphs) are never recorded, the reviewer reads the code and writes only what it found."
 
   needs-test-author:
+    description: "Adds the test-author seat with test-plan, test-manifest and test-independence-audit notes, so tests are written blind to the implementation."
+    applies_when: "an acceptance criterion involves a predicate, algorithm, parser, validator or state transition, or on a force-ON signal (new public API, migration, security predicate, prior vacuous-test finding in the area); bug-fix carries it by default; no other type carries it. On Direct tier it applies to bug-fix only, in temporal-only degraded mode (test-plan gate and red-first still apply, one actor, no separate seat)."
     seats:
       - { name: test-author, phase: work, after: [implementer], reads_exclude: [implementation-notes, session-tracking] }
     notes:
@@ -338,6 +357,7 @@ traits:
         guidance: "Attest to: separation held (test files first appear in the author's commit SHA range; actor id differs from the implementer's, or a temporal-only separation is explicitly declared), the coverage mapping spot-checked by opening at least two mapped tests and reading their bodies rather than trusting the manifest alone, at least one oracle traced back to its cited source, the declared probes actually run, platform-bound probes listed and neutralized, and the forbidden-pattern declaration verified as true: fetch rules `forbidden-test-patterns` and `test-assertion-vacuity` with `docs_read` `get` (`kind` `rule`, `slug` the rule name, `rootId`), read the test bodies behind the manifest's declaration, and confirm every instance of a listed pattern is declared with a justification. An undeclared instance, or a declaration claiming none when instances exist, is BLOCKING regardless of suite pass/fail — the same weight as not-independent. Verdict — one of: **independent** | **independent-degraded** (temporal-only separation) | **not-independent** (blocking, regardless of suite pass/fail). Target ~900-1400 characters; the 2000 maxLength is a backstop, not a goal. Cite the review-checklist's build-state line instead of restating suite counts, and record a blocking finding only as its checklist id. The two-range ownership proof is one line per range (SHA, seat, files touched), not a commit narrative. Fix-cycle rulings live in the amendments note where the schema declares it; on a schema without the key (plugin-change) they are appended to the planning note under '## Amendment A<n>'; either way the frozen planning body above any amendment is never edited, so the planning note's modifiedAt (notes_read list) is its freeze time when the amendments key exists, and the amendment's own section is the only later edit otherwise; confirm the freeze predates the implementer's first commit."
 
   session-tracked:
+    description: "Adds the orchestrator-filled session-tracking closure note."
     notes:
       - key: session-tracking
         role: work
@@ -350,6 +370,8 @@ traits:
 
   # Proposal a3f733b6: the orchestrator adds this trait when it writes the first carry-in-* note on an item.
   has-carry-ins:
+    description: "Adds the carry-in-dispositions planning note: one line per carry-in-* note."
+    applies_when: "the orchestrator writes the first carry-in-* note on the item."
     notes:
       - key: carry-in-dispositions
         role: queue
@@ -361,6 +383,8 @@ traits:
 
   # Proposal 091bbb95: apply to docs, CHANGELOG and hook-text-only feature-tasks at materialization.
   needs-docs-accuracy-review:
+    description: "Adds the docs-accuracy review note and the docs-source-of-truth and docs-claim-source-map notes."
+    applies_when: "the item changes docs, CHANGELOG or hook text only."
     notes:
       - key: docs-accuracy-review
         role: review

@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigViolation
 import io.github.jpicklyk.mcptask.current.application.config.DecisionClassConfig
 import io.github.jpicklyk.mcptask.current.application.config.ParseMode
 import io.github.jpicklyk.mcptask.current.application.config.RunsConfig
+import io.github.jpicklyk.mcptask.current.application.config.TraitDescriptor
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestAnswerers
 import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestSeverity
@@ -76,7 +77,7 @@ internal object ConfigKeyCatalog {
         setOf("schema_resolution", "retrospective", "actor_attribution", "orchestration")
 
     val SCHEMA_LEVEL: Set<String> = setOf("lifecycle", "default_traits", "notes", "seats")
-    val TRAIT_LEVEL: Set<String> = setOf("notes", "resources", "dispatch", "seats")
+    val TRAIT_LEVEL: Set<String> = setOf("notes", "resources", "dispatch", "seats", "description", "applies_when")
     val NOTE_ENTRY: Set<String> =
         setOf("key", "role", "required", "description", "guidance", "skill", "maxLength", "seat", "independent_of", "shared")
     val SEAT_ENTRY: Set<String> = setOf("name", "phase", "enters", "after", "reads_exclude", "transitions")
@@ -314,6 +315,7 @@ internal object YamlSchemaParser {
 
         val parsedTraits = parseTraits(root, warnings)
         val traitSeatsMap = parseTraitSeatsMap(root, warnings)
+        val traitDescriptors = parseTraitDescriptors(root, warnings)
         val parsedNoteLimitsMode = parseNoteLimitsMode(root, warnings)
         val noteLimitsMode = if (root.containsKey("note_limits")) parsedNoteLimitsMode else null
         val independence = parseIndependencePolicy(root, warnings)
@@ -370,6 +372,7 @@ internal object YamlSchemaParser {
             traitDispatch = traitDispatch,
             traitDispatchBySeat = traitDispatchBySeat,
             traitSeats = traitSeatsMap,
+            traitDescriptors = traitDescriptors,
             presentSections = presentSections,
         )
     }
@@ -512,6 +515,38 @@ internal object YamlSchemaParser {
                 }
             traitName to entries
         }
+    }
+
+    /**
+     * Parses each trait's optional `description` and `applies_when` strings into a trait-name to
+     * [TraitDescriptor] map. Values are trimmed and a blank string is absent; a non-string value
+     * (including YAML null) is a soft finding and the field is dropped. A trait with neither field
+     * is absent from the result. Text only: nothing here evaluates `applies_when`.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun parseTraitDescriptors(
+        root: Map<String, Any>,
+        warnings: ParseFindings
+    ): Map<String, TraitDescriptor> {
+        val traitsRaw = root["traits"] as? Map<String, Any> ?: return emptyMap()
+        val result = mutableMapOf<String, TraitDescriptor>()
+        for ((traitName, rawValue) in traitsRaw) {
+            val rawMap = rawValue as? Map<String, Any?> ?: continue
+
+            fun text(key: String): String? {
+                if (!rawMap.containsKey(key)) return null
+                val value = rawMap[key]
+                if (value is String) return value.trim().ifEmpty { null }
+                warnings.soft(ptr("traits", traitName, key), "Trait '$traitName' '$key' must be a string; ignoring")
+                return null
+            }
+            val description = text("description")
+            val appliesWhen = text("applies_when")
+            if (description != null || appliesWhen != null) {
+                result[traitName] = TraitDescriptor(description, appliesWhen)
+            }
+        }
+        return result
     }
 
     /**

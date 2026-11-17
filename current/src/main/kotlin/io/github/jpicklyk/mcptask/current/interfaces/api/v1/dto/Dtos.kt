@@ -61,7 +61,8 @@ data class ResourceRequirementDto(
  *
  * `dispatch` (per-phase routing profiles, keyed by lowercase phase name) and `resources`
  * (declared shared-resource requirements) are omitted (null) when the trait declares neither —
- * never present as an empty map/list.
+ * never present as an empty map/list. `description` and `appliesWhen` (the trait's own text, never
+ * evaluated by the server) are omitted (null) when the trait declares none.
  */
 @Serializable
 data class TraitDto(
@@ -69,6 +70,8 @@ data class TraitDto(
     val notes: List<NoteSchemaEntryDto>,
     val dispatch: Map<String, DispatchProfileDto>? = null,
     val resources: List<ResourceRequirementDto>? = null,
+    val description: String? = null,
+    val appliesWhen: String? = null,
 )
 
 /**
