@@ -9,22 +9,35 @@ export function isLegacyShape(payload) {
   return isPlain(payload) && Object.prototype.hasOwnProperty.call(payload, 'success');
 }
 
-function unwrap(r) {
-  if (typeof r === 'string') {
-    try {
-      return JSON.parse(r);
-    } catch {
-      return null;
-    }
+/**
+ * The JSON document in a tool result's text, or null. The whole text is tried first. A 4.0 MCP error
+ * text is `<code>: <message>`, a newline and the compact error envelope, always the last line: when
+ * the whole text is not JSON, the line after the last newline is taken, but only when it is an error
+ * envelope (`ok: false` with an `error` object). Never throws.
+ */
+export function parseEnvelopeText(text) {
+  if (typeof text !== 'string') return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    // fall through to the error tail
   }
+  const nl = text.lastIndexOf('\n');
+  if (nl < 0) return null;
+  try {
+    const tail = JSON.parse(text.slice(nl + 1));
+    return isPlain(tail) && tail.ok === false && isPlain(tail.error) ? tail : null;
+  } catch {
+    return null;
+  }
+}
+
+function unwrap(r) {
+  if (typeof r === 'string') return parseEnvelopeText(r);
   if (!isPlain(r)) return null;
   if (isPlain(r.structuredContent)) return r.structuredContent;
   if (Array.isArray(r.content) && r.content.length > 0 && r.content[0] && typeof r.content[0].text === 'string') {
-    try {
-      return JSON.parse(r.content[0].text);
-    } catch {
-      return null;
-    }
+    return parseEnvelopeText(r.content[0].text);
   }
   if (Object.prototype.hasOwnProperty.call(r, 'success') || typeof r.ok === 'boolean') return r;
   return null;
