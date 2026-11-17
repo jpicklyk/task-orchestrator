@@ -102,7 +102,7 @@ test('S2: only skill-less review notes across two seats yield bare seat lanes an
 })
 
 // ---------------------------------------------------------------------------------------------
-// AC2: review-wave has no simplify lane, no after ordering and no halting.
+// AC2: review-wave has no simplify lane; `after` orders lanes without halting.
 // ---------------------------------------------------------------------------------------------
 
 function reviewStage(lane, notes, extra = {}) {
@@ -151,11 +151,11 @@ test("S3: a stage with output 'simplify-v1' is refused by normalizeArgs as a bad
   assert.equal(res.reason, 'invalid args: bad stage output')
 })
 
-test("S4: a review-v1 stage with a non-empty 'after' is refused by preflight; an empty 'after' is not", () => {
+test("S4: a stage whose 'after' names no sibling lane is refused by preflight; an empty 'after' is not", () => {
   const refusedPlan = RW.normalizeArgs(rawPlan(twoLanes(['x'])))
   assert.equal(refusedPlan.ok, true, refusedPlan.reason)
   assert.deepEqual(RW.preflight(refusedPlan.plan).refused, [
-    { id: 'item-aaaaaaaa', reason: 'after not allowed in review-wave' },
+    { id: 'item-aaaaaaaa', reason: 'lane reviewer.review-quality after x names no sibling lane' },
   ])
   const okPlan = RW.normalizeArgs(rawPlan(twoLanes([])))
   assert.equal(okPlan.ok, true, okPlan.reason)
@@ -171,10 +171,9 @@ function envelope(notesFilled, { verdict = 'pass', findings = [] } = {}) {
   }
 }
 
-test('S5: runReview refuses an item whose lane has after naming a sibling lane; no lane is dispatched or skipped', async () => {
-  // The sibling lane named by 'after' really exists, the old valid shape: the refusal comes from
-  // 'after' itself (task-scope D2), not from an unknown-lane check. A mutant that accepts 'after'
-  // dispatches both lanes (2 calls, refused []) and fails asserts 2 and 4.
+test('S5: runReview dispatches both lanes when a lane has after naming a sibling lane; the named lane goes first and nothing is refused or skipped', async () => {
+  // Oracle: task-scope D5 (after orders and never halts). A mutant that starts every lane at once
+  // fails the ordering assertion; a mutant that refuses or skips fails the call-count assertion.
   const raw = rawPlan([
     reviewStage('reviewer.review-quality', ['review-checklist']),
     reviewStage('reviewer.security-review', ['security-assessment'], { skills: ['security-review'], after: ['reviewer.review-quality'] }),
@@ -183,14 +182,18 @@ test('S5: runReview refuses an item whose lane has after naming a sibling lane; 
   assert.equal(norm.ok, true, norm.reason)
   const { agent, calls } = autoAgent(async (label) => envelope(label.startsWith('reviewer.review-quality:') ? ['review-checklist'] : ['security-assessment']))
   const result = await RW.runReview(norm.plan, { agent, parallel: fakeParallel, log: () => {} })
-  assert.equal(calls.length, 0, `labels: ${calls.map((c) => c.label).join(',')}`)
-  assert.deepEqual(result.items, [])
-  assert.deepEqual(result.refused, [{ id: 'item-aaaaaaaa', reason: 'after not allowed in review-wave' }])
+  assert.equal(calls.length, 2, `labels: ${calls.map((c) => c.label).join(',')}`)
+  assert.deepEqual(result.refused, [])
+  assert.equal(result.items.length, 1)
+  const first = calls.find((c) => c.label === 'reviewer.review-quality:aaaaaaaa')
+  const second = calls.find((c) => c.label === 'reviewer.security-review:aaaaaaaa')
+  assert.ok(first && second, `labels: ${calls.map((c) => c.label).join(',')}`)
+  assert.ok(first.t1 < second.t0, 'the named lane settles before the dependent lane starts')
   assert.equal(JSON.stringify(result).includes('skipped'), false, 'no lane is skipped')
 })
 
-test("S6: REVIEW_OUTPUT_SCHEMAS holds only 'review-v1' and SIMPLIFY_ANGLES is gone from the core", () => {
-  assert.deepEqual(Object.keys(RW.REVIEW_OUTPUT_SCHEMAS), ['review-v1'])
+test("S6: REVIEW_OUTPUT_SCHEMAS holds 'review-v1' and 'findings-v1' and SIMPLIFY_ANGLES is gone from the core", () => {
+  assert.deepEqual(Object.keys(RW.REVIEW_OUTPUT_SCHEMAS), ['review-v1', 'findings-v1'])
   assert.throws(() => loadCoreNamed(REVIEW_WAVE, ['SIMPLIFY_ANGLES']), ReferenceError)
 })
 
