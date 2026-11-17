@@ -7,7 +7,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, realpathSync
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, isAbsolute, dirname } from 'node:path';
-import { directorMarkerPath } from '../execution-mode.mjs';
+import { directorMarkerPath, codeModeMarkerPath } from '../execution-mode.mjs';
 import { RETIRED_3X_TOOLS } from '../../scripts/lib/contract-checks.mjs';
 
 const HOOK = fileURLToPath(new URL('../session-start.mjs', import.meta.url));
@@ -1696,5 +1696,58 @@ test('AC7 fail-open: unparseable .mcp.json and ~/.claude.json -> no warning, exi
     assert.ok(!(out.systemMessage ?? '').includes('different servers'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Item effd1194: a resumed session keeps its session_id, so SessionStart removes the code-mode marker on
+// every source except compact.
+function plantCodeModeIn(tmpDir, sessionId) {
+  const saved = {};
+  for (const k of ['TMPDIR', 'TEMP', 'TMP']) {
+    saved[k] = process.env[k];
+    process.env[k] = tmpDir;
+  }
+  try {
+    const p = codeModeMarkerPath(sessionId);
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, '');
+    return p;
+  } finally {
+    for (const k of Object.keys(saved)) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  }
+}
+
+test('CM: SessionStart removes the code-mode marker on startup and resume, keeps it on compact', () => {
+  for (const [source, kept] of [['startup', false], ['resume', false], ['clear', false], [undefined, false], ['compact', true]]) {
+    const dir = tmpConfigDir();
+    const tmpDir = tmpConfigDir();
+    try {
+      const p = plantCodeModeIn(tmpDir, 'cm-s');
+      const r = runHook(dir, { tmpDir, input: JSON.stringify({ session_id: 'cm-s', source }) });
+      assert.equal(r.status, 0, String(source));
+      assert.equal(existsSync(p), kept, String(source));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('CM: SessionStart without a session_id or without a marker does not throw and output is unchanged', () => {
+  const dir = tmpConfigDir();
+  const tmpDir = tmpConfigDir();
+  try {
+    const base = runHook(dir, { tmpDir, input: JSON.stringify({ session_id: 'nomarker', source: 'startup' }) });
+    const noSid = runHook(dir, { tmpDir, input: JSON.stringify({ source: 'startup' }) });
+    const bad = runHook(dir, { tmpDir, input: 'not json' });
+    for (const r of [base, noSid, bad]) assert.equal(r.status, 0);
+    assert.equal(noSid.stdout, base.stdout);
+    assert.equal(bad.stdout, base.stdout);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(tmpDir, { recursive: true, force: true });
   }
 });

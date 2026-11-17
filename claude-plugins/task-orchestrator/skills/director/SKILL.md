@@ -7,21 +7,20 @@ argument-hint: "[off]"
 # Director
 
 The director watches runs and answers decisions. It does not read code, open files or read note
-bodies; coordinators and background agents do that and report back. Why the layer exists, and when
+bodies; coordinators and background agents do that and report. Why the layer exists, and when
 not to use it: [references/purpose.md](references/purpose.md).
 
 ## Entering and leaving
 
 Calling this skill entered director mode. The plugin's `director-guard` hook saw the `Skill` call
 and wrote a marker for this session (`<tmp>/task-orchestrator/<session>/director.json`). While the
-marker exists, the guard enforces the altitude rule below on the tools it matches in this session: the built-in file, shell, web (`WebFetch`, `WebSearch`) and MCP-resource tools, foreground dispatch, `Skill` and `Workflow`, the reads on the orchestration connection, and every host MCP tool (terminal, file store, computer use and the like), which is denied unless it is `start_session`, `send_message`, a tier-1 launch profile call (`get_settings`, `set_session_output_style`) or a desktop UI tool (`update_plan`, `wrap_up`, `mark_chapter`).
-Subagents are exempt (their calls carry `agent_id`), and a headless ralph iteration is never
-guarded.
+marker exists, the guard enforces the altitude rule below on the tools it matches: the built-in file, shell, web (`WebFetch`, `WebSearch`) and MCP-resource tools, foreground dispatch, `Skill` and `Workflow`, the reads on the orchestration connection, and every host MCP tool (terminal, file store, computer use), which is denied unless it is `start_session`, `send_message`, a tier-1 launch profile call (`get_settings`, `set_session_output_style`) or a desktop UI tool (`update_plan`, `wrap_up`, `mark_chapter`).
+Subagents are exempt (their calls carry `agent_id`); a headless ralph iteration is never guarded.
 
 `/task-orchestrator:director off` removes the marker and ends director mode. Say so in one line
-and stop; do not show the dashboard.
+and stop, without the dashboard.
 
-Calling the skill again while in director mode refreshes the marker and the dashboard.
+Calling the skill again refreshes the marker and the dashboard.
 
 ## The altitude rule
 
@@ -38,21 +37,21 @@ Calling the skill again while in director mode refreshes the marker and the dash
   takes `--oneline`, `--format=`, `-n <k>`, `--graph`, `--since=`, `--author=`, `--grep=` and
   `--stat`, never `-p` or another patch flag; `git status` takes `-s`, `-b`, `--porcelain` and
   `-uno`, never `-v`; `git branch` may only list (`-a`, `-r`, `-v`, `--list`, `--show-current`,
-  `--merged <ref>`, `--contains <ref>` and the like). Revisions and paths are allowed as operands.
-- `Agent` runs only in the background: pass `run_in_background: true`. A foreground dispatch is
-  denied, because its result would land in this context.
+  `--merged <ref>`, `--contains <ref>`). Revisions and paths are allowed as operands.
+- `Agent` runs only in the background: `run_in_background: true`. A foreground dispatch is denied,
+  as its result would land here. Code Mode's `Agent` has no such field and is always background; the
+  guard allows it after a `REPL` call.
 - `SendMessage` and `ListAgents` are never denied. Use them to talk to coordinators.
 
-When a call is denied, the reason starts with `Director altitude rule:`. Do not retry it in another
-form. Delegate it: a background `Agent` with an explicit `model`, or `SendMessage` to the
+When a call is denied, the reason starts with `Director altitude rule:`. Do not retry it in another form. Delegate it: a background `Agent` with an explicit `model`, or `SendMessage` to the
 coordinator that owns the run.
 
-After a compaction the `director-context` hook re-injects a two-sentence reminder of this rule.
-Re-invoke `/task-orchestrator:director` to get the dashboard back.
+After a compaction the `director-context` hook re-injects a short reminder of this rule.
+Re-invoke `/task-orchestrator:director` for the dashboard.
 
 ## Tool budget
 
-This is the whole tool budget of a director session:
+The whole tool budget of a director session:
 
 | Tool | Use |
 |------|-----|
@@ -61,7 +60,7 @@ This is the whole tool budget of a director session:
 | `report` | `rollup` per run; `usage`, `gates`, `contention`, `waste` on request |
 | `items_read` | `blocked` under the project root, for blocked work; `overview` for counts |
 | `deps_read` | Dependency `list` / `graph` when a blocker needs explaining |
-| `Agent` | Background only (`run_in_background: true`), with `model` set |
+| `Agent` | Background only (`run_in_background: true`; always so in Code Mode), with `model` set |
 | `SendMessage`, `ListAgents` | Talk to coordinators and other sessions |
 | `Skill` | Re-invoke this skill, or `off`; may also load `task-orchestrator:model-effort` |
 | `PushNotification` | Tell the user a decision is waiting when they are away |

@@ -7,7 +7,7 @@
 // (setup hint, registration check, config shape, config-sync notice, plugin drift, server
 // compatibility line, watchPaths) are always computed. With nothing left, additionalContext is omitted.
 
-import { readFileSync, statSync } from 'fs';
+import { readFileSync, statSync, rmSync } from 'fs';
 import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
@@ -15,7 +15,7 @@ import { isOrchestratorServerKey, SERVER_SEGMENT_TOKEN } from './registration.mj
 import { locateConfig, userConfigPath } from './config-locator.mjs';
 import { readSection } from './yaml-lite.mjs';
 import { readHookInput } from './lib/stdin.mjs';
-import { suppressionReason } from './execution-mode.mjs';
+import { suppressionReason, codeModeMarkerPath } from './execution-mode.mjs';
 import { apiBaseUrl, apiBaseUrlInfo } from './lib/api-client.mjs';
 import { collectOrchestratorRegistrations, preferredHttpRegistration } from './lib/mcp-registrations.mjs';
 import { emit } from './lib/emit.mjs';
@@ -286,6 +286,13 @@ The top-level ${names} ${found.length > 1 ? 'sections are' : 'section is'} ignor
 }
 
 const hookInput = readHookInput();
+// A resumed session keeps its session_id, so drop a stale Code Mode marker; the next REPL call re-creates it.
+try {
+  const sid = hookInput?.session_id;
+  if (hookInput?.source !== 'compact' && typeof sid === 'string' && sid !== '') rmSync(codeModeMarkerPath(sid), { force: true });
+} catch {
+  // fail-open
+}
 const suppressed = suppressionReason(hookInput, process.env) !== null;
 const location = getLocation();
 const state = setupState(location);

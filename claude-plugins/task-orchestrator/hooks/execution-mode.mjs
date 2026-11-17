@@ -80,6 +80,28 @@ export function isDirectorSession(hookInput, { exists = existsSync, pathFor = di
   }
 }
 
+/** Name of the per-session marker the guard writes once the main session calls the REPL tool (Code Mode is active). */
+export const CODE_MODE_MARKER_NAME = 'code-mode';
+
+/** Path of the Code Mode marker for `sessionId`. */
+export function codeModeMarkerPath(sessionId) {
+  return sessionMarkerPath(sessionId, CODE_MODE_MARKER_NAME);
+}
+
+/**
+ * True iff `hookInput.session_id` is a non-empty string and a file exists at its Code Mode marker
+ * path. Existence-based, never throws; a probe error is false. `exists` / `pathFor` are injectable.
+ */
+export function isCodeModeSession(hookInput, { exists = existsSync, pathFor = codeModeMarkerPath } = {}) {
+  try {
+    const sid = hookInput?.session_id;
+    if (typeof sid !== 'string' || sid === '') return false;
+    return exists(pathFor(sid)) === true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The one gate every injecting context hook shares. Returns the reason guidance must be withheld,
  * checked in this order, or null for a normal interactive main session:

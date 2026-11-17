@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { directorMarkerPath } from '../execution-mode.mjs';
+import { directorMarkerPath, codeModeMarkerPath } from '../execution-mode.mjs';
 import { DIRECTOR_SKILL_NAMES, DIRECTOR_BASH_ALLOW, REASON_PREFIX, isDirectorSkillCall, bashAllowed, guardDecision } from '../director-guard.mjs';
 
 const HOOK = fileURLToPath(new URL('../director-guard.mjs', import.meta.url));
@@ -239,7 +239,7 @@ test('S10: hooks-config registers the guard with fail-closed onFailure', () => {
   assert.equal(groups.length, 3);
   assert.deepEqual(groups.map((g) => g.matcher).sort(), [
     '^mcp__.*task-orchestrator.*__(config|docs_read|items_read|notes_read|runs_read)$',
-    'Skill|Read|Edit|Write|Bash|PowerShell|Monitor|Agent|Grep|Glob|NotebookEdit|Workflow|WebFetch|WebSearch|ReadMcpResourceTool|ReadMcpResourceDirTool',
+    'Skill|Read|Edit|Write|Bash|PowerShell|Monitor|Agent|Grep|Glob|NotebookEdit|Workflow|WebFetch|WebSearch|ReadMcpResourceTool|ReadMcpResourceDirTool|REPL',
     '^mcp__(?!.*task-orchestrator).*$',
   ].sort());
   for (const g of groups) {
@@ -302,4 +302,75 @@ test('guardDecision: null for allow, string for deny', () => {
   assert.equal(guardDecision(call('Read', {}), { env: {}, director: false }), null);
   assert.equal(typeof guardDecision(call('Read', {}), { env: {}, director: true }), 'string');
   assert.equal(guardDecision(call('Read', {}), { env: { TASK_ORCHESTRATOR_MODE: 'headless-iteration' }, director: true }), null);
+});
+
+// Code Mode (item effd1194): Code Mode's Agent has no run_in_background, so a REPL call from the main session
+// writes the code-mode marker and the Agent branch then allows an Agent call without the flag.
+const codeModePath = (fx, sid) => withTmp(fx, () => codeModeMarkerPath(sid));
+const repl = (extra) => call('REPL', { code: 'await Agent({})' }, extra);
+
+test('CM1: guardDecision Agent {} in director: allowed with codeMode true, denied with codeMode false', () => {
+  assert.equal(guardDecision(call('Agent', {}), { director: true, codeMode: true }), null);
+  assert.ok(guardDecision(call('Agent', {}), { director: true, codeMode: false }).startsWith(REASON_PREFIX));
+  assert.equal(guardDecision(call('Agent', {}), { director: true, codeMode: () => true }), null);
+  assert.ok(guardDecision(call('Agent', {}), { director: true, codeMode: () => false }).includes('a foreground dispatch'));
+});
+
+test('CM2: director marker + main REPL call writes the code-mode marker, then Agent {prompt} is allowed', () => {
+  const fx = fixture();
+  plant(fx, 's');
+  assert.deepEqual(exec(fx, repl()), {});
+  assert.ok(existsSync(codeModePath(fx, 's')));
+  assert.deepEqual(exec(fx, call('Agent', { prompt: 'x' })), {});
+});
+
+test('CM3: no REPL call -> Agent {} denied, also with CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1', () => {
+  const fx = fixture();
+  plant(fx, 's');
+  assert.ok(reasonOf(exec(fx, call('Agent', {}))).startsWith(REASON_PREFIX));
+  assert.ok(reasonOf(exec(fx, call('Agent', {}), { CLAUDE_CODE_EXPERIMENTAL_CODE_MODE: '1' })).startsWith(REASON_PREFIX));
+  assert.equal(existsSync(codeModePath(fx, 's')), false);
+});
+
+test('CM4: REPL with agent_id, or under headless env, writes no marker', () => {
+  const fx = fixture();
+  assert.deepEqual(exec(fx, repl({ agent_id: 'a1' })), {});
+  assert.equal(existsSync(codeModePath(fx, 's')), false);
+  assert.deepEqual(exec(fx, repl(), { TASK_ORCHESTRATOR_MODE: 'headless-iteration' }), {});
+  assert.equal(existsSync(codeModePath(fx, 's')), false);
+  assert.deepEqual(exec(fx, repl({ session_id: '' })), {});
+});
+
+test('CM5: the code-mode marker of session A does not allow session B', () => {
+  const fx = fixture();
+  plant(fx, 'a');
+  plant(fx, 'b');
+  exec(fx, repl({ session_id: 'a' }));
+  assert.deepEqual(exec(fx, call('Agent', {}, { session_id: 'a' })), {});
+  assert.ok(reasonOf(exec(fx, call('Agent', {}, { session_id: 'b' }))).startsWith(REASON_PREFIX));
+});
+
+test('CM6: REPL before director entry, then director Skill, then Agent {} -> allowed', () => {
+  const fx = fixture();
+  assert.deepEqual(exec(fx, repl()), {});
+  assert.ok(existsSync(codeModePath(fx, 's')));
+  assert.deepEqual(exec(fx, call('Skill', { skill: 'task-orchestrator:director' })), {});
+  assert.deepEqual(exec(fx, call('Agent', {})), {});
+});
+
+test('CM7: the code-mode marker does not loosen Read or Bash cat', () => {
+  const fx = fixture();
+  plant(fx, 's');
+  exec(fx, repl());
+  assert.ok(reasonOf(exec(fx, call('Read', {}))).startsWith(REASON_PREFIX));
+  assert.ok(reasonOf(exec(fx, bash('cat f'))).startsWith(REASON_PREFIX));
+  assert.deepEqual(exec(fx, repl()), {});
+});
+
+test('CM8: group 1 matcher matches REPL, not SendMessage or ListAgents', () => {
+  const cfg = JSON.parse(readFileSync(HOOKS_CONFIG, 'utf-8'));
+  const g1 = cfg.hooks.PreToolUse.find((g) => g.matcher.startsWith('Skill|Read'));
+  const re = new RegExp(`^(?:${g1.matcher})$`);
+  assert.ok(re.test('REPL'));
+  assert.ok(!re.test('SendMessage') && !re.test('ListAgents'));
 });
