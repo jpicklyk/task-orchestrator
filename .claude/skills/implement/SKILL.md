@@ -234,8 +234,10 @@ update-branch), before merge.
   the worktree, if the work had one). Local `main` always tracks `origin/main` — no divergence,
   no `reset --hard` needed.
 - **Final `complete`.** An item with its own PR (Direct, Delegated, a per-item wave item, a
-  shared-mode parent) completes only after the `MERGED` check above. No note is rewritten after
-  the merge; the merged PR is the record. Exceptions: a shared-mode child (`wave.md` Step 6) and
+  shared-mode parent) completes only after the `MERGED` check above. The closure notes are not
+  rewritten to record the merge; the merged PR is the record. Two post-merge writes still happen:
+  the live acceptance line (`post-run.md` Step 7b (d)) and, for a single item, its
+  `red-proof-results` note (`post-run.md` Step 7a). Exceptions: a shared-mode child (`wave.md` Step 6) and
   a review-less run member (`post-run.md` Step 4).
 
 ### After merge
