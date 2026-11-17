@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // tier-policy.mjs - prints the tier-classification table in force: the plugin defaults merged with
-// the project's tier-policy.json (beside the located project config) or an explicit --override file.
+// the project's tier-policy.json (beside the located PROJECT-scope config; a user-level config is ignored) or an explicit --override file.
 //
 //   node tier-policy.mjs [--override <file>]
 //
@@ -21,7 +21,7 @@ export function run(argv) {
   let file = explicit;
   if (!file) {
     const located = locateConfig();
-    if (located.path) file = join(dirname(located.path), 'tier-policy.json');
+    if (located.scope === 'project' && located.path) file = join(dirname(located.path), 'tier-policy.json');
   }
   if (!file) return renderTierBlock(base);
   const override = loadTierOverride(file);
