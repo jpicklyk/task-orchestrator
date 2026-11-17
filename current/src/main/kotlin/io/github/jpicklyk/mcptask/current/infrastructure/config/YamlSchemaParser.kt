@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.application.config.DecisionClassConfig
 import io.github.jpicklyk.mcptask.current.application.config.ParseMode
 import io.github.jpicklyk.mcptask.current.application.config.RunsConfig
 import io.github.jpicklyk.mcptask.current.application.config.TraitDescriptor
+import io.github.jpicklyk.mcptask.current.application.service.RuleService
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestAnswerers
 import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestSeverity
@@ -80,7 +81,7 @@ internal object ConfigKeyCatalog {
     val TRAIT_LEVEL: Set<String> = setOf("notes", "resources", "dispatch", "seats", "description", "applies_when")
     val NOTE_ENTRY: Set<String> =
         setOf("key", "role", "required", "description", "guidance", "skill", "maxLength", "seat", "independent_of", "shared")
-    val SEAT_ENTRY: Set<String> = setOf("name", "phase", "enters", "after", "reads_exclude", "transitions")
+    val SEAT_ENTRY: Set<String> = setOf("name", "phase", "enters", "after", "reads_exclude", "transitions", "rules")
     val INDEPENDENCE: Set<String> = setOf("mode", "require_verified")
     val NOTE_LIMITS: Set<String> = setOf("mode")
     val RUNS: Set<String> = setOf("stall_after", "budgets")
@@ -641,6 +642,7 @@ internal object YamlSchemaParser {
             val after = parseSeatStringListField(entryMap, "after", context, name, entryPath, warnings)
             val readsExclude = parseSeatStringListField(entryMap, "reads_exclude", context, name, entryPath, warnings)
             val transitions = parseSeatTransitions(entryMap, context, name, entryPath, warnings)
+            val rules = parseSeatRules(entryMap, context, name, entryPath, warnings)
 
             for (key in entryMap.keys) {
                 if (key !in VALID_SEAT_ENTRY_KEYS) {
@@ -658,7 +660,8 @@ internal object YamlSchemaParser {
                     enters = enters,
                     after = after,
                     readsExclude = readsExclude,
-                    transitions = transitions
+                    transitions = transitions,
+                    rules = rules
                 )
             )
         }
@@ -745,6 +748,45 @@ internal object YamlSchemaParser {
                 continue
             }
             result.add(wire)
+        }
+        return result.toList()
+    }
+
+    /**
+     * A seat's `rules:` list: null when absent (the plugin's default rules apply) or when not a list (a soft warning at
+     * `<entry>/rules`); otherwise the declared rule keys, duplicates collapsed in first order. An element that is not a
+     * string, or does not match [RuleService.KEY_PATTERN], is a soft warning at `<entry>/rules/<i>` and is dropped.
+     * `[]` declares no rule at all. Existence is not checked: the parser has no store and rules are pushed separately.
+     */
+    private fun parseSeatRules(
+        entryMap: Map<String, Any>,
+        context: String,
+        seatName: String,
+        entryPath: String,
+        warnings: ParseFindings
+    ): List<String>? {
+        if (!entryMap.containsKey("rules")) return null
+        val raw = entryMap["rules"]
+        val list =
+            raw as? List<*> ?: run {
+                warnings.soft(
+                    "$entryPath/rules",
+                    "$context seats (name='$seatName') has non-list 'rules' value '$raw'; ignoring"
+                )
+                return null
+            }
+        val result = LinkedHashSet<String>()
+        for ((i, element) in list.withIndex()) {
+            val key = element as? String
+            if (key == null || !RuleService.KEY_PATTERN.matches(key)) {
+                warnings.soft(
+                    "$entryPath/rules/$i",
+                    "$context seats (name='$seatName') has invalid rule key '$element' " +
+                        "(expected lowercase letters, digits, '.', '_' or '-', starting alphanumeric, at most 100 characters); ignoring"
+                )
+                continue
+            }
+            result.add(key)
         }
         return result.toList()
     }

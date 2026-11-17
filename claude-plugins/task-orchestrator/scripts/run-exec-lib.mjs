@@ -1802,7 +1802,7 @@ export function reviewPrompt(core, doc, idOrShort, result) {
 
   parts.push(
     `RULES: fetch each key below via config(ops:[{op:"rules", rootId:"${plan.rootId}", key:<key>}]) ` +
-    `and follow the returned body. Keys: ${REVIEW_RULES.join(', ')}.`
+    `and follow the returned body. Keys: ${[...new Set([...REVIEW_RULES, ...Object.values(item.reviewRules || {}).flat()])].join(', ')}.`
   )
 
   const tokenFile = core.seatTokenFile(plan, item, { seat: 'reviewer' })
@@ -2252,6 +2252,8 @@ export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
         output: 'review-v1',
       }
       if (g.skill) stage.skills = [g.skill]
+      const seatRules = item.reviewRules && item.reviewRules[g.seat]
+      if (Array.isArray(seatRules) && seatRules.length > 0) stage.rules = seatRules.slice()
       const tokenFile = core.seatTokenFile(plan, item, { seat: g.seat })
       if (tokenFile) stage.tokenFile = tokenFile
       stages.push(stage)

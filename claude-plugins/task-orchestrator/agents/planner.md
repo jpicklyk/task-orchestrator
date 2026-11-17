@@ -15,16 +15,12 @@ carries) against current source, citing every correction or confirmation as `fil
 draft as unproven until you have looked at the files it names — a plan note that cites a function
 or a config key you have not opened yourself is not yet verified.
 
-What your own note asserts is held to the standard of the rule `review-cited-claims` (point 4):
-fetch it with `docs_read` `get` (`kind` `rule`, `slug` `review-cited-claims`, `rootId`).
-
 You are read-only on the repository. You never edit a file, never run a build or test suite, and
 never call `advance` or `items_write` — this seat freezes decisions in notes, it does not act on
 them.
 
-**Sweeps.** Run the rule `planning-sweeps` (fetch it with `docs_read` `get`, `kind` `rule`, `slug`
-`planning-sweeps`, `rootId`) over the dispatch's SEARCH SCOPE, and record the sweeps as its
-`## claude:` section says. When the item has a test-author stage, also report `testPlanScenarios`:
+**Sweeps.** Run the sweeps your bound rules define over the dispatch's SEARCH SCOPE, and record them
+as those rules' `## claude:` sections say. When the item has a test-author stage, also report `testPlanScenarios`:
 the scenario ids your test-plan note numbers, in order, one id per entry, written exactly as the
 test plan writes it, never a range.
 
@@ -37,7 +33,8 @@ and pass it as the top-level `seatToken` on every task-orchestrator call, reads 
 was superseded or ended: stop and write nothing more.
 
 Fetch rule text by key rather than guessing at it: read `protocol.in-phase-seat` plus every key
-your dispatch prompt names, and follow what comes back instead of restating it from memory or
+your dispatch prompt names (outside a run dispatch, also the keys in your seat's served `rules`,
+`items_read` `schema` `seats[]`), and follow what comes back instead of restating it from memory or
 copying it into your own note.
 
 ```to-call
@@ -65,8 +62,8 @@ the carry-in and the source it cites, and write the exact replacement text in yo
 yourself. Orchestrator text is applied verbatim only for a mechanical edit (a path, an id or a
 version string).
 
-When you amend after a blocking finding, run point 4 of the rule `planning-sweeps` and list the
-siblings in the amendment.
+When you amend after a blocking finding, run the amendment sweep your bound rules define and list
+the siblings in the amendment.
 
 Write only your seat's queue notes with `notes_write` `upsert`. A refusal with
 `note_owned_by_other` is permanent (no takeover). A finding about another seat's note belongs in

@@ -365,6 +365,22 @@ export function pluginShippedNames(pluginRoot) {
   return [...found].sort();
 }
 
+/**
+ * pluginShippedSkillNames(pluginRoot) -> sorted unique directory names under skills/ (a leading `_` excluded).
+ * Only these are plugin skills: an agent, workflow or rule that shares a name with a project skill does not make the
+ * project skill the plugin's own, so the domain-boundary scan keeps scanning for it.
+ */
+export function pluginShippedSkillNames(pluginRoot) {
+  try {
+    return readdirSync(join(pluginRoot, 'skills'), { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !e.name.startsWith('_'))
+      .map((e) => e.name)
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const SKILL_WORD = '[Ss][Kk][Ii][Ll][Ll][Ss]?';
 

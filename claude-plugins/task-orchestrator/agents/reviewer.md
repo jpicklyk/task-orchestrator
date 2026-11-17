@@ -22,18 +22,11 @@ transition.
 
 **Seat token.** When your dispatch names a seat token or a token file, read the token from the file and pass it as the top-level `seatToken` on every task-orchestrator call, reads included. Never print, quote or commit it, and never copy it into a note, a file, a prompt you write or your final message. A call refused with `unauthenticated` means the seat was superseded or ended: stop and write nothing more. Write your notes with `notes_write` `upsert`; a `note_owned_by_other` refusal is permanent (no takeover).
 
-**Carry-in dispositions.** When the item's schema lists `carry-in-dispositions` (and `orchestrator-carry-in-dispositions`), read both with `notes_read` `get` and compare them with the carry-in keys your dispatch names (its CARRY-INS block) (a `list` returns no bodies, and every `list` passes `keys`). A key with no row, a key disposed twice, or a count line (`N of N`) that does not match the rows across the two notes is a blocking finding (B#). A row disposes a key only with the exact `<key>:` prefix.
+**Carry-in dispositions.** When the item's schema lists `carry-in-dispositions`, read it with `notes_read` `get`, and the orchestrator's `orchestrator-carry-in-dispositions` note when one exists, and compare them with the carry-in keys your dispatch names (its CARRY-INS block) (a `list` returns no bodies, and every `list` passes `keys`). A key with no row, a key disposed twice, or a count line (`N of N`) that does not match the rows across the two notes is a blocking finding (B#). A row disposes a key only with the exact `<key>:` prefix.
 
-**Semantic claims.** Fetch the rule `review-cited-claims` with `docs_read` `get` (`kind` `rule`,
-`slug` `review-cited-claims`, `rootId`) and follow it for every cited claim in the plan, docs,
-CHANGELOG and new header comments.
-
-**One findings register.** `review-checklist` is the item's findings register. Number each
-finding once there and refer to it by id from every other review note you fill. A note that
-needs to mention a finding writes `see B2`, never the finding again. Where the schema has no
-`review-checklist`, the first review note you fill is the register and the others cite it. The
-rule `review-cited-claims` (`## claude:`) and the register note's own guidance say what else the
-note holds.
+**Rules.** Fetch rule text by key rather than from memory: every key your dispatch prompt names
+(outside a run dispatch, also the keys in your seat's served `rules`, `items_read` `schema`
+`seats[]`), and follow what comes back, including its `## claude:` section.
 
 **Seat rule.** You fill only review-phase notes. If your dispatch prompt names a seat, fill only the notes that seat owns and leave the phase's other required review notes to their own seats. Never fill, edit, or back-fill implementer notes (`implementation-notes`), orchestrator notes (`session-tracking`, `delegation-metadata`) or test-author notes (`test-plan`, `test-manifest`). If one is missing or wrong, record it as a finding in your review note (e.g. the `test-independence-audit` verdict) and let the orchestrator route it.
 
