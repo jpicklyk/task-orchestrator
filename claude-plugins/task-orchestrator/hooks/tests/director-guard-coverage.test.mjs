@@ -37,7 +37,7 @@ const ITEMS_READ_DIRECTOR = 'mcp__mcp-task-orchestrator-director__items_read';
 const PLUGIN_DOCS_READ = 'mcp__plugin_x_task-orchestrator__docs_read';
 const IMPLEMENT_WAVE = 'task-orchestrator:implement-wave';
 
-const GROUP1_MATCHER = 'Skill|Read|Edit|Write|Bash|PowerShell|Monitor|Agent|Grep|Glob|NotebookEdit|Workflow|WebFetch|WebSearch|ReadMcpResourceTool|ReadMcpResourceDirTool';
+const GROUP1_MATCHER = 'Skill|Read|Edit|Write|Bash|PowerShell|Monitor|Agent|Grep|Glob|NotebookEdit|Workflow|WebFetch|WebSearch|ReadMcpResourceTool|ReadMcpResourceDirTool|REPL';
 const GROUP2_MATCHER = orchestratorToolMatcher(['config', 'docs_read', 'items_read', 'notes_read', 'runs_read']);
 
 const tracked = [];
@@ -217,7 +217,7 @@ test('S10: group 1 matches the file, shell, agent and workflow tools and not Sen
   assert.ok(group1, 'group 1 present');
   assert.ok(group1.hooks.some((h) => h.command.includes('director-guard.mjs')));
   const re = matcherRe(group1.matcher);
-  for (const t of ['Skill', 'Read', 'Edit', 'Write', 'Bash', 'PowerShell', 'Monitor', 'Agent', 'Grep', 'Glob', 'NotebookEdit', 'Workflow', 'WebFetch', 'WebSearch', 'ReadMcpResourceTool', 'ReadMcpResourceDirTool']) {
+  for (const t of ['Skill', 'Read', 'Edit', 'Write', 'Bash', 'PowerShell', 'Monitor', 'Agent', 'Grep', 'Glob', 'NotebookEdit', 'Workflow', 'WebFetch', 'WebSearch', 'ReadMcpResourceTool', 'ReadMcpResourceDirTool', 'REPL']) {
     assert.ok(re.test(t), t);
   }
   assert.ok(!re.test('SendMessage'));

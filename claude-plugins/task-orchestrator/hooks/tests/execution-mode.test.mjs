@@ -19,6 +19,9 @@ import {
   DIRECTOR_MARKER_NAME,
   directorMarkerPath,
   isDirectorSession,
+  CODE_MODE_MARKER_NAME,
+  codeModeMarkerPath,
+  isCodeModeSession,
   suppressionReason,
 } from '../execution-mode.mjs';
 import { sessionMarkerPath } from '../lib/markers.mjs';
@@ -258,4 +261,22 @@ test('S3: suppressionReason defaults env to process.env', () => {
 test('S3 probe: replay of the same suppression decision is stable', () => {
   plant('replay-dir');
   for (let i = 0; i < 3; i++) assert.equal(suppressionReason({ session_id: 'replay-dir' }, {}), 'director');
+});
+test('CM: codeModeMarkerPath is the session marker named code-mode', () => {
+  assert.equal(CODE_MODE_MARKER_NAME, 'code-mode');
+  assert.equal(codeModeMarkerPath('s1'), sessionMarkerPath('s1', 'code-mode'));
+});
+
+test('CM: isCodeModeSession is existence-based, per session, and never throws', () => {
+  const sid = 'cm-sess';
+  assert.equal(isCodeModeSession({ session_id: sid }), false);
+  const p = codeModeMarkerPath(sid);
+  mkdirSync(dirname(p), { recursive: true });
+  writeFileSync(p, '');
+  assert.equal(isCodeModeSession({ session_id: sid }), true);
+  assert.equal(isCodeModeSession({ session_id: 'other' }), false);
+  assert.equal(isCodeModeSession({}), false);
+  assert.equal(isCodeModeSession({ session_id: '' }), false);
+  assert.equal(isCodeModeSession(null), false);
+  assert.equal(isCodeModeSession({ session_id: sid }, { exists: () => { throw new Error('boom'); } }), false);
 });

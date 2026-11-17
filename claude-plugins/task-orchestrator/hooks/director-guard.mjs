@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Director Guard Hook - PreToolUse, three registrations. Group 1: the exact tool names Skill, Read, Edit, Write, Bash,
 // PowerShell, Monitor, Agent, Grep, Glob, NotebookEdit, Workflow, WebFetch, WebSearch, ReadMcpResourceTool and
-// ReadMcpResourceDirTool. Group 2: the task-orchestrator config, docs_read, items_read, notes_read and runs_read
+// ReadMcpResourceDirTool and REPL (the Code Mode tool, see job 3). Group 2: the task-orchestrator config, docs_read, items_read, notes_read and runs_read
 // tools. Group 3: every other mcp__ tool (a name without `task-orchestrator`), matched by a negative lookahead.
 // Two jobs:
 //
@@ -21,8 +21,15 @@
 //    without `task-orchestrator`) is denied unless its bare name is in DIRECTOR_HOST_MCP_ALLOW, Bash is denied unless
 //    every segment starts with a DIRECTOR_BASH_ALLOW entry and, for `git log`, `git status` and
 //    `git branch`, every later token is on that command's flag allow-list or is a plain operand
-//    (so no patch, diff or file output), and Agent is denied unless `run_in_background === true`. SendMessage and ListAgents are never denied, a call carrying
+//    (so no patch, diff or file output), and Agent is denied unless `run_in_background === true` or the session is in
+//    Code Mode (job 3: Code Mode's Agent has no such field and always launches in the background). SendMessage and ListAgents are never denied, a call carrying
 //    `agent_id` (a subagent) is exempt, and a headless ralph iteration is inert.
+//
+// 3. Code Mode marker. A REPL call from the main session (non-empty `session_id`, no `agent_id`, not headless)
+//    creates the per-session code-mode marker at `codeModeMarkerPath(session_id)`, with or without the director
+//    marker. REPL exists only when Code Mode started, and every in-script Agent call runs inside a REPL call whose
+//    PreToolUse fires first. session-start.mjs clears the marker except on compact. The env var that enables Code
+//    Mode is never read.
 //
 // Fail closed under the marker: a throw while the marker exists yields a deny (hooks-config also
 // sets `onFailure: block` for a crash or timeout). Without the marker the hook is fail-open (`{}`).
@@ -32,8 +39,8 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readHookInput } from './lib/stdin.mjs';
 import { emit, denyOutput } from './lib/emit.mjs';
-import { writeMarker } from './lib/markers.mjs';
-import { directorMarkerPath, isDirectorSession, isHeadlessIteration, isSubagentInvocation } from './execution-mode.mjs';
+import { writeMarker, createMarkerOnce } from './lib/markers.mjs';
+import { directorMarkerPath, codeModeMarkerPath, isDirectorSession, isCodeModeSession, isHeadlessIteration, isSubagentInvocation } from './execution-mode.mjs';
 
 /** Skill names that enter (or, with `args` `off`, leave) director mode. */
 export const DIRECTOR_SKILL_NAMES = Object.freeze(['director', 'task-orchestrator:director']);
@@ -85,7 +92,7 @@ const MCP_NAME = /^mcp__.*task-orchestrator.*__(config|docs_read|items_read|note
 const HOST_TOKEN = 'task-orchestrator';
 
 const REMEDY =
-  'Delegate the work through a background `Agent` (`run_in_background: true`) or `SendMessage` to a coordinator, or leave director mode with `/task-orchestrator:director off`.';
+  'Delegate the work through a background `Agent` (`run_in_background: true`; in Code Mode every `Agent` call is background) or `SendMessage` to a coordinator, or leave director mode with `/task-orchestrator:director off`.';
 
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const toolInputOf = (input) => (isPlainObject(input.tool_input) ? input.tool_input : {});
@@ -244,9 +251,10 @@ function denyReason(tool, detail) {
 /**
  * The altitude decision for one PreToolUse input: `null` to allow, or the deny reason.
  * `director` overrides the marker probe (a boolean, or a function of `input`); when omitted the
- * marker at `directorMarkerPath(session_id)` decides.
+ * marker at `directorMarkerPath(session_id)` decides. `codeMode` does the same for the code-mode marker
+ * (a boolean, or a function of `input`) and lets an Agent call without `run_in_background` through.
  */
-export function guardDecision(input, { env = process.env, director } = {}) {
+export function guardDecision(input, { env = process.env, director, codeMode } = {}) {
   if (!isPlainObject(input)) return null;
   if (isHeadlessIteration(env)) return null;
   if (isSubagentInvocation(input)) return null;
@@ -270,6 +278,9 @@ export function guardDecision(input, { env = process.env, director } = {}) {
   }
   if (tool === 'Agent') {
     if (toolInputOf(input).run_in_background === true) return null;
+    const inCodeMode =
+      typeof codeMode === 'boolean' ? codeMode : typeof codeMode === 'function' ? codeMode(input) === true : isCodeModeSession(input);
+    if (inCodeMode) return null;
     return denyReason('Agent', 'a foreground dispatch; pass `run_in_background: true`');
   }
   if (tool === 'Workflow') {
@@ -315,11 +326,20 @@ function applyMarkerLifecycle(input) {
   writeMarker(path, { since: new Date().toISOString(), skill: toolInputOf(input).skill.trim() });
 }
 
+/** Creates the code-mode marker when the main session calls the REPL tool. Fail-open. */
+function applyCodeModeMarker(input) {
+  if (input.tool_name !== 'REPL') return;
+  const sid = input.session_id;
+  if (typeof sid !== 'string' || sid === '' || isSubagentInvocation(input)) return;
+  createMarkerOnce(codeModeMarkerPath(sid));
+}
+
 /** Hook output for one parsed input. */
 export function run(input, env = process.env) {
   if (!isPlainObject(input)) return {};
   if (isHeadlessIteration(env)) return {};
   applyMarkerLifecycle(input);
+  applyCodeModeMarker(input);
   const reason = guardDecision(input, { env });
   return reason === null ? {} : denyOutput(reason);
 }
