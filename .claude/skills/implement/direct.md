@@ -4,7 +4,8 @@ Read by the orchestrator on a Direct-tier item, once front door Step 1 is done; 
 
 On this path the orchestrator is every seat: it edits, tests and reviews inline, and dispatches
 no agent. Front-door sections are cited by name ("Base freshness", "Verification command",
-"Planning rules", "Merge gate", "After merge", "Retrospective").
+"CHANGELOG bullet", "Live-owed check", "Planning rules", "Merge gate", "After merge",
+"Retrospective").
 
 ---
 
@@ -49,7 +50,7 @@ Implement directly: edit the files, then run front door "Verification command" o
 checkout.
 
 **A bug-fix carrying `needs-test-author`** runs test-first-then-fix per rule `test-author`
-section 5 item 1, in the Direct degraded mode (section 1, single-item exception), recording the
+section 5 point 1, in the Direct degraded mode (section 1, single-item exception), recording the
 red and green evidence in `test-manifest`. `test-manifest` declares the single seat; no two-range
 check applies.
 
@@ -60,24 +61,17 @@ check applies.
 1. **Log findings as work items.** Any issue surfaced during implementation and not fixed here
    (pre-existing tech debt, related bugs) is logged via `/task-orchestrator:create-item` before
    moving on. Do not discard findings.
-2. **CHANGELOG bullet**, committed with the change. A user-visible change (server behaviour, the
-   MCP or REST surface, config keys, plugin skills or hooks) adds ONE bullet under `CHANGELOG.md`'s
-   `## [Unreleased]` section, in its `### Added` / `### Changed` / `### Fixed` subsection (plugin
-   skill and hook changes go under `### Plugin`). The bullet describes behaviour, not the diff,
-   and carries no volatile counts. A docs-, process- or chore-only change adds none; its PR body
-   states `Changelog: none (<why>)`. `/prepare-release` Step 8c folds these bullets into the
-   release section.
+2. **CHANGELOG bullet**, committed with the change: front door "CHANGELOG bullet".
 3. **Fill the `session-tracking` note** per its guidance (rule `closure-notes`).
-4. **Live-owed check.** Before the work-exit `advance`, apply rule `live-checks` "The Live-owed
-   hold".
-5. **Advance out of work:** `trigger: "start"` when the schema has a review phase, or
-   `trigger: "complete"` to terminal when it has none. Step 5 reads `newRole`.
+4. **Live-owed check** - front door "Live-owed check".
+5. **Advance out of work:** `trigger: "start"` when the schema has a review phase; with none, the
+   item stays in work (front door "Merge gate", Final `complete`). Step 5 reads `newRole`.
 
 ---
 
 ## Step 5 — Review Phase
 
-- **`newRole` is `terminal`:** the schema has no review phase. Go to Step 6.
+- **No review phase** (still in work): go to Step 6.
 - **`newRole` is `review`:** review inline. Read the diff, verify correctness, confirm the
   Verification command passed. If the review-phase note has a `skillPointer` (in the `advance`
   result or via `items_read` `context`), invoke that skill for the evaluation framework first.
@@ -89,8 +83,7 @@ check applies.
 `skillPointer`. Direct is temporal-only: the verdict is at best `independent-degraded`, and the
 two-range check is recorded as `N/A: temporal-only, single seat`.
 
-Write the review note, then advance to terminal: `advance` `transition` with
-`trigger: "complete"`.
+Write the review note; do not advance until Step 6.
 
 ---
 
@@ -123,8 +116,8 @@ Write the review note, then advance to terminal: `advance` `transition` with
    )"
    ```
 3. Run front door "Merge gate" (the gate), then its cleanup.
-4. Advance the item to terminal only if it is not already terminal (a review-less item reached
-   terminal in Step 4c, a reviewed one in Step 5); otherwise skip:
+4. Once the gate reports `MERGED`, advance the item to terminal (Final `complete`). The closure
+   notes are not rewritten to record the merge (front door "Final `complete`").
    ```to-call
    {"tool":"advance","op":"transition","args":{"itemId":"4b7d0e19","trigger":"complete"}}
    ```

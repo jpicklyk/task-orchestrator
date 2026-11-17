@@ -78,8 +78,8 @@ author to read narrowly (no reading tool has a declarations-only mode).
 This section is the single statement of the red-proof policy; other docs point here. A red-proof
 is a mutation or revert run against the item's own tests to confirm they can fail. It is a
 targeted spend, not a per-scenario mandate, and it runs at two different times: the proofs that
-establish a fix (rules 1 and 6) run per item before merge; the budget mutations that audit test
-quality (rules 2 and 3) run after merge, at the wave boundary (rule 10).
+establish a fix (points 1 and 6) run per item before merge; the budget mutations that audit test
+quality (points 2 and 3) run after merge, at the wave boundary (point 10).
 
 1. **Bug fix: always, per item, before merge.** Revert the fix and confirm the regression test
    fails before the fix and passes after. One run, scoped to that test class. Write the test from
@@ -91,7 +91,7 @@ quality (rules 2 and 3) run after merge, at the wave boundary (rule 10).
    distinct decision point, at most one per line, only on changed lines the new tests reach.
    Preferred operators: drop one of several parallel enforcement paths, flip or shift a boundary
    comparison, invert a predicate, remove a guard, give a source-scan guard an alternate
-   spelling. The budget is per item; the mutations run under rule 10, batched per wave.
+   spelling. The budget is per item; the mutations run under point 10, batched per wave.
 3. **Concurrency or atomicity items:** the same budget, aimed at a fault injected at each write
    inside the unit and at the lock or ordering seam.
 4. **Escalate on evidence.** If a budget mutation exposes a real gap, expand to the rest of that
@@ -106,11 +106,11 @@ quality (rules 2 and 3) run after merge, at the wave boundary (rule 10).
    equivalent mutant, unreachable, or covered at another seam (name the test) before demanding a
    new test. A real gap found at the wave boundary does not reopen the merged item: it becomes a
    carry-in note on the next item touching that seam, or one test-only follow-up item per wave.
-   Each survivor is classified on `red-proof-results`; an unclassified one blocks the feature review's red-proof line.
+   Each survivor is classified on `red-proof-results`.
 8. **Reviewers read the recorded results; they do not re-run them**, except to verify a specific
    result they doubt, and then scoped to the test classes in question, never as the whole suite.
 9. **Record per item:** proofs run, gaps found, equivalents, and approximate minutes — pre-merge
-   results on the item, wave-boundary results on the wave parent's `red-proof-results` note.
+   results on the item, wave-boundary results on the wave parent's `red-proof-results` note (an ad hoc note: no schema declares it and no gate reads it).
 10. **Budget mutations run at the wave boundary, scoped.** After the wave's PRs merge (a single
     item is its own wave), the orchestrator batches every item's budget in ONE scratch worktree
     at the merged SHA, one mutation present at a time, and runs each only against the test

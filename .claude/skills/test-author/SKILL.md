@@ -40,7 +40,7 @@ Rule `test-author` section 1. Here the single-item exception is a Direct-tier di
 Rule `test-author` section 2 (happy / failure / edge partition, stable S-ids,
 `EXISTING-SURFACE` / `NEW-SURFACE` labels and narrowest-revert recipes). The `declarationModules:`
 line is rule `test-author` section 1 (the extractor consumes it: rule `declarations-extractor`); the `red-proof-shape` field is the closing paragraph
-of rule `test-author` section 5. The enumerated-surface `sweep:` line is rule `planning-sweeps` rule 2.
+of rule `test-author` section 5. The enumerated-surface `sweep:` line is rule `planning-sweeps` point 2.
 
 ---
 

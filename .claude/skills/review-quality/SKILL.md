@@ -12,13 +12,12 @@ subagent.
 
 The review gate exists because implementation agents optimize for getting things working,
 not for verifying they built the right thing. Without a structured review checkpoint,
-planned work gets silently dropped, tests get written to pass rather than to verify, and
-unnecessary complexity accumulates. The review is where these failure modes get caught.
+planned work gets silently dropped and tests get written to pass rather than to verify. The review is where these failure modes get caught.
 
 **Critical separation of concerns:** The reviewer must not be the same agent that wrote
 the code or the tests. An agent reviewing its own work will rationalize rather than
 evaluate. The reviewer reads and reports — it never fixes. If issues are found,
-they go back to the implementation agent for resolution.
+they go to a fix seat the orchestrator dispatches.
 
 This is the same principle the `needs-test-author` trait applies one step earlier, to
 test authorship itself — the test author must not be the implementer, for the same
@@ -39,7 +38,7 @@ you need — do not expect context to be pre-loaded for you.
    `specification`, plus `amendments` when present; `implementation-notes` is the work-role note.
 2. **Read the changed files** - take them from `git -C <worktree> diff --name-only <base>..HEAD`
    filtered to the owned files (rule `review-scoping`); `implementation-notes` carries no file list
-   (rule `closure-notes` rule 3). Review the actual code, not just summaries.
+   (rule `closure-notes` point 3). Review the actual code, not just summaries.
 3. **Read the recorded build state** - per Area 1, take the command and SHA the orchestrator
    recorded, never a count or breakdown. Do not run the suite, and do not assume tests pass because
    the implementation agent said they did.
@@ -70,7 +69,7 @@ If the review surfaces additional concerns, include them — this is a floor, no
 
 Establish the actual state of the tests before anything else. Everything downstream depends
 on it — but the reviewer does not run the suite. The whole suite is the orchestrator's, run
-once per wave (dispatch contract, "Who runs gradle"); a reviewer re-running it adds minutes of
+once per wave (rule `test-author` section 5 point 11); a reviewer re-running it adds minutes of
 Gradle per item and no information.
 
 Read the recorded build state: the Review scoping slot's "Build state reviewers rely on"
@@ -84,7 +83,7 @@ that is a blocking finding - say so and stop; do not run the suite to fill the g
 **If a recorded failure is listed:** document every failure (test name, assertion message, test
 file); do not fix or speculate about it. A failing test is blocking.
 
-**Re-runs:** rule `test-author` section 5 rules 8 and 11 - read the recorded results; re-run only
+**Re-runs:** rule `test-author` section 5 points 8 and 11 - read the recorded results; re-run only
 one specific doubted result, scoped (`--tests`), and record what you ran.
 
 **If the recorded state is green and current:** record it and move on.
@@ -109,7 +108,7 @@ acknowledged and justified in the implementation notes, not silent.
 **Check non-goals weren't violated.** Review the planning notes' non-goals list. If the
 implementation touched areas that were explicitly scoped out, flag it.
 
-**Check semantic-claim citations.** Rule `review-cited-claims` (rules 1-3): open every cited
+**Check semantic-claim citations.** Rule `review-cited-claims` (points 1-3): open every cited
 line, and treat an uncited claim as an observation and a contradicted claim as blocking.
 
 ### 3. Test Quality
@@ -140,8 +139,8 @@ development, check whether tests were added for those too.
 manifest maps to spec scenarios, oracle spot-check, arbitration record, forbidden-pattern
 declaration true. Verify it before trusting any other finding in this area. Addendum:
 
-- Declared orchestrator fixture repairs are judged by rules `test-file-ownership` rule 4 and
-  `review-scoping` rule 3; verify they touched only construction or setup code, never assertions.
+- Declared orchestrator fixture repairs are judged by rule `test-file-ownership` point 4 and
+  rule `review-scoping` point 3; verify they touched only construction or setup code, never assertions.
 - An oracle that matches the implementation but not its cited source is blocking.
 - Orchestrator red-test rulings are `A<n>` lines in `orchestrator-confirmation` (rule `arbitration`).
 - A false forbidden-pattern declaration carries the same weight as `not-independent`.

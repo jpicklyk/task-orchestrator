@@ -29,7 +29,7 @@ const BS = String.fromCharCode(92)
 // ---- spec strings (task-scope Build 1 and 3) ----
 
 function R(testFiles) {
-  return `no-test-owner: add needs-test-author or clear testFiles (${testFiles.join(', ')})`
+  return `no-test-owner: no test-author seat; apply a trait that declares one (config effective lists them) or clear testFiles (${testFiles.join(', ')})`
 }
 
 function L(paths) {
@@ -497,7 +497,7 @@ const PRESENT_LINE = 'Test-author stage: present'
 const ABSENT_LINE =
   'Test-author stage: absent - testFiles must be []; put doc or test assertion changes in existingTestEdits ' +
   'on existing test files; if the change needs new test files, return needsTestAuthor: true instead.'
-const NTA_REASON = 'no-test-owner: needs-test-author requested by planner'
+const NTA_REASON = 'no-test-owner: planner requested a test-author seat'
 
 function countLine(text, line) {
   return text.split('\n').filter((l) => l.trim() === line).length

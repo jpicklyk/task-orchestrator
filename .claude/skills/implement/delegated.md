@@ -5,8 +5,8 @@ Read by the orchestrator on one Delegated-tier item (not a batch), once front do
 One implementer subagent does the work on a working branch, an optional separate test author
 writes the tests, and a separate review agent reviews. run-wave does not run a single Delegated
 item: every dispatch below is by hand. Front-door sections are cited by name ("Envelope", "Base
-freshness", "Verification command", "Planning rules", "Arbitration — Red Author-Authored Tests",
-"Merge gate", "After merge", "Retrospective").
+freshness", "Verification command", "CHANGELOG bullet", "Live-owed check", "Planning rules",
+"Arbitration — Red Author-Authored Tests", "Merge gate", "After merge", "Retrospective").
 
 ---
 
@@ -54,12 +54,14 @@ Advance: `advance` `transition` with `trigger: "start"`.
 
 ## Step 4 — Work Phase: Implementation
 
+Who runs gradle, and when: rule `test-author` section 5 points 10-11; the table keeps this repo's mechanics.
+
 | Check | When | Who |
 |---|---|---|
 | Pinned self-check (`ktlintFormat` + compile, `run-profile.json` `compile-self-check`), once before committing | every writer seat | seat, through the helper |
 | Own test classes, red then green (`-TestFiles`) | while writing them | test author |
 | Changed packages' test classes (`-TestFiles`), at most once | before committing | implementer |
-| Full suite + `ktlintCheck` (front door "Verification command") | once, after the last writer commits, before the reviewer | orchestrator |
+| Orchestrator `verify` entries (front door "Verification command") | once, after the last writer commits, before the reviewer | orchestrator |
 | Bug-fix revert, coupled-authorship red checks | before merge | orchestrator |
 | Budget mutations | after merge (front door "After merge") | orchestrator |
 | Reviewer | reads the recorded `Verified:` line; runs nothing | - |
@@ -69,7 +71,7 @@ Use `items_read` `schema` (`itemId`) with `fields: ["guidance"]` for the work-ph
 implementation subagent, or implement directly; the subagent works on the working branch.
 
 **Test-file ownership boundary.** Rule `test-file-ownership`; the template's `src/test/**` lines
-are its item 1.
+are its point 1.
 
 **Implementer dispatch (by hand).** Paste the `run-profile.json` `verify` entries whose `seats`
 list `implementer`, `<worktree>` substituted (per `orchestrate` "Hand-dispatched seats carry the
@@ -111,7 +113,7 @@ about the old behaviour and fix or route each hit (dispositions as rule `plannin
 
 **SHA capture and disjointness (whenever `needs-test-author` applies).** Capture HEAD before and
 after the implementer's dispatch, and again around the test author's (Step 4b), then run rule
-`test-file-ownership` item 3 on the two ranges:
+`test-file-ownership` point 3 on the two ranges:
 
 ```bash
 git -C <checkout> diff <pre-sha>..<post-sha> --name-only           # impl range
@@ -178,37 +180,26 @@ Then:
 1. **Log findings as work items** — any issue surfaced during implementation
    and not addressed here (pre-existing tech debt, optimization opportunities, related bugs) is
    logged via `/task-orchestrator:create-item` before moving on. Do not discard findings.
-2. **CHANGELOG bullet**, committed with the change, written here so the reviewer sees it. A
-   user-visible change (server behaviour, the MCP or REST surface, config keys, plugin skills or
-   hooks) adds ONE bullet under `CHANGELOG.md`'s `## [Unreleased]` section, in its `### Added` /
-   `### Changed` / `### Fixed` subsection (plugin skill and hook changes go under `### Plugin`).
-   The bullet describes behaviour, not the diff, and carries no volatile counts. A docs-, process-
-   or chore-only change adds none; its PR body states `Changelog: none (<why>)`.
-   `/prepare-release` Step 8c folds these bullets into the release section.
+2. **CHANGELOG bullet**, committed with the change, written here so the reviewer sees it: front
+   door "CHANGELOG bullet".
 3. Fill all work-phase notes the orchestrator owns, following their guidance text
    (`items_read` `schema`, `fields: ["guidance"]`), with what downstream agents need to know.
-4. **Live-owed check.** Before the work-exit `advance`, apply rule `live-checks` "The Live-owed
-   hold".
-   - A `live-owed` cell on server behaviour runs `/deploy_to_docker --reuse` from the checkout
-     under test, reconnects (`/mcp`), exercises the changed capability through the tools against
-     the spec note's acceptance criteria, and records `run <date>: <result>` on its Live-owed
-     entry. A change with a migration is never deployed to the shared data volume before merge:
-     its entry is `deferred: <holder id>` (rule `live-checks` "Post-merge holder").
+4. **Live-owed check** - front door "Live-owed check".
 5. **Advance out of work** once the agent has returned and the notes are filled:
-   `trigger: "start"` when the schema has a review phase, or `trigger: "complete"` when it has none.
-   Step 5 reads `newRole`.
+   `trigger: "start"` when the schema has a review phase; with none, the item stays in work (front
+   door "Merge gate", Final `complete`). Step 5 reads `newRole`.
 
 ---
 
 ## Step 5 — Review Phase
 
-- **`newRole` is `terminal`:** the schema has no review phase. Go to Step 6.
+- **No review phase** (still in work): go to Step 6.
 - **`newRole` is `review`:** dispatch a **separate** review agent. The agent that implemented the
   code must not review its own work.
 
 **Before dispatching the reviewer**, record the Step 4c build run as the `Verified:` line
 (command, result, SHA) in the item's `session-tracking`. The reviewer runs no gradle and reads the
-build state from there (rule `closure-notes` item 2).
+build state from there (rule `closure-notes` point 2).
 
 **Review agent template (copy verbatim, fill placeholders):**
 
@@ -286,7 +277,8 @@ from. Automatically retrying hides these signals.
    )"
    ```
 3. Run front door "Merge gate" (the gate), then its cleanup.
-4. Advance the item to terminal only if it is not already terminal; otherwise skip:
+4. Once the gate reports `MERGED`, advance the item to terminal (Final `complete`). The closure
+   notes are not rewritten to record the merge (front door "Final `complete`").
    ```to-call
    {"tool":"advance","op":"transition","args":{"itemId":"4b7d0e19","trigger":"complete"}}
    ```

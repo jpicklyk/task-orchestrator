@@ -150,7 +150,7 @@ traits:
         required: true
         description: "Assessment of plugin skill and hook changes needed after a behavior change."
         skill: "plugin-impact-review"
-        guidance: "Identify which skills reference the changed behavior, which hooks inject affected context, and whether config-format docs, the orchestration-context hook text or the orchestrate skill need updating. List specific files/sections. Plugin content is cached — note if an /mcp reconnect is needed."
+        guidance: "Identify which skills reference the changed behavior, which hooks inject affected context, and whether config-format docs, the orchestration-context hook text or the orchestrate skill need updating. List specific files/sections. Plugin content is cached — note the cache refresh and session restart the change needs."
 
   needs-security-review:
     notes:

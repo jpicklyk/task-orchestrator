@@ -32,7 +32,7 @@ check. This skill adds only where to look in this repo:
 
 ## Output
 
-Compose the `plugin-impact` note listing specific files and sections that need changes. Note `/mcp reconnect` requirements.
+Compose the `plugin-impact` note listing specific files and sections that need changes. Note the cache refresh and session restart the change needs (Step 6).
 
 Before asserting any skill/hook/doc file is missing, verify with a direct existence check
 (Read the exact expected path, or an exact-path Glob) — skills live in BOTH

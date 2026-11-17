@@ -112,7 +112,7 @@ work_item_schemas:
         description: "Reproduction, root cause, and fix approach."
         skill: "spec-quality"
         maxLength: 6000
-        guidance: "This note must cover: reproduction steps (exact inputs and expected vs actual output), root cause (specific file, function, and condition), the defect class (every other site that shares the root-cause pattern - same cast/fallback idiom, predicate, wildcard or error-classification path - found by a named sweep, each frozen as a decision or listed under Deferred with a reason), fix approach with alternatives considered (at least two real approaches, `do nothing` counting as one; each with the trade-off that rejected it, per the spec-quality Alternatives Considered section), blast radius of the fix, and test strategy (regression test for the bug, edge cases around the fix). Read references/project-concerns.md for codebase-specific constraints. Target ~2500-3500 characters; the 6000 maxLength is a backstop, not a goal - a shorter note that cites file:line and states the decision is better than a longer one that restates context. Name test commands by file path or glob (node --test path/to/*.test.mjs), never by directory: Node 22 on Windows treats a directory argument as a module and fails."
+        guidance: "This note must cover: reproduction steps (exact inputs and expected vs actual output), root cause (specific file, function, and condition), the defect class (every other site that shares the root-cause pattern - same cast/fallback idiom, predicate, wildcard or error-classification path - found by a named sweep, each frozen as a decision or listed under Deferred with a reason), fix approach with alternatives considered (at least two real approaches, `do nothing` counting as one; each with the trade-off that rejected it, per the spec-quality Alternatives Considered section), blast radius of the fix, and test strategy (regression test for the bug, edge cases around the fix). Read .claude/skills/spec-quality/references/project-concerns.md for codebase-specific constraints. Target ~2500-3500 characters; the 6000 maxLength is a backstop, not a goal - a shorter note that cites file:line and states the decision is better than a longer one that restates context. Name test commands by file path or glob (node --test path/to/*.test.mjs), never by directory: Node 22 on Windows treats a directory argument as a module and fails."
       - key: amendments
         role: queue
         required: false
@@ -152,7 +152,7 @@ work_item_schemas:
         role: queue
         required: true
         description: "What is changing, why, and expected behavior after the change."
-        guidance: "Describe the plugin/config change: what files are affected, what behavior changes, and how to verify. For skill changes, include the trigger phrase and expected output. For hook changes, include the event and matcher. **Plugin blast radius:** consider whether hook caching requires /mcp reconnect, whether CRLF line endings will break script execution, and whether new skill trigger phrases conflict with existing skills. No implementation-notes gate — config changes are self-documenting. Name test commands by file path or glob (node --test path/to/*.test.mjs), never by directory: Node 22 on Windows treats a directory argument as a module and fails."
+        guidance: "Describe the plugin/config change: what files are affected, what behavior changes, and how to verify. For skill changes, include the trigger phrase and expected output. For hook changes, include the event and matcher. **Plugin blast radius:** consider whether the change needs a plugin cache refresh and session restart, whether CRLF line endings will break script execution, and whether new skill trigger phrases conflict with existing skills. No implementation-notes gate — config changes are self-documenting. Name test commands by file path or glob (node --test path/to/*.test.mjs), never by directory: Node 22 on Windows treats a directory argument as a module and fails."
 
   quick-fix:
     lifecycle: auto
@@ -237,7 +237,7 @@ traits:
         required: true
         description: "Assessment of plugin skill and hook changes needed."
         skill: "plugin-impact-review"
-        guidance: "Check: (1) which skills reference the changed behavior (grep skill files for affected tool names, config keys, or concepts), (2) which hooks inject context that references the changed behavior, (3) whether config-format.md needs updating, (4) whether the orchestration-context hook or the orchestrate skill need updating. List specific files and sections that need changes. Plugin content is cached — note if /mcp reconnect is needed."
+        guidance: "Check: (1) which skills reference the changed behavior (grep skill files for affected tool names, config keys, or concepts), (2) which hooks inject context that references the changed behavior, (3) whether config-format.md needs updating, (4) whether the orchestration-context hook or the orchestrate skill need updating. List specific files and sections that need changes. Plugin content is cached — note the cache refresh and session restart the change needs."
 
   needs-security-review:
     notes:

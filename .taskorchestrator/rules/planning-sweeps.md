@@ -23,6 +23,11 @@ not found by the reviewer after.
    this item, a named sibling's amendment, or a new follow-up item when the site lies outside the feature.
 5. **Report the sweeps, do not narrate them.** The record is the dispositions: one line per hit
    file, never a paragraph describing the search.
+6. **Negative and exhaustive claims name their sweep.** A claim that something does not exist or
+   that a list is complete ("zero callers", "none found", "all sites") is written as the search
+   that produced it, with its scope and hit count. A negative claim with no named search is not a
+   finding: write "not checked" instead. A search that covered part of the surface names that
+   part; the rest counts as unchecked.
 
 ## claude:
 

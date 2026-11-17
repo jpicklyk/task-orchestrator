@@ -128,8 +128,9 @@ the Bash tool's MSYS layer mangles the `ref:path` colon) or create a fresh workt
 
 ### Verification command
 
-"Run tests" means `:current:test` AND `:current:ktlintCheck` (CI enforces both). The orchestrator
-runs them through the lock helper, which serializes gradle and prints a final
+"Run tests" means every `.taskorchestrator/run-profile.json` `verify` entry whose `seats` list
+`orchestrator` and whose `appliesTo` matches the diff (`git diff --name-only <base>...HEAD`); the
+run-profile wins. `wave-build` runs through the lock helper, which serializes gradle and prints a final
 `EXIT=<n> (log: <path>)` line. Read that line, and read the log when it is non-zero:
 
 ```
@@ -143,6 +144,25 @@ reports the pager's exit code. On a lint failure run `:current:ktlintFormat`, th
 The helper refuses the suite, `ktlintCheck` and `--rerun-tasks` from any seat (EXIT=98);
 `--rerun-tasks` is for the run after a dependency or Gradle upgrade only. The helper's header
 explains a held or reclaimed lock (`LOCK HELD`, `LOCK RECLAIMED`).
+
+### CHANGELOG bullet
+
+A user-visible change (server behaviour, the MCP or REST surface, config keys, plugin skills or
+hooks) adds ONE bullet under `CHANGELOG.md`'s `## [Unreleased]` section, in its `### Added` /
+`### Changed` / `### Fixed` subsection (plugin skill and hook changes go under `### Plugin`). The
+bullet describes behaviour, not the diff, and carries no volatile counts. A docs-, process- or
+chore-only change adds none; its PR body states `Changelog: none (<why>)`. `/prepare-release`
+Step 8c folds these bullets into the release section.
+
+### Live-owed check
+
+Before the work-exit `advance`, apply rule `live-checks` "The Live-owed hold".
+
+- A `live-owed` cell on server behaviour runs `/deploy_to_docker --reuse` from the checkout
+  under test, reconnects (`/mcp`), exercises the changed capability through the tools against
+  the spec note's acceptance criteria, and records `run <date>: <result>` on its Live-owed
+  entry. A change with a migration is never deployed to the shared data volume before merge:
+  its entry is `deferred: <holder id>` (rule `live-checks` "Post-merge holder").
 
 ### Planning rules
 
@@ -213,6 +233,12 @@ update-branch), before merge.
   cleanup. Then `git checkout main`, `git pull origin main`, and delete the branch (and remove
   the worktree, if the work had one). Local `main` always tracks `origin/main` — no divergence,
   no `reset --hard` needed.
+- **Final `complete`.** An item with its own PR (Direct, Delegated, a per-item wave item, a
+  shared-mode parent) completes only after the `MERGED` check above. The closure notes are not
+  rewritten to record the merge; the merged PR is the record. Two post-merge writes still happen:
+  the live acceptance line (`post-run.md` Step 7b (d)) and the wave parent's
+  `red-proof-results` note (the item itself when it is a single item) (`post-run.md` Step 7a). Exceptions: a shared-mode child (`wave.md` Step 6) and
+  a review-less run member (`post-run.md` Step 4).
 
 ### After merge
 
@@ -222,7 +248,7 @@ BEFORE completing the item or feature. For an item that is not a feature, put th
 feature's place and its parent as the holder's parent.
 
 **Wave-boundary red-proofs** (background; they gate nothing) run per rule `test-author` section 5
-(items 7, 9, 10) and run-wave `references/post-run.md` Step 7a items 1-7. Beyond those:
+(points 7, 9, 10) and run-wave `references/post-run.md` Step 7a items 1-7. Beyond those:
 - A single item is its own wave parent.
 - Apply each mutation with `references/patch-anchored.py`, `DRY=1` first.
 - Mutations on node tests under `claude-plugins/` run in an extraction made by
@@ -250,8 +276,10 @@ step below. Always call `items_read` `context` (`itemId`) first to determine exa
 | queue (notes filled) | Step 3 — advance and proceed |
 | queue (notes missing) | Step 3 — fill missing notes |
 | work (in progress) | Step 4 — check implementation state |
-| work (notes filled) | Step 4c — advance out of work |
-| review | Step 5 — run review |
+| work (notes filled, no PR yet) | Step 4c - advance out of work |
+| work (review-less, PR open) | front door "Merge gate": wait for `MERGED`, then Final `complete`; Step 4c is not repeated |
+| review (no verdict yet) | Step 5 - run review |
+| review (verdict passed, PR open) | front door "Merge gate": wait for `MERGED`, then Final `complete`; the review is not run again |
 | terminal | Already done — report status |
 | an open run found (run-wave preflight F7) | `wave.md`: `/task-orchestrator:run-wave --resume <runId>` |
 

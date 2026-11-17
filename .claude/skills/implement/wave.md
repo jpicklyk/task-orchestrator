@@ -6,7 +6,7 @@ A wave runs through `/task-orchestrator:run-wave` (Step 3b), which generates eve
 Two modes: **shared** (a Parallel feature: every child in one feature worktree, one PR when the
 parent is terminal) and **per-item** (a Delegated batch of unrelated items: one branch and PR per
 item). Front-door sections are cited by name ("Envelope", "Base freshness", "Verification
-command", "Planning rules", "Arbitration — Red Author-Authored Tests", "Merge gate", "After
+command", "CHANGELOG bullet", "Live-owed check", "Planning rules", "Arbitration — Red Author-Authored Tests", "Merge gate", "After
 merge", "Retrospective"). A dispatch run-wave does not generate (no run-wave, a one-off fix agent,
 an arbitration re-dispatch) follows the front door Route table's hand-dispatch row.
 
@@ -100,14 +100,14 @@ A run already open on the root is resumed instead (`--resume <runId>`, run-wave 
 
 ## Step 4 — Work Phase: Implementation
 
-The whole suite is the orchestrator's, once per wave; seats verify at the scope of what they wrote.
+Who runs gradle, and when: rule `test-author` section 5 points 10-11; the table keeps this repo's mechanics.
 
 | Check | When | Who |
 |---|---|---|
 | Pinned self-check (`ktlintFormat` + compile), once before committing | every writer seat | seat, through the helper |
 | Own test classes, red then green (`-TestFiles`) | while writing them | test author |
 | Changed packages' test classes (`-TestFiles`), at most once | before committing | implementer |
-| Full suite + `ktlintCheck` (front door "Verification command"), incremental | once per wave, after the last writer commits, before any PR | orchestrator |
+| Orchestrator `verify` entries (front door "Verification command"), incremental | once per wave, after the last writer commits, before any PR | orchestrator |
 | `--rerun-tasks` | only the run after a dependency or Gradle upgrade | orchestrator |
 | Bug-fix revert, coupled-authorship red checks | per item, before merge | orchestrator |
 | Budget mutations | after merge (front door "After merge") | orchestrator |
@@ -179,24 +179,12 @@ author-authored test is not a build failure (front door "Arbitration — Red Aut
 
 1. **Log findings as work items** — any issue surfaced during implementation and
    not addressed here is logged via `/task-orchestrator:create-item` before moving on.
-2. **CHANGELOG bullet** — written here, in the work phase, so the
+2. **CHANGELOG bullet** - front door "CHANGELOG bullet"; written here, in the work phase, so the
    reviewer sees it, once, by the orchestrator or the docs seat after the implementation wave and
-   before review — never an implementer (the dispatch contract's **Docs** slot). A user-visible
-   change (server behaviour, the MCP or REST surface, config keys, plugin skills or hooks) adds ONE
-   bullet under `CHANGELOG.md`'s `## [Unreleased]` section, in its `### Added` / `### Changed` /
-   `### Fixed` subsection (plugin skill and hook changes go under `### Plugin`). The bullet
-   describes behaviour, not the diff, and carries no volatile counts. A docs-, process- or
-   chore-only change adds none; its PR body states `Changelog: none (<why>)`. `/prepare-release`
-   Step 8c folds these bullets into the release section.
+   before review - never an implementer (the dispatch contract's **Docs** slot).
 3. Fill all work-phase notes the orchestrator owns, following their guidance text
    (`items_read` `schema`, `fields: ["guidance"]`).
-4. **Live-owed check** - before the work-exit `advance`, apply rule `live-checks` "The Live-owed
-   hold".
-   - A `live-owed` cell on server behaviour runs `/deploy_to_docker --reuse` from the checkout
-     under test, reconnects (`/mcp`), exercises the changed capability through the tools against
-     the spec note's acceptance criteria, and records `run <date>: <result>` on its Live-owed
-     entry. A change with a migration is never deployed to the shared data volume before merge:
-     its entry is `deferred: <holder id>` (rule `live-checks` "Post-merge holder").
+4. **Live-owed check** - front door "Live-owed check".
 5. Advance each child out of work: `trigger: "start"` when its schema has a review phase, or
    `trigger: "complete"` when it has none (under run-wave this is `post-run.md` Step 4's batched
    advance). Step 5 reads `newRole`.
@@ -223,11 +211,11 @@ rule — are visible only to a reviewer holding the whole diff; per-child review
 cannot see them, and a shared naming contract does not prevent them. The consolidated reviewer
 fills each reviewed child's review-phase notes (all under the same reviewer actor). When the
 children's schema has no review phase, this Step 5 consolidated pass is skipped. Either way the parent feature's
-`review-checklist` is never filled here: the parent is reviewed once, in Step 6 item 3 (`run-wave`
+`review-checklist` is never filled here: the parent is reviewed once, in Step 6, "When all children reach terminal", item 3 (`run-wave`
 `post-run.md` Step 7b), after every child is terminal.
 
 A per-child reviewer reads **that child's owned files** in the shared worktree, per rule
-`review-scoping` item 1 and the contract's **Review scoping** slot.
+`review-scoping` point 1 and the contract's **Review scoping** slot.
 
 **Review agent template (copy verbatim, fill placeholders):**
 
@@ -317,7 +305,7 @@ from. Automatically retrying hides these signals.
    `review: "handoff"` it stays open through the review), that advance and the child's
    `orchestrator-confirmation` go under the coordinator token: a token-less write to an orchestrator-seat
    key of a run member is refused (`post-run.md` Step 3), and the coordinator token passes the seat
-   gate (`current/docs/api-reference.md`, advance seat gate). Then close the run with `post-run.md` Step 7.
+   gate (`current/docs/api-reference.md`, `advance`, `seat_forbidden`). Then close the run with `post-run.md` Step 7.
 3. **Do NOT push. Do NOT create a PR.** The work is committed to `feat/<feature-slug>`
    inside the shared worktree; that's the integration point.
 
@@ -326,7 +314,7 @@ check needing a refreshed plugin cache or a user opt-in counts as done here; it 
 merge, step 8):
 
 1. Fill the parent's `implementation-notes` and `session-tracking` per each note's guidance and
-   rule `closure-notes` item 5 - under the coordinator token while the parent is a member of an
+   rule `closure-notes` point 5 - under the coordinator token while the parent is a member of an
    open run; the only re-edits are the ones run-wave `references/post-run.md` Step 3 sanctions, and
    the step 8 post-merge live acceptance line is written as that file's Step 7b (d) says.
 2. **No second suite run.** The wave's one whole-suite run is Step 4c's, after the last writer
@@ -404,11 +392,14 @@ merge, step 8):
 
 ### Per-item mode - one PR per item
 
-For each item, once its review passes (or it is review-less): its own PR from its own branch, per
-front door "Merge gate" (Commit form, CHANGELOG check and Docs line, the gate), with a single-item
-PR body (Summary, Test Results, Review, Docs, Changelog, MCP item id). While the run is open, the
-item's `orchestrator-confirmation` and its advance to terminal (`trigger: "complete"`) go under the
-coordinator token; a token-less write to an orchestrator-seat key of a run member is refused
+For each item, once its review passes, or once `post-run.md` Step 4 has completed it (a
+review-less item): its own PR from its own branch, per front door "Merge gate" (Commit form,
+CHANGELOG check and Docs line, the gate), with a single-item PR body (Summary, Test Results,
+Review, Docs, Changelog, MCP item id). While the run is open, the item's
+`orchestrator-confirmation` goes under the coordinator token. A reviewed item's advance to
+terminal (`trigger: "complete"`) follows its PR's `MERGED` (front door "Merge gate", Final
+`complete`); a review-less item is already terminal and takes no further advance. That advance runs
+under the coordinator token while the run is open; a token-less write to an orchestrator-seat key of a run member is refused
 (`post-run.md` Step 3). When every item has its verdict, close the run with `post-run.md` Step 7. A
 parent with 2+ children and a review phase gets `post-run.md` Step 7b's feature closure once its
 last child's PR has merged. Then front door "After merge" (one red-proof batch for the wave
