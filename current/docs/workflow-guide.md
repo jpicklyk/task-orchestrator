@@ -499,7 +499,7 @@ In 4.0 the responses that name a note carry a **key**, not the guidance text, so
 - **`items_read` `select: "context"` (with `itemId`)** - `guidanceKey` at the top level names the first unfilled required note of the current phase, and `skillPointer` its (first) skill; `skillPointers` lists every skill when there are two or more and `skillMode` is `method-on-diff` when the note says so. All are omitted when every required note of the phase is filled or the entry has no guidance or skill.
 - **`advance` `transition` result** - `expectedNotes` (the keys the new phase expects), `guidanceKey` and `skillPointer` (with `skillPointers` and `skillMode` as above), for the phase just entered.
 - **`advance` gate error** - a `gate_blocked` error's `detail.missing[]` names the missing notes (`key`, `role`, and `seat` for a seat-aware schema).
-- **`items_read` `select: "schema"`** - the full note list of a type or an item (`description`, `skill`, `maxLength`, `seat`); the per-note `guidance` text is stripped unless the call passes `fields: ["guidance"]`.
+- **`items_read` `select: "schema"`** - the full note list of a type or an item (`description`, `skill`, `skills`, `skillMode`, `lane`, `maxLength`, `seat`; the optional ones appear only when the note declares them); the per-note `guidance` text is stripped unless the call passes `fields: ["guidance"]`.
 
 #### How agents consume guidance
 
@@ -943,7 +943,7 @@ traits:
         guidance: "<guidance>"
 ```
 
-There is no schema-level `traits:` key — a schema names its traits with `default_traits:`, and any other key is rejected when you push or validate a config (a stored 3.x config that carries one loads with a warning and the key is ignored). Traits can also carry `resources:`, `dispatch:`, and `seats:`; see [config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md) for the full format.
+There is no schema-level `traits:` key — a schema names its traits with `default_traits:`, and any other key is rejected when you push or validate a config (a stored 3.x config that carries one loads with a warning and the key is ignored). Traits can also carry `resources:`, `dispatch:`, and `seats:`, plus the text fields `description:` and `applies_when:` (served, never evaluated); see [config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md) for the full format.
 
 Additional top-level keys (`resources`, `note_limits`, `status_labels`, `project`, `independence`, `extensions`, `runs`, `decision_classes`) are supported but not covered in this guide; see the [config reference](./config-reference.md).
 
@@ -1369,6 +1369,7 @@ Seats come from the schema (`seats:` in the [config](./config-reference.md#seat-
 - A seat writes only the note keys its seat owns, plus unowned keys. The coordinator token writes only the keys of the seat named `orchestrator`, and unowned ones.
 - A human credential without a token is exempt. Over stdio the caller is the `local` principal, which is an agent, so it is not exempt.
 - A refusal is `seat_forbidden` (or `note_owned_by_other` for a note) and applies nothing.
+- A seat entry may list `rules:` (rule keys). The server serves the list and never enforces it; the run-wave plugin hands those rules to the seat's agent.
 
 ```json
 {"seatToken": "<seatToken>",

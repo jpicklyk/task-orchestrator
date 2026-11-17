@@ -193,6 +193,7 @@ traits:
         required: true
         description: "Security review of auth, data handling, and access control"
         skill: "security-review"
+        skill_mode: method-on-diff
 
 work_item_schemas:
   feature-task:

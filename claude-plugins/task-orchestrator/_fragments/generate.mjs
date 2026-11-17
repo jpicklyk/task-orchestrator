@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 // Renders the shared tier-classification fragment (tier-classification.md) from the `tiers` key of
-// dispatch-policy.json, then copies it into every consumer file. The fragment is generated, never
-// hand-edited: edit the data and run this. The generator never reads a project tier-policy.json
-// override (scripts/tier-policy.mjs renders that). Also: the copies must never be hand-edited. Run after
-// editing the data— the copies must never be hand-edited.
+// dispatch-policy.json, then copies it into every consumer file. The fragment and the copies are
+// generated, never hand-edited: edit the data and run this. The generator never reads a project
+// tier-policy.json override (scripts/tier-policy.mjs renders that).
 //
 //   node claude-plugins/task-orchestrator/_fragments/generate.mjs            # rewrite copies in place
 //   node claude-plugins/task-orchestrator/_fragments/generate.mjs --check    # verify only, non-zero exit on drift (CI)

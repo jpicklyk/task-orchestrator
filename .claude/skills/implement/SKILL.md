@@ -48,7 +48,7 @@ before relying on it — `gh pr view <n> --json state,mergeCommit` plus `git log
 and confirm the working tree is current ("Base freshness" below) before any pass
 that checks whether a change is present in the codebase.
 
-**Execution tier** — classify by this table (canonical source shared with the `task-orchestrator:orchestrate` skill; edit the fragment, not this copy):
+**Execution tier** — classify by this table (canonical source shared with the `task-orchestrator:orchestrate` skill; rendered from the `tiers` in `dispatch-policy.json` by `_fragments/generate.mjs`, never hand-edited):
 
 <!-- BEGIN GENERATED:tier-classification | source: claude-plugins/task-orchestrator/dispatch-policy.json (tiers) · regen: node claude-plugins/task-orchestrator/_fragments/generate.mjs -->
 | Criteria | Tier | Pipeline |

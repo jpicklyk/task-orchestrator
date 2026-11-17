@@ -513,9 +513,13 @@ returns. Declared per trait per phase under `traits.<name>.dispatch.<phase>:`; s
   "name": "needs-security-review",
   "notes": [<NoteSchemaEntryDto>],
   "dispatch": { "work": <DispatchProfileDto> },
-  "resources": [<ResourceRequirementDto>]
+  "resources": [<ResourceRequirementDto>],
+  "description": "Changes touching authentication",
+  "appliesWhen": "the diff changes an auth path"
 }
 ```
+
+`description` and `appliesWhen` (strings, optional) echo the trait's `description` and `applies_when` config text; each is omitted when the trait declares none. The server never evaluates them.
 
 `dispatch` (map of phase name to `DispatchProfileDto`, optional) and `resources` (array of
 `ResourceRequirementDto`, optional) are omitted from the JSON (never `null`) rather than an empty map/array when

@@ -164,6 +164,12 @@ components:
           description: Declared shared-resource requirements. Omitted when the trait declares none.
           items:
             $ref: "#/components/schemas/ResourceRequirementDto"
+        description:
+          type: string
+          description: The trait's declared description text. Omitted when the trait declares none. Never evaluated by the server.
+        appliesWhen:
+          type: string
+          description: The trait's declared applies_when text. Omitted when the trait declares none. Never evaluated by the server.
 
     EffectiveSchemaDto:
       type: object
@@ -370,6 +376,16 @@ components:
           items:
             type: string
           description: Note keys this seat should not read. Present only when non-empty.
+        transitions:
+          type: array
+          items:
+            type: string
+          description: The triggers other than start this seat may send. Present only when the seat declares transitions.
+        rules:
+          type: array
+          items:
+            type: string
+          description: Rule keys the seat declares. Present only when the seat declares rules (an empty array when it declares none); served, never enforced.
 
     ItemSchemaNoteEntryDto:
       type: object

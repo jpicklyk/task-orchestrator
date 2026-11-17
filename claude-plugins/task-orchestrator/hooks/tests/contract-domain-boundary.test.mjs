@@ -55,17 +55,13 @@ function pluginScan(allow, baseline) {
   const projectSkillDirs = readdirSync(join(REPO, '.claude', 'skills'))
     .filter((n) => statSync(join(REPO, '.claude', 'skills', n)).isDirectory());
   const shipped = new Set(pluginShippedSkillNames(PLUGIN));
-  const names = [...new Set([...HOST_SKILLS, ...projectSkillDirs])].filter((n) => !shipped.has(n)).sort();
+  const projectCommands = readdirSync(join(REPO, '.claude', 'commands'))
+    .filter((n) => n.endsWith('.md'))
+    .map((n) => n.slice(0, -3));
+  const names = [...new Set([...HOST_SKILLS, ...projectSkillDirs, ...projectCommands])].filter((n) => !shipped.has(n)).sort();
   return scanDomainBoundary({
     root: PLUGIN,
-    scopes: [
-      { dir: 'skills', recursive: true },
-      { dir: '_fragments', recursive: true },
-      { dir: 'agents', recursive: true },
-      { dir: 'workflows', recursive: true },
-      { dir: 'hooks', recursive: false },
-      { dir: 'scripts', recursive: false },
-    ],
+    scopes: [{ dir: '.', recursive: true }],
     names,
     phrases: ['this repo'],
     allow,
@@ -101,8 +97,8 @@ test('S3: data file shapes', () => {
   assert.deepEqual(Object.keys(BASELINE), ['pendingConfig']);
   const seenB = new Set();
   for (const row of BASELINE.pendingConfig) {
-    assert.equal(row.owner, '0f4099f8');
-    assert.match(row.gap, /^G[1-8]$/);
+    assert.match(row.owner, /^[0-9a-f]{8}$/);
+    assert.ok(typeof row.gap === 'string' && row.gap.length > 0);
     assert.ok(!row.file.includes(BACKSLASH), `posix path: ${row.file}`);
     assert.ok(!row.file.split('/').includes('tests'), `no tests segment: ${row.file}`);
     assert.ok(existsSync(join(PLUGIN, ...row.file.split('/'))), `exists: ${row.file}`);

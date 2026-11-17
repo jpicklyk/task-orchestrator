@@ -1,7 +1,7 @@
 # Runtime Config Catalog
 
-This is the **rendering catalog** for `/configure-server` (and the fragment source `deploy_to_docker`
-cites): the exact env fragments, tuples, and caveats to render for each runtime choice. It is not a
+This is the **rendering catalog** for `/configure-server` (and the fragment source a project deploy
+command cites): the exact env fragments, tuples, and caveats to render for each runtime choice. It is not a
 tutorial and not a security explainer — for env *semantics* (what each flag does, auth model details,
 capability model) this doc defers to:
 
@@ -11,7 +11,7 @@ capability model) this doc defers to:
 If this catalog and either of those docs ever disagree, those docs win — fix this file to match.
 
 > **Anti-drift note:** this file is cited by `configure-server/SKILL.md`,
-> `.claude/commands/deploy_to_docker.md`, and a comment in `docker-compose.yml`'s `http-rest`
+> a project deploy command, and a comment in `docker-compose.yml`'s `http-rest`
 > profile. If this file is renamed or moved, update all of those citations — grep the repo root for
 > `runtime-config.md` and fix every hit (aside from this file's own self-reference).
 

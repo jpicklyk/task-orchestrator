@@ -12,9 +12,10 @@ import kotlin.test.fail
 /**
  * Guards the single-source-of-truth contract for the tier-classification block.
  *
- * The block is authored once in
- * `claude-plugins/task-orchestrator/_fragments/tier-classification.md`
- * and mirrored (verbatim) into each in-repo consumer between
+ * The block is rendered from the `tiers` key of
+ * `claude-plugins/task-orchestrator/dispatch-policy.json` by
+ * `claude-plugins/task-orchestrator/_fragments/generate.mjs` (the fragment
+ * `tier-classification.md` is generated, never hand-edited) and mirrored (verbatim) into each in-repo consumer between
  * `<!-- BEGIN GENERATED:tier-classification -->` / `<!-- END GENERATED:tier-classification -->`
  * markers. The mirror is produced by `_fragments/generate.mjs`; this test fails the
  * build if any consumer drifts from the fragment, so the copies can never silently diverge
