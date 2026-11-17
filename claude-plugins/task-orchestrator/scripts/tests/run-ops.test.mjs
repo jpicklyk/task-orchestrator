@@ -559,8 +559,8 @@ function has(text, needle) {
   return text.includes(needle)
 }
 
-test('AC3: no run-wave text persists the plan or state as a document - no docs_write, manage_plan_documents or planDocSlug in SKILL.md, method-b.md, post-run.md or snapshot.md', () => {
-  for (const rel of ['SKILL.md', 'references/method-b.md', 'references/post-run.md', 'references/snapshot.md']) {
+test('AC3: no run-wave text persists the plan or state as a document - no docs_write, manage_plan_documents or planDocSlug in SKILL.md, method-b.md, post-run.md, snapshot.md or code-mode.md', () => {
+  for (const rel of ['SKILL.md', 'references/method-b.md', 'references/post-run.md', 'references/snapshot.md', 'references/code-mode.md']) {
     const text = skillText(rel)
     for (const retired of ['manage_plan_documents', 'planDocSlug', 'slug:"run/', 'kind:"plan"']) {
       assert.ok(!has(text, retired), `${rel} still contains ${retired}`)

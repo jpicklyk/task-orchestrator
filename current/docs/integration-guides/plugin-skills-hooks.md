@@ -296,6 +296,7 @@ Every dispatch (run-wave, `implement-wave`, ralph, coordinators, retrospective e
 - reads run state from the server (`runs_read` `get`, `frontier`, `seats`), not from documents: the `run/<runId>` plan and state documents are no longer written;
 - audits note presence after the seats return with the helper subcommand `notes-audit`, which lists a required stage-owned note with no observed row as `missing` and never an optional one; who wrote a note is not audited, because the server enforces each seat's lane (`note_owned_by_other`, `seat_forbidden`);
 - executes the plan through the `implement-wave` Workflow (Method A) or direct `Agent` dispatch (Method B).
+- in a Code Mode session (only `REPL` and `Poll` visible), runs each coordinator step as a script from `skills/run-wave/references/code-mode.md`, so seat prompts, tokens and note bodies never enter the model's context; its prelude block is generated from `scripts/lib/code-mode-helpers.mjs`.
 
 The plan id (`r-…`) names the scratch directory and the run's label; the server run id (a UUID) is bound into the plan with `bind-run`. Details: `skills/run-wave/SKILL.md` and `references/post-run.md`.
 

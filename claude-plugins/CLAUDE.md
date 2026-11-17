@@ -87,6 +87,8 @@ The plugin's view of the 4.0 tool surface is generated, never hand-edited: `skil
 `--check` and fails on a stale file (exit 1) or on a golden/API disagreement (exit 2). Workflow scripts run as function
 bodies and cannot import, which is why they carry the generated region instead of importing `tool-names.mjs`.
 
+The Code Mode recipes in `skills/run-wave/references/code-mode.md` carry a prelude generated from `scripts/lib/code-mode-helpers.mjs` (between `// @generated:code-mode-prelude-begin` and `// @generated:code-mode-prelude-end`): run `node claude-plugins/task-orchestrator/scripts/gen-code-mode-prelude.mjs` after editing the helpers; its `--check` runs inside `scripts/tests/code-mode-prelude.test.mjs`.
+
 Contract tests (`hooks/tests/contract-*.test.mjs`, library `scripts/lib/contract-checks.mjs`) pin the hook matchers
 to real tool names and reject a hard-coded retired 3.x tool name. The baseline `scripts/lib/contract-names-baseline.json` is empty (`pendingPort: []`, `proseExceptions: []`), so a new
 file that names a retired tool fails the test. The ratchet is two-way, so a row added for a file that no longer needs it also fails. Documented examples are ```to-call

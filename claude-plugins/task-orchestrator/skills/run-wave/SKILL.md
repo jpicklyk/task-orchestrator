@@ -27,6 +27,8 @@ its output looks wrong, report the raw stderr/stdout rather than improvising a p
 MCP responses directly — the whole point of the helper split is that frontier/edge/stage logic
 is fixture-tested, not reasoned about fresh each run.
 
+**Code Mode.** In a Code Mode session (only `REPL` and `Poll` are visible), run each step that `references/code-mode.md` covers through its recipe; the steps, rules, checkpoints and reports here are unchanged.
+
 ---
 
 ## The server run
@@ -276,6 +278,7 @@ pointer line in `run-pointers` (or `session-tracking`) pointing at a closed run 
   unavailable or Step 0 selects Method B, including scheduling, per-batch seat assignment,
   envelope handling, the declarations scan, and the degradations Method B declares relative to
   Method A.
+- `references/code-mode.md` — the script recipes for a Code Mode session: one per coordinator step (probe and snapshot, open and assign, adopt-notes, the Method A launch, Method B dispatch and collect, post-run Steps 0 to 4).
 - `references/post-run.md` — the post-run protocol shared by both methods: the end-seats
   sweep, result verification, the notes audit, note-filling, the batched `advance` call, review
   hand-off, close, and the human checkpoints that close out a run.
