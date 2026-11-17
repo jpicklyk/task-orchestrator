@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **MCP error text carries the envelope.** An error result's single text content was only `<code>: <message>`, so a text-only client (a Code Mode script) lost `fix`, `detail`, `retryAfterMs` and a batch's per-element results. The text is now that line, a newline and the error envelope as one compact JSON line; for `partial_failure` `data.results` holds only the failing entries with their `index` (first 10). The first line and the `ok` text are unchanged; `internal` keeps its fixed text.
+- **MCP error text carries the envelope.** An error result's single text content was only `<code>: <message>`, so a text-only client (a Code Mode script) lost `fix`, `detail`, `retryAfterMs` and a batch's per-element results. The text is now that line, a newline and the error envelope as one compact JSON line; for `partial_failure` `data.results` holds only the failing entries with their `index` (first 10). The first line and the `ok` text are unchanged; an `internal` error carries the tail too, with its fixed message.
 
 ### Plugin
 
