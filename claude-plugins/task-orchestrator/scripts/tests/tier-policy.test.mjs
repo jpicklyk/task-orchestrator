@@ -119,7 +119,7 @@ describe('S1 default render', () => {
 
   test('ASCII only, LF only, single trailing newline, pointer last', () => {
     const out = renderTierBlock(tierPolicy());
-    assert.ok(!out.includes('→'));
+    assert.ok(!out.includes(String.fromCharCode(0x2192)));
     assert.ok(!out.includes('\r'));
     assert.match(out, /[^\n]\n$/);
     assert.equal(out.split('\n').slice(-2, -1)[0], POINTER);
