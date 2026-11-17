@@ -143,7 +143,20 @@
         "maxLength": { "type": "integer", "minimum": 1 },
         "seat": { "type": "string" },
         "independent_of": { "type": "array", "items": { "type": "string" } },
-        "shared": { "type": "boolean" }
+        "shared": { "type": "boolean" },
+        "lane": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "output": { "enum": ["verdict", "findings"] },
+            "after": {
+              "oneOf": [
+                { "type": "string", "minLength": 1 },
+                { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+              ]
+            }
+          }
+        }
       }
     },
     "seat": {

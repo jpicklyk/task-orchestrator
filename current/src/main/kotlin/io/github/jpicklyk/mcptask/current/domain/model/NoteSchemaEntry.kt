@@ -45,6 +45,8 @@ package io.github.jpicklyk.mcptask.current.domain.model
  * @property skills Every skill the note names, in invocation order. [skill] is always the first one, so a single
  *   skill (a string or a one-element list in config) serves exactly as before.
  * @property skillMode How the skills are used; see [SkillMode]. Default [SkillMode.INVOKE].
+ * @property lane Declared review-lane contract (output and order); see [ReviewLane]. Null means not declared (the
+ *   lane reports a verdict and is unordered). Only review-role entries carry one.
  */
 data class NoteSchemaEntry(
     val key: String,
@@ -58,7 +60,8 @@ data class NoteSchemaEntry(
     val independentOf: List<String> = emptyList(),
     val shared: Boolean = false,
     val skills: List<String> = listOfNotNull(skill),
-    val skillMode: SkillMode = SkillMode.INVOKE
+    val skillMode: SkillMode = SkillMode.INVOKE,
+    val lane: ReviewLane? = null
 ) {
     init {
         require(skills.firstOrNull() == skill) { "skill must be the first of skills" }

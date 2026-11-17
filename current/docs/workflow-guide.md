@@ -197,6 +197,7 @@ note_schemas:
 | `guidance`    | string  | no       | Longer authoring guidance for agents. Named by `guidanceKey` in `items_read` `context`; the text comes from `select: "schema"` with `fields: ["guidance"]`. |
 | `skill`       | string or list | no | Skill to invoke when filling this note, or a list of skills in invocation order. Shown in `items_read` `context` as `skillPointer` (the first skill) and, for two or more, `skillPointers`. |
 | `skill_mode`  | string  | no       | `invoke` (default) or `method-on-diff`: apply the skill's method to the diff of the files the seat owns instead of the skill's own default target. Shown as `skillMode` only when `method-on-diff`. |
+| `lane`        | map     | no       | Review-role notes only: `output` (`verdict` default, or `findings`) and `after` (a review note key or a list of them whose lanes run first). Shown as `lane` on `items_read` `select: "schema"` only when declared. |
 
 #### Constraints
 
@@ -957,6 +958,7 @@ Additional top-level keys (`resources`, `note_limits`, `status_labels`, `project
 | `guidance`    | string  | no       | Any string                | Longer authoring hint. Named by `guidanceKey` in the gate status; read with `fields: ["guidance"]`.  |
 | `skill`       | string or list | no | Skill name, or a non-empty list of distinct names | Skill to invoke before filling; a list is invoked in order. Shown as `skillPointer` (the first) and `skillPointers`. |
 | `skill_mode`  | string  | no       | `invoke`, `method-on-diff` | How the skill is used; `method-on-diff` applies its method to the diff of the files the seat owns. Shown as `skillMode`. |
+| `lane`        | map     | no       | `output`: `verdict`, `findings`; `after`: note key or list | Review-role notes only. A findings lane reports findings and never sets the item verdict; `after` orders lanes (it never halts or skips). Shown as `lane` on `items_read` `select: "schema"`. |
 
 ### Matching Rules
 

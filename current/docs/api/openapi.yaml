@@ -425,6 +425,24 @@ components:
             A1: seat names this note's authoring must stay independent of. Present only when
             non-empty, regardless of seat-awareness. Parsed and served since A1; enforced as of A2
             (the independence attestation gate) — see config-format.md "Independence (A2)".
+        lane:
+          type: object
+          description: >-
+            The review lane this entry declares (review-role entries only). Present only when declared; an entry
+            without it reports a verdict and is unordered.
+          properties:
+            output:
+              type: string
+              enum: [verdict, findings]
+              description: >-
+                What the lane reports. A findings lane never sets or changes the item verdict.
+            after:
+              type: array
+              items:
+                type: string
+              description: >-
+                Note keys of other review entries whose lanes run first (ordering only; never halts or skips).
+                Present only when non-empty.
 
     ItemSchemaViewDto:
       type: object

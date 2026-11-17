@@ -376,10 +376,10 @@ subagent may lack it) and the run is bound, assign each reviewer seat once (`run
 --item <short> --seat reviewer`, token file written as above; on `run_at_capacity`, launch over the items already assigned, run Step 0b's sweep, then assign the rest and launch again), then `node "<helper>" review-args
 --plan <plan.json> --snapshot <scratchpad>/run-wave/<runId>/snapshot.json --result <result.json>
 --items <short,short,...>` prints the `review-wave/args-v1` object (lanes are the item's review-role
-notes grouped by seat and skill; exit 2 names an item with no review notes). Call
+notes grouped by seat and skill, each lane carrying its declared output and order from the notes' `lane`; exit 2 names an item with no review notes). Call
 `Workflow({name: "task-orchestrator:review-wave", args: <that object, as a real object>})`, record
 `reviewWave.taskId`, `reviewWave.wfRunId` and `reviewWave.wfScriptPath` in `state.json`, and end the
-turn. On the notification, aggregate the lane verdicts, run Step 0b's sweep, and continue. Without
+turn. On the notification, take the item verdict from the verdict lanes (a findings lane's findings are in `lanes[]` with output `findings-v1` and never set it), run Step 0b's sweep, and continue. Without
 `Workflow`, keep the generic `review-prompt` path above.
 
 **Wave parent review.** Before any reviewer for the wave parent itself is dispatched or handed off

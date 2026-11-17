@@ -14,11 +14,13 @@ import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestSeverity
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.IndependenceMode
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
+import io.github.jpicklyk.mcptask.current.domain.model.LaneOutput
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
+import io.github.jpicklyk.mcptask.current.domain.model.ReviewLane
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.RunBudget
 import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
@@ -81,7 +83,21 @@ internal object ConfigKeyCatalog {
     val SCHEMA_LEVEL: Set<String> = setOf("lifecycle", "default_traits", "notes", "seats")
     val TRAIT_LEVEL: Set<String> = setOf("notes", "resources", "dispatch", "seats", "description", "applies_when")
     val NOTE_ENTRY: Set<String> =
-        setOf("key", "role", "required", "description", "guidance", "skill", "maxLength", "seat", "independent_of", "shared", "skill_mode")
+        setOf(
+            "key",
+            "role",
+            "required",
+            "description",
+            "guidance",
+            "skill",
+            "maxLength",
+            "seat",
+            "independent_of",
+            "shared",
+            "skill_mode",
+            "lane"
+        )
+    val NOTE_LANE: Set<String> = setOf("output", "after")
     val SEAT_ENTRY: Set<String> = setOf("name", "phase", "enters", "after", "reads_exclude", "transitions", "rules")
     val INDEPENDENCE: Set<String> = setOf("mode", "require_verified")
     val NOTE_LIMITS: Set<String> = setOf("mode")
@@ -1444,6 +1460,8 @@ internal object YamlSchemaParser {
         val skill = skills.firstOrNull() ?: (raw["skill"] as? String)
         val skillMode = parseSkillMode(raw["skill_mode"], skill != null || skills.isNotEmpty(), entryPath, warnings)
 
+        val lane = parseLane(raw["lane"], parsedRole, key, entryPath, warnings)
+
         val maxLengthRaw = raw["maxLength"]
         val maxLength =
             if (maxLengthRaw != null && maxLengthRaw !is Number) {
@@ -1507,7 +1525,88 @@ internal object YamlSchemaParser {
             shared = shared,
             skills = if (skills.isNotEmpty()) skills else listOfNotNull(skill),
             skillMode = skillMode,
+            lane = lane,
         )
+    }
+
+    /**
+     * Reads a review entry's `lane`: `output` (`verdict` or `findings`) and `after` (a note key or a list of them).
+     * Absent or null is no lane. Anything unusable is a soft finding and falls back to the default for that part.
+     */
+    private fun parseLane(
+        raw: Any?,
+        role: Role,
+        key: String,
+        entryPath: String,
+        warnings: ParseFindings
+    ): ReviewLane? {
+        if (raw == null) return null
+        val lanePath = "$entryPath/lane"
+        if (role != Role.REVIEW) {
+            warnings.soft(lanePath, "Note entry (key='$key') has 'lane' on a non-review note; ignoring")
+            return null
+        }
+        if (raw !is Map<*, *>) {
+            warnings.soft(lanePath, "Note entry (key='$key') 'lane' must be a map; ignoring")
+            return null
+        }
+        for (rawKey in raw.keys) {
+            if (rawKey !in ConfigKeyCatalog.NOTE_LANE) {
+                warnings.soft(
+                    "$lanePath/${ConfigValidator.escape(rawKey.toString())}",
+                    "Note entry 'lane' has unknown key '$rawKey'; ignoring"
+                )
+            }
+        }
+        val outputRaw = raw["output"]
+        val output =
+            if (outputRaw == null) {
+                LaneOutput.VERDICT
+            } else {
+                (outputRaw as? String)?.let { LaneOutput.fromConfigString(it) }
+                    ?: run {
+                        warnings.soft(
+                            "$lanePath/output",
+                            "Note entry 'lane.output' '$outputRaw' is not one of ${LaneOutput.entries.map { it.wire }}; using verdict"
+                        )
+                        LaneOutput.VERDICT
+                    }
+            }
+        return ReviewLane(output = output, after = parseLaneAfter(raw["after"], key, lanePath, warnings))
+    }
+
+    private fun parseLaneAfter(
+        raw: Any?,
+        key: String,
+        lanePath: String,
+        warnings: ParseFindings
+    ): List<String> {
+        val afterPath = "$lanePath/after"
+        val elements: List<*> =
+            when (raw) {
+                null -> return emptyList()
+                is String -> listOf(raw)
+                is List<*> -> raw
+                else -> {
+                    warnings.soft(afterPath, "Note entry 'lane.after' must be a note key or a list of note keys; ignoring")
+                    return emptyList()
+                }
+            }
+        val out = mutableListOf<String>()
+        for ((i, element) in elements.withIndex()) {
+            if (element !is String || element.isBlank()) {
+                warnings.soft("$afterPath/$i", "Note entry 'lane.after' element $i is not a non-blank string; ignoring the whole after")
+                return emptyList()
+            }
+            if (element == key) {
+                warnings.soft("$afterPath/$i", "Note entry 'lane.after' names the entry's own key '$element'; ignoring that element")
+            } else if (element in out) {
+                warnings.soft("$afterPath/$i", "Note entry 'lane.after' names '$element' twice; ignoring the later copy")
+            } else {
+                out += element
+            }
+        }
+        return out
     }
 
     /**

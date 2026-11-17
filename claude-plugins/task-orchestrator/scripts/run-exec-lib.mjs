@@ -2205,7 +2205,12 @@ export function reportFields(doc, opts = {}) {
  * `<seat>.<skill>` when a note names one skill, `<seat>.<a>--<b>` for several (in order), else the seat alone (no
  * framework is assumed). A note's skills are its `skills` array when non-empty, else its `skill` string. The stage
  * carries `skillMode: 'method-on-diff'` only when the note says so; two notes in one lane that disagree throw.
- * Throws 'invalid args: ...' for an unknown short, an item with no review notes or a lane that mixes skill modes.
+ * A note's declared `lane` (from the item's schema) gives the stage its output: 'findings-v1' iff
+ * `lane.output === 'findings'`, else 'review-v1'. `lane.after` keys name other review notes; the stage's `after` is
+ * the ids of the lanes holding them (deduped, first-seen order, set only when non-empty). Cycles are the workflow
+ * preflight's check, not this one.
+ * Throws 'invalid args: ...' for an unknown short, an item with no review notes, a lane that mixes skill modes or
+ * outputs, or an `after` key that names no lane of the item or the note's own lane.
  */
 export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
   const { plan } = resolvePlan(core, doc)
@@ -2242,10 +2247,29 @@ export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
             : []
       const mode = n.skillMode === 'method-on-diff' ? 'method-on-diff' : 'invoke'
       const key = skills.length > 0 ? `${seat}.${skills.join('--')}` : seat
-      if (!groups.has(key)) groups.set(key, { seat, skills, mode, notes: [] })
+      const output = n.lane && n.lane.output === 'findings' ? 'findings-v1' : 'review-v1'
+      if (!groups.has(key)) groups.set(key, { seat, skills, mode, output, notes: [] })
       const group = groups.get(key)
       if (group.mode !== mode) throw new Error(`invalid args: ${item.short} lane ${key} mixes skill modes`)
+      if (group.output !== output) throw new Error(`invalid args: ${item.short} lane ${key} mixes lane outputs`)
       group.notes.push(n.key)
+    }
+    const laneOfNote = new Map()
+    for (const [lane, g] of groups) for (const k of g.notes) laneOfNote.set(k, lane)
+    for (const [lane, g] of groups) {
+      g.after = []
+      for (const n of reviewNotes) {
+        if (laneOfNote.get(n.key) !== lane) continue
+        const named = n.lane && Array.isArray(n.lane.after) ? n.lane.after : []
+        for (const x of named) {
+          const target = laneOfNote.get(x)
+          if (target === undefined) {
+            throw new Error(`invalid args: ${item.short} note ${n.key} is after ${x}, which is in no lane`)
+          }
+          if (target === lane) throw new Error(`invalid args: ${item.short} lane ${lane} is after itself`)
+          if (!g.after.includes(target)) g.after.push(target)
+        }
+      }
     }
     const stages = []
     for (const [lane, g] of groups) {
@@ -2260,8 +2284,9 @@ export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
         writes: false,
         protocol: 'protocol.read-only-agent',
         dispatch,
-        output: 'review-v1',
+        output: g.output,
       }
+      if (g.after.length > 0) stage.after = g.after.slice()
       if (g.skills.length > 0) stage.skills = g.skills.slice()
       if (g.mode === 'method-on-diff') stage.skillMode = 'method-on-diff'
       const seatRules = item.reviewRules && item.reviewRules[g.seat]

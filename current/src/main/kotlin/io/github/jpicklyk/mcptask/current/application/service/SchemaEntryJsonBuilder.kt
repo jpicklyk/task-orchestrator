@@ -109,6 +109,15 @@ fun buildFullSchemaEntriesJson(
                 if (entry.shared) {
                     put("shared", JsonPrimitive(true))
                 }
+                entry.lane?.let { lane ->
+                    put(
+                        "lane",
+                        buildJsonObject {
+                            put("output", JsonPrimitive(lane.output.wire))
+                            if (lane.after.isNotEmpty()) put("after", JsonArray(lane.after.map { JsonPrimitive(it) }))
+                        }
+                    )
+                }
             }
         }
     )

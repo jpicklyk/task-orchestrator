@@ -480,7 +480,7 @@ when given (one fixed order: per-root type, global type, per-root `default`, glo
 config). The `itemId` path resolves the item's fully trait-merged schema over its own `rootId` (a pinned item over
 its pinned config versions and base schema, so `configFingerprint` is the pinned layer's). The view is
 `{type, configFingerprint, configSource, schemaVersion?, stale?, notes: [{key, role, required, description,
-guidance?, skill?, skills?, skillMode?, maxLength?, seat?, independentOf?, shared?}], dispatch?, resources?, seats?, dispatchBySeat?, features}`;
+guidance?, skill?, skills?, skillMode?, maxLength?, seat?, independentOf?, shared?, lane?}], dispatch?, resources?, seats?, dispatchBySeat?, features}`;
 `schemaVersion` and `stale` are the item's pin view as in the full item view (item path only). Seats,
 dispatch and the type-path vs item-path difference are described in
 [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seats-trait--schema-dimension).

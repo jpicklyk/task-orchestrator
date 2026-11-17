@@ -391,7 +391,7 @@ The shipped workflows, each launched on its own terms:
 
 - `audit` — read-only report + proposal; materializing its findings goes through [create-item](../../../claude-plugins/task-orchestrator/skills/create-item/SKILL.md#from-a-workflow-findings-proposal). Cost scales with the preset: `quick`, `standard` or `full`; `full` runs roughly 90 minutes and about 30M tokens.
 - `retro-analysis` — two modes. `deep` is invoked via `/session-retrospective --deep`; `audit` is a standalone sweep whose consumer is the session-retrospective skill's "Audit sweep" paragraph (present the result, then apply Step 6's create and retire shapes after the user confirms).
-- `review-wave` — independent review lanes over an item's owned-file diff, aggregated into one verdict in args order. Shipped; the `run-wave` front door does not build its lanes yet (args are hand-built until C1-productize).
+- `review-wave` — independent review lanes over an item's owned-file diff, aggregated into one verdict in args order. Verdict lanes (the default) decide the verdict; a lane whose review notes declare `lane.output: findings` reports findings only and never sets it, though its stopped status still stops the item; `lane.after` orders lanes and never halts or skips one. Shipped; the `run-wave` front door does not build its lanes yet (args are hand-built until C1-productize).
 
 ---
 

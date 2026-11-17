@@ -70,6 +70,7 @@ For each note in each schema (and trait):
 - `guidance` — optional, must be a string if present
 - `skill` — optional; a string, or a non-empty list of distinct non-blank strings (invocation order)
 - `skill_mode` — optional; `invoke` (default) or `method-on-diff`, and only with a `skill`
+- `lane` — optional, review notes only (ignored elsewhere); a map with `output` (`verdict` default, or `findings`) and `after` (a note key or a list of keys of other review notes, whose lanes run first)
 - `shared` — optional; must be a boolean if present (`true` exempts the key from note ownership)
 
 ### 5. Field Quality

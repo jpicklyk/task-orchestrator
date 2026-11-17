@@ -77,6 +77,28 @@ const REVIEW_OUTPUT_SCHEMAS = {
       notesFilled: { type: 'array', items: { type: 'string' } },
     },
   },
+  // A findings lane reports findings only; it never sets or changes the item verdict.
+  'findings-v1': {
+    type: 'object',
+    required: ['findings', 'notesFilled'],
+    properties: {
+      findings: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['confidence', 'file', 'line', 'expected', 'found'],
+          properties: {
+            confidence: { enum: ['high', 'medium', 'low'] },
+            file: { type: 'string' },
+            line: { type: 'integer' },
+            expected: { type: 'string' },
+            found: { type: 'string' },
+          },
+        },
+      },
+      notesFilled: { type: 'array', items: { type: 'string' } },
+    },
+  },
 }
 
 /** normalizePath(p) -> string. Turns `\` into `/`, strips a leading `./`, lowercases a drive letter. */
@@ -178,8 +200,12 @@ function normalizeArgs(raw) {
       if (st.phase !== 'review') return { ok: false, reason: 'invalid args: bad stage phase' }
       if (st.writes !== false) return { ok: false, reason: 'invalid args: stage writes must be false' }
       if (st.protocol !== PROTOCOL_KEY) return { ok: false, reason: 'invalid args: bad stage protocol' }
-      if (st.output !== 'review-v1') {
+      if (typeof st.output !== 'string' || !Object.prototype.hasOwnProperty.call(REVIEW_OUTPUT_SCHEMAS, st.output)) {
         return { ok: false, reason: 'invalid args: bad stage output' }
+      }
+      if (st.after !== undefined &&
+          (!Array.isArray(st.after) || st.after.some((x) => typeof x !== 'string' || x === ''))) {
+        return { ok: false, reason: 'invalid args: bad stage after' }
       }
       if (st.skillMode !== undefined && !SKILL_MODES.includes(st.skillMode)) {
         return { ok: false, reason: 'invalid args: bad stage skillMode' }
@@ -225,17 +251,31 @@ function preflightItem(item) {
     if (Array.isArray(st.readsExclude) && st.readsExclude.length > 0) {
       return 'readsExclude not allowed in review-wave'
     }
-    if (Array.isArray(st.after) && st.after.length > 0) {
-      return 'after not allowed in review-wave'
-    }
   }
   const lanesSeen = new Set()
   for (const st of item.stages) {
     if (lanesSeen.has(st.lane)) return `duplicate lane ${st.lane}`
     lanesSeen.add(st.lane)
   }
-  const reviewLanes = item.stages.filter((s) => s.output === 'review-v1')
-  if (reviewLanes.length === 0) return 'no review lanes'
+  for (const st of item.stages) {
+    for (const x of st.after || []) {
+      if (x === st.lane || !lanesSeen.has(x)) return `lane ${st.lane} after ${x} names no sibling lane`
+    }
+  }
+  const unscheduled = new Set(item.stages.map((s) => s.lane))
+  for (let progressed = true; progressed && unscheduled.size > 0;) {
+    progressed = false
+    for (const st of item.stages) {
+      if (unscheduled.has(st.lane) && (st.after || []).every((x) => !unscheduled.has(x))) {
+        unscheduled.delete(st.lane)
+        progressed = true
+      }
+    }
+  }
+  const cyclic = item.stages.find((s) => unscheduled.has(s.lane))
+  if (cyclic) return `after cycle at lane ${cyclic.lane}`
+  if (!item.stages.some((s) => s.output === 'review-v1')) return 'no review lanes'
+  const reviewLanes = item.stages
   for (const st of reviewLanes) {
     if (!st.notes || st.notes.length === 0) return `lane ${st.lane} owns no notes`
   }
@@ -501,6 +541,10 @@ function promptEntryVerdict(stage) {
       `VERDICT: set output.verdict to one of ${JSON.stringify(VERDICTS)}. ` +
         "independence.mode === 'not-independent' forces verdict fail-blocking."
     )
+  } else if (stage.output === 'findings-v1') {
+    lines.push(
+      'FINDINGS LANE: return output.findings and output.notesFilled only. This lane sets no verdict, and its findings never decide the verdict of the item.'
+    )
   }
   return lines.join('\n')
 }
@@ -556,6 +600,7 @@ function mapLaneResult(stage, env) {
   if (missingKey !== undefined) {
     return { status: 'stopped', reason: `note ${missingKey} missing`, verdict: null }
   }
+  if (stage.output === 'findings-v1') return { status: 'done', reason: env.reason, verdict: null }
   const mode = env.output && env.output.independence && env.output.independence.mode
   const verdict = mode === 'not-independent' ? 'fail-blocking' : env.output && env.output.verdict
   return { status: 'done', reason: env.reason, verdict }
@@ -563,8 +608,8 @@ function mapLaneResult(stage, env) {
 
 /**
  * aggregateVerdict(laneResults) -> {status, verdict, reason}
- * laneResults in args order, each {lane, output, status, reason, verdict}. Only
- * output:'review-v1' lanes are considered.
+ * laneResults in args order, each {lane, output, status, reason, verdict}. Verdicts come from
+ * output:'review-v1' lanes only; a stopped or deferred lane of any output still stops the item (its notes are unfilled).
  */
 function aggregateVerdict(laneResults) {
   const considered = laneResults.filter((r) => r.output === 'review-v1')
@@ -572,7 +617,7 @@ function aggregateVerdict(laneResults) {
   if (failLanes.length > 0) {
     return { status: 'stopped', verdict: 'fail-blocking', reason: `review-fail ${failLanes.join(',')}` }
   }
-  const bad = considered.find((r) => r.status === 'stopped' || r.status === 'deferred')
+  const bad = laneResults.find((r) => r.status === 'stopped' || r.status === 'deferred')
   if (bad) {
     const laneReason = bad.reason
     const verbatim =
@@ -650,12 +695,28 @@ async function callLane(plan, item, stage, deps) {
 
 /**
  * runItem(plan, item, deps) -> {id, short, status, verdict, reason, lanes, observations}
- * deps = {agent, log}. Every lane starts at once. `lanes` and `observations` are ordered by the
- * item's own stages.
+ * deps = {agent, log}. A lane starts once every lane in its `after` has settled (any status); a lane with no
+ * `after` starts at once. `lanes` and `observations` are ordered by the item's own stages.
  */
 async function runItem(plan, item, deps) {
   const stages = item.stages
-  const laneResults = await Promise.all(stages.map((st) => callLane(plan, item, st, deps)))
+  const byLane = new Map(stages.map((st) => [st.lane, st]))
+  const started = new Map()
+  const launch = (st) => {
+    if (!started.has(st.lane)) {
+      started.set(
+        st.lane,
+        (async () => {
+          await null // register before resolving siblings
+          const named = (st.after || []).filter((x) => x !== st.lane && byLane.has(x))
+          await Promise.all(named.map((x) => launch(byLane.get(x))))
+          return callLane(plan, item, st, deps)
+        })()
+      )
+    }
+    return started.get(st.lane)
+  }
+  const laneResults = await Promise.all(stages.map((st) => launch(st)))
 
   // Args order, not completion order (aggregateVerdict/observations/lanes must be deterministic).
   const orderedResults = laneResults
@@ -676,7 +737,7 @@ async function runItem(plan, item, deps) {
   return {
     id: item.id, short: item.short, status: agg.status, verdict: agg.verdict, reason: agg.reason,
     lanes: orderedResults.map((r) => ({
-      lane: r.lane, status: r.status, verdict: r.verdict, reason: r.reason, notes: r.notes,
+      lane: r.lane, output: r.output, status: r.status, verdict: r.verdict, reason: r.reason, notes: r.notes,
       findingsCount: r.findingsCount, findings: r.findings, modelReported: r.modelReported,
       agentTypeFallback: r.agentTypeFallback,
     })),
