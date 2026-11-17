@@ -10,6 +10,7 @@ import os from 'os';
 import { readSection, scalar, inlineScalar } from './yaml-lite.mjs';
 import { sessionMarkerPath, readMarker, writeMarker } from './lib/markers.mjs';
 import { callOp, apiBaseUrl } from './lib/api-client.mjs';
+import { parseEnvelopeText } from './lib/envelope.mjs';
 import { forClass } from '../scripts/lib/dispatch-policy.mjs';
 
 const VALID_MODES = ['nudge', 'dispatch', 'off'];
@@ -244,20 +245,22 @@ export function directiveFor(result, located, { director = false, transcriptPath
 //   3. Single content block:     { type: "text", text: "<json>" }
 //   4. Already-parsed payload:   { results: [...], summary: {...} } — returned as-is
 //   5. Raw JSON string:          "<json>"
+// A text that is not JSON as a whole is read as a 4.0 MCP error text (`<code>: <message>`, a newline,
+// the error envelope) through parseEnvelopeText, which returns the envelope or null.
 // Returns null on any failure (fail-open) so callers stay silent on unknown shapes.
 export function extractResponseJson(toolResponse) {
   try {
     if (toolResponse == null) return null;
-    if (typeof toolResponse === 'string') return JSON.parse(toolResponse);
+    if (typeof toolResponse === 'string') return parseEnvelopeText(toolResponse);
     if (Array.isArray(toolResponse)) {
       const block = toolResponse.find((b) => b && typeof b.text === 'string');
-      return block ? JSON.parse(block.text) : null;
+      return block ? parseEnvelopeText(block.text) : null;
     }
     if (Array.isArray(toolResponse.content)) {
       const block = toolResponse.content.find((b) => b && typeof b.text === 'string');
-      return block ? JSON.parse(block.text) : null;
+      return block ? parseEnvelopeText(block.text) : null;
     }
-    if (typeof toolResponse.text === 'string') return JSON.parse(toolResponse.text);
+    if (typeof toolResponse.text === 'string') return parseEnvelopeText(toolResponse.text);
     if (toolResponse.results !== undefined || toolResponse.summary !== undefined) return toolResponse;
     return null;
   } catch {
