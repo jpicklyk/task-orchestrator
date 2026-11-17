@@ -277,8 +277,8 @@ from. Automatically retrying hides these signals.
    )"
    ```
 3. Run front door "Merge gate" (the gate), then its cleanup.
-4. Once the gate reports `MERGED`, advance the item to terminal (Final `complete`), then record
-   the merge in `session-tracking` `Outcome:`.
+4. Once the gate reports `MERGED`, advance the item to terminal (Final `complete`). No note is
+   edited after the merge.
    ```to-call
    {"tool":"advance","op":"transition","args":{"itemId":"4b7d0e19","trigger":"complete"}}
    ```

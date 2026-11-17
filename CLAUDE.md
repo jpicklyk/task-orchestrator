@@ -87,5 +87,5 @@ Never pipe `./gradlew` output to `tail`; run it directly and read the full outpu
 
 ## Git workflow
 
-- The PR boundary is the parent feature: the children of a Parallel-tier feature commit to one shared `feat/<slug>` worktree branch and one PR opens when the parent reaches terminal; a Direct or Delegated item gets its own branch and PR. Procedure: the `implement` skill (`.claude/skills/implement/SKILL.md`, then `wave.md`, `direct.md` or `delegated.md`).
+- The PR boundary is the parent feature: the children of a Parallel-tier feature commit to one shared `feat/<slug>` worktree branch, one PR opens once every child is terminal, and the parent completes after that PR is `MERGED`; a Direct or Delegated item gets its own branch and PR and completes after it merges. Procedure: the `implement` skill (`.claude/skills/implement/SKILL.md`, then `wave.md`, `direct.md` or `delegated.md`).
 - Conventional commits referencing the issue; all tests pass before a commit; squash-merge via PR; never force-push `main`. After a merge: `git checkout main && git pull origin main && git branch -D <branch>`.

@@ -392,11 +392,13 @@ merge, step 8):
 
 ### Per-item mode - one PR per item
 
-For each item, once its review passes (or it is review-less): its own PR from its own branch, per
-front door "Merge gate" (Commit form, CHANGELOG check and Docs line, the gate), with a single-item
-PR body (Summary, Test Results, Review, Docs, Changelog, MCP item id). While the run is open, the
-item's `orchestrator-confirmation` goes under the coordinator token. Its advance to terminal
-(`trigger: "complete"`) follows its PR's `MERGED` (front door "Merge gate", Final `complete`),
+For each item, once its review passes, or once `post-run.md` Step 4 has completed it (a
+review-less item): its own PR from its own branch, per front door "Merge gate" (Commit form,
+CHANGELOG check and Docs line, the gate), with a single-item PR body (Summary, Test Results,
+Review, Docs, Changelog, MCP item id). While the run is open, the item's
+`orchestrator-confirmation` goes under the coordinator token. A reviewed item's advance to
+terminal (`trigger: "complete"`) follows its PR's `MERGED` (front door "Merge gate", Final
+`complete`); a review-less item is already terminal and takes no further advance. That advance runs
 under the coordinator token while the run is open; a token-less write to an orchestrator-seat key of a run member is refused
 (`post-run.md` Step 3). When every item has its verdict, close the run with `post-run.md` Step 7. A
 parent with 2+ children and a review phase gets `post-run.md` Step 7b's feature closure once its

@@ -5,10 +5,13 @@ Test code has one owner per case: the test-author seat when the item carries `ne
 otherwise the orchestrator; the orchestrator's contract-change sweep owns construction repairs.
 Keeping the trees apart is what makes the tests an independent check on the implementation.
 
-**In a run.** A run member whose planner lists new test files needs a test-author seat, from a
-trait that declares one (`needs-test-author` here). Without one, run-wave stops the member after
-its planner (`no-test-owner`), before any implementer runs; the orchestrator does not take those
-files over.
+**In a run.** A seat-aware run member whose planner lists new test files needs a test-author
+seat, from a trait that declares one (`needs-test-author` here). Without one, run-wave stops the
+member after its planner (`no-test-owner`), before any implementer runs; the orchestrator does not
+take those files over. A seat-less member (its implementer stage is `implicitOwner`, as on a
+schema that declares no seats) is not stopped: its implementer is given the planner's test files
+to write and commit, against the first sentence of this rule. Whether that exemption stays is an
+open design question, tracked in item 21b8064f.
 
 1. **Dispatch.** Every implementation dispatch excludes `src/test/**` from scope and says so: "Do NOT
    create or modify any file under src/test/**; if the change surfaces a needed test update, report

@@ -234,9 +234,9 @@ update-branch), before merge.
   the worktree, if the work had one). Local `main` always tracks `origin/main` — no divergence,
   no `reset --hard` needed.
 - **Final `complete`.** An item with its own PR (Direct, Delegated, a per-item wave item, a
-  shared-mode parent) completes only after the `MERGED` check above; then `session-tracking`
-  `Outcome:` records the merge (a run member: as `post-run.md` Step 3 sanctions). Exceptions: a
-  shared-mode child (`wave.md` Step 6) and a review-less run member (`post-run.md` Step 4).
+  shared-mode parent) completes only after the `MERGED` check above. No note is rewritten after
+  the merge; the merged PR is the record. Exceptions: a shared-mode child (`wave.md` Step 6) and
+  a review-less run member (`post-run.md` Step 4).
 
 ### After merge
 
@@ -274,8 +274,10 @@ step below. Always call `items_read` `context` (`itemId`) first to determine exa
 | queue (notes filled) | Step 3 — advance and proceed |
 | queue (notes missing) | Step 3 — fill missing notes |
 | work (in progress) | Step 4 — check implementation state |
-| work (notes filled) | Step 4c — advance out of work |
-| review | Step 5 — run review |
+| work (notes filled, no PR yet) | Step 4c - advance out of work |
+| work (review-less, PR open) | front door "Merge gate": wait for `MERGED`, then Final `complete`; Step 4c is not repeated |
+| review (no verdict yet) | Step 5 - run review |
+| review (verdict passed, PR open) | front door "Merge gate": wait for `MERGED`, then Final `complete`; the review is not run again |
 | terminal | Already done — report status |
 | an open run found (run-wave preflight F7) | `wave.md`: `/task-orchestrator:run-wave --resume <runId>` |
 
