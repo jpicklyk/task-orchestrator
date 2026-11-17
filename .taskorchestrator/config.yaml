@@ -328,7 +328,7 @@ traits:
 
   needs-test-author:
     description: "Adds the test-author seat with test-plan, test-manifest and test-independence-audit notes, so tests are written blind to the implementation."
-    applies_when: "an acceptance criterion involves a predicate, algorithm, parser, validator or state transition, or on a force-ON signal (new public API, migration, security predicate, prior vacuous-test finding in the area); bug-fix carries it by default; no other type carries it. On Direct tier it applies to bug-fix only, in temporal-only degraded mode (test-plan gate and red-first still apply, one actor, no separate seat)."
+    applies_when: "bug-fix carries it by default; on a feature-task, when an acceptance criterion involves a predicate, algorithm, parser, validator or state transition, or on a force-ON signal (new public API, migration, security predicate, prior vacuous-test finding in the area); no other type carries it. On Direct tier it applies to bug-fix only, in temporal-only degraded mode (test-plan gate and red-first still apply, one actor, no separate seat)."
     seats:
       - { name: test-author, phase: work, after: [implementer], reads_exclude: [implementation-notes, session-tracking] }
     notes:
