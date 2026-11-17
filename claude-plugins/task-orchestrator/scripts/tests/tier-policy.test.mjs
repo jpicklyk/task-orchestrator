@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import {
   TIER_NAMES, tierPolicy, mergeTierOverride, loadTierOverride, renderTierBlock,
-  loadPolicy, forClass,
+  loadPolicy, forClass, classNames,
 } from '../lib/dispatch-policy.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -608,7 +608,11 @@ describe('S13 policy without tiers', () => {
   });
 
   test('the shipped policy still loads and classes are unchanged in shape', () => {
+    // Literals from the pre-existing dispatch-policy.test.mjs (committed before this item).
     assert.doesNotThrow(() => loadPolicy());
-    assert.ok(forClass('review'));
+    assert.equal(classNames().length, 11);
+    assert.deepEqual(loadPolicy().models, ['opus', 'sonnet', 'haiku', 'fable']);
+    assert.deepEqual(forClass('review'), { model: 'opus', effort: 'high' });
+    assert.deepEqual(forClass('implementation'), { model: 'sonnet', effort: 'medium' });
   });
 });
