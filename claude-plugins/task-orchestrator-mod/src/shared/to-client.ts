@@ -2,7 +2,7 @@
 // itself in the module that owns `$` (the plugin validator refuses `$` passed across an import).
 //
 // A 4.0 result carries its envelope `{ok, data | error{code, kind, message, detail}, meta}` only in
-// `structuredContent`; the text content is just `ok` or `<code>: <message>`, and `isError` is `!ok`, so a
+// `structuredContent`; the text content is `ok` or `<code>: <message>` plus a JSON tail line, and `isError` is `!ok`, so a
 // partly failed batch is `isError: true` with `data.results`. Read the envelope, never the text.
 //
 // A `$.mcp.call` raises `tool.call` and `classic.PostToolUse` like a model's call does, so the TO command
