@@ -15,8 +15,10 @@ orchestrator arbitrates, with exactly three dispositions.
    keeps the oracle, not a case-2 oracle change. A case-2 fix keeps the S-id's oracle assertion, and
    the re-dispatch prompt names that oracle. Once cited, re-dispatch the test author, scoped to
    `src/test/**` only.
-3. **Spec wrong or silent.** Escalate to the user. Amend `task-scope` or `diagnosis` first, then
-   dispatch whichever side the amendment implicates.
+3. **Spec wrong or silent.** Escalate to the user. Record the ruling in `amendments` (a
+   `planner-a<n>` seat writes it), or `## Amendment A<n>` in `specification` where the schema has
+   no `amendments` key; never edit the frozen planning note. Then dispatch whichever side the
+   amendment implicates.
 
 **The ledger.** Record every arbitration of a red author-authored test in the child's
 `orchestrator-confirmation` (an orchestrator-owned note; written under the coordinator token while

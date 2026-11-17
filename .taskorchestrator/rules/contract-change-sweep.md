@@ -64,10 +64,9 @@ tells the sweep where to look first.
 - **Never** add or widen an `@Disabled` annotation as a repair.
 - Adopted from proposals `82034e9a` and `31a1abeb`; the negative-claim line in §3 from `ef33c175`,
   whose general rule (every negative or exhaustive claim names its sweep, or says "not checked")
-  lives in `.claude/skills/spec-quality/SKILL.md` → Blast Radius. The planning seat's
+  is rule `planning-sweeps` point 6. The planning seat's
   `defect-class-siblings` field (proposal `bb191508`) is its special case.
 - Declare each repair commit in the wave's Review scoping commit map (implementer commits /
   author commits / declared notes), alongside which tightening it answers.
-- This sweep is `/implement` `wave.md` Step 4's "Contract-change sweep discipline" -- it runs between the
-  implementation wave and the orchestrator's build verification, before any child advances to
-  review.
+- This sweep runs between the implementation seats and the orchestrator's build verification,
+  before any item advances to review.
