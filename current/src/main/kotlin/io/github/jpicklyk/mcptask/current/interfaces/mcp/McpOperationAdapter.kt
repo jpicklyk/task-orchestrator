@@ -249,13 +249,12 @@ class McpOperationAdapter(
         /**
          * The text content: `ok`, or [summary] and a newline and the compact JSON tail, always the last line. The tail is
          * the envelope body; for `partial_failure` its `data.results` is cut to the failing entries (each `{index, ...entry}`,
-         * ascending, first [TAIL_MAX_FAILED]) with `data.summary` unchanged. `internal` keeps the fixed text.
+         * ascending, first [TAIL_MAX_FAILED]) with `data.summary` unchanged. An `internal` error carries the tail too; its
+         * message is already the fixed text, so no exception text reaches the client.
          */
         private fun text(body: JsonObject): String {
             val line = summary(body)
             if (ok(body)) return line
-            val error = body["error"] as? JsonObject
-            if ((error?.get("code") as? JsonPrimitive)?.contentOrNull == "internal") return line
             return line + "\n" + tail(body).toString()
         }
 
