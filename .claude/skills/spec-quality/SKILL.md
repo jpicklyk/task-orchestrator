@@ -80,18 +80,13 @@ against it before any child item inherits it: a wrong path in an approved plan r
 child's spec note and its review verdict unchallenged. If a plan still ships an unverified path,
 add a mechanical check (every path a plan names must resolve on disk) rather than more prose.
 
-**Semantic claims carry a file:line.** Any sentence that states nullability, redaction,
-ownership, or an honest limit (what a guard does NOT cover) cites the `file:line` that
-establishes it. This holds for spec notes and for everything written from them — a CHANGELOG
-bullet, an API doc line, a hook or KDoc header comment. Worked case: the spec and a hook header said note attribution is shown only
+**Semantic claims carry a file:line**, per rule `review-cited-claims` points 1 and 4. Worked case: the spec and a hook header said note attribution is shown only
 when the caller is ADMIN and the flag is false; the code redacted only when
 `redactNoteAttribution && !isAdmin`, so it was shown when ADMIN OR the flag was false. The 4.0
 rule lives at `interfaces/api/v1/ops/OpsAccess.kt:22` (`attributionVisible = !redactNoteAttribution || ADMIN`). The error
 survived from spec to header because the sentence was written from intent and no line was
-opened. For a NEW-SURFACE claim with no code yet, cite the spec decision that fixes the
-behavior and mark the claim for the reviewer to confirm in the diff. Prose that is not a
-semantic claim needs no citation - this is not a blanket citation rule. Authors hold their own
-notes to this standard (rule `review-cited-claims` rule 4).
+opened. Prose that is not a semantic claim needs no citation - this is not a blanket citation
+rule.
 
 ### Verification Commands
 
@@ -126,14 +121,8 @@ If the blast radius touches a surface with an automated budget, ceiling, or quot
 both the measured values and the predicted post-change values. Do not defer the
 measurement to implementation — by then the scope decision is already made.
 
-**Negative and exhaustive claims must name their sweep.** Any claim that something does
-not exist or that a list is complete ("zero callers", "no stubs", "nothing depends on
-this", "none found", "all sites") must be written as the command that produced it plus
-its scope and result count — for example
-`grep -rn "createSuspend" current/src → 0 hits (src/main + src/test)`. A negative claim
-with no named sweep is not a finding; write "not checked" instead. A sweep that covered
-only part of the surface states the part it covered, and the reader treats the remainder
-as unchecked, not as clear. The planning seat's `defect-class-siblings` return field is this rule's
+**Negative and exhaustive claims name their sweep** (rule `planning-sweeps` point 6). For
+example: `grep -rn "createSuspend" current/src → 0 hits (src/main + src/test)`. The planning seat's `defect-class-siblings` return field is this rule's
 special case for a bug's root-cause pattern; rule `planning-sweeps` covers fixed-list and script sweeps.
 
 ### Risk Flags
@@ -169,14 +158,8 @@ If the change modifies shared interfaces (domain models, repository contracts, t
 parameters), note which existing tests may break and how you'll handle that — update
 them, or confirm they still pass with the new behavior.
 
-**Give every scenario a stable numbered id and an oracle source.** Number scenarios
-sequentially (S1, S2, S3…) across all three coverage areas, and for each one record the
-oracle source the expected result comes from — a spec clause, a stated algorithm, or an
-external reference. Never "what the code returns," and never just the ticket's worked
-example restated as if it were independent confirmation. Stable ids let downstream
-artifacts map coverage back to this spec without duplicating it — most directly the
-`needs-test-author` trait's `test-plan` and `test-manifest` notes, which reference these
-same ids; cite the trait by name rather than restating its note schema here.
+**Give every scenario a stable numbered id and an oracle source**, per rule `test-author`
+sections 2 and 3; `test-plan` and `test-manifest` reference the same ids.
 
 **State matrix.** Rule `live-checks` holds the rows, columns, cell forms and the Live-owed hold.
 Required for a user-visible runtime change; otherwise one line, `State matrix: n/a - <reason>`.

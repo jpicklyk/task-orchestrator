@@ -1,7 +1,7 @@
 # Dispatch contract template
 
 Copy everything below the horizontal rule into the wave's plan file at `/implement` `wave.md` Step 2 for
-every Parallel-tier run (3+ children), fill every `<placeholder>`, and reference the result by
+every shared wave, fill every `<placeholder>`, and reference the result by
 its **absolute path** from every hand-dispatch and review prompt.
 
 - **Where the file lives.** `plans/` is gitignored, so the plan file exists only in the MAIN
@@ -142,15 +142,15 @@ Run ONCE, via the lock helper, before committing:
   routine foreign noise to the orchestrator; an own-file failure reported that way surfaces only
   at the full-suite run (proposal `b82537e4`).
 
-**Who runs gradle in this wave** (the single statement; every other slot, prompt and skill step
-points here instead of restating it):
+**Who runs gradle in this wave.** Rule `test-author` section 5 points 10-11 decide who runs what
+and when; this table keeps this repo's mechanics (lock helper, `-TestFiles`, `TO_GRADLE_OWNER`).
 
 | Seat | Gradle it runs |
 |---|---|
 | Implementer | The three pinned tasks above, ONCE, through the lock helper. Plus, at most once more, a SCOPED run of the test classes in the packages it changed: `-TestFiles "<those test files>"` (the helper maps them to `--tests`). Never bare `:current:test`, never `:current:ktlintCheck`, never `--rerun-tasks` — the helper refuses them. |
 | Test author | The three pinned tasks above, ONCE, through the lock helper. Plus scoped runs of ITS OWN test files (`-TestFiles`, the run plan's `<ownedTests>`) to see them red and then green. The same three nevers; a `VERIFY` line in `test-manifest` that cites a whole-suite count is a contract breach, not evidence. |
 | Hand-dispatched post-run seats (fix implementer, `<seat>-a<n>`, a second test author, a docs seat) | Exactly their base seat's row. Being dispatched outside the run plan does not lift the rule; the prompt points at this table like any other. |
-| Orchestrator | `:current:test` and `:current:ktlintCheck` ONCE for the whole wave, serialized, after the last writer seat commits and before any PR opens — with `TO_GRADLE_OWNER=orchestrator` set inline on that call. `--rerun-tasks` only on the run after a dependency or Gradle upgrade, never routinely. Red-proofs: the bug-fix revert (and the coupled-authorship checks) per item before merge; the decision-point budget mutations at the wave boundary, after the PR merges, batched across the wave (`run-wave` `post-run.md` Step 7a; `/implement` "After merge"). |
+| Orchestrator | `:current:test` and `:current:ktlintCheck` through the lock helper, with `TO_GRADLE_OWNER=orchestrator` set inline on that call. `--rerun-tasks` only on the run after a dependency or Gradle upgrade, never routinely. |
 | Reviewer | None. The build state reviewers rely on is recorded in the Review scoping slot; a reviewer who wants a number reads it there or asks the orchestrator. A doubted red-proof result is re-run scoped (`-TestFiles`), never as the whole suite. |
 
 ## File ownership
@@ -168,7 +168,7 @@ else the `implementation` class, and change them by applying a model-selection t
 The last column is the ONLY way an author may touch a file it did not create: a contract change
 that invalidates an existing test is declared here, named down to the edit, before dispatch —
 never discovered and performed mid-wave. An undeclared edit to an existing test file is a scope
-breach under rule `review-scoping` item 4 and rule `test-author` section 7, and its absence from
+breach under rule `review-scoping` point 4 and rule `test-author` section 7, and its absence from
 this column is what makes that rule checkable. Anything listed here is also declared in the Review scoping commit map.
 
 **Shared files: re-read immediately before editing.** Before editing a file you share ownership

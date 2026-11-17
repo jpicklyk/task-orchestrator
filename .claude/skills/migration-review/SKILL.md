@@ -19,7 +19,7 @@ table objects, to determine:
   2. Copy data from old table
   3. Drop old table
   4. Rename new table
-- **New tables** — a Flyway migration is the only place a table is defined (the Exposed table is a query mapping); there is no second table list to update
+- **New tables** - the migration defines the table; the Exposed table object and its `schema/snapshot/<table>.txt` change with it, and `SchemaParityTest` checks both (root `CLAUDE.md` "Flyway is the only schema path")
 - **Index changes** — `CREATE INDEX` / `DROP INDEX` work normally
 
 ## Step 2: SQLite Constraint Check

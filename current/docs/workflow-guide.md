@@ -260,8 +260,8 @@ work_item_schemas:
       - key: review-checklist
         role: review
         required: true
-        description: "Quality gate — plan alignment, test quality, and simplification review."
-        guidance: "Verify what was built aligns with the feature-summary, tests cover the test strategy, and any /simplify changes have test coverage."
+        description: "Quality gate — plan alignment and test quality review."
+        guidance: "Verify what was built aligns with the feature-summary and each child's task-scope, and that tests cover the test strategy from the planning notes."
 ```
 
 > The legacy `note_schemas:` flat-list format is still accepted. New configs should prefer `work_item_schemas:` for access to the `lifecycle:` and `default_traits:` fields.
@@ -394,7 +394,7 @@ A create returns no schema decoration. Read the notes the item expects with the 
     "notes": [
       { "key": "feature-summary", "role": "queue", "required": true, "description": "Lean feature-level summary - goal, findings-to-tasks mapping, dependency edges, non-goals pointer.", "guidance": "Cover the goal in 2-3 sentences, a findings->tasks mapping, dependency edges between child tasks, and a pointer to where non-goals and alternatives are recorded." },
       { "key": "implementation-notes", "role": "work", "required": true, "description": "Cross-child record - decisions, merges, carry-ins and deferrals no child's notes hold.", "guidance": "Cross-child record only: what no child's notes can hold. `Decisions:` ordering or interface choices made between children; `Merges:` a shared-worktree merge that changed a child's behaviour after its review (what, which child, sha); `Carry-ins:` findings routed between children (from -> to, child ids); `Deferred:` scope deliberately left to a follow-up feature (item id). Never re-list the children's commits, files, test counts or findings; each child's notes and `orchestrator-confirmation` hold them. When nothing crossed child boundaries, the whole body is the one line `No cross-child decisions; each child's notes stand alone.` and that satisfies the gate. Target ~300-1200 characters; the 3000 maxLength is a backstop, not a goal." },
-      { "key": "review-checklist", "role": "review", "required": true, "description": "Quality gate - plan alignment, test quality, and simplification review.", "guidance": "Verify what was built aligns with the feature-summary, tests cover the test strategy, and any /simplify changes have test coverage." }
+      { "key": "review-checklist", "role": "review", "required": true, "description": "Quality gate - plan alignment and test quality review.", "guidance": "Verify what was built aligns with the feature-summary and each child's task-scope, and that tests cover the test strategy from the planning notes." }
     ],
     "features": ["seats", "dispatchBySeat", "independent_of", "rules"]
   },

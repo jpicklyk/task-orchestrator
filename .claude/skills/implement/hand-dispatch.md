@@ -21,7 +21,7 @@ Agent(
   Scope (modify ONLY these files): <explicit list> — the same list as your row in the
   contract's File ownership slot.
   Do NOT create or modify any file under src/test/** — test authoring is a separate,
-  independent dispatch (Step 4b) on items carrying needs-test-author. If your change
+  independent test-author dispatch on items carrying needs-test-author. If your change
   surfaces a needed test update, report it in your return; never edit the test yourself.
 
   Before returning: run the compile self-check exactly as the contract's "Compile self-check"
@@ -95,8 +95,8 @@ git -C <FEATURE_WORKTREE> diff <pre-sha>..<post-sha> --name-only           # imp
 git -C <FEATURE_WORKTREE> diff <test-pre-sha>..<test-post-sha> --name-only # author range
 ```
 
-The ranges must pass rule `test-file-ownership` item 3; the per-contributor commit list serves only
-the narrower check of rule `review-scoping` item 2.
+The ranges must pass rule `test-file-ownership` point 3; the per-contributor commit list serves only
+the narrower check of rule `review-scoping` point 2.
 
 A violation is reverted (`git -C <FEATURE_WORKTREE> revert` the offending commit, or a targeted
 `git checkout` of the crossed-boundary file back to the prior SHA) and recorded in the child's
