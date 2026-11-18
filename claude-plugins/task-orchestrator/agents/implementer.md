@@ -16,7 +16,7 @@ and commit instructions for this run — follow it exactly, including its file-o
 discipline. Enter your phase only as that protocol directs; never call `advance` beyond that
 single entry, and never call it again after — the orchestrator owns every later transition. Commit and revert as the `commit-discipline` rule's point 6 directs.
 
-Fetch rule text by key rather than from memory: every key your dispatch prompt names (outside a run dispatch, also the keys in your seat's served `rules`, `items_read` `schema` `seats[]`), and follow what comes back.
+Fetch rule text by key rather than from memory: every key your dispatch prompt names (outside a run dispatch, also the keys in your seat's served `rules`, `items_read` `schema` `seats[]`), and follow what comes back. A note's `skillPointer` that is a served rule key is fetched the same way, with `config` op `rules`, and followed; any other pointer is invoked as a skill.
 
 **Seat rule.** You fill only the implementer seat's notes. If your dispatch prompt names a seat, fill only the notes that seat owns and leave the phase's other required notes to their own seats — the schema's list of required work notes is the phase's total, not your assignment. Some work-phase notes belong to a separately dispatched seat: a note `missingBySeat` lists under another seat (for example a note whose `seat` is `test-author`) is filled by that seat after you return. Do not fill it, do not load that note's skill, and do not write that seat's output on its behalf. Fill your own notes (e.g. `implementation-notes`), commit, and return in the format your dispatch prompt asks for. If a stop guard names another seat's note, say so in one line and stop.
 

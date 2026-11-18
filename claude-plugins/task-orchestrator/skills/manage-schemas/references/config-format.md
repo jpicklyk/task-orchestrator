@@ -149,7 +149,7 @@ in this set - see `SKILL.md` -> VALIDATE.
 A note entry's `skill` pointer doubles as more than a Skill-tool name: when it also names a rule
 key, it is resolvable through the `config` tool's `rules` op (`itemId` + `noteKey`) as client-neutral
 operating-rule TEXT, not just a skill invocation. This is a second, independent consumer of the same
-`skill` field - no new schema field, no config syntax change. A note whose `skill` names a served rule key (for example `skill: closure-notes`) reaches the run-wave queue- or work-phase seat that owns the note as a rule. On a review lane a note's skills are passed as skills only (the first through `skillPointer`) and are not fetched as rules; a review lane's rules come from its seat's `rules`.
+`skill` field - no new schema field, no config syntax change. A note whose `skill` names a served rule key (for example `skill: closure-notes`) reaches the run-wave seat that owns the note as a rule, on every phase: a review lane lists it with its seat's `rules`, and the note's other skills stay skills, invoked in order.
 
 - **Storage.** Rule text is stored per project root as a `rule` document (`kind: rule`, `slug` = the
   key) with the [`docs_write`](../../../../../current/docs/api-reference.md#docs_write) `upsert` op,

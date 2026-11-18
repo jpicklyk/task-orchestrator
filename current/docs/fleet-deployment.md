@@ -567,7 +567,7 @@ against a bearer/jwks server, a `TASK_ORCHESTRATOR_API_TOKEN` scoped with the `r
 token needed against an unauthenticated server). Without a reachable API URL it fails open — no
 subagent is ever blocked. See
 [integration-guides/plugin-skills-hooks.md](integration-guides/plugin-skills-hooks.md) for full
-hook behavior. The hook reads each marked item's gate with `items_read` `select: context` over `POST /api/v1/ops/items_read` (`data.gateStatus`, `seats`, `guidanceKey`) once per subagent stop; any non-ok answer never blocks that item.
+hook behavior. The hook reads each marked item's gate with `items_read` `select: context` over `POST /api/v1/ops/items_read` (`data.gateStatus`, `seats`, `guidanceKey`) once per subagent stop; any non-ok answer never blocks that item. When a block hint would name a `skillPointer` it also reads the root's rule list (`config` op `rules`, `read` capability) once per session.
 
 ---
 

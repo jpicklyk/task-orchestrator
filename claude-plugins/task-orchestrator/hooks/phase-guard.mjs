@@ -47,6 +47,12 @@
 // The gate is read with items_read select "context" over POST /api/v1/ops/items_read; with no API
 // URL the hook says so once per session (a systemMessage) and then stays silent.
 //
+// Skill pointer: when a block's hint would name the DTO's `skillPointer`, the hook reads the root's
+// served rule keys once (lib/served-rules.mjs, `config` op `rules`, rootId from the located config,
+// shared session marker, after the gate reads). A pointer that is a served rule key is hinted as a
+// rule to fetch; any other pointer keeps the "Invoke the <p> skill" hint. No hint, no block, no rootId
+// or an unanswered read: no change to the output.
+//
 // A2 independence-attestation violations: `gate.gateStatus.violations` (present only when
 // independence mode is not OFF and the resolved schema declares `independent_of` somewhere;
 // absent otherwise, in which case this hook behaves exactly as before A2). This hook honours a
@@ -63,6 +69,7 @@ import { apiBaseUrl, callOp } from './lib/api-client.mjs';
 import { readHookInput } from './lib/stdin.mjs';
 import { emitEmpty as writeEmpty, emitBlock as writeBlock, emitSystemMessage } from './lib/emit.mjs';
 import { createMarkerOnce, sessionMarkerPath } from './lib/markers.mjs';
+import { loadServedRuleKeys } from './lib/served-rules.mjs';
 import { locateConfig } from './config-locator.mjs';
 import { phaseGuardMarkerPath, readPhaseGuardMarker, writePhaseGuardMarker, SEAT_ROLE } from './phase-guard-record.mjs';
 import { isHeadlessIteration, phaseOwnerSeat, isTestAuthorAgentType } from './execution-mode.mjs';
@@ -130,13 +137,15 @@ function formatViolation(v) {
   return `${v.key} (${v.constraint})`;
 }
 
-function buildReason(blockers) {
+function buildReason(blockers, served = null) {
   const parts = blockers.map(({ gate, missing, hintValid, violationBlockers }) => {
     const uuid8 = gate.itemId.slice(0, 8);
     const hint = !hintValid
       ? ''
       : gate.skillPointer
-        ? ` Invoke the ${gate.skillPointer} skill for guidance.`
+        ? served && served.keys.has(gate.skillPointer)
+          ? ` Fetch rule "${gate.skillPointer}" with config op "rules" (rootId ${served.rootId}, key "${gate.skillPointer}") and follow it for guidance.`
+          : ` Invoke the ${gate.skillPointer} skill for guidance.`
         : gate.guidanceKey
           ? ` See guidance: ${gate.guidanceKey}.`
           : '';
@@ -255,7 +264,14 @@ async function main() {
     writePhaseGuardMarker(path, { items: marker.items, blocks: marker.blocks + 1, enteredRoles: marker.enteredRoles || {},
       contextReadSeen: marker.contextReadSeen,
     });
-    emitBlock(buildReason(blockers));
+    // Served rule keys, read lazily: only when a hint would name a skillPointer, and only with a rootId.
+    let served = null;
+    if (blockers.some((b) => b.hintValid && b.gate.skillPointer)) {
+      const rootId = locateConfig().rootId;
+      const keys = rootId ? await loadServedRuleKeys(hookInput.session_id, rootId) : null;
+      if (keys) served = { rootId, keys };
+    }
+    emitBlock(buildReason(blockers, served));
   } catch {
     emitEmpty();
   }

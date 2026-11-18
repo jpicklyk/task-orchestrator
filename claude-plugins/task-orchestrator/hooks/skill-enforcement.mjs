@@ -12,6 +12,11 @@
 // session (a systemMessage) and then stays silent; a failed or absent `effective` result writes no
 // marker and the hook is silent.
 //
+// A note's skill pointer that is a served rule key (one `config` op `rules` list read per session,
+// lib/served-rules.mjs, made only when advice would name a pointer) is advised as a rule to fetch,
+// not a skill to invoke; any other pointer keeps the SKILL SUGGESTED text. A failed or unanswered
+// rules read leaves today's text.
+//
 // Advisory only: this hook never blocks the call (additionalContext is non-blocking) and
 // never claims to. It warns at most once per (session, itemId, key) — see the marker
 // discipline below — so a concise-by-design note that keeps getting re-upserted does not
@@ -24,6 +29,7 @@ import { readHookInput } from './lib/stdin.mjs';
 import { emit, emitEmpty, emitSystemMessage } from './lib/emit.mjs';
 import { opsOf } from './lib/ops.mjs';
 import { sessionMarkerPath, readMarker, writeMarker, createMarkerOnce } from './lib/markers.mjs';
+import { loadServedRuleKeys, splitPointers } from './lib/served-rules.mjs';
 
 const FACTS_TIMEOUT_MS = 1500;
 const ITEM_ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{8,32})$/i;
@@ -170,6 +176,7 @@ function substantiveFloor(maxLengthMap, key) {
 
 // Check each note being upserted against skill requirements
 const warnings = [];
+const candidates = [];
 const newlyWarnedPairs = [];
 
 for (const note of ops) {
@@ -200,19 +207,39 @@ for (const note of ops) {
     PLACEHOLDER_PATTERNS.some(p => p.test(trimmedBody));
 
   if (!body || bodyLen < floor || isPlaceholder) {
-    warnings.push(
+    candidates.push({ key, skills });
+    newlyWarnedPairs.push(dedupKey);
+  }
+}
+
+if (candidates.length === 0) {
+  process.exit(0);
+}
+
+// Served rule keys, read once and only now that advice would name a pointer.
+const rootId = projectRootId(configContent);
+const servedKeys = rootId ? await loadServedRuleKeys(hookInput.session_id, rootId) : null;
+
+for (const { key, skills: names } of candidates) {
+  const { rules, skills } = splitPointers(names, servedKeys);
+  const paragraphs = [];
+  if (rules.length > 0) {
+    paragraphs.push(
+      `⊘ RULE SUGGESTED — the note "${key}" is schema-bound to served rule(s) ${rules.map((r) => `"${r}"`).join(', ')}. ` +
+      `If you have not already, fetch ${rules.map((r) => `rule "${r}"`).join(', then ')} with config op "rules" (rootId ${rootId}) ` +
+      `and follow it before finalizing this note. (Shown once per item+key per session.)`
+    );
+  }
+  if (skills.length > 0) {
+    paragraphs.push(
       `⊘ SKILL SUGGESTED — the note "${key}" is schema-bound to the ${skills.map((s) => `/${s}`).join(', ')} framework${skills.length > 1 ? 's' : ''}. ` +
       `If you have not already, invoke the Skill tool with ${skills.map((s) => `skill="${s}"`).join(', then ')} and incorporate ` +
       `its structured evaluation before finalizing this note. If the Skill tool reports ` +
       `'Unknown skill', the schema's skill pointer is invalid — log that as an observation ` +
       `instead of retrying. (Shown once per item+key per session.)`
     );
-    newlyWarnedPairs.push(dedupKey);
   }
-}
-
-if (warnings.length === 0) {
-  process.exit(0);
+  warnings.push(paragraphs.join('\n'));
 }
 
 for (const pair of newlyWarnedPairs) {
