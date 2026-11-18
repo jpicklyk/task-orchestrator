@@ -145,7 +145,7 @@ class ConfigValidator(
      * `applies_when`; a seat `rules` entry that is not served; a seat or note skill that names a served rule. The
      * required-unseated-note case is reported by the parser's own advisory and is not repeated here. The result is
      * distinct and sorted by path, then reason. The caller passes a valid document (the paths use the positions of a
-     * strict parse, which drops nothing).
+     * strict parse; the parser collapses a repeated seat rule or skill, so those two use raw positions).
      */
     fun lint(
         parsed: ConfigDocumentParser.Outcome.Parsed,
@@ -182,11 +182,18 @@ class ConfigValidator(
 
         fun seatChecks(
             seats: List<SeatDefinition>,
+            rawSeats: List<*>?,
             basePath: Array<String>,
         ) {
             seats.forEachIndexed { i, seat ->
                 val seatPath = arrayOf(*basePath, "seats", i.toString())
-                seat.rules.orEmpty().forEachIndexed { j, rule ->
+                val rawSeat = rawSeats?.getOrNull(i) as? Map<*, *>
+                // The parser collapses a repeated rule or skill, so a kept entry's index in the parsed list is not its
+                // position in the document: point at its first occurrence in the raw list.
+                val rawRules = rawSeat?.get("rules") as? List<*>
+                val rawSkills = rawSeat?.get("skills") as? List<*>
+                seat.rules.orEmpty().forEachIndexed { parsedIndex, rule ->
+                    val j = rawRules?.indexOf(rule)?.takeIf { it >= 0 } ?: parsedIndex
                     if (rule !in servedRuleKeys) {
                         out.add(
                             ConfigViolation(
@@ -196,7 +203,8 @@ class ConfigValidator(
                         )
                     }
                 }
-                seat.skills.orEmpty().forEachIndexed { j, skill ->
+                seat.skills.orEmpty().forEachIndexed { parsedIndex, skill ->
+                    val j = rawSkills?.indexOf(skill)?.takeIf { it >= 0 } ?: parsedIndex
                     if (skill in servedRuleKeys) {
                         out.add(
                             ConfigViolation(
@@ -267,7 +275,7 @@ class ConfigValidator(
                     }
                 }
             }
-            seatChecks(schema.seats, base)
+            seatChecks(schema.seats, (rawSchemas?.get(name) as? Map<*, *>)?.get("seats") as? List<*>, base)
             noteSkillChecks(schema.notes, (rawSchemas?.get(name) as? Map<*, *>)?.get("notes") as? List<*>, base)
         }
 
@@ -298,7 +306,7 @@ class ConfigValidator(
                     }
                 }
             }
-            seatChecks(seats, base)
+            seatChecks(seats, (rawTraits?.get(name) as? Map<*, *>)?.get("seats") as? List<*>, base)
             noteSkillChecks(notes, (rawTraits?.get(name) as? Map<*, *>)?.get("notes") as? List<*>, base)
             // L6
             if (document.traitDescriptors[name]?.appliesWhen.isNullOrBlank()) {
