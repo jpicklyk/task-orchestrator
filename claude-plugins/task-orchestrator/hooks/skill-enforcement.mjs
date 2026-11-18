@@ -17,21 +17,47 @@
 // not a skill to invoke; any other pointer keeps the SKILL SUGGESTED text. A failed or unanswered
 // rules read leaves today's text.
 //
-// Advisory only: this hook never blocks the call (additionalContext is non-blocking) and
-// never claims to. It warns at most once per (session, itemId, key) — see the marker
+// In the main session it is advisory only: it never blocks the call (additionalContext is
+// non-blocking). It warns at most once per (session, itemId, key) — see the marker
 // discipline below — so a concise-by-design note that keeps getting re-upserted does not
 // re-trigger the same suggestion forever.
+//
+// In a subagent (`agent_id` set) a note's skill pointers (never its served-rule pointers) must be on
+// record (skill-record.mjs) or preloaded by the agent file's frontmatter `skills:` before the upsert:
+// the first upsert of an (agent, item, key) with a skill missing is denied (`NOTE SKILL REQUIRED:`),
+// a later one is released with a `task-orchestrator: proceeding without` warning. With no served-rule
+// answer (servedKeys null) it keeps the advice and never denies. Rule advice is as in the main session.
+//
+// Time budget: one deadline, 4000 ms minus process.uptime(); each REST call gets min(its own timeout,
+// remaining - 250 ms), and under 100 ms left it is skipped as failed.
 
 import { locateConfig, isValidRootId } from './config-locator.mjs';
 import { readSection, scalar } from './yaml-lite.mjs';
 import { apiBaseUrl, callOp } from './lib/api-client.mjs';
 import { readHookInput } from './lib/stdin.mjs';
-import { emit, emitEmpty, emitSystemMessage } from './lib/emit.mjs';
+import { emit, emitEmpty, emitDeny, emitSystemMessage } from './lib/emit.mjs';
 import { opsOf } from './lib/ops.mjs';
 import { sessionMarkerPath, readMarker, writeMarker, createMarkerOnce } from './lib/markers.mjs';
-import { loadServedRuleKeys, splitPointers } from './lib/served-rules.mjs';
+import { loadServedRuleKeys, splitPointers, RULES_TIMEOUT_MS } from './lib/served-rules.mjs';
+import {
+  NOTE_SKILL_REQUIRED_PREFIX,
+  missingSkills,
+  noteDeniedPath,
+  denialStep,
+  quoteList,
+  releaseText,
+  preloadedSkills,
+} from './lib/seat-skill-state.mjs';
 
 const FACTS_TIMEOUT_MS = 1500;
+const DEADLINE_MS = 4000;
+const deadline = Date.now() + (DEADLINE_MS - process.uptime() * 1000);
+
+/** The timeout a REST call may use now, or null when under 100 ms of the budget is left. */
+function budgetFor(ownTimeoutMs) {
+  const t = Math.min(ownTimeoutMs, deadline - Date.now() - 250);
+  return t < 100 ? null : t;
+}
 const ITEM_ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{8,32})$/i;
 export const INERT_MESSAGE =
   'task-orchestrator: skill-enforcement.mjs is inert: no REST API URL resolves (register the MCP server over http(s), set TASK_ORCHESTRATOR_API_URL, or write a client.json apiUrl); in 4.0 schema facts and gate state come from the server.';
@@ -84,7 +110,9 @@ async function loadFacts(sessionId, rootId) {
     return { skillMap: cached.skillMap, maxLengthMap: cached.maxLengthMap };
   }
   const op = rootId ? { op: 'effective', rootId } : { op: 'effective' };
-  const res = await callOp('config', { ops: [op] }, { timeoutMs: FACTS_TIMEOUT_MS });
+  const timeoutMs = budgetFor(FACTS_TIMEOUT_MS);
+  if (timeoutMs === null) return null;
+  const res = await callOp('config', { ops: [op] }, { timeoutMs });
   const r = res && Array.isArray(res.results) ? res.results[0] : null;
   if (!r || r.ok !== true || !Array.isArray(r.schemas)) return null;
   const lists = r.schemas.filter(isPlain).map((sc) => sc.notes);
@@ -135,7 +163,8 @@ async function mapsFor(itemId) {
   if (!itemMaps.has(itemId)) {
     let maps = sessionFacts;
     try {
-      const res = await callOp('items_read', { select: 'schema', itemId }, { timeoutMs: FACTS_TIMEOUT_MS });
+      const timeoutMs = budgetFor(FACTS_TIMEOUT_MS);
+      const res = timeoutMs === null ? null : await callOp('items_read', { select: 'schema', itemId }, { timeoutMs });
       if (res && res.ok === true && isPlain(res.data) && res.data.schemaFree !== true && Array.isArray(res.data.notes)) {
         maps = mapsFromNotes([res.data.notes]);
       }
@@ -178,12 +207,19 @@ function substantiveFloor(maxLengthMap, key) {
 const warnings = [];
 const candidates = [];
 const newlyWarnedPairs = [];
+// Subagent only: every upsert op whose note has pointers, whatever its body (the loaded-skill check).
+const agentId = typeof hookInput.agent_id === 'string' && hookInput.agent_id !== '' ? hookInput.agent_id : null;
+const pointerOps = [];
 
 for (const note of ops) {
   const { key, body, bodyFromFile, itemId } = note;
   if (!key) continue;
   const { skillMap, maxLengthMap } = await mapsFor(itemId);
   if (!Object.prototype.hasOwnProperty.call(skillMap, key)) continue;
+  if (agentId) {
+    const names = (Array.isArray(skillMap[key]) ? skillMap[key] : [skillMap[key]]).filter((s) => typeof s === 'string' && s);
+    if (names.length > 0) pointerOps.push({ itemId, key, names });
+  }
 
   // bodyFromFile notes are resolved and size-checked server-side (the server validates
   // existence and the 65536-byte cap); the hook has no access to that file's content, so
@@ -207,20 +243,52 @@ for (const note of ops) {
     PLACEHOLDER_PATTERNS.some(p => p.test(trimmedBody));
 
   if (!body || bodyLen < floor || isPlaceholder) {
-    candidates.push({ key, skills });
-    newlyWarnedPairs.push(dedupKey);
+    candidates.push({ key, skills, pair: dedupKey });
   }
 }
 
-if (candidates.length === 0) {
+if (candidates.length === 0 && pointerOps.length === 0) {
   process.exit(0);
 }
 
-// Served rule keys, read once and only now that advice would name a pointer.
+// Served rule keys, read once and only now that advice or the loaded-skill check would name a pointer.
 const rootId = projectRootId(configContent);
-const servedKeys = rootId ? await loadServedRuleKeys(hookInput.session_id, rootId) : null;
+const rulesTimeoutMs = budgetFor(RULES_TIMEOUT_MS);
+const servedKeys =
+  rootId && rulesTimeoutMs !== null ? await loadServedRuleKeys(hookInput.session_id, rootId, { timeoutMs: rulesTimeoutMs }) : null;
 
-for (const { key, skills: names } of candidates) {
+// Subagent loaded-skill check: never without a served-rules answer (a rule pointer is never required).
+const enforceNotes = agentId !== null && servedKeys !== null;
+const denials = [];
+const releases = [];
+if (enforceNotes) {
+  const preloaded = preloadedSkills(hookInput.agent_type);
+  const seen = new Set();
+  for (const { itemId, key, names } of pointerOps) {
+    const pair = `${itemId}::${key}`;
+    if (seen.has(pair)) continue;
+    seen.add(pair);
+    const { skills } = splitPointers(names, servedKeys);
+    const missing = missingSkills(hookInput.session_id, agentId, skills, preloaded);
+    if (missing.length === 0) continue;
+    const step = denialStep(noteDeniedPath(hookInput.session_id, agentId, itemId, key));
+    if (step === 'deny') {
+      denials.push(
+        `${NOTE_SKILL_REQUIRED_PREFIX} the note "${key}" on item ${itemId} needs ${quoteList(missing)} loaded first. ` +
+          'Invoke each with the Skill tool, then retry this write.',
+      );
+    } else if (step === 'release') {
+      releases.push(releaseText(missing, `note "${key}"`));
+    }
+  }
+}
+
+if (denials.length > 0) {
+  emitDeny(denials.join('\n\n'));
+  process.exit(0);
+}
+
+for (const { key, skills: names, pair } of candidates) {
   const { rules, skills } = splitPointers(names, servedKeys);
   const paragraphs = [];
   if (rules.length > 0) {
@@ -230,7 +298,8 @@ for (const { key, skills: names } of candidates) {
       `and follow it before finalizing this note. (Shown once per item+key per session.)`
     );
   }
-  if (skills.length > 0) {
+  // Under the loaded-skill check a skill is denied, released or already on record: no skill advice.
+  if (skills.length > 0 && !enforceNotes) {
     paragraphs.push(
       `⊘ SKILL SUGGESTED — the note "${key}" is schema-bound to the ${skills.map((s) => `/${s}`).join(', ')} framework${skills.length > 1 ? 's' : ''}. ` +
       `If you have not already, invoke the Skill tool with ${skills.map((s) => `skill="${s}"`).join(', then ')} and incorporate ` +
@@ -239,19 +308,26 @@ for (const { key, skills: names } of candidates) {
       `instead of retrying. (Shown once per item+key per session.)`
     );
   }
+  if (paragraphs.length === 0) continue;
   warnings.push(paragraphs.join('\n'));
+  newlyWarnedPairs.push(pair);
 }
 
 for (const pair of newlyWarnedPairs) {
   warnedPairs[pair] = true;
 }
-writeMarker(marker, warnedPairs);
+if (newlyWarnedPairs.length > 0) writeMarker(marker, warnedPairs);
+
+if (warnings.length === 0 && releases.length === 0) {
+  process.exit(0);
+}
 
 const output = {
   hookSpecificOutput: {
     hookEventName: "PreToolUse",
-    additionalContext: warnings.join('\n\n')
+    additionalContext: [...releases, ...warnings].join('\n\n')
   }
 };
+if (releases.length > 0) output.systemMessage = releases.join('\n');
 
 emit(output);

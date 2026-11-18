@@ -43,15 +43,17 @@ function cleanList(list) {
  * seatSkillsFor(declared, seatName, {supported, defaults}) -> string[]
  * The declared list when supported and an array, else the defaults for the seat, else [].
  */
-export function seatSkillsFor(declared, seatName, { supported = true, defaults } = {}) {
+export function seatSkillsFor(declared, seatName, opts) {
+  const { supported = true, defaults } = opts ?? {};
   if (supported && Array.isArray(declared)) return cleanList(declared);
   const table = defaults === undefined ? loadSeatSkillDefaults() : defaults;
   const list = table && Array.isArray(table[seatName]) ? table[seatName] : [];
   return cleanList(list);
 }
 
-/** The seat a caller plays: its seat, else the agent type's last segment, else the phase's owner, else null. */
-export function seatNameFor({ callerSeat, agentType, phase } = {}) {
+/** The seat a caller plays: its seat, else the agent type's last segment, else the phase's owner, else null. Null options act as {}. */
+export function seatNameFor(opts) {
+  const { callerSeat, agentType, phase } = opts ?? {};
   if (typeof callerSeat === 'string' && callerSeat.trim() !== '') return callerSeat;
   if (typeof agentType === 'string') {
     const last = agentType.split(':').pop();
@@ -61,7 +63,8 @@ export function seatNameFor({ callerSeat, agentType, phase } = {}) {
 }
 
 /** resolveSeatSkills({seats, supported, callerSeat, agentType, phase, defaults}) -> {seat, skills, source} */
-export function resolveSeatSkills({ seats, supported, callerSeat, agentType, phase, defaults } = {}) {
+export function resolveSeatSkills(input) {
+  const { seats, supported, callerSeat, agentType, phase, defaults } = input ?? {};
   const seat = seatNameFor({ callerSeat, agentType, phase });
   if (!seat) return { seat: null, skills: [], source: 'none' };
   const named = Array.isArray(seats) ? seats.filter((s) => s && s.name === seat) : [];
