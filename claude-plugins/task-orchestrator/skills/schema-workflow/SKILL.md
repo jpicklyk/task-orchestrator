@@ -26,7 +26,7 @@ Drive a work item through its gate-enforced lifecycle. The skill is schema-drive
 | `gateStatus.missing` / `missingBySeat` | required notes of the current phase not yet filled, and by whom |
 | `gateStatus.blockedBy` | first failing gate: `table`, `dependency`, `note` or `lease`; present only when `canAdvance` is false |
 | `guidanceKey` | first unfilled required note; resolve its text with the schema read below |
-| `skillPointer` | skill named by that note (its first skill); invoke it before filling. `skillPointers` lists every skill when there are two or more (invoke in order); `skillMode: "method-on-diff"` means apply the skill's method to the diff of the files you own, not to the skill's own default target |
+| `skillPointer` | pointer named by that note (its first skill entry): a pointer that is a served rule key is fetched with `config` op `rules` and followed; any other pointer is a skill to invoke, before filling. `skillPointers` lists every skill when there are two or more (invoke in order); `skillMode: "method-on-diff"` means apply the skill's method to the diff of the files you own, not to the skill's own default target |
 | `dispatch` | `{agent?, model?, effort?}` for the item's current role |
 | `transitions` | each allowed trigger and the role it leads to |
 
@@ -50,7 +50,7 @@ Read `gateStatus.missing`. If it is empty and `canAdvance` is true, go to Step 3
 
 ### Step 2 - Fill the notes
 
-For the note named by `guidanceKey`, follow its resolved `guidance`; if `skillPointer` is set, invoke that skill (each of `skillPointers`, in order, when present) first and use its output. If `guidanceKey` is absent, use the note's `description`. Write the body as distilled prose; route verbatim artifacts (test output, diffs, logs) through `bodyFromFile`.
+For the note named by `guidanceKey`, follow its resolved `guidance`; if `skillPointer` is set, handle it (each of `skillPointers`, in order, when present) first and use its output: a pointer that is a served rule key is fetched with `config` op `rules` and followed; any other pointer is invoked as a skill. If `guidanceKey` is absent, use the note's `description`. Write the body as distilled prose; route verbatim artifacts (test output, diffs, logs) through `bodyFromFile`.
 
 ```to-call
 {"tool": "notes_write", "op": "upsert", "args": {"itemId": "4b7d0e19", "key": "implementation-notes", "role": "work", "body": "Added the retry policy; one deviation, see below."}}

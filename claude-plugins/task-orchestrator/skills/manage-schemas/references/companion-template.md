@@ -56,7 +56,7 @@ Confirm with `items_read` `context` that `item.role` is `queue` (the schema view
 <For each queue note:>
 ### Fill `<key>`
 
-If `skillPointer` points to a skill for this note, invoke that skill first via the Skill tool, then use its output to compose the note body.
+If `skillPointer` is set for this note, handle it first, then use its output to compose the note body: a pointer that is a served rule key is fetched with `config` op `rules` and followed; any other pointer is invoked as a skill via the Skill tool.
 
 ```to-call
 {"tool": "notes_write", "op": "upsert", "args": {"itemId": "<uuid>", "key": "<key>", "role": "queue", "body": "<content>"}}
@@ -105,7 +105,7 @@ Gate check: all required work notes must be filled. Confirm `newRole: "review"` 
 <For each review note:>
 ### Fill `<key>` (<required or optional>)
 
-If `skillPointer` points to a skill for this note, invoke that skill first.
+If `skillPointer` is set for this note, handle it first: a pointer that is a served rule key is fetched with `config` op `rules` and followed; any other pointer is invoked as a skill.
 
 ```to-call
 {"tool": "notes_write", "op": "upsert", "args": {"itemId": "<uuid>", "key": "<key>", "role": "review", "body": "<content>"}}
