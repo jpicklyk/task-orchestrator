@@ -341,6 +341,41 @@ class AdvanceGateOrderTest {
         }
 
     @Test
+    fun `S8 C8 a terminal cascade is suppressed by an unmet dependency on the parent while the child still finishes`(
+        @TempDir dir: Path,
+    ): Unit =
+        runBlocking {
+            val d = driver(dir)
+            for (trigger in listOf("complete", "cancel")) {
+                val parent = d.item("parent $trigger", Role.WORK)
+                val unmet = d.item("unmet $trigger", Role.QUEUE)
+                d.blocks(unmet, parent)
+                val child = d.item("child $trigger", Role.WORK, parent = parent)
+
+                val r = d.advanceService(child, trigger).success()
+
+                assertEquals(Role.TERMINAL, d.role(child), "$trigger: the child's own transition is unaffected")
+                val cascade = r.cascadeEvents.single()
+                assertEquals(false, cascade.applied, "$trigger: $cascade")
+                assertEquals(true, cascade.dependencyBlocked, "$trigger: $cascade")
+                assertEquals(unmet.id, cascade.blockers[0].fromItemId, "$trigger: $cascade")
+                assertNull(cascade.error, "$trigger: $cascade")
+                assertEquals(Role.WORK, d.role(parent), "$trigger: the parent did not finish")
+                assertEquals(0, d.transitions(parent).size, "$trigger: no transition row for the parent")
+            }
+
+            // Control: the same shape with the blocker terminal cascades the parent to terminal.
+            val parent = d.item("parent control", Role.WORK)
+            d.blocks(d.item("met", Role.TERMINAL), parent)
+            val child = d.item("child control", Role.WORK, parent = parent)
+
+            val r = d.advanceService(child, "complete").success()
+
+            assertEquals(true, r.cascadeEvents.single().applied, "${r.cascadeEvents}")
+            assertEquals(Role.TERMINAL, d.role(parent))
+        }
+
+    @Test
     fun `S8 C9 an unreadable blocker is reported with currentRole unknown and still blocks the start`(
         @TempDir dir: Path,
     ): Unit =
