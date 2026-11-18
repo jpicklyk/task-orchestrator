@@ -504,6 +504,29 @@ class ConfigValidatorLintTest {
         assertEquals(emptyList(), lint(dup, served = setOf("beta")).paths(rulesRe), "control: served beta is not flagged")
     }
 
+    @Test
+    fun `S8 a pointer names the position in the document as written when an earlier entry is a duplicate`() {
+        // Raw entries: 0 alpha (served), 1 alpha (served), 2 beta (unserved). The parser collapses the repeated alpha, so a
+        // pointer built from the kept list would name /rules/1 (a served entry); the oracle is the document as written.
+        val dup = rulesDoc.replace("rules: [alpha, beta]", "rules: [alpha, alpha, beta]")
+
+        assertEquals(
+            listOf("/traits/t/seats/0/rules/2", "/work_item_schemas/x/seats/0/rules/2"),
+            lint(dup, served = setOf("alpha")).paths(rulesRe),
+            "only the raw third entry (beta) is unserved",
+        )
+
+        val unservedFirst = lint(dup, served = setOf("beta")).paths(rulesRe)
+        assertTrue(
+            unservedFirst.contains("/work_item_schemas/x/seats/0/rules/0") && unservedFirst.contains("/traits/t/seats/0/rules/0"),
+            "control: with beta served the raw alpha at index 0 is flagged on both seats: $unservedFirst",
+        )
+        assertTrue(
+            unservedFirst.none { it.endsWith("/rules/2") },
+            "control: the served beta at raw index 2 is never flagged: $unservedFirst",
+        )
+    }
+
     // ------------------------------------------------------------------ S9 (L8)
 
     @Test
@@ -523,6 +546,34 @@ class ConfigValidatorLintTest {
             lint(text, served = setOf("alpha")).paths(seatSkillsRe),
         )
         assertEquals(emptyList(), lint(text, served = emptySet()).paths(seatSkillsRe), "control: nothing served, nothing flagged")
+    }
+
+    @Test
+    fun `S9 a pointer names the position in the document as written when an earlier entry is a duplicate`() {
+        // Raw entries: 0 other, 1 other, 2 alpha (a served rule). The parser collapses the repeated other, so a pointer built
+        // from the kept list would name /skills/1 (the unserved other's slot shifted); the oracle is the document as written.
+        val text =
+            yaml(
+                "work_item_schemas:",
+                "  x:",
+                "    seats:",
+                "      - { name: implementer, phase: work, enters: true, skills: [other, other, alpha] }",
+                "    notes:",
+                *note("impl", "work", true, seat = "implementer"),
+                "traits:",
+                "  t:",
+                "    applies_when: \"Always.\"",
+                "    seats:",
+                "      - { name: ts, phase: work, skills: [other, other, alpha] }",
+                "    notes:",
+                *note("tn", "work", false, seat = "ts"),
+            )
+
+        assertEquals(
+            listOf("/traits/t/seats/0/skills/2", "/work_item_schemas/x/seats/0/skills/2"),
+            lint(text, served = setOf("alpha")).paths(seatSkillsRe),
+        )
+        assertEquals(emptyList(), lint(text, served = setOf("beta")).paths(seatSkillsRe), "control: nothing named is served")
     }
 
     @Test
