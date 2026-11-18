@@ -232,11 +232,33 @@ class ConfigService(
 
         // A head read fault propagates as PerRootConfigUnavailableException (unavailable), never internal.
         val headRoot = get(rootItemId)?.let { headRoot(it) }
+
+        // Lint only for a valid document; the served rule keys come from the root's rule store.
+        val servedRuleKeys =
+            when (
+                val rules =
+                    RuleService(
+                        repositoryProvider.planDocumentRepository(),
+                        repositoryProvider.workItemRepository()
+                    ).list(rootItemId)
+            ) {
+                is RuleListResult.Success -> rules.rules.mapTo(HashSet()) { it.key }
+                is RuleListResult.RepositoryError -> return ConfigValidateResult.RepositoryError(rules.error)
+                is RuleListResult.RootNotFound -> return ConfigValidateResult.NotFound(rootItemId)
+                is RuleListResult.NotDepthZero -> return ConfigValidateResult.NotDepthZero(rootItemId, item.depth)
+            }
+        val lint =
+            if (serverConfig != null) {
+                validator.lint(parsed, serverConfig.layer(), servedRuleKeys)
+            } else {
+                validator.lint(parsed, servedRuleKeys)
+            }
         return ConfigValidateResult.Checked(
             errors = emptyList(),
             warnings = validation.warnings,
             diff = ConfigDiff.between(headRoot, parsedRoot),
             candidate = parsed.document,
+            lint = lint,
         )
     }
 
@@ -804,6 +826,8 @@ sealed class ConfigValidateResult {
         val diff: ConfigDiff?,
         /** The parsed candidate document when valid (input to the in-flight impact check); null otherwise. */
         val candidate: ConfigDocument? = null,
+        /** Warning-only lint findings ([ConfigValidator.lint]); empty unless the document is valid. Never stored by push. */
+        val lint: List<ConfigViolation> = emptyList(),
     ) : ConfigValidateResult() {
         val isValid: Boolean get() = errors.isEmpty()
     }

@@ -1437,7 +1437,7 @@ caller's scope is `forbidden`, never `not_found`.
 | `get` | `{rootId, version, fingerprint, source, createdAt, configYaml, relation?}` |
 | `history` | `{rootId, headVersion?, versions: [{version, fingerprint, source, createdAt, principalId?, warningsCount, canonical}]}` newest first |
 | `push` | `{rootId, version, fingerprint, appended, createdAt, warnings?}` |
-| `validate` | `{rootId, valid, errors: [{path, reason}], warnings: [{path, reason}], diff?, affectedInFlight?}` |
+| `validate` | `{rootId, valid, errors: [{path, reason}], warnings: [{path, reason}], lint: [{path, reason}], diff?, affectedInFlight?}` |
 | `rollback` | `{rootId, version, fingerprint, source, appended, createdAt}` |
 | `reset` | `{rootId, appended}` |
 | `effective` | `{rootId?, schemas, traits, types, statusGraph, defaultSchema?, globalFingerprint?, perRootFingerprint?}` |
@@ -1470,7 +1470,9 @@ head (`effective` after `push` reads the new layer).
 
 **`validate`** runs the same size, parse, `rootId` and validation steps as `push` without writing, without
 `expectedVersion` and without the older-content guard. Problems come back in the result (`valid: false`, `errors`),
-including a parse failure and a `project.rootId` mismatch; an oversized document stays `payload_too_large`. When the
+including a parse failure and a `project.rootId` mismatch; an oversized document stays `payload_too_large`. `lint` is
+always present: warning-only `{path, reason}` schema quality findings, `[]` unless the document is valid, never part of
+`errors` or `warnings`, and never stored by `push`. When the
 document has no errors, `diff` is the change against the head, `{types, traits, settings}` each with `added`,
 `removed` and `changed` name lists (no head, or a reset head, counts as empty). A valid document also gets
 `affectedInFlight: {count, sample}`: the non-terminal items (queue, work, review, blocked, and lifecycle-free) in the root's subtree, visible

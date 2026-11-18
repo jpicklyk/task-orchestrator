@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `config` `validate` returns a `lint` list of warning-only schema quality findings (a seat that owns no note, an unseated optional note, repeated guidance, a per-root type or trait that shadows a server one, a trait with no `applies_when`, an unserved seat rule, a skill that is a served rule); it is empty for an invalid document, never changes `valid`, and `push` neither computes nor stores it.
+
 ### Changed
 
 - `runs_write` `withdraw` is now served by the orchestration profile as well as the director profile, so the raiser and a run's coordinator can withdraw a decision on the connection they already use. The director profile is unchanged.

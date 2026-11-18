@@ -2,7 +2,10 @@ package io.github.jpicklyk.mcptask.current.application.config
 
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
+import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 
 /**
  * One validation finding: [path] is an RFC 6901 JSON Pointer into the config document (the root is the empty
@@ -49,6 +52,9 @@ fun interface ConfigStructuralValidator {
  * document is the server layer, so it is checked against
  * itself. [serverLayer] is the server-wide config (today the global file); with none, a per-root document sees no
  * server traits and an empty registry.
+ *
+ * Lint is separate: [lint] returns warning-only quality findings for a valid per-root document, never part of a
+ * [ConfigValidationResult], so `push` and the import neither compute nor store them.
  */
 class ConfigValidator(
     private val structural: ConfigStructuralValidator = ConfigStructuralValidator.NONE,
@@ -117,6 +123,288 @@ class ConfigValidator(
                     warnings = emptyList(),
                 )
         }
+
+    /**
+     * Lint findings for a per-root [parsed] document that has already passed [validate] with no errors, checked against
+     * the constructor's server layer. See the 3-arg overload.
+     */
+    fun lint(
+        parsed: ConfigDocumentParser.Outcome.Parsed,
+        servedRuleKeys: Set<String>,
+    ): List<ConfigViolation> = lint(parsed, serverLayer.layer(), servedRuleKeys)
+
+    /**
+     * Lint: warning-only structural findings about the quality of a valid per-root document, kept apart from
+     * [ConfigValidationResult] so `push` and the import can never compute or store them. Only content declared in
+     * [parsed] is reported; [serverLayer] is read for resolution and comparison only. A trait named in
+     * `default_traits` resolves from this document first, else [serverLayer] (a per-root trait replaces every
+     * dimension of the server's trait of the same name). [servedRuleKeys] are the rule keys the root serves.
+     *
+     * Checks: a seat that owns no note of its phase; an unseated optional note on a seat-aware schema or trait; the
+     * same guidance on several notes; a per-root schema or trait that shadows a server one; a trait with no
+     * `applies_when`; a seat `rules` entry that is not served; a seat or note skill that names a served rule. The
+     * required-unseated-note case is reported by the parser's own advisory and is not repeated here. The result is
+     * distinct and sorted by path, then reason. The caller passes a valid document (the paths use the positions of a
+     * strict parse, which drops nothing).
+     */
+    fun lint(
+        parsed: ConfigDocumentParser.Outcome.Parsed,
+        serverLayer: ConfigLayer?,
+        servedRuleKeys: Set<String>,
+    ): List<ConfigViolation> {
+        val document = parsed.document
+        val root = parsed.rawRoot ?: return emptyList()
+        val serverDocument = serverLayer?.document
+        val out = mutableListOf<ConfigViolation>()
+
+        val rawSchemas = root["work_item_schemas"] as? Map<*, *>
+        val rawTraits = root["traits"] as? Map<*, *>
+        val schemas = document.workItemSchemas.filterKeys { rawSchemas?.containsKey(it) == true }
+        val traits = document.traits.filterKeys { rawTraits?.containsKey(it) == true }
+
+        fun traitNotes(trait: String): List<NoteSchemaEntry> =
+            if (trait in document.traits) document.traits[trait].orEmpty() else serverDocument?.traits?.get(trait).orEmpty()
+
+        fun traitSeats(trait: String): List<SeatDefinition> =
+            if (trait in document.traits) document.traitSeats[trait].orEmpty() else serverDocument?.traitSeats?.get(trait).orEmpty()
+
+        fun mergedNotes(schema: WorkItemSchema): List<NoteSchemaEntry> {
+            val seen = HashSet<String>()
+            return (schema.notes + schema.defaultTraits.flatMap(::traitNotes)).filter { seen.add(it.key) }
+        }
+
+        fun effectiveSeats(schema: WorkItemSchema): List<SeatDefinition> = schema.seats + schema.defaultTraits.flatMap(::traitSeats)
+
+        fun owns(
+            seat: SeatDefinition,
+            notes: List<NoteSchemaEntry>,
+        ): Boolean = notes.any { it.seat == seat.name && it.role == seat.phase }
+
+        fun seatChecks(
+            seats: List<SeatDefinition>,
+            basePath: Array<String>,
+        ) {
+            seats.forEachIndexed { i, seat ->
+                val seatPath = arrayOf(*basePath, "seats", i.toString())
+                seat.rules.orEmpty().forEachIndexed { j, rule ->
+                    if (rule !in servedRuleKeys) {
+                        out.add(
+                            ConfigViolation(
+                                pointer(*seatPath, "rules", j.toString()),
+                                "seat '${seat.name}' names rule '$rule', which this root does not serve"
+                            )
+                        )
+                    }
+                }
+                seat.skills.orEmpty().forEachIndexed { j, skill ->
+                    if (skill in servedRuleKeys) {
+                        out.add(
+                            ConfigViolation(
+                                pointer(*seatPath, "skills", j.toString()),
+                                "seat '${seat.name}' lists '$skill' under skills, but it is a served rule; consider listing it under rules"
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
+        fun noteSkillChecks(
+            notes: List<NoteSchemaEntry>,
+            rawNotes: List<*>?,
+            basePath: Array<String>,
+        ) {
+            notes.forEachIndexed { i, note ->
+                val listForm = (rawNotes?.getOrNull(i) as? Map<*, *>)?.get("skill") is List<*>
+                note.skills.forEachIndexed { j, skill ->
+                    if (skill in servedRuleKeys) {
+                        val path =
+                            if (listForm) {
+                                arrayOf(
+                                    *basePath,
+                                    "notes",
+                                    i.toString(),
+                                    "skill",
+                                    j.toString()
+                                )
+                            } else {
+                                arrayOf(*basePath, "notes", i.toString(), "skill")
+                            }
+                        out.add(
+                            ConfigViolation(
+                                pointer(*path),
+                                "note '${note.key}' names skill '$skill', which is a served rule; consider a rule pointer instead"
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
+        // L1, L2, L7, L8, L9 over schemas.
+        schemas.forEach { (name, schema) ->
+            val base = arrayOf("work_item_schemas", name)
+            val merged = mergedNotes(schema)
+            schema.seats.forEachIndexed { i, seat ->
+                if (!owns(seat, merged)) {
+                    out.add(
+                        ConfigViolation(
+                            pointer(*base, "seats", i.toString()),
+                            "seat '${seat.name}' (${seat.phase.name.lowercase()}) owns no ${seat.phase.name.lowercase()}-phase note in schema '$name'"
+                        )
+                    )
+                }
+            }
+            if (effectiveSeats(schema).isNotEmpty()) {
+                schema.notes.forEachIndexed { i, note ->
+                    if (note.seat == null && !note.required) {
+                        out.add(
+                            ConfigViolation(
+                                pointer(*base, "notes", i.toString()),
+                                "optional note '${note.key}' has no seat although schema '$name' declares seats; no seat owns it"
+                            )
+                        )
+                    }
+                }
+            }
+            seatChecks(schema.seats, base)
+            noteSkillChecks(schema.notes, (rawSchemas?.get(name) as? Map<*, *>)?.get("notes") as? List<*>, base)
+        }
+
+        // L1, L2, L7, L8, L9 over traits.
+        traits.forEach { (name, notes) ->
+            val base = arrayOf("traits", name)
+            val seats = document.traitSeats[name].orEmpty()
+            val listing = schemas.values.filter { name in it.defaultTraits }
+            seats.forEachIndexed { i, seat ->
+                if (!owns(seat, notes) && listing.none { owns(seat, mergedNotes(it)) }) {
+                    out.add(
+                        ConfigViolation(
+                            pointer(*base, "seats", i.toString()),
+                            "seat '${seat.name}' (${seat.phase.name.lowercase()}) owns no ${seat.phase.name.lowercase()}-phase note in trait '$name' or in a schema here that lists it"
+                        )
+                    )
+                }
+            }
+            if (seats.isNotEmpty()) {
+                notes.forEachIndexed { i, note ->
+                    if (note.seat == null && !note.required) {
+                        out.add(
+                            ConfigViolation(
+                                pointer(*base, "notes", i.toString()),
+                                "optional note '${note.key}' has no seat although trait '$name' declares seats; no seat owns it"
+                            )
+                        )
+                    }
+                }
+            }
+            seatChecks(seats, base)
+            noteSkillChecks(notes, (rawTraits?.get(name) as? Map<*, *>)?.get("notes") as? List<*>, base)
+            // L6
+            if (document.traitDescriptors[name]?.appliesWhen.isNullOrBlank()) {
+                out.add(ConfigViolation(pointer(*base), "trait '$name' has no applies_when; say when the trait should be applied"))
+            }
+        }
+
+        // L3 duplicate guidance, in document order: every schema's notes, then every trait's notes.
+        class Occurrence(
+            val owner: String,
+            val key: String,
+            val path: String,
+            val guidance: String,
+        )
+        val occurrences = mutableListOf<Occurrence>()
+        schemas.forEach { (name, schema) ->
+            schema.notes.forEachIndexed { i, note ->
+                val text = note.guidance?.trim().orEmpty()
+                if (text.isNotEmpty()) {
+                    occurrences.add(Occurrence(name, note.key, pointer("work_item_schemas", name, "notes", i.toString(), "guidance"), text))
+                }
+            }
+        }
+        traits.forEach { (name, notes) ->
+            notes.forEachIndexed { i, note ->
+                val text = note.guidance?.trim().orEmpty()
+                if (text.isNotEmpty()) {
+                    occurrences.add(Occurrence(name, note.key, pointer("traits", name, "notes", i.toString(), "guidance"), text))
+                }
+            }
+        }
+        occurrences.groupBy { it.guidance }.values.filter { it.size > 1 }.forEach { group ->
+            val first = group.first()
+            val others = group.drop(1).joinToString(", ") { "${it.owner}/${it.key}" }
+            out.add(ConfigViolation(first.path, "guidance of '${first.owner}/${first.key}' is identical to that of: $others"))
+        }
+
+        // L4 shadowed type.
+        if (serverDocument != null) {
+            schemas.forEach { (name, schema) ->
+                val server = serverDocument.workItemSchemas[name] ?: return@forEach
+                val differs = mutableListOf<String>()
+                if (schema.lifecycleMode != server.lifecycleMode) differs.add("lifecycle")
+                if (schema.defaultTraits != server.defaultTraits) differs.add("default_traits")
+                if (schema.seats != server.seats) differs.add("seats")
+                noteDiff(schema.notes, server.notes)?.let { differs.add(it) }
+                out.add(
+                    ConfigViolation(
+                        pointer("work_item_schemas", name),
+                        if (differs.isEmpty()) {
+                            "per-root type '$name' shadows an identical server type"
+                        } else {
+                            "per-root type '$name' shadows the server type; differs in: ${differs.joinToString(", ")}"
+                        }
+                    )
+                )
+            }
+
+            // L5 shadowed trait.
+            traits.forEach { (name, notes) ->
+                if (name !in serverDocument.traits) return@forEach
+                val differs = mutableListOf<String>()
+                noteDiff(notes, serverDocument.traits[name].orEmpty())?.let { differs.add(it) }
+                if (document.traitSeats[name].orEmpty() != serverDocument.traitSeats[name].orEmpty()) differs.add("seats")
+                if (document.traitDispatch[name].orEmpty() != serverDocument.traitDispatch[name].orEmpty() ||
+                    document.traitDispatchBySeat[name].orEmpty() != serverDocument.traitDispatchBySeat[name].orEmpty()
+                ) {
+                    differs.add("dispatch")
+                }
+                if (document.traitResources[name].orEmpty() != serverDocument.traitResources[name].orEmpty()) differs.add("resources")
+                val mine = document.traitDescriptors[name]
+                val theirs = serverDocument.traitDescriptors[name]
+                if (mine?.description != theirs?.description) differs.add("description")
+                if (mine?.appliesWhen != theirs?.appliesWhen) differs.add("applies_when")
+                out.add(
+                    ConfigViolation(
+                        pointer("traits", name),
+                        if (differs.isEmpty()) {
+                            "per-root trait '$name' shadows an identical server trait"
+                        } else {
+                            "per-root trait '$name' shadows the server trait; differs in: ${differs.joinToString(", ")}"
+                        }
+                    )
+                )
+            }
+        }
+
+        return out.distinct().sortedWith(compareBy({ it.path }, { it.reason }))
+    }
+
+    /** `notes (added: ..; removed: ..; changed: ..)` between a per-root and a server note list, or null when equal. */
+    private fun noteDiff(
+        mine: List<NoteSchemaEntry>,
+        server: List<NoteSchemaEntry>,
+    ): String? {
+        val mineByKey = mine.associateBy { it.key }
+        val serverByKey = server.associateBy { it.key }
+        val added = mine.map { it.key }.filter { it !in serverByKey }
+        val removed = server.map { it.key }.filter { it !in mineByKey }
+        val changed = mine.map { it.key }.filter { it in serverByKey && mineByKey[it] != serverByKey[it] }
+        val parts =
+            listOf("added" to added, "removed" to removed, "changed" to changed)
+                .filter { it.second.isNotEmpty() }
+                .map { "${it.first}: ${it.second.joinToString(",")}" }
+        return if (parts.isEmpty()) null else "notes (${parts.joinToString("; ")})"
+    }
 
     /**
      * Advisory warnings for `default_traits` lists where a trait that does not select a model for a

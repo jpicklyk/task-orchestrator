@@ -286,6 +286,15 @@ gate-relevant changes count (a note key added or removed, or its role or require
 or a different lifecycle mode); guidance and description edits do not. `sample` holds the first 20 of them as
 `{itemId, changedNotes, schema?, lifecycle?}` objects (see the `config` `validate` section of `api-reference.md`).
 
+`validate` also returns `lint`, a list of `{path, reason}` findings about schema quality. It is separate from `errors`
+and `warnings`, never changes `valid`, and is `[]` for an invalid document, a parse failure and a rootId mismatch. `push`
+does not compute or store it. Only content declared in the per-root document is reported; the server layer is read for
+resolution and comparison only. The checks: a seat that owns no note of its phase; an optional note with no seat on a
+schema or trait that declares seats (a required unseated note keeps its parser warning); the same guidance on several
+notes; a per-root type or trait that shadows a server one (with what differs); a trait with no `applies_when`; a seat
+`rules` entry the root does not serve; a seat `skills` entry or note `skill` that names a served rule. Every finding is
+a point to consider, not a defect.
+
 ## Parse modes
 
 The parser has two modes. They differ in two ways: the mode classifies a finding, and `STRICT` also rejects a mapping
