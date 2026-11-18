@@ -1,5 +1,7 @@
 // Item ec7874fe (F3-C): skill-enforcement.mjs (SE) refuses a subagent's notes_write upsert until the note's own skills are
-// on record, and keeps to its time budget. Scenarios S8, S9, S10 and S17 of the frozen test-plan note.
+// on record, and keeps to its time budget. Scenarios S8, S9, S10 and S17 of the frozen test-plan note, S12, S14, S15 and S22
+// from ruling A1, and S23 and S24 from ruling A2 (a denial needs the item's own schema view: its features list seatSkills, it
+// is ok, not schemaFree, has notes[] and its itemId is a UUID or 8-32 hex; otherwise today's SKILL SUGGESTED advice only).
 // Blind test-author seat: no production .mjs file was opened.
 //
 // Oracles: task-scope AC4, AC5 (denied while the skill is missing; no release, ruling A1), AC7 and D5, D6 (a subagent upsert op with note pointers is split
@@ -63,9 +65,10 @@ const note = (key, skills) => ({ key, role: 'work', required: true, description:
 
 /**
  * `notes`: the notes of the effective schemas and of every item schema view. `rules`: a reply or undefined (404).
- * `delays`: {effective, schema, rules} ms before answering.
+ * `delays`: {effective, schema, rules} ms before answering. `features`: the features of every item schema view (null
+ * omits the key; the default lists seatSkills). `schema`: a reply or (itemId) => reply that replaces the item schema view.
  */
-async function startStub({ notes = [], rules, delays = {} } = {}) {
+async function startStub({ notes = [], rules, delays = {}, features = ['seats', 'seatSkills'], schema } = {}) {
   const requests = [];
   const sockets = new Set();
   const server = createServer((req, res) => {
@@ -91,7 +94,9 @@ async function startStub({ notes = [], rules, delays = {} } = {}) {
         reply = okEnvelope({ results: [{ ok: true, schemas: [{ type: 'test-schema', notes }], traits: [], types: ['test-schema'], statusGraph: {} }], summary: { ok: 1, failed: 0 } });
         delay = delays.effective ?? 0;
       } else if (req.method === 'POST' && req.url === '/api/v1/ops/items_read' && body.select === 'schema') {
-        reply = okEnvelope({ type: 'test-schema', configFingerprint: 'fp', configSource: 'per-root', notes, features: ['seats', 'seatSkills'] });
+        reply = schema === undefined
+          ? okEnvelope({ type: 'test-schema', configFingerprint: 'fp', configSource: 'per-root', notes, ...(features === null ? {} : { features }) })
+          : typeof schema === 'function' ? schema(body.itemId) : schema;
         delay = delays.schema ?? 0;
       }
       setTimeout(() => {
@@ -251,6 +256,97 @@ test('S10: when the rules route answers 404 nothing is denied (today\'s advice o
     assert.equal(res.status, 0, res.stderr);
     assert.ok(!isDeny(res), res.stdout);
     assert.ok(server.requests.some((r) => r.body?.ops?.[0]?.op === 'rules'), 'the rules read was attempted, so its failure is what released the call');
+  });
+});
+
+// ---- S23: a denial needs seatSkills in the item's own schema view (ruling A2, B1) ---------------------------
+
+const adviceOf = (res) => parse(res).hookSpecificOutput?.additionalContext ?? '';
+
+test('S23: an item schema view whose features are [seats], absent or [] never denies a missing note skill and gets today\'s SKILL SUGGESTED advice; the default-features twin is denied', async () => {
+  const cases = [['seats only', ['seats']], ['absent', null], ['empty', []]];
+  for (const [label, features] of cases) {
+    await withStub({ notes: [note('note-a', ['y-skill'])], rules: rulesOk([]), features }, async (server, fx) => {
+      const s = sid('s23');
+      for (const attempt of [1, 2, 3]) {
+        const res = await run(SE, upsert(s, 'agent-1', [{ itemId: U1, key: 'note-a', body: 'tbd' }]), fx, server.origin);
+        assert.equal(res.status, 0, `${label} attempt ${attempt}: ${res.stderr}`);
+        assert.ok(!isDeny(res), `${label} attempt ${attempt}: ${res.stdout}`);
+        if (attempt === 1) {
+          assert.ok(adviceOf(res).includes('SKILL SUGGESTED'), `${label}: ${res.stdout}`);
+          assert.ok(adviceOf(res).includes('skill="y-skill"'), `${label}: ${res.stdout}`);
+        }
+      }
+      assert.ok(server.requests.some((r) => r.url === '/api/v1/ops/items_read' && r.body?.select === 'schema' && r.body?.itemId === U1), `${label}: the item's own schema view was read`);
+    });
+  }
+  // Twin: the same fixture with seatSkills in the features (the default) is denied.
+  await withStub({ notes: [note('note-a', ['y-skill'])], rules: rulesOk([]) }, async (server, fx) => {
+    const res = await run(SE, upsert(sid('s23t'), 'agent-1', [{ itemId: U1, key: 'note-a', body: 'tbd' }]), fx, server.origin);
+    assert.ok(isDeny(res), res.stdout);
+    assert.ok(reasonOf(res).startsWith(NOTE_SKILL_REQUIRED_PREFIX), reasonOf(res));
+  });
+});
+
+test('S23 probe: skill advice is withheld per pair the denial check covered, not for the whole call', async () => {
+  // U1's own view lacks seatSkills (advice only, z not involved); U2's view lists it and its skill z-skill is on record (covered, satisfied).
+  const views = (itemId) =>
+    itemId === U1
+      ? okEnvelope({ type: 'test-schema', configFingerprint: 'fp', configSource: 'per-root', notes: [note('note-a', ['y-skill'])], features: ['seats'] })
+      : okEnvelope({ type: 'test-schema', configFingerprint: 'fp', configSource: 'per-root', notes: [note('note-b', ['z-skill'])], features: ['seats', 'seatSkills'] });
+  await withStub({ notes: [note('note-a', ['y-skill']), note('note-b', ['z-skill'])], rules: rulesOk([]), schema: views }, async (server, fx) => {
+    const s = sid('s23p');
+    assert.equal((await run(RECORD, skillRecord(s, 'agent-1', 'z-skill'), fx, server.origin)).status, 0);
+    const res = await run(SE, upsert(s, 'agent-1', [{ itemId: U1, key: 'note-a', body: 'tbd' }, { itemId: U2, key: 'note-b', body: 'tbd' }]), fx, server.origin);
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(!isDeny(res), res.stdout);
+    assert.ok(adviceOf(res).includes('skill="y-skill"'), `the uncovered pair keeps its advice: ${res.stdout}`);
+    assert.ok(!adviceOf(res).includes('skill="z-skill"'), `the covered pair's advice is withheld: ${res.stdout}`);
+  });
+});
+
+// ---- S24: a denial never rests on the session maps (ruling A2, O1) ----------------------------------------
+
+test('S24: when the item\'s own schema view fails, is not ok, is schemaFree, has no notes[] or times out, nothing is denied; the healthy twin is denied', async () => {
+  const view = (extra = {}) => okEnvelope({ type: 'test-schema', configFingerprint: 'fp', configSource: 'per-root', notes: [note('note-a', ['y-skill'])], features: ['seats', 'seatSkills'], ...extra });
+  const noNotes = okEnvelope({ type: 'test-schema', configFingerprint: 'fp', configSource: 'per-root', features: ['seats', 'seatSkills'] });
+  const variants = [
+    ['404', { schema: errEnvelope(404, 'not_found') }],
+    ['500', { schema: errEnvelope(500, 'internal') }],
+    ['ok false', { schema: { status: 200, body: { ok: false, error: { code: 'not_found', kind: 'permanent', message: 'fixture' }, meta: { reqId: 'req00003' } } } }],
+    ['schemaFree', { schema: view({ schemaFree: true }) }],
+    ['no notes[]', { schema: noNotes }],
+    ['timeout', { schema: view(), delays: { schema: 3000 } }],
+  ];
+  for (const [label, opts] of variants) {
+    // The effective schemas (the session maps) always map note-a -> y-skill and the rules are served without it.
+    await withStub({ notes: [note('note-a', ['y-skill'])], rules: rulesOk([]), ...opts }, async (server, fx) => {
+      const res = await run(SE, upsert(sid('s24'), 'agent-1', [{ itemId: U1, key: 'note-a', body: 'tbd' }]), fx, server.origin);
+      assert.equal(res.status, 0, `${label}: ${res.stderr}`);
+      assert.ok(!isDeny(res), `${label}: ${res.stdout}`);
+      assert.ok(res.ms < 5000, `${label}: took ${res.ms} ms`);
+      assert.ok(server.requests.some((r) => r.url === '/api/v1/ops/items_read' && r.body?.itemId === U1), `${label}: the item's own view was attempted, so its failure is what released the call`);
+    });
+  }
+  // Twin: the same effective maps with a healthy item view are denied.
+  await withStub({ notes: [note('note-a', ['y-skill'])], rules: rulesOk([]) }, async (server, fx) => {
+    const res = await run(SE, upsert(sid('s24t'), 'agent-1', [{ itemId: U1, key: 'note-a', body: 'tbd' }]), fx, server.origin);
+    assert.ok(isDeny(res), res.stdout);
+  });
+});
+
+test('S24: an itemId that is not a UUID or 8-32 hex is never denied; 8 and 32 hex and a UUID are', async () => {
+  const hex = (n) => 'abcdef0123456789abcdef0123456789'.slice(0, n);
+  await withStub({ notes: [note('note-a', ['y-skill'])], rules: rulesOk([]) }, async (server, fx) => {
+    for (const bad of ['not-an-id', hex(7), `${hex(32)}a`, '']) {
+      const res = await run(SE, upsert(sid('s24i'), 'agent-1', [{ itemId: bad, key: 'note-a', body: 'tbd' }]), fx, server.origin);
+      assert.equal(res.status, 0, `${JSON.stringify(bad)}: ${res.stderr}`);
+      assert.ok(!isDeny(res), `${JSON.stringify(bad)}: ${res.stdout}`);
+    }
+    for (const good of [hex(8), hex(32), U1]) {
+      const res = await run(SE, upsert(sid('s24g'), 'agent-1', [{ itemId: good, key: 'note-a', body: 'tbd' }]), fx, server.origin);
+      assert.ok(isDeny(res), `${good}: ${res.stdout}`);
+    }
   });
 });
 

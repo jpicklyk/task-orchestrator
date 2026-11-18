@@ -1,6 +1,8 @@
 // Item ec7874fe (F3-C): seat-skill-hint.mjs, skill-record.mjs and seat-skill-gate.mjs as spawned node hook scripts.
-// Scenarios S1-S7, S11-S16, S18 and S20 of the frozen test-plan note plus S21 from ruling A1 (S8-S10 and S17 live in skill-enforcement-deny.test.mjs,
-// S19 in scripts/tests/seat-skills.test.mjs). Blind test-author seat: no production .mjs file was opened; the inputs and
+// Scenarios S1-S7, S11-S16, S18 and S20 of the frozen test-plan note plus S21 from ruling A1 and S25 and S26 from ruling A2
+// (S8-S10, S17, S22, S23 and S24 live in skill-enforcement-deny.test.mjs, S19 in scripts/tests/seat-skills.test.mjs).
+// S25: a plugin-default seat binding is advisory unless the server lists seatSkills; S26: an unwritable armed-probe path
+// fails open. Blind test-author seat: no production .mjs file was opened; the inputs and
 // outputs below come from the task-scope decisions D1-D9 and AC1-AC9, the supplied declarations (exported prefix strings),
 // lib-emit.test.mjs (the stdout shapes of deny / context / systemMessage), phase-guard-record-read.test.mjs (the PostToolUse
 // tool_response shape) and rule-pointer.test.mjs (the REST stub wire shapes).
@@ -19,9 +21,9 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, cpSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { orchestratorToolMatcher } from '../registration.mjs';
 import { SEAT_SKILLS_PREFIX, SEAT_SKILLS_REQUIRED_PREFIX, bindingSourceLabel, bindingSourceText } from '../lib/seat-skill-state.mjs';
@@ -224,7 +226,7 @@ const upsertCall = (session, agentId, role, itemId = U1) =>
 /** Runs the hint once for an agent so that its seat record exists. */
 const boot = (server, fx, session, o = {}) => run(HINT, ctxCall(session, o), fx, { apiUrl: server.origin });
 const record = (fx, session, agent, skill, o) => run(RECORD, skillCall(session, agent, skill, o), fx);
-const gate = (fx, payload, extra) => run(GATE, payload, fx, extra);
+const gate = (fx, payload, extra = {}) => run(extra.gatePath ?? GATE, payload, fx, extra);
 
 // ---- S1 / S2 / S3: record, hint, refuse (AC1, AC3) -------------------------------------------------------
 
@@ -505,6 +507,98 @@ test('S14 twin: once the skill is recorded the same call is allowed silently, so
     assert.equal((await record(fx, s, 'agent-1', 'missing-skill')).status, 0);
     const res = await gate(fx, editCall(s, 'agent-1'));
     assert.ok(isEmptyOut(res), res.stdout);
+  });
+});
+
+// ---- S25: plugin-default binding is advisory without seatSkills (ruling A2, O4) ---------------------------
+
+/**
+ * A throwaway copy of the plugin (hooks/, scripts/ and .claude-plugin/, without their tests/ folders) whose hooks/lib/seat-skill-defaults.json
+ * holds `defaults`. The shipped table is never touched. The copied files are never opened by this test, only run.
+ */
+function pluginCopy(defaults) {
+  const root = fresh('to-seat-skill-plugin-');
+  const pluginRoot = fileURLToPath(new URL('../../', import.meta.url));
+  for (const part of ['hooks', 'scripts', '.claude-plugin']) {
+    const from = join(pluginRoot, part);
+    if (!existsSync(from)) continue;
+    cpSync(from, join(root, part), { recursive: true, filter: (src) => relative(from, src).split(sep)[0] !== 'tests' });
+  }
+  writeFileSync(join(root, 'hooks', 'lib', 'seat-skill-defaults.json'), JSON.stringify(defaults), 'utf-8');
+  return { hint: join(root, 'hooks', 'seat-skill-hint.mjs'), gate: join(root, 'hooks', 'seat-skill-gate.mjs') };
+}
+
+const ADVISORY = '(advisory: nothing is refused)';
+const SRC_DEFAULT = 'Binding source: plugin default.';
+
+test('S25: a plugin-default seat binding on a server without seatSkills is advisory (hint says so, Edit, Write and NotebookEdit are never denied); with seatSkills it is enforced', async () => {
+  const copy = pluginCopy({ implementer: ['p:a'] });
+  const seats = SEATS(undefined); // the implementer seat declares no skills key, so the plugin default binds
+  await withStub({ schema: schemaView({ seats, features: ['seats', 'dispatchBySeat'] }) }, async (server, fx) => {
+    const s = sid('s25');
+    const hint = await run(copy.hint, ctxCall(s), fx, { apiUrl: server.origin });
+    assert.equal(hint.status, 0, hint.stderr);
+    const text = contextOf(hint);
+    assert.ok(text.startsWith(SEAT_SKILLS_PREFIX), text);
+    assert.ok(text.includes('"p:a"'), text);
+    assert.ok(text.includes(SRC_DEFAULT), text);
+    assert.ok(text.includes(UNK), text);
+    assert.ok(text.includes(ADVISORY), text);
+    for (const attempt of [1, 2, 3]) {
+      for (const tool of ['Edit', 'Write', 'NotebookEdit']) {
+        const res = await gate(fx, editCall(s, 'agent-1', tool), { gatePath: copy.gate });
+        assert.equal(res.status, 0, `${tool} attempt ${attempt}: ${res.stderr}`);
+        assert.ok(!isDeny(res), `${tool} attempt ${attempt}: ${res.stdout}`);
+      }
+    }
+  });
+  // Twin: the same copy and defaults with seatSkills among the features hints without the advisory suffix and denies Edit.
+  await withStub({ schema: schemaView({ seats, features: ['seats', 'dispatchBySeat', 'seatSkills'] }) }, async (server, fx) => {
+    const s = sid('s25t');
+    const hint = await run(copy.hint, ctxCall(s), fx, { apiUrl: server.origin });
+    const text = contextOf(hint);
+    assert.ok(text.startsWith(SEAT_SKILLS_PREFIX), text);
+    assert.ok(text.includes('"p:a"'), text);
+    assert.ok(text.includes(SRC_DEFAULT), text);
+    assert.ok(!text.includes(ADVISORY), text);
+    const res = await gate(fx, editCall(s, 'agent-1'), { gatePath: copy.gate });
+    assert.ok(isDeny(res), res.stdout);
+    assert.ok(denyReason(res).startsWith(SEAT_SKILLS_REQUIRED_PREFIX), denyReason(res));
+    assert.ok(denyReason(res).includes('"p:a"'), denyReason(res));
+  });
+});
+
+test('S25 probe: with the shipped (empty) defaults table the same plugin-default fixture has no binding at all, so p:a above comes from the copied table', async () => {
+  await withStub({ schema: schemaView({ seats: SEATS(undefined), features: ['seats', 'dispatchBySeat', 'seatSkills'] }) }, async (server, fx) => {
+    const s = sid('s25n');
+    const hint = await boot(server, fx, s);
+    assert.ok(isEmptyOut(hint), hint.stdout);
+    assert.ok(isEmptyOut(await gate(fx, editCall(s, 'agent-1'))));
+  });
+});
+
+// ---- S26: an unwritable armed-probe path fails open (ruling A2, O6) ---------------------------------------
+
+/** The armed-probe marker path of the fixture's marker root: <TEMP>/task-orchestrator/<session_id>/seat-skill-armed-<agent_id>.json. */
+const armedPath = (fx, session, agent) => join(fx.tmp, 'task-orchestrator', session.replace(/[^a-zA-Z0-9-]/g, '_'), `seat-skill-armed-${agent.replace(/[^a-zA-Z0-9-]/g, '_')}.json`);
+
+test('S26: when the armed-probe path cannot be written (a non-empty directory sits there) the Edit is not denied; a fresh session is', async () => {
+  await withStub({}, async (server, fx) => {
+    const s = sid('s26');
+    const boots = await boot(server, fx, s);
+    assert.ok(contextOf(boots).startsWith(SEAT_SKILLS_PREFIX), boots.stdout);
+    // The enforcing record exists and p:a is missing. Make the probe unwritable: a directory with content at the probe path.
+    const probe = armedPath(fx, s, 'agent-1');
+    rmSync(probe, { recursive: true, force: true });
+    mkdirSync(join(probe, 'keep'), { recursive: true });
+    const res = await gate(fx, editCall(s, 'agent-1'));
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(!isDeny(res), res.stdout);
+
+    const t = sid('s26w');
+    await boot(server, fx, t);
+    const twin = await gate(fx, editCall(t, 'agent-1'));
+    assert.ok(isDeny(twin), `twin with a writable probe path: ${twin.stdout}`);
   });
 });
 
