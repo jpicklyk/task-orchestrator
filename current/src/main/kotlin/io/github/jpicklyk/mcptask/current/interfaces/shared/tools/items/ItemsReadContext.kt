@@ -206,6 +206,8 @@ object ItemsReadContext {
                 dispatch?.let { put("dispatch", buildDispatchProfileJson(it)) }
                 buildSeatsJson(seats)?.let { put("seats", it) }
                 buildDispatchBySeatFlatJson(dispatchBySeat)?.let { put("dispatchBySeat", it) }
+                // The caller's seat, only for its own item: the `seats` above then describe the caller's seat.
+                ctx.seat?.takeIf { it.itemId == item.id }?.let { put("callerSeat", it.seat) }
                 claimDetail(env, item)?.let { put("claimDetail", it) }
                 decisions(env, item)?.let { put("decisions", it) }
                 resourceLeases(env, ctx, item)?.let { put("resourceLeases", it) }

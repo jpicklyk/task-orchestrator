@@ -191,6 +191,7 @@ private suspend fun WriteScope.element(
         phase?.skillPointer?.let { put("skillPointer", it) }
         phase?.let { putSkillExtras(it) }
         dispatch?.let { put("dispatch", buildDispatchProfileJson(it)) }
+        ctx.seat?.takeIf { it.itemId == result.itemId }?.let { put("callerSeat", it.seat) }
         NoteSchemaJson.buildViolationsArrayNonEmpty(result.violations)?.let { put("violations", it) }
     }
 }

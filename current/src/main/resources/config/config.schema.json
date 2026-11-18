@@ -176,6 +176,10 @@
         "rules": {
           "type": "array",
           "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,99}$" }
+        },
+        "skills": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
         }
       }
     },
