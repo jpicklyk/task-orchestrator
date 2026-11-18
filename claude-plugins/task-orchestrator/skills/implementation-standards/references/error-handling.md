@@ -19,9 +19,11 @@
 
 ## Boundaries and resources
 
-- Validate input once, at the trust boundary where it enters (a request, a file, a message from
-  another process), and trust it after that. Repeating the same check at every layer hides which
+- Validate input at the trust boundary where it enters (a request, a file, a message from another
+  process), not again in every inner function. Repeating the same check at every layer hides which
   layer is responsible.
+- Two cases are checked where the value is used as well: a value that can arrive through more than
+  one entry point, and a check that guards security.
 - Release resources (files, connections, locks, temporary state) on every path, the failure paths
   included.
 
@@ -48,3 +50,5 @@
   personal data.
 - Resources acquired in the change are released on the failure paths as well as the success path.
 - Every retry loop has a bound and a backoff.
+- Input is validated where it enters, and again at the point of use only for a value with more
+  than one entry point or a security check.

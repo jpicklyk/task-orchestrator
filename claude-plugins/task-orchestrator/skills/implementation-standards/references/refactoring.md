@@ -32,5 +32,6 @@ that promise checkable.
 
 - Tests covering the moved behaviour exist and pass before the restructuring.
 - Mechanical and semantic changes are in separate, separately readable steps.
+- Each step passes the tests on its own, and the report says the tests were run after each step.
 - No test expectation changes without a stated, intended behaviour change.
 - Restructuring beyond the requirement is absent from the change, or raised as its own change.

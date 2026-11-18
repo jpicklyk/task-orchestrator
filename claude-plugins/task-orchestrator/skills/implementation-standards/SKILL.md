@@ -12,7 +12,8 @@ These standards apply whenever you write new production code or change existing 
 a feature, a bug fix, a refactoring, or a change to shared code that other code calls. They
 describe how the change is built, not what it must do; the requirement says what it must do.
 
-Where the project has its own written standards or conventions, they take precedence over this skill wherever the two differ.
+Where the project has its own written standards or conventions, they take precedence over this
+skill wherever the two differ.
 
 ## Method
 
@@ -35,12 +36,11 @@ followed.
 5. **Restructure safely.** When the change needs restructuring, pin current behaviour first and
    keep mechanical and semantic changes in separate steps. Detail:
    [refactoring](references/refactoring.md).
-6. **Verify and report.** Verify your own change before calling it done, and say what you ran, what it showed, and what you did not run and why. Detail:
+6. **Verify and report.** Verify your own change before calling it done, and say what you ran,
+   what it showed, and what you did not run and why. Detail:
    [verification](references/verification.md).
 
 ## Departures
 
-A departure from the agreed design is stated with its evidence, never substituted silently. If the
-design turns out wrong or impossible while you build it, build what the problem does not touch,
-stop short of the conflicting part, and state the conflict, why it fails, the alternative you
-propose, and the `file:line` evidence.
+A departure from the agreed design is stated with its evidence, never substituted silently; the
+detail is in [minimal change](references/minimal-change.md).

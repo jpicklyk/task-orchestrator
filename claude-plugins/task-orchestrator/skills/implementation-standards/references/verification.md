@@ -1,6 +1,7 @@
 # Verification
 
-Verify your own change before calling it done, and say what you ran, what it showed, and what you did not run and why.
+Verify your own change before calling it done, and say what you ran, what it showed, and what you
+did not run and why.
 
 ## What to run
 
@@ -9,7 +10,8 @@ Verify your own change before calling it done, and say what you ran, what it sho
 - Start narrow (the tests closest to the change) for a fast answer, then run the broader suite the
   project expects before calling the change done.
 - Read the full output of every check, not only its last line: a summary can hide a skipped test,
-  a warning that matters, or a failure in a part you did not expect to touch.
+  a warning that matters, or a failure in a part you did not expect to touch. Report what the full
+  output showed beyond the summary, or that it showed nothing more.
 
 ## When something fails
 
@@ -33,6 +35,8 @@ Verify your own change before calling it done, and say what you ran, what it sho
 
 - The change's report names each check that ran and its result, for the final revision.
 - The report lists any check that did not run, with the reason.
+- For each check, the report names any skipped test or warning its full output showed, or says
+  there was none.
 - No test is skipped, deleted or loosened in the diff to make a failure pass.
 - Any pre-existing or unrelated failure is reported as such with its evidence.
 - Behaviour the tests cannot reach is described as exercised, or as not exercised with the reason.

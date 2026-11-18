@@ -13,8 +13,11 @@ the requirement; a line that is not makes the change harder to read and riskier 
 
 ## No speculative abstraction
 
-- Add no parameter, option, interface, extension point or generalisation that has no current
-  caller. Code written for a future need guesses that need's shape, and the guess is usually wrong.
+- An abstraction (an interface, a base type, an extra parameter or option, an extension point, a
+  layer) is justified by one of two things: a second real user that exists today, or a stated
+  boundary reason, such as a dependency rule that keeps one side from knowing the other, or a seam
+  a test needs. With neither, it is speculative: leave it out. Code written for a future need
+  guesses that need's shape, and the guess is usually wrong.
 - When two concrete uses exist and the shared shape is clear, extract it then; one use is not a
   pattern.
 
@@ -35,7 +38,8 @@ the requirement; a line that is not makes the change harder to read and riskier 
 
 - Every hunk in the diff relates to the requirement; no unrelated file or line is reformatted,
   renamed or reordered.
-- No new parameter, option, interface or extension point lacks a caller in the same change.
+- Each new abstraction has a second user that exists today, or a boundary reason stated in the
+  change's report.
 - No commented-out code, debug output, unused function or leftover flag is added.
 - The public surface changes only where the requirement asks for it.
 - Any departure from the agreed design is stated in the change's report with its evidence.

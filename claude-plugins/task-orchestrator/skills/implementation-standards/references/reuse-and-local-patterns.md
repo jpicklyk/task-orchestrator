@@ -24,8 +24,11 @@
   choices. A reader should not be able to tell from style alone which lines are new.
 - Add no new dependency when one already in use does the job. When a new dependency is needed,
   state what it does that the existing ones do not.
-- A local pattern that looks wrong is still followed in this change, and called out as a separate
-  problem. Replacing it in one place leaves two styles side by side, which is worse than either.
+- A local pattern is followed even when it is unfamiliar or not to your taste. Replacing it in one
+  place leaves two styles side by side, which is worse than either.
+- The exception is a pattern that is itself a defect: it is unsafe, it loses or hides an error, or
+  it produces a wrong result. Do not copy it into new code: write the new code correctly, and
+  report the existing occurrences instead of rewriting them in the same change.
 
 ## Signs it was followed
 
@@ -34,4 +37,5 @@
 - Every caller of changed shared code still works or is updated in the same diff.
 - New code uses the same naming, error style, logging style and test style as its neighbours.
 - No dependency is added where an existing one covers the need, or the report says why one was.
-- A local pattern judged wrong is followed and raised separately, not rewritten in this change.
+- Local patterns are followed, except a defective one: it is absent from the new code, and its
+  existing occurrences are reported, not rewritten in this change.
