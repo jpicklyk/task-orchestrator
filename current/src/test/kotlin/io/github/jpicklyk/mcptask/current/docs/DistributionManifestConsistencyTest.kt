@@ -69,6 +69,21 @@ class DistributionManifestConsistencyTest {
     private val envCallPattern = Regex("""(?:\benv|\benvResolver|\bgetenv)\("([A-Z0-9_]+)"\)""")
     private val envConstPattern = Regex("""const val\s+\w+_(?:ENV|VAR)\s*=\s*"([A-Z0-9_]+)"""")
 
+    /** Env key names read by code in [text]; lines that are only comment or KDoc text name no real read. */
+    private fun scrapeEnvKeys(text: String): Set<String> {
+        val code =
+            text
+                .lines()
+                .filter { line ->
+                    val t = line.trim()
+                    !(t.startsWith("//") || t.startsWith("/*") || t.startsWith("*"))
+                }.joinToString("\n")
+        val keys = mutableSetOf<String>()
+        envCallPattern.findAll(code).forEach { keys += it.groupValues[1] }
+        envConstPattern.findAll(code).forEach { keys += it.groupValues[1] }
+        return keys
+    }
+
     private fun knownEnvKeys(): Set<String> {
         val mainSrc = repoRoot().resolve("current/src/main/kotlin")
         if (!Files.isDirectory(mainSrc)) fail("main source dir not found at $mainSrc")
@@ -77,9 +92,7 @@ class DistributionManifestConsistencyTest {
             stream
                 .filter { Files.isRegularFile(it) && it.toString().endsWith(".kt") }
                 .forEach { file ->
-                    val text = Files.readString(file)
-                    envCallPattern.findAll(text).forEach { keys += it.groupValues[1] }
-                    envConstPattern.findAll(text).forEach { keys += it.groupValues[1] }
+                    keys += scrapeEnvKeys(Files.readString(file))
                 }
         }
         assertTrue(keys.isNotEmpty(), "known-env-key scrape found zero keys under $mainSrc -- scrape regex is broken")
@@ -92,9 +105,8 @@ class DistributionManifestConsistencyTest {
     private fun dockerfileEnvDeclarations(): List<String> =
         Regex("""(?m)^\s*ENV\s+([A-Z0-9_]+)=""").findAll(dockerfileText()).map { it.groupValues[1] }.toList()
 
-    /** `KEY: value` lines nested under a compose `environment:` block (6-space indent in this file's style). */
-    private fun composeEnvKeys(): List<String> =
-        Regex("""(?m)^ {6}([A-Z0-9_]+):""").findAll(composeText()).map { it.groupValues[1] }.toList()
+    /** Every key of every service's `environment:` block, in map or list form, via [parseComposeEnvironments]. */
+    private fun composeEnvKeys(text: String): List<String> = parseComposeEnvironments(text).values.flatMap { it.keys }
 
     private fun serverJsonEnvKeys(): List<String> {
         val json = Json.parseToJsonElement(serverJsonText()).jsonObject
@@ -111,13 +123,17 @@ class DistributionManifestConsistencyTest {
     @Test
     fun `S1 every env key declared in Dockerfile, compose, or server json is a known application env var`() {
         val known = knownEnvKeys()
+        composeServices()
 
         val declared =
             mapOf(
                 "Dockerfile" to dockerfileEnvDeclarations(),
-                "docker-compose.yml" to composeEnvKeys(),
+                "docker-compose.yml" to composeEnvKeys(composeText()),
                 "server.json" to serverJsonEnvKeys(),
             )
+        declared.forEach { (source, keys) ->
+            assertTrue(keys.isNotEmpty(), "$source declares no env keys -- the extraction or the file is broken")
+        }
 
         val unknown =
             declared.flatMap { (source, keys) ->
@@ -130,6 +146,14 @@ class DistributionManifestConsistencyTest {
                 unknown.joinToString(", ") +
                 "\nknown keys: " + known.sorted(),
         )
+    }
+
+    @Test
+    fun `S1 harness compose extraction reads list form and the scrape ignores comment-only keys`() {
+        assertEquals(listOf("FOO_KEY"), composeEnvKeys("services:\n  app:\n    environment:\n      - FOO_KEY=1\n"))
+        assertEquals(setOf("REAL_KEY"), scrapeEnvKeys("val a = env(\"REAL_KEY\")"))
+        assertEquals(emptySet(), scrapeEnvKeys("// env(\"COMMENT_ONLY\")"))
+        assertEquals(emptySet(), scrapeEnvKeys(" * env(\"KDOC_ONLY\")"))
     }
 
     // ---- S3: Dockerfile never shadows an ENV key across stages ----------------------------------

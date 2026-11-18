@@ -19,6 +19,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.event.ClaimExpiryReason
 import io.github.jpicklyk.mcptask.current.domain.event.ClaimReleaseReason
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
+import io.github.jpicklyk.mcptask.current.domain.model.ClaimState
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import kotlinx.serialization.json.Json
@@ -339,10 +340,7 @@ class ClaimService(
     private fun isLapsed(
         item: WorkItem,
         now: Instant
-    ): Boolean {
-        val expiresAt = item.claimExpiresAt ?: return false
-        return item.claimedBy != null && !expiresAt.isAfter(now)
-    }
+    ): Boolean = ClaimState.of(item)?.isActive(now) == false
 
     /**
      * `claim.expired` rows for the lapsed claims among [items] that no existing row names yet (matched on holder and

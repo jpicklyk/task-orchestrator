@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.port.AssigneeHolder
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockerEvaluator
 import io.github.jpicklyk.mcptask.current.domain.model.BlockedReason
+import io.github.jpicklyk.mcptask.current.domain.model.ClaimState
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.Run
 import io.github.jpicklyk.mcptask.current.domain.model.RunLiveness
@@ -72,8 +73,8 @@ data class RunFrontier(
  * - `ready`: a visible member whose role is neither TERMINAL nor BLOCKED, with no active member-seat assignment, no
  *   unsatisfied blocking edge ([BlockerEvaluator]) and no foreign live claim. Always empty for a CLOSED run; a PAUSED
  *   run computes it normally.
- * - A foreign live claim: `claimExpiresAt > now` and the holder pair (claimedBy, claimAssignmentId) is not the pair of
- *   any active assignment of the run (the coordinator included). An expired claim is never foreign.
+ * - A foreign live claim: active per [ClaimState.isActive] at `now` and the holder pair (claimedBy, claimAssignmentId)
+ *   is not the pair of any active assignment of the run (the coordinator included). An expired claim is never foreign.
  * - `inFlight`: every active member-seat assignment (the coordinator excluded) whose item is visible, stalled per
  *   [RunLiveness.isSeatStalled] with the run's pinned threshold.
  * - `waiting`: per visible non-terminal member, role BLOCKED is `manual`; otherwise at least one unsatisfied blocking
@@ -204,9 +205,8 @@ class RunFrontierQueries(
         holders: Set<AssigneeHolder>,
         now: Instant
     ): Boolean {
-        val expires = item.claimExpiresAt ?: return false
+        if (!ClaimState.isActive(item, now)) return false
         val holder = item.claimedBy ?: return false
-        if (!expires.isAfter(now)) return false
         val assignment = item.claimAssignmentId ?: return true
         return AssigneeHolder(holder, assignment) !in holders
     }
