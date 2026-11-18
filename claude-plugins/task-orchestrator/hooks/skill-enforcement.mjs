@@ -24,9 +24,11 @@
 //
 // In a subagent (`agent_id` set) a note's skill pointers (never its served-rule pointers) must be on
 // record (skill-record.mjs) or preloaded by the agent file's frontmatter `skills:` before the upsert:
-// the first upsert of an (agent, item, key) with a skill missing is denied (`NOTE SKILL REQUIRED:`),
-// a later one is released with a `task-orchestrator: proceeding without` warning. With no served-rule
-// answer (servedKeys null) it keeps the advice and never denies. Rule advice is as in the main session.
+// every upsert of an (agent, item, key) with a skill missing is denied (`NOTE SKILL REQUIRED:`, binding
+// source schema), and the text tells an agent whose skill cannot load to stop and report; there is no
+// release. A denial needs the writability probe (lib/seat-skill-state.mjs armDenial): when it cannot be
+// written the call is allowed with today's advice. With no served-rule answer (servedKeys null) it keeps
+// the advice and never denies. Rule advice is as in the main session.
 //
 // Time budget: one deadline, 4000 ms minus process.uptime(); each REST call gets min(its own timeout,
 // remaining - 250 ms), and under 100 ms left it is skipped as failed.
@@ -41,11 +43,11 @@ import { sessionMarkerPath, readMarker, writeMarker, createMarkerOnce } from './
 import { loadServedRuleKeys, splitPointers, RULES_TIMEOUT_MS } from './lib/served-rules.mjs';
 import {
   NOTE_SKILL_REQUIRED_PREFIX,
+  UNKNOWN_SKILL_TEXT,
+  bindingSourceText,
   missingSkills,
-  noteDeniedPath,
-  denialStep,
+  armDenial,
   quoteList,
-  releaseText,
   preloadedSkills,
 } from './lib/seat-skill-state.mjs';
 
@@ -258,12 +260,14 @@ const servedKeys =
   rootId && rulesTimeoutMs !== null ? await loadServedRuleKeys(hookInput.session_id, rootId, { timeoutMs: rulesTimeoutMs }) : null;
 
 // Subagent loaded-skill check: never without a served-rules answer (a rule pointer is never required).
-const enforceNotes = agentId !== null && servedKeys !== null;
+// An unwritable probe (the marker root cannot record the fix) turns the check off for this call: no denial,
+// and the skill advice comes back.
+let enforceNotes = agentId !== null && servedKeys !== null;
 const denials = [];
-const releases = [];
 if (enforceNotes) {
   const preloaded = preloadedSkills(hookInput.agent_type);
   const seen = new Set();
+  let armed = null;
   for (const { itemId, key, names } of pointerOps) {
     const pair = `${itemId}::${key}`;
     if (seen.has(pair)) continue;
@@ -271,15 +275,16 @@ if (enforceNotes) {
     const { skills } = splitPointers(names, servedKeys);
     const missing = missingSkills(hookInput.session_id, agentId, skills, preloaded);
     if (missing.length === 0) continue;
-    const step = denialStep(noteDeniedPath(hookInput.session_id, agentId, itemId, key));
-    if (step === 'deny') {
-      denials.push(
-        `${NOTE_SKILL_REQUIRED_PREFIX} the note "${key}" on item ${itemId} needs ${quoteList(missing)} loaded first. ` +
-          'Invoke each with the Skill tool, then retry this write.',
-      );
-    } else if (step === 'release') {
-      releases.push(releaseText(missing, `note "${key}"`));
+    if (armed === null) armed = armDenial(hookInput.session_id, agentId);
+    if (!armed) {
+      enforceNotes = false;
+      denials.length = 0;
+      break;
     }
+    denials.push(
+      `${NOTE_SKILL_REQUIRED_PREFIX} the note "${key}" on item ${itemId} needs ${quoteList(missing)} loaded first. ` +
+        `Invoke each with the Skill tool, then retry this write. ${bindingSourceText('schema')} ${UNKNOWN_SKILL_TEXT}`,
+    );
   }
 }
 
@@ -298,7 +303,7 @@ for (const { key, skills: names, pair } of candidates) {
       `and follow it before finalizing this note. (Shown once per item+key per session.)`
     );
   }
-  // Under the loaded-skill check a skill is denied, released or already on record: no skill advice.
+  // Under the loaded-skill check a skill is denied or already on record: no skill advice.
   if (skills.length > 0 && !enforceNotes) {
     paragraphs.push(
       `⊘ SKILL SUGGESTED — the note "${key}" is schema-bound to the ${skills.map((s) => `/${s}`).join(', ')} framework${skills.length > 1 ? 's' : ''}. ` +
@@ -318,16 +323,13 @@ for (const pair of newlyWarnedPairs) {
 }
 if (newlyWarnedPairs.length > 0) writeMarker(marker, warnedPairs);
 
-if (warnings.length === 0 && releases.length === 0) {
+if (warnings.length === 0) {
   process.exit(0);
 }
 
-const output = {
+emit({
   hookSpecificOutput: {
     hookEventName: "PreToolUse",
-    additionalContext: [...releases, ...warnings].join('\n\n')
+    additionalContext: warnings.join('\n\n')
   }
-};
-if (releases.length > 0) output.systemMessage = releases.join('\n');
-
-emit(output);
+});

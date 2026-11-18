@@ -1,30 +1,29 @@
 #!/usr/bin/env node
-// PreToolUse (Edit|Write|NotebookEdit, and notes_write): refuses a subagent's first gated call until the
-// skills its seat requires are on record, then releases.
+// PreToolUse (Edit|Write|NotebookEdit, and notes_write): refuses a subagent's gated calls until the
+// skills its seat requires are on record.
 //
 // Acts only with a non-empty `agent_id` and a required record (written by seat-skill-hint.mjs) with
 // `enforce` whose gate matches this call: 'edit' for Edit, Write and NotebookEdit; 'note' for a notes_write
 // call with an `upsert` op whose role, lower-cased, equals the record's phase. Missing = the record's
 // skills minus those on record (skill-record.mjs) minus the agent file's preloaded skills.
 //   none missing           -> {}
-//   first time (marker)    -> deny, reason beginning `SEAT SKILLS REQUIRED:`
-//   marker already exists  -> allow with a systemMessage and additionalContext beginning
-//                             `task-orchestrator: proceeding without` (the release: an uninstalled skill
-//                             fires no hook, so it can never reach the record)
-//   marker unwritable      -> {}
+//   missing, probe written -> deny, every attempt, reason beginning `SEAT SKILLS REQUIRED:` and naming the
+//                             binding source; it tells an agent whose skill cannot load to stop and report
+//   probe unwritable       -> {} (the marker root could not record the fix)
+// There is no release: an uninstalled skill fires no hook, so the agent ends the loop by reporting.
 // No REST call. Fail-open: any error emits `{}`.
 
 import { readHookInput } from './lib/stdin.mjs';
-import { emit, emitEmpty, emitDeny } from './lib/emit.mjs';
+import { emitEmpty, emitDeny } from './lib/emit.mjs';
 import { opsOf } from './lib/ops.mjs';
 import {
   SEAT_SKILLS_REQUIRED_PREFIX,
+  UNKNOWN_SKILL_TEXT,
+  bindingSourceText,
   readRequired,
   missingSkills,
-  seatDeniedPath,
-  denialStep,
+  armDenial,
   quoteList,
-  releaseText,
 } from './lib/seat-skill-state.mjs';
 
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit']);
@@ -47,19 +46,12 @@ function main() {
   if (gateOfCall(input, record) !== record.gate) return emitEmpty();
   const missing = missingSkills(input.session_id, agentId, record.skills, record.preloaded);
   if (missing.length === 0) return emitEmpty();
-  const step = denialStep(seatDeniedPath(input.session_id, agentId));
-  if (step === 'deny') {
-    const point = record.gate === 'edit' ? 'a file edit' : `a ${record.phase} note write`;
-    return emitDeny(
-      `${SEAT_SKILLS_REQUIRED_PREFIX} the ${record.seat} seat on item ${record.itemId} must load ${quoteList(missing)} before ${point}. ` +
-        'Invoke each with the Skill tool, then retry this call.',
-    );
-  }
-  if (step === 'release') {
-    const text = releaseText(missing, `${record.seat} seat skills`);
-    return emit({ systemMessage: text, hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: text } });
-  }
-  return emitEmpty();
+  if (!armDenial(input.session_id, agentId)) return emitEmpty();
+  const point = record.gate === 'edit' ? 'a file edit' : `a ${record.phase} note write`;
+  return emitDeny(
+    `${SEAT_SKILLS_REQUIRED_PREFIX} the ${record.seat} seat on item ${record.itemId} must load ${quoteList(missing)} before ${point}. ` +
+      `Invoke each with the Skill tool, then retry this call. ${bindingSourceText(record.source)} ${UNKNOWN_SKILL_TEXT}`,
+  );
 }
 
 try {

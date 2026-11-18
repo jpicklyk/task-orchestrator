@@ -17,8 +17,9 @@
 // Main session (no `agent_id`): an ok advance element of a call without a top-level seatToken; the seat is
 // the new role's owner; once per (session, item, role); no record, never a refusal.
 //
-// Output: additionalContext beginning `SEAT SKILLS:` when a skill is required, else `{}`. Fail-open: any
-// error emits `{}`.
+// Output: additionalContext beginning `SEAT SKILLS:` when a skill is required, naming the binding source
+// (`Binding source: schema.` or `Binding source: plugin default.`) and telling an agent whose skill cannot
+// load to stop and report; else `{}`. Fail-open: any error emits `{}`.
 
 import { apiBaseUrl, callOp } from './lib/api-client.mjs';
 import { readHookInput } from './lib/stdin.mjs';
@@ -28,6 +29,9 @@ import { sessionMarkerPath, createMarkerOnce } from './lib/markers.mjs';
 import { resolveSeatSkills, seatNameFor, SEAT_SKILLS_FEATURE } from './lib/seat-skills.mjs';
 import {
   SEAT_SKILLS_PREFIX,
+  UNKNOWN_SKILL_TEXT,
+  bindingSourceLabel,
+  bindingSourceText,
   DEFAULT_SEAT_PHASE,
   gateForPhase,
   hash16,
@@ -83,22 +87,28 @@ async function schemaFacts(itemId) {
   return { seats, supported };
 }
 
-/** {seat, phase, gate, skills, enforce} for a seat on an item, or null when no gate point applies. */
+/**
+ * {seat, phase, gate, skills, source, enforce} for a seat on an item, or null when no gate point applies or
+ * skills resolve without a binding source. `source` is the label: 'schema' or 'plugin default'.
+ */
 function resolveFor(facts, seat, itemPhase) {
   const named = facts.seats.filter((s) => s.name === seat);
   const entry = named.find((s) => s.phase === itemPhase) || named[0];
   const phase = (entry && nonEmpty(entry.phase)) || DEFAULT_SEAT_PHASE[seat] || itemPhase;
   const gate = gateForPhase(phase);
   if (!gate) return null;
-  const { skills } = resolveSeatSkills({ seats: facts.seats, supported: facts.supported, callerSeat: seat, phase: entry ? entry.phase : itemPhase });
-  return { seat, phase, gate, skills, enforce: facts.supported };
+  const resolved = resolveSeatSkills({ seats: facts.seats, supported: facts.supported, callerSeat: seat, phase: entry ? entry.phase : itemPhase });
+  const skills = resolved.skills;
+  const source = bindingSourceLabel(resolved.source);
+  if (skills.length > 0 && !source) return null;
+  return { seat, phase, gate, skills, source: source || 'schema', enforce: facts.supported };
 }
 
-function hintText({ seat, itemId, phase, gate, required, enforce }) {
+function hintText({ seat, itemId, phase, gate, required, source, enforce }) {
   const point = gate === 'edit' ? 'your first file edit' : `your first ${phase} note write`;
   let text =
     `${SEAT_SKILLS_PREFIX} you are the ${seat} seat on item ${itemId}. Invoke each of these skills with the Skill tool ` +
-    `before ${point}, in this order: ${quoteList(required)}.`;
+    `before ${point}, in this order: ${quoteList(required)}. ${bindingSourceText(source)} ${UNKNOWN_SKILL_TEXT}`;
   if (!enforce) text += ' (advisory: nothing is refused)';
   return text;
 }

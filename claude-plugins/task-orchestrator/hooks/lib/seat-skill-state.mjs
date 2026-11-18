@@ -2,22 +2,40 @@
 // skill-enforcement.mjs. Pure at import; every function is fail-open and never throws.
 //
 // Per (session, agent) files under the marker root (lib/markers.mjs), never phase-guard-record's file:
-//   seat-skills-<agent>.json                 the required record {itemId, seat, phase, gate, skills, enforce, preloaded, callerSeat}
+//   seat-skills-<agent>.json                 the required record {itemId, seat, phase, gate, skills, source, enforce, preloaded, callerSeat}
 //   skill-loaded-<sha256(name):16>-<agent>   one file per loaded skill, holding {skill}; existence = on record,
 //                                            so parallel Skill calls never lose an update
-//   seat-skill-denied-<agent>                the one seat-skill denial (createMarkerOnce)
-//   note-skill-denied-<sha256(itemId::key):16>-<agent>  the one denial per note key
+//   seat-skill-armed-<agent>                 the writability probe, written before each denial: a marker root
+//                                            that cannot be written could not record the fix, so it never refuses
+// There is no release: while a required skill is missing every gated call is denied, and the text tells the
+// agent to stop and report when the skill cannot load.
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { sessionMarkerPath, readMarker, writeMarker, createMarkerOnce } from './markers.mjs';
+import { sessionMarkerPath, readMarker, writeMarker } from './markers.mjs';
 
 export const SEAT_SKILLS_PREFIX = 'SEAT SKILLS:';
 export const SEAT_SKILLS_REQUIRED_PREFIX = 'SEAT SKILLS REQUIRED:';
 export const NOTE_SKILL_REQUIRED_PREFIX = 'NOTE SKILL REQUIRED:';
-export const RELEASE_PREFIX = 'task-orchestrator: proceeding without';
+export const UNKNOWN_SKILL_TEXT =
+  'If the Skill tool answers Unknown skill, or you have no Skill tool, do not retry: stop and report the seat, the skill name and the binding source.';
+
+const BINDING_SOURCE_LABELS = { declared: 'schema', default: 'plugin default' };
+const SOURCE_LABELS = new Set(Object.values(BINDING_SOURCE_LABELS));
+
+/** resolveSeatSkills' source as a label: 'declared' -> 'schema', 'default' -> 'plugin default', else null. */
+export function bindingSourceLabel(source) {
+  return typeof source === 'string' && Object.prototype.hasOwnProperty.call(BINDING_SOURCE_LABELS, source)
+    ? BINDING_SOURCE_LABELS[source]
+    : null;
+}
+
+/** The sentence naming a binding source label, e.g. `Binding source: schema.` */
+export function bindingSourceText(label) {
+  return `Binding source: ${label}.`;
+}
 
 /** The phase a seat is gated in when its schema entry names none. */
 export const DEFAULT_SEAT_PHASE = { planner: 'queue', implementer: 'work', 'test-author': 'work', reviewer: 'review' };
@@ -48,12 +66,14 @@ export function readRequired(sessionId, agentId) {
     if (!agentId) return null;
     const r = readMarker(requiredRecordPath(sessionId, agentId), null);
     if (!r || typeof r.seat !== 'string' || !r.seat) return null;
+    if (typeof r.source !== 'string' || !SOURCE_LABELS.has(r.source)) return null;
     return {
       itemId: typeof r.itemId === 'string' ? r.itemId : null,
       seat: r.seat,
       phase: typeof r.phase === 'string' ? r.phase : null,
       gate: r.gate === 'edit' || r.gate === 'note' ? r.gate : null,
       skills: strList(r.skills),
+      source: r.source,
       enforce: r.enforce === true,
       preloaded: strList(r.preloaded),
       callerSeat: r.callerSeat === true,
@@ -101,37 +121,25 @@ export function missingSkills(sessionId, agentId, skills, preloaded = []) {
   return strList(skills).filter((s) => !pre.has(s) && !isSkillLoaded(sessionId, agentId, s));
 }
 
-export function seatDeniedPath(sessionId, agentId) {
-  return sessionMarkerPath(sessionId, 'seat-skill-denied', agentId);
-}
-
-export function noteDeniedPath(sessionId, agentId, itemId, key) {
-  return sessionMarkerPath(sessionId, `note-skill-denied-${hash16(`${itemId}::${key}`)}`, agentId);
+export function armedProbePath(sessionId, agentId) {
+  return sessionMarkerPath(sessionId, 'seat-skill-armed', agentId);
 }
 
 /**
- * The one-denial ladder at a marker path: 'deny' when this call created the marker, 'release' when it
- * already existed, 'allow' when it could not be written (an unwritable marker dir never refuses).
+ * Writes the agent's writability probe. True when written: a denial may follow. False on any failure: the
+ * marker root cannot hold a Skill record, so the caller allows the call (skill-record could not record the fix).
  */
-export function denialStep(path) {
+export function armDenial(sessionId, agentId) {
   try {
-    if (createMarkerOnce(path)) return 'deny';
-    return existsSync(path) ? 'release' : 'allow';
+    if (!agentId) return false;
+    return writeMarker(armedProbePath(sessionId, agentId), { at: Date.now() }) === true;
   } catch {
-    return 'allow';
+    return false;
   }
 }
 
 export function quoteList(names) {
   return names.map((n) => `"${n}"`).join(', ');
-}
-
-/** The release text: the call proceeds without the named skills. */
-export function releaseText(names, what) {
-  return (
-    `${RELEASE_PREFIX} ${quoteList(names)} (${what}): it was refused once and the skill is still not on record, ` +
-    'so this call is allowed. If the Skill tool answered Unknown skill or is not available to you, report it in your return.'
-  );
 }
 
 // ---- preloaded skills (agent frontmatter `skills:`) --------------------------------------
