@@ -211,11 +211,20 @@ body's Docs line; (b) require `CHANGELOG.md` in that output unless the body stat
 `Changelog: none (<why>)`. Recompute both lines after any merge round (a base merge or
 update-branch), before merge.
 
+**Merge method** (`<method>` below). `--squash` for a PR with its own item (Direct, Delegated, a
+per-item wave item). `--merge` for a shared-mode feature PR (`wave.md` Shared mode) when every
+subject from `git log --format=%s <base>..HEAD` is a conventional commit ending in an 8-hex item
+tag (`[<item-short>]`); a fix seat's commit counts when it is written that way. Any other subject
+(wip, untagged, a bare "address review") makes it `--squash`. Never rewrite the branch to clean it:
+notes and run files record its SHAs (dispatch pre/post SHAs, repair SHAs, `fixed <sha>`
+dispositions), and a rebase orphans them. The repo titles both merge and squash commits with the
+PR title, so the PR title is the conventional-commit subject that lands on `main`.
+
 **The gate**, once the PR is open:
-- Wait on `gh pr checks <n> --watch --fail-fast` and squash-merge only when every check is
+- Wait on `gh pr checks <n> --watch --fail-fast` and merge only when every check is
   green. Never merge with a check pending. If auto-merge is armed, GitHub enforces "all green"
   only for REQUIRED checks, so this gate still applies to the rest.
-- **Review-first arming.** Arm auto-merge (`gh pr merge <n> --squash --auto`), or merge, only
+- **Review-first arming.** Arm auto-merge (`gh pr merge <n> <method> --auto`), or merge, only
   after the item's review verdict is recorded with 0 blocking, and only once every observation
   the orchestrator chose to act on is committed on the branch. A PR opened before review (for
   early CI) is opened without auto-merge. If auto-merge is already armed when a review starts,
@@ -229,7 +238,7 @@ update-branch), before merge.
   the branch.
 - Fallback merge: if `gh pr view <n> --json mergeStateStatus,autoMergeRequest` shows `CLEAN`
   with no `autoMergeRequest`, or an armed auto-merge has not merged within 10 minutes of the
-  last green check, run `gh pr merge <n> --squash`. Never directly merge a PR that is not
+  last green check, run `gh pr merge <n> <method>`. Never directly merge a PR that is not
   `CLEAN` or has pending checks.
 - Confirm `gh pr view <n> --json state` reports `MERGED` before any worktree or branch
   cleanup. Then `git checkout main`, `git pull origin main`, and delete the branch (and remove
