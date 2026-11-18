@@ -321,7 +321,7 @@ components:
             type: string
           description: >-
             A1/A2: server-wide optional-response feature advertisement (currently
-            ["seats", "dispatchBySeat", "independent_of", "rules"]), advertised unconditionally regardless
+            ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills"]), advertised unconditionally regardless
             of whether the resolved config for any given root declares seats or independent_of.
             Same list as WellKnownDto.features.
         configWarnings:
@@ -387,6 +387,11 @@ components:
           items:
             type: string
           description: Rule keys the seat declares. Present only when the seat declares rules (an empty array when it declares none); served, never enforced.
+        skills:
+          type: array
+          items:
+            type: string
+          description: Skill names the seat declares. Present only when the seat declares skills (an empty array when it declares none); served, never enforced.
 
     ItemSchemaNoteEntryDto:
       type: object

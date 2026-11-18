@@ -210,9 +210,9 @@ fun buildResourcesJson(resources: List<ResourceRequirement>): JsonArray? {
 
 /**
  * Builds the `seats` JSON array for `items_read` `select=schema` and `select=context` item
- * mode: `[{name, phase, enters?, after?, readsExclude?, transitions?, rules?}]`, in [seats]' order (merged order for a
+ * mode: `[{name, phase, enters?, after?, readsExclude?, transitions?, rules?, skills?}]`, in [seats]' order (merged order for a
  * trait-merged schema). `enters` is included only when `true`; `after`/`readsExclude` only when
- * non-empty; `transitions` and `rules` only when declared (an empty declared list is served as `[]`). Returns null — never an empty array — when [seats] is empty; callers omit the `seats`
+ * non-empty; `transitions`, `rules` and `skills` only when declared (an empty declared list is served as `[]`). Returns null — never an empty array — when [seats] is empty; callers omit the `seats`
  * key entirely in that case (same omit-when-empty contract as [buildDispatchByRoleJson]).
  */
 fun buildSeatsJson(seats: List<SeatDefinition>): JsonArray? {
@@ -229,6 +229,7 @@ fun buildSeatsJson(seats: List<SeatDefinition>): JsonArray? {
                 }
                 seat.transitions?.let { declared -> put("transitions", JsonArray(declared.map { JsonPrimitive(it) })) }
                 seat.rules?.let { declared -> put("rules", JsonArray(declared.map { JsonPrimitive(it) })) }
+                seat.skills?.let { declared -> put("skills", JsonArray(declared.map { JsonPrimitive(it) })) }
             }
         }
     )
