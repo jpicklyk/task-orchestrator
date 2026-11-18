@@ -29,6 +29,7 @@ const EXPECTED = {
   'phase-guard-record.mjs': ['advance', 'items_read'],
   'dispatch-hint.mjs': ['advance'],
   'decision-guard.mjs': ['runs_write'],
+  'seat-skill-hint.mjs': ['advance', 'items_read'],
 };
 
 // Independent parse of a builder-shaped matcher: the tool part follows the last "__".

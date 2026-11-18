@@ -537,3 +537,19 @@ test('S17: lib-adoption lists seat-skills among the lib modules', () => {
   const text = readFileSync(join(PLUGIN, 'hooks', 'tests', 'lib-adoption.test.mjs'), 'utf8')
   assert.match(text, /LIB_MODULES\s*=\s*\[[^\]]*'seat-skills'[^\]]*\]/)
 })
+
+// ---- S19: null options (item ec7874fe, task-scope AC8 / D9) ---------------------------------------------
+
+test('S19: a null options object is read as {} by seatSkillsFor, seatNameFor and resolveSeatSkills', () => {
+  assert.deepEqual(seatSkillsFor(['a'], 'planner', null), ['a'])
+  assert.equal(seatNameFor(null), null)
+  assert.deepEqual(resolveSeatSkills(null), { seat: null, skills: [], source: 'none' })
+})
+
+test('S19 probe: undefined options behave like null, and a declared list still wins over an absent one', () => {
+  // Twin fixture: the same call with a non-null options object resolves a seat, so the null result above is not a constant.
+  assert.equal(seatNameFor({ callerSeat: 'planner' }), 'planner')
+  assert.deepEqual(seatSkillsFor(['a'], 'planner', undefined), ['a'])
+  assert.deepEqual(seatSkillsFor(undefined, 'planner', null), [])
+  assert.equal(seatNameFor(undefined), null)
+})
