@@ -44,8 +44,8 @@ preloaded by the agent file's `skills:`; a work seat is gated at file edits, a q
 its phase role. `skill-enforcement` does the same per note key in a subagent (`NOTE SKILL REQUIRED:`; a served rule is never
 required). There is no release: an uninstalled skill answers `Unknown skill` and fires no hook, so the hint and every
 denial name the binding source and tell the agent to stop and report the seat, the skill and the source instead of
-retrying. A server without the `seatSkills` feature, no REST URL, the main session, an unknown seat, an empty list or an
-unwritable marker root (the probe cannot be written) is never refused.
+retrying. A server without the `seatSkills` feature, a failed or schema-free item schema view, no REST URL, the main
+session, an unknown seat, an empty list or an unwritable marker root (the probe cannot be written) is never refused.
 
 The REST base URL resolves in this order: `TASK_ORCHESTRATOR_API_URL`, a project-level `client.json` (loopback only), the origin of the orchestrator's http(s) MCP registration (local `~/.claude.json` project entry, then `.mcp.json` - loopback only - then user `~/.claude.json`; `lib/mcp-registrations.mjs`), then the user-level `client.json`. `session-start` adds one warning line when the env var or a `client.json` points at a different origin than the registration.
 
@@ -70,7 +70,7 @@ the hook has no check for that column; "non-injecting" means it adds no context.
 | `pre-plan.mjs` | `{}` | `{}` | `off` gives `{}` | `{}` |
 | `post-plan.mjs` | `{}` | `{}` | `off` gives `{}` | `{}` |
 | `plan-capture.mjs` | Not gated; non-injecting outside a project session, one context line in one | Not gated; non-injecting outside a project session, one context line in one | Not read | Not gated; non-injecting outside a project session, one context line in one |
-| `skill-enforcement.mjs` | Not gated | Advice as in the main session, plus a denial (`NOTE SKILL REQUIRED:`) of every upsert of a key while a note skill is neither loaded nor preloaded, no release; no denial without a served-rules answer or with an unwritable probe | Not read | Not gated |
+| `skill-enforcement.mjs` | Not gated | Advice as in the main session, plus a denial (`NOTE SKILL REQUIRED:`) of every upsert of a key while a note skill is neither loaded nor preloaded, no release; no denial unless the item's own schema view lists `seatSkills`, and none without a served-rules answer or with an unwritable probe | Not read | Not gated |
 | `seat-skill-hint.mjs` | Not gated | Hints the seat's skills once per agent and writes its required record (seat from `callerSeat`, else a known seat `agent_type`); main session: once per item and role on an ok `advance` without a `seatToken`, no record | Not read | Not gated |
 | `skill-record.mjs` | Not gated; non-injecting | Acts only inside a subagent: records the loaded skill; non-injecting | Not read | Not gated; non-injecting |
 | `seat-skill-gate.mjs` | Not gated | Acts only inside a subagent with an enforcing record: a denial (`SEAT SKILLS REQUIRED:`) of every call at the seat's gate point while a skill is missing, no release; `{}` in the main session | Not read | Not gated |

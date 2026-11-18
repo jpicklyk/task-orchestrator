@@ -26,9 +26,13 @@
 // record (skill-record.mjs) or preloaded by the agent file's frontmatter `skills:` before the upsert:
 // every upsert of an (agent, item, key) with a skill missing is denied (`NOTE SKILL REQUIRED:`, binding
 // source schema), and the text tells an agent whose skill cannot load to stop and report; there is no
-// release. A denial needs the writability probe (lib/seat-skill-state.mjs armDenial): when it cannot be
-// written the call is allowed with today's advice. With no served-rule answer (servedKeys null) it keeps
-// the advice and never denies. Rule advice is as in the main session.
+// release. A denial rests only on the op's own item view: an ok `items_read` `schema` read of a valid
+// itemId, not schemaFree, with a notes[] list and `features` listing seatSkills. A failed, timed-out,
+// skipped, non-ok or schema-free view, an invalid itemId, or a server without seatSkills never denies:
+// that op gets today's advice (from the session maps when the view is unusable). A denial also needs the
+// writability probe (lib/seat-skill-state.mjs armDenial): when it cannot be written the call is allowed
+// with today's advice. With no served-rule answer (servedKeys null) it keeps the advice and never denies.
+// Skill advice is withheld only for an (item, key) the check covered. Rule advice is as in the main session.
 //
 // Time budget: one deadline, 4000 ms minus process.uptime(); each REST call gets min(its own timeout,
 // remaining - 250 ms), and under 100 ms left it is skipped as failed.
@@ -50,6 +54,7 @@ import {
   quoteList,
   preloadedSkills,
 } from './lib/seat-skill-state.mjs';
+import { SEAT_SKILLS_FEATURE } from './lib/seat-skills.mjs';
 
 const FACTS_TIMEOUT_MS = 1500;
 const DEADLINE_MS = 4000;
@@ -158,22 +163,27 @@ const marker = sessionMarkerPath(hookInput.session_id, 'skill-enforce');
 const warnedPairs = readMarker(marker);
 
 // Per-item schema view, once per distinct itemId per invocation. A usable view (not schemaFree)
-// replaces the session maps for that item's ops.
+// replaces the session maps for that item's ops. `enforceable` is true only for a usable view whose
+// `features` lists seatSkills: the subagent denial rests on that view alone, never on the session maps.
 const itemMaps = new Map();
 async function mapsFor(itemId) {
-  if (typeof itemId !== 'string' || !ITEM_ID_RE.test(itemId)) return sessionFacts;
+  if (typeof itemId !== 'string' || !ITEM_ID_RE.test(itemId)) return { ...sessionFacts, enforceable: false };
   if (!itemMaps.has(itemId)) {
-    let maps = sessionFacts;
+    let view = { ...sessionFacts, enforceable: false };
     try {
       const timeoutMs = budgetFor(FACTS_TIMEOUT_MS);
       const res = timeoutMs === null ? null : await callOp('items_read', { select: 'schema', itemId }, { timeoutMs });
       if (res && res.ok === true && isPlain(res.data) && res.data.schemaFree !== true && Array.isArray(res.data.notes)) {
-        maps = mapsFromNotes([res.data.notes]);
+        const features = res.data.features;
+        view = {
+          ...mapsFromNotes([res.data.notes]),
+          enforceable: Array.isArray(features) && features.includes(SEAT_SKILLS_FEATURE),
+        };
       }
     } catch {
-      // keep the session maps
+      // keep the session maps, never enforceable
     }
-    itemMaps.set(itemId, maps);
+    itemMaps.set(itemId, view);
   }
   return itemMaps.get(itemId);
 }
@@ -209,16 +219,17 @@ function substantiveFloor(maxLengthMap, key) {
 const warnings = [];
 const candidates = [];
 const newlyWarnedPairs = [];
-// Subagent only: every upsert op whose note has pointers, whatever its body (the loaded-skill check).
+// Subagent only: every upsert op whose note has pointers in an enforceable item view, whatever its body
+// (the loaded-skill check).
 const agentId = typeof hookInput.agent_id === 'string' && hookInput.agent_id !== '' ? hookInput.agent_id : null;
 const pointerOps = [];
 
 for (const note of ops) {
   const { key, body, bodyFromFile, itemId } = note;
   if (!key) continue;
-  const { skillMap, maxLengthMap } = await mapsFor(itemId);
+  const { skillMap, maxLengthMap, enforceable } = await mapsFor(itemId);
   if (!Object.prototype.hasOwnProperty.call(skillMap, key)) continue;
-  if (agentId) {
+  if (agentId && enforceable) {
     const names = (Array.isArray(skillMap[key]) ? skillMap[key] : [skillMap[key]]).filter((s) => typeof s === 'string' && s);
     if (names.length > 0) pointerOps.push({ itemId, key, names });
   }
@@ -262,22 +273,22 @@ const servedKeys =
 // Subagent loaded-skill check: never without a served-rules answer (a rule pointer is never required).
 // An unwritable probe (the marker root cannot record the fix) turns the check off for this call: no denial,
 // and the skill advice comes back.
-let enforceNotes = agentId !== null && servedKeys !== null;
+// `checked` holds the (item, key) pairs the check covered; only those lose their skill advice.
+const checked = new Set();
 const denials = [];
-if (enforceNotes) {
+if (agentId !== null && servedKeys !== null && pointerOps.length > 0) {
   const preloaded = preloadedSkills(hookInput.agent_type);
-  const seen = new Set();
   let armed = null;
   for (const { itemId, key, names } of pointerOps) {
     const pair = `${itemId}::${key}`;
-    if (seen.has(pair)) continue;
-    seen.add(pair);
+    if (checked.has(pair)) continue;
+    checked.add(pair);
     const { skills } = splitPointers(names, servedKeys);
     const missing = missingSkills(hookInput.session_id, agentId, skills, preloaded);
     if (missing.length === 0) continue;
     if (armed === null) armed = armDenial(hookInput.session_id, agentId);
     if (!armed) {
-      enforceNotes = false;
+      checked.clear();
       denials.length = 0;
       break;
     }
@@ -303,8 +314,8 @@ for (const { key, skills: names, pair } of candidates) {
       `and follow it before finalizing this note. (Shown once per item+key per session.)`
     );
   }
-  // Under the loaded-skill check a skill is denied or already on record: no skill advice.
-  if (skills.length > 0 && !enforceNotes) {
+  // A pair the loaded-skill check covered is denied or already on record: no skill advice for it.
+  if (skills.length > 0 && !checked.has(pair)) {
     paragraphs.push(
       `⊘ SKILL SUGGESTED — the note "${key}" is schema-bound to the ${skills.map((s) => `/${s}`).join(', ')} framework${skills.length > 1 ? 's' : ''}. ` +
       `If you have not already, invoke the Skill tool with ${skills.map((s) => `skill="${s}"`).join(', then ')} and incorporate ` +
