@@ -88,4 +88,6 @@ Never pipe `./gradlew` output to `tail`; run it directly and read the full outpu
 ## Git workflow
 
 - The PR boundary is the parent feature: the children of a Parallel-tier feature commit to one shared `feat/<slug>` worktree branch, one PR opens once every child is terminal, and the parent completes after that PR is `MERGED`; a Direct or Delegated item gets its own branch and PR and completes after it merges. Procedure: the `implement` skill (`.claude/skills/implement/SKILL.md`, then `wave.md`, `direct.md` or `delegated.md`).
-- Conventional commits referencing the issue; all tests pass before a commit; squash-merge via PR; never force-push `main`. After a merge: `git checkout main && git pull origin main && git branch -D <branch>`.
+- Conventional commits referencing the issue; all tests pass before a commit; never force-push `main`.
+- Merge strategy follows the PR's shape. Squash is the default: a single-item (Direct or Delegated) PR, a fix, docs or chore branch, and any branch whose commits carry review churn. A merge commit is for a Parallel-tier feature branch whose every commit subject is conventional and item-tagged, fix-seat commits included; any other subject makes it a squash. Never rebase a branch to qualify: notes and run files record its SHAs. The test is the `implement` skill's "Merge method". Rebase-merge is disabled. The repo titles both merge and squash commits with the PR title, so a PR title is a conventional-commit subject.
+- After a merge: `git checkout main && git pull origin main && git branch -D <branch>`.
