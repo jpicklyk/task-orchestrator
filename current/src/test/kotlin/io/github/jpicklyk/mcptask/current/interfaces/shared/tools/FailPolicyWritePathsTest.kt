@@ -83,7 +83,7 @@ class FailPolicyWritePathsTest {
             serverVersion = "test",
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
-            appConfig = AppConfig.fromEnv(),
+            appConfig = AppConfig.fromEnv { null },
         )
     }
 

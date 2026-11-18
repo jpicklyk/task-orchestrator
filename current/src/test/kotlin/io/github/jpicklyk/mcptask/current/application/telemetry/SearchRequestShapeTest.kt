@@ -181,7 +181,7 @@ class SearchRequestShapeTest {
             serverConfig = rig.rig.composition.serverConfig,
             toolContext = rig.rig.composition.toolContext,
             callLog = rig.writer,
-            appConfig = AppConfig.fromEnv(),
+            appConfig = AppConfig.fromEnv { null },
         )
     }
 

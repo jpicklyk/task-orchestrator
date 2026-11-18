@@ -351,7 +351,7 @@ class JwksScopeClaimFailClosedTest {
     private fun inMemoryRepositoryProvider(): DefaultRepositoryProvider = db.repositoryProvider()
 
     private fun io.ktor.server.application.Application.installJwksScopeTestApp(verifier: JwksApiVerifier) {
-        installMcpStreamableHttp(emptyMcpServer(), appConfig = AppConfig.fromEnv(), mcpAuth = McpAuthMode.Local)
+        installMcpStreamableHttp(emptyMcpServer(), appConfig = AppConfig.fromEnv { null }, mcpAuth = McpAuthMode.Local)
         val repositoryProvider = inMemoryRepositoryProvider()
         installRestApiRoutes(
             apiConfig = defaultConfig,
@@ -370,7 +370,7 @@ class JwksScopeClaimFailClosedTest {
                     unitOfWork = db.unitOfWork()
                 ),
             jwksVerifier = verifier,
-            appConfig = AppConfig.fromEnv(),
+            appConfig = AppConfig.fromEnv { null },
         )
     }
 

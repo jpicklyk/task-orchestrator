@@ -47,7 +47,7 @@ class V9RootIdMigrationTest {
         keepAliveConnection = DriverManager.getConnection(jdbcUrl)
         database = Database.connect(url = jdbcUrl, driver = "org.sqlite.JDBC")
         TransactionManager.manager.defaultIsolationLevel = Connection.TRANSACTION_SERIALIZABLE
-        databaseManager = DatabaseManager(database, appConfig = AppConfig.fromEnv())
+        databaseManager = DatabaseManager(database, appConfig = AppConfig.fromEnv { null })
     }
 
     @AfterEach
