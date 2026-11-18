@@ -12,6 +12,7 @@
 
 import { isOrchestratorServerKey } from '../hooks/registration.mjs';
 import { forClass } from './lib/dispatch-policy.mjs';
+import { SEAT_SKILLS_FEATURE, seatSkillsFor, loadSeatSkillDefaults } from '../hooks/lib/seat-skills.mjs';
 
 export const SNAPSHOT_CONTRACT = 'run-wave/snapshot-v1';
 export const PLAN_DOC_CONTRACT = 'run-wave/plan-doc-v1';
@@ -727,6 +728,26 @@ function mergeRules(noteRules, seatRules) {
 }
 
 /**
+ * reviewSeatSkillsOf(schema, skillOpts) -> {<lane seat>: [skills]} | null
+ * Over the same lane seats as reviewRulesOf; a seat with no skills is omitted, null when none has any.
+ */
+function reviewSeatSkillsOf(schema, skillOpts) {
+  const out = {};
+  const declaredSeats = schema.seats || [];
+  const seen = new Set();
+  for (const n of schema.notes || []) {
+    if (!n || n.role !== 'review' || n.seat === 'orchestrator') continue;
+    const seat = n.seat || n.reviewer || 'reviewer';
+    if (seen.has(seat)) continue;
+    seen.add(seat);
+    const decl = declaredSeats.find((x) => x.name === seat && x.phase === 'review');
+    const sk = seatSkillsFor(decl ? decl.skills : undefined, seat, skillOpts);
+    if (sk.length) out[seat] = sk;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/**
  * reviewRulesOf(schema, servedKeys) -> {reviewRules, degradations}
  * reviewRules is {<lane seat>: [keys]} over the seats of the schema's review-role notes (the lane seat expression
  * reviewWaveArgs uses), omitted keys with no rule; the seat's declared `rules` or the review-v1 defaults. null when no lane has one.
@@ -752,7 +773,9 @@ function reviewRulesOf(schema, servedKeys) {
 /**
  * deriveStages(candidate, schemaEntry, ctx) -> {stages, orchestratorNotes, unownedRequired,
  *   schemaFree, hasReviewPhase, warnings, degradations, exclude:null|string}
- * ctx = {rulesServed:[{key,rulesVersion}], noteOwners:[{key, seat}]}
+ * ctx = {rulesServed:[{key,rulesVersion}], noteOwners:[{key, seat}], features:[string], seatSkillDefaults}
+ * Seat skills (stage `seatSkills`, result `reviewSeatSkills`) are honoured as declared only when features lists
+ * `seatSkills`; otherwise the defaults table applies. Each is emitted only when non-empty.
  * noteOwners are this item's notes whose owner seat notes_read list reported (owner.seat, shown only
  * when the caller may see attribution); a resumed work seat whose every owned note is owned by that
  * seat is skipped. A note with no owner row never skips a seat.
@@ -763,6 +786,10 @@ function reviewRulesOf(schema, servedKeys) {
 export function deriveStages(candidate, schemaEntry, ctx = {}) {
   const rulesServed = ctx.rulesServed || [];
   const noteOwners = ctx.noteOwners || [];
+  const skillOpts = {
+    supported: Array.isArray(ctx.features) && ctx.features.includes(SEAT_SKILLS_FEATURE),
+    defaults: ctx.seatSkillDefaults || loadSeatSkillDefaults()
+  };
   const servedKeys = new Set(rulesServed.map((r) => r.key));
   const ownerSeatByKey = new Map(noteOwners.map((n) => [n.key, n.seat]));
   const warnings = [];
@@ -779,6 +806,8 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
       dispatch: resolveDispatch({}, 'implementer', 'work', { enters: true, implicitOwner: true }),
       output: 'implementer-v1'
     };
+    const freeSkills = seatSkillsFor(undefined, 'implementer', skillOpts);
+    if (freeSkills.length) stage.seatSkills = freeSkills;
     warnings.push('/manage-schemas suggestion');
     return {
       stages: [stage],
@@ -895,6 +924,8 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
         dispatch,
         output
       };
+      const seatSkills = seatSkillsFor(s.skills, s.name, skillOpts);
+      if (seatSkills.length) stage.seatSkills = seatSkills;
       const seatOptional = optionalOf(seatNotes, notes);
       if (seatOptional.length) stage.optionalNotes = seatOptional;
       const seatLimits = noteLimitsOf(seatNotes, notes);
@@ -925,6 +956,8 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
         dispatch: resolveDispatch(schema, 'planner', 'queue', { enters: false, implicitOwner: true }),
         output: 'planner-v1'
       };
+      const plannerSkills = seatSkillsFor(undefined, 'planner', skillOpts);
+      if (plannerSkills.length) plannerStage.seatSkills = plannerSkills;
       const plannerOptional = optionalOf(queueNotes, notes);
       if (plannerOptional.length) plannerStage.optionalNotes = plannerOptional;
       const plannerLimits = noteLimitsOf(queueNotes, notes);
@@ -947,6 +980,8 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
       dispatch: resolveDispatch(schema, 'implementer', 'work', { enters: true, implicitOwner: true }),
       output: 'implementer-v1'
     };
+    const implementerSkills = seatSkillsFor(undefined, 'implementer', skillOpts);
+    if (implementerSkills.length) implementerStage.seatSkills = implementerSkills;
     const implementerOptional = optionalOf(workNotes, notes);
     if (implementerOptional.length) implementerStage.optionalNotes = implementerOptional;
     const implementerLimits = noteLimitsOf(workNotes, notes);
@@ -965,6 +1000,7 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
 
   const review = hasReviewPhase ? reviewRulesOf(schema, servedKeys) : { reviewRules: null, degradations: [] };
   degradations.push(...review.degradations);
+  const reviewSeatSkills = hasReviewPhase ? reviewSeatSkillsOf(schema, skillOpts) : null;
 
   return {
     stages,
@@ -973,6 +1009,7 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
     schemaFree: false,
     hasReviewPhase,
     reviewRules: review.reviewRules,
+    reviewSeatSkills,
     warnings,
     degradations,
     exclude
@@ -1425,6 +1462,7 @@ export function assembleArgs(snap, planned, opts) {
       branch,
       stages: derived.stages || [],
       ...(derived.reviewRules ? { reviewRules: derived.reviewRules } : {}),
+      ...(derived.reviewSeatSkills ? { reviewSeatSkills: derived.reviewSeatSkills } : {}),
       orchestratorNotes: derived.orchestratorNotes || [],
       unownedRequired: derived.unownedRequired || [],
       carryIns: ciKeys,
@@ -1549,7 +1587,8 @@ export function buildPlanDoc(snap, opts = {}) {
     const schemaEntry = (snap.schemas || {})[c.id];
     derivedById[c.id] = deriveStages(c, schemaEntry, {
       rulesServed: snap.rulesServed || [],
-      noteOwners: (snap.noteOwners || {})[c.id] || []
+      noteOwners: (snap.noteOwners || {})[c.id] || [],
+      features: snap.features || []
     });
   }
 
