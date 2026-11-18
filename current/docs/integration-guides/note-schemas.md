@@ -299,7 +299,7 @@ The result element reports `previousRole: "queue"` and `newRole: "work"`.
 
 ## Building Schemas Interactively
 
-If you have the plugin installed, the `/task-orchestrator:manage-schemas` skill walks you through creating, viewing, editing, and validating schemas without editing YAML directly. See [Plugin: Skills and Hooks](plugin-skills-hooks.md).
+If you have the plugin installed, the `/task-orchestrator:manage-schemas` skill walks you through creating, viewing, editing, validating, and auditing schemas without editing YAML directly. See [Plugin: Skills and Hooks](plugin-skills-hooks.md).
 
 ---
 
