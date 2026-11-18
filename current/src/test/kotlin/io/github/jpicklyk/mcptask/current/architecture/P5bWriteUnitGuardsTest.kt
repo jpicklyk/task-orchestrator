@@ -76,7 +76,8 @@ class P5bWriteUnitGuardsTest {
 
     @Test
     fun `S12 the burned-down P5b files carry no catch-all site in production code`() {
-        val actual = GuardSupport.countByFile(GuardSupport.productionSources()) { CancellationSafetyTest.violations(it.text) }
+        val sources = GuardSupport.productionSources()
+        val actual = GuardSupport.countByFile(sources) { CancellationSafetyTest.violations(it.text) }
         val burned =
             listOf(
                 "infrastructure/sqlite/repository/SQLiteWorkItemRepository.kt",
@@ -86,9 +87,10 @@ class P5bWriteUnitGuardsTest {
                 "infrastructure/sqlite/knowledge/search/SqliteSearchEngine.kt",
                 "infrastructure/sqlite/repository/WorkItemRows.kt",
                 "infrastructure/sqlite/repository/SQLiteResourceLeaseRepository.kt",
-                "interfaces/api/v1/routes/ItemWriteRoutes.kt",
                 "interfaces/api/v1/routes/ItemRoutes.kt"
             )
+        val present = sources.map { it.path }.toSet()
+        burned.forEach { assertTrue(it in present, "burned file is not a production source (renamed or deleted?): $it") }
         assertEquals(emptyMap(), actual.filterKeys { it in burned }, "task-scope section 7: these files are fully burned down")
         assertTrue(actual.values.sum() <= 59, "actual site count ${actual.values.sum()} must be <= 59")
         assertTrue(actual.size <= 25, "actual file count ${actual.size} must be <= 25")
