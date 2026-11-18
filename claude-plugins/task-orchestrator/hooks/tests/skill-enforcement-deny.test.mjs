@@ -2,9 +2,9 @@
 // on record, and keeps to its time budget. Scenarios S8, S9, S10 and S17 of the frozen test-plan note.
 // Blind test-author seat: no production .mjs file was opened.
 //
-// Oracles: task-scope AC4, AC5 (one denial then release), AC7 and D5, D6 (a subagent upsert op with note pointers is split
+// Oracles: task-scope AC4, AC5 (denied while the skill is missing; no release, ruling A1), AC7 and D5, D6 (a subagent upsert op with note pointers is split
 // by the served rule keys; a rule is never required; servedKeys null means today's advice and no denial; the deadline is
-// 4000 ms for the whole hook); the exported prefix strings NOTE_SKILL_REQUIRED_PREFIX and RELEASE_PREFIX (declarations);
+// 4000 ms for the whole hook); the exported prefix string NOTE_SKILL_REQUIRED_PREFIX (declaration) and the ruling A1 texts;
 // wire shapes from rule-pointer.test.mjs (config rules reply {rootId, rules:[{key, rulesVersion, updatedAt}]}) and
 // skill-enforcement.test.mjs (items_read schema view with notes[]). Skill records are written only by skill-record.mjs.
 //
@@ -21,7 +21,11 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { NOTE_SKILL_REQUIRED_PREFIX, RELEASE_PREFIX } from '../lib/seat-skill-state.mjs';
+import { NOTE_SKILL_REQUIRED_PREFIX } from '../lib/seat-skill-state.mjs';
+
+// The literal texts frozen by ruling A1 (the amendment is the oracle, not the code).
+const SRC_SCHEMA = 'Binding source: schema.';
+const UNK = 'If the Skill tool answers Unknown skill, or you have no Skill tool, do not retry: stop and report the seat, the skill name and the binding source.';
 
 const SE = fileURLToPath(new URL('../skill-enforcement.mjs', import.meta.url));
 const RECORD = fileURLToPath(new URL('../skill-record.mjs', import.meta.url));
@@ -174,10 +178,12 @@ test('S8: a subagent upsert whose note skill y-skill is not on record is denied 
     assert.ok(reason.startsWith(NOTE_SKILL_REQUIRED_PREFIX), reason);
     assert.ok(reason.includes('note-a'), reason);
     assert.ok(reason.includes('"y-skill"'), reason);
+    assert.ok(reason.includes(SRC_SCHEMA), reason);
+    assert.ok(reason.includes(UNK), reason);
 
-    // Another agent in the session has not loaded it either: its own first attempt is also denied.
+    // Another agent in the session has not loaded it either: its own attempt is also denied.
     const other = await run(SE, upsert(s, 'agent-2', [{ itemId: U1, key: 'note-a' }]), fx, server.origin);
-    assert.ok(isDeny(other), 'a denial marker of agent-1 does not release agent-2');
+    assert.ok(isDeny(other), 'a denial of agent-1 does not release agent-2');
 
     const rec = await run(RECORD, skillRecord(s, 'agent-3', 'y-skill'), fx, server.origin);
     assert.equal(rec.status, 0);
@@ -248,26 +254,44 @@ test('S10: when the rules route answers 404 nothing is denied (today\'s advice o
   });
 });
 
-// ---- S14 (note skill) --------------------------------------------------------------------------------------
+// ---- S14 (note skill; no release, ruling A1) ---------------------------------------------------------------
 
-test('S14: a note skill that never loads is refused once per agent, item and key, then allowed with the proceeding-without message', async () => {
+test('S14: a note skill that never loads is denied on every attempt with the stop-and-report text and no systemMessage; denials stay per key and per item', async () => {
   await withStub({ notes: [note('note-a', ['y-skill']), note('note-b', ['y-skill'])], rules: rulesOk([]) }, async (server, fx) => {
     const s = sid('s14');
-    const first = await run(SE, upsert(s, 'agent-1', [{ itemId: U1, key: 'note-a' }]), fx, server.origin);
-    assert.ok(isDeny(first), first.stdout);
-    for (const attempt of [2, 3]) {
+    for (const attempt of [1, 2, 3]) {
       const res = await run(SE, upsert(s, 'agent-1', [{ itemId: U1, key: 'note-a' }]), fx, server.origin);
-      assert.ok(!isDeny(res), `attempt ${attempt}: ${res.stdout}`);
-      const msg = parse(res).systemMessage ?? '';
-      assert.ok(msg.startsWith(RELEASE_PREFIX), `attempt ${attempt}: ${res.stdout}`);
-      assert.ok(msg.includes('y-skill'), msg);
+      assert.equal(res.status, 0, `attempt ${attempt}`);
+      assert.ok(isDeny(res), `attempt ${attempt}: ${res.stdout}`);
+      const reason = reasonOf(res);
+      assert.ok(reason.startsWith(NOTE_SKILL_REQUIRED_PREFIX), reason);
+      assert.ok(reason.includes('"y-skill"'), reason);
+      assert.ok(reason.includes(SRC_SCHEMA), reason);
+      assert.ok(reason.includes(UNK), reason);
+      assert.equal(parse(res).systemMessage, undefined, `attempt ${attempt}: ${res.stdout}`);
+      assert.ok(!res.stdout.includes('proceeding without'), res.stdout);
     }
-    // The marker is per key: another note of the same item is refused on its own first attempt.
     const otherKey = await run(SE, upsert(s, 'agent-1', [{ itemId: U1, key: 'note-b' }]), fx, server.origin);
     assert.ok(isDeny(otherKey), otherKey.stdout);
-    // And per item.
     const otherItem = await run(SE, upsert(s, 'agent-1', [{ itemId: U2, key: 'note-a' }]), fx, server.origin);
     assert.ok(isDeny(otherItem), otherItem.stdout);
+  });
+});
+
+// ---- S22: unwritable marker root fails open (ruling A1) ----------------------------------------------------
+
+test('S22: with TEMP pointing at a file (no writable marker root) a missing note skill is not denied; S8 is the writable twin', async () => {
+  await withStub({ notes: [note('note-a', ['y-skill'])], rules: rulesOk([]) }, async (server, fx) => {
+    const file = join(fx.dir, 'not-a-dir');
+    writeFileSync(file, 'x', 'utf-8');
+    const bad = { ...fx, tmp: file };
+    const res = await run(SE, upsert(sid('s22'), 'agent-1', [{ itemId: U1, key: 'note-a' }]), bad, server.origin);
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(!isDeny(res), res.stdout);
+    assert.ok(server.requests.some((r) => r.body?.ops?.[0]?.op === 'rules'), 'the rules read ran, so the missing skill was known and only the probe released the call');
+    // Twin: the same upsert with a writable TEMP is denied.
+    const twin = await run(SE, upsert(sid('s22w'), 'agent-1', [{ itemId: U1, key: 'note-a' }]), fx, server.origin);
+    assert.ok(isDeny(twin), twin.stdout);
   });
 });
 

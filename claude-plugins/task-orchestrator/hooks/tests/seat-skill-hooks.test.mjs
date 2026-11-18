@@ -1,5 +1,5 @@
 // Item ec7874fe (F3-C): seat-skill-hint.mjs, skill-record.mjs and seat-skill-gate.mjs as spawned node hook scripts.
-// Scenarios S1-S7, S11-S16, S18 and S20 of the frozen test-plan note (S8-S10 and S17 live in skill-enforcement-deny.test.mjs,
+// Scenarios S1-S7, S11-S16, S18 and S20 of the frozen test-plan note plus S21 from ruling A1 (S8-S10 and S17 live in skill-enforcement-deny.test.mjs,
 // S19 in scripts/tests/seat-skills.test.mjs). Blind test-author seat: no production .mjs file was opened; the inputs and
 // outputs below come from the task-scope decisions D1-D9 and AC1-AC9, the supplied declarations (exported prefix strings),
 // lib-emit.test.mjs (the stdout shapes of deny / context / systemMessage), phase-guard-record-read.test.mjs (the PostToolUse
@@ -24,7 +24,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { orchestratorToolMatcher } from '../registration.mjs';
-import { SEAT_SKILLS_PREFIX, SEAT_SKILLS_REQUIRED_PREFIX, RELEASE_PREFIX } from '../lib/seat-skill-state.mjs';
+import { SEAT_SKILLS_PREFIX, SEAT_SKILLS_REQUIRED_PREFIX, bindingSourceLabel, bindingSourceText } from '../lib/seat-skill-state.mjs';
+
+// The literal texts frozen by ruling A1 (the amendment is the oracle, not the code).
+const SRC_SCHEMA = 'Binding source: schema.';
+const UNK = 'If the Skill tool answers Unknown skill, or you have no Skill tool, do not retry: stop and report the seat, the skill name and the binding source.';
 
 const HINT = fileURLToPath(new URL('../seat-skill-hint.mjs', import.meta.url));
 const GATE = fileURLToPath(new URL('../seat-skill-gate.mjs', import.meta.url));
@@ -233,6 +237,9 @@ test('S1: hint names the seat and both skills, Edit is denied until both Skill c
     assert.ok(text.startsWith(SEAT_SKILLS_PREFIX), text);
     assert.ok(text.includes('implementer'), text);
     assert.ok(text.indexOf('p:a') !== -1 && text.indexOf('p:a') < text.indexOf('p:b'), text);
+    assert.ok(text.includes(SRC_SCHEMA), text);
+    assert.ok(text.includes(UNK), text);
+    assert.ok(!text.includes('advisory: nothing is refused'), 'an enforcing hint is not advisory');
 
     const denied = await gate(fx, editCall(s, 'agent-1'));
     assert.equal(denied.status, 0);
@@ -241,8 +248,10 @@ test('S1: hint names the seat and both skills, Edit is denied until both Skill c
     assert.ok(reason.startsWith(SEAT_SKILLS_REQUIRED_PREFIX), reason);
     assert.ok(reason.includes('implementer'), reason);
     assert.ok(reason.includes('"p:a"') && reason.includes('"p:b"'), reason);
+    assert.ok(reason.includes(SRC_SCHEMA), reason);
+    assert.ok(reason.includes(UNK), reason);
 
-    // A fresh agent twin: the marker for a denial is per agent, so a still-unsatisfied agent is denied exactly once.
+    // While a required skill is missing every gated call is denied (A1: no release); recording both satisfies it.
     assert.equal((await record(fx, s, 'agent-1', 'p:a')).status, 0);
     assert.equal((await record(fx, s, 'agent-1', 'p:b')).status, 0);
     const allowed = await gate(fx, editCall(s, 'agent-1'));
@@ -467,24 +476,46 @@ test('S13: a server without seatSkills (seats carry skills) gives no hint and no
   });
 });
 
-// ---- S14: release (AC5, D7) ------------------------------------------------------------------------------
+// ---- S14: no release (AC5, ruling A1) --------------------------------------------------------------------
 
-test('S14: a skill that never loads is refused once; the 2nd and 3rd attempts pass with the proceeding-without message naming it', async () => {
+test('S14: a skill that never loads is denied on every attempt, with the source and the stop-and-report text, and no release message', async () => {
   await withStub({ schema: schemaView({ seats: SEATS(['missing-skill']) }) }, async (server, fx) => {
     const s = sid('s14');
     await boot(server, fx, s);
-    const first = await gate(fx, editCall(s, 'agent-1'));
-    assert.ok(isDeny(first), first.stdout);
-    assert.ok(denyReason(first).includes('"missing-skill"'));
-    for (const attempt of [2, 3]) {
+    for (const attempt of [1, 2, 3]) {
       const res = await gate(fx, editCall(s, 'agent-1'));
       assert.equal(res.status, 0, `attempt ${attempt}`);
-      assert.ok(!isDeny(res), `attempt ${attempt}: ${res.stdout}`);
-      const msg = parse(res).systemMessage ?? '';
-      assert.ok(msg.startsWith(RELEASE_PREFIX), `attempt ${attempt}: ${res.stdout}`);
-      assert.ok(msg.includes('missing-skill'), msg);
+      assert.ok(isDeny(res), `attempt ${attempt}: ${res.stdout}`);
+      const reason = denyReason(res);
+      assert.ok(reason.startsWith(SEAT_SKILLS_REQUIRED_PREFIX), reason);
+      assert.ok(reason.includes('"missing-skill"'), reason);
+      assert.ok(reason.includes(SRC_SCHEMA), reason);
+      assert.ok(reason.includes(UNK), reason);
+      assert.equal(parse(res).systemMessage, undefined, `attempt ${attempt}: ${res.stdout}`);
+      assert.ok(!res.stdout.includes('proceeding without'), res.stdout);
     }
   });
+});
+
+test('S14 twin: once the skill is recorded the same call is allowed silently, so the denials above are the missing skill', async () => {
+  await withStub({ schema: schemaView({ seats: SEATS(['missing-skill']) }) }, async (server, fx) => {
+    const s = sid('s14t');
+    await boot(server, fx, s);
+    assert.ok(isDeny(await gate(fx, editCall(s, 'agent-1'))));
+    assert.equal((await record(fx, s, 'agent-1', 'missing-skill')).status, 0);
+    const res = await gate(fx, editCall(s, 'agent-1'));
+    assert.ok(isEmptyOut(res), res.stdout);
+  });
+});
+
+// ---- S21: binding source labels (ruling A1) ---------------------------------------------------------------
+
+test('S21: bindingSourceLabel maps declared to schema, default to plugin default, anything else to null; bindingSourceText names the label', () => {
+  assert.equal(bindingSourceLabel('declared'), 'schema');
+  assert.equal(bindingSourceLabel('default'), 'plugin default');
+  for (const other of ['none', '', undefined, null, 'Declared', 'schema']) assert.equal(bindingSourceLabel(other), null, String(other));
+  assert.equal(bindingSourceText('schema'), 'Binding source: schema.');
+  assert.equal(bindingSourceText('plugin default'), 'Binding source: plugin default.');
 });
 
 // ---- S15: preloaded through agent frontmatter (AC5) -------------------------------------------------------
