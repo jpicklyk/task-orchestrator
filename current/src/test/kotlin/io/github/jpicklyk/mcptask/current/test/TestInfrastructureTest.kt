@@ -1,10 +1,8 @@
 package io.github.jpicklyk.mcptask.current.test
 
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
-import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.Test
 import java.util.UUID
@@ -250,48 +248,4 @@ class TestInfrastructureTest {
             }
         assertErrorResponse(response)
     }
-
-    // ── MockRepositoryProvider ──
-
-    @Test
-    fun `MockRepositoryProvider wires up correctly`() {
-        val mock = MockRepositoryProvider()
-        // Verify provider returns the correct mock instances
-        assertSame(mock.workItemRepo, mock.provider.workItemRepository())
-        assertSame(mock.noteRepo, mock.provider.noteRepository())
-        assertSame(mock.depRepo, mock.provider.dependencyRepository())
-    }
-
-    @Test
-    fun `MockRepositoryProvider context uses NoOp schema by default`() {
-        val mock = MockRepositoryProvider()
-        val ctx = mock.context()
-        assertNotNull(ctx)
-        assertSame(mock.provider.workItemRepository(), ctx.workItemRepository())
-    }
-
-    @Test
-    fun `MockRepositoryProvider context with custom config resolver`(): Unit =
-        runBlocking {
-            val mock = MockRepositoryProvider()
-            val notes =
-                listOf("requirements", "design", "implementation-notes", "review-checklist").map {
-                    NoteSchemaEntry(key = it, role = Role.QUEUE, required = true)
-                }
-            val ctx = mock.context(TestConfigResolver.forSchemas(mapOf("feature-implementation" to notes)))
-            assertNotNull(ctx)
-            // The resolver should return the schema declared for the "feature-implementation" type
-            val schema = ctx.resolveTypeSchema("feature-implementation", null)?.schema
-            assertNotNull(schema)
-            assertEquals(4, schema.notes.size)
-        }
-
-    @Test
-    fun `MockRepositoryProvider noteRepo default returns empty lists`(): Unit =
-        runBlocking {
-            val mock = MockRepositoryProvider()
-            val result = mock.noteRepo.findByItemId(UUID.randomUUID())
-            assertNotNull(result)
-            assertTrue(result.isEmpty())
-        }
 }

@@ -1,678 +1,227 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
-import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
-import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
-import io.github.jpicklyk.mcptask.current.application.port.NoteStore
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
-import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
-import io.github.jpicklyk.mcptask.current.test.advanceSeeded
-import io.github.jpicklyk.mcptask.current.test.testClaimService
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
+import io.github.jpicklyk.mcptask.current.test.P11Driver
+import io.github.jpicklyk.mcptask.current.test.P11Driver.Companion.transitioned
+import io.github.jpicklyk.mcptask.current.test.P11_BASE_YAML
+import io.github.jpicklyk.mcptask.current.test.P11_LEASE_KEY
+import io.github.jpicklyk.mcptask.current.test.advanceDirect
+import io.github.jpicklyk.mcptask.current.test.failure
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.success
 import io.github.jpicklyk.mcptask.current.test.toRoleTransition
-import io.mockk.Called
-import io.mockk.coEvery
-import io.mockk.coVerify
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.slot
-import io.mockk.verify
 import kotlinx.coroutines.runBlocking
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import java.util.UUID
+import org.junit.jupiter.api.Timeout
+import org.junit.jupiter.api.extension.RegisterExtension
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Path
+import java.time.Duration
+import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
+/** Lease TTL, credentialRefs and a registry for the M1/M2 tests (a standalone constant: P11_BASE_YAML already owns `traits:`). */
+private const val LEASE_GATE_YAML = """
+work_item_schemas:
+  ttl-item:
+    default_traits: [ttl-keys]
+    notes: []
+  cred-item:
+    default_traits: [cred-keys]
+    notes: []
+traits:
+  ttl-keys:
+    resources:
+      - { key: ttl-override, mode: exclusive, ttlSeconds: 120 }
+      - { key: ttl-registry, mode: exclusive }
+      - { key: ttl-nodefault, mode: exclusive }
+      - { key: ttl-zero, mode: exclusive, ttlSeconds: 0 }
+      - { key: ttl-huge, mode: exclusive, ttlSeconds: 999999 }
+  cred-keys:
+    resources:
+      - { key: cred-adv, mode: advisory }
+      - { key: cred-excl, mode: exclusive, ttlSeconds: 60 }
+resources:
+  ttl-override:
+    description: requirement ttl wins over this default
+    defaultTtlSeconds: 999
+  ttl-registry:
+    description: registry default applies
+    defaultTtlSeconds: 1800
+  ttl-nodefault:
+    description: registered with no default, so the server default applies
+  ttl-zero:
+    description: zero is clamped up
+  ttl-huge:
+    description: huge is clamped down
+  cred-adv:
+    description: advisory
+  cred-excl:
+    description: exclusive
+  cred-registered:
+    description: registered but not declared by the item
+"""
+
 /**
- * Unit tests for step 4.5 of [AdvanceService] — the resource-lease gate — plus every release path
- * out of [Role.WORK] and the start-cascade suppression behavior.
- *
- * Conventions mirror [AdvanceServiceTest]: MockK repositories, `inTransaction` delegating straight
- * to its block, no real database. The lease repository and the two resource resolvers are injected
- * per-test so the enforcement matrix can be driven row by row.
+ * The resource-lease gate of [AdvanceService] on real SQLite: lease TTL resolution, the credentialRefs membership check and
+ * derivation, release on every exit from WORK, and the start-cascade lease. Every oracle is a persisted lease row, item row
+ * or `item.transitioned` event, never a mock call.
  */
+@Timeout(value = 180, unit = TimeUnit.SECONDS)
 class AdvanceServiceLeaseGateTest {
-    /** `RESOURCE_LEASES_ENFORCED` as the startup snapshot ([AppConfig.fromEnv]) parses it; null = unset. */
-    private fun leasesFrom(value: String?): Boolean =
-        AppConfig.fromEnv { if (it == "RESOURCE_LEASES_ENFORCED") value else null }.resourceLeasesEnforced
+    @RegisterExtension
+    @JvmField
+    val db = SqliteTestDatabase.perMethod()
 
-    private lateinit var workItemRepo: WorkItemRepository
-    private lateinit var depRepo: DependencyStore
-    private lateinit var noteRepo: NoteStore
-    private lateinit var advanceStores: AdvanceMockStores
-    private lateinit var leaseRepo: LeaseStore
+    private fun driver(
+        dir: Path,
+        yaml: String = P11_BASE_YAML,
+    ) = P11Driver(EventLogRig.build(db.db, dir, yaml))
 
-    @BeforeEach
-    fun setUp() {
-        workItemRepo = mockk()
-        depRepo = mockk()
-        noteRepo = mockk()
-        leaseRepo = mockk()
-        advanceStores = AdvanceMockStores(workItemRepo, depRepo, leaseRepo)
-
-        coEvery { workItemRepo.clear(any()) } returns true
-        coEvery { workItemRepo.update(any()) } answers { firstArg() }
-        coEvery { noteRepo.findByItemId(any()) } returns emptyList()
-        every { depRepo.findByToItemId(any()) } returns emptyList()
-        every { depRepo.findByFromItemId(any()) } returns emptyList()
-
-        // Default lease behavior: acquires succeed, releases free one row.
-        coEvery { leaseRepo.acquireAll(any(), any(), any()) } returns LeaseAcquireResult.Success(emptyList())
-        coEvery { leaseRepo.releaseAllForItem(any()) } returns LeaseReleaseResult.Success(1)
-    }
-
-    private fun makeItem(
-        id: UUID = UUID.randomUUID(),
-        role: Role = Role.QUEUE,
-        previousRole: Role? = null,
-        title: String = "Item",
-        parentId: UUID? = null
-    ): WorkItem =
-        WorkItem(
-            id = id,
-            title = title,
-            role = role,
-            previousRole = previousRole,
-            parentId = parentId,
-            depth = if (parentId != null) 1 else 0
-        )
-
-    /**
-     * Builds a service wired with the shared mocks plus the resource collaborators under test.
-     * Every resource parameter is defaulted to its dormant value so each test states only the row
-     * of the enforcement matrix it exercises.
-     */
-    private fun serviceWith(
-        requirements: List<ResourceRequirement> = emptyList(),
-        registry: Map<String, ResourceDefinition> = emptyMap(),
-        schema: WorkItemSchema? = null,
-        leaseRepository: LeaseStore? = leaseRepo,
-        resourceLeasesEnforced: Boolean = true,
-        requirementsByItem: Map<UUID, List<ResourceRequirement>>? = null
-    ): AdvanceService =
-        AdvanceService(
-            workItemRepository = workItemRepo,
-            dependencyRepository = depRepo,
-            noteRepository = noteRepo,
-            schemaResolver = { schema },
-            resourceLeaseRepository = leaseRepository,
-            resourceRequirementsResolver = { item ->
-                requirementsByItem?.get(item.id) ?: requirements
-            },
-            resourceRegistryResolver = { registry },
-            resourceLeasesEnforced = resourceLeasesEnforced,
-            unitOfWork = unit(),
-            claimService = testClaimService(workItemRepo, leaseRepository, unit())
-        )
-
-    /** The event log the unit of work writes to: an applied transition is recorded as one `item.transitioned` row. */
-    private val events = InMemoryEventStore()
-
-    private fun unit(): UnitOfWork =
-        UnscopedUnitOfWork(
-            mockk<RepositoryProvider>(relaxed = true).also { every { it.eventStore() } returns events }
-        )
-
-    /** The credentials the primary transition recorded on its `item.transitioned` event. */
-    private fun recordedCredentials(): List<String> =
-        events
-            .all()
-            .single { it.type == DomainEvent.ITEM_TRANSITIONED }
-            .toRoleTransition()
-            .consumedCredentials
-
-    private fun exclusive(
-        key: String,
-        ttlSeconds: Int? = null
-    ) = ResourceRequirement(key, ResourceMode.EXCLUSIVE, ttlSeconds)
-
-    private fun advisory(key: String) = ResourceRequirement(key, ResourceMode.ADVISORY, null)
-
-    // ──────────────────────────────────────────────
-    // Short-circuit: the common (non-adopter) path
-    // ──────────────────────────────────────────────
+    private suspend fun P11Driver.leases(item: WorkItem) = raw.resourceLeaseRepository().findActiveForItem(item.id)
 
     @Test
-    fun `no declared resources means ZERO lease repository interactions on start into work`(): Unit =
+    fun `M1 lease ttl is the requirement override, then the registry default, then the server default, clamped`(
+        @TempDir dir: Path,
+    ): Unit =
         runBlocking {
-            val item = makeItem(role = Role.QUEUE)
+            val d = driver(dir, LEASE_GATE_YAML)
+            val item = d.item("ttl", Role.QUEUE, type = "ttl-item")
 
-            val outcome =
-                serviceWith().advanceSeeded(
-                    advanceStores,
-                    item,
-                    "start",
-                    null,
-                    null,
-                    null,
-                )
+            d.advanceService(item, "start").success()
 
-            assertIs<AdvanceOutcome.Success>(outcome)
-            // The whole point of the short-circuit: an item without resources must never touch the
-            // lease store — not acquireAll, not releaseAllForItem, not a read.
-            verify { leaseRepo wasNot Called }
-        }
-
-    @Test
-    fun `no declared resources leaves caller credentialRefs untouched`(): Unit =
-        runBlocking {
-            val item = makeItem(role = Role.QUEUE)
-
-            serviceWith().advanceSeeded(
-                advanceStores,
-                item,
-                "start",
-                null,
-                null,
-                null,
-                credentialRefs = listOf("some-unregistered-label")
-            )
-
-            // Rung-1 behavior preserved: with no declarations and an empty registry there is no
-            // set-membership check, so an arbitrary (well-formatted) label still passes through.
-            assertEquals(listOf("some-unregistered-label"), recordedCredentials())
-        }
-
-    // ──────────────────────────────────────────────
-    // Acquisition
-    // ──────────────────────────────────────────────
-
-    @Test
-    fun `exclusive requirement is acquired on start into work`(): Unit =
-        runBlocking {
-            val item = makeItem(role = Role.QUEUE)
-            val requests = slot<List<Pair<String, Int>>>()
-            coEvery { leaseRepo.acquireAll(item.id, any(), capture(requests)) } returns
-                LeaseAcquireResult.Success(emptyList())
-
-            val outcome =
-                serviceWith(requirements = listOf(exclusive("staging-db", ttlSeconds = 600))).advanceSeeded(
-                    advanceStores,
-                    item,
-                    "start",
-                    null,
-                    null,
-                    null,
-                )
-
-            assertIs<AdvanceOutcome.Success>(outcome)
-            assertEquals(listOf("staging-db" to 600), requests.captured)
-        }
-
-    @Test
-    fun `resume from BLOCKED into work acquires leases`(): Unit =
-        runBlocking {
-            // The note gate keys on trigger == start/complete and so ignores resume; the resource
-            // gate keys on targetRole, which is why resume is covered.
-            val item = makeItem(role = Role.BLOCKED, previousRole = Role.WORK)
-
-            val outcome =
-                serviceWith(requirements = listOf(exclusive("staging-db"))).advanceSeeded(
-                    advanceStores,
-                    item,
-                    "resume",
-                    null,
-                    null,
-                    null,
-                )
-
-            val success = assertIs<AdvanceOutcome.Success>(outcome)
-            assertEquals(Role.WORK, success.result.newRole)
-            coVerify(exactly = 1) { leaseRepo.acquireAll(item.id, any(), any()) }
-        }
-
-    @Test
-    fun `contended acquire is rejected with ALL contended keys and the retry hint`(): Unit =
-        runBlocking {
-            val item = makeItem(role = Role.QUEUE)
-            coEvery { leaseRepo.acquireAll(any(), any(), any()) } returns
-                LeaseAcquireResult.Contended(listOf("staging-db", "prod-cred"), retryAfterMs = 45_000)
-
-            val outcome =
-                serviceWith(
-                    requirements = listOf(exclusive("staging-db"), exclusive("prod-cred"))
-                ).advanceSeeded(advanceStores, item, "start", null, null, null)
-
-            val failure = assertIs<AdvanceOutcome.Failure>(outcome)
-            val blocked = assertIs<AdvanceFailure.ResourceLeaseUnavailable>(failure.failure)
-            assertEquals(listOf("staging-db", "prod-cred"), blocked.contendedResources)
-            assertEquals(45_000L, blocked.retryAfterMs)
-            assertEquals(Role.WORK, blocked.targetRole)
-            // Nothing was persisted — the transition never reached applyTransition.
-        }
-
-    @Test
-    fun `lease store fault fails the whole advance and rolls it back`(): Unit =
-        runBlocking {
-            val item = makeItem(role = Role.QUEUE)
-            coEvery { leaseRepo.acquireAll(any(), any(), any()) } throws IllegalStateException("SQLITE_BUSY_SNAPSHOT")
-
-            val outcome =
-                serviceWith(requirements = listOf(exclusive("staging-db"))).advanceSeeded(
-                    advanceStores,
-                    item,
-                    "start",
-                    null,
-                    null,
-                    null,
-                )
-
-            // P11: acquisition runs inside the advance's single unit; a store fault there fails the advance
-            // (apply_failed) instead of being reported as a transient lease rejection.
-            val failure = assertIs<AdvanceOutcome.Failure>(outcome)
-            val applyFailed = assertIs<AdvanceFailure.ApplyFailed>(failure.failure)
-            assertTrue(applyFailed.message.contains("SQLITE_BUSY_SNAPSHOT"), "message should carry the store fault")
-        }
-
-    @Test
-    fun `advisory requirement is never leased but IS derived into consumedCredentials`(): Unit =
-        runBlocking {
-            val item = makeItem(role = Role.QUEUE)
-
-            val outcome =
-                serviceWith(requirements = listOf(advisory("shared-runner"))).advanceSeeded(
-                    advanceStores,
-                    item,
-                    "start",
-                    null,
-                    null,
-                    null,
-                )
-
-            assertIs<AdvanceOutcome.Success>(outcome)
-            coVerify(exactly = 0) { leaseRepo.acquireAll(any(), any(), any()) }
-            assertEquals(listOf("shared-runner"), recordedCredentials())
-        }
-
-    @Test
-    fun `derived keys precede caller extras and duplicates collapse`(): Unit =
-        runBlocking {
-            val item = makeItem(role = Role.QUEUE)
-
-            serviceWith(
-                requirements = listOf(exclusive("staging-db"), advisory("shared-runner")),
-                registry = mapOf("extra-cred" to ResourceDefinition("extra-cred"))
-            ).advanceSeeded(
-                advanceStores,
-                item,
-                "start",
-                null,
-                null,
-                null,
-                // "staging-db" duplicates a derived key; "extra-cred" is a registry-known extra.
-                credentialRefs = listOf("staging-db", "extra-cred")
-            )
-
+            val ttls = d.leases(item).associate { it.resourceKey to Duration.between(it.acquiredAt, it.expiresAt).seconds }
             assertEquals(
-                listOf("staging-db", "shared-runner", "extra-cred"),
-                recordedCredentials()
-            )
-        }
-
-    // ──────────────────────────────────────────────
-    // credentialRefs set-membership tightening
-    // ──────────────────────────────────────────────
-
-    @Test
-    fun `caller credentialRef outside declared and registry keys is rejected`(): Unit =
-        runBlocking {
-            val item = makeItem(role = Role.QUEUE)
-
-            val outcome =
-                serviceWith(
-                    requirements = listOf(exclusive("staging-db")),
-                    registry = mapOf("prod-cred" to ResourceDefinition("prod-cred"))
-                ).advanceSeeded(
-                    advanceStores,
-                    item,
-                    "start",
-                    null,
-                    null,
-                    null,
-                    credentialRefs = listOf("staging-db", "who-knows")
-                )
-
-            val failure = assertIs<AdvanceOutcome.Failure>(outcome)
-            val validation = assertIs<AdvanceFailure.ValidationFailed>(failure.failure)
-            assertTrue(validation.message.contains("who-knows"), "error must name the unknown ref")
-            coVerify(exactly = 0) { leaseRepo.acquireAll(any(), any(), any()) }
-        }
-
-    @Test
-    fun `caller credentialRef naming a registry-only key is accepted`(): Unit =
-        runBlocking {
-            val item = makeItem(role = Role.QUEUE)
-
-            val outcome =
-                serviceWith(
-                    requirements = listOf(exclusive("staging-db")),
-                    registry = mapOf("prod-cred" to ResourceDefinition("prod-cred"))
-                ).advanceSeeded(
-                    advanceStores,
-                    item,
-                    "start",
-                    null,
-                    null,
-                    null,
-                    credentialRefs = listOf("prod-cred")
-                )
-
-            assertIs<AdvanceOutcome.Success>(outcome)
-        }
-
-    // ──────────────────────────────────────────────
-    // TTL resolution
-    // ──────────────────────────────────────────────
-
-    @Test
-    fun `TTL prefers the requirement override then the registry default then 3600`(): Unit =
-        runBlocking {
-            val item = makeItem(role = Role.QUEUE)
-            val requests = slot<List<Pair<String, Int>>>()
-            coEvery { leaseRepo.acquireAll(any(), any(), capture(requests)) } returns
-                LeaseAcquireResult.Success(emptyList())
-
-            serviceWith(
-                requirements =
-                    listOf(
-                        exclusive("has-override", ttlSeconds = 120),
-                        exclusive("registry-default"),
-                        exclusive("unregistered")
-                    ),
-                registry =
-                    mapOf(
-                        "has-override" to ResourceDefinition("has-override", defaultTtlSeconds = 999),
-                        "registry-default" to ResourceDefinition("registry-default", defaultTtlSeconds = 1800)
-                    )
-            ).advanceSeeded(advanceStores, item, "start", null, null, null)
-
-            assertEquals(
-                listOf(
-                    "has-override" to 120,
-                    "registry-default" to 1800,
-                    "unregistered" to AdvanceService.DEFAULT_RESOURCE_TTL_SECONDS
+                mapOf(
+                    "ttl-override" to 120L,
+                    "ttl-registry" to 1800L,
+                    "ttl-nodefault" to 3600L,
+                    "ttl-zero" to 1L,
+                    "ttl-huge" to 86400L,
                 ),
-                requests.captured
+                ttls,
             )
         }
 
     @Test
-    fun `TTL is clamped to the 1 to 86400 second bounds`(): Unit =
+    fun `M2 a credentialRef neither declared nor registered is rejected before any lease is taken`(
+        @TempDir dir: Path,
+    ): Unit =
         runBlocking {
-            val item = makeItem(role = Role.QUEUE)
-            val requests = slot<List<Pair<String, Int>>>()
-            coEvery { leaseRepo.acquireAll(any(), any(), capture(requests)) } returns
-                LeaseAcquireResult.Success(emptyList())
+            val d = driver(dir, LEASE_GATE_YAML)
+            val item = d.item("cred", Role.QUEUE, type = "cred-item")
 
-            serviceWith(
-                requirements = listOf(exclusive("too-small", ttlSeconds = 0), exclusive("too-big", ttlSeconds = 999_999))
-            ).advanceSeeded(advanceStores, item, "start", null, null, null)
+            val failure =
+                d.rig.ctx
+                    .advanceDirect(item, "start", credentialRefs = listOf("nobody-knows-this"))
+                    .failure()
 
-            assertEquals(
-                listOf(
-                    "too-small" to AdvanceService.MIN_RESOURCE_TTL_SECONDS,
-                    "too-big" to AdvanceService.MAX_RESOURCE_TTL_SECONDS
-                ),
-                requests.captured
-            )
-        }
-
-    // ──────────────────────────────────────────────
-    // Enforcement matrix: the two off switches
-    // ──────────────────────────────────────────────
-
-    @Test
-    fun `enforceResourceLeases false skips acquisition entirely`(): Unit =
-        runBlocking {
-            val item = makeItem(role = Role.QUEUE)
-
-            val outcome =
-                serviceWith(requirements = listOf(exclusive("staging-db"))).advanceSeeded(
-                    advanceStores,
-                    item,
-                    "start",
-                    null,
-                    null,
-                    null,
-                    credentialRefs = emptyList(),
-                    enforceResourceLeases = false
-                )
-
-            assertIs<AdvanceOutcome.Success>(outcome)
-            coVerify(exactly = 0) { leaseRepo.acquireAll(any(), any(), any()) }
+            val rejected = assertIs<AdvanceFailure.ValidationFailed>(failure, "$failure")
+            assertTrue("nobody-knows-this" in rejected.message, rejected.message)
+            assertEquals(Role.QUEUE, d.role(item))
+            assertTrue(d.leases(item).isEmpty(), "no lease row after the rejection")
         }
 
     @Test
-    fun `RESOURCE_LEASES_ENFORCED kill switch off skips acquisition even when the caller enforces`(): Unit =
+    fun `M2 a registry-only credentialRef is accepted and the consumed credentials are exclusive, advisory, then extras, deduplicated`(
+        @TempDir dir: Path,
+    ): Unit =
         runBlocking {
-            val item = makeItem(role = Role.QUEUE)
+            val d = driver(dir, LEASE_GATE_YAML)
+            val item = d.item("cred", Role.QUEUE, type = "cred-item")
+            val mark = d.rig.maxSeq()
 
-            val outcome =
-                serviceWith(
-                    requirements = listOf(exclusive("staging-db")),
-                    resourceLeasesEnforced = false
-                ).advanceSeeded(
-                    advanceStores,
-                    item,
-                    "start",
-                    null,
-                    null,
-                    null,
-                    credentialRefs = emptyList(),
-                    enforceResourceLeases = true
-                )
+            d.rig.ctx
+                .advanceDirect(item, "start", credentialRefs = listOf("cred-registered", "cred-excl", "cred-registered"))
+                .success()
 
-            assertIs<AdvanceOutcome.Success>(outcome)
-            coVerify(exactly = 0) { leaseRepo.acquireAll(any(), any(), any()) }
-        }
-
-    @Test
-    fun `kill switch is parsed once into AppConfig with the shared boolean vocabulary`() {
-        assertTrue(leasesFrom(null))
-        assertTrue(leasesFrom("true"))
-        assertTrue(!leasesFrom("0"))
-        assertTrue(!leasesFrom("false"))
-        assertTrue(!leasesFrom("FALSE"))
-    }
-
-    // ──────────────────────────────────────────────
-    // Release paths — every exit from WORK
-    // ──────────────────────────────────────────────
-
-    @Test
-    fun `complete out of work releases leases`(): Unit =
-        runBlocking {
-            val item = makeItem(role = Role.WORK)
-
-            val outcome =
-                serviceWith(requirements = listOf(exclusive("staging-db"))).advanceSeeded(
-                    advanceStores,
-                    item,
-                    "complete",
-                    null,
-                    null,
-                    null,
-                )
-
-            assertIs<AdvanceOutcome.Success>(outcome)
-            coVerify(exactly = 1) { leaseRepo.releaseAllForItem(item.id) }
-        }
-
-    @Test
-    fun `cancel out of work releases leases`(): Unit =
-        runBlocking {
-            val item = makeItem(role = Role.WORK)
-
-            serviceWith().advanceSeeded(advanceStores, item, "cancel", null, null, null)
-
-            coVerify(exactly = 1) { leaseRepo.releaseAllForItem(item.id) }
-        }
-
-    @Test
-    fun `block out of work releases leases`(): Unit =
-        runBlocking {
-            val item = makeItem(role = Role.WORK)
-
-            serviceWith().advanceSeeded(advanceStores, item, "block", null, null, null)
-
-            coVerify(exactly = 1) { leaseRepo.releaseAllForItem(item.id) }
-        }
-
-    @Test
-    fun `hold out of work releases leases`(): Unit =
-        runBlocking {
-            val item = makeItem(role = Role.WORK)
-
-            serviceWith().advanceSeeded(advanceStores, item, "hold", null, null, null)
-
-            coVerify(exactly = 1) { leaseRepo.releaseAllForItem(item.id) }
-        }
-
-    @Test
-    fun `a transition that does not leave work does not release`(): Unit =
-        runBlocking {
-            val item = makeItem(role = Role.QUEUE)
-
-            serviceWith().advanceSeeded(advanceStores, item, "start", null, null, null)
-
-            coVerify(exactly = 0) { leaseRepo.releaseAllForItem(any()) }
-        }
-
-    @Test
-    fun `release runs even when the kill switch is off`(): Unit =
-        runBlocking {
-            // Releasing is always safe: leases taken while enforcement was on must still be freed.
-            val item = makeItem(role = Role.WORK)
-
-            serviceWith(resourceLeasesEnforced = false).advanceSeeded(
-                advanceStores,
-                item,
-                "complete",
-                null,
-                null,
-                null,
-            )
-
-            coVerify(exactly = 1) { leaseRepo.releaseAllForItem(item.id) }
-        }
-
-    @Test
-    fun `a release DBError fails the transition (P11, the release runs in the advance unit)`(): Unit =
-        runBlocking {
-            val item = makeItem(role = Role.WORK)
-            coEvery { leaseRepo.releaseAllForItem(any()) } throws IllegalStateException("db down")
-
-            val outcome =
-                serviceWith().advanceSeeded(advanceStores, item, "complete", null, null, null)
-
-            // P11: the release runs inside the advance's unit, so its fault fails (and rolls back) the advance.
-            val failure = assertIs<AdvanceOutcome.Failure>(outcome)
-            val applyFailed = assertIs<AdvanceFailure.ApplyFailed>(failure.failure)
-            assertTrue(applyFailed.message.contains("db down"), "message should carry the store fault: ${applyFailed.message}")
-        }
-
-    // ──────────────────────────────────────────────
-    // Start-cascade suppression
-    // ──────────────────────────────────────────────
-
-    @Test
-    fun `a contended parent start cascade is suppressed while the child advance still succeeds`(): Unit =
-        runBlocking {
-            val parentId = UUID.randomUUID()
-            val parent = makeItem(id = parentId, role = Role.QUEUE, title = "Parent")
-            val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
-
-            coEvery { workItemRepo.getById(parentId) } returns parent
-            // The child declares nothing; the parent needs an exclusive resource that is taken.
-            coEvery { leaseRepo.acquireAll(parentId, any(), any()) } returns
-                LeaseAcquireResult.Contended(listOf("staging-db"), retryAfterMs = 5_000)
-
-            val outcome =
-                serviceWith(
-                    requirementsByItem = mapOf(parentId to listOf(exclusive("staging-db")))
-                ).advanceSeeded(advanceStores, child, "start", null, null, null)
-
-            val success = assertIs<AdvanceOutcome.Success>(outcome)
-            assertEquals(Role.WORK, success.result.newRole, "the child's own advance must still succeed")
-
-            val cascade = success.result.cascadeEvents.single()
-            assertEquals(parentId, cascade.itemId)
-            assertTrue(!cascade.applied, "the parent cascade must NOT be applied")
-            assertTrue(cascade.resourceBlocked, "the cascade must be flagged resourceBlocked")
-            assertEquals(listOf("staging-db"), cascade.contendedResources)
-        }
-
-    @Test
-    fun `an uncontended parent start cascade acquires the parent leases and applies`(): Unit =
-        runBlocking {
-            val parentId = UUID.randomUUID()
-            val parent = makeItem(id = parentId, role = Role.QUEUE, title = "Parent")
-            val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
-
-            coEvery { workItemRepo.getById(parentId) } returns parent
-
-            val outcome =
-                serviceWith(
-                    requirementsByItem = mapOf(parentId to listOf(exclusive("staging-db")))
-                ).advanceSeeded(advanceStores, child, "start", null, null, null)
-
-            val success = assertIs<AdvanceOutcome.Success>(outcome)
-            val cascade = success.result.cascadeEvents.single()
-            assertTrue(cascade.applied)
-            assertTrue(!cascade.resourceBlocked)
-            // Cascades carry no actor, so the lease's audit actor is null.
-            coVerify(exactly = 1) { leaseRepo.acquireAll(parentId, null, listOf("staging-db" to 3600)) }
-        }
-
-    @Test
-    fun `start cascade acquisition is skipped when the kill switch is off`(): Unit =
-        runBlocking {
-            val parentId = UUID.randomUUID()
-            val parent = makeItem(id = parentId, role = Role.QUEUE, title = "Parent")
-            val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
-
-            coEvery { workItemRepo.getById(parentId) } returns parent
-
-            val outcome =
-                serviceWith(
-                    requirementsByItem = mapOf(parentId to listOf(exclusive("staging-db"))),
-                    resourceLeasesEnforced = false
-                ).advanceSeeded(advanceStores, child, "start", null, null, null)
-
-            val success = assertIs<AdvanceOutcome.Success>(outcome)
-            assertTrue(
-                success.result.cascadeEvents
+            assertEquals(Role.WORK, d.role(item))
+            val consumed =
+                d.rig
+                    .rowsAfter(mark)
+                    .transitioned()
                     .single()
-                    .applied
-            )
-            coVerify(exactly = 0) { leaseRepo.acquireAll(any(), any(), any()) }
+                    .toRoleTransition()
+                    .consumedCredentials
+            assertEquals(listOf("cred-excl", "cred-adv", "cred-registered"), consumed)
+            assertEquals(listOf("cred-excl"), d.leases(item).map { it.resourceKey }, "the advisory key takes no lease row")
         }
 
     @Test
-    fun `a null lease repository does not break an item that declares resources`(): Unit =
+    fun `M3 cancel, block and hold from work release the lease`(
+        @TempDir dir: Path,
+    ): Unit =
         runBlocking {
-            // Defensive wiring-bug path: the gate logs an error and proceeds rather than wedging.
-            val item = makeItem(role = Role.QUEUE)
+            val d = driver(dir)
+            for (trigger in listOf("cancel", "block", "hold")) {
+                val item = d.item("leased $trigger", Role.WORK, type = "p11-leased")
+                d.holdLease(item)
+                assertEquals(1, d.leases(item).size, "$trigger: fixture holds the lease")
 
-            val outcome =
-                serviceWith(
-                    requirements = listOf(exclusive("staging-db")),
-                    leaseRepository = null
-                ).advanceSeeded(advanceStores, item, "start", null, null, null)
+                d.advanceService(item, trigger).success()
 
-            assertIs<AdvanceOutcome.Success>(outcome)
+                assertTrue(d.leases(item).isEmpty(), "$trigger releases the lease on leaving WORK")
+            }
+        }
+
+    @Test
+    fun `M3 control - entering work takes the lease and leaving work for review releases it`(
+        @TempDir dir: Path,
+    ): Unit =
+        runBlocking {
+            val d = driver(dir)
+            val item = d.item("matrix", Role.QUEUE, type = "p11-matrix")
+            d.note(item, "spec", "queue")
+            d.advanceService(item, "start").success()
+            assertEquals(1, d.leases(item).size, "entering WORK took the lease")
+            d.note(item, "impl", "work")
+
+            d.advanceService(item, "start").success()
+
+            assertEquals(Role.REVIEW, d.role(item))
+            assertEquals(0, d.leases(item).size)
+        }
+
+    @Test
+    fun `M4 a start cascade whose lease is held by another item is reported as contended and the parent stays queued`(
+        @TempDir dir: Path,
+    ): Unit =
+        runBlocking {
+            val d = driver(dir)
+            val parent = d.item("parent", Role.QUEUE, type = "p11-leased")
+            val child = d.item("child", Role.QUEUE, parent = parent)
+            d.holdLease(d.item("holder", Role.QUEUE))
+
+            val r = d.advanceService(child, "start").success()
+
+            assertEquals(Role.WORK, d.role(child))
+            val cascade = r.cascadeEvents.single()
+            assertEquals(false, cascade.applied, "$cascade")
+            assertEquals(true, cascade.resourceBlocked, "$cascade")
+            assertEquals(listOf(P11_LEASE_KEY), cascade.contendedResources)
+            assertEquals(null, cascade.error)
+            assertEquals(Role.QUEUE, d.role(parent))
+            assertTrue(d.leases(parent).isEmpty())
+        }
+
+    @Test
+    fun `M4 a start cascade with a free lease starts the parent and acquires it`(
+        @TempDir dir: Path,
+    ): Unit =
+        runBlocking {
+            val d = driver(dir)
+            val parent = d.item("parent", Role.QUEUE, type = "p11-leased")
+            val child = d.item("child", Role.QUEUE, parent = parent)
+
+            val r = d.advanceService(child, "start").success()
+
+            val cascade = r.cascadeEvents.single()
+            assertEquals(true, cascade.applied, "$cascade")
+            assertEquals(Role.WORK, d.role(parent))
+            assertEquals(listOf(P11_LEASE_KEY), d.leases(parent).map { it.resourceKey })
         }
 }
