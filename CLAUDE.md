@@ -25,6 +25,23 @@ Task Orchestrator mechanics and process are separate domains. The plugin encodes
 
 A Claude Code or project skill is reached only through a seat's `skills:` or a note's `skill:` (or `skillPointer`), never named in plugin or orchestration-skill prose; the plugin's own engineering skills reach a seat as its defaults. A process change goes to the layer that owns it: schema, rule or run-profile first, skill or plugin text only for mechanics or generic engineering practice. The guard test that enforces this boundary is `claude-plugins/task-orchestrator/hooks/tests/contract-domain-boundary.test.mjs`.
 
+The layer table says where text lives; the concept table below says what kind of statement each concept may make. A sentence belongs to exactly one concept, and no concept is described in terms of another. In the layer table, the plugin's mechanics skills sit in the plugin mechanics row and its engineering skills in the plugin engineering skills row.
+
+| Concept | Holds | Never holds |
+|---------|-------|-------------|
+| Mechanics skill (tool usage) | How Task Orchestrator works: tools, phases, gates, runs, seats, dispatch; how to read a schema and act on what it says | What a project's workflow should be; engineering craft |
+| Engineering skill | How to do one seat's work well: knowledge, criteria, method; it may order the work inside its own craft | Tool mechanics (phases, gates, seats, hand-offs, hooks); when it is loaded or who checks it |
+| Rule | A short binding protocol for a seat | Engineering depth; workflow |
+| Schema | The workflow: which types, phases, notes and seats exist, their order, and which skill or rule is bound to which seat or note | How to do the work; enforcement |
+| Hook | Timing and enforcement in the client: hint, record, refuse; it reads what the schema says | Engineering content; workflow decisions |
+| Server | State and gates: a note exists, a seat owns it, a transition is allowed; the tool contract: what each tool and parameter does and when to call it | Engineering craft; a project's workflow decisions |
+
+Binding is a schema concept with two sources: the project's schema and, where the schema is silent, the plugin's defaults table, which is data only (a seat to names), never prose in a skill or a hook; a declared list always replaces that table. The protocol rules a seat needs to operate the tool are tool mechanics, outside binding: the plugin always gives a seat the ones its role needs. Note guidance says what a note must record and in what shape; how to do the work belongs in the skill bound to the note or seat.
+
+Test for a sentence: it says what good work is or how a seat goes about its craft (engineering skill); it explains how to use the tools to run the work (mechanics skill); it says what one tool or parameter does or when to call it (server, in the tool contract); it says which phases, notes or seats exist, their order, or what is bound to what (schema); it is a short must-do on any project using the seat (rule); it says when something is hinted, checked or blocked (hook, in code).
+
+Example, test blindness: how to derive a test's expected result from the specification rather than from the code is an engineering skill; that the test plan is a queue note the planner seat fills, so it exists before any implementation, is the schema; when that skill is hinted, or a note write made without it is refused, belongs to a hook.
+
 ## Rules a guard test enforces
 
 Tests are under `current/src/test/kotlin/io/github/jpicklyk/mcptask/current/`. Of the ratchet baselines under `current/src/test/resources/architecture/`, the layering, package-cycle and dialect-neutrality ones are empty, so any violation of those rules fails; in every baseline a line that no longer matches fails too. Fix the code; never add a baseline line.
