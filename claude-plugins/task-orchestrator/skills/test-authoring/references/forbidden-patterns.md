@@ -9,12 +9,12 @@ Never use an environment-skip mechanism to guard a precondition that describes t
 under test. Skip mechanisms are for genuine environment limits only: an operating-system-specific
 behaviour, or an external service that is not provisioned.
 
-    before:  skip_unless(item.claim is not empty)
-             check claim expiry
-    after:   require(item.claim is not empty)      # fails loudly if setup regressed
-             check claim expiry
+    before:  skip_unless(order.expires_at is not empty)
+             check order expiry
+    after:   require(order.expires_at is not empty)   # fails loudly if setup regressed
+             check order expiry
 
-If the setup helper regresses and stops producing a claim, the first form silently stops running
+If the setup helper regresses and stops producing an expiry, the first form silently stops running
 the test. Keep a real skip for a real platform guard, clearly apart from the behavioural test.
 
 ## 2. Disjunctive escape
@@ -36,7 +36,9 @@ and pasting what it returned.
              require(score(inputs) == expected)
     after:   require(score(inputs) == 0.75)            # computed by hand from the published rule
 
-Tell: if the assertion can be written without opening the code under test, the oracle is real.
+Tells, each a sign and not a proof: a real oracle can be written without opening the code under
+test, and a tautological assertion cannot fail whatever the code does, so it is caught by asking
+what code change would turn it red.
 
 ## 4. Presence-only assertion
 

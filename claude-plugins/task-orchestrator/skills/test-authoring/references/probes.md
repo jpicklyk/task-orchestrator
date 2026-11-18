@@ -4,10 +4,9 @@ Beyond scenario-derived tests, probe the surface under test with every probe tha
 
 - **Boundaries**: values at, just below and just above every stated limit, including suffix and
   off-by-one values.
-- **Alternate spellings of one logical input**: different separators, casing and encodings. Tokens
-  worth trying: a backslash versus a forward slash, a percent-encoded dot-dot with an encoded
+- **Alternate spellings of one logical input**, paths and identifiers included: different
+  separators, casing and encodings. Tokens worth trying: a backslash versus a forward slash, a percent-encoded dot-dot with an encoded
   slash, and a Windows extended-length path prefix.
-- **Encoded or network-style path and identifier variants.**
 - **Case sensitivity mismatches** between layers that each normalise differently.
 - **Empty, absent and null** as three distinct states, each tested.
 - **Duplicates and order**: repeated entries, and the same entries in a different order.

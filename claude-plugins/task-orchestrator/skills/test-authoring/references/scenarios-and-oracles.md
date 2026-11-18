@@ -7,7 +7,8 @@
   partitioned.
 - Number scenarios stably (S1, S2, ...). Never renumber once test code refers to an identifier.
   A dropped scenario is marked dropped and keeps its number.
-- Label every scenario with the kind of surface it touches:
+- Label each scenario with the kind of surface it touches where the specification states which
+  declarations are new, and say so where it does not:
   - **Existing surface**: every declaration the scenario touches predates the fix. Reverting the
     fix yields real behavioural red.
   - **New surface**: the scenario binds to a declaration the fix introduces. A plain revert
@@ -15,8 +16,9 @@
     the narrowest revert that still compiles (typically: keep the new type or parameter and revert
     only its call sites), or, where no such revert can work, an explicit substitute verification
     named beforehand rather than improvised later.
-- The label is assigned by whoever knows which surfaces are new. An author blind to the
-  implementation cannot tell and does not guess.
+- The label comes from the specification. An author blind to the implementation cannot always
+  tell which surfaces are new: where the specification does not say, mark the scenario "surface not
+  stated" and say so, never guess.
 
 ## Oracles
 

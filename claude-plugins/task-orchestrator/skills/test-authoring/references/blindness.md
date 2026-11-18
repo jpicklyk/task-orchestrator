@@ -15,8 +15,8 @@ disclosed in full, never hidden.
   from context, from a compiler message that quotes surrounding source, or from a diff.
 - **Public evidence may settle an ambiguity.** An ambiguity that public, non-implementation
   evidence resolves (a tool's declared parameter shape, an existing test harness, documentation)
-  may be settled by the author, if the account states the evidence used so a reviewer can verify
-  it.
+  may be settled by the author, if the account states the evidence used; a reading without
+  its source cannot be tested.
 - Test files, fixtures and harnesses stay fully readable throughout.
 
 ## What counts as a breach
@@ -25,8 +25,7 @@ Opening any production source file by any means, for any reason, including "just
 Every way of reading a file counts: file viewers, text search, directory previews, command-line
 printing, diffs, and history shown with patches. The same holds for the implementer's diff, commit
 or log on the branch. Only the names of changed files may be listed, never their contents or their
-patches. A lookup that could return the implementer's own write-up is itself a breach, whether or
-not the result was read, so lookups name the planning inputs they want and nothing wider.
+patches.
 
 ## On a breach
 

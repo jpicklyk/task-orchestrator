@@ -38,7 +38,8 @@ reason for an item that genuinely does not apply.
 
 ## Scenarios and oracles
 
-Every requirement yields scenarios in all three partitions, with stable identifiers that are never
+Every requirement is considered for all three partitions, and a partition that does not apply is
+stated as not applying, with the reason. Scenarios carry stable identifiers that are never
 renumbered; a dropped scenario is marked dropped, not deleted. Each scenario states where its
 expected result comes from: a specification clause, a published algorithm or external reference,
 or a computation done independently. "What the code returns" is never a source. Whether a scenario

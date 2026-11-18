@@ -46,5 +46,6 @@ implementation), every scenario that asserts new behaviour gets a red check.
 
 A test that fails against the implementation as it stands is a finding, not a problem to make go
 away. Report the scenario identifier, the assertion, the observed value and the oracle citation.
-Never weaken the assertion, skip it, or wrap it to hide the failure. Whether the implementation,
-the test or the specification is wrong is decided by someone other than the test author.
+Never weaken the assertion, skip it, or wrap it to hide the failure. Do not settle which of the implementation, the test or the specification is wrong by
+changing the test to match the code: the recorded value and oracle citation keep that question open
+on the evidence.
