@@ -83,7 +83,7 @@ class ApiStatusPagesWiringTest {
             serverVersion = "test",
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
-            appConfig = AppConfig.fromEnv(),
+            appConfig = AppConfig.fromEnv { null },
         )
         routing {
             get("/api/v1/p16-wiring-boom") { throw RuntimeException("SELECT secret FROM tokens WHERE v = 'hunter2'") }

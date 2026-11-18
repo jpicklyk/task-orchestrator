@@ -93,7 +93,7 @@ class McpRestAuthBypassTest {
             val mcpAuth = assertIs<McpAuthResolution.Resolved>(resolution).mode
             application {
                 // Same wiring CurrentMcpServer uses in HTTP mode with the API enabled.
-                installMcpStreamableHttp(emptyServer(), appConfig = AppConfig.fromEnv(), mcpAuth = mcpAuth)
+                installMcpStreamableHttp(emptyServer(), appConfig = AppConfig.fromEnv { null }, mcpAuth = mcpAuth)
                 installRestApiRoutes(
                     apiConfig = apiConfig,
                     eventBus = null,
@@ -110,7 +110,7 @@ class McpRestAuthBypassTest {
                             perRootConfigService = PerRootConfigService(provider.configStore()),
                             unitOfWork = db.unitOfWork()
                         ),
-                    appConfig = AppConfig.fromEnv(),
+                    appConfig = AppConfig.fromEnv { null },
                 )
             }
 

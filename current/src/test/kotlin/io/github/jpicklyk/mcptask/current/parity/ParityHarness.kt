@@ -401,7 +401,7 @@ internal fun Application.installParityRestApp(
         callLog = callLog,
         toolRegistry = registry,
         toolDispatcher = buildToolDispatcher(rig.composition.toolContext),
-        appConfig = AppConfig.fromEnv()
+        appConfig = AppConfig.fromEnv { null }
     )
 }
 

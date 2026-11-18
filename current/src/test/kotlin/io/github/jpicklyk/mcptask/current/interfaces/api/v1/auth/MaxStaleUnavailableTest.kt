@@ -185,7 +185,7 @@ class MaxStaleUnavailableTest {
         eventBus: ApiEventBus? = null,
         allowQueryToken: Boolean = false,
     ) {
-        installMcpStreamableHttp(emptyServer(), appConfig = AppConfig.fromEnv(), mcpAuth = McpAuthMode.Local)
+        installMcpStreamableHttp(emptyServer(), appConfig = AppConfig.fromEnv { null }, mcpAuth = McpAuthMode.Local)
         val repositoryProvider = db.repositoryProvider()
         installRestApiRoutes(
             apiConfig = jwksConfig(),
@@ -204,7 +204,7 @@ class MaxStaleUnavailableTest {
                     unitOfWork = db.unitOfWork(),
                 ),
             jwksVerifier = verifier,
-            appConfig = AppConfig.fromEnv(),
+            appConfig = AppConfig.fromEnv { null },
         )
     }
 

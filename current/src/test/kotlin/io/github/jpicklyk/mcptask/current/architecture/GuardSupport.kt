@@ -43,6 +43,16 @@ internal object GuardSupport {
         return files.map { Source(normalizedPath(it.path), it.text) }
     }
 
+    /** Every Kotlin file of the test source set, same path normalization as [productionSources]. */
+    fun testSources(): List<Source> {
+        val files = Konsist.scopeFromTest().files.toList()
+        check(files.size >= 300) {
+            "Expected >= 300 test Kotlin files in scope, found ${files.size} - the Konsist scope may be misrooted " +
+                "(check the Gradle working directory)."
+        }
+        return files.map { Source(normalizedPath(it.path), it.text) }
+    }
+
     /** Parses a `<path> <count>` baseline (comments with `#`, blank lines ignored). */
     fun readBaseline(resourceName: String): Map<String, Int> =
         File("src/test/resources/architecture/$resourceName")

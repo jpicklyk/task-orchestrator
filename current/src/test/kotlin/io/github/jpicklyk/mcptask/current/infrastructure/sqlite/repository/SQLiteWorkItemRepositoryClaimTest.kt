@@ -771,7 +771,8 @@ class SQLiteWorkItemRepositoryClaimTest {
             // getDatabase() will throw IllegalStateException("Database has not been initialized").
             // IMPLICIT: under the production FAIL policy the outside-unit write would be refused before the
             // uninitialized database is ever reached, so the test would not exercise what it names.
-            val uninitializedManager = DatabaseManager(outsideUnitPolicy = OutsideUnitPolicy.IMPLICIT, appConfig = AppConfig.fromEnv())
+            val uninitializedManager =
+                DatabaseManager(outsideUnitPolicy = OutsideUnitPolicy.IMPLICIT, appConfig = AppConfig.fromEnv { null })
             val faultyRepo = SQLiteWorkItemRepository(uninitializedManager)
 
             // P5b: stores throw; the fault is no longer a ClaimResult.DBError variant (no itemId field).
@@ -792,7 +793,8 @@ class SQLiteWorkItemRepositoryClaimTest {
             val itemId = UUID.randomUUID()
 
             // IMPLICIT: see the claim test above; FAIL would refuse the write before reaching the database.
-            val uninitializedManager = DatabaseManager(outsideUnitPolicy = OutsideUnitPolicy.IMPLICIT, appConfig = AppConfig.fromEnv())
+            val uninitializedManager =
+                DatabaseManager(outsideUnitPolicy = OutsideUnitPolicy.IMPLICIT, appConfig = AppConfig.fromEnv { null })
             val faultyRepo = SQLiteWorkItemRepository(uninitializedManager)
 
             // P5b: stores throw; the fault is no longer a ReleaseResult.DBError variant (no itemId field).

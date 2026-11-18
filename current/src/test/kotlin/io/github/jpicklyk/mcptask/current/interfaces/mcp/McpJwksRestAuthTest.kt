@@ -151,7 +151,7 @@ class McpJwksRestAuthTest {
         verifier: JwksApiVerifier,
         eventBus: ApiEventBus? = null,
     ) {
-        installMcpStreamableHttp(emptyServer(), appConfig = AppConfig.fromEnv(), mcpAuth = McpAuthMode.Local)
+        installMcpStreamableHttp(emptyServer(), appConfig = AppConfig.fromEnv { null }, mcpAuth = McpAuthMode.Local)
         val repositoryProvider = inMemoryProvider()
         installRestApiRoutes(
             apiConfig = jwksConfig(),
@@ -170,7 +170,7 @@ class McpJwksRestAuthTest {
                     unitOfWork = db.unitOfWork()
                 ),
             jwksVerifier = verifier,
-            appConfig = AppConfig.fromEnv(),
+            appConfig = AppConfig.fromEnv { null },
         )
     }
 

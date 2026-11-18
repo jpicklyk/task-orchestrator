@@ -97,7 +97,7 @@ class McpStreamableHttpTransportTest {
     fun `mcpStreamableHttp module wires without SSE conflict and serves initialize`(): Unit =
         testApplication {
             val server = serverWithAllTools()
-            application { installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv(), mcpAuth = McpAuthMode.Local) }
+            application { installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv { null }, mcpAuth = McpAuthMode.Local) }
 
             val response =
                 client.post("/mcp") {
@@ -123,7 +123,7 @@ class McpStreamableHttpTransportTest {
     fun `rejects cross-origin requests with 403 to guard against DNS rebinding`(): Unit =
         testApplication {
             val server = serverWithAllTools()
-            application { installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv(), mcpAuth = McpAuthMode.Local) }
+            application { installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv { null }, mcpAuth = McpAuthMode.Local) }
 
             // Streamable HTTP spec security requirement: servers MUST validate the Origin header and
             // respond 403 to an invalid origin (DNS-rebinding protection). This is enforced by the
@@ -148,7 +148,7 @@ class McpStreamableHttpTransportTest {
     fun `tools list and a tool call work over the HTTP transport`(): Unit =
         testApplication {
             val server = serverWithAllTools()
-            application { installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv(), mcpAuth = McpAuthMode.Local) }
+            application { installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv { null }, mcpAuth = McpAuthMode.Local) }
 
             // 1) initialize → capture the session id
             val init =
