@@ -2,7 +2,8 @@
 // declaredSkills, pluginShippedNames, scanDomainBoundary) and its two data files
 // (domain-boundary-allowlist.json, domain-boundary-baseline.json). Scenarios S1-S15 match the item's
 // frozen `test-plan` note (5243923d). Oracles: task-scope 'Library contract', 'Data files' and
-// 'The two scans', acceptance criteria AC1-AC7. Node 22, node:test, no dependencies.
+// 'The two scans', acceptance criteria AC1-AC7. S16-S17 oracle: task-scope of item 63ea8f0c.
+// Node 22, node:test, no dependencies.
 
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -51,16 +52,20 @@ function scanText(text, names, extra = {}) {
   return scanDomainBoundary({ root, scopes: SKILL_SCOPE, names, ...extra });
 }
 
-function pluginScan(allow, baseline) {
+function foreignNames() {
   const projectSkillDirs = readdirSync(join(REPO, '.claude', 'skills'))
     .filter((n) => statSync(join(REPO, '.claude', 'skills', n)).isDirectory());
-  const shipped = new Set(pluginShippedSkillNames(PLUGIN));
   const projectCommands = readdirSync(join(REPO, '.claude', 'commands'))
     .filter((n) => n.endsWith('.md'))
     .map((n) => n.slice(0, -3));
-  const names = [...new Set([...HOST_SKILLS, ...projectSkillDirs, ...projectCommands])].filter((n) => !shipped.has(n)).sort();
+  return [...new Set([...HOST_SKILLS, ...projectSkillDirs, ...projectCommands])];
+}
+
+function pluginScan(allow, baseline, pluginRoot = PLUGIN) {
+  const shipped = new Set(pluginShippedSkillNames(pluginRoot));
+  const names = foreignNames().filter((n) => !shipped.has(n)).sort();
   return scanDomainBoundary({
-    root: PLUGIN,
+    root: pluginRoot,
     scopes: [{ dir: '.', recursive: true }],
     names,
     phrases: ['this repo'],
@@ -364,6 +369,35 @@ test('S15: root CLAUDE.md names the guard test as an existing file and has no la
   const next = rest.indexOf('\n## ');
   const section = next < 0 ? rest : rest.slice(0, next);
   assert.ok(section.includes('hooks/tests/contract-domain-boundary.test.mjs'));
+});
+
+// ---- S16, S17 ------------------------------------------------------------------------------
+
+test('S16: the only plugin skill sharing a name with a host skill, project skill or project command is init', () => {
+  const foreign = new Set(foreignNames());
+  assert.deepEqual(pluginShippedSkillNames(PLUGIN).filter((n) => foreign.has(n)), ['init']);
+});
+
+test('S17: a plugin engineering skill and its references are scanned like any other plugin file', () => {
+  const ENGINEERING = ['planning-standards', 'implementation-standards', 'review-method', 'test-authoring'];
+  const text = ['/simplify', '`spec-quality` skill', '/deploy_to_docker', 'this repo', ''].join('\n');
+  const files = {};
+  for (const n of ENGINEERING) {
+    files[`skills/${n}/SKILL.md`] = text;
+    files[`skills/${n}/references/r.md`] = text;
+  }
+  const r = pluginScan([], [], fixtureRoot(files));
+  assert.equal(r.violations.length, 32);
+  assert.deepEqual(r.stale, []);
+  for (const n of ENGINEERING) {
+    for (const f of [`skills/${n}/SKILL.md`, `skills/${n}/references/r.md`]) {
+      assert.deepEqual(
+        r.violations.filter((v) => v.file === f).map((v) => [v.name, v.form]).sort(),
+        [['deploy_to_docker', 'slash'], ['simplify', 'slash'], ['spec-quality', 'skill'], ['this repo', 'phrase']],
+        f,
+      );
+    }
+  }
 });
 
 // ---- Probes --------------------------------------------------------------------------------
