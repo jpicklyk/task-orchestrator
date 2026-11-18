@@ -10,8 +10,9 @@ project's standard and this list disagree, the project's standard wins. Where th
 use this list.
 
 A standards finding cites the standard it breaks: the project's written standard by its own name or
-section, or the item of this list. A finding that cites no standard is a preference, and is at most
-a low-confidence observation.
+section, or the item of this list. A finding that cites no standard is a preference: report it as
+an observation marked as a preference, because it is not a standard. Its confidence still says only
+how sure you are that the problem is real.
 
 ## What to check
 
@@ -19,8 +20,11 @@ a low-confidence observation.
   the same logic now written in two places that must stay in step? Copied logic that must change
   together is the most costly kind.
 - **Complexity.** Is the code no more complex than the problem needs? Look for speculative
-  abstraction: an interface with one implementation and no second in sight, configuration nobody
-  sets, a parameter every caller passes the same value for, a layer that only forwards.
+  abstraction. An abstraction (an interface, a base type, an extra parameter, a layer) is justified
+  by one of two things: a second real user that exists today, or a stated boundary reason, such as
+  a dependency rule that keeps one side from knowing the other, or a seam a test needs. With
+  neither, it is speculative and is a standards finding. Configuration nobody sets is the same
+  failure.
 - **Error handling.** Are failures reported where they can be handled, with enough detail to act
   on? Look for swallowed exceptions, a catch-all that hides the cause, an error turned into a
   default value that a caller cannot tell from success, and cleanup that does not run on the error

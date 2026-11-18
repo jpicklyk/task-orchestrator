@@ -44,9 +44,9 @@ built, and knowing what it must do tells you where to look for defects.
 - **Standards**: is the change built well? Readable, consistent with its surroundings, no more
   complex than the problem, and safe to change later.
 
-Every finding names its axis. A finding from the defect search carries axis **spec**, because a
-defect is wrong behaviour. A defect-search finding that is only poor construction, with no wrong
-behaviour, carries axis **standards**.
+Every finding names its axis. A defect-search finding carries axis **spec**, because a defect is
+wrong behaviour, unless it is only poor construction with no wrong behaviour, in which case it
+carries axis **standards**.
 
 ## What a finding contains
 
@@ -67,16 +67,16 @@ behaviour, carries axis **standards**.
 
 Bad: "Error handling could be better."
 
-Specific: "spec, `parser.kt:142` `parseHeader`: expected an empty header line to return an empty
-map (criterion 3, 'blank input is accepted'); found it throws `IndexOutOfBoundsException` on
-`parts[1]`. Blocking. High confidence: reproduced with an input of a single newline."
+Specific: "spec, the header parser, at the line that splits each header line on its first colon:
+expected a blank header line to give an empty result (criterion 3, 'blank input is accepted');
+found it reads the second part of the split, which does not exist, and fails with an out-of-range
+index error. Blocking. High confidence: reproduced with an input of a single newline."
 
 ## Report everything
 
 Report every finding you observe, at every severity, low-confidence ones included with their
 confidence stated. Apply no severity threshold and withhold nothing as too minor: a filter applied
-while reviewing suppresses real findings, and deciding what to act on is a separate step that needs
-the whole list.
+while reviewing suppresses real findings.
 
 ## Verdict
 
