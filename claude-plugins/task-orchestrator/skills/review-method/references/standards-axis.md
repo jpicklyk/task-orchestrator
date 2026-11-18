@@ -34,8 +34,12 @@ how sure you are that the problem is real.
   resolved.
 - **Architecture fit.** Does the change respect the dependency direction of the codebase (an inner
   layer never reaching an outer one)? Does it follow the local patterns of the code around it, or
-  introduce a second way of doing something the codebase already does one way? Do names say what
-  things are, in the vocabulary the surrounding code already uses?
+  introduce a second way of doing something the codebase already does one way? The exception is an
+  existing way that is itself a defect (unsafe, losing or hiding an error, or producing a wrong
+  result): new code done correctly instead of copying it is not a finding, as long as the change
+  reports the existing occurrences rather than silently diverging from them or rewriting them in
+  the same change. Do names say what things are, in the vocabulary the surrounding code already
+  uses?
 
 ## Test code is code
 
