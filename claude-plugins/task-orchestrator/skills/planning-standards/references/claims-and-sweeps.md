@@ -37,8 +37,8 @@ Self-check: highlight every sentence containing "never", "always", "only", "defa
 ## Negative and exhaustive claims name their search
 
 "No other caller", "all sites updated" and "nothing else uses it" are claims about a search.
-Write the search, its scope and its hit count: `grep -rn "oldName" src -> 0 hits (main and test
-trees)`. A count of zero with no scope proves nothing.
+Write the search, its scope and its hit count: "a search for the old name across the main and
+test source trees found 0 hits". A count of zero with no scope proves nothing.
 
 Self-check: could someone rerun your search and get your number? If the scope is vague, they
 cannot.

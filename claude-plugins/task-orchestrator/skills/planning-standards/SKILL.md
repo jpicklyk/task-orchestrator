@@ -1,10 +1,13 @@
 ---
 name: planning-standards
-description: "The bar for planning a software change before any code is written: testable acceptance criteria, real alternatives, resolved decisions, non-goals, blast radius, risk flags, test strategy, architecture fit and reuse before build. Apply when drafting a plan, specification or diagnosis for a code change, sized to the kind of change."
+description: "The bar for planning a software change before any code is written: testable acceptance criteria, real alternatives, resolved decisions, non-goals, blast radius, risk flags, test strategy, architecture fit and reuse before build."
 user-invocable: false
 ---
 
 # Planning standards
+
+These standards apply to any plan, specification or diagnosis written before a code change,
+sized to the kind of change.
 
 A plan is worth the thinking it forces before code exists. Every sentence should prevent a
 mistake or force a decision; a section that changes nothing about how the work is done does not
@@ -16,8 +19,8 @@ below.
 | Kind of change | What the plan holds |
 |----------------|---------------------|
 | Behaviour change | The full bar: every section below |
-| Docs-only or single-file change | Goal, files, acceptance criteria, a verify command. No alternatives, blast radius or risk flags |
-| Bug | Reproduction, root cause, the fix, and every other site of the same defect (see claims-and-sweeps) |
+| Docs-only or single-file change | Keeps: goal, files, acceptance criteria, one non-goal, a verify command. Drops: alternatives, blast radius, risk flags and test scenarios |
+| Bug | Reproduction, root cause, the fix, every other site of the same defect (see [claims and sweeps](references/claims-and-sweeps.md)), and a regression scenario seen failing before the fix is applied |
 
 ## Acceptance criteria
 
@@ -64,7 +67,7 @@ current headroom while planning and write down the measured and predicted values
 measurement to build time means the scope decision is already made.
 
 Self-check: for each changed interface, can you point to the search that found its consumers?
-See claims-and-sweeps.
+See [claims and sweeps](references/claims-and-sweeps.md).
 
 ## Risk flags
 
@@ -78,7 +81,7 @@ lookup runs once per row of a 10k-row table" is a failure).
 
 Name happy, failure and edge scenarios concretely, give each a stable id and an oracle that is
 not the code's current output, and list the existing tests the change breaks with the edit each
-needs. Detail in test-strategy.
+needs. Detail in [test strategy](references/test-strategy.md).
 
 Self-check: could someone write each test from the plan alone, without reading the
 implementation?
@@ -87,7 +90,7 @@ implementation?
 
 Find the project's stated layering and dependency rules, place the change in the module it
 belongs in, and look for an existing helper or pattern before proposing a new one. Detail in
-architecture-fit.
+[architecture fit](references/architecture-fit.md).
 
 Self-check: for every new type or helper, can you name the existing one you looked at and why it
 did not serve?
@@ -96,7 +99,8 @@ did not serve?
 
 A plan states facts about the code. A fact owned by another artifact is cited, not restated, and a
 claim of nullability, redaction, ownership, a default or a limit names the file and line that
-prove it. A negative or exhaustive claim names its search. Detail in claims-and-sweeps.
+prove it. A negative or exhaustive claim names its search. Detail in
+[claims and sweeps](references/claims-and-sweeps.md).
 
 Self-check: for each fact about the code, can you point at the line that shows it or the search
 that found it?
@@ -108,16 +112,16 @@ that found it?
 - [ ] Two real alternatives, doing nothing counted as one (full bar only)
 - [ ] No open decision remains; any deferred choice is a stage boundary
 - [ ] At least one non-goal named
-- [ ] Downstream consumers of every changed interface found by a named search
+- [ ] Downstream consumers of every changed interface found by a named search (full bar only)
 - [ ] Budget or ceiling headroom measured, if the change touches one
-- [ ] One or two concrete risk flags
+- [ ] One or two concrete risk flags (full bar only)
 - [ ] Contracts cited, not restated; semantic claims carry file and line
 - [ ] Verify commands shown to pass on good input and fail on bad
-- [ ] Test scenarios named with ids, oracles and the existing tests that break
+- [ ] Test scenarios named with ids, oracles and the existing tests that break (full bar; for a bug, the regression scenario seen failing before the fix)
 - [ ] Layering respected, reuse searched, every wiring site named
 
 ## References
 
-- references/claims-and-sweeps.md - citing contracts, proving claims, sweeping for siblings, proving verify commands
-- references/test-strategy.md - scenario derivation, ids, oracles, tests a change breaks
-- references/architecture-fit.md - layering, reuse before build, wiring sites
+- [Claims and sweeps](references/claims-and-sweeps.md): citing contracts, proving claims, sweeping for siblings, proving verify commands
+- [Test strategy](references/test-strategy.md): scenario derivation, ids, oracles, tests a change breaks
+- [Architecture fit](references/architecture-fit.md): layering, reuse before build, wiring sites

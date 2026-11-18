@@ -23,11 +23,14 @@ it does not serve?
 
 ## No speculative abstraction
 
-Build for the cases the plan names. Do not add an interface, an option, a parameter or a layer for
-a second use that does not exist yet. An abstraction with one user is cost without benefit; add
-it when the second user arrives.
+Build for the cases the plan names. An abstraction (an interface, a base type, an extra parameter,
+a layer) is justified by one of two things: a second real user that exists today, or a stated
+boundary reason, such as a dependency rule that keeps one side from knowing the other, or a seam
+a test needs. With neither, it is speculative: do not add it for a second use that may arrive
+later.
 
-Self-check: for each new abstraction, name its second real user. If there is none, remove it.
+Self-check: for each new abstraction, name the second user that exists today or the boundary
+reason. If there is neither, remove it.
 
 ## Wiring sites
 
@@ -38,4 +41,4 @@ missed site. Search for every place the type is built or registered and name eac
 plan.
 
 Self-check: does the plan list every construction and registration site, with the search that
-found them (see claims-and-sweeps)?
+found them (see [claims and sweeps](claims-and-sweeps.md))?

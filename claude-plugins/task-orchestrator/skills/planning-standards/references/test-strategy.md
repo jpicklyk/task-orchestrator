@@ -28,14 +28,16 @@ Self-check: if a scenario is dropped, does its id stay retired instead of being 
 
 ## An oracle for each scenario
 
-An oracle is the source that says what the right answer is. It is a specification, a documented
-contract or a stated acceptance criterion. It is never the current output of the code under test,
-because a test that copies today's output proves only that nothing changed, including bugs.
+An oracle is the source that says what the right answer is. It is a specification clause or a
+stated acceptance criterion, a documented contract, an external reference cited by name and
+section, or a value computed independently of the code under test. It is never the current output
+of that code, because a test that copies today's output proves only that nothing changed,
+including bugs.
 
 Write the oracle source next to the scenario: "S3: empty name is rejected; oracle: acceptance
 criterion 2".
 
-Self-check: cover the implementation. Could the expected value still be derived from the
+Self-check: set the implementation aside. Could the expected value still be derived from the
 oracle you wrote? If it needs the code, the oracle is wrong.
 
 ## Existing tests the change breaks
@@ -43,7 +45,7 @@ oracle you wrote? If it needs the code, the oracle is wrong.
 If the change alters a shared interface (a domain model, a storage contract, a tool or API
 parameter, a fixed list), find the existing tests that assume the old behaviour. For each one,
 state the edit it needs or confirm it still passes unchanged. Search for them rather than
-guessing, and record the search (see claims-and-sweeps).
+guessing, and record the search (see [claims and sweeps](claims-and-sweeps.md)).
 
 Self-check: is every test that pins a changed value or list in the plan, with its edit, or
 covered by a named search that found none?
