@@ -48,14 +48,14 @@ const RULES_DIR = join(REPO, '.taskorchestrator', 'rules')
 
 // ── Core, loaded once by name (Appendix A "Core names for loadCoreNamed") ──
 const CORE_NAMES = [
-  'ENVELOPE_VERSION', 'VERDICTS', 'INDEPENDENCE_MODES', 'BRANCH_SCOPED_SKILLS',
+  'ENVELOPE_VERSION', 'VERDICTS', 'INDEPENDENCE_MODES',
   'PROTOCOL_KEY', 'SCOPING_RULE_KEY', 'REQUIRED_FEATURES', 'REVIEW_OUTPUT_SCHEMAS',
   'normalizePath', 'normalizeArgs', 'preflight', 'laneSchema', 'lanePrompt',
   'mapLaneResult', 'aggregateVerdict', 'runItem', 'runReview',
 ]
 const core = loadCoreNamed(SCRIPT_PATH, CORE_NAMES)
 const {
-  ENVELOPE_VERSION, VERDICTS, INDEPENDENCE_MODES, BRANCH_SCOPED_SKILLS,
+  ENVELOPE_VERSION, VERDICTS, INDEPENDENCE_MODES,
   PROTOCOL_KEY, SCOPING_RULE_KEY, REQUIRED_FEATURES, REVIEW_OUTPUT_SCHEMAS,
   normalizePath, normalizeArgs, preflight, laneSchema, lanePrompt,
   mapLaneResult, aggregateVerdict, runItem, runReview,
@@ -197,13 +197,12 @@ test('T-schema: constants match the declared literals verbatim', () => {
   assert.equal(ENVELOPE_VERSION, 'envelope-v1')
   assert.deepEqual(VERDICTS, ['pass', 'pass-with-observations', 'fail-blocking'])
   assert.deepEqual(INDEPENDENCE_MODES, ['independent', 'independent-degraded', 'not-independent', 'n/a'])
-  assert.deepEqual(BRANCH_SCOPED_SKILLS, ['security-review'])
   assert.equal(PROTOCOL_KEY, 'protocol.read-only-agent')
   assert.equal(SCOPING_RULE_KEY, 'review-scoping')
   assert.deepEqual(REQUIRED_FEATURES, ['seats', 'dispatchBySeat', 'rules'])
 })
 
-test('T-schema: REVIEW_OUTPUT_SCHEMAS matches the declared review-v1 literal verbatim and holds no other output id', () => {
+test('T-schema: REVIEW_OUTPUT_SCHEMAS matches the declared review-v1 literal verbatim and holds only review-v1 and findings-v1', () => {
   const expected = {
     'review-v1': {
       type: 'object',
@@ -249,7 +248,8 @@ test('T-schema: REVIEW_OUTPUT_SCHEMAS matches the declared review-v1 literal ver
       },
     },
   }
-  assert.deepEqual(REVIEW_OUTPUT_SCHEMAS, expected)
+  assert.deepEqual(REVIEW_OUTPUT_SCHEMAS['review-v1'], expected['review-v1'])
+  assert.deepEqual(Object.keys(REVIEW_OUTPUT_SCHEMAS), ['review-v1', 'findings-v1'])
 })
 
 test('T-schema: laneSchema(outputId) required list, status enum, and entry shape (partial coverage — RW-P full byte-for-byte parity with implement-wave.js is orchestrator/reviewer-run per c1-dispatch-contract.md, the file is absent on this branch)', () => {
@@ -716,7 +716,7 @@ test('S7: two stages sharing the same lane id -> "duplicate lane <lane>"', () =>
   assert.deepEqual(refused, [{ id: plan.items[0].id, reason: 'duplicate lane reviewer.review-quality' }])
 })
 
-test('S7: a simplify-v1 stage is refused by normalizeArgs - review-v1 is the only output id', () => {
+test('S7: a simplify-v1 stage is refused by normalizeArgs - simplify-v1 is not an output id', () => {
   const raw = validRawPlan()
   raw.items[0].stages = [
     { seat: 'simplify', lane: 'simplify', phase: 'review', notes: [], writes: false, protocol: 'protocol.read-only-agent', dispatch: {}, output: 'simplify-v1' },
@@ -727,10 +727,10 @@ test('S7: a simplify-v1 stage is refused by normalizeArgs - review-v1 is the onl
   assert.equal(r.reason, 'invalid args: bad stage output')
 })
 
-test('S7: a stage carrying a non-empty `after` -> "after not allowed in review-wave"; an empty `after` is not refused', () => {
+test('S7: a stage whose `after` names no sibling lane -> "lane <lane> after <x> names no sibling lane"; an empty `after` is not refused', () => {
   const plan = planFrom((raw) => { raw.items[0].stages[0].after = ['x'] })
   const { refused } = preflight(plan)
-  assert.deepEqual(refused, [{ id: plan.items[0].id, reason: 'after not allowed in review-wave' }])
+  assert.deepEqual(refused, [{ id: plan.items[0].id, reason: 'lane reviewer.review-quality after x names no sibling lane' }])
   // fixture condition: the same item with after [] preflights clean, so the refusal above comes from `after` alone
   const clean = planFrom((raw) => { raw.items[0].stages[0].after = [] })
   assert.deepEqual(preflight(clean).refused, [])
@@ -921,17 +921,18 @@ test('S9 probe (W7 replay): calling lanePrompt twice with identical inputs yield
 })
 
 // =============================================================================
-// S10 — the security-review lane (a BRANCH_SCOPED_SKILLS member, or branchScoped:true) gets the
-// BRANCH-SCOPED instruction + record-filter line; other lanes lack it.
+// S10 — a lane whose stage carries skillMode 'method-on-diff' gets the BRANCH-SCOPED instruction +
+// record-filter line; other lanes lack it (a skill name alone, e.g. security-review, no longer triggers it).
 // Oracle: test-plan S10; P OQ-5, R6; .taskorchestrator/config.yaml:202 (needs-security-review
-// guidance: "record the inputs tried" / filter-and-record pattern).
+// guidance: "record the inputs tried" / filter-and-record pattern); item 79a61aba task-scope Plugin.
 // =============================================================================
 
-test('S10: a lane whose skills include "security-review" gets the BRANCH-SCOPED instruction and the record-filter line', () => {
+test('S10: a lane whose stage skillMode is method-on-diff gets the BRANCH-SCOPED instruction and the record-filter line', () => {
   const plan = planFrom((raw) => {
     raw.items[0].stages.push({
       seat: 'reviewer', lane: 'reviewer.security-review', phase: 'review', notes: ['security-assessment'],
       writes: false, protocol: 'protocol.read-only-agent', dispatch: {}, output: 'review-v1', skills: ['security-review'],
+      skillMode: 'method-on-diff',
     })
     raw.items[0].review.requiredReviewNotes.push('security-assessment')
   })
@@ -942,9 +943,9 @@ test('S10: a lane whose skills include "security-review" gets the BRANCH-SCOPED 
   assert.ok(prompt.includes('findings total, kept, dropped, dropped files'))
 })
 
-test('S10: stage.branchScoped === true also triggers the BRANCH-SCOPED instruction without security-review in skills', () => {
+test('S10: stage.skillMode === method-on-diff triggers the BRANCH-SCOPED instruction without security-review in skills', () => {
   const plan = planFrom((raw) => {
-    raw.items[0].stages[0].branchScoped = true
+    raw.items[0].stages[0].skillMode = 'method-on-diff'
   })
   const item = plan.items[0]
   const stage = item.stages[0]
@@ -952,7 +953,7 @@ test('S10: stage.branchScoped === true also triggers the BRANCH-SCOPED instructi
   assert.ok(prompt.includes('BRANCH-SCOPED'))
 })
 
-test('S10: a lane without security-review in skills and branchScoped unset never gets the BRANCH-SCOPED instruction', () => {
+test('S10: a lane without a method-on-diff skillMode never gets the BRANCH-SCOPED instruction', () => {
   const { prompt } = promptFor(() => {})
   assert.equal(prompt.includes('BRANCH-SCOPED'), false)
 })

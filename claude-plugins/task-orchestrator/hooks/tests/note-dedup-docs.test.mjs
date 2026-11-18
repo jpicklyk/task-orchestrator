@@ -32,8 +32,12 @@ function postRunSection(id) {
   return next === -1 ? rest : rest.slice(0, next);
 }
 
-test('S9 AC1: reviewer.md carries the One findings register paragraph', () => {
-  assert.ok(REVIEWER.includes('One findings register'));
+test('S9 AC1: the findings register paragraph lives in the review-cited-claims rule, not in reviewer.md', () => {
+  const rule = read('bundled-rules', 'review-cited-claims.md');
+  const at = rule.indexOf('## claude:');
+  assert.ok(at !== -1, 'the rule has a ## claude: section');
+  assert.match(rule.slice(at), /findings register/i);
+  assert.equal(REVIEWER.includes('One findings register'), false);
 });
 
 test('S9 AC2: post-run Step 7b hands over verdict and count lines, with no review-checklist read call', () => {

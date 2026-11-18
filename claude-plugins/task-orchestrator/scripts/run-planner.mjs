@@ -11,7 +11,7 @@
 // run-planner-lib.mjs stays pure.
 //
 // run-exec-lib.mjs adds rows to the subcommand table below: next, prompt, stage-result,
-// scan-declarations, verify, notes-audit, dispatch-meta, provenance, review-prompt, reseat, run-ops, follow-ups, report, review-args.
+// scan-declarations, verify, notes-audit, dispatch-meta, provenance, review-prompt, reseat, run-ops, follow-ups, report, review-args, post-run-steps.
 // provenance also takes the per-run layer flags --coordinator <label> (with --session-dir |
 // --projects-dir), --session-transcript <path>, --session-since <t> and --session-until <t>, which add
 // the 'layer-meters' member to its output.
@@ -335,7 +335,7 @@ const EXEC_IO = {
 // ---------------------------------------------------------------------------------------
 // Subcommand table. run-exec-lib.mjs supplies: next, prompt, stage-result, scan-declarations,
 // verify, notes-audit, dispatch-meta, provenance, session-meters, review-prompt, reseat, run-ops,
-// follow-ups, report, review-args.
+// follow-ups, report, review-args, post-run-steps.
 // ---------------------------------------------------------------------------------------
 const SUBCOMMANDS = {
   probe: runProbe,
@@ -357,7 +357,8 @@ const SUBCOMMANDS = {
   'run-ops': (args) => exec.EXEC_COMMANDS['run-ops'](args, EXEC_IO),
   'follow-ups': (args) => exec.EXEC_COMMANDS['follow-ups'](args, EXEC_IO),
   report: (args) => exec.EXEC_COMMANDS.report(args, EXEC_IO),
-  'review-args': (args) => exec.EXEC_COMMANDS['review-args'](args, EXEC_IO)
+  'review-args': (args) => exec.EXEC_COMMANDS['review-args'](args, EXEC_IO),
+  'post-run-steps': (args) => exec.EXEC_COMMANDS['post-run-steps'](args, EXEC_IO)
 };
 
 async function main() {

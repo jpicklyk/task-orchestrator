@@ -118,7 +118,9 @@
         "notes": { "type": "array", "items": { "$ref": "#/$defs/noteEntry" } },
         "resources": { "type": "array", "items": { "$ref": "#/$defs/resourceRequirement" } },
         "dispatch": { "$ref": "#/$defs/dispatch" },
-        "seats": { "type": "array", "items": { "$ref": "#/$defs/seat" } }
+        "seats": { "type": "array", "items": { "$ref": "#/$defs/seat" } },
+        "description": { "type": "string" },
+        "applies_when": { "type": "string" }
       }
     },
     "noteEntry": {
@@ -131,11 +133,30 @@
         "required": { "type": "boolean" },
         "description": { "type": "string" },
         "guidance": { "type": "string" },
-        "skill": { "type": "string" },
+        "skill": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true }
+          ]
+        },
+        "skill_mode": { "enum": ["invoke", "method-on-diff"] },
         "maxLength": { "type": "integer", "minimum": 1 },
         "seat": { "type": "string" },
         "independent_of": { "type": "array", "items": { "type": "string" } },
-        "shared": { "type": "boolean" }
+        "shared": { "type": "boolean" },
+        "lane": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "output": { "enum": ["verdict", "findings"] },
+            "after": {
+              "oneOf": [
+                { "type": "string", "minLength": 1 },
+                { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+              ]
+            }
+          }
+        }
       }
     },
     "seat": {
@@ -151,6 +172,10 @@
         "transitions": {
           "type": "array",
           "items": { "enum": ["complete", "block", "hold", "resume", "cancel", "reopen"] }
+        },
+        "rules": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,99}$" }
         }
       }
     },

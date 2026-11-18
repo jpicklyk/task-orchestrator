@@ -152,7 +152,7 @@ Details: [config-format.md](../../../claude-plugins/task-orchestrator/skills/man
 
 **Script:** `skill-enforcement.mjs`. **Event:** `PreToolUse` on `notes_write`.
 
-**What it does:** for each `ops[]` element with `op: "upsert"`, suggests loading the skill a note's schema entry names (`skill`) when the body is too thin to reflect that skill's output (a default floor of 200 characters, scaled down for a note whose schema `maxLength` is small). The `skill` and `maxLength` facts come from the server, not from `config.yaml`: one `config` op `effective` read per session, cached in a session marker, and the item's `items_read` `select: "schema"` view per op. It is advisory only (it never blocks the call) and suggests at most once per (session, item, key).
+**What it does:** for each `ops[]` element with `op: "upsert"`, suggests loading the skill, or each skill of a list, a note's schema entry names (`skill`) when the body is too thin to reflect that skill's output (a default floor of 200 characters, scaled down for a note whose schema `maxLength` is small). The `skill` and `maxLength` facts come from the server, not from `config.yaml`: one `config` op `effective` read per session, cached in a session marker, and the item's `items_read` `select: "schema"` view per op. It is advisory only (it never blocks the call) and suggests at most once per (session, item, key).
 
 **Inert when:** no REST API URL is configured with a located config, in which case it says so once per session in a `systemMessage` and then stays silent. It is not gated by execution mode or `orchestration.mode`: it checks the claimed item's own writes, whoever runs them.
 
@@ -391,7 +391,7 @@ The shipped workflows, each launched on its own terms:
 
 - `audit` — read-only report + proposal; materializing its findings goes through [create-item](../../../claude-plugins/task-orchestrator/skills/create-item/SKILL.md#from-a-workflow-findings-proposal). Cost scales with the preset: `quick`, `standard` or `full`; `full` runs roughly 90 minutes and about 30M tokens.
 - `retro-analysis` — two modes. `deep` is invoked via `/session-retrospective --deep`; `audit` is a standalone sweep whose consumer is the session-retrospective skill's "Audit sweep" paragraph (present the result, then apply Step 6's create and retire shapes after the user confirms).
-- `review-wave` — independent review lanes over an item's owned-file diff, aggregated into one verdict in args order. Shipped; the `run-wave` front door does not build its lanes yet (args are hand-built until C1-productize).
+- `review-wave` — independent review lanes over an item's owned-file diff, aggregated into one verdict in args order. Verdict lanes (the default) decide the verdict; a lane whose review notes declare `lane.output: findings` reports findings only and never sets it, though its stopped status still stops the item; `lane.after` orders lanes and never halts or skips one. Shipped; the `run-wave` front door builds the lanes from the review notes' `lane` declarations.
 
 ---
 

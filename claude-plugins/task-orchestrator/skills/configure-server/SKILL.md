@@ -333,4 +333,4 @@ Re-running this skill is safe — it always renders a fresh command from the cur
 not read or depend on any previously-rendered state. To change an existing container's settings,
 stop/remove it first (`docker stop mcp-task-orchestrator-http && docker rm mcp-task-orchestrator-http`),
 then re-render and run the new command. When a `mcp-task-orchestrator-director` entry already exists in the client config, re-render it alongside the orchestration entry on any transport change (stdio to HTTP or back): its URL or its `MCP_TOOL_PROFILE=director` args change with the transport. (Maintainers building the image from source have a dedicated
-detect-and-reuse flow in `/deploy_to_docker` — not needed for the published-image path this skill covers.)
+detect-and-reuse flow in the project's own deploy command, not needed for the published-image path this skill covers.)

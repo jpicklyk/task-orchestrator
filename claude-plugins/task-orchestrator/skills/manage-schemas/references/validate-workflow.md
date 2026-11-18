@@ -68,7 +68,9 @@ For each note in each schema (and trait):
 - `required` — optional; must be a boolean if present. The parser defaults it to `false` when omitted, so a missing `required` is **not** a hard error — **warn** (recommend setting explicitly, since it silently becomes `false` = no gate)
 - `description` — optional; must be a string if present. Parser defaults to `""` when omitted — warn if missing
 - `guidance` — optional, must be a string if present
-- `skill` — optional, must be a string if present
+- `skill` — optional; a string, or a non-empty list of distinct non-blank strings (invocation order)
+- `skill_mode` — optional; `invoke` (default) or `method-on-diff`, and only with a `skill`: a `skill_mode` without a `skill` is a finding (an error under STRICT, a warning under MIGRATION)
+- `lane` — optional, review notes only: `lane` on a non-review note is a finding (an error under STRICT, ignored with a warning under MIGRATION); a map with `output` (`verdict` default, or `findings`) and `after` (a note key or a list of keys of other review notes, whose lanes run first)
 - `shared` — optional; must be a boolean if present (`true` exempts the key from note ownership)
 
 ### 5. Field Quality

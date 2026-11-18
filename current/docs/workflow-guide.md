@@ -195,7 +195,9 @@ note_schemas:
 | `required`    | boolean | no       | Whether this note must be filled before advancing past this phase. Defaults to `false` if omitted — set it explicitly. |
 | `description` | string  | no       | Short description of expected content (defaults to `""`; recommended). Fetch via `items_read` `select: "schema"`. |
 | `guidance`    | string  | no       | Longer authoring guidance for agents. Named by `guidanceKey` in `items_read` `context`; the text comes from `select: "schema"` with `fields: ["guidance"]`. |
-| `skill`       | string  | no       | Skill to invoke when filling this note. Shown in `items_read` `context` as `skillPointer`.    |
+| `skill`       | string or list | no | Skill to invoke when filling this note, or a list of skills in invocation order. Shown in `items_read` `context` as `skillPointer` (the first skill) and, for two or more, `skillPointers`. |
+| `skill_mode`  | string  | no       | `invoke` (default) or `method-on-diff`: apply the skill's method to the diff of the files the seat owns instead of the skill's own default target. Shown as `skillMode` only when `method-on-diff`. |
+| `lane`        | map     | no       | Review-role notes only: `output` (`verdict` default, or `findings`) and `after` (a review note key or a list of them whose lanes run first). Shown as `lane` on `items_read` `select: "schema"` only when declared. |
 
 #### Constraints
 
@@ -494,10 +496,10 @@ The `guidance` field in note schemas is a communication channel from schema auth
 
 In 4.0 the responses that name a note carry a **key**, not the guidance text, so a response stays small. The text is read once with the `schema` select:
 
-- **`items_read` `select: "context"` (with `itemId`)** - `guidanceKey` at the top level names the first unfilled required note of the current phase, and `skillPointer` its skill. Both are omitted when every required note of the phase is filled or the entry has no guidance or skill.
-- **`advance` `transition` result** - `expectedNotes` (the keys the new phase expects), `guidanceKey` and `skillPointer`, for the phase just entered.
+- **`items_read` `select: "context"` (with `itemId`)** - `guidanceKey` at the top level names the first unfilled required note of the current phase, and `skillPointer` its (first) skill; `skillPointers` lists every skill when there are two or more and `skillMode` is `method-on-diff` when the note says so. All are omitted when every required note of the phase is filled or the entry has no guidance or skill.
+- **`advance` `transition` result** - `expectedNotes` (the keys the new phase expects), `guidanceKey` and `skillPointer` (with `skillPointers` and `skillMode` as above), for the phase just entered.
 - **`advance` gate error** - a `gate_blocked` error's `detail.missing[]` names the missing notes (`key`, `role`, and `seat` for a seat-aware schema).
-- **`items_read` `select: "schema"`** - the full note list of a type or an item (`description`, `skill`, `maxLength`, `seat`); the per-note `guidance` text is stripped unless the call passes `fields: ["guidance"]`.
+- **`items_read` `select: "schema"`** - the full note list of a type or an item (`description`, `skill`, `skills`, `skillMode`, `lane`, `maxLength`, `seat`; the optional ones appear only when the note declares them); the per-note `guidance` text is stripped unless the call passes `fields: ["guidance"]`.
 
 #### How agents consume guidance
 
@@ -941,7 +943,7 @@ traits:
         guidance: "<guidance>"
 ```
 
-There is no schema-level `traits:` key — a schema names its traits with `default_traits:`, and any other key is rejected when you push or validate a config (a stored 3.x config that carries one loads with a warning and the key is ignored). Traits can also carry `resources:`, `dispatch:`, and `seats:`; see [config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md) for the full format.
+There is no schema-level `traits:` key — a schema names its traits with `default_traits:`, and any other key is rejected when you push or validate a config (a stored 3.x config that carries one loads with a warning and the key is ignored). Traits can also carry `resources:`, `dispatch:`, and `seats:`, plus the text fields `description:` and `applies_when:` (served, never evaluated); see [config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md) for the full format.
 
 Additional top-level keys (`resources`, `note_limits`, `status_labels`, `project`, `independence`, `extensions`, `runs`, `decision_classes`) are supported but not covered in this guide; see the [config reference](./config-reference.md).
 
@@ -954,7 +956,9 @@ Additional top-level keys (`resources`, `note_limits`, `status_labels`, `project
 | `required`    | boolean | no       | `true`, `false`           | If true, must be filled before `start` advances past this phase. Defaults to `false` if omitted — set it explicitly. |
 | `description` | string  | no       | Any string                | Short description (defaults to `""`; recommended). Fetch via `items_read` `select: "schema"`. |
 | `guidance`    | string  | no       | Any string                | Longer authoring hint. Named by `guidanceKey` in the gate status; read with `fields: ["guidance"]`.  |
-| `skill`       | string  | no       | Skill name                | Skill to invoke before filling. Shown as `skillPointer`.           |
+| `skill`       | string or list | no | Skill name, or a non-empty list of distinct names | Skill to invoke before filling; a list is invoked in order. Shown as `skillPointer` (the first) and `skillPointers`. |
+| `skill_mode`  | string  | no       | `invoke`, `method-on-diff` | How the skill is used; `method-on-diff` applies its method to the diff of the files the seat owns. Shown as `skillMode`. |
+| `lane`        | map     | no       | `output`: `verdict`, `findings`; `after`: note key or list | Review-role notes only. A findings lane reports findings and never sets the item verdict; `after` orders lanes (it never halts or skips). Shown as `lane` on `items_read` `select: "schema"`. |
 
 ### Matching Rules
 
@@ -1365,6 +1369,7 @@ Seats come from the schema (`seats:` in the [config](./config-reference.md#seat-
 - A seat writes only the note keys its seat owns, plus unowned keys. The coordinator token writes only the keys of the seat named `orchestrator`, and unowned ones.
 - A human credential without a token is exempt. Over stdio the caller is the `local` principal, which is an agent, so it is not exempt.
 - A refusal is `seat_forbidden` (or `note_owned_by_other` for a note) and applies nothing.
+- A seat entry may list `rules:` (rule keys). The server serves the list and never enforces it; the run-wave plugin hands those rules to the seat's agent.
 
 ```json
 {"seatToken": "<seatToken>",

@@ -116,6 +116,7 @@ traits:
         required: true
         description: "Input validation, injection risk, access control, data handling."
         skill: "security-review"    # Claude Code built-in — official review of the pending diff
+        skill_mode: method-on-diff  # the skill is a method applied to the owned diff, not invoked on the whole tree
   needs-perf-review:            # non-gating reminder for changes touching hot paths
     notes:
       - key: performance-baseline

@@ -19,5 +19,7 @@ citation inherits the error.
 
 ## claude:
 
-- Record the findings in your own review note, numbered once in the findings register; every other
-  note refers to a finding by id and never restates it.
+- The findings register is the item's `review-checklist` when its schema declares one, otherwise
+  the first review note you fill. Number each finding once there (`B1`, `O1`); every other review
+  note refers to a finding by id (`see B2`) and never restates it. The register note's own guidance
+  says what else it holds.

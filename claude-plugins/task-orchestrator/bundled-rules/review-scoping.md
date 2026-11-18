@@ -25,7 +25,7 @@ a commit-range diff both over- and under-reports what that contributor actually 
 - `git -C <worktree> diff <base-sha>..HEAD -- <the reviewed contributor's owned files>` is the
   review diff.
 - `git -C <worktree> show --stat <sha>` per commit is the boundary check (implementer commits
-  touch no `src/test/**`; test-author commits touch no `src/main/**`).
+  touch no file in the test tree; test-author commits touch no file in the implementation tree).
 - The declared-exception record lives in the wave's Review scoping table (or equivalent shared
   note): item, implementer commits, author commits, declared notes (arbitrations, declared
   contract changes, declared edits to existing test files, independence caveats, or "none").

@@ -92,6 +92,18 @@ components:
         skill:
           type: string
           nullable: true
+          description: The entry's first skill (its only skill when it names one).
+        skills:
+          type: array
+          items:
+            type: string
+          description: Every skill of the entry in invocation order. Present only when the entry names two or more.
+        skillMode:
+          type: string
+          enum: [method-on-diff]
+          description: >-
+            Present only when the entry's skill_mode is method-on-diff (apply the skill's method to the diff of the
+            files the seat owns); omitted for the default invoke.
         maxLength:
           type: integer
           description: Maximum note-body length configured for this entry. Present only when configured.
@@ -133,8 +145,9 @@ components:
       required: [name, notes]
       description: >-
         dispatch and resources are omitted (not present) when the trait declares neither —
-        never an empty map/array. Reflects GLOBAL config only; a per-root override of the
-        same trait's dispatch/resources is not visible here.
+        never an empty map/array. dispatch, resources, description and appliesWhen come from the
+        layer that declares the trait, per-root included: a trait the per-root config declares
+        is reported from its per-root entry alone.
       properties:
         name:
           type: string
@@ -152,6 +165,12 @@ components:
           description: Declared shared-resource requirements. Omitted when the trait declares none.
           items:
             $ref: "#/components/schemas/ResourceRequirementDto"
+        description:
+          type: string
+          description: The trait's declared description text. Omitted when the trait declares none. Never evaluated by the server.
+        appliesWhen:
+          type: string
+          description: The trait's declared applies_when text. Omitted when the trait declares none. Never evaluated by the server.
 
     EffectiveSchemaDto:
       type: object
@@ -358,6 +377,16 @@ components:
           items:
             type: string
           description: Note keys this seat should not read. Present only when non-empty.
+        transitions:
+          type: array
+          items:
+            type: string
+          description: The triggers other than start this seat may send. Present only when the seat declares transitions.
+        rules:
+          type: array
+          items:
+            type: string
+          description: Rule keys the seat declares. Present only when the seat declares rules (an empty array when it declares none); served, never enforced.
 
     ItemSchemaNoteEntryDto:
       type: object
@@ -383,6 +412,18 @@ components:
         skill:
           type: string
           nullable: true
+          description: The entry's first skill (its only skill when it names one).
+        skills:
+          type: array
+          items:
+            type: string
+          description: Every skill of the entry in invocation order. Present only when the entry names two or more.
+        skillMode:
+          type: string
+          enum: [method-on-diff]
+          description: >-
+            Present only when the entry's skill_mode is method-on-diff (apply the skill's method to the diff of the
+            files the seat owns); omitted for the default invoke.
         maxLength:
           type: integer
           description: Maximum note-body length configured for this entry. Present only when configured.
@@ -401,6 +442,24 @@ components:
             A1: seat names this note's authoring must stay independent of. Present only when
             non-empty, regardless of seat-awareness. Parsed and served since A1; enforced as of A2
             (the independence attestation gate) — see config-format.md "Independence (A2)".
+        lane:
+          type: object
+          description: >-
+            The review lane this entry declares (review-role entries only). Present only when declared; an entry
+            without it reports a verdict and is unordered.
+          properties:
+            output:
+              type: string
+              enum: [verdict, findings]
+              description: >-
+                What the lane reports. A findings lane never sets or changes the item verdict.
+            after:
+              type: array
+              items:
+                type: string
+              description: >-
+                Note keys of other review entries whose lanes run first (ordering only; never halts or skips).
+                Present only when non-empty.
 
     ItemSchemaViewDto:
       type: object

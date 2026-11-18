@@ -467,13 +467,17 @@ These shapes are the members of the `effective` op's result (the `config` tool, 
   "description": "string",
   "guidance": "string",
   "skill": "string",
+  "skills": ["string", "string"],
+  "skillMode": "method-on-diff",
   "maxLength": 3000,
   "shared": true
 }
 ```
 
 `guidance` (string, optional) and `skill` (string, optional) are omitted (never emitted as `null`) when the entry
-sets neither. `shared` (boolean, optional) is present, as `true`, only when the key is `shared`; omitted otherwise.
+sets neither. `skill` is the entry's first skill; `skills` (array of string, optional) is present only when the entry
+names two or more, in invocation order, and `skillMode` (`method-on-diff`, optional) only when the entry applies the
+skill's method to the diff of the files the seat owns; both are omitted otherwise. `shared` (boolean, optional) is present, as `true`, only when the key is `shared`; omitted otherwise.
 `maxLength` (integer, optional) is present only when a maximum note-body length is configured for
 this entry; omitted otherwise. It appears wherever a `NoteSchemaEntryDto` is returned: in the `effective` result's
 `schemas[].notes` and `traits[].notes`.
@@ -509,9 +513,13 @@ returns. Declared per trait per phase under `traits.<name>.dispatch.<phase>:`; s
   "name": "needs-security-review",
   "notes": [<NoteSchemaEntryDto>],
   "dispatch": { "work": <DispatchProfileDto> },
-  "resources": [<ResourceRequirementDto>]
+  "resources": [<ResourceRequirementDto>],
+  "description": "Changes touching authentication",
+  "appliesWhen": "the diff changes an auth path"
 }
 ```
+
+`description` and `appliesWhen` (strings, optional) echo the trait's `description` and `applies_when` config text; each is omitted when the trait declares none. The server never evaluates them.
 
 `dispatch` (map of phase name to `DispatchProfileDto`, optional) and `resources` (array of
 `ResourceRequirementDto`, optional) are omitted from the JSON (never `null`) rather than an empty map/array when
@@ -688,7 +696,7 @@ error codes live in [api-reference.md](api-reference.md); this table only maps o
 | `GET /items/{id}/tree` | `items_read` `{select: "list", ancestorId: id}` | `read` |
 | `GET /items/{id}/breadcrumbs` | `items_read` `{select: "get", itemId: id, fields: ["ancestors"]}` | `read` |
 | `GET /items/{id}/schema` | `items_read` `{select: "schema", itemId: id}` (add `fields: ["guidance"]` for guidance text) | `read` |
-| `GET /items/{id}/gate` | `items_read` `{select: "context", itemId: id}` (orchestration profile); the gate is `data.gateStatus`, with `guidanceKey` and `skillPointer` as siblings in `data` | `read` |
+| `GET /items/{id}/gate` | `items_read` `{select: "context", itemId: id}` (orchestration profile); the gate is `data.gateStatus`, with `guidanceKey` and `skillPointer` (plus `skillPointers` and `skillMode` for a multi-skill or method-on-diff note) as siblings in `data` | `read` |
 | `GET /items/{id}?include=notes\|deps\|children` | `notes_read` `{select: "list"}`, `deps_read` `{select: "list"}`, `GET /items/{id}/children`; the `include` parameter is gone | `read` |
 | `POST /items`, `PATCH /items/{id}`, `DELETE /items/{id}` | `items_write` ops `create`, `update`, `delete`; `expectedVersion` replaces `If-Match`, `recursive` guards a parent delete, `idempotencyKey` replaces the `Idempotency-Key` header. `create_tree` and `complete_tree` are orchestration-profile ops (neither had a 3.x route) | `write-items` (`advance` for `complete_tree`) |
 | `POST /items/{id}/advance` | `advance` ops `transition`, `claim`, `release`, `heartbeat`. `transition` enforces claim ownership on REST exactly as on MCP (an item claimed by another actor is `not_claim_holder`), and so do the note, item and dependency writes (`notes_write`, `items_write` `update`/`delete`, every `deps_write` op naming a held item). A cascade into a parent another principal holds is not applied and is reported with `blocked: "ownership"` (`items_write`: `reason: "not_claim_holder"`), and a cascade into a seat-enforced member the caller could not send the equivalent trigger to is not applied either (`blocked: "seat"`; `items_write`: `reason: "seat_forbidden"`), checked after ownership. A terminal cascade never moves a parent in `review`: it is reported with `blocked: "gate"` and `reason: "review-pending"` (no `missing`; `items_write`: `reason: "gate_blocked"`). There is no per-call override flag (a server-wide `RESOURCE_LEASES_ENFORCED=false` is the only way to skip the lease gate), and `DELETE /resources/leases/{key}` (section 14) recovers a stuck lease. Seats are enforced inside an open run: on an item that is a member of a run that is not closed (open or paused) and whose pinned schema declares `seats`, a seat token may `start` only its own item and only into the phase its seat `enters`, and may send another trigger only when its seat's `transitions` list it (default `block`, `hold`); the run's coordinator token may send anything the table allows; any other caller (no token, another run's token, a token for another item) is `403 seat_forbidden{itemId, seat, action, allowedSeats}` (`seat` is omitted without a token), checked right after claim ownership and before every other gate, with nothing applied and no rejection row. A human credential without a token is exempt. `items_read` `select=context` previews ignore seats, so they can predict an advance the seat check refuses for a given caller. Recovery from a `seat_forbidden`: send the call with the coordinator token of the run, or with a human credential, or have the seat's own token send it. The cascade form of the same rule is described earlier in this row (`blocked: "seat"`) | `advance` |
@@ -705,7 +713,7 @@ error codes live in [api-reference.md](api-reference.md); this table only maps o
 | `GET /roots/{rootId}/config/effective` | `config` op `effective` | `read` |
 | `GET /config`, `/config/schemas[/{type}]`, `/config/traits`, `/config/types`, `/config/status-graph` | `config` op `effective` without a `rootId` returns the same server-set view. Only `GET /config/schema` stays (section 17) | `read` |
 | none | `config` op `validate` (a dry run of `push`) | `read` |
-| `GET /roots/{rootId}/rules`, `GET /roots/{rootId}/rules/{key}` | `config` op `rules`; `itemId` with `noteKey` follows a note's skill pointer (now also available on REST). An absent rule is `not_found` kind `document`, no longer `rule_not_found` | `read` |
+| `GET /roots/{rootId}/rules`, `GET /roots/{rootId}/rules/{key}` | `config` op `rules`; `itemId` with `noteKey` follows a note's first skill pointer (now also available on REST). An absent rule is `not_found` kind `document`, no longer `rule_not_found` | `read` |
 | `PUT /roots/{rootId}/plans/{slug}` | `docs_write` op `upsert`; a `rule/<key>` slug is `kind` `rule`, slug `<key>`. A write over an adopted plan is `duplicate` (`409`); `bodyFromFile` is not accepted over REST | `write-docs` (was `write-config`) |
 | `GET /roots/{rootId}/plans/{slug}`, `GET /roots/{rootId}/plans` | `docs_read` selects `get`, `list`; `kind` is required, the `status` filter and field are gone (an adopted plan reports `adoptedBy`) | `read` |
 
