@@ -21,7 +21,7 @@ const read = (p) => readFileSync(p, 'utf-8');
 const hookSource = (name) => read(join(HOOKS_DIR, name));
 const topLevelHookFiles = () => readdirSync(HOOKS_DIR).filter((f) => f.endsWith('.mjs'));
 
-const LIB_MODULES = ['stdin', 'emit', 'markers', 'envelope', 'ops', 'api-client', 'server-compat', 'tool-names'];
+const LIB_MODULES = ['stdin', 'emit', 'markers', 'envelope', 'ops', 'api-client', 'server-compat', 'tool-names', 'served-rules'];
 
 const STDIN_READERS = [
   'config-sync', 'dispatch-hint', 'dispatch-model-guard', 'phase-guard-record',
