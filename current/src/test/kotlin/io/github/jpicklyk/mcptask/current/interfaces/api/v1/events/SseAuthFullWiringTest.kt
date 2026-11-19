@@ -134,7 +134,7 @@ class SseAuthFullWiringTest {
         tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry>,
         allowQueryToken: Boolean,
     ) {
-        installMcpStreamableHttp(emptyServer(), appConfig = AppConfig.fromEnv(), mcpAuth = McpAuthMode.Local)
+        installMcpStreamableHttp(emptyServer(), appConfig = AppConfig.fromEnv { null }, mcpAuth = McpAuthMode.Local)
         installRestApiRoutes(
             apiConfig = apiConfig,
             eventBus = bus,
@@ -151,7 +151,7 @@ class SseAuthFullWiringTest {
                     perRootConfigService = PerRootConfigService(provider.configStore()),
                     unitOfWork = db.unitOfWork()
                 ),
-            appConfig = AppConfig.fromEnv(),
+            appConfig = AppConfig.fromEnv { null },
         )
     }
 

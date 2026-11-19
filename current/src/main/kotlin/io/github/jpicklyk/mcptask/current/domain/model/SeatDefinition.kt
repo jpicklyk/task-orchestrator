@@ -44,6 +44,12 @@ package io.github.jpicklyk.mcptask.current.domain.model
  * @property transitions The user triggers other than `start` this seat may send inside an open run, as wire names
  *   (`complete`, `block`, `hold`, `resume`, `cancel`, `reopen`); null when not declared ([DEFAULT_TRANSITIONS] apply).
  *   `start` is governed by [enters], never listed here. An entering seat may not list `complete` or `cancel` (F5).
+ * @property rules The rule keys this seat works under, served so a dispatching plugin can fetch them for the seat; null
+ *   when not declared (the plugin's defaults apply), `[]` when the seat declares none. Never enforced by the server and
+ *   not checked for existence: rules are a separate store, so a key that is not served is the plugin's finding.
+ * @property skills The skill names this seat works under, served so a dispatching plugin can load them for the seat; null
+ *   when not declared (the plugin's defaults apply), `[]` when the seat declares none. Names are kept verbatim (a plugin
+ *   skill carries a `plugin:` prefix). Never enforced by the server and not checked for existence.
  */
 data class SeatDefinition(
     val name: String,
@@ -51,7 +57,9 @@ data class SeatDefinition(
     val enters: Boolean = false,
     val after: List<String> = emptyList(),
     val readsExclude: List<String> = emptyList(),
-    val transitions: List<String>? = null
+    val transitions: List<String>? = null,
+    val rules: List<String>? = null,
+    val skills: List<String>? = null
 ) {
     /** The triggers (other than `start`) this seat may send: [transitions] when declared, else [DEFAULT_TRANSITIONS]. */
     val effectiveTransitions: List<String> get() = transitions ?: DEFAULT_TRANSITIONS

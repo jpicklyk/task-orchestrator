@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
+import io.github.jpicklyk.mcptask.current.domain.model.SkillMode
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import kotlinx.serialization.json.*
 
@@ -96,6 +97,8 @@ fun buildFullSchemaEntriesJson(
                 put("description", JsonPrimitive(entry.description))
                 entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
                 entry.skill?.let { put("skill", JsonPrimitive(it)) }
+                if (entry.skills.size >= 2) put("skills", JsonArray(entry.skills.map { JsonPrimitive(it) }))
+                if (entry.skillMode == SkillMode.METHOD_ON_DIFF) put("skillMode", JsonPrimitive(entry.skillMode.wire))
                 entry.maxLength?.let { put("maxLength", JsonPrimitive(it)) }
                 if (seatAware) {
                     put("seat", entry.seat?.let { JsonPrimitive(it) } ?: JsonNull)
@@ -105,6 +108,15 @@ fun buildFullSchemaEntriesJson(
                 }
                 if (entry.shared) {
                     put("shared", JsonPrimitive(true))
+                }
+                entry.lane?.let { lane ->
+                    put(
+                        "lane",
+                        buildJsonObject {
+                            put("output", JsonPrimitive(lane.output.wire))
+                            if (lane.after.isNotEmpty()) put("after", JsonArray(lane.after.map { JsonPrimitive(it) }))
+                        }
+                    )
                 }
             }
         }
@@ -198,9 +210,9 @@ fun buildResourcesJson(resources: List<ResourceRequirement>): JsonArray? {
 
 /**
  * Builds the `seats` JSON array for `items_read` `select=schema` and `select=context` item
- * mode: `[{name, phase, enters?, after?, readsExclude?, transitions?}]`, in [seats]' order (merged order for a
+ * mode: `[{name, phase, enters?, after?, readsExclude?, transitions?, rules?, skills?}]`, in [seats]' order (merged order for a
  * trait-merged schema). `enters` is included only when `true`; `after`/`readsExclude` only when
- * non-empty; `transitions` only when declared (an empty declared list is served as `[]`). Returns null — never an empty array — when [seats] is empty; callers omit the `seats`
+ * non-empty; `transitions`, `rules` and `skills` only when declared (an empty declared list is served as `[]`). Returns null — never an empty array — when [seats] is empty; callers omit the `seats`
  * key entirely in that case (same omit-when-empty contract as [buildDispatchByRoleJson]).
  */
 fun buildSeatsJson(seats: List<SeatDefinition>): JsonArray? {
@@ -216,6 +228,8 @@ fun buildSeatsJson(seats: List<SeatDefinition>): JsonArray? {
                     put("readsExclude", JsonArray(seat.readsExclude.map { JsonPrimitive(it) }))
                 }
                 seat.transitions?.let { declared -> put("transitions", JsonArray(declared.map { JsonPrimitive(it) })) }
+                seat.rules?.let { declared -> put("rules", JsonArray(declared.map { JsonPrimitive(it) })) }
+                seat.skills?.let { declared -> put("skills", JsonArray(declared.map { JsonPrimitive(it) })) }
             }
         }
     )
@@ -273,3 +287,12 @@ fun buildMissingBySeatJson(missingBySeat: Map<String, List<String>>?): JsonObjec
 
 /** Lowercase wire name of a [Role] (`queue`, `work`, ...), as every schema-entry JSON field spells it. */
 private fun Role.toJsonString(): String = name.lowercase()
+
+/**
+ * Adds the skill members of a [PhaseNoteContext] right after `skillPointer`: `skillPointers` only when the note names
+ * two or more skills, `skillMode` only when it is [SkillMode.METHOD_ON_DIFF]. A single-skill note serves unchanged.
+ */
+fun JsonObjectBuilder.putSkillExtras(phase: PhaseNoteContext) {
+    if (phase.skillPointers.size >= 2) put("skillPointers", JsonArray(phase.skillPointers.map { JsonPrimitive(it) }))
+    if (phase.skillMode == SkillMode.METHOD_ON_DIFF) put("skillMode", JsonPrimitive(SkillMode.METHOD_ON_DIFF.wire))
+}

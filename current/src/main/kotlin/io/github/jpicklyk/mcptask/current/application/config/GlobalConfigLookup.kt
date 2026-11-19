@@ -38,6 +38,9 @@ interface GlobalConfigLookup {
     /** Per-phase, per-seat dispatch override maps declared by trait [name] (empty when none or unknown). */
     fun traitDispatchBySeat(name: String): Map<Role, Map<String, SeatDispatchOverride>>
 
+    /** The `description` and `applies_when` text declared by trait [name], or null when it declares neither. */
+    fun traitDescriptor(name: String): TraitDescriptor? = null
+
     /** The top-level `resources:` registry. */
     fun resourceRegistry(): Map<String, ResourceDefinition>
 

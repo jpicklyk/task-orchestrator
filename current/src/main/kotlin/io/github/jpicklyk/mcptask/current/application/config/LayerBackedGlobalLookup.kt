@@ -40,6 +40,8 @@ class LayerBackedGlobalLookup(
     override fun traitDispatchBySeat(name: String): Map<Role, Map<String, SeatDispatchOverride>> =
         document.traitDispatchBySeat[name] ?: emptyMap()
 
+    override fun traitDescriptor(name: String): TraitDescriptor? = document.traitDescriptors[name]
+
     override fun resourceRegistry(): Map<String, ResourceDefinition> = document.resourceRegistry
 
     override fun noteLimitsMode(): String = document.noteLimitsMode ?: DEFAULT_NOTE_LIMITS_MODE

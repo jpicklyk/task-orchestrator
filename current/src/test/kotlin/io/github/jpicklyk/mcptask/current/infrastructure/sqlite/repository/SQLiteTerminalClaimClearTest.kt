@@ -24,10 +24,10 @@ import kotlin.test.assertNull
  * Bug `3785f37a`, S12 (integration, SQLite): the terminal claim-clear performed inside
  * [AdvanceService.advance] / AdvanceService's apply step
  * must actually survive the round trip through [io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository.update]
- * — a plain in-memory mock (as used by `AdvanceServiceTerminalClaimClearTest`) cannot prove that;
+ * — a plain in-memory mock cannot prove that;
  * only a real persisted `update()` + re-fetch can. Uses real SQLite-backed
  * repositories (SqliteTestDatabase) (not mocks), which is why this lives in the repository test package rather than
- * alongside the mocked `AdvanceService` unit tests.
+ * alongside the service-level tests.
  *
  * EXISTING-SURFACE: no new production signature; a narrowest revert of the
  * AdvanceService apply step's claim-clear change alone turns these tests red.
@@ -79,7 +79,7 @@ class SQLiteTerminalClaimClearTest {
             val item = createClaimedItem(claimedBy = "agent-persisted")
             // enforceOwnership = true's ownership pre-check requires an actorClaim matching
             // claimedBy for a live claim — ownership success is a precondition here, not what
-            // this scenario is proving (see AdvanceServiceTest's claimed-item ownership cases).
+            // this scenario is proving.
             val actor = ActorClaim(id = "agent-persisted", kind = ActorKind.SUBAGENT)
             val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
 
@@ -97,6 +97,28 @@ class SQLiteTerminalClaimClearTest {
             assertNull(persisted!!.claimedAt, "claimedAt must be null on the re-fetched row")
             assertNull(persisted!!.claimExpiresAt, "claimExpiresAt must be null on the re-fetched row")
             assertNull(persisted!!.originalClaimedAt, "originalClaimedAt must be null on the re-fetched row")
+        }
+
+    @Test
+    fun `non-terminal transitions of a claimed item keep all four claim columns`(): Unit =
+        runBlocking {
+            val item = createClaimedItem(claimedBy = "agent-keeper", role = Role.QUEUE)
+            val holder = ActorClaim(id = "agent-keeper", kind = ActorKind.SUBAGENT)
+            val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
+            val repo = repositoryProvider.workItemRepository()
+            val original = repo.getById(item.id)!!
+            assertNotNull(original.claimedBy)
+
+            for (trigger in listOf("start", "block", "resume")) {
+                val current = repo.getById(item.id)!!
+                assertIs<AdvanceOutcome.Success>(advanceService().advance(current, trigger, null, holder, verification), trigger)
+
+                val persisted = repo.getById(item.id)!!
+                assertEquals(original.claimedBy, persisted.claimedBy, "$trigger: claimedBy")
+                assertEquals(original.claimedAt, persisted.claimedAt, "$trigger: claimedAt")
+                assertEquals(original.claimExpiresAt, persisted.claimExpiresAt, "$trigger: claimExpiresAt")
+                assertEquals(original.originalClaimedAt, persisted.originalClaimedAt, "$trigger: originalClaimedAt")
+            }
         }
 
     /**

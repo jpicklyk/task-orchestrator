@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.application.service.BlockInput
 import io.github.jpicklyk.mcptask.current.application.service.CredentialRefValidation
 import io.github.jpicklyk.mcptask.current.application.service.buildDispatchProfileJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
+import io.github.jpicklyk.mcptask.current.application.service.putSkillExtras
 import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.support.toDomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
@@ -188,7 +189,9 @@ private suspend fun WriteScope.element(
         if (expectedKeys.isNotEmpty()) put("expectedNotes", JsonArray(expectedKeys.map { JsonPrimitive(it) }))
         phase?.guidanceKey?.let { put("guidanceKey", it) }
         phase?.skillPointer?.let { put("skillPointer", it) }
+        phase?.let { putSkillExtras(it) }
         dispatch?.let { put("dispatch", buildDispatchProfileJson(it)) }
+        ctx.seat?.takeIf { it.itemId == result.itemId }?.let { put("callerSeat", it.seat) }
         NoteSchemaJson.buildViolationsArrayNonEmpty(result.violations)?.let { put("violations", it) }
     }
 }

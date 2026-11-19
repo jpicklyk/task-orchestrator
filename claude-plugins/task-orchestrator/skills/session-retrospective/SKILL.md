@@ -100,7 +100,7 @@ For each item in scope (up to 20), list its notes by key. A list carries no bodi
 
 `session-tracking` holds per-item outcome, commits, verified line, deviations, friction and observations; `delegation-metadata` (optional) holds the orchestrator-recorded model and isolation (structured provenance line or legacy prose).
 
-**Session sweep.** With `--session-dir <dir>`, run `node "<helper>" session-meters --session-dir "<dir>"` (the helper resolved as in the run-wave SKILL.md, Step 0) and keep its JSON (`agents`, `main`, `byClass`, `lines`). It reports token volume by meter and model for every agent transcript of the session, not only the run's seats. Also read the run target parent's `red-proof-results` note for its `agent-meters=` lines. A missing folder or a failed sweep leaves the sweep unmeasured; say so in 5c and carry on.
+**Session sweep.** With `--session-dir <dir>`, run `node "<helper>" session-meters --session-dir "<dir>"` (the helper resolved as in the run-wave SKILL.md, Step 0) and keep its JSON (`agents`, `main`, `byClass`, `lines`). It reports token volume by meter and model for every agent transcript of the session, not only the run's seats. Also read the red-proof record the project's rules name on the wave parent, when one exists, for its `agent-meters=` lines. A missing folder or a failed sweep leaves the sweep unmeasured; say so in 5c and carry on.
 
 ### 1c. Early exit
 If no items are in scope, or no item has a `session-tracking` note, exit with: `No implementation run data found. Nothing to retrospect - finish an implementation run first, then try again.`

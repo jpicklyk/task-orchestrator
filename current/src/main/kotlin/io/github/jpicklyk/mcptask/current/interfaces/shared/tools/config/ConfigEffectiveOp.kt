@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.SchemaMatch
+import io.github.jpicklyk.mcptask.current.application.config.TraitDescriptor
 import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -11,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.SkillMode
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DispatchProfileDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.EffectiveConfigDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.EffectiveSchemaDto
@@ -61,7 +63,7 @@ internal val configEffectiveOp =
                 val traits =
                     layered.traitNames().mapNotNull { name ->
                         val notes = layered.traitNotes(name) ?: return@mapNotNull null
-                        traitDto(name, notes, layered.traitDispatch(name), layered.traitResources(name))
+                        traitDto(name, notes, layered.traitDispatch(name), layered.traitResources(name), layered.traitDescriptor(name))
                     }
                 val dto =
                     EffectiveConfigDto(
@@ -94,6 +96,8 @@ private fun NoteSchemaEntry.toDto(): NoteSchemaEntryDto =
         description = description,
         guidance = guidance,
         skill = skill,
+        skills = skills.takeIf { it.size >= 2 },
+        skillMode = skillMode.takeIf { it == SkillMode.METHOD_ON_DIFF }?.wire,
         maxLength = maxLength,
         shared = shared.takeIf { it }
     )
@@ -103,12 +107,13 @@ private fun DispatchProfile.toDto(): DispatchProfileDto = DispatchProfileDto(age
 private fun ResourceRequirement.toDto(): ResourceRequirementDto =
     ResourceRequirementDto(key = key, mode = mode.name.lowercase(), ttlSeconds = ttlSeconds)
 
-/** `dispatch` and `resources` are omitted (null), never empty, when the trait declares neither. */
+/** `dispatch`, `resources`, `description` and `appliesWhen` are omitted (null), never empty, when the trait declares none. */
 private fun traitDto(
     name: String,
     notes: List<NoteSchemaEntry>,
     dispatch: Map<Role, DispatchProfile>,
-    resources: List<ResourceRequirement>
+    resources: List<ResourceRequirement>,
+    descriptor: TraitDescriptor?
 ): TraitDto =
     TraitDto(
         name = name,
@@ -122,7 +127,9 @@ private fun traitDto(
                         profile.toDto()
                 }
             },
-        resources = if (resources.isEmpty()) null else resources.map { it.toDto() }
+        resources = if (resources.isEmpty()) null else resources.map { it.toDto() },
+        description = descriptor?.description,
+        appliesWhen = descriptor?.appliesWhen
     )
 
 private fun SchemaMatch.toDto(queriedType: String): EffectiveSchemaDto =

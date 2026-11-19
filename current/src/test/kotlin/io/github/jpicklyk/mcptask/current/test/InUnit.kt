@@ -1,10 +1,7 @@
 package io.github.jpicklyk.mcptask.current.test
 
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.service.UnscopedUnitOfWork
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
-import io.mockk.mockk
 
 /**
  * Test stand-in for the removed `WorkItemRepository.inTransaction`: runs [block] as ONE write unit. The unit
@@ -26,9 +23,3 @@ suspend fun UnitOfWork.inUnit(
         is Outcome.Err -> throw IllegalStateException(outcome.error.message)
     }
 }
-
-/**
- * A no-transaction [UnitOfWork] for tests whose stores are mocks (no database): blocks run directly, with the
- * hook contract honoured. Never use it over a real database; use `SqliteTestDatabase.unitOfWork()` there.
- */
-fun unscopedUnitOfWork(): UnitOfWork = UnscopedUnitOfWork(mockk<RepositoryProvider>(relaxed = true))

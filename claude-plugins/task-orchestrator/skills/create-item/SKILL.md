@@ -59,19 +59,15 @@ Process-global types such as `agent-observation` resolve from the server config 
 {"tool": "config", "op": "effective", "args": {"rootId": "9f3a1c22"}}
 ```
 
-`data.results[0].types` lists the declared type keys and `data.results[0].traits[].name` the declared traits (each trait is an object `{name, notes, dispatch?, resources?}`; `rootId` omitted reads the server config alone). `data.results[0].schemas[]` carries each type's `notes` and `defaultTraits`; keep them for Step 5. When types are declared, a create with any other type fails `schema_violation` and `data.results[i].error.detail.availableTypes` lists the valid ones; a blank type always fails. A type with a schema activates gates; one without is schema-free.
+`data.results[0].types` lists the declared type keys and `data.results[0].traits[].name` the declared traits (each trait is an object `{name, notes, dispatch?, resources?, description?, appliesWhen?}`; `rootId` omitted reads the server config alone). `data.results[0].schemas[]` carries each type's `notes` and `defaultTraits`; keep them for Step 5. When types are declared, a create with any other type fails `schema_violation` and `data.results[i].error.detail.availableTypes` lists the valid ones; a blank type always fails. A type with a schema activates gates; one without is schema-free.
 
 Match the context to a declared type (a bug to the bug type, a feature to the feature type, and so on). With no confident match use the `default` type when it is listed; otherwise ask via `AskUserQuestion` with the declared types as options. When the config declares no types at all, any non-blank type is accepted and the item is schema-free.
 
-Traits are an array: `"traits": ["needs-migration-review"]`. Assign only declared traits that fit the context:
+Traits are an array of declared trait names, for example `"traits": ["<declared-trait>"]`. Assign a declared trait when the context matches its `appliesWhen`, or when the user asks for it. A trait with no `appliesWhen` is never inferred. For conditions config cannot state, read rule `trait-selection` with `config` `rules` when the root serves it (`not_found` means there is none):
 
-| Context signal | Trait to consider (if declared) |
-|---|---|
-| Database migration, ALTER TABLE | `needs-migration-review` |
-| Tool parameter or response shape change | `needs-api-compat-review` |
-| Plugin skill or hook behaviour change | `needs-plugin-update` |
-| Auth, input validation, external data | `needs-security-review` |
-| Hot path, per-request work | `needs-perf-review` |
+```to-call
+{"tool": "config", "op": "rules", "args": {"rootId": "9f3a1c22", "key": "trait-selection"}}
+```
 
 A trait that carries an `exclusive` resource (the default mode; `advisory` is recorded only, never leased) makes the item take a lease on entering work; `advance transition start` can then fail `resource_unavailable` (transient). Mention it to the user; no action is needed here.
 

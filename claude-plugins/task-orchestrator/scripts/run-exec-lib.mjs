@@ -22,14 +22,14 @@ import { sumUsage, transcriptMeters } from './lib/meters.mjs'
 import { formatCoordinatorReport, REPORT_EVENTS } from './lib/coordinator-report.mjs'
 // The dispatch policy is the one file read outside io: reseat escalates a fix cycle's effort with it.
 import { escalate, ceilingReached, forClass, loadPolicy } from './lib/dispatch-policy.mjs'
-import { policyClassFor } from './run-planner-lib.mjs'
+import { policyClassFor, selectPostRunSteps } from './run-planner-lib.mjs'
 
 export const STATE_CONTRACT = 'run-wave/state-v1'
 
 /** Same behaviour-word list as implement-wave.js's scanDeclarations (kept in sync by hand). */
 export const SCAN_WORDS = ['returns', 'throws', 'falls back', 'catches', 'calls', 'if', 'when', 'otherwise', 'instead']
 
-export const REVIEW_RULES = ['protocol.in-phase-seat', 'review-scoping']
+export const REVIEW_RULES = ['protocol.read-only-agent', 'review-scoping']
 
 // ---------------------------------------------------------------------------------------
 // Path normalization (duplicated from implement-wave.js's normalizePath — verify(doc, result,
@@ -1802,8 +1802,17 @@ export function reviewPrompt(core, doc, idOrShort, result) {
 
   parts.push(
     `RULES: fetch each key below via config(ops:[{op:"rules", rootId:"${plan.rootId}", key:<key>}]) ` +
-    `and follow the returned body. Keys: ${REVIEW_RULES.join(', ')}.`
+    `and follow the returned body. Keys: ${[...new Set([...REVIEW_RULES, ...Object.values(item.reviewRules || {}).flat()])].join(', ')}.`
   )
+
+  const seatSkillUnion = []
+  for (const list of Object.values(item.reviewSeatSkills || {})) {
+    if (!Array.isArray(list)) continue
+    for (const k of list) if (typeof k === 'string' && k !== '' && !seatSkillUnion.includes(k)) seatSkillUnion.push(k)
+  }
+  if (seatSkillUnion.length > 0) {
+    parts.push(`SEAT SKILLS: invoke each skill below with the Skill tool, in this order, before your seat's first file edit or note write: ${seatSkillUnion.join(', ')}.`)
+  }
 
   const tokenFile = core.seatTokenFile(plan, item, { seat: 'reviewer' })
   if (tokenFile) {
@@ -1815,7 +1824,8 @@ export function reviewPrompt(core, doc, idOrShort, result) {
     )
     parts.push(
       'END SEAT: as your last task-orchestrator call, end the lane with your seat token: runs_write(ops:[{op:"end_seat", outcome, summary}]); ' +
-      'outcome "done" when your notes are filled, "failed" otherwise. Set seatEnded: true in the envelope when it succeeded.'
+      'outcome "done" when your notes are filled, "failed" otherwise. Set seatEnded: true in the envelope when it succeeded. ' +
+      'end_seat is the only runs_write call this seat makes; it never raises.'
     )
   }
 
@@ -2201,8 +2211,18 @@ export function reportFields(doc, opts = {}) {
 
 /**
  * reviewWaveArgs(core, doc, snapshot, result, shorts) -> review-wave/args-v1 over the given items.
- * Lanes are the item's review-role schema notes grouped by (seat or reviewer, skill): the lane id is
- * `<seat>.<skill>` when a note names a skill, else the seat alone (no framework is assumed). Throws 'invalid args: ...' for an unknown short or an item with no review notes.
+ * Lanes are the item's review-role schema notes grouped by (seat or reviewer, skills): the lane id is
+ * `<seat>.<skill>` when a note names one skill, `<seat>.<a>--<b>` for several (in order), else the seat alone (no
+ * framework is assumed). A note's skills are its `skills` array when non-empty, else its `skill` string. The stage
+ * carries `skillMode: 'method-on-diff'` only when the note says so; two notes in one lane that disagree throw.
+ * A note's declared `lane` (from the item's schema) gives the stage its output: 'findings-v1' iff
+ * `lane.output === 'findings'`, else 'review-v1'. `lane.after` keys name other review notes; the stage's `after` is
+ * the ids of the lanes holding them (deduped, first-seen order, set only when non-empty). Cycles are the workflow
+ * preflight's check, not this one.
+ * Throws 'invalid args: ...' for an unknown short, an item with no review notes, a lane that mixes skill modes or
+ * outputs, or an `after` key that names no lane of the item or the note's own lane.
+ * A note skill that the snapshot's `rulesServed` lists by key goes to the stage's `rules` (note rules first, then the
+ * seat's `reviewRules`, each once), not to `skills`; the lane id keeps every skill.
  */
 export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
   const { plan } = resolvePlan(core, doc)
@@ -2218,6 +2238,12 @@ export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
     items: [],
   }
   if (plan.serverRunId) out.serverRunId = plan.serverRunId
+  // Served rule keys: a note skill that names one is delivered to its lane as a rule, not a skill.
+  const served = new Set(
+    snapshot && Array.isArray(snapshot.rulesServed)
+      ? snapshot.rulesServed.filter((e) => e && typeof e === 'object' && typeof e.key === 'string').map((e) => e.key)
+      : []
+  )
   for (const raw of shorts) {
     const item = findItem(plan, raw)
     const schema = (snapshot && snapshot.schemas && snapshot.schemas[item.id]) || {}
@@ -2231,10 +2257,37 @@ export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
     const groups = new Map()
     for (const n of reviewNotes) {
       const seat = n.seat || n.reviewer || 'reviewer'
-      const skill = typeof n.skill === 'string' && n.skill ? n.skill : ''
-      const key = skill ? `${seat}.${skill}` : seat
-      if (!groups.has(key)) groups.set(key, { seat, skill, notes: [] })
-      groups.get(key).notes.push(n.key)
+      const skills =
+        Array.isArray(n.skills) && n.skills.length > 0
+          ? n.skills.filter((s) => typeof s === 'string' && s)
+          : typeof n.skill === 'string' && n.skill
+            ? [n.skill]
+            : []
+      const mode = n.skillMode === 'method-on-diff' ? 'method-on-diff' : 'invoke'
+      const key = skills.length > 0 ? `${seat}.${skills.join('--')}` : seat
+      const output = n.lane && n.lane.output === 'findings' ? 'findings-v1' : 'review-v1'
+      if (!groups.has(key)) groups.set(key, { seat, skills, mode, output, notes: [] })
+      const group = groups.get(key)
+      if (group.mode !== mode) throw new Error(`invalid args: ${item.short} lane ${key} mixes skill modes`)
+      if (group.output !== output) throw new Error(`invalid args: ${item.short} lane ${key} mixes lane outputs`)
+      group.notes.push(n.key)
+    }
+    const laneOfNote = new Map()
+    for (const [lane, g] of groups) for (const k of g.notes) laneOfNote.set(k, lane)
+    for (const [lane, g] of groups) {
+      g.after = []
+      for (const n of reviewNotes) {
+        if (laneOfNote.get(n.key) !== lane) continue
+        const named = n.lane && Array.isArray(n.lane.after) ? n.lane.after : []
+        for (const x of named) {
+          const target = laneOfNote.get(x)
+          if (target === undefined) {
+            throw new Error(`invalid args: ${item.short} note ${n.key} is after ${x}, which is in no lane`)
+          }
+          if (target === lane) throw new Error(`invalid args: ${item.short} lane ${lane} is after itself`)
+          if (!g.after.includes(target)) g.after.push(target)
+        }
+      }
     }
     const stages = []
     for (const [lane, g] of groups) {
@@ -2249,9 +2302,18 @@ export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
         writes: false,
         protocol: 'protocol.read-only-agent',
         dispatch,
-        output: 'review-v1',
+        output: g.output,
       }
-      if (g.skill) stage.skills = [g.skill]
+      if (g.after.length > 0) stage.after = g.after.slice()
+      const noteRules = g.skills.filter((s) => served.has(s))
+      const laneSkills = g.skills.filter((s) => !served.has(s))
+      if (laneSkills.length > 0) stage.skills = laneSkills
+      if (g.mode === 'method-on-diff') stage.skillMode = 'method-on-diff'
+      const seatRules = item.reviewRules && item.reviewRules[g.seat]
+      const laneRules = [...new Set([...noteRules, ...(Array.isArray(seatRules) ? seatRules : [])])]
+      if (laneRules.length > 0) stage.rules = laneRules
+      const laneSeatSkills = item.reviewSeatSkills && item.reviewSeatSkills[g.seat]
+      if (Array.isArray(laneSeatSkills) && laneSeatSkills.length > 0) stage.seatSkills = laneSeatSkills.slice()
       const tokenFile = core.seatTokenFile(plan, item, { seat: g.seat })
       if (tokenFile) stage.tokenFile = tokenFile
       stages.push(stage)
@@ -3167,7 +3229,35 @@ function execReviewArgs(argv, io) {
   io.exit(0)
 }
 
+function execPostRunSteps(argv, io) {
+  const planPath = flagValue(argv, '--plan')
+  const when = flagValue(argv, '--when')
+  const filesPath = flagValue(argv, '--files-from')
+  if (!planPath || !when || !filesPath) {
+    io.fail(2, 'invalid args', 'post-run-steps: --plan, --when and --files-from are required')
+    return
+  }
+  if (when !== 'post-run' && when !== 'post-merge') {
+    io.fail(2, 'invalid args', `post-run-steps: --when ${when} must be post-run or post-merge`)
+    return
+  }
+  const doc = io.readInput(planPath)
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
+    io.fail(2, 'invalid args', `--plan ${planPath} could not be read or parsed as a plan`)
+    return
+  }
+  const text = io.readText(filesPath)
+  if (text == null) {
+    io.fail(2, 'invalid args', `--files-from ${filesPath} could not be read`)
+    return
+  }
+  const files = String(text).split('\n').map((l) => l.replace(/\r$/, '').trim()).filter((l) => l !== '')
+  io.writeOut(JSON.stringify(selectPostRunSteps(doc, when, files)))
+  io.exit(0)
+}
+
 export const EXEC_COMMANDS = {
+  'post-run-steps': execPostRunSteps,
   report: execReport,
   'review-args': execReviewArgs,
   next: execNext,

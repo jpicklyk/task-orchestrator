@@ -48,9 +48,9 @@ before relying on it — `gh pr view <n> --json state,mergeCommit` plus `git log
 and confirm the working tree is current ("Base freshness" below) before any pass
 that checks whether a change is present in the codebase.
 
-**Execution tier** — classify by this table (canonical source shared with the `task-orchestrator:orchestrate` skill; edit the fragment, not this copy):
+**Execution tier** — classify by this table (canonical source shared with the `task-orchestrator:orchestrate` skill; rendered from the `tiers` in `dispatch-policy.json` by `_fragments/generate.mjs`, never hand-edited):
 
-<!-- BEGIN GENERATED:tier-classification | source: claude-plugins/task-orchestrator/_fragments/tier-classification.md · regen: node claude-plugins/task-orchestrator/_fragments/generate.mjs -->
+<!-- BEGIN GENERATED:tier-classification | source: claude-plugins/task-orchestrator/dispatch-policy.json (tiers) · regen: node claude-plugins/task-orchestrator/_fragments/generate.mjs -->
 | Criteria | Tier | Pipeline |
 |----------|------|----------|
 | 1-2 files, known fix, no migration/new API | **Direct** | Orchestrator edits, tests, reviews inline |
@@ -58,14 +58,16 @@ that checks whether a change is present in the codebase.
 | 11+ files, multiple independent work streams, dependency edges | **Parallel** | Worktree agents, full pipeline |
 
 **Force-UP signals** (bump tier regardless of file count):
-- Database migration → min Delegated
-- New public API surface → min Delegated
-- Multiple independent work streams → Parallel
-- User says "let's plan" / collaborative language → min Delegated
+- Database migration -> min Delegated
+- New public API surface -> min Delegated
+- Multiple independent work streams -> Parallel
+- User says "let's plan" / collaborative language -> min Delegated
 
 **Force-DOWN signals:**
-- User says "just fix it" / "quick" → Direct (unless complexity contradicts)
+- User says "just fix it" / "quick" -> Direct (unless complexity contradicts)
 - The item's type resolves to the `default` schema, or the item is schema-free -> eligible for Direct
+
+Thresholds and signals are data: `tiers` in the plugin's `dispatch-policy.json`. When `.taskorchestrator/tier-policy.json` exists beside the project config, the table in force is the output of `node <plugin root>/scripts/tier-policy.mjs`.
 <!-- END GENERATED:tier-classification -->
 
 Delegated with ≥2 ready items, or Parallel → run `/task-orchestrator:run-wave` (the Route table's
@@ -209,11 +211,20 @@ body's Docs line; (b) require `CHANGELOG.md` in that output unless the body stat
 `Changelog: none (<why>)`. Recompute both lines after any merge round (a base merge or
 update-branch), before merge.
 
+**Merge method** (`<method>` below). `--squash` for a PR with its own item (Direct, Delegated, a
+per-item wave item). `--merge` for a shared-mode feature PR (`wave.md` Shared mode) when every
+subject from `git log --format=%s <base>..HEAD` is a conventional commit ending in an 8-hex item
+tag (`[<item-short>]`); a fix seat's commit counts when it is written that way. Any other subject
+(wip, untagged, a bare "address review") makes it `--squash`. Never rewrite the branch to clean it:
+notes and run files record its SHAs (dispatch pre/post SHAs, repair SHAs, `fixed <sha>`
+dispositions), and a rebase orphans them. The repo titles both merge and squash commits with the
+PR title, so the PR title is the conventional-commit subject that lands on `main`.
+
 **The gate**, once the PR is open:
-- Wait on `gh pr checks <n> --watch --fail-fast` and squash-merge only when every check is
+- Wait on `gh pr checks <n> --watch --fail-fast` and merge only when every check is
   green. Never merge with a check pending. If auto-merge is armed, GitHub enforces "all green"
   only for REQUIRED checks, so this gate still applies to the rest.
-- **Review-first arming.** Arm auto-merge (`gh pr merge <n> --squash --auto`), or merge, only
+- **Review-first arming.** Arm auto-merge (`gh pr merge <n> <method> --auto`), or merge, only
   after the item's review verdict is recorded with 0 blocking, and only once every observation
   the orchestrator chose to act on is committed on the branch. A PR opened before review (for
   early CI) is opened without auto-merge. If auto-merge is already armed when a review starts,
@@ -227,7 +238,7 @@ update-branch), before merge.
   the branch.
 - Fallback merge: if `gh pr view <n> --json mergeStateStatus,autoMergeRequest` shows `CLEAN`
   with no `autoMergeRequest`, or an armed auto-merge has not merged within 10 minutes of the
-  last green check, run `gh pr merge <n> --squash`. Never directly merge a PR that is not
+  last green check, run `gh pr merge <n> <method>`. Never directly merge a PR that is not
   `CLEAN` or has pending checks.
 - Confirm `gh pr view <n> --json state` reports `MERGED` before any worktree or branch
   cleanup. Then `git checkout main`, `git pull origin main`, and delete the branch (and remove
@@ -236,19 +247,21 @@ update-branch), before merge.
 - **Final `complete`.** An item with its own PR (Direct, Delegated, a per-item wave item, a
   shared-mode parent) completes only after the `MERGED` check above. The closure notes are not
   rewritten to record the merge; the merged PR is the record. Two post-merge writes still happen:
-  the live acceptance line (`post-run.md` Step 7b (d)) and the wave parent's
-  `red-proof-results` note (the item itself when it is a single item) (`post-run.md` Step 7a). Exceptions: a shared-mode child (`wave.md` Step 6) and
+  the steps this repo's `run-profile.json` `postRun` declares with `when` `post-merge`: the live acceptance
+  line (rule `live-checks` "Post-merge holder", step (d)) and the wave parent's `red-proof-results` note
+  (the item itself when it is a single item; rule `red-proofs`), per `post-run.md` Step 7a. Exceptions: a shared-mode child (`wave.md` Step 6) and
   a review-less run member (`post-run.md` Step 4).
 
 ### After merge
 
 **Post-merge live acceptance.** Split off live checks that need a refreshed plugin cache or a user
-opt-in as run-wave `references/post-run.md` Step 7b and rule `live-checks` "Post-merge holder" say,
-BEFORE completing the item or feature. For an item that is not a feature, put the item in the
+opt-in as the `live-acceptance` step (rule `live-checks` "Post-merge holder", steps (a)-(e)) and run-wave
+`references/post-run.md` Step 7b say, BEFORE completing the item or feature. For an item that is not a feature, put the item in the
 feature's place and its parent as the holder's parent.
 
-**Wave-boundary red-proofs** (background; they gate nothing) run per rule `test-author` section 5
-(points 7, 9, 10) and run-wave `references/post-run.md` Step 7a items 1-7. Beyond those:
+**Wave-boundary red-proofs** (the `red-proofs` post-merge step; background, they gate nothing) run per rule
+`red-proofs` (which points at rule `test-author` section 5, points 7, 9, 10) and run-wave
+`references/post-run.md` Step 7a. Beyond those:
 - A single item is its own wave parent.
 - Apply each mutation with `references/patch-anchored.py`, `DRY=1` first.
 - Mutations on node tests under `claude-plugins/` run in an extraction made by

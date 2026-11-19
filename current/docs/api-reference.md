@@ -480,7 +480,7 @@ when given (one fixed order: per-root type, global type, per-root `default`, glo
 config). The `itemId` path resolves the item's fully trait-merged schema over its own `rootId` (a pinned item over
 its pinned config versions and base schema, so `configFingerprint` is the pinned layer's). The view is
 `{type, configFingerprint, configSource, schemaVersion?, stale?, notes: [{key, role, required, description,
-guidance?, skill?, maxLength?, seat?, independentOf?, shared?}], dispatch?, resources?, seats?, dispatchBySeat?, features}`;
+guidance?, skill?, skills?, skillMode?, maxLength?, seat?, independentOf?, shared?, lane?}], dispatch?, resources?, seats?, dispatchBySeat?, features}`;
 `schemaVersion` and `stale` are the item's pin view as in the full item view (item path only). Seats,
 dispatch and the type-path vs item-path difference are described in
 [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seats-trait--schema-dimension).
@@ -488,10 +488,11 @@ No matching schema is not an error: the answer is `{schemaFree: true}`. Giving b
 and `itemId`, or `rootId` without `type`, is `invalid_request`.
 
 **Server feature advertisement.** `features` lists the optional-response capabilities this server can serve
-(`seats`, `dispatchBySeat`, `independent_of`, `rules`), unconditionally, whatever the resolved config
+(`seats`, `dispatchBySeat`, `independent_of`, `rules`, `seatSkills`), unconditionally, whatever the resolved config
 declares, so a client can tell an old server from a config that declares no seats. `features` also appears
 on REST `GET /api/v1/info` and the `.well-known` service descriptor (see `api-rest.md`). `rules` advertises
-per-root rule text served by the [`config`](#config) tool's `rules` op.
+per-root rule text served by the [`config`](#config) tool's `rules` op. `seatSkills` advertises a seat's `skills` list in
+the served `seats` and the `callerSeat` member of `context` and `transition`.
 
 **`search`.** Ranked full-text hits through the shared search service. `kinds` picks the content: `item`
 (title, summary, description), `note` (bodies) and/or `document` (title and body of plan, rule and page
@@ -612,7 +613,9 @@ omitted from `blockers` while its item stays listed.
   only, flat `{<seat>: {agent?, model?, effort?}}`) follow the seat rules of
   [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seats-trait--schema-dimension);
   `dispatch` is the `{agent?, model?, effort?}` profile of the current role of the item. All are omitted for a
-  seat-less or terminal item, never `[]`/`{}`.
+  seat-less or terminal item, never `[]`/`{}`. A seat serves `rules` and `skills` only when it declares them.
+- `callerSeat` is the name of the seat the call's seat token holds, present only when the token's item is this item
+  (omitted without a token, for the run's coordinator token and for a token of another item).
 - `gateStatus.violations` (`[{key, seat?, constraint, conflictingSeat?, waived?}]`, actor-free) reports the
   independence-attestation findings of the current phase: present (possibly `[]`) when independence `mode` is not
   `off` and the schema declares `independent_of`, omitted otherwise
@@ -634,7 +637,7 @@ claimSummary: {active, expired, unclaimed}}` over the whole scope or, with `ance
 together. `blocked` is the same set as the `blocked` select (role `blocked`, or open with an unsatisfied
 dependency; each entry has `blockType`, no blocker detail); the 3.x health check counted role `blocked` only. `stalled` holds the active items on the page whose
 resolved schema has unfilled required notes for their role: `{id, title, role, missing[], guidanceKey?,
-skillPointer?}`. `fields: ["ancestors"]` adds ancestors to `active` and `blocked` entries. The 3.x session-resume
+skillPointer?, skillPointers?, skillMode?}`. `fields: ["ancestors"]` adds ancestors to `active` and `blocked` entries. The 3.x session-resume
 mode (`since`, `recentTransitions`) has no form here: `history` serves the transition trail.
 
 **`next`.** The items an agent could pick up now, ranked, with eligibility decided in SQL over the whole matching set
@@ -1237,7 +1240,7 @@ key with another payload is `idempotency_mismatch`. All ops need the `advance` c
 
 | Op | Result element (on top of `ok: true`) |
 |---|---|
-| `transition` | `{itemId, previousRole, newRole, trigger, statusLabel?, cascades?, unblocked?, expectedNotes?, guidanceKey?, skillPointer?, dispatch?, violations?}` |
+| `transition` | `{itemId, previousRole, newRole, trigger, statusLabel?, cascades?, unblocked?, expectedNotes?, guidanceKey?, skillPointer?, skillPointers?, skillMode?, dispatch?, callerSeat?, violations?}` |
 | `claim` | `{itemId, claimed: true, version, claimedAt, expiresAt, originalClaimedAt, released?, refreshed?, selected?, claimRef?, displaced?}` |
 | `release` | `{itemId, released: true}` |
 | `heartbeat` | `{itemId, claimed: true, version, claimedAt, expiresAt, originalClaimedAt, released?, refreshed: true}` |
@@ -1250,7 +1253,8 @@ blocked?: ownership | seat | gate | resource | role | dependency, missing?: [{ke
 `unblocked` is `[{itemId, title}]`. Under a root- or tag-scoped token, a `cascades` or `unblocked` entry for an item the scope
 does not admit is `{itemId}` only (the same rule applies to `complete_tree` items and to `items_write` `cascade` entries).
 `expectedNotes` is the list of note keys the new phase expects; `guidanceKey` and
-`skillPointer` name the first missing required note's guidance and skill. `dispatch` is `{agent?, model?, effort?}` for the
+`skillPointer` name the first missing required note's guidance and (first) skill; `skillPointers` lists its skills when it
+names two or more and `skillMode` is `method-on-diff` when the note applies the skill's method to the owned-file diff. `dispatch` is `{agent?, model?, effort?}` for the
 phase just entered. `violations` is `[{key, seat?, constraint, conflictingSeat?, waived?}]`, present only when the list is
 non-empty. Empty and null members are omitted.
 
@@ -1433,7 +1437,7 @@ caller's scope is `forbidden`, never `not_found`.
 | `get` | `{rootId, version, fingerprint, source, createdAt, configYaml, relation?}` |
 | `history` | `{rootId, headVersion?, versions: [{version, fingerprint, source, createdAt, principalId?, warningsCount, canonical}]}` newest first |
 | `push` | `{rootId, version, fingerprint, appended, createdAt, warnings?}` |
-| `validate` | `{rootId, valid, errors: [{path, reason}], warnings: [{path, reason}], diff?, affectedInFlight?}` |
+| `validate` | `{rootId, valid, errors: [{path, reason}], warnings: [{path, reason}], lint: [{path, reason}], diff?, affectedInFlight?}` |
 | `rollback` | `{rootId, version, fingerprint, source, appended, createdAt}` |
 | `reset` | `{rootId, appended}` |
 | `effective` | `{rootId?, schemas, traits, types, statusGraph, defaultSchema?, globalFingerprint?, perRootFingerprint?}` |
@@ -1466,7 +1470,9 @@ head (`effective` after `push` reads the new layer).
 
 **`validate`** runs the same size, parse, `rootId` and validation steps as `push` without writing, without
 `expectedVersion` and without the older-content guard. Problems come back in the result (`valid: false`, `errors`),
-including a parse failure and a `project.rootId` mismatch; an oversized document stays `payload_too_large`. When the
+including a parse failure and a `project.rootId` mismatch; an oversized document stays `payload_too_large`. `lint` is
+always present: warning-only `{path, reason}` schema quality findings, `[]` unless the document is valid, never part of
+`errors` or `warnings`, and never stored by `push`. When the
 document has no errors, `diff` is the change against the head, `{types, traits, settings}` each with `added`,
 `removed` and `changed` name lists (no head, or a reset head, counts as empty). A valid document also gets
 `affectedInFlight: {count, sample}`: the non-terminal items (queue, work, review, blocked, and lifecycle-free) in the root's subtree, visible
@@ -1487,8 +1493,8 @@ status graph is structural: it shows which triggers are valid per role, not whet
 **`rules`** reads git-tracked rule text (`rule` documents, `kind` `rule` and slug `<key>`, written by [`docs_write`](#docs_write)). The mode
 follows the fields: `rootId` alone lists keys (never bodies); `rootId` with `key` returns one rule's body and its
 `rulesVersion` (the document's content hash), byte for byte; `itemId` with `noteKey` resolves the item's effective
-schema, looks up the note entry and follows its `skill` field as the rule key under the item's root (a depth-0 item
-is its own root), echoing `resolvedFrom: {itemId, noteKey, skill}`. Any other combination is `invalid_request`
+schema, looks up the note entry and follows its first skill as the rule key under the item's root (a depth-0 item
+is its own root), echoing `resolvedFrom: {itemId, noteKey, skill, skills?}` (`skills` only when the note names two or more). Any other combination is `invalid_request`
 naming the offending field. `key` is `^[a-z0-9][a-z0-9._-]{0,99}$`; a `noteKey` with no entry, no `skill`, or a
 skill that is not a valid key is `invalid_request` at `/noteKey`. An absent rule is `not_found` kind `document` with
 id `rule/<key>`. Documents whose key fails the grammar are never listed or served; `pending` and `adopted` rules are
@@ -1647,7 +1653,7 @@ Errors: `ambiguous_id`, `config_invalid`, `forbidden`, `idempotency_mismatch`, `
 | `rootId` | string | no | Project root item (depth 0): a UUID or a hex prefix of 8 to 32 characters. |
 | `key` | string | no | Rule key: lowercase letters, digits, dot, underscore or hyphen, starting alphanumeric, at most 100 characters. |
 | `itemId` | string | no | Item whose effective schema holds noteKey: a UUID or a hex prefix of 8 to 32 characters. A root item is its own root. |
-| `noteKey` | string | no | Note key looked up in itemId's effective schema; its skill field names the rule key. |
+| `noteKey` | string | no | Note key looked up in itemId's effective schema; its first skill names the rule key. |
 
 Errors: `ambiguous_id`, `config_invalid`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
 <!-- /generated:tool config -->

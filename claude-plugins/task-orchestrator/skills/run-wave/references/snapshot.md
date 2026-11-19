@@ -14,7 +14,7 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
  candidates:[{id, short, title, priority, complexity?, type, role, parentId, traits[], hasChildren, source:"ready"|"work"}],
  blocked:[{itemId, role, blockType, blockedBy:[{itemId, role, effectiveUnblockRole, satisfied}]}],
  schemas:{<itemId>: {status:"ok"|"not-found"|"unavailable", type, configFingerprint, configSource,
-          notes:[{key, role, required, seat?, skill?, maxLength?}], seats?, dispatch?, dispatchBySeat?, resources?}},
+          notes:[{key, role, required, seat?, skill?, skills?, skillMode?, lane?, maxLength?}], seats?, dispatch?, dispatchBySeat?, resources?}},
  scopes?:{<itemId>: {files:[string], dependsOn?:[string]}},        // only candidates joined to a same-parent candidate by an unsatisfied dependency edge
  carryIns?:{<itemId>: {keys:[string], dispositions:string|null}},  // only candidates with >=1 carry-in-* note
  noteOwners:{<itemId>: [{key, seat}]},                 // only for role=work candidates (S4 resume)
@@ -43,7 +43,11 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
   seat prompt's TOOLS line (absent means `mcp-task-orchestrator`). `plan` copies `allow` into
   `meta.allow`; the `planned` report names its false members on the `needs:` line. `serverCompat` is checked in Step 0 F2 (non-null stops the run);
   `probe --no-server-check` skips that network check and `--api-url <url>` overrides the resolved URL.
+- `schemas[].seats[].skills` - optional, copy each seat's `skills` array verbatim from the `items_read` `schema` answer with the rest of `seats`. `plan` turns it into `seatSkills` on the seat's stage (and `reviewSeatSkills` on the plan item for review lanes) and honours it only when `features` lists `seatSkills`; otherwise, and when the seat declares none, the defaults table `hooks/lib/seat-skill-defaults.json` applies (`[]` declared means none). Both workflows' prompts then carry one SEAT SKILLS line. Resolver: `hooks/lib/seat-skills.mjs`.
 - `schemas[].notes[].maxLength` - optional, copied from the note's `maxLength` in the `items_read` `schema` answer when that is an integer of 1 or more, and left out otherwise. `plan` turns it into `noteLimits` on the stage that owns the note, and `reseat` then gives a fix seat a limit sentence for each note key its FIX CYCLE line names that the stage limits. Without it the plan carries no `noteLimits` and a fix seat gets no limit sentence.
+- `schemas[].seats[].rules` - copy each seat's `rules` array verbatim from the `items_read` `schema` answer with the rest of `seats`. Without it `run-planner-lib.mjs` (`seatRulesFor`, `reviewRulesOf`) silently falls back to the default rules for that seat.
+- `schemas[].notes[].skills` and `schemas[].notes[].skillMode` - optional, copied from the note's `skills` array and `skillMode` in the `items_read` `schema` answer when present (the server emits `skills` only for two or more skills and `skillMode` only as `method-on-diff`), and left out otherwise. `review-wave` args turn them into a lane id `<seat>.<skill>--<skill>` and a stage `skillMode`; without them a multi-skill note gets its first skill only and a `method-on-diff` note loses its diff filter.
+- `schemas[].notes[].lane` - optional `{output, after?}`, copied from the note's `lane` in the `items_read` `schema` answer when declared (review-role notes only), and left out otherwise. `review-wave` args turn it into the lane's stage `output` (`findings-v1` for `findings`, else `review-v1`) and `after` (the ids of the lanes holding the named note keys); without it every lane is a verdict lane and unordered.
 - `profile.verify[].appliesTo` — optional, a non-empty array of repo-relative glob patterns (same
   segment-glob matching as `appendOnlyFiles`, case-insensitive). `promptVerify` renders the entry only when
   some planned file (planner `mainFiles`, `docFiles`, `testFiles`, `existingTestEdits[].file`) matches;
@@ -51,6 +55,16 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
 - `profile.knownRed` — optional array of `{test, reason, expires?, tracking?}` (`expires` as `YYYY-MM-DD`, or
   `tracking`, required). `plan` copies live entries into `args.project.knownRed` and drops one whose
   `expires` is before the plan date with a warning `knownRed <test> expired <date>`.
+- `profile.postRun` - optional array of `{step, when, rule, command?, appliesTo?}`: the project's declared
+  post-run and post-merge steps. `step` and `rule` are rule keys (lowercase letters, digits, dot, underscore,
+  hyphen; start alphanumeric; 1-100 characters), `when` is `post-run` or `post-merge`, `command` a non-empty
+  string, `appliesTo` the same pattern list as `profile.verify[].appliesTo`; unknown entry keys are ignored.
+  `plan` copies the entries in order to `meta.postRun` (`[]` when absent); `post-run-steps` selects them.
+- `profile.review` - optional: `"handoff"`, `"generic"` or `{mode, skill?, step?, onFail?}` (`mode` handoff or
+  generic; `skill` required for handoff; `onFail` `stop` or `fix-cycle`, default `fix-cycle`; unknown keys
+  ignored). `plan` copies the normalized value to `meta.review`: absent or `"generic"` is
+  `{mode:"generic", onFail:"fix-cycle"}`, `"handoff"` is `{mode:"handoff", onFail:"fix-cycle"}`, an object keeps
+  its `mode` and `onFail` plus `skill` and `step` for handoff only. A profile without either key plans as before.
 - `profile.runBudget` — optional `{attemptsPerSeat?, maxActiveSeats?}`: when set,
   `plan` copies it to `meta.runBudget` and `run-ops --phase open` sends it as the run's `budget`
   (absent means no cap; the server refuses a budget above its configured ceiling). `plan` also copies
@@ -99,6 +113,19 @@ Structural checks beyond the ones already documented in the helper's own doc com
   absolute, contains a `..` segment, is empty (`.`, `./`), or has only `*`/`**` segments.
 - `profile.verify[<i>].appliesTo must be an array of repo-relative patterns` - the key is present but is
   empty, not an array of non-empty strings, or holds an absolute, drive-letter or `..` pattern.
+- `profile.postRun must be an array` - present and not an array (including `null`).
+- `profile.postRun[<i>] must have step, when (post-run or post-merge) and rule` - the entry is not an object,
+  or `step` or `rule` is absent or not a rule key, or `when` is absent or not in the enum.
+- `profile.postRun[<i>].command must be a non-empty string` - `command` is present and is not.
+- `profile.postRun[<i>].appliesTo must be an array of repo-relative patterns` - the same predicate as
+  `profile.verify[<i>].appliesTo`.
+- `profile.postRun[<i>].step "<step>" repeats an earlier step` - an equal `step` at a later index.
+- `profile.review must be "handoff", "generic" or an object` - any other string, number, boolean, `null` or array.
+- `profile.review.mode must be handoff or generic` - the object's `mode` is absent or another value.
+- `profile.review.skill must be a non-empty string` - `mode` handoff with no `skill`, or a `skill` that is not
+  a non-empty string.
+- `profile.review.step must be a non-empty string` - `step` is present and is not.
+- `profile.review.onFail must be stop or fix-cycle` - `onFail` is present and is neither.
 - `profile.knownRed must be an array` - the key is present but is not an array (including `null`).
 - `profile.knownRed[<i>] must have test, reason and expires (YYYY-MM-DD) or tracking` - one per entry that
   lacks a non-empty `test` or `reason`, or has neither a valid `expires` date nor a `tracking` reference.

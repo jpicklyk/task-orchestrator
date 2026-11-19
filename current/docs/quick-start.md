@@ -129,7 +129,7 @@ Skills are invoked as slash commands in any Claude Code session:
 | `/task-orchestrator:quick-start` | Interactive onboarding — teaches by doing, adapts to empty or populated workspaces |
 | `/task-orchestrator:init` | Set up a project root and config for this directory, or `--user` for a personal root |
 | `/task-orchestrator:configure-server` | Configure server transport, REST API mode, port publishing, config mount, and config-sync |
-| `/task-orchestrator:manage-schemas` | Create, view, edit, delete, and validate note schemas in config |
+| `/task-orchestrator:manage-schemas` | Create, view, edit, delete, validate, and audit note schemas in config |
 | `/task-orchestrator:status-progression` | Navigate role transitions; shows current gate status and the correct trigger |
 | `/task-orchestrator:dependency-manager` | Visualize, create, and diagnose dependencies between work items |
 | `/task-orchestrator:batch-complete` | Complete or cancel multiple items at once — close out features or workstreams |
@@ -397,7 +397,7 @@ work_item_schemas:
 
 Items whose `type` is `task-implementation` will require an `acceptance-criteria` note before an `advance` `transition` with `trigger: "start"` advances them to work, and a `done-criteria` note before one with `trigger: "complete"` closes them. Tags never select a schema.
 
-The interactive way to build schemas is the `/task-orchestrator:manage-schemas` skill — it walks you through creating, viewing, editing, and validating schemas without editing YAML directly.
+The interactive way to build schemas is the `/task-orchestrator:manage-schemas` skill — it walks you through creating, viewing, editing, validating, and auditing schemas without editing YAML directly.
 
 After adding or editing this file, reconnect the MCP server:
 

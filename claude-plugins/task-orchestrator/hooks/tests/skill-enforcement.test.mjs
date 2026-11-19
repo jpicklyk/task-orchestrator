@@ -92,7 +92,7 @@ async function startStub({ effective = effectiveReply(effectiveData(UNION_NOTES)
       requests.push({ method: req.method, url: req.url, body });
       let reply;
       if (req.method === 'POST' && req.url === '/api/v1/ops/config' && Array.isArray(body.ops) && body.ops[0]?.op === 'effective') {
-        const n = requests.filter((r) => r.url === '/api/v1/ops/config').length;
+        const n = requests.filter((r) => r.url === '/api/v1/ops/config' && r.body?.ops?.[0]?.op === 'effective').length;
         reply = typeof effective === 'function' ? effective(n) : effective;
       } else if (req.method === 'POST' && req.url === '/api/v1/ops/items_read' && body.select === 'schema') {
         reply = views[body.itemId] ?? errEnvelope(404, 'not_found');
@@ -106,7 +106,7 @@ async function startStub({ effective = effectiveReply(effectiveData(UNION_NOTES)
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   server.requests = requests;
   server.origin = `http://127.0.0.1:${server.address().port}`;
-  server.effectiveRequests = () => requests.filter((r) => r.url === '/api/v1/ops/config');
+  server.effectiveRequests = () => requests.filter((r) => r.url === '/api/v1/ops/config' && r.body?.ops?.[0]?.op === 'effective');
   server.schemaRequests = () => requests.filter((r) => r.url === '/api/v1/ops/items_read');
   return server;
 }

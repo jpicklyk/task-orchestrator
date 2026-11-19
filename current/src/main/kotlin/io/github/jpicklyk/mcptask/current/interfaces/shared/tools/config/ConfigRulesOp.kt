@@ -23,6 +23,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.serializer
@@ -36,7 +37,7 @@ data class ConfigRulesRequest(
     val key: String? = null,
     @Doc("Item whose effective schema holds noteKey: a UUID or a hex prefix of 8 to 32 characters. A root item is its own root.")
     val itemId: IdRef? = null,
-    @Doc("Note key looked up in itemId's effective schema; its skill field names the rule key.")
+    @Doc("Note key looked up in itemId's effective schema; its first skill names the rule key.")
     val noteKey: String? = null
 )
 
@@ -158,12 +159,12 @@ private suspend fun pointerGet(
     val item = env.workItemRepository().getById(itemId) ?: return Outcome.Err(ConfigSupport.notFound(EntityKind.ITEM, itemId.toString()))
     val rootId: UUID =
         if (item.depth == 0) item.id else item.rootId ?: return Outcome.Err(invalidField("/itemId", "has no resolvable root"))
-    val skill =
+    val entry =
         env
             .resolveSchema(item)
             ?.notes
             ?.firstOrNull { it.key == noteKey }
-            ?.skill
+    val skill = entry?.skill
     if (skill == null) {
         return Outcome.Err(invalidField("/noteKey", "has no entry with a skill pointer in the item's effective schema", noteKey))
     }
@@ -175,6 +176,7 @@ private suspend fun pointerGet(
             put("itemId", itemId.toString())
             put("noteKey", noteKey)
             put("skill", skill)
+            entry.skills.takeIf { it.size >= 2 }?.let { all -> put("skills", JsonArray(all.map { JsonPrimitive(it) })) }
         }
     return render(service.get(rootId, skill), rootId, skill, resolvedFrom = from)
 }

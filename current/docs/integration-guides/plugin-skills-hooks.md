@@ -152,9 +152,35 @@ Details: [config-format.md](../../../claude-plugins/task-orchestrator/skills/man
 
 **Script:** `skill-enforcement.mjs`. **Event:** `PreToolUse` on `notes_write`.
 
-**What it does:** for each `ops[]` element with `op: "upsert"`, suggests loading the skill a note's schema entry names (`skill`) when the body is too thin to reflect that skill's output (a default floor of 200 characters, scaled down for a note whose schema `maxLength` is small). The `skill` and `maxLength` facts come from the server, not from `config.yaml`: one `config` op `effective` read per session, cached in a session marker, and the item's `items_read` `select: "schema"` view per op. It is advisory only (it never blocks the call) and suggests at most once per (session, item, key).
+**What it does:** for each `ops[]` element with `op: "upsert"`, suggests loading the skill, or each skill of a list, a note's schema entry names (`skill`) when the body is too thin to reflect that skill's output (a default floor of 200 characters, scaled down for a note whose schema `maxLength` is small). The `skill` and `maxLength` facts come from the server, not from `config.yaml`: one `config` op `effective` read per session, cached in a session marker, and the item's `items_read` `select: "schema"` view per op. A skill name that is a served rule key of the root (one `config` op `rules` read per session, only when advice would name a pointer) is advised as a rule to fetch with `config` op `rules`, not as a skill to invoke. In the main session it is advisory only (it never blocks the call) and suggests at most once per (session, item, key).
+
+**In a subagent** (the hook input carries `agent_id`) a note's skills must be loaded before the upsert: on the Skill tool's record (see Skill Record below) or preloaded by the agent file's frontmatter `skills:` list. Every upsert of an (agent, item, key) with a skill missing is denied with a reason beginning `NOTE SKILL REQUIRED:` that names the key, each missing skill and `Binding source: schema.`, and tells an agent whose Skill tool answers `Unknown skill` (or that has none) to stop and report instead of retrying; there is no release. A denial rests only on the op's own item view: the item's `items_read` `select: "schema"` read must succeed, not be schema-free, and list `seatSkills` in its `features`. When that read fails, times out or is schema-free, the item id is not valid, or the server lacks `seatSkills`, the upsert is never denied and gets the main-session advice instead. When the marker root cannot be written the call is allowed, since the fix could not be recorded. A pointer that is a served rule key is never required, and without a served-rules answer the hook keeps the advice and never denies. Rule advice is the same as in the main session.
+
+**Time budget:** one deadline, 4000 ms minus the process's uptime; each REST call gets the smaller of its own timeout and the remaining time less 250 ms, and is skipped as failed when under 100 ms is left, so the hook stays inside its 5 s registration.
 
 **Inert when:** no REST API URL is configured with a located config, in which case it says so once per session in a `systemMessage` and then stays silent. It is not gated by execution mode or `orchestration.mode`: it checks the claimed item's own writes, whoever runs them.
+
+### Seat Skill Hint
+
+**Script:** `seat-skill-hint.mjs`. **Event:** `PostToolUse` on `advance` and `items_read`, in the same group as Phase-Guard Record.
+
+**What it does:** on a seat's first ok own-item read (an item-mode `items_read` `context` read, or an ok `advance` element with a `newRole`) it names the skills that seat must load. The seat is the read's `callerSeat`, else the `agent_type`'s last segment when it is `planner`, `implementer`, `reviewer` or `test-author`. It reads the item's `items_read` `select: "schema"` once (1.5 s timeout) for the `seats` of every phase and the server's `features`, resolves the seat's skills, removes the ones the agent file preloads, and adds context beginning `SEAT SKILLS:` that names the seat, the item, each skill in order and the binding source (`Binding source: schema.` for a declared list, `Binding source: plugin default.` for the defaults table), and tells the agent to stop and report if a skill cannot load. Inside a subagent it writes one required record per agent, replaced only when a later read carries `callerSeat` and the record did not; the record names the gate point: file edits for a work seat, the first note upsert of its phase role for a queue or review seat. In the main session it hints once per item and role on an ok `advance` without a `seatToken`, and records nothing.
+
+**Inert when:** no REST API URL resolves, the schema read fails, the seat is unknown or its list is empty. On a server without the `seatSkills` feature the hint adds `(advisory: nothing is refused)` and the gate below never refuses.
+
+### Skill Record
+
+**Script:** `skill-record.mjs`. **Event:** `PostToolUse` on `Skill`.
+
+**What it does:** inside a subagent, records `tool_input.skill` (one leading `/` removed) and `tool_response.commandName` as loaded for that agent, one state file per skill so parallel Skill calls never lose a record. A result with `success: false` records nothing. An uninstalled skill answers `Unknown skill: <name>` as a tool error and fires no hook, so it never reaches the record. No REST call; always `{}`.
+
+### Seat Skill Gate
+
+**Script:** `seat-skill-gate.mjs`. **Event:** `PreToolUse` on `Edit|Write|NotebookEdit`, and on `notes_write` beside Skill Enforcement.
+
+**What it does:** inside a subagent whose required record enforces (the server lists `seatSkills`), it refuses the record's gate point until each required skill is loaded or preloaded: `Edit`, `Write` and `NotebookEdit` for a work seat, a `notes_write` upsert whose role matches the seat's phase (case-insensitive) for a planner or reviewer. Every such call is denied with a reason beginning `SEAT SKILLS REQUIRED:` naming the seat, each missing skill and the binding source. There is no release: a skill that is not installed, or a seat without the Skill tool, is denied on each attempt, and the reason tells the agent to stop and report the seat, the skill and the binding source. No hook sees the failure, so the text asks the agent to stop and report. When the marker root cannot be written the call is allowed. No REST call.
+
+**Inert when:** the call is from the main session, no record exists, the server lacks `seatSkills`, nothing is missing, or the marker directory is unwritable. It is not gated by execution mode, `orchestration.mode` or a director session, and it has no `onFailure` block: a crash or timeout lets the call through.
 
 ### Decision Guard
 
@@ -199,7 +225,7 @@ A call that carries a non-empty top-level `seatToken` belongs to a run seat and 
 
 **Script:** `phase-guard.mjs`. **Event:** `SubagentStop` — every subagent stop, including Claude Code's own internal agents (prompt suggestions, etc.), which also fire this event.
 
-**What it does:** For every item the Phase-Guard Record hook recorded for this subagent, reads the gate with `items_read` `select: "context"` over `POST /api/v1/ops/items_read` and checks `gateStatus`. If a `work`- or `review`-phase item still has required notes missing (`gateStatus.missing` non-empty), the hook blocks the stop with a reason naming the item, the missing note keys, and — when present — the first missing note's `guidanceKey` or `skillPointer`.
+**What it does:** For every item the Phase-Guard Record hook recorded for this subagent, reads the gate with `items_read` `select: "context"` over `POST /api/v1/ops/items_read` and checks `gateStatus`. If a `work`- or `review`-phase item still has required notes missing (`gateStatus.missing` non-empty), the hook blocks the stop with a reason naming the item, the missing note keys, and — when present — the first missing note's `guidanceKey` or `skillPointer`. A `skillPointer` that is a served rule key (one `config` op `rules` read per session) is hinted as a rule to fetch, any other as a skill to invoke.
 
 **Seat awareness:** when `gateStatus.missingBySeat` is present and the view's `seats` names the stopping seat, only `missingBySeat[seat]` counts (the `unowned` bucket and other seats' keys never block, and server ownership wins over the test-author filter). Otherwise the flat `missing` list is used, minus `TEST_AUTHOR_OWNED_KEYS` unless the stopping agent is a test-author. The hook input's `agent_type` field (same SubagentStop field `subagent-start.mjs` already reads) identifies which seat is stopping. `phaseOwnerSeat(agentType)` (`execution-mode.mjs`) resolves it to `implementer` (owns `work`), `reviewer` (owns `review`), or `null`. When the seat is known and the item's `role` does not match the role that seat owns, the item is still fetched but never named as a blocker — a reviewer stopping on a work-phase item, or an implementer stopping on a review-phase item, is never demanded notes outside its own seat. Independently, keys in `TEST_AUTHOR_OWNED_KEYS` (currently just `test-manifest`) are dropped from `missing` before the block decision unless `isTestAuthorAgentType(agentType)` is true — those notes belong to a separately dispatched test-author seat (see the `needs-test-author` trait) and must never be demanded of the implementer or reviewer. When `agent_type` is absent or unrecognised (an older Claude Code build, or a non-seat helper type like `task-orchestrator:implementer-helper`), the guard falls back to a role-agnostic check — it still applies the test-author key filter, just without the seat-to-role check. Because the DTO's `guidanceKey`/`skillPointer` describe only the first raw missing key, the block reason surfaces that hint only when the first key survives the test-author filter.
 
@@ -338,7 +364,7 @@ Skills are invoked as slash commands in any Claude Code session:
 | `/task-orchestrator:create-item` | Create a tracked work item with smart container anchoring and tag inference |
 | `/task-orchestrator:quick-start` | Interactive onboarding — teaches by doing, adapts to empty or populated workspaces |
 | `/task-orchestrator:init` | Set up a project root, config and the two MCP entries for this directory, or `--user` for a personal root that serves every unconfigured directory |
-| `/task-orchestrator:manage-schemas` | Create, view, edit, delete, and validate note schemas in config.yaml |
+| `/task-orchestrator:manage-schemas` | Create, view, edit, delete, validate, and audit note schemas in config.yaml |
 | `/task-orchestrator:status-progression` | Navigate role transitions; shows current gate status and the correct trigger |
 | `/task-orchestrator:dependency-manager` | Visualize, create, and diagnose dependency graphs between work items |
 | `/task-orchestrator:batch-complete` | Complete or cancel multiple items at once — close out features or workstreams |
@@ -393,7 +419,7 @@ The shipped workflows, each launched on its own terms:
 
 - `audit` — read-only report + proposal; materializing its findings goes through [create-item](../../../claude-plugins/task-orchestrator/skills/create-item/SKILL.md#from-a-workflow-findings-proposal). Cost scales with the preset: `quick`, `standard` or `full`; `full` runs roughly 90 minutes and about 30M tokens.
 - `retro-analysis` — two modes. `deep` is invoked via `/session-retrospective --deep`; `audit` is a standalone sweep whose consumer is the session-retrospective skill's "Audit sweep" paragraph (present the result, then apply Step 6's create and retire shapes after the user confirms).
-- `review-wave` — independent review lanes over an item's owned-file diff, aggregated into one verdict in args order. Shipped; the `run-wave` front door does not build its lanes yet (args are hand-built until C1-productize).
+- `review-wave` — independent review lanes over an item's owned-file diff, aggregated into one verdict in args order. Verdict lanes (the default) decide the verdict; a lane whose review notes declare `lane.output: findings` reports findings only and never sets it, though its stopped status still stops the item; `lane.after` orders lanes and never halts or skips one. Shipped; the `run-wave` front door builds the lanes from the review notes' `lane` declarations.
 
 ---
 
@@ -457,7 +483,7 @@ A non-entry seat or a read-only agent skips this step entirely — it does its a
 
 **2. Read guidance:**
 
-`guidanceKey` names the first unfilled required note with guidance; resolve its text via `items_read(select="schema", itemId=..., fields=["guidance"])`. If `skillPointer` is set, load that skill via the `Skill` tool first.
+`guidanceKey` names the first unfilled required note with guidance; resolve its text via `items_read(select="schema", itemId=..., fields=["guidance"])`. If `skillPointer` is set, a pointer that is a served rule key is fetched with `config` op `rules` and followed; any other pointer is loaded as a skill via the `Skill` tool first.
 
 **3. Do work and fill the note:**
 

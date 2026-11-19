@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.SkillMode
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 
 /**
@@ -18,7 +19,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
  * @property guidanceKey Key of the first unfilled required note that has guidance, or null.
  *   Reference-based counterpart of [guidancePointer]: non-null exactly when guidancePointer is
  *   non-null. Agents resolve the key to full text via `items_read` `select=schema`.
- * @property skillPointer Skill name for the first unfilled required note, or null if none specified
+ * @property skillPointer Skill name for the first unfilled required note, or null if none specified (its first skill)
+ * @property skillPointers Every skill of that note in invocation order; empty when it names none
+ * @property skillMode That note's skill mode when it names a skill, else null
  * @property missingKeys Keys of required notes that are missing or have blank bodies
  * @property filled Count of required notes in this phase that have non-blank bodies
  * @property remaining Count of required notes in this phase that are missing or blank
@@ -28,6 +31,8 @@ data class PhaseNoteContext(
     val guidancePointer: String?,
     val guidanceKey: String?,
     val skillPointer: String?,
+    val skillPointers: List<String> = emptyList(),
+    val skillMode: SkillMode? = null,
     val missingKeys: List<String>,
     val filled: Int,
     val remaining: Int,
@@ -63,6 +68,8 @@ fun computePhaseNoteContext(
         guidancePointer = firstMissing?.guidance,
         guidanceKey = firstMissing?.takeIf { it.guidance != null }?.key,
         skillPointer = firstMissing?.skill,
+        skillPointers = firstMissing?.skills ?: emptyList(),
+        skillMode = firstMissing?.takeIf { it.skill != null }?.skillMode,
         missingKeys = missing.map { it.key },
         filled = required.size - missing.size,
         remaining = missing.size,

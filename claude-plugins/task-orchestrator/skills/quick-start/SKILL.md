@@ -224,7 +224,7 @@ MCP items can have **required notes** that act as documentation gates:
 |---|---|---|
 | Track a feature with documentation gates | `/manage-schemas` | Create schemas with lifecycle gates, then use companion skills |
 | Create items from conversation context | `/create-item` | Infers type, priority, and container placement |
-| Build custom workflow schemas | `/manage-schemas` | Create, view, edit, delete, and validate note schemas |
+| Build custom workflow schemas | `/manage-schemas` | Create, view, edit, delete, validate, and audit note schemas |
 | See project health dashboard | `/work-summary` | Active work, blockers, next actions at a glance |
 | Advance an item through gates | `/status-progression` | Shows current role, gate status, correct trigger |
 | Change how the server runs (HTTP, REST API, config-sync) | `/configure-server` | Transport, REST API mode, port publishing, config mount |

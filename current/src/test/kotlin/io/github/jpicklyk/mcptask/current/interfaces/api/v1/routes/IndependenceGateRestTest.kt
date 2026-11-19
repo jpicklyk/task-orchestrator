@@ -160,7 +160,7 @@ work_item_schemas:
             serverVersion = "1.0.0",
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
-            appConfig = AppConfig.fromEnv(),
+            appConfig = AppConfig.fromEnv { null },
         )
     }
 
@@ -311,15 +311,9 @@ work_item_schemas:
     // ─────────────────────────────────────────────────────────────────────
     // R5 (S10 continued) -- redaction structural guarantee: since violations never carry an actor
     // id BY CONSTRUCTION (task-scope "Redaction"), toggling the redaction env var cannot make one
-    // appear. N5 (orchestrator follow-up): no lever exists in this harness to override
-    // API_REDACT_NOTE_ATTRIBUTION for a REAL installRestApiRoutes-wired process -- AppConfig.fromEnv()
-    // is read directly inside production wiring here (unlike AGENT_CONFIG_DIR, which
-    // configureProductionRestApp/buildComposition already override for other reasons), and no
-    // existing src/test harness (NoteRoutesTest included, read per the blindness rule's "everything
-    // under src/test" allowance) demonstrates overriding it for a real Ktor-wired route under test.
-    // Setting the real JVM process env var is not available without an OS-level env change outside
-    // this test's control. Skipped as NOT CHEAP rather than attempted with an unreliable workaround;
-    // R5/R5b already establish the structural guarantee (no actor id in the body) under the
-    // environment's default value.
+    // N5 (orchestrator follow-up): the harness passes AppConfig.fromEnv { null } to the REAL
+    // installRestApiRoutes wiring, so API_REDACT_NOTE_ATTRIBUTION stays at its default regardless of the
+    // developer or CI shell. A toggled-redaction case is not added here; R5/R5b establish the structural
+    // guarantee (no actor id in the body) under that default value.
     // ─────────────────────────────────────────────────────────────────────
 }

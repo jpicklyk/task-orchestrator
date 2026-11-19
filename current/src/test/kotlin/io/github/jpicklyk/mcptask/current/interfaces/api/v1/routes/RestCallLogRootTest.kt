@@ -93,7 +93,7 @@ class RestCallLogRootTest {
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             callLog = writer,
-            appConfig = AppConfig.fromEnv(),
+            appConfig = AppConfig.fromEnv { null },
         )
     }
 

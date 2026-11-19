@@ -19,11 +19,30 @@ class ClaimPredicateConfinementTest {
         private val FIELD = Regex("""claimExpiresAt|claim_expires_at""")
         private val COMPARISON = Regex("""\s(<=?|>=?)\s|\.isAfter\(|\.isBefore\(|\bless(Eq)?\b|\bgreater(Eq)?\b|compareTo""")
 
-        fun violations(text: String): Int =
-            text
-                .lines()
-                .filter { GuardSupport.isCodeLine(it) }
-                .count { FIELD.containsMatchIn(it) && COMPARISON.containsMatchIn(it) }
+        private val FUN_LINE = Regex("""\bfun\b""")
+        private val BINDING = Regex("""\b(?:val|var)\s+(\w+)\b[^=]*=(?!=)(.*)""")
+
+        /**
+         * Counts the code lines that compare the claim expiry. A comparison on a line that holds the field directly
+         * counts; so does one on a line that holds a local name bound earlier in the same function from an expression
+         * containing the field (`val e = item.claimExpiresAt ?: return false` then `e.isAfter(now)`). The taint set
+         * resets on every line containing `fun`; a name preceded by `.` or a word character (`other.e`) never counts.
+         * Known limits: a lambda parameter bound on another line, and comparisons of `ClaimState.expiresAt` itself.
+         */
+        fun violations(text: String): Int {
+            var tainted = emptySet<String>()
+            var count = 0
+            for (line in text.lines().filter { GuardSupport.isCodeLine(it) }) {
+                if (FUN_LINE.containsMatchIn(line)) tainted = emptySet()
+                val holdsTaint =
+                    FIELD.containsMatchIn(line) ||
+                        tainted.any { name -> Regex("""(?<![.\w])${Regex.escape(name)}\b""").containsMatchIn(line) }
+                if (holdsTaint && COMPARISON.containsMatchIn(line)) count++
+                val binding = BINDING.find(line)
+                if (binding != null && FIELD.containsMatchIn(binding.groupValues[2])) tainted = tainted + binding.groupValues[1]
+            }
+            return count
+        }
     }
 
     @Test
@@ -46,5 +65,42 @@ class ClaimPredicateConfinementTest {
             "val e = row[WorkItemsTable.claimExpiresAt]",
             "claimExpiresAt = if (a == b) null else current.claimExpiresAt"
         ).forEach { assertEquals(0, violations(it), "wrongly flagged: $it") }
+    }
+
+    @Test
+    fun `the guard follows a local bound from the claim expiry`() {
+        val twoLine =
+            """
+            fun lapsed(item: WorkItem): Boolean {
+                val e = item.claimExpiresAt ?: return false
+                if (!e.isAfter(now)) return true
+                return false
+            }
+            """.trimIndent()
+        assertEquals(1, violations(twoLine))
+        val dotted =
+            """
+            fun f() {
+                val e = item.claimExpiresAt
+                other.e.isAfter(now)
+            }
+            """.trimIndent()
+        assertEquals(0, violations(dotted))
+        val laterFun =
+            """
+            fun a() {
+                val e = item.claimExpiresAt
+            }
+            fun b() {
+                if (e.isAfter(now)) return
+            }
+            """.trimIndent()
+        assertEquals(0, violations(laterFun))
+    }
+
+    @Test
+    fun `the allowed files exist in production sources`() {
+        val paths = GuardSupport.productionSources().map { it.path }.toSet()
+        ALLOWED.forEach { assertTrue(it in paths, "allowed file is not a production source: $it") }
     }
 }

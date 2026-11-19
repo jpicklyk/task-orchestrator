@@ -59,6 +59,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
  *   folded into it — so every existing `traitDispatch` reference (main and test) is unaffected by
  *   this addition. A trait with no phase carrying a `seats:` sub-key is absent from this map
  *   entirely.
+ * @property traitDescriptors per-trait `description` and `applies_when` text; a trait with neither is
+ *   absent from the map. Descriptive only: the server never evaluates it.
  * @property independence the resolved top-level `independence:` block (A2), or `null` when the
  *   document has no `independence` key at all — a layering caller uses that `null` to fall through
  *   to another layer (mirrors [noteLimitsMode]'s null-means-absent contract), applying
@@ -83,6 +85,7 @@ data class ConfigDocument(
     val traitDispatchBySeat: Map<String, Map<Role, Map<String, SeatDispatchOverride>>> = emptyMap(),
     val runs: RunsConfig? = null,
     val decisionClasses: Map<String, DecisionClassConfig>? = null,
+    val traitDescriptors: Map<String, TraitDescriptor> = emptyMap(),
 ) {
     companion object {
         /** The empty document: no schemas, no traits, no opinion on any other facet. */
@@ -113,4 +116,13 @@ data class DecisionClassConfig(
     val expiresAfterSeconds: Long? = null,
     val onExpiry: String? = null,
     val freeform: Boolean? = null,
+)
+
+/**
+ * Descriptive text a trait declares about itself (`description`, `applies_when`). Both are optional,
+ * trimmed, never blank; served as text and never evaluated by the server.
+ */
+data class TraitDescriptor(
+    val description: String?,
+    val appliesWhen: String?,
 )

@@ -344,7 +344,7 @@ class FailClosedConfigTest {
             serverVersion = "1.0.0",
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
-            appConfig = AppConfig.fromEnv(),
+            appConfig = AppConfig.fromEnv { null },
         )
     }
 

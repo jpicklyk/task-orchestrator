@@ -6,21 +6,26 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigViolation
 import io.github.jpicklyk.mcptask.current.application.config.DecisionClassConfig
 import io.github.jpicklyk.mcptask.current.application.config.ParseMode
 import io.github.jpicklyk.mcptask.current.application.config.RunsConfig
+import io.github.jpicklyk.mcptask.current.application.config.TraitDescriptor
+import io.github.jpicklyk.mcptask.current.application.service.RuleService
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestAnswerers
 import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestSeverity
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.IndependenceMode
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
+import io.github.jpicklyk.mcptask.current.domain.model.LaneOutput
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
+import io.github.jpicklyk.mcptask.current.domain.model.ReviewLane
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.RunBudget
 import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.SeatDispatchOverride
+import io.github.jpicklyk.mcptask.current.domain.model.SkillMode
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 
 /**
@@ -76,10 +81,24 @@ internal object ConfigKeyCatalog {
         setOf("schema_resolution", "retrospective", "actor_attribution", "orchestration")
 
     val SCHEMA_LEVEL: Set<String> = setOf("lifecycle", "default_traits", "notes", "seats")
-    val TRAIT_LEVEL: Set<String> = setOf("notes", "resources", "dispatch", "seats")
+    val TRAIT_LEVEL: Set<String> = setOf("notes", "resources", "dispatch", "seats", "description", "applies_when")
     val NOTE_ENTRY: Set<String> =
-        setOf("key", "role", "required", "description", "guidance", "skill", "maxLength", "seat", "independent_of", "shared")
-    val SEAT_ENTRY: Set<String> = setOf("name", "phase", "enters", "after", "reads_exclude", "transitions")
+        setOf(
+            "key",
+            "role",
+            "required",
+            "description",
+            "guidance",
+            "skill",
+            "maxLength",
+            "seat",
+            "independent_of",
+            "shared",
+            "skill_mode",
+            "lane"
+        )
+    val NOTE_LANE: Set<String> = setOf("output", "after")
+    val SEAT_ENTRY: Set<String> = setOf("name", "phase", "enters", "after", "reads_exclude", "transitions", "rules", "skills")
     val INDEPENDENCE: Set<String> = setOf("mode", "require_verified")
     val NOTE_LIMITS: Set<String> = setOf("mode")
     val RUNS: Set<String> = setOf("stall_after", "budgets")
@@ -314,6 +333,7 @@ internal object YamlSchemaParser {
 
         val parsedTraits = parseTraits(root, warnings)
         val traitSeatsMap = parseTraitSeatsMap(root, warnings)
+        val traitDescriptors = parseTraitDescriptors(root, warnings)
         val parsedNoteLimitsMode = parseNoteLimitsMode(root, warnings)
         val noteLimitsMode = if (root.containsKey("note_limits")) parsedNoteLimitsMode else null
         val independence = parseIndependencePolicy(root, warnings)
@@ -370,6 +390,7 @@ internal object YamlSchemaParser {
             traitDispatch = traitDispatch,
             traitDispatchBySeat = traitDispatchBySeat,
             traitSeats = traitSeatsMap,
+            traitDescriptors = traitDescriptors,
             presentSections = presentSections,
         )
     }
@@ -515,6 +536,38 @@ internal object YamlSchemaParser {
     }
 
     /**
+     * Parses each trait's optional `description` and `applies_when` strings into a trait-name to
+     * [TraitDescriptor] map. Values are trimmed and a blank string is absent; a non-string value
+     * (including YAML null) is a soft finding and the field is dropped. A trait with neither field
+     * is absent from the result. Text only: nothing here evaluates `applies_when`.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun parseTraitDescriptors(
+        root: Map<String, Any>,
+        warnings: ParseFindings
+    ): Map<String, TraitDescriptor> {
+        val traitsRaw = root["traits"] as? Map<String, Any> ?: return emptyMap()
+        val result = mutableMapOf<String, TraitDescriptor>()
+        for ((traitName, rawValue) in traitsRaw) {
+            val rawMap = rawValue as? Map<String, Any?> ?: continue
+
+            fun text(key: String): String? {
+                if (!rawMap.containsKey(key)) return null
+                val value = rawMap[key]
+                if (value is String) return value.trim().ifEmpty { null }
+                warnings.soft(ptr("traits", traitName, key), "Trait '$traitName' '$key' must be a string; ignoring")
+                return null
+            }
+            val description = text("description")
+            val appliesWhen = text("applies_when")
+            if (description != null || appliesWhen != null) {
+                result[traitName] = TraitDescriptor(description, appliesWhen)
+            }
+        }
+        return result
+    }
+
+    /**
      * Parses per-trait `seats:` lists into a trait-name→[SeatDefinition] map. A trait with no
      * `seats:` key at all is absent from the result entirely (not mapped to an empty list),
      * mirroring [parseTraitResources]/[parseTraitDispatchAndBySeat] — see [ConfigDocument.traitSeats].
@@ -606,6 +659,8 @@ internal object YamlSchemaParser {
             val after = parseSeatStringListField(entryMap, "after", context, name, entryPath, warnings)
             val readsExclude = parseSeatStringListField(entryMap, "reads_exclude", context, name, entryPath, warnings)
             val transitions = parseSeatTransitions(entryMap, context, name, entryPath, warnings)
+            val rules = parseSeatRules(entryMap, context, name, entryPath, warnings)
+            val skills = parseSeatSkills(entryMap, context, name, entryPath, warnings)
 
             for (key in entryMap.keys) {
                 if (key !in VALID_SEAT_ENTRY_KEYS) {
@@ -623,7 +678,9 @@ internal object YamlSchemaParser {
                     enters = enters,
                     after = after,
                     readsExclude = readsExclude,
-                    transitions = transitions
+                    transitions = transitions,
+                    rules = rules,
+                    skills = skills
                 )
             )
         }
@@ -710,6 +767,83 @@ internal object YamlSchemaParser {
                 continue
             }
             result.add(wire)
+        }
+        return result.toList()
+    }
+
+    /**
+     * A seat's `rules:` list: null when absent (the plugin's default rules apply) or when not a list (a soft warning at
+     * `<entry>/rules`); otherwise the declared rule keys, duplicates collapsed in first order. An element that is not a
+     * string, or does not match [RuleService.KEY_PATTERN], is a soft warning at `<entry>/rules/<i>` and is dropped.
+     * `[]` declares no rule at all. Existence is not checked: the parser has no store and rules are pushed separately.
+     */
+    private fun parseSeatRules(
+        entryMap: Map<String, Any>,
+        context: String,
+        seatName: String,
+        entryPath: String,
+        warnings: ParseFindings
+    ): List<String>? {
+        if (!entryMap.containsKey("rules")) return null
+        val raw = entryMap["rules"]
+        val list =
+            raw as? List<*> ?: run {
+                warnings.soft(
+                    "$entryPath/rules",
+                    "$context seats (name='$seatName') has non-list 'rules' value '$raw'; ignoring"
+                )
+                return null
+            }
+        val result = LinkedHashSet<String>()
+        for ((i, element) in list.withIndex()) {
+            val key = element as? String
+            if (key == null || !RuleService.KEY_PATTERN.matches(key)) {
+                warnings.soft(
+                    "$entryPath/rules/$i",
+                    "$context seats (name='$seatName') has invalid rule key '$element' " +
+                        "(expected lowercase letters, digits, '.', '_' or '-', starting alphanumeric, at most 100 characters); ignoring"
+                )
+                continue
+            }
+            result.add(key)
+        }
+        return result.toList()
+    }
+
+    /**
+     * A seat's `skills:` list: null when absent (the plugin's default skills apply) or when not a list (a soft warning at
+     * `<entry>/skills`); otherwise the declared skill names verbatim, duplicates collapsed in first order. An element that
+     * is not a string, or is blank, is a soft warning at `<entry>/skills/<i>` and is dropped. `[]` declares no skill at
+     * all. Existence is not checked: a skill is resolved by the plugin, not the server.
+     */
+    private fun parseSeatSkills(
+        entryMap: Map<String, Any>,
+        context: String,
+        seatName: String,
+        entryPath: String,
+        warnings: ParseFindings
+    ): List<String>? {
+        if (!entryMap.containsKey("skills")) return null
+        val raw = entryMap["skills"]
+        val list =
+            raw as? List<*> ?: run {
+                warnings.soft(
+                    "$entryPath/skills",
+                    "$context seats (name='$seatName') has non-list 'skills' value '$raw'; ignoring"
+                )
+                return null
+            }
+        val result = LinkedHashSet<String>()
+        for ((i, element) in list.withIndex()) {
+            val name = element as? String
+            if (name == null || name.isBlank()) {
+                warnings.soft(
+                    "$entryPath/skills/$i",
+                    "$context seats (name='$seatName') has invalid skill name '$element' (expected a non-blank string); ignoring"
+                )
+                continue
+            }
+            result.add(name)
         }
         return result.toList()
     }
@@ -1362,7 +1496,11 @@ internal object YamlSchemaParser {
 
         val description = raw["description"] as? String ?: ""
         val guidance = raw["guidance"] as? String
-        val skill = raw["skill"] as? String
+        val skills = parseSkills(raw["skill"], entryPath, warnings)
+        val skill = skills.firstOrNull() ?: (raw["skill"] as? String)
+        val skillMode = parseSkillMode(raw["skill_mode"], skill != null || skills.isNotEmpty(), entryPath, warnings)
+
+        val lane = parseLane(raw["lane"], parsedRole, key, entryPath, warnings)
 
         val maxLengthRaw = raw["maxLength"]
         val maxLength =
@@ -1425,7 +1563,155 @@ internal object YamlSchemaParser {
             seat = seat,
             independentOf = independentOf,
             shared = shared,
+            skills = if (skills.isNotEmpty()) skills else listOfNotNull(skill),
+            skillMode = skillMode,
+            lane = lane,
         )
+    }
+
+    /**
+     * Reads a review entry's `lane`: `output` (`verdict` or `findings`) and `after` (a note key or a list of them).
+     * Absent or null is no lane. Anything unusable is a soft finding and falls back to the default for that part.
+     */
+    private fun parseLane(
+        raw: Any?,
+        role: Role,
+        key: String,
+        entryPath: String,
+        warnings: ParseFindings
+    ): ReviewLane? {
+        if (raw == null) return null
+        val lanePath = "$entryPath/lane"
+        if (role != Role.REVIEW) {
+            warnings.soft(lanePath, "Note entry (key='$key') has 'lane' on a non-review note; ignoring")
+            return null
+        }
+        if (raw !is Map<*, *>) {
+            warnings.soft(lanePath, "Note entry (key='$key') 'lane' must be a map; ignoring")
+            return null
+        }
+        for (rawKey in raw.keys) {
+            if (rawKey !in ConfigKeyCatalog.NOTE_LANE) {
+                warnings.soft(
+                    "$lanePath/${ConfigValidator.escape(rawKey.toString())}",
+                    "Note entry 'lane' has unknown key '$rawKey'; ignoring"
+                )
+            }
+        }
+        val outputRaw = raw["output"]
+        val output =
+            if (outputRaw == null) {
+                LaneOutput.VERDICT
+            } else {
+                (outputRaw as? String)?.let { LaneOutput.fromConfigString(it) }
+                    ?: run {
+                        warnings.soft(
+                            "$lanePath/output",
+                            "Note entry 'lane.output' '$outputRaw' is not one of ${LaneOutput.entries.map { it.wire }}; using verdict"
+                        )
+                        LaneOutput.VERDICT
+                    }
+            }
+        return ReviewLane(output = output, after = parseLaneAfter(raw["after"], key, lanePath, warnings))
+    }
+
+    private fun parseLaneAfter(
+        raw: Any?,
+        key: String,
+        lanePath: String,
+        warnings: ParseFindings
+    ): List<String> {
+        val afterPath = "$lanePath/after"
+        val elements: List<*> =
+            when (raw) {
+                null -> return emptyList()
+                is String -> listOf(raw)
+                is List<*> -> raw
+                else -> {
+                    warnings.soft(afterPath, "Note entry 'lane.after' must be a note key or a list of note keys; ignoring")
+                    return emptyList()
+                }
+            }
+        val out = mutableListOf<String>()
+        for ((i, element) in elements.withIndex()) {
+            if (element !is String || element.isBlank()) {
+                warnings.soft("$afterPath/$i", "Note entry 'lane.after' element $i is not a non-blank string; ignoring the whole after")
+                return emptyList()
+            }
+            if (element == key) {
+                warnings.soft("$afterPath/$i", "Note entry 'lane.after' names the entry's own key '$element'; ignoring that element")
+            } else if (element in out) {
+                warnings.soft("$afterPath/$i", "Note entry 'lane.after' names '$element' twice; ignoring the later copy")
+            } else {
+                out += element
+            }
+        }
+        return out
+    }
+
+    /**
+     * Reads a note entry's `skill`: a string (kept as-is, blank included) or a non-empty list of distinct non-blank
+     * strings. Returns the skills in invocation order; empty when there is none or the value is unusable (a soft
+     * finding says why). A blank single string yields no list but the caller keeps it as the legacy `skill`.
+     */
+    private fun parseSkills(
+        raw: Any?,
+        entryPath: String,
+        warnings: ParseFindings
+    ): List<String> {
+        when (raw) {
+            null -> return emptyList()
+            is String -> return if (raw.isBlank()) emptyList() else listOf(raw)
+            is List<*> -> {
+                if (raw.isEmpty()) {
+                    warnings.soft("$entryPath/skill", "Note entry 'skill' is an empty list; ignoring")
+                    return emptyList()
+                }
+                val out = mutableListOf<String>()
+                for ((i, element) in raw.withIndex()) {
+                    if (element !is String || element.isBlank()) {
+                        warnings.soft(
+                            "$entryPath/skill/$i",
+                            "Note entry 'skill' element $i is not a non-blank string; ignoring the whole skill"
+                        )
+                        return emptyList()
+                    }
+                    if (element in out) {
+                        warnings.soft("$entryPath/skill/$i", "Note entry 'skill' names '$element' twice; ignoring the later copy")
+                    } else {
+                        out += element
+                    }
+                }
+                return out
+            }
+            else -> {
+                warnings.soft("$entryPath/skill", "Note entry 'skill' must be a string or a list of strings; ignoring")
+                return emptyList()
+            }
+        }
+    }
+
+    /** Reads `skill_mode`: `invoke` or `method-on-diff`; anything else, or a mode with no skill, is invoke. */
+    private fun parseSkillMode(
+        raw: Any?,
+        hasSkill: Boolean,
+        entryPath: String,
+        warnings: ParseFindings
+    ): SkillMode {
+        if (raw == null) return SkillMode.INVOKE
+        val mode = (raw as? String)?.let { SkillMode.fromConfigString(it) }
+        if (mode == null) {
+            warnings.soft(
+                "$entryPath/skill_mode",
+                "Note entry 'skill_mode' '$raw' is not one of ${SkillMode.entries.map { it.wire }}; using invoke"
+            )
+            return SkillMode.INVOKE
+        }
+        if (!hasSkill) {
+            warnings.soft("$entryPath/skill_mode", "Note entry 'skill_mode' has no 'skill' to apply to; using invoke")
+            return SkillMode.INVOKE
+        }
+        return mode
     }
 
     /**

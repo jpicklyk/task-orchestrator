@@ -96,7 +96,7 @@ class RestCallLogTest {
             serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             callLog = writer,
-            appConfig = AppConfig.fromEnv(),
+            appConfig = AppConfig.fromEnv { null },
         )
     }
 
@@ -374,7 +374,7 @@ class RestCallLogTest {
             McpOperationAdapter(buildToolDispatcher(rig.ctx), callLog = writer)
                 .register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
             application {
-                installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv(), mcpAuth = McpAuthMode.Local)
+                installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv { null }, mcpAuth = McpAuthMode.Local)
                 val authConfig: ApiAuthConfig.Bearer = makeWriteAuthConfig()
                 installRestApiRoutes(
                     apiConfig = authConfig,
@@ -387,7 +387,7 @@ class RestCallLogTest {
                     serverConfig = rig.composition.serverConfig,
                     toolContext = rig.composition.toolContext,
                     callLog = writer,
-                    appConfig = AppConfig.fromEnv(),
+                    appConfig = AppConfig.fromEnv { null },
                 )
             }
             val accept = "application/json, text/event-stream"

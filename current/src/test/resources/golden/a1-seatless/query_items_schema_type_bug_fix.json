@@ -45,7 +45,8 @@
             "seats",
             "dispatchBySeat",
             "independent_of",
-            "rules"
+            "rules",
+            "seatSkills"
         ]
     },
     "metadata": {

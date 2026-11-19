@@ -12,6 +12,7 @@
 
 import { isOrchestratorServerKey } from '../hooks/registration.mjs';
 import { forClass } from './lib/dispatch-policy.mjs';
+import { SEAT_SKILLS_FEATURE, seatSkillsFor, loadSeatSkillDefaults } from '../hooks/lib/seat-skills.mjs';
 
 export const SNAPSHOT_CONTRACT = 'run-wave/snapshot-v1';
 export const PLAN_DOC_CONTRACT = 'run-wave/plan-doc-v1';
@@ -94,6 +95,99 @@ export function isCarryInDisposed(record, key) {
 // leading './' removed, repeated '/' collapsed), so the planner and the core agree on each entry.
 function canonAppendOnly(raw) {
   return String(raw).replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/{2,}/g, '/');
+}
+
+// Rule-key format (the config rule-key shape): lowercase letters, digits, dot, underscore, hyphen;
+// starts alphanumeric; 1-100 characters.
+const RULE_KEY_RE = /^[a-z0-9][a-z0-9._-]{0,99}$/;
+const POST_RUN_WHEN = ['post-run', 'post-merge'];
+const REVIEW_MODES = ['handoff', 'generic'];
+const REVIEW_ON_FAIL = ['stop', 'fix-cycle'];
+const isNonEmptyString = (v) => typeof v === 'string' && v.trim() !== '';
+// The one predicate for a repo-relative appliesTo pattern list (profile.verify[] and profile.postRun[]).
+function badAppliesTo(ap) {
+  let bad = !Array.isArray(ap) || ap.length === 0 || ap.some((e) => typeof e !== 'string' || e === '');
+  if (!bad) {
+    bad = ap.some((raw) => {
+      const c = canonAppendOnly(raw);
+      const segs = c.split('/');
+      return c === '' || c === '.' || /^\//.test(c) || /^[a-zA-Z]:/.test(c) || segs.includes('..');
+    });
+  }
+  return bad;
+}
+const genericReview = () => ({ mode: 'generic', onFail: 'fix-cycle' });
+
+/**
+ * normalizeReview(review) -> {mode, onFail, skill?, step?}
+ * The plan doc's meta.review for a validated profile.review: absent or "generic" is generic with
+ * onFail fix-cycle; "handoff" is handoff with onFail fix-cycle; an object keeps its mode, its
+ * declared onFail (default fix-cycle) and, for mode handoff only, its declared skill and step.
+ */
+function normalizeReview(review) {
+  if (review === undefined || review === 'generic') return genericReview();
+  if (review === 'handoff') return { mode: 'handoff', onFail: 'fix-cycle' };
+  const out = { mode: review.mode, onFail: review.onFail === undefined ? 'fix-cycle' : review.onFail };
+  if (review.mode === 'handoff') {
+    if (review.skill !== undefined) out.skill = review.skill;
+    if (review.step !== undefined) out.step = review.step;
+  }
+  return out;
+}
+
+/** normalizePostRun(postRun) -> declared entries in order, {step, when, rule} plus command/appliesTo when declared. */
+function normalizePostRun(postRun) {
+  if (!Array.isArray(postRun)) return [];
+  return postRun.map((e) => {
+    const out = { step: e.step, when: e.when, rule: e.rule };
+    if (e.command !== undefined) out.command = e.command;
+    if (e.appliesTo !== undefined) out.appliesTo = e.appliesTo;
+    return out;
+  });
+}
+
+// Segment glob match for appliesTo: the appendOnlyFiles semantics (backslash to '/', leading './'
+// dropped, case-insensitive, '*' and '?' inside a segment, '**' any number of whole segments).
+function appliesToMatch(claim, patterns) {
+  const canon = (x) => String(x).replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/{2,}/g, '/');
+  const segs = canon(claim).toLowerCase().split('/');
+  const segMatch = (pat, text) => {
+    let re = '';
+    for (const ch of pat) re += ch === '*' ? '[^/]*' : ch === '?' ? '[^/]' : ch.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    return new RegExp('^' + re + '$').test(text);
+  };
+  const walk = (ps, pi, ti) => {
+    if (pi === ps.length) return ti === segs.length;
+    if (ps[pi] === '**') {
+      for (let k = ti; k <= segs.length; k++) if (walk(ps, pi + 1, k)) return true;
+      return false;
+    }
+    return ti < segs.length && segMatch(ps[pi], segs[ti]) && walk(ps, pi + 1, ti + 1);
+  };
+  return (patterns || []).some((pat) => walk(canon(pat).toLowerCase().split('/'), 0, 0));
+}
+
+/**
+ * selectPostRunSteps(doc, when, files) -> {when, review, steps, skipped}
+ * review is doc.meta.review (the generic default when absent). steps are the doc.meta.postRun
+ * entries of this `when`, in declared order, kept when they declare no appliesTo or some changed
+ * file matches some pattern. skipped lists the same-`when` entries dropped by appliesTo.
+ */
+export function selectPostRunSteps(doc, when, files) {
+  const meta = (doc && doc.meta) || {};
+  const review = meta.review && typeof meta.review === 'object' ? meta.review : genericReview();
+  const list = Array.isArray(files) ? files : [];
+  const steps = [];
+  const skipped = [];
+  for (const e of Array.isArray(meta.postRun) ? meta.postRun : []) {
+    if (!e || e.when !== when) continue;
+    if (Array.isArray(e.appliesTo) && e.appliesTo.length > 0 && !list.some((f) => appliesToMatch(f, e.appliesTo))) {
+      skipped.push({ step: e.step, reason: 'appliesTo matched no changed file' });
+      continue;
+    }
+    steps.push(e);
+  }
+  return { when, review, steps, skipped };
 }
 
 /**
@@ -255,17 +349,50 @@ export function validateSnapshot(snap) {
     if (Array.isArray(snap.profile.verify)) {
       snap.profile.verify.forEach((entry, i) => {
         if (!entry || typeof entry !== 'object' || !('appliesTo' in entry)) return;
-        const ap = entry.appliesTo;
-        let bad = !Array.isArray(ap) || ap.length === 0 || ap.some((e) => typeof e !== 'string' || e === '');
-        if (!bad) {
-          bad = ap.some((raw) => {
-            const c = canonAppendOnly(raw);
-            const segs = c.split('/');
-            return c === '' || c === '.' || /^\//.test(c) || /^[a-zA-Z]:/.test(c) || segs.includes('..');
-          });
-        }
-        if (bad) errors.push(`profile.verify[${i}].appliesTo must be an array of repo-relative patterns`);
+        if (badAppliesTo(entry.appliesTo)) errors.push(`profile.verify[${i}].appliesTo must be an array of repo-relative patterns`);
       });
+    }
+    if ('postRun' in snap.profile) {
+      const pr = snap.profile.postRun;
+      if (!Array.isArray(pr)) {
+        errors.push('profile.postRun must be an array');
+      } else {
+        const seen = new Set();
+        pr.forEach((e, i) => {
+          const isObj = e && typeof e === 'object' && !Array.isArray(e);
+          const stepOk = isObj && typeof e.step === 'string' && RULE_KEY_RE.test(e.step);
+          const ruleOk = isObj && typeof e.rule === 'string' && RULE_KEY_RE.test(e.rule);
+          if (!isObj || !stepOk || !ruleOk || !POST_RUN_WHEN.includes(e.when)) {
+            errors.push(`profile.postRun[${i}] must have step, when (post-run or post-merge) and rule`);
+          }
+          if (!isObj) return;
+          if ('command' in e && !isNonEmptyString(e.command)) {
+            errors.push(`profile.postRun[${i}].command must be a non-empty string`);
+          }
+          if ('appliesTo' in e && badAppliesTo(e.appliesTo)) {
+            errors.push(`profile.postRun[${i}].appliesTo must be an array of repo-relative patterns`);
+          }
+          if (typeof e.step === 'string') {
+            if (seen.has(e.step)) errors.push(`profile.postRun[${i}].step "${e.step}" repeats an earlier step`);
+            seen.add(e.step);
+          }
+        });
+      }
+    }
+    if ('review' in snap.profile) {
+      const rv = snap.profile.review;
+      if (typeof rv === 'string') {
+        if (!REVIEW_MODES.includes(rv)) errors.push('profile.review must be "handoff", "generic" or an object');
+      } else if (!rv || typeof rv !== 'object' || Array.isArray(rv)) {
+        errors.push('profile.review must be "handoff", "generic" or an object');
+      } else {
+        if (!REVIEW_MODES.includes(rv.mode)) errors.push('profile.review.mode must be handoff or generic');
+        if ('skill' in rv ? !isNonEmptyString(rv.skill) : rv.mode === 'handoff') {
+          errors.push('profile.review.skill must be a non-empty string');
+        }
+        if ('step' in rv && !isNonEmptyString(rv.step)) errors.push('profile.review.step must be a non-empty string');
+        if ('onFail' in rv && !REVIEW_ON_FAIL.includes(rv.onFail)) errors.push('profile.review.onFail must be stop or fix-cycle');
+      }
     }
     if ('knownRed' in snap.profile) {
       const kr = snap.profile.knownRed;
@@ -449,8 +576,15 @@ function noteLimitsOf(keys, notes) {
  * whose queue stages are skipped still names them.
  */
 function testPlanInputsOf(notes, seatName) {
-  const skills = new Set(notes.filter((n) => n.seat === seatName && n.skill).map((n) => n.skill));
-  return notes.filter((n) => n.role === 'queue' && n.skill && skills.has(n.skill)).map((n) => n.key);
+  const skills = new Set(notes.filter((n) => n.seat === seatName).flatMap(noteSkills));
+  return notes.filter((n) => n.role === 'queue' && noteSkills(n).some((s) => skills.has(s))).map((n) => n.key);
+}
+
+/** Every skill a schema note names, in order: its `skills` array when non-empty, else `[skill]`, else []. */
+function noteSkills(n) {
+  if (!n) return [];
+  if (Array.isArray(n.skills) && n.skills.length > 0) return n.skills.filter((s) => typeof s === 'string' && s);
+  return typeof n.skill === 'string' && n.skill ? [n.skill] : [];
 }
 
 /**
@@ -547,21 +681,101 @@ function deriveRulesSkills(ownedKeys, allNotes, servedKeys) {
   const skills = [];
   for (const k of ownedKeys) {
     const note = allNotes.find((n) => n.key === k);
-    const skill = note && note.skill;
-    if (!skill) continue;
-    if (servedKeys.has(skill)) {
-      if (!rules.includes(skill)) rules.push(skill);
-    } else if (!skills.includes(skill)) {
-      skills.push(skill);
+    for (const skill of noteSkills(note)) {
+      if (servedKeys.has(skill)) {
+        if (!rules.includes(skill)) rules.push(skill);
+      } else if (!skills.includes(skill)) {
+        skills.push(skill);
+      }
     }
   }
   return { rules, skills };
 }
 
 /**
+ * The rules a seat works under when its config entry declares no `rules`, by stage output. Used for a declared seat
+ * and for an implicit one alike; every other output has none. A default the server does not serve is dropped silently.
+ */
+export const DEFAULT_SEAT_RULES = {
+  'planner-v1': ['planning-sweeps', 'review-cited-claims'],
+  'review-v1': ['review-cited-claims']
+};
+
+/**
+ * seatRulesFor(declared, output, servedKeys, seatName) -> {rules, degradations}
+ * `declared` is the seat's served `rules` (array) or undefined/null when it declares none: an array is the seat's own
+ * list (`[]` is none), anything else falls back to DEFAULT_SEAT_RULES[output]. A declared key that is not served is left
+ * out and reported as `seat rule <key> not served (<seat>)`; a default that is not served is left out silently.
+ */
+export function seatRulesFor(declared, output, servedKeys, seatName) {
+  const rules = [];
+  const degradations = [];
+  const isDeclared = Array.isArray(declared);
+  const wanted = isDeclared ? declared : (DEFAULT_SEAT_RULES[output] || []);
+  for (const k of wanted) {
+    if (typeof k !== 'string' || rules.includes(k)) continue;
+    if (servedKeys.has(k)) rules.push(k);
+    else if (isDeclared) degradations.push(`seat rule ${k} not served (${seatName})`);
+  }
+  return { rules, degradations };
+}
+
+/** The note-derived rules first, then the seat's rules, deduped with order kept. */
+function mergeRules(noteRules, seatRules) {
+  const out = [...noteRules];
+  for (const k of seatRules) if (!out.includes(k)) out.push(k);
+  return out;
+}
+
+/**
+ * reviewSeatSkillsOf(schema, skillOpts) -> {<lane seat>: [skills]} | null
+ * Over the same lane seats as reviewRulesOf; a seat with no skills is omitted, null when none has any.
+ */
+function reviewSeatSkillsOf(schema, skillOpts) {
+  const out = {};
+  const declaredSeats = schema.seats || [];
+  const seen = new Set();
+  for (const n of schema.notes || []) {
+    if (!n || n.role !== 'review' || n.seat === 'orchestrator') continue;
+    const seat = n.seat || n.reviewer || 'reviewer';
+    if (seen.has(seat)) continue;
+    seen.add(seat);
+    const decl = declaredSeats.find((x) => x.name === seat && x.phase === 'review');
+    const sk = seatSkillsFor(decl ? decl.skills : undefined, seat, skillOpts);
+    if (sk.length) out[seat] = sk;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * reviewRulesOf(schema, servedKeys) -> {reviewRules, degradations}
+ * reviewRules is {<lane seat>: [keys]} over the seats of the schema's review-role notes (the lane seat expression
+ * reviewWaveArgs uses), omitted keys with no rule; the seat's declared `rules` or the review-v1 defaults. null when no lane has one.
+ */
+function reviewRulesOf(schema, servedKeys) {
+  const out = {};
+  const degradations = [];
+  const declaredSeats = schema.seats || [];
+  const seen = new Set();
+  for (const n of schema.notes || []) {
+    if (!n || n.role !== 'review' || n.seat === 'orchestrator') continue;
+    const seat = n.seat || n.reviewer || 'reviewer';
+    if (seen.has(seat)) continue;
+    seen.add(seat);
+    const decl = declaredSeats.find((x) => x.name === seat && x.phase === 'review');
+    const r = seatRulesFor(decl ? decl.rules : undefined, 'review-v1', servedKeys, seat);
+    degradations.push(...r.degradations);
+    if (r.rules.length) out[seat] = r.rules;
+  }
+  return { reviewRules: Object.keys(out).length ? out : null, degradations };
+}
+
+/**
  * deriveStages(candidate, schemaEntry, ctx) -> {stages, orchestratorNotes, unownedRequired,
  *   schemaFree, hasReviewPhase, warnings, degradations, exclude:null|string}
- * ctx = {rulesServed:[{key,rulesVersion}], noteOwners:[{key, seat}]}
+ * ctx = {rulesServed:[{key,rulesVersion}], noteOwners:[{key, seat}], features:[string], seatSkillDefaults}
+ * Seat skills (stage `seatSkills`, result `reviewSeatSkills`) are honoured as declared only when features lists
+ * `seatSkills`; otherwise the defaults table applies. Each is emitted only when non-empty.
  * noteOwners are this item's notes whose owner seat notes_read list reported (owner.seat, shown only
  * when the caller may see attribution); a resumed work seat whose every owned note is owned by that
  * seat is skipped. A note with no owner row never skips a seat.
@@ -572,6 +786,10 @@ function deriveRulesSkills(ownedKeys, allNotes, servedKeys) {
 export function deriveStages(candidate, schemaEntry, ctx = {}) {
   const rulesServed = ctx.rulesServed || [];
   const noteOwners = ctx.noteOwners || [];
+  const skillOpts = {
+    supported: Array.isArray(ctx.features) && ctx.features.includes(SEAT_SKILLS_FEATURE),
+    defaults: ctx.seatSkillDefaults || loadSeatSkillDefaults()
+  };
   const servedKeys = new Set(rulesServed.map((r) => r.key));
   const ownerSeatByKey = new Map(noteOwners.map((n) => [n.key, n.seat]));
   const warnings = [];
@@ -588,6 +806,8 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
       dispatch: resolveDispatch({}, 'implementer', 'work', { enters: true, implicitOwner: true }),
       output: 'implementer-v1'
     };
+    const freeSkills = seatSkillsFor(undefined, 'implementer', skillOpts);
+    if (freeSkills.length) stage.seatSkills = freeSkills;
     warnings.push('/manage-schemas suggestion');
     return {
       stages: [stage],
@@ -691,17 +911,21 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
       }
 
       const rulesSkills = deriveRulesSkills(seatNotes, notes, servedKeys);
+      const seatRules = seatRulesFor(s.rules, output, servedKeys, s.name);
+      degradations.push(...seatRules.degradations);
       const dispatch = resolveDispatch(schema, s.name, s.phase, { enters, implicitOwner: false });
       const stage = {
         seat: s.name,
         phase: s.phase,
         notes: seatNotes,
-        rules: rulesSkills.rules,
+        rules: mergeRules(rulesSkills.rules, seatRules.rules),
         skills: rulesSkills.skills,
         writes,
         dispatch,
         output
       };
+      const seatSkills = seatSkillsFor(s.skills, s.name, skillOpts);
+      if (seatSkills.length) stage.seatSkills = seatSkills;
       const seatOptional = optionalOf(seatNotes, notes);
       if (seatOptional.length) stage.optionalNotes = seatOptional;
       const seatLimits = noteLimitsOf(seatNotes, notes);
@@ -721,16 +945,19 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
         .filter((n) => n.role === 'queue' && !ORCHESTRATOR_OWNED_NOTES.includes(n.key))
         .map((n) => n.key);
       const rulesSkills = deriveRulesSkills(queueNotes, notes, servedKeys);
+      const plannerSeatRules = seatRulesFor(undefined, 'planner-v1', servedKeys, 'planner');
       const plannerStage = {
         seat: 'planner',
         phase: 'queue',
         notes: queueNotes,
-        rules: rulesSkills.rules,
+        rules: mergeRules(rulesSkills.rules, plannerSeatRules.rules),
         skills: rulesSkills.skills,
         writes: false,
         dispatch: resolveDispatch(schema, 'planner', 'queue', { enters: false, implicitOwner: true }),
         output: 'planner-v1'
       };
+      const plannerSkills = seatSkillsFor(undefined, 'planner', skillOpts);
+      if (plannerSkills.length) plannerStage.seatSkills = plannerSkills;
       const plannerOptional = optionalOf(queueNotes, notes);
       if (plannerOptional.length) plannerStage.optionalNotes = plannerOptional;
       const plannerLimits = noteLimitsOf(queueNotes, notes);
@@ -753,6 +980,8 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
       dispatch: resolveDispatch(schema, 'implementer', 'work', { enters: true, implicitOwner: true }),
       output: 'implementer-v1'
     };
+    const implementerSkills = seatSkillsFor(undefined, 'implementer', skillOpts);
+    if (implementerSkills.length) implementerStage.seatSkills = implementerSkills;
     const implementerOptional = optionalOf(workNotes, notes);
     if (implementerOptional.length) implementerStage.optionalNotes = implementerOptional;
     const implementerLimits = noteLimitsOf(workNotes, notes);
@@ -769,12 +998,18 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
     exclude = 'nothing to run';
   }
 
+  const review = hasReviewPhase ? reviewRulesOf(schema, servedKeys) : { reviewRules: null, degradations: [] };
+  degradations.push(...review.degradations);
+  const reviewSeatSkills = hasReviewPhase ? reviewSeatSkillsOf(schema, skillOpts) : null;
+
   return {
     stages,
     orchestratorNotes,
     unownedRequired: [],
     schemaFree: false,
     hasReviewPhase,
+    reviewRules: review.reviewRules,
+    reviewSeatSkills,
     warnings,
     degradations,
     exclude
@@ -1226,6 +1461,8 @@ export function assembleArgs(snap, planned, opts) {
       worktree,
       branch,
       stages: derived.stages || [],
+      ...(derived.reviewRules ? { reviewRules: derived.reviewRules } : {}),
+      ...(derived.reviewSeatSkills ? { reviewSeatSkills: derived.reviewSeatSkills } : {}),
       orchestratorNotes: derived.orchestratorNotes || [],
       unownedRequired: derived.unownedRequired || [],
       carryIns: ciKeys,
@@ -1350,7 +1587,8 @@ export function buildPlanDoc(snap, opts = {}) {
     const schemaEntry = (snap.schemas || {})[c.id];
     derivedById[c.id] = deriveStages(c, schemaEntry, {
       rulesServed: snap.rulesServed || [],
-      noteOwners: (snap.noteOwners || {})[c.id] || []
+      noteOwners: (snap.noteOwners || {})[c.id] || [],
+      features: snap.features || []
     });
   }
 
@@ -1558,6 +1796,9 @@ export function buildPlanDoc(snap, opts = {}) {
       inRunEdges,
       advisoryResources: resourceResult.advisory,
       lateCarryIns: args.items.flatMap((it) => (it.lateCarryIns || []).map((key) => ({ id: it.id, short: it.short, key }))),
+      // The profile's review handoff target and Fail policy, and its declared post-run and post-merge steps.
+      review: normalizeReview(profile.review),
+      postRun: normalizePostRun(profile.postRun),
       // runs_write open inputs: the snapshot's target scope and the profile's opt-in run budget.
       scopeId: snap.ancestorId || null,
       runBudget: profile && profile.runBudget && typeof profile.runBudget === 'object' && !Array.isArray(profile.runBudget)

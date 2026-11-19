@@ -56,7 +56,7 @@ abstract class FullApiWiringSmokeScenarios(
     /** Mirrors CurrentMcpServer's production `/api/v1` registration (same plugins + route order). */
     private fun Application.configureFullApi(repo: DefaultRepositoryProvider) {
         install(ContentNegotiation) { json(McpJson) }
-        install(CORS) { configureCors(appConfig = AppConfig.fromEnv()) }
+        install(CORS) { configureCors(appConfig = AppConfig.fromEnv { null }) }
         install(SSE)
 
         val bus = ApiEventBus()

@@ -81,6 +81,7 @@
                 "optionalNotes": { "type": "array", "items": { "type": "string" } },
                 "rules": { "type": "array", "items": { "type": "string" } },
                 "skills": { "type": "array", "items": { "type": "string" } },
+                "seatSkills": { "type": "array", "items": { "type": "string" } },
                 "writes": { "type": "boolean" },
                 "extraLockKeys": { "type": "array", "items": { "type": "string" } },
                 "dispatch": {

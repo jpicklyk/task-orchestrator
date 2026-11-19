@@ -43,17 +43,21 @@ work_item_schemas:
         description: "..."     # Short label - read with items_read select schema, not in expectedNotes
         guidance: "..."        # Optional - read with items_read select schema and fields ["guidance"]; advance and items_read context return guidanceKey (a reference)
         skill: "security-review" # Optional - example value; a skill to invoke when filling this note (shown as skillPointer)
+        skill_mode: method-on-diff # Optional - with skill: the skill is a method the reviewer applies to the owned diff, not a skill to invoke
         maxLength: 4000         # Optional - max body length (chars); enforced on every note write per note_limits.mode
 
 traits:
 
   needs-security-review:       # Trait name - referenced by default_traits or an item's traits array
+    description: "Changes touching authentication, input handling or secrets"  # Optional - text served to clients; never evaluated
+    applies_when: "the diff changes an auth, parsing or secret-handling path"  # Optional - when a planner should add this trait; text only, never evaluated
     notes:
       - key: security-assessment
         role: review
         required: true
         description: "Security review"
         skill: "security-review"
+        skill_mode: method-on-diff
         guidance: "Evaluate input validation, injection risks, access control..."
     resources:                  # Optional - resources this trait's items need at WORK entry (see below)
       - staging-db               # short form: bare key = mode: exclusive, no ttlSeconds override
@@ -99,7 +103,9 @@ The other top-level keys (`note_limits`, `status_labels`, `independence`, `runs`
 | `required` | no | boolean | Parser defaults to `false` if omitted - **always set explicitly**, since a note you meant to gate on silently becomes optional otherwise. `true` = blocks gate, `false` = shown but not enforced. A `lifecycle: none` schema's notes may not set `true` |
 | `description` | no | string | Parser defaults to `""` if omitted (recommended in practice). Keep under 80 chars - quick label; read with `items_read` `schema`, not in `expectedNotes` |
 | `guidance` | no | string | Project-specific authoring instructions - read with `items_read` `schema` and `fields: ["guidance"]`; `advance` and `items_read` `context` return `guidanceKey` (a reference) |
-| `skill` | no | string | Reusable evaluation framework - shown as `skillPointer` in `items_read` `context` |
+| `skill` | no | string or list | Reusable evaluation framework - shown as `skillPointer` in `items_read` `context`. A list of distinct non-blank strings names several skills in invocation order (an empty list, a non-string or blank element, or a duplicate is an error on push (`STRICT`) and a warning only under `MIGRATION`). `items_read` `schema` serves `skills` when a note names two or more |
+| `skill_mode` | no | string | `invoke` (default) or `method-on-diff`. `method-on-diff` marks the skill as a method the reviewer applies to the item's owned diff; every review lane is given the owned-file diff, and for this mode the plugin's review-wave also tells the reviewer to keep only the findings whose file is owned. A mode without a `skill`, or any other value, is an error on push (`STRICT`) and a warning only under `MIGRATION`, and counts as `invoke`. Served as `skillMode` only when it is `method-on-diff` |
+| `lane` | no | map | Review notes only. `output`: `verdict` (default; the lane counts toward the item verdict) or `findings` (findings only, never changes the verdict). `after`: a note key or list of note keys whose lanes run first - ordering only, never halts or skips; the server checks shape, not that the key exists. `lane` on a non-review note, or an unknown key or value inside it, is an error on push (`STRICT`) and a warning only under `MIGRATION` |
 | `maxLength` | no | integer | Max note body length (chars), at least 1. Enforced on every note write path (`notes_write` `upsert`, including `body` and `bodyFromFile`, and the notes of `items_write` `create_tree`) per top-level `note_limits.mode` |
 | `seat` | no | string | Owning seat; see "Seats" |
 | `independent_of` | no | list | Seats this note's authoring must stay independent of; see "Independence (A2)" |
@@ -129,12 +135,12 @@ slash command):
 - **Plugin-shipped skills** (this plugin's `claude-plugins/task-orchestrator/skills/`) are
   **qualified**: `task-orchestrator:session-retrospective`, `task-orchestrator:work-summary`, etc.
 - **Project-level skills** (`.claude/skills/`) and **Claude Code built-in skills** are **bare**:
-  `review-quality`, `security-review`, `plan`, `review`, etc.
+  the names of project-level or built-in skills, such as `plan` or `review`.
 
 **Watch for built-in name collisions.** A short, generic `skill:` value can silently resolve to
 the wrong built-in instead of your intended framework skill - especially `review` (Claude Code's
 GitHub-PR review skill, not a note-quality framework), and also `plan`, `run`, `init`. If you want
-a review-quality framework, point at the actual framework skill name (e.g. `review-quality`), not
+a review-quality framework, point at the actual framework skill name (e.g. `<your-review-framework>`), not
 the collision-prone generic word. `manage-schemas`'s `validate` operation flags known collisions
 in this set - see `SKILL.md` -> VALIDATE.
 
@@ -143,7 +149,7 @@ in this set - see `SKILL.md` -> VALIDATE.
 A note entry's `skill` pointer doubles as more than a Skill-tool name: when it also names a rule
 key, it is resolvable through the `config` tool's `rules` op (`itemId` + `noteKey`) as client-neutral
 operating-rule TEXT, not just a skill invocation. This is a second, independent consumer of the same
-`skill` field - no new schema field, no config syntax change.
+`skill` field - no new schema field, no config syntax change. A note whose `skill` names a served rule key (for example `skill: closure-notes`) reaches the run-wave seat that owns the note as a rule, on every phase: a review lane lists it with its seat's `rules`, and the note's other skills stay skills, invoked in order.
 
 - **Storage.** Rule text is stored per project root as a `rule` document (`kind: rule`, `slug` = the
   key) with the [`docs_write`](../../../../../current/docs/api-reference.md#docs_write) `upsert` op,
@@ -505,6 +511,19 @@ traits:
           extractor:   { agent: null, model: sonnet, effort: low }   # agent: null CLEARS the phase agent for this seat
 ```
 
+### Trait-level fields (`traits.<name>`)
+
+| Field | Required | Type | Notes |
+|-------|----------|------|-------|
+| `notes` | no | list | Note entries merged into the item's schema (see "Trait Merge Semantics") |
+| `resources` | no | list | Resource requirements; see "Resources" |
+| `dispatch` | no | map | Dispatch profile; see "Dispatch" |
+| `seats` | no | list | Seat entries; see "Seats" |
+| `description` | no | string | What the trait is for. Trimmed; blank is absent; a non-string is dropped, and is an error on push (`STRICT`) and a warning only under `MIGRATION`. Served to clients, never evaluated |
+| `applies_when` | no | string | When the trait applies, in prose. Same handling as `description`. The plugin's create-item skill infers a trait only from this text; a trait without it is never inferred. Never evaluated by the server |
+
+A per-root trait entry replaces the server's entry of the same name as a whole, `description` and `applies_when` included (see "Trait Merge Semantics").
+
 ### Seat-entry fields (`seats[]`, schema-level or trait-level)
 
 | Field | Required | Type | Notes |
@@ -515,6 +534,8 @@ traits:
 | `transitions` | no | list | The triggers other than `start` that a token for this seat may send: `complete`, `block`, `hold`, `resume`, `cancel`, `reopen`. Absent: `block` and `hold`. A non-list or an unknown value rejects a push. See "Seat transitions". |
 | `after` | no | list of strings | Seat names this seat's work logically follows - an ordering **hint**, not enforced by the server. A name outside the declaring scope, or naming a seat in a different phase, is served exactly as declared. |
 | `reads_exclude` | no | list of strings | Note keys this seat should **not** read - a hint powering test-author-style blindness. Parsed and served only; blindness is a process discipline, not a server-side check. Separate from a note entry's own `independent_of`. |
+| `skills` | no | list of strings | Skill names the seat should invoke, served as written. Absent: the plugin's defaults for that seat apply (`hooks/lib/seat-skill-defaults.json`); `[]` declares none. Duplicates collapse; a non-string or blank element is dropped as a parser finding. Existence is not checked and nothing in the server enforces the list |
+| `rules` | no | list of strings | Rule keys the run-wave seat for this seat should be given. Absent: the plugin's defaults apply (planner: `planning-sweeps`, `review-cited-claims`; reviewer: `review-cited-claims`); `[]` declares none. Duplicates collapse; a key that does not match the rule key grammar, or a non-string element, is dropped, and is an error on push (`STRICT`) and a warning only under `MIGRATION`. Existence is not checked, and served only when declared. Never enforced by the server: a declared key the root does not serve is a degradation the run planner reports, while a default rule the root does not serve (no `rules` list declared) is dropped silently |
 
 ### Note-entry fields (on `notes[]`)
 

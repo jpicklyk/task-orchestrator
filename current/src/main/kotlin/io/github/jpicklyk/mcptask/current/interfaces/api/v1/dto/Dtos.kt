@@ -16,7 +16,8 @@ data class ActorClaimDto(
  * DTO for a single note schema entry (one row in a schema or trait definition).
  *
  * `role` is the lowercase phase name ("queue", "work", "review").
- * `skill` is present only when a skill-routing pointer is configured for this entry.
+ * `skill` is present only when a skill-routing pointer is configured for this entry (the first skill when several).
+ * `skills` is present only when the entry names two or more skills; `skillMode` only when it is `method-on-diff`.
  * `maxLength` is present only when a maximum note-body length is configured for this entry.
  */
 @Serializable
@@ -27,6 +28,8 @@ data class NoteSchemaEntryDto(
     val description: String,
     val guidance: String? = null,
     val skill: String? = null,
+    val skills: List<String>? = null,
+    val skillMode: String? = null,
     val maxLength: Int? = null,
     val shared: Boolean? = null,
 )
@@ -61,7 +64,8 @@ data class ResourceRequirementDto(
  *
  * `dispatch` (per-phase routing profiles, keyed by lowercase phase name) and `resources`
  * (declared shared-resource requirements) are omitted (null) when the trait declares neither —
- * never present as an empty map/list.
+ * never present as an empty map/list. `description` and `appliesWhen` (the trait's own text, never
+ * evaluated by the server) are omitted (null) when the trait declares none.
  */
 @Serializable
 data class TraitDto(
@@ -69,6 +73,8 @@ data class TraitDto(
     val notes: List<NoteSchemaEntryDto>,
     val dispatch: Map<String, DispatchProfileDto>? = null,
     val resources: List<ResourceRequirementDto>? = null,
+    val description: String? = null,
+    val appliesWhen: String? = null,
 )
 
 /**

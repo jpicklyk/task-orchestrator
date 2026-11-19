@@ -91,8 +91,9 @@ run per topological layer:
 
 The run plan dispatches the planner-v1, implementer, declarations-extractor and test-author seats
 (Steps 3-4b describe what they do), then runs post-run: verify (ownership, SHAs, the pre-merge
-red-proofs), the notes audit and the batched advance. This repo's `run-profile.json` sets
-`review: "handoff"`: the run stays open, a reviewer seat is assigned per item, and control comes
+red-proofs), the notes audit and the batched advance. This repo's `run-profile.json` sets `review` to
+`{mode: "handoff", skill: "implement", step: "wave.md Step 5", onFail: "stop"}` (`onFail` `stop`: a review
+Fail waits for the user, as Step 5 below already does): the run stays open, a reviewer seat is assigned per item, and control comes
 back to Step 5 here. The run closes after Step 5's verdicts (`post-run.md` Step 5, then Step 7).
 A run already open on the root is resumed instead (`--resume <runId>`, run-wave preflight F7).
 
@@ -316,7 +317,7 @@ merge, step 8):
 1. Fill the parent's `implementation-notes` and `session-tracking` per each note's guidance and
    rule `closure-notes` point 5 - under the coordinator token while the parent is a member of an
    open run; the only re-edits are the ones run-wave `references/post-run.md` Step 3 sanctions, and
-   the step 8 post-merge live acceptance line is written as that file's Step 7b (d) says.
+   the step 8 post-merge live acceptance line is written as rule `live-checks` "Post-merge holder" (d) says.
 2. **No second suite run.** The wave's one whole-suite run is Step 4c's, after the last writer
    commit. If a writer seat committed after it (a fix seat, a merge round), that run was not the
    last writer's, so Step 4c runs again before the PR.
@@ -373,8 +374,9 @@ merge, step 8):
    EOF
    )"
    ```
-7. **Merge gate** - run front door "Merge gate" (green checks, fallback merge, state `MERGED`
-   confirmed) first. Only after the PR is `MERGED`:
+7. **Merge gate** - run front door "Merge gate" (merge method, green checks, fallback merge,
+   state `MERGED` confirmed) first. The method is `--merge` when every branch commit subject is
+   conventional and item-tagged, else `--squash`; the branch is never rebased to qualify. Only after the PR is `MERGED`:
    ```bash
    git checkout main
    git pull origin main

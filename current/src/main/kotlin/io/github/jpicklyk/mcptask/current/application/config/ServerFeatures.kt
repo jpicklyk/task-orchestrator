@@ -10,8 +10,9 @@ package io.github.jpicklyk.mcptask.current.application.config
  * served but was NOT enforced in A1 (A1 non-goals). A2 (independence attestation gate) now
  * enforces it, so `"independent_of"` joins the advertised list (A2-D2 = (a)). `"rules"` advertises
  * per-root rule text served by the `config` tool's `rules` op (A3),
- * so REST-only clients (which cannot see `tools/list`) can detect it too.
+ * so REST-only clients (which cannot see `tools/list`) can detect it too. `"seatSkills"` advertises a seat's `skills`
+ * list in the served `seats` and the `callerSeat` member of `items_read` `context` and `advance` `transition`.
  */
 object ServerFeatures {
-    val ADVERTISED: List<String> = listOf("seats", "dispatchBySeat", "independent_of", "rules")
+    val ADVERTISED: List<String> = listOf("seats", "dispatchBySeat", "independent_of", "rules", "seatSkills")
 }

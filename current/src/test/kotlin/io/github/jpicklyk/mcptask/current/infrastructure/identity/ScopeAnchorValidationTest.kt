@@ -381,7 +381,7 @@ class ScopeAnchorValidationTest {
         )
 
     private fun io.ktor.server.application.Application.installAnchorTestApp() {
-        installMcpStreamableHttp(emptyMcpServer(), appConfig = AppConfig.fromEnv(), mcpAuth = McpAuthMode.Local)
+        installMcpStreamableHttp(emptyMcpServer(), appConfig = AppConfig.fromEnv { null }, mcpAuth = McpAuthMode.Local)
         val repositoryProvider = db.repositoryProvider()
         installRestApiRoutes(
             apiConfig = jwksConfig,
@@ -400,7 +400,7 @@ class ScopeAnchorValidationTest {
                     unitOfWork = db.unitOfWork()
                 ),
             jwksVerifier = verifier(),
-            appConfig = AppConfig.fromEnv()
+            appConfig = AppConfig.fromEnv { null }
         )
     }
 

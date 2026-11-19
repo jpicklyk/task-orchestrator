@@ -64,7 +64,7 @@
             },
             "noteKey": {
               "type": "string",
-              "description": "Note key looked up in itemId's effective schema; its skill field names the rule key. [ops: rules]"
+              "description": "Note key looked up in itemId's effective schema; its first skill names the rule key. [ops: rules]"
             },
             "idempotencyKey": {
               "type": "string",

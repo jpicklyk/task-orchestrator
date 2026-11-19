@@ -40,7 +40,18 @@ class DialectNeutralityTest {
                 "jdbc:sqlite:x.db"
             )
 
-        val R2 = Regex("""datetime\(|julianday|strftime|PRAGMA|\bMATCH\b|randomblob|INSERT OR|sqlite_master|jdbc:sqlite:""")
+        /** R2, case-insensitive: SQLite spells these in any case, so `pragma` and `Strftime` count. */
+        val R2_CI =
+            Regex(
+                """datetime\(|julianday|strftime|\bpragma\b|randomblob|""" +
+                    """\binsert\s+or\s+(?:ignore|replace|abort|fail|rollback)\b|sqlite_master|jdbc:sqlite:""",
+                RegexOption.IGNORE_CASE
+            )
+
+        /** R2, case-sensitive: `MATCH` is the FTS operator; lowercase `match` is ordinary prose. */
+        val R2_MATCH = Regex("""\bMATCH\b""")
+
+        fun isR2(literal: String): Boolean = R2_CI.containsMatchIn(literal) || R2_MATCH.containsMatchIn(literal)
 
         /** True when [path] lies under the SQLite root (trailing slash, so `infrastructure/sqlitex/` is not exempt). */
         fun isExempt(path: String): Boolean = path.startsWith(SQLITE_ROOT)
@@ -130,7 +141,7 @@ class DialectNeutralityTest {
         fun violations(text: String): Int {
             val lexed = lex(text)
             val r1 = lexed.code.lineSequence().count { R1.containsMatchIn(it) }
-            val r2 = lexed.literals.count { R2.containsMatchIn(it) || R1.containsMatchIn(it) }
+            val r2 = lexed.literals.count { isR2(it) || R1.containsMatchIn(it) }
             return r1 + r2
         }
     }
@@ -184,6 +195,16 @@ class DialectNeutralityTest {
         assertEquals(1, violations("val n = \"org.jetbrains.exposed.sql.Table\""))
         assertEquals(0, violations("val n = \"org.sqlitefoo.X\""))
         assertEquals(0, violations("// Class.forName(\"org.sqlite.JDBC\")"))
+    }
+
+    @Test
+    fun `R2 matches dialect tokens in any case but not prose that resembles one`() {
+        listOf("pragma foreign_keys", "insert or replace into t", "Strftime", "DATETIME(x)").forEach {
+            assertEquals(1, violations("val s = \"$it\""), "not flagged: $it")
+        }
+        listOf("pragmatic", "insert or update the row", "a match b").forEach {
+            assertEquals(0, violations("val s = \"$it\""), "wrongly flagged: $it")
+        }
     }
 
     @Test
