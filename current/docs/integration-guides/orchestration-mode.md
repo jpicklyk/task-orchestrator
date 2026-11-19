@@ -199,14 +199,14 @@ A retrospective is owed per completed scope (the item a run is scoped to; bounda
 
 | Mode | What the orchestrator does |
 |------|----------------------------|
-| `nudge` (default) | Surfaces a suggestion to run `/session-retrospective --run <runId>`; the user opts in |
+| `nudge` (default) | Surfaces one suggestion naming every run of the scope in a single `/session-retrospective --run <runId> --run <runId> --session-dir "<folder>"` invocation; the user opts in |
 | `dispatch` | Launches the background retrospective agent the hook specifies, at the next run boundary — one per scope, after the hook wins the claim (the first mark wins, so two sessions never both dispatch). At boundary `run`, a run with fewer terminal members than `minItems` (default 3) still arrives as a nudge |
 | `off` | Nothing |
 
 An item reaching terminal by itself does not trigger anything: the unit is the scope (or, at boundary `run`, the run). In `nudge` mode the suggestion looks like:
 
 ```
-Retrospective suggested — a run closed (run(s): <runId>). Consider running `/session-retrospective --run <runId>` to capture learnings before the session ends.
+Retrospective suggested — a run closed (run(s): <runId>, <runId>). Consider running `/session-retrospective --run <runId> --run <runId> --session-dir "<folder>"` to capture learnings before the session ends.
 ```
 
 See [config-format.md → Retrospective](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#retrospective) for the full field reference and [Self-Improving Workflow](self-improving-workflow.md) for what the retrospective does with it.

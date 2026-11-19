@@ -275,13 +275,13 @@ Loops 1 and 2 fire continuously during work. Loop 3 fires at session boundaries,
 
 ### When It Runs
 
-A retrospective is owed **per closed run** that has no `retro` mark. Two trigger paths:
+A retrospective is owed **per completed scope** (boundary `scope`, the default) or **per closed run** without a `retro` mark (boundary `run`). Two trigger paths:
 
 1. **Manual** — user invokes `/session-retrospective`, optionally with a root item UUID or `--run <runId>`. `--run` takes the run's members from its ended seats and frontier, and wins over a root UUID.
 2. **Hook-driven** — closing a run (`runs_write` `close`) fires `retro-trigger`; `retro-backstop` runs the same check at `Stop`, so a run closed in another session or by a subagent is still found. At the default boundary `scope` one retrospective fires per completed scope (covering every run of it, fix-cycle runs included) and a low-signal scope is skipped by the hook at zero model tokens; at boundary `run` one fires per closed run still unmarked `retro`. The first `runs_write` `mark` wins, so two sessions never both dispatch. In the default `nudge` mode the orchestrator is told to suggest it:
 
 ```
-Retrospective suggested — a run closed (run(s): <runId>). Consider running `/session-retrospective --run <runId>` to capture learnings before the session ends.
+Retrospective suggested — a run closed (run(s): <runId>, <runId>). Consider running `/session-retrospective --run <runId> --run <runId> --session-dir "<folder>"` to capture learnings before the session ends.
 ```
 
 In `nudge` mode the suggestion names each closed, unmarked run and the user opts in. With `retrospective.mode: dispatch`, the hook instead wins the claim mark (`retro-claim` at the scope boundary, `retro` at the run boundary) and directs the orchestrator to launch the retrospective as a background agent at the next run boundary (at boundary `run`, once the run has at least `minItems` terminal members; below that it nudges) — see option 6b under [Setup](#setup) for the modes. Work that ran outside a run (an item advanced by hand) has no close to trigger on: run `/session-retrospective` yourself.
@@ -541,11 +541,11 @@ Place the file in `~/.claude/output-styles/` (a personal style is still a valid 
 ## Retrospective Nudge
 
 When a run closes, or a retrospective nudge or dispatch directive arrives from the plugin's
-hooks, suggest `/session-retrospective --run <runId>` once per run:
+hooks, suggest `/session-retrospective --run <runId>` once per scope:
 
   ↳ Run closed. Consider running `/session-retrospective --run <runId>` to capture learnings.
 
-Do not auto-invoke. Show at most once per run.
+Do not auto-invoke. Show at most once per scope.
 ```
 
 This relies on the agent noticing the run close and remembering to nudge. Soft signal, no infrastructure.
@@ -558,7 +558,7 @@ This relies on the agent noticing the run close and remembering to nudge. Soft s
 | `retro-backstop.mjs` | Stop | End-of-turn backstop: finds completed scopes (or closed, unmarked runs) so a close is never silently missed; retries a failed dispatch |
 | `retro-subagent-stop.mjs` | SubagentStop | Marks a dispatched retrospective that stopped without the `retro` mark as failed, so the next Stop retries it |
 
-Both are registered automatically via the plugin's `hooks-config.json` — there is nothing to copy into `.claude/hooks/` and no `.claude/settings.json` wiring to add. Enabling the plugin (see [Claude Code Plugin Discovery](../../../CLAUDE.md#claude-code-plugin-discovery) in the repo root `CLAUDE.md`) is enough.
+All three are registered automatically via the plugin's `hooks-config.json` — there is nothing to copy into `.claude/hooks/` and no `.claude/settings.json` wiring to add. Enabling the plugin (see [Claude Code Plugin Discovery](../../../CLAUDE.md#claude-code-plugin-discovery) in the repo root `CLAUDE.md`) is enough.
 
 Behavior is configured per workspace via `retrospective.mode` under `extensions.claude-code` in `.taskorchestrator/config.yaml`: `nudge` (default, prints the suggestion) | `dispatch` (directs a background `/session-retrospective` automatically) | `off` (disabled). See [config-format.md → Retrospective](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#retrospective) for the full field reference; edits to `retrospective.mode` take effect on the next hook trigger, no `/mcp` reconnect needed.
 

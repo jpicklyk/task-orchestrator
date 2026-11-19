@@ -251,6 +251,8 @@ A call that carries a non-empty top-level `seatToken` belongs to a run seat and 
 
 **What it does:** the same evaluation as Retro Trigger (the scope or the run boundary, per config), so a run closed elsewhere (another session, a subagent, a tool the trigger never saw) still gets its retrospective: with a REST API URL and a project `rootId` it may dispatch (after winning the `retro` mark) as well as nudge, and the output is a `block` decision. Without REST it nudges once per session, only about closes the trigger recorded in this session, and never marks or dispatches. In a director session it applies the same director rule as Retro Trigger: the directive is always the dispatch form. At the scope boundary this Stop pass is also where a failed or dead dispatch is retried, a second failure is given up with one nudge, and an abandoned scope (not terminal, no run for 7 days) is dispatched with a `[stale]` title.
 
+**Inert when:** the session is a headless iteration, `retrospective.mode` is `off`, or `stop_hook_active` is set. It is not gated by subagent or director status.
+
 ### Retro Subagent Stop
 
 **Script:** `retro-subagent-stop.mjs`. **Event:** `SubagentStop`, a second command beside Phase Guard.
@@ -258,8 +260,6 @@ A call that carries a non-empty top-level `seatToken` belongs to a run seat and 
 **What it does:** with the scope boundary and dispatch claims in the session's retro state, a stopping subagent makes it read each claim's anchor run. A `retro` mark drops the claim; no mark, with a transcript (`agent_transcript_path`, first 256 KB) that holds `/session-retrospective` and the anchor run id, marks the claim failed, so the next Stop retries at once. It never writes to the server and always answers `{}`.
 
 **Inert when:** the session is a headless iteration, `retrospective.mode` is `off`, the boundary is `run`, there is no REST API URL or project `rootId`, or the state holds no claim.
-
-**Inert when:** the session is a headless iteration, `retrospective.mode` is `off`, or `stop_hook_active` is set. It is not gated by subagent or director status.
 
 ### Director Guard
 
