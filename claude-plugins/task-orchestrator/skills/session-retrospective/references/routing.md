@@ -69,23 +69,26 @@ Only `create`, `update`, note upserts, `cancel` and `reopen` touch a trend, neve
 
 Step 5e runs after 5d and before Step 6, with no session threshold: a defect is routed on its first sighting. Defects come from the metrics `defects[]` (each has a `fingerprint`) and from `defect`-kind findings without one.
 
-**Dedup.** With a fingerprint, search unscoped for it; else search the key nouns or `<tool> <code>` with `tags: ["bug"]`. Drop terminal hits from the open-match test.
+**Dedup.** Two unscoped searches, each over open items (drop terminal hits): the fingerprint when the finding has one, and the key nouns or `<tool> <code>` with `tags: ["bug"]`, because a hand-filed `[bug]` observation carries no `Fingerprint:` line. A hit on either is a match.
 
 ```to-call
 {"tool": "items_read", "select": "search", "args": {"query": "<fingerprint>", "kinds": ["item"], "matchMode": "substring", "limit": 10}}
 ```
 
-- **Defect from an input observation** (an `agent-observation` read in Step 1 already records it): create nothing; the action is `existing <short>`.
-- **Open match:** upsert `evidence-<YYYY-MM-DD>-<retro8>` (role `work`) on it.
-- **Only terminal matches:** create a new item whose description starts `Regression of <short>` (shape below).
-- **No match, scope `product` or `global-process`:** one `create_tree`, an `agent-observation` with no parent:
-
 ```to-call
-{"tool": "items_write", "op": "create_tree", "args": {"root": {"title": "[bug] <tool> <op>: <code> - <message, at most 80 chars>", "type": "agent-observation", "priority": "low", "tags": ["agent-observation", "bug", "retro-reported"], "description": "Fingerprint: <fp>\n<what the retrospective saw: items, run, count>"}, "notes": [{"itemRef": "root", "key": "observation-detail", "role": "queue", "body": "<tool, op, code, message; the items that hit it; the run; what a fix must change>"}]}}
+{"tool": "items_read", "select": "search", "args": {"query": "<tool> <code>", "kinds": ["item"], "tags": ["bug"], "matchMode": "substring", "limit": 10}}
 ```
 
-  Line 1 of the description is `Fingerprint: <fp>` when the finding has one, and is omitted otherwise. The three tags are always set: `retro-reported` is what keeps a later retrospective from reading the item as a new input.
-- **No match, scope `project`:** check whether the root declares `bug-fix`:
+- **Defect from an input observation** (an `agent-observation` read in Step 1 already records it): create nothing; the action is `existing <short>`.
+- **Open match:** upsert `evidence-<YYYY-MM-DD>-<retro8>` (role `work`) on it.
+- **Only terminal matches, or no match:** create a new item. Its description is `Fingerprint: <fp>` on line 1 (omitted when the finding has none), for a regression `Regression of <short>` on the next line, then what the retrospective saw (items, run, count). The three tags are always set: `retro-reported` is what keeps a later retrospective from reading the item as a new input. The `observation-detail` note holds the tool, op, code and message, the items that hit it, the run, what a fix must change and, for a regression, the earlier item.
+- **Scope `product` or `global-process`:** one `create_tree`, an `agent-observation` with no parent:
+
+```to-call
+{"tool": "items_write", "op": "create_tree", "args": {"root": {"title": "[bug] <tool> <op>: <code> - <message, at most 80 chars>", "type": "agent-observation", "priority": "low", "tags": ["agent-observation", "bug", "retro-reported"], "description": "Fingerprint: <fp>\n[Regression of <short>\n]<what the retrospective saw: items, run, count>"}, "notes": [{"itemRef": "root", "key": "observation-detail", "role": "queue", "body": "<tool, op, code, message; the items that hit it; the run; what a fix must change; [the earlier item]>"}]}}
+```
+
+- **Scope `project`:** check whether the root declares `bug-fix`:
 
 ```to-call
 {"tool": "items_read", "select": "schema", "args": {"type": "bug-fix", "rootId": "<rootId>"}}

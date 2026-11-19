@@ -96,7 +96,7 @@ function runEndedOutput(data, toolInput, state, statePath, opts) {
   if (state.retro.includes(runId)) return {};
   const mode = typeof opts.retroMode === 'string' ? opts.retroMode : parseRetrospectiveConfig(locate().text).mode;
   if (mode !== 'nudge' && mode !== 'dispatch') return {};
-  const text = buildDispatch([runId], dispatchAncestorId(locate()), undefined, { transcriptPath: opts.transcriptPath });
+  const text = buildDispatch([runId], dispatchAncestorId(locate()), undefined, { transcriptPath: opts.transcriptPath, director: true });
   state.retro.push(runId);
   writeState(statePath, state);
   return contextOutput('PostToolUse', text);

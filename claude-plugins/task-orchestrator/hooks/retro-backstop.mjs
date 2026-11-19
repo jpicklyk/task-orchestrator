@@ -76,7 +76,7 @@ try {
   if (!state.sawClose || state.backstopNudged) emitEmpty();
   state.backstopNudged = true;
   writeSessionState(sessionId, state);
-  emitBlock(director ? buildDispatch(state.closes, dispatchAncestorId(located), undefined, { transcriptPath: hookInput.transcript_path }) : buildNudge(state.closes, { transcriptPath: hookInput.transcript_path }));
+  emitBlock(director ? buildDispatch(state.closes, dispatchAncestorId(located), undefined, { transcriptPath: hookInput.transcript_path, director: true }) : buildNudge(state.closes, { transcriptPath: hookInput.transcript_path }));
 } catch {
   emitEmpty();
 }

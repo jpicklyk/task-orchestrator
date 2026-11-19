@@ -31,7 +31,7 @@ Gate loop, before every `advance`: read the gate (`items_read` `context`), fill 
 
 **Items.** Per `--run`: `runs_read` `get` (`rootId`, `scopeId`, `marks`), `seats` (`ended: true`) and `frontier`. Members are the distinct seat `itemId`s plus the frontier's `waiting` and `inFlight` ids, deduplicated on 8 hex characters; with none, the `scopeId` overview. A root UUID is the whole scope (`items_read` `list`, `ancestorId`, `limit: 200`). With neither, list `role: terminal` items modified in the last 24h under the project root (`## Project Scope` or `project.rootId`), else unscoped.
 
-**Run marks.** `Run marks: <run8> <keys>` goes in `session-metrics`; `retro-retry` or `retro-failed` is a friction finding, `retro-skipped` reads "triaged low-signal". A `scopeId` other than the root whose item is not terminal is a **stale** run: title `[stale] Retrospective - ...`, header `Stale: scope <8hex> never completed - not a delivery review`; 3d reads its unfinished items as abandoned.
+**Run marks.** `Run marks: <run8> <keys>` goes in `session-metrics`; `retro-retry` or `retro-failed` is a friction finding, `retro-skipped` reads "triaged low-signal". A run is **stale** only when the dispatch directive says its scope never completed or, for a manual run, when its `scopeId` item is not terminal, `runs_read` `list` (`rootId`) shows no open or paused run with that `scopeId` and its newest run closed over 7 days ago; a scope merely not terminal yet is not stale. A stale run's title is `[stale] Retrospective - ...`, its header `Stale: scope <8hex> never completed - not a delivery review`; 3d reads its unfinished items as abandoned.
 
 **Notes.** Per item (at most 20) `get` `session-tracking` only (delegation figures come from `delegations[]`). Defect-bearing inputs:
 
@@ -56,7 +56,7 @@ Score five dimensions, rules in [`references/evaluation.md`](references/evaluati
 
 ## Step 4 - Trend Memory
 
-Global trends sit under the process-global `Retrospective Trends` container (found, like the other two containers, by unscoped `items_read` `search`); a project's under its own `Retrospective Trends` container, tagged `project-<root8>`. No container and `memory/retrospectives.md` holds `- <kebab-key>: ...` lines: run [`references/legacy-trend-migration.md`](references/legacy-trend-migration.md) first; neither: every finding is a new baseline. Otherwise list the global trends and, with a project root, the project trends (`Sessions: N` in each summary): a `project` finding matches only the project list, any other only the global list. Lists and matching: [`references/routing.md`](references/routing.md).
+Global trends sit under the process-global `Retrospective Trends` container, a depth-0 root item (found, like the other two containers, by unscoped `items_read` `search` for the exact title, keeping only the hit with no parent); a project's under its own `Retrospective Trends` container, tagged `project-<root8>`. No container and `memory/retrospectives.md` holds `- <kebab-key>: ...` lines: run [`references/legacy-trend-migration.md`](references/legacy-trend-migration.md) first; neither: every finding is a new baseline. Otherwise list the global trends and, with a project root, the project trends (`Sessions: N` in each summary): a `project` finding matches only the project list, any other only the global list. Lists and matching: [`references/routing.md`](references/routing.md).
 
 ## Step 5 - Persist
 
@@ -72,13 +72,13 @@ Global trends sit under the process-global `Retrospective Trends` container (fou
 
 ## Step 6 - Update Trends
 
-Recurrence: upsert `evidence-<YYYY-MM-DD>-<retro-short-id>` (role `work`), update the trend `summary` (`Sessions: N+1`). New: create `trend: <kebab-key> - <one-line claim>` (`type: "retrospective-trend"`, `priority: "low"`) under its scope's container, with a first evidence note. `<dimension>` is one of `schema-effectiveness | delegation | note-quality | plan-to-execution | friction | extension-candidate`; add `positive` for a positive pattern and `project-<root8>` for a project trend. Standing trends, defect evidence, retire and graduation: [`references/routing.md`](references/routing.md).
+Recurrence: upsert `evidence-<YYYY-MM-DD>-<retro-short-id>` (role `work`), update the trend `summary` (`Sessions: N+1`). New: create `trend: <kebab-key> - <one-line claim>` (`type: "retrospective-trend"`, `tags: ["retrospective-trend", "<dimension>"]`, `priority: "low"`) under its scope's container, with a first evidence note. `<dimension>` is one of `schema-effectiveness | delegation | note-quality | plan-to-execution | friction | extension-candidate`; add `positive` for a positive pattern and `project-<root8>` for a project trend. Standing trends, defect evidence, retire and graduation: [`references/routing.md`](references/routing.md).
 
 ## Step 7 - Proposals
 
 For each trend touched in Step 6 with **Sessions >= 2** (a standing trend only when this run raised a finding and an earlier evidence note recorded one):
 
-**7a** Find or create the `Improvement Proposals` container.
+**7a** Find or create the `Improvement Proposals` root item (unscoped, as 5a).
 
 ### 7b. Create proposal items
 Scope is its trend's: a `project-*` tag is project scope, any other trend global. Create the item (`type: "improvement-proposal"`, `tags: ["improvement-proposal"]`, `priority: "low"`, title `Proposal: <concrete change>`) under the 7a container (project scope: the per-project container, [`references/routing.md`](references/routing.md)). Fill its `proposal` note straight after the create, or `review-proposals` is gate-blocked:

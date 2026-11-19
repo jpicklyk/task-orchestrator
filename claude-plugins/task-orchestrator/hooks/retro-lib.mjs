@@ -607,9 +607,9 @@ export function directiveFor(result, located, { director = false, transcriptPath
   const parts = [];
   if (director) {
     const runs = [...result.won, ...result.nudge];
-    if (runs.length > 0) parts.push(buildDispatch(runs, dispatchAncestorId(located), result.fixCycle, { transcriptPath, stale }));
+    if (runs.length > 0) parts.push(buildDispatch(runs, dispatchAncestorId(located), result.fixCycle, { transcriptPath, stale, director }));
   } else {
-    if (result.won.length > 0) parts.push(buildDispatch(result.won, dispatchAncestorId(located), result.fixCycle, { transcriptPath, stale }));
+    if (result.won.length > 0) parts.push(buildDispatch(result.won, dispatchAncestorId(located), result.fixCycle, { transcriptPath, stale, director }));
     else if (result.nudge.length > 0) parts.push(buildNudge(result.nudge, { transcriptPath }));
   }
   if (failed.length > 0) parts.push(buildNudge(failed, { transcriptPath, failed: true }));
@@ -702,6 +702,7 @@ export function buildNudge(runIds, opts = {}) {
 /**
  * fixCycle ({[runId]: baseRunLabel}, optional): runs in `runIds` that are fix-cycle runs. Their
  * retrospective reports the base run's whole failure loop, so the directive names each base run.
+ * opts.director: the caller is a director session; memory: lines are relayed, not saved.
  * opts.stale: the scope ids (an array; a string or `true` also reads) of scopes that never completed.
  */
 export function buildDispatch(runIds, ancestorId, fixCycle, opts = {}) {
@@ -719,11 +720,15 @@ export function buildDispatch(runIds, ancestorId, fixCycle, opts = {}) {
   const staleNote = isPlain(opts) && (staleIds.length > 0 || opts.stale === true || (typeof opts.stale === 'string' && opts.stale !== ''))
     ? `Scope(s) ${staleIds.length > 0 ? staleIds.join(', ') : typeof opts.stale === 'string' ? opts.stale.slice(0, 8) : 'unknown'} never completed: start the retrospective title with [stale]. `
     : '';
+  // A director session cannot write memory files (director-guard denies Write and Edit): it relays the lines instead.
+  const memoryNote = isPlain(opts) && opts.director === true
+    ? 'relay each memory: line of its result in your report to the user (this session cannot write memory files). '
+    : 'save each memory: line of its result to your memory. ';
   return `Retrospective dispatch (mode: dispatch). Run ${list.join(', ')} closed. ${loopNote}${staleNote}` +
     `This directive is durable — act on it at the next run boundary: if background tasks or subagents ` +
     `are still running, hold it and dispatch only after the last of them completes and its results are ` +
     `processed. If further dispatch directives arrive while holding, merge them: dispatch ONE retrospective ` +
-    `covering the union of their runs, with the description of the first run of the union and the session folder. When it returns, save each memory: line of its result to your memory. Dispatch exactly ONE background retrospective via the Agent tool: ` +
+    `covering the union of their runs, with the description of the first run of the union and the session folder. When it returns, ${memoryNote}Dispatch exactly ONE background retrospective via the Agent tool: ` +
     `subagent_type "general-purpose", description "retrospective:${run8}", model "${model}", effort "${effort}", run_in_background true, prompt: invoke ` +
     `${invoke}, project ancestorId ${ancestor}, work ONLY from durable MCP ` +
     `state (session-tracking + delegation-metadata notes, schema config, agent-observation items — no ` +

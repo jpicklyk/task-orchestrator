@@ -228,6 +228,7 @@ test('S12: retro mode off yields {}; nudge mode is treated as dispatch in a dire
   assert.ok(nudge.includes('run-1'), nudge)
   const dispatch = ctxOf(await run(input(), {}, opts({ retroMode: 'dispatch' })))
   assert.ok(!dispatch.includes('Retrospective suggested'), dispatch)
+  assert.ok(dispatch.includes('relay each memory: line') && !dispatch.includes('save each memory'), 'a director relays memory lines, it cannot write them')
 })
 
 test('S12: a get on a run for a non-director, subagent or headless session yields {}', async () => {

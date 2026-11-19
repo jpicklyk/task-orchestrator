@@ -289,8 +289,63 @@ test('W2-AC9: the defect form is taught at every Friction-form site', () => {
   }
 })
 
-test('W2-AC10: SKILL.md stays at most 230 lines and 12800 bytes', () => {
+test('W2-AC10: SKILL.md stays at most 250 lines and 14000 bytes', () => {
   const lines = SKILL_RAW.split('\n').length - (SKILL_RAW.endsWith('\n') ? 1 : 0)
-  assert.ok(lines <= 230, 'lines: ' + lines)
-  assert.ok(Buffer.byteLength(SKILL_RAW, 'utf8') <= 12800, 'bytes')
+  assert.ok(lines <= 250, 'lines: ' + lines)
+  assert.ok(Buffer.byteLength(SKILL_RAW, 'utf8') <= 14000, 'bytes')
+})
+
+// -- W2 fix cycle A1: findings B1 and O1-O5 ------------------------------------------------------------
+
+test('W2-B1: a scope merely not terminal yet is not stale; a manual run is stale only when abandoned (7 days, no live run)', () => {
+  const marks = SKILL.split('\n').find((l) => l.startsWith('**Run marks.**'))
+  assert.ok(marks, 'the Run marks paragraph exists')
+  assert.match(marks, /scope merely not terminal yet is not stale/)
+  assert.match(marks, /dispatch directive says its scope never completed/)
+  assert.match(marks, /no open or paused run with that `scopeId`/)
+  assert.match(marks, /closed over 7 days ago/)
+  assert.equal(/other than the root whose item is not terminal/.test(SKILL), false, 'the in-flight-scope rule is gone')
+  assert.match(EVALUATION, /never one merely still in flight/)
+})
+
+test('W2-O1: a fingerprinted defect is also searched by keywords among open bug observations', () => {
+  const dedup = section(ROUTING, /^## Defect routing$/m)
+  const fence = String.fromCharCode(96).repeat(3)
+  const searches = dedup.split(fence).filter((b) => b.startsWith('to-call') && b.includes('"select": "search"'))
+  assert.equal(searches.length, 2, 'two search calls')
+  assert.ok(searches.some((b) => b.includes('<fingerprint>')), 'fingerprint search')
+  assert.ok(searches.some((b) => b.includes('"tags": ["bug"]') && !b.includes('<fingerprint>')), 'keyword search tagged bug')
+  assert.match(dedup, /hand-filed .\[bug\]. observation carries no .Fingerprint:. line/)
+})
+
+test('W2-O2: the regression description and the create shape agree', () => {
+  const sec = section(ROUTING, /^## Defect routing$/m)
+  assert.equal(/description starts .Regression of/.test(sec), false, 'no description that starts with Regression')
+  assert.match(sec, /.Fingerprint: <fp>. on line 1[^\n]*.Regression of <short>. on the next line/)
+  assert.ok(sec.includes('"description": "Fingerprint: <fp>\\n[Regression of <short>\\n]'), 'the create call carries the regression line')
+})
+
+test('W2-O3: the global container searches keep the depth-0 root-item qualifier', () => {
+  assert.match(section(SKILL, /^## Step 4\b[^\n]*$/m), /depth-0 root item[^\n]*no parent/)
+  assert.match(SKILL, /\*\*7a\*\* Find or create the .Improvement Proposals. root item \(unscoped, as 5a\)/)
+  assert.match(SKILL, /\*\*5a\*\* Find the .Session Retrospectives. root item/)
+})
+
+test('W2-O4: Step 6 new-trend creation sets the retrospective-trend and dimension tags', () => {
+  const s6 = section(SKILL, /^## Step 6\b[^\n]*$/m)
+  assert.match(s6, /tags: \["retrospective-trend", "<dimension>"\]/)
+})
+
+test('W2-O5: a director session is told to relay memory lines, a non-director to save them', async () => {
+  const { buildDispatch, directiveFor } = await import(pathToFileURL(join(PLUGIN, 'hooks', 'retro-lib.mjs')).href)
+  const dir = buildDispatch(['r-aaa'], 'root-1', undefined, { director: true })
+  assert.ok(dir.includes('relay each memory: line'))
+  assert.equal(dir.includes('save each memory: line'), false)
+  assert.ok(dir.includes('any memory: lines'))
+  const plain = buildDispatch(['r-aaa'], 'root-1')
+  assert.ok(plain.includes('save each memory: line'))
+  assert.equal(plain.includes('relay each memory'), false)
+  const result = { won: ['r-aaa'], nudge: [], failed: [], stale: [], fixCycle: {} }
+  assert.ok(directiveFor(result, null, { director: true }).includes('relay each memory: line'))
+  assert.ok(directiveFor(result, null, {}).includes('save each memory: line'))
 })
