@@ -2,7 +2,7 @@
 
 Report on the quality of the schemas in `.taskorchestrator/config.yaml`, then propose one config diff. The audit reports and never decides: every finding is a point to consider, never an error, and it does not move text from guidance into a skill, write a skill, or change anything without the user's yes. A finding that depends on a process choice states the observation and proposes nothing unless the user names the choice; the closing question (see Report) is where the user names it.
 
-Run the stages in order and collect every finding before reporting. A stage that cannot run says so in one line and the audit goes on. A stage cannot run only for a condition its own section names; the effort of a call or the length of the text to pass is never one.
+Run the stages in order and collect every finding before reporting. A stage that cannot run says so in one line and the audit goes on. A stage cannot run only for a condition its own section names; the effort of making a call is never one.
 
 ## Stage 1 - Server (lint)
 
