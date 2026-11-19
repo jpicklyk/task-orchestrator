@@ -1,32 +1,19 @@
-# Forbidden Test Patterns — Before/After Examples
+# Forbidden Test Patterns - Kotlin Examples for This Codebase
 
-Companion to the served rule `forbidden-test-patterns` (its claude section points here), alongside
-`SKILL.md` section 7. Each pattern below is shown as it actually recurred in
-this codebase's history (paraphrased to the general shape, not copy-pasted from a specific commit)
-alongside the fix. Use these as the concrete shape to watch for when writing or reviewing tests
-under the `needs-test-author` trait — declaring a pattern in `test-manifest` means recognizing it
-looks like this, not just recognizing the pattern's name.
-
-All examples are Kotlin/JUnit5, matching this codebase's test conventions
-(`current/src/test/kotlin/...`).
-
-Every type, function and constant named in these examples is declared in `current/src` at HEAD
-(`WorkItem`, `ClaimState`, `RrfFusion`, `etagForVersion`, `AdvanceService`, `WorkItemRepository`,
-`ItemsReadTool`); local helper names (`seedItem`, `advanceService`) stand for the test's own setup.
-Use the declarations block for the exact signatures.
+The pattern definitions are in the shipped `test-authoring` skill's `references/forbidden-patterns.md`
+(sections 1-6 there carry the same numbers as below) and in the served rule `forbidden-test-patterns`.
+This file holds only the Kotlin/JUnit 5/MockK before and after blocks for this codebase's test
+conventions (`current/src/test/kotlin/...`). Every type, function and constant named is declared in
+`current/src`; local helper names (`seedItem`, `advanceService`) stand for the test's own setup.
+Use the declarations block for exact signatures.
 
 ---
 
-## 1. `assumeTrue` on Non-Platform Conditions
+## 1. Skip guard on a behavioural condition
 
-`assumeTrue` (and `org.junit.jupiter.api.Assumptions`) exists to skip a test on an environment it
-structurally cannot run in - a Windows-only path test on CI running Linux, a test requiring a
-service that isn't provisioned locally. Using it to guard a *behavioral* precondition converts a
-would-be failure into a silent, permanently-green skip. Three real production bugs in this
-codebase's history shipped wrapped exactly this way - the test that would have caught each one
-never ran red, because it never ran at all.
+Definition: shipped `references/forbidden-patterns.md` section 1.
 
-**Before - behavioral condition disguised as an environment guard:**
+**Before:**
 
 ```kotlin
 @Test
@@ -42,11 +29,7 @@ fun `an expired claim is not active`() {
 }
 ```
 
-If `claimedItem` ever regresses and stops populating the claim fields, this test silently stops
-running instead of failing - the exact failure mode that let a claim-expiry bug ship unnoticed.
-
-**After - the precondition is asserted, not assumed away; a genuine platform guard (if any) is
-separate and clearly labeled:**
+**After:**
 
 ```kotlin
 @Test
@@ -66,17 +49,11 @@ fun `UNC path resolves against the configured share`() {
 }
 ```
 
-`checkNotNull` fails loudly if the setup invariant breaks, instead of quietly removing the test
-from the suite. The platform-specific test uses `@EnabledOnOs`, JUnit5's actual mechanism for
-environment gating, so it's visually distinct from a behavioral assumption.
-
 ---
 
-## 2. Disjunctive Escapes
+## 2. Disjunctive escape
 
-An assertion with an `||` branch that treats "the operation did nothing" as an acceptable
-alternative to "the operation produced the intended result" passes identically whether the
-feature works or is a no-op.
+Definition: shipped `references/forbidden-patterns.md` section 2.
 
 **Before:**
 
@@ -90,12 +67,7 @@ fun `items_read search returns the matching item for a matching query`() {
 }
 ```
 
-That assertion is a tautology - `isNotEmpty() || isEmpty()` is true of every possible list. Even
-a narrower version, `hits.any { it.contains("auth") } || hits.isEmpty()`, still passes if the
-search returns nothing at all, which is precisely the failure mode a search feature test needs to
-catch.
-
-**After - the oracle states what must be true, with no no-op escape hatch:**
+**After:**
 
 ```kotlin
 @Test
@@ -109,20 +81,13 @@ fun `items_read search returns the matching item for a matching query`() {
 }
 ```
 
-If a genuine "no results" scenario needs coverage, it gets its own scenario with its own oracle
-(`assertTrue(searchTitles("zzz-no-such-term").isEmpty())` against seed data with no match) - never
-folded into the positive case as an alternate acceptable outcome.
-
 ---
 
-## 3. Oracle-From-Implementation
+## 3. Oracle from the implementation
 
-The test's expected value was read from the implementation under test - either by literally
-calling into the same formula, or by running the code once and pasting whatever it returned.
-Either way, the test now verifies "the code agrees with itself," which stays green even if the
-formula or the pasted value is wrong.
+Definition: shipped `references/forbidden-patterns.md` section 3.
 
-**Before - the test recomputes the same formula the implementation uses:**
+**Before:**
 
 ```kotlin
 @Test
@@ -136,13 +101,7 @@ fun `RrfFusion scores rank 1 higher than rank 2`() {
 }
 ```
 
-If `RrfFusion.score`'s formula were wrong - say, `k - rank` instead of `k + rank` - this test
-would still pass, because the test derived its expectation from the same (wrong) formula rather
-than from the Reciprocal Rank Fusion definition the formula is supposed to implement.
-
-**After - the oracle is the documented algorithm (Reciprocal Rank Fusion, standard IR technique:
-`score = 1/(k + rank)`, cited independently of this codebase), computed by hand for a fixed input,
-not read from the function under test:**
+**After:**
 
 ```kotlin
 @Test
@@ -158,12 +117,7 @@ fun `RrfFusion scores rank 1 higher than rank 2`() {
 }
 ```
 
-The literal expected values were computed outside the codebase (a calculator, or a second
-implementation) - not by calling `RrfFusion.score` and copying its output.
-
-**A second shape of the same failure - tautological self-computation of a derived value**, seen
-in ETag-style ("compute a value from a version, then assert the computed value equals itself")
-tests:
+**Second shape, before and after:**
 
 ```kotlin
 // Before - asserts the function agrees with itself
@@ -183,17 +137,11 @@ fun `etagForVersion produces a quoted version tag`() {
 }
 ```
 
-The tell in both cases: if you can write the assertion without ever opening the file under test,
-it's a real oracle. If writing the assertion requires reading the function's own source, it's
-oracle-from-implementation.
-
 ---
 
-## 4. Assert-Not-Null-Only
+## 4. Presence-only assertion
 
-`assertNotNull(result)`, `result != null`, or `list.isNotEmpty()` standing in for a check of the
-actual value, size, or content leaves a wrong-but-present result indistinguishable from a
-correct one.
+Definition: shipped `references/forbidden-patterns.md` section 4.
 
 **Before:**
 
@@ -206,9 +154,6 @@ fun `items_read context returns the resolved schema for an item with traits`() {
     assertTrue(context.getValue("schema").jsonArray.isNotEmpty())
 }
 ```
-
-This passes if `schema` contains the wrong notes, the wrong roles, or the base schema notes with
-the trait notes silently missing - anything non-empty satisfies it.
 
 **After:**
 
@@ -228,16 +173,11 @@ fun `items_read context returns the resolved schema for an item with traits`() {
 }
 ```
 
-The tool under test is `ItemsReadTool` (`select` `context`); the wire shape is the tool's own
-`describe: true` schema, not a guess.
-
 ---
 
-## 5. Mock-Order-Only Verification
+## 5. Order-only verification of mocks
 
-Every collaborator mocked, and the only assertion is that calls happened in some order - nothing
-is asserted about the unit's actual output or resulting state. This confirms the code path was
-taken, not that it produced a correct result.
+Definition: shipped `references/forbidden-patterns.md` section 5.
 
 **Before:**
 
@@ -256,10 +196,7 @@ fun `advance reads the item before persisting the transition`() = runTest {
 }
 ```
 
-If `update` were called with the wrong target role, or the policy's decision were ignored
-entirely, this test would still pass - it never looks at what was actually passed or returned.
-
-**After - order is verified where it matters, plus a real assertion on the resulting state:**
+**After:**
 
 ```kotlin
 @Test
@@ -281,17 +218,11 @@ fun `advance reads the item before persisting the transition`() = runTest {
 }
 ```
 
-`repository.update(match { ... Role.WORK })` asserts the *argument*, not just that the call
-happened, and the return value is checked independently of the mock interactions.
-
 ---
 
-## 6. Catch-Swallowed Assertions
+## 6. Assertion swallowed by an error handler
 
-An assertion placed inside a `try` block whose `catch` logs or silently ignores the exception
-means an assertion failure (which JUnit5 raises as an `AssertionError`, a `Throwable`) and a
-legitimately caught exception both read as "test passed" - because nothing outside the `try`
-block observed the difference.
+Definition: shipped `references/forbidden-patterns.md` section 6.
 
 **Before:**
 
@@ -308,11 +239,7 @@ fun `advance start moves a queue item to work`() = runTest {
 }
 ```
 
-If `advance` throws for any reason - including a real regression - the failure is caught by the
-same `catch (e: Exception)` as a genuine setup problem, logged, and the test reports green.
-
-**After - no `catch` around the assertions; a genuine setup precondition is checked before the
-call, not used to swallow failures after it:**
+**After:**
 
 ```kotlin
 @Test
@@ -324,7 +251,3 @@ fun `advance start moves a queue item to work`() = runTest {
     assertEquals(Role.WORK, (outcome as AdvanceOutcome.Success).result.newRole)
 }
 ```
-
-If the call itself is expected to throw under some condition, assert that directly with
-`assertThrows<SpecificExceptionType> { ... }` - never a bare `catch` that treats any exception,
-assertion failures included, as an acceptable outcome.

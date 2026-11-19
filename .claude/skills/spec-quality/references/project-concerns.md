@@ -19,8 +19,10 @@ need, this is part of the blast radius.
 ## Flyway Is the Only Schema Path
 
 A new table or column is defined only by a Flyway migration; the Exposed table objects are
-query mappings and no production code creates schema (`SchemaUtils` is banned in production).
-There is no second table list to keep in parity.
+mappings of that DDL and no production code creates schema (`SchemaUtils` is banned in
+production). The Exposed table objects must match the DDL and the compiler does not check it:
+`SchemaParityTest` and the snapshots in `current/src/test/resources/schema/snapshot/` do, so a
+schema change edits the migration, the Exposed object and the snapshot together.
 
 ## SQLite Migration Constraints
 
@@ -55,7 +57,7 @@ The project uses Exposed ORM with SQLite. Key patterns to be aware of:
 
 ## Repository Interface Contracts
 
-Storage ports (`*Store`, plus `WorkItemRepository` until P7 splits it) live in `application/port/` and their SQLite
+Storage ports (`*Store`, plus `WorkItemRepository`) live in `application/port/` and their SQLite
 implementations in `infrastructure/sqlite/repository/`. SQLite and Exposed code (`org.sqlite`, `org.jetbrains.exposed`,
 dialect SQL tokens in string literals) stays under `infrastructure/sqlite/` (`DialectNeutralityTest`). Adding a method to a port requires
 updating the implementation, and any mocks in test files that use that repository.
