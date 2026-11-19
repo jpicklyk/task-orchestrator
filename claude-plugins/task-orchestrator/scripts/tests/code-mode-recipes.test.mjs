@@ -897,7 +897,7 @@ const COVERAGE_ROWS = [
   'SKILL F0', 'SKILL F1', 'SKILL F2', 'SKILL F3', 'SKILL F4', 'SKILL F5', 'SKILL F6', 'SKILL F7', 'SKILL F8',
   'SKILL Step 1', 'SKILL Step 2 snapshot', 'SKILL Step 2 awaiting_decision', 'SKILL Step 3 plan', 'SKILL Step 3 lateCarryIns',
   'SKILL Step 4', 'SKILL Step 5 open', 'SKILL Step 5a pre-entered', 'SKILL Step 5a Method A assign', 'SKILL Step 5a Method A adopt-notes', 'SKILL Step 5a planned report',
-  'SKILL Step 6a', 'SKILL Step 6b', 'SKILL Step 7 post-run', 'SKILL Step 8 review', 'SKILL Step 8a', 'SKILL Step 8b', 'SKILL Step 9', 'SKILL Stalled seats',
+  'SKILL Step 6a', 'SKILL Step 6b', 'SKILL Step 7 post-run', 'SKILL Step 8 review', 'SKILL Step 8a', 'SKILL Step 8b', 'SKILL Step 9', 'SKILL Stalled seats', 'SKILL Resume matrix', 'SKILL Retrying a stopped seat',
   'method-b 0', 'method-b 1', 'method-b 2', 'method-b 3', 'method-b 4 scan', 'method-b 4a', 'method-b 5 persist', 'method-b 5a', 'method-b 6',
   'post-run Step 0 load', 'post-run Step 0b', 'post-run Step 1', 'post-run Step 2', 'post-run Step 3 item 1', 'post-run Step 3 item 2', 'post-run Step 4',
   'post-run Step 5 generic', 'post-run Step 5 handoff', 'post-run Step 5 review-wave', 'post-run Step 5 fix cycle', 'post-run Step 5 wave parent review',

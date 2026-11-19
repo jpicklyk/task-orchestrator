@@ -24,7 +24,7 @@ rest), not the visible REPL and Poll pair.
 |------|-------|-------------|----------------|
 | 1 | `start_session` and `SendMessage` (or `send_message`) | A separate desktop session | `start_session` with `initiation: "user_asked"`, `context: "fresh"`, `model`, `effort`, `permission_mode`; output style set after start; `crossSessionInbound: "accept"`; talk with `SendMessage` |
 | 2 | `Workflow` | A background coordinator agent; the director makes the one `Workflow` call | `task-orchestrator:implement-wave` with `args.altitudeSafe: true` |
-| 2b | `REPL` and `Agent` (Code Mode) | A background Code Mode coordinator subagent that runs the whole run, Method B; seat results stop at it | one `Agent` call: model/effort from the `coordinator` class, description `coordinator:<target-short>`, the 2b brief; no `run_in_background` |
+| 2b | `REPL` and `Agent` (Code Mode) | A background Code Mode coordinator subagent that runs the whole run, Method B; seat results stop at it | one `Agent` call: model/effort from the `coordinator` class, description `coordinator:<target-short>`, the prompt is line 1 of the 2b brief alone (the full brief comes from `launchProfile('2b', {scope})`); no `run_in_background` |
 | 3 | The `claude` CLI on the host | A headless `claude -p` process, or `node scripts/ralph-loop.mjs` (a queue drain), started by a background agent | `claude -p <prompt> --allowedTools Workflow --max-budget-usd <X> --model <M> --effort <E>`, never `--bare` |
 | 4 | Nothing above | None: the run executes inline | `inline: true` with the altitude warning |
 

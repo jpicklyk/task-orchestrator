@@ -1188,6 +1188,8 @@ Every step of `SKILL.md`, `method-b.md` and `post-run.md` has a recipe or is pro
 | SKILL Step 8b feature closure | prose |
 | SKILL Step 9 loop | prose |
 | SKILL Stalled seats | prose |
+| SKILL Resume matrix | prose |
+| SKILL Retrying a stopped seat | prose |
 | method-b 0 record launched | R5 |
 | method-b 1 schedule, assign, adopt, dispatch | R5 |
 | method-b 2 respect ordering | R5 |
