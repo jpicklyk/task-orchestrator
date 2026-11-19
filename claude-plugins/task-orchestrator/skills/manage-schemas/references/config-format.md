@@ -140,7 +140,7 @@ slash command):
 **Watch for built-in name collisions.** A short, generic `skill:` value can silently resolve to
 the wrong built-in instead of your intended framework skill - especially `review` (Claude Code's
 GitHub-PR review skill, not a note-quality framework), and also `plan`, `run`, `init`. If you want
-a review-quality framework, point at the actual framework skill name (e.g. `<your-review-framework>`), not
+a review framework, point at the actual framework skill name (e.g. `<your-review-framework>`), not
 the collision-prone generic word. `manage-schemas`'s `validate` operation flags known collisions
 in this set - see `SKILL.md` -> VALIDATE.
 
@@ -534,7 +534,7 @@ A per-root trait entry replaces the server's entry of the same name as a whole, 
 | `transitions` | no | list | The triggers other than `start` that a token for this seat may send: `complete`, `block`, `hold`, `resume`, `cancel`, `reopen`. Absent: `block` and `hold`. A non-list or an unknown value rejects a push. See "Seat transitions". |
 | `after` | no | list of strings | Seat names this seat's work logically follows - an ordering **hint**, not enforced by the server. A name outside the declaring scope, or naming a seat in a different phase, is served exactly as declared. |
 | `reads_exclude` | no | list of strings | Note keys this seat should **not** read - a hint powering test-author-style blindness. Parsed and served only; blindness is a process discipline, not a server-side check. Separate from a note entry's own `independent_of`. |
-| `skills` | no | list of strings | Skill names the seat should invoke, served as written. Absent: the plugin's defaults for that seat apply (`hooks/lib/seat-skill-defaults.json`); `[]` declares none. Duplicates collapse; a non-string or blank element is dropped as a parser finding. Existence is not checked and nothing in the server enforces the list |
+| `skills` | no | list of strings | Skill names the seat should invoke, served as written. Absent: the plugin's defaults for that seat apply, from `hooks/lib/seat-skill-defaults.json`: planner `task-orchestrator:planning-standards`, implementer `task-orchestrator:implementation-standards`, reviewer `task-orchestrator:review-method`, test-author `task-orchestrator:test-authoring`. A declared list replaces the defaults and never merges with them, so a default is kept only by listing it; `[]` declares none. Duplicates collapse. A non-list value, or a non-string or blank element, is a parser finding: an error on push (`STRICT`) and a warning only under `MIGRATION`, where a non-list value leaves the field absent (the defaults apply) and a bad element is dropped. Existence is not checked and nothing in the server enforces the list |
 | `rules` | no | list of strings | Rule keys the run-wave seat for this seat should be given. Absent: the plugin's defaults apply (planner: `planning-sweeps`, `review-cited-claims`; reviewer: `review-cited-claims`); `[]` declares none. Duplicates collapse; a key that does not match the rule key grammar, or a non-string element, is dropped, and is an error on push (`STRICT`) and a warning only under `MIGRATION`. Existence is not checked, and served only when declared. Never enforced by the server: a declared key the root does not serve is a degradation the run planner reports, while a default rule the root does not serve (no `rules` list declared) is dropped silently |
 
 ### Note-entry fields (on `notes[]`)

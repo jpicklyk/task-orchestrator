@@ -82,8 +82,9 @@ Use these when explaining a recommendation or resolving a customization question
 | Must follow a reusable methodology | `required: true` + `skill` |
 | Must cover project specifics | `required: true` + `guidance` |
 | Body must stay distilled | `maxLength` (+ top-level `note_limits.mode: reject` to enforce hard) |
+| A seat must work by a reusable methodology (per seat, not per note) | seat entry `skills` (absent: the plugin's default skills for that seat; a declared list replaces them; `[]` = none) |
 
-`skill` may name a project skill, a plugin skill, or a Claude Code built-in. For sensitive
+A note's `skill` and a seat's `skills` may each name a project skill, a plugin skill, or a Claude Code built-in. For sensitive
 domains, prefer an official built-in when one covers the need (e.g., `security-review` for
 security assessment of pending changes) over authoring a custom methodology.
 

@@ -1,1 +1,6 @@
-{}
+{
+  "planner": ["task-orchestrator:planning-standards"],
+  "implementer": ["task-orchestrator:implementation-standards"],
+  "reviewer": ["task-orchestrator:review-method"],
+  "test-author": ["task-orchestrator:test-authoring"]
+}

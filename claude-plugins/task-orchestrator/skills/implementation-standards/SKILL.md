@@ -1,6 +1,6 @@
 ---
 name: implementation-standards
-description: "Engineering standards for writing or changing production code: reuse before writing, matching local patterns, the smallest change that meets the requirement, error handling and logging, no speculative abstraction or dead code, behaviour-preserving refactoring, and verifying the change before calling it done."
+description: "Engineering standards for writing or changing production code: reuse before writing, matching local patterns, the smallest change that meets the requirement, error handling and logging, no speculative abstraction or dead code, behaviour-preserving refactoring, safe state and released resources, documentation kept in step with behaviour, and verifying the change before calling it done."
 user-invocable: false
 ---
 
@@ -36,7 +36,13 @@ followed.
 5. **Restructure safely.** When the change needs restructuring, pin current behaviour first and
    keep mechanical and semantic changes in separate steps. Detail:
    [refactoring](references/refactoring.md).
-6. **Verify and report.** Verify your own change before calling it done, and say what you ran,
+6. **Check state and resources.** Make the change safe when calls overlap, repeat or fail half
+   way, release every resource on every path, and keep growth bounded. Detail:
+   [state and resources](references/state-and-resources.md).
+7. **Update what describes the change.** When the change alters behaviour that a document, a
+   comment or an example describes, update it in the same change, or say in the change's report
+   that it was not done and why. Detail: [documentation](references/documentation.md).
+8. **Verify and report.** Verify your own change before calling it done, and say what you ran,
    what it showed, and what you did not run and why. Detail:
    [verification](references/verification.md).
 

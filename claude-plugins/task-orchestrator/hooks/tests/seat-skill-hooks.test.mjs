@@ -10,7 +10,8 @@
 // Oracles: task-scope AC1-AC9, D1-D9. State is observed only through the hooks (a hint, then a Skill record, then a gate);
 // marker files are never read. Hooks run as async children because the REST stub lives in this process (spawnSync would
 // starve it and give a false green). Every child gets its own TEMP/TMP/TMPDIR, a pinned empty TASK_ORCHESTRATOR_HOME and a
-// fixture cwd. The shipped seat defaults table is empty (scripts/tests/seat-skills.test.mjs S8), so "absent" means "none".
+// fixture cwd. The shipped seat defaults table names one engineering skill per seat (scripts/tests/seat-skills.test.mjs S8),
+// so a case where "absent" must mean "none" runs on a plugin copy with an empty table (pluginCopy({})).
 //
 // Fixture condition for each absence assertion: a twin fixture in the same test (or the next one) produces the output.
 // Forbidden-construct declaration: none.
@@ -31,6 +32,9 @@ import { SEAT_SKILLS_PREFIX, SEAT_SKILLS_REQUIRED_PREFIX, bindingSourceLabel, bi
 // The literal texts frozen by ruling A1 (the amendment is the oracle, not the code).
 const SRC_SCHEMA = 'Binding source: schema.';
 const UNK = 'If the Skill tool answers Unknown skill, or you have no Skill tool, do not retry: stop and report the seat, the skill name and the binding source.';
+const ADVISORY = '(advisory: nothing is refused)';
+const SRC_DEFAULT = 'Binding source: plugin default.';
+const SHIPPED_IMPL = 'task-orchestrator:implementation-standards';
 
 const HINT = fileURLToPath(new URL('../seat-skill-hint.mjs', import.meta.url));
 const GATE = fileURLToPath(new URL('../seat-skill-gate.mjs', import.meta.url));
@@ -364,13 +368,19 @@ test('S5: no callerSeat on a general-purpose agent gives no hint and no denial',
   });
 });
 
-test('S5: a declared empty list and an absent list (empty defaults) are three distinct inputs with the same outcome: no hint, no denial', async () => {
-  for (const seats of [SEATS([]), SEATS(undefined)]) {
+test('S5: a declared empty list (shipped hooks) and an absent list (a plugin copy with an empty defaults table) have the same outcome: no hint, no denial', async () => {
+  const empty = pluginCopy({});
+  const cases = [
+    { seats: SEATS([]), hint: HINT, gatePath: GATE },
+    { seats: SEATS(undefined), hint: empty.hint, gatePath: empty.gate },
+  ];
+  for (const { seats, hint, gatePath } of cases) {
     await withStub({ schema: schemaView({ seats }) }, async (server, fx) => {
       const s = sid('s5e');
-      const res = await boot(server, fx, s);
+      const res = await run(hint, ctxCall(s), fx, { apiUrl: server.origin });
+      assert.equal(res.status, 0, res.stderr);
       assert.ok(isEmptyOut(res), JSON.stringify(seats) + res.stdout);
-      assert.ok(isEmptyOut(await gate(fx, editCall(s, 'agent-1'))));
+      assert.ok(isEmptyOut(await gate(fx, editCall(s, 'agent-1'), { gatePath })));
     });
   }
 });
@@ -469,12 +479,18 @@ test('S12: with no REST URL the hint is empty and nothing is denied', async () =
   });
 });
 
-test('S13: a server without seatSkills (seats carry skills) gives no hint and no denial', async () => {
+test('S13: a server without seatSkills (seats carry skills) ignores the declared list: the hint names the shipped default as advisory and nothing is denied', async () => {
   await withStub({ schema: schemaView({ features: ['seats', 'dispatchBySeat'] }) }, async (server, fx) => {
     const s = sid('s13');
     const res = await boot(server, fx, s);
-    assert.ok(isEmptyOut(res), res.stdout);
-    assert.ok(isEmptyOut(await gate(fx, editCall(s, 'agent-1'))));
+    assert.equal(res.status, 0, res.stderr);
+    const text = contextOf(res);
+    assert.ok(text.startsWith(SEAT_SKILLS_PREFIX), text);
+    assert.ok(text.includes(`"${SHIPPED_IMPL}"`), text);
+    assert.ok(text.includes(SRC_DEFAULT), text);
+    assert.ok(text.includes(ADVISORY), text);
+    assert.ok(!text.includes('p:a'), 'the declared list is ignored');
+    assert.ok(!isDeny(await gate(fx, editCall(s, 'agent-1'))));
   });
 });
 
@@ -528,9 +544,6 @@ function pluginCopy(defaults) {
   return { hint: join(root, 'hooks', 'seat-skill-hint.mjs'), gate: join(root, 'hooks', 'seat-skill-gate.mjs') };
 }
 
-const ADVISORY = '(advisory: nothing is refused)';
-const SRC_DEFAULT = 'Binding source: plugin default.';
-
 test('S25: a plugin-default seat binding on a server without seatSkills is advisory (hint says so, Edit, Write and NotebookEdit are never denied); with seatSkills it is enforced', async () => {
   const copy = pluginCopy({ implementer: ['p:a'] });
   const seats = SEATS(undefined); // the implementer seat declares no skills key, so the plugin default binds
@@ -568,12 +581,19 @@ test('S25: a plugin-default seat binding on a server without seatSkills is advis
   });
 });
 
-test('S25 probe: with the shipped (empty) defaults table the same plugin-default fixture has no binding at all, so p:a above comes from the copied table', async () => {
+test('S25 probe: with the shipped defaults table the same plugin-default fixture binds the shipped implementer skill, not p:a, so p:a above comes from the copied table', async () => {
   await withStub({ schema: schemaView({ seats: SEATS(undefined), features: ['seats', 'dispatchBySeat', 'seatSkills'] }) }, async (server, fx) => {
     const s = sid('s25n');
     const hint = await boot(server, fx, s);
-    assert.ok(isEmptyOut(hint), hint.stdout);
-    assert.ok(isEmptyOut(await gate(fx, editCall(s, 'agent-1'))));
+    assert.equal(hint.status, 0, hint.stderr);
+    const text = contextOf(hint);
+    assert.ok(text.startsWith(SEAT_SKILLS_PREFIX), text);
+    assert.ok(text.includes(`"${SHIPPED_IMPL}"`), text);
+    assert.ok(text.includes(SRC_DEFAULT), text);
+    assert.ok(!text.includes('p:a'), text);
+    const res = await gate(fx, editCall(s, 'agent-1'));
+    assert.ok(isDeny(res), res.stdout);
+    assert.ok(denyReason(res).includes(`"${SHIPPED_IMPL}"`), denyReason(res));
   });
 });
 

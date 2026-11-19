@@ -129,34 +129,26 @@ test('S12: a skill: test-author line is a violation under the skill-only name se
   assert.deepEqual(scanDomainBoundary({ root, scopes: scope, names: broad }).violations, []);
 });
 
-test('S12: the real-tree plugin scan is clean with the test-author allowlist row, and the row is what keeps it clean', () => {
+test('S12: the allowlist has no example-schemas.md test-author row and the real-tree plugin scan is clean', () => {
   const allow = JSON.parse(read(PLUGIN, 'scripts', 'lib', 'domain-boundary-allowlist.json')).plugin;
   const baseline = JSON.parse(read(PLUGIN, 'scripts', 'lib', 'domain-boundary-baseline.json')).pendingConfig;
   const row = allow.find((r) => r.file === 'skills/manage-schemas/references/example-schemas.md' && r.name === 'test-author');
-  assert.ok(row, 'the allowlist carries the example-schemas.md test-author row');
-  const scan = (rows) =>
-    scanDomainBoundary({
-      root: PLUGIN,
-      scopes: [
-        { dir: 'skills', recursive: true },
-        { dir: '_fragments', recursive: true },
-        { dir: 'agents', recursive: true },
-        { dir: 'workflows', recursive: true },
-        { dir: 'hooks', recursive: false },
-        { dir: 'scripts', recursive: false },
-      ],
-      names: namesWith(pluginShippedSkillNames(PLUGIN)),
-      phrases: ['this repo'],
-      allow: rows,
-      baseline,
-    });
-  const clean = scan(allow);
-  assert.deepEqual(clean.violations, []);
-  assert.deepEqual(clean.stale, []);
-  // Fixture condition: without the row the example-schemas.md mention is a violation, so the row is not stale.
-  const without = scan(allow.filter((r) => r !== row));
-  assert.ok(
-    without.violations.some((v) => v.file === row.file && v.name === 'test-author'),
-    'removing the row exposes the mention: ' + JSON.stringify(without.violations),
-  );
+  assert.equal(row, undefined, 'the example-schemas.md test-author row is gone with its mention');
+  const scan = scanDomainBoundary({
+    root: PLUGIN,
+    scopes: [
+      { dir: 'skills', recursive: true },
+      { dir: '_fragments', recursive: true },
+      { dir: 'agents', recursive: true },
+      { dir: 'workflows', recursive: true },
+      { dir: 'hooks', recursive: false },
+      { dir: 'scripts', recursive: false },
+    ],
+    names: namesWith(pluginShippedSkillNames(PLUGIN)),
+    phrases: ['this repo'],
+    allow,
+    baseline,
+  });
+  assert.deepEqual(scan.violations, []);
+  assert.deepEqual(scan.stale, []);
 });

@@ -1,6 +1,6 @@
 # Example Schemas
 
-Real schemas from the Task Orchestrator project's own skills — use as reference when designing new schemas. The `spec-quality` and `review-quality` skill pointers below are project-level skills, not plugin-shipped; keep a `skill:` only for a skill your workspace has.
+Examples adapted from a real project config - use them as a reference when designing new schemas. None of them declares `seats:` with a `skills` list, so every seat gets the plugin's default skills (see the `skills` row of the seat-entry table in `config-format.md`); "Bring your own skill" below shows how a project binds its own. Keep a note's `skill:` only for a skill your workspace has.
 
 ## `feature-implementation` (queue + work + review)
 
@@ -16,8 +16,7 @@ work_item_schemas:
         role: queue
         required: true
         description: "Lean feature-level summary — goal, findings-to-tasks mapping, dependency edges, non-goals pointer."
-        skill: "spec-quality"
-        guidance: "Keep this lean — target under 2k chars. Cover: goal (2-3 sentences), a findings→tasks table mapping research/brainstorm findings to child task-scope items, dependency edges between those tasks, and a pointer to non-goals. Full spec-quality depth (alternatives, blast radius, risk flags, test strategy) belongs in each child's task-scope note, not here."
+        guidance: "Keep this lean - target under 2k chars. Cover: goal (2-3 sentences), a findings->tasks table mapping research/brainstorm findings to child task-scope items, dependency edges between those tasks, and a pointer to non-goals. Full planning depth (alternatives, blast radius, risk flags, test strategy) belongs in each child's task-scope note, not here."
       - key: implementation-notes
         role: work
         required: true
@@ -27,8 +26,7 @@ work_item_schemas:
         role: review
         required: true
         description: "Quality gate — plan alignment, test quality, simplification."
-        skill: "review-quality"
-        guidance: "Verify: (1) what was built aligns with the feature-summary and each child's task-scope, (2) tests cover the test strategy, (3) no unnecessary complexity."
+        guidance: "Verify: (1) what was built aligns with the feature-summary and each child's task-scope, (2) tests cover the test strategy, (3) no unnecessary complexity. Tag each finding spec or standards, then close with one verdict line per axis: `Spec: Pass | Pass with observations | Fail` and `Standards: Pass | Pass with observations | Fail`."
 ```
 
 ## `feature-task` (queue + work, lighter than feature-implementation)
@@ -65,7 +63,6 @@ Root cause analysis before code, verification after.
         role: queue
         required: true
         description: "Reproduction, root cause, and fix approach."
-        skill: "spec-quality"
         guidance: "This note must cover: reproduction steps, root cause, fix approach with alternatives, blast radius, and test strategy."
       - key: implementation-notes
         role: work
@@ -76,8 +73,7 @@ Root cause analysis before code, verification after.
         role: review
         required: true
         description: "Quality gate — fix alignment, regression coverage."
-        skill: "review-quality"
-        guidance: "Verify: (1) fix addresses root cause, (2) regression test exists, (3) edge cases covered."
+        guidance: "Verify: (1) fix addresses root cause, (2) regression test exists, (3) edge cases covered. Tag each finding spec or standards, then close with one verdict line per axis: `Spec: Pass | Pass with observations | Fail` and `Standards: Pass | Pass with observations | Fail`."
 ```
 
 `session-tracking` comes from the `session-tracked` default trait, not an inline base note (same pattern as `feature-implementation` and `feature-task` above).
@@ -131,7 +127,6 @@ traits:
         role: queue
         required: true
         description: "SQLite migration strategy — table recreation, data migration, rollback."
-        skill: "migration-review"
         guidance: "Document schema changes, SQLite constraints, data migration strategy, Flyway migration details."
 
   needs-api-compat-review:
@@ -140,7 +135,6 @@ traits:
         role: review
         required: true
         description: "Compatibility assessment for API changes — the MCP tool surface (dynamically re-discovered) and the REST surface (hardcoded clients) have different compatibility models."
-        skill: "api-compat-review"
         guidance: "Assess by surface. **MCP tools:** clients re-read the tools/list schema each session, so parameter renames/additions are NOT breaking — verify instead that each changed param's schema key and its read site stay in sync, and that all first-party callers (skills, hooks and their injected context, memory, api-reference.md) update in lockstep; a pure rename needn't keep the old name working. **REST API:** clients hardcode field/param names, so compatibility matters — keep response shapes additive, and renames/removals need a migration path or version bump. Update openapi.yaml + api-rest.md for REST changes."
 
   needs-plugin-update:
@@ -149,7 +143,6 @@ traits:
         role: review
         required: true
         description: "Assessment of plugin skill and hook changes needed after a behavior change."
-        skill: "plugin-impact-review"
         guidance: "Identify which skills reference the changed behavior, which hooks inject affected context, and whether config-format docs, the orchestration-context hook text or the orchestrate skill need updating. List specific files/sections. Plugin content is cached — note the cache refresh and session restart the change needs."
 
   needs-security-review:
@@ -168,7 +161,6 @@ traits:
         role: queue
         required: false
         description: "Performance impact assessment and measurement plan."
-        skill: "perf-review"
         guidance: "Document affected hot paths, expected impact (new queries, parsing, file I/O), any O(n) risk where n could be large, and a measurement plan. Optional — use when the change touches known hot paths."
 
   delegated:
@@ -193,7 +185,7 @@ traits:
         role: review
         required: true
         description: "Task-level quality gate — scope alignment and test coverage."
-        guidance: "Verify: (1) what was built matches the task-scope note — flag scope creep or missed acceptance criteria, (2) tests cover the stated acceptance criteria and aren't strawman tests, (3) no unintended side effects on files outside the task scope."
+        guidance: "Verify: (1) what was built matches the task-scope note - flag scope creep or missed acceptance criteria, (2) tests cover the stated acceptance criteria and aren't strawman tests, (3) no unintended side effects on files outside the task scope. Tag each finding spec or standards, then close with one verdict line per axis: `Spec: Pass | Pass with observations | Fail` and `Standards: Pass | Pass with observations | Fail`."
 
   needs-test-author:
     notes:
@@ -201,21 +193,19 @@ traits:
         role: queue
         required: true
         description: "Numbered scenarios with frozen oracles, written before implementation starts."
-        skill: "test-author"
+        skill: "task-orchestrator:test-authoring"
         maxLength: 3000
         guidance: "Numbered scenarios (S1...) derived from acceptance criteria, each with input, expected result, and oracle source (spec clause / algorithm / external reference — never 'what the code returns'). Include an adversarial probe list, the public signature contract tests will compile against, and a separation declaration. Queue placement freezes the oracle by gate before implementation exists."
       - key: test-manifest
         role: work
         required: true
         description: "Test-author's record of files, SHA range, and scenario coverage."
-        skill: "test-author"
         maxLength: 3000
         guidance: "Filled by the test author: actor id, test file paths, commit SHA range; S-id-to-test coverage mapping; probes executed with results; forbidden-pattern declaration (assumeTrue/@Disabled/escapes with justification); arbitration record; any implementer edits to test files with rationale."
       - key: test-independence-audit
         role: review
         required: true
         description: "Reviewer attestation that test authorship was independent of implementation."
-        skill: "review-quality"
         maxLength: 1500
         guidance: "Attest that separation held (test files first appear in the author's SHA range; the author's and the implementer's principals or seats differ, or temporal-only is declared), spot-check the coverage mapping, trace one oracle to its source, confirm probes were run. Verdict: independent | independent-degraded (temporal-only) | not-independent (blocking)."
 ```
@@ -227,6 +217,51 @@ Apply traits at item creation, with a `traits` array on the create:
 ```
 
 or via schema-level `default_traits`. Most schemas in this project apply `session-tracked` (and often `delegated`) via `default_traits` rather than per-item, since nearly every item needs session tracking for `/session-retrospective`; `needs-task-review` is the opt-in trait that layers a review phase onto `feature-task`. `needs-test-author` follows the opposite pattern on `bug-fix`: it ships in `default_traits: [delegated, session-tracked, needs-test-author]` rather than being applied per-item, since bug-fix regression tests are written test-first from the diagnosis reproduction and every bug-fix benefits from a frozen oracle. It stays opt-in (apply per-item) on `feature-task` and other schemas, where not every acceptance criterion involves a predicate worth a frozen oracle.
+
+## Bring your own skill
+
+A project can bind an engineering skill of its own, beside or instead of the plugin's defaults. The skill is an ordinary project skill: a `.claude/skills/<name>/SKILL.md` file that holds craft only. This example uses a hypothetical `ledger-standards` skill, from a project that handles money:
+
+```markdown
+---
+name: ledger-standards
+description: "How to write code that handles money: amounts, rounding and audit entries."
+---
+
+# Ledger Standards
+
+- Hold an amount as an integer count of the currency's minor unit, never as a floating-point number.
+- Round once, where an amount is shown or stored, and name the rounding mode.
+- Every change to a balance writes an entry that says what changed, by how much and why.
+```
+
+**On a seat.** A seat entry's `skills` list names the skills that seat invokes:
+
+```yaml
+work_item_schemas:
+  feature-task:
+    seats:
+      - { name: planner,     phase: queue }
+      - { name: implementer, phase: work, enters: true, skills: [task-orchestrator:implementation-standards, ledger-standards] }
+      - { name: reviewer,    phase: review }
+```
+
+A declared list replaces the plugin's defaults for that seat and never merges with them, so a default is kept only by listing it, as the implementer entry does here. `skills: []` declares none. A seat with no `skills` list, like the planner and the reviewer above, keeps its defaults. Declaring `seats:` also makes the server enforce seats for run members (see "Seats" in `config-format.md`).
+
+**On a note.** A note's `skill:` binds the skill to whoever fills that note, here a review note added by a trait:
+
+```yaml
+traits:
+  needs-ledger-review:
+    notes:
+      - key: ledger-review
+        role: review
+        required: true
+        description: "Review of the change's money handling."
+        skill: "ledger-standards"
+```
+
+A project skill is named bare; a plugin skill is qualified with the plugin's name, as `task-orchestrator:test-authoring` is on the `test-plan` note above (see "`skill` - exact-name rule" in `config-format.md`).
 
 ## Resources Example — trait `resources:` + registry
 

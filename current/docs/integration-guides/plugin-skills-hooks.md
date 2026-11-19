@@ -378,10 +378,14 @@ Skills are invoked as slash commands in any Claude Code session:
 
 ## Internal Skills
 
-These are triggered by hooks and the orchestration context, not invoked directly by users:
+These are not invoked directly by users. They are triggered by hooks and the orchestration context, or reach a seat as its default skills or through a seat's `skills:` or a note's `skill:`:
 
 | Skill | Triggered by | Purpose |
 |-------|-------------|---------|
+| `planning-standards` | The planner seat's default skills, or a seat's `skills:` / a note's `skill:` | Engineering practice for writing a plan |
+| `implementation-standards` | The implementer seat's default skills, or a seat's `skills:` / a note's `skill:` | Engineering practice for writing the change |
+| `review-method` | The reviewer seat's default skills, or a seat's `skills:` / a note's `skill:` | Engineering practice for reviewing a change: a spec axis, a standards axis and a defect search, with one verdict per axis |
+| `test-authoring` | The test-author seat's default skills, or a seat's `skills:` / a note's `skill:` | Engineering practice for writing tests independently of the implementation |
 | `pre-plan-workflow` | Pre-plan hook (EnterPlanMode) | Gather MCP state, check schemas, set definition floor before plan is written |
 | `post-plan-workflow` | Post-plan hook (ExitPlanMode) | Materialize items from approved plan — work trees, dependencies, queue-phase notes |
 | `schema-workflow` | Orchestration context | Guide items through schema-defined note gates during implementation |

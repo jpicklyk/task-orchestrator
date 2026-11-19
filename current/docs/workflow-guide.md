@@ -212,20 +212,20 @@ The `lifecycle:` field on a schema controls how parent items cascade when all ch
 
 | Mode           | Behavior                                                                                      |
 |----------------|-----------------------------------------------------------------------------------------------|
-| `AUTO`         | *(default)* Parent automatically advances to terminal when all children reach terminal, unless it is in `review` (that cascade is suppressed with `reason: review-pending`; advance it explicitly). |
-| `MANUAL`       | Suppress auto-cascade - parent must be completed explicitly with an `advance` `transition` (`complete`). |
-| `PERMANENT`    | Parent never auto-terminates, regardless of child state.                                      |
+| `auto`         | *(default)* Parent automatically advances to terminal when all children reach terminal, unless it is in `review` (that cascade is suppressed with `reason: review-pending`; advance it explicitly). |
+| `manual`       | Suppress auto-cascade - parent must be completed explicitly with an `advance` `transition` (`complete`). |
+| `permanent`    | Parent never auto-terminates, regardless of child state.                                      |
 
 The lifecycle also governs tree edits (4.0):
 
 - **A closed parent takes no new children.** Creating an item under a `terminal` parent, or moving an item under
-  one, is rejected when the parent's lifecycle is `AUTO` (reopen the parent first); under `MANUAL` and `PERMANENT`
+  one, is rejected when the parent's lifecycle is `auto` (reopen the parent first); under `manual` and `permanent`
   it is allowed. This applies to `items_write` `create` and `update` and `create_tree` (its `parentId` and an
   attach-mode `root.id`), on MCP and over REST `POST /api/v1/ops/items_write` (`409 invalid_transition`).
-- **Moving a child away, or deleting it, re-evaluates the old parent** exactly like a child completion: under `AUTO`
+- **Moving a child away, or deleting it, re-evaluates the old parent** exactly like a child completion: under `auto`
   the parent completes when every remaining child is terminal and its gate passes (missing required notes suppress
-  it, reported with reason `gate_blocked`), in the same transaction as the move or delete. Nothing happens under `MANUAL` or
-  `PERMANENT`, or when no child remains (deleting the last child never completes the parent). The new parent of a
+  it, reported with reason `gate_blocked`), in the same transaction as the move or delete. Nothing happens under `manual` or
+  `permanent`, or when no child remains (deleting the last child never completes the parent). The new parent of a
   move is never cascaded. `items_write` reports these cascades as `cascade` on the update or delete result.
 - **Items are always created in `queue`;** use `advance` to move them.
 
@@ -234,7 +234,7 @@ Set `lifecycle` at the schema level in `work_item_schemas:`:
 ```yaml
 work_item_schemas:
   quick-fix:
-    lifecycle: AUTO
+    lifecycle: auto
     notes:
       - key: session-tracking
         role: work
@@ -247,7 +247,7 @@ work_item_schemas:
 ```yaml
 work_item_schemas:
   feature-implementation:
-    lifecycle: AUTO
+    lifecycle: auto
     notes:
       - key: feature-summary
         role: queue
@@ -263,7 +263,7 @@ work_item_schemas:
         role: review
         required: true
         description: "Quality gate — plan alignment and test quality review."
-        guidance: "Verify what was built aligns with the feature-summary and each child's task-scope, and that tests cover the test strategy from the planning notes."
+        guidance: "Verify what was built aligns with the feature-summary and each child's task-scope, and that tests cover the test strategy from the planning notes. Tag each finding spec or standards, then close with one verdict line per axis: `Spec: Pass | Pass with observations | Fail` and `Standards: Pass | Pass with observations | Fail`."
 ```
 
 > The legacy `note_schemas:` flat-list format is still accepted. New configs should prefer `work_item_schemas:` for access to the `lifecycle:` and `default_traits:` fields.
@@ -333,8 +333,7 @@ The response `data` includes:
   ],
   "gateStatus": { "canAdvance": false, "phase": "queue", "missing": ["feature-summary"], "blockedBy": "note" },
   "transitions": { "block": "blocked", "cancel": "terminal", "complete": "terminal", "hold": "blocked", "start": "work" },
-  "guidanceKey": "feature-summary",
-  "skillPointer": "spec-quality"
+  "guidanceKey": "feature-summary"
 }
 ```
 
@@ -396,7 +395,7 @@ A create returns no schema decoration. Read the notes the item expects with the 
     "notes": [
       { "key": "feature-summary", "role": "queue", "required": true, "description": "Lean feature-level summary - goal, findings-to-tasks mapping, dependency edges, non-goals pointer.", "guidance": "Cover the goal in 2-3 sentences, a findings->tasks mapping, dependency edges between child tasks, and a pointer to where non-goals and alternatives are recorded." },
       { "key": "implementation-notes", "role": "work", "required": true, "description": "Cross-child record - decisions, merges, carry-ins and deferrals no child's notes hold.", "guidance": "Cross-child record only: what no child's notes can hold. `Decisions:` ordering or interface choices made between children; `Merges:` a shared-worktree merge that changed a child's behaviour after its review (what, which child, sha); `Carry-ins:` findings routed between children (from -> to, child ids); `Deferred:` scope deliberately left to a follow-up feature (item id). Never re-list the children's commits, files, test counts or findings; each child's notes and `orchestrator-confirmation` hold them. When nothing crossed child boundaries, the whole body is the one line `No cross-child decisions; each child's notes stand alone.` and that satisfies the gate. Target ~300-1200 characters; the 3000 maxLength is a backstop, not a goal." },
-      { "key": "review-checklist", "role": "review", "required": true, "description": "Quality gate - plan alignment and test quality review.", "guidance": "Verify what was built aligns with the feature-summary and each child's task-scope, and that tests cover the test strategy from the planning notes." }
+      { "key": "review-checklist", "role": "review", "required": true, "description": "Quality gate - plan alignment and test quality review.", "guidance": "Verify what was built aligns with the feature-summary and each child's task-scope, and that tests cover the test strategy from the planning notes. Tag each finding spec or standards, then close with one verdict line per axis: `Spec: Pass | Pass with observations | Fail` and `Standards: Pass | Pass with observations | Fail`." }
     ],
     "features": ["seats", "dispatchBySeat", "independent_of", "rules", "seatSkills"]
   },
@@ -921,7 +920,7 @@ The full schema for `.taskorchestrator/config.yaml`:
 # Preferred — supports lifecycle and default_traits
 work_item_schemas:
   <schema-key>:
-    lifecycle: <AUTO|MANUAL|PERMANENT>   # optional
+    lifecycle: <auto|manual|permanent|none>   # optional
     notes:
       - <note-entry>
     default_traits:            # optional — traits added to every item matching this schema
@@ -973,7 +972,7 @@ Tags never select a schema.
 ```yaml
 work_item_schemas:
   task-implementation:
-    lifecycle: AUTO
+    lifecycle: auto
     notes:
       - key: acceptance-criteria
         role: queue
