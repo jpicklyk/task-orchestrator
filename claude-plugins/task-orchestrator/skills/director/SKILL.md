@@ -244,9 +244,11 @@ per `/status-progression`. The board then shows the entry as "answered, needs re
 ## Coordinator tier
 
 Probe once per entry and state the result as one board line. The tier says where coordinators
-run; it does not launch one. Tiers 1 and 2 show in your own tool list (no calls). Tier 3 needs the
+run; it does not launch one. Tiers 1 and 2 show in your own tool list. Tier 3 needs the
 `claude` CLI on the host, which no tool list shows: ask the user, or dispatch one background agent
-to run `claude --version` and report. The hardened entry has no shell, so that is its only way.
+to run `claude --version` and report. The hardened entry has no shell, so only the agent can.
+In Code Mode, probe the tools a script can call (Workflow, Agent, SendMessage), not the REPL and
+Poll pair.
 
 | Tier | Present | Meaning |
 |------|---------|---------|
@@ -255,11 +257,11 @@ to run `claude --version` and report. The hardened entry has no shell, so that i
 | 3 | Neither, but `claude -p` is available on the host | Coordinators run as headless `claude -p` processes started by a background agent |
 | 4 | None of the above | No separate coordinator: every read and edit goes through background `Agent` dispatches from this session |
 
-At tier 4, warn the user once: the altitude holds only as long as each delegated agent reports a
-summary instead of raw file content, so ask each agent for a short summary.
+At tier 4, warn the user once: the altitude holds only while each delegated agent reports a
+summary, not raw file content.
 
-How to launch a coordinator at each tier (the desktop session profile, the tier-2 hand-off with
-`--altitude-safe`, the tier-3 `claude -p` argv with `--max-budget-usd`, and the tier-4 warning) is
+How to launch a coordinator at each tier (profiles, the tier-2 `--altitude-safe` hand-off, the
+tier-3 `--max-budget-usd` cap, the tier-4 warning) is
 in [references/coordinator-tiers.md](references/coordinator-tiers.md). The plugin's
 `scripts/coordinator-tiers.mjs` holds the same probe rule and prints each launch profile; a
 coordinator or background agent runs it, not this session. A small run (one or two items) skips the

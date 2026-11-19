@@ -6,13 +6,18 @@ that coordinator lives. `scripts/coordinator-tiers.mjs` holds the rule and the p
 
 - `selectTier({tools, claudeCli})` returns `{tier, warning}`. A tool name matches a requirement when
   it equals it or ends with `__` plus it (so `mcp__ccd_session__start_session` matches
-  `start_session`, and `start_session_v2` does not).
+  `start_session`, and `start_session_v2` does not). A bare REPL and Poll list (every entry matches
+  `REPL` or `Poll`, at least one `REPL`, tier 1 and 2 not met) returns
+  `{tier: null, reprobe: true, warning}`: it is the visible Code Mode pair, not the real list, so
+  list the tools a script can call and probe again.
 - `launchProfile(tier, opts)` returns the launch profile below.
 - `node scripts/coordinator-tiers.mjs profile --tier N [--budget-usd X] [--model M] [--effort E] [--prompt-file F]`
   prints it as JSON. A coordinator or background agent runs this, never the director session (the
   guard denies `node` there).
 
 The director probes its own tool list with the same rule, once per entry, without a call.
+In Code Mode the probe reads the tools a script can call (Workflow, Agent, SendMessage and the
+rest), not the visible REPL and Poll pair.
 
 | Tier | Needs | Coordinator | Launch profile |
 |------|-------|-------------|----------------|

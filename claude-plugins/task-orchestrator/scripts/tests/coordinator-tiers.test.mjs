@@ -241,3 +241,42 @@ test('policy: tier 1 and tier 3 default model and effort to the coordinator clas
   assert.equal(a[a.indexOf('--model') + 1], c.model)
   assert.equal(a[a.indexOf('--effort') + 1], 'low')
 })
+
+// ---- Code Mode: the visible REPL/Poll pair is not the real tool list (item edcc4405) ----
+
+test('Code Mode: a script tool list with Workflow selects tier 2 with no warning', () => {
+  const r = selectTier({ tools: ['Workflow', 'Agent', 'SendMessage', 'REPL', 'Poll'] })
+  assert.equal(r.tier, 2)
+  assert.equal(r.warning, null)
+})
+
+test('Code Mode: a bare REPL/Poll list asks for a reprobe, never a silent tier 4', () => {
+  for (const claudeCli of [false, true]) {
+    for (const tools of [['REPL', 'Poll'], ['REPL'], ['Poll', 'REPL'], ['mcp__x__REPL', 'Poll']]) {
+      const r = selectTier({ tools, claudeCli })
+      assert.equal(r.tier, null, JSON.stringify(tools))
+      assert.equal(r.reprobe, true)
+      assert.equal(typeof r.warning, 'string')
+      assert.ok(r.warning.length > 0)
+    }
+  }
+})
+
+test('Code Mode: near misses keep the old rule', () => {
+  assert.equal(selectTier({ tools: ['Poll'] }).tier, 4)
+  assert.equal(selectTier({ tools: ['REPL', 'Agent'] }).tier, 4)
+  assert.equal(selectTier({ tools: ['REPL', 'Agent'], claudeCli: true }).tier, 3)
+  assert.equal(selectTier({ tools: ['repl', 'Poll'] }).tier, 4)
+})
+
+test('Code Mode: a non-reprobe result has no reprobe key', () => {
+  for (const r of [
+    selectTier({ tools: ['REPL', 'Agent'] }),
+    selectTier({ tools: ['Workflow'] }),
+    selectTier({ tools: ['start_session', 'SendMessage'] }),
+    selectTier({ claudeCli: true }),
+    selectTier({}),
+  ]) {
+    assert.equal(Object.hasOwn(r, 'reprobe'), false)
+  }
+})

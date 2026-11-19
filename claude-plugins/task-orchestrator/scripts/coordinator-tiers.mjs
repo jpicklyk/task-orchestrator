@@ -23,6 +23,9 @@ export const TIERS = Object.freeze([
 const TIER4_WARNING =
   'No coordinator tier is available: the run executes inline in the director session, which breaks the altitude rule (the director reads and dispatches seats itself). Keep the run small, or make the Workflow tool or the claude CLI available.';
 
+const REPROBE_WARNING =
+  'Only REPL and Poll were probed: in Code Mode, list the tools a script can call and probe again.';
+
 /** True when `name` is `requirement` or ends with `__` + `requirement`. */
 function toolMatches(name, requirement) {
   return typeof name === 'string' && (name === requirement || name.endsWith(`__${requirement}`));
@@ -35,7 +38,11 @@ function hasTool(tools, requirement) {
 /**
  * The best tier for the probed tool list: 1 needs `start_session` and (`SendMessage` or
  * `send_message`), 2 needs `Workflow`, 3 needs `claudeCli === true`, else 4. `warning` is null for
- * tiers 1-3 and the altitude warning for tier 4.
+ * tiers 1-3 and the altitude warning for tier 4. A non-empty list made only of `REPL` and `Poll`
+ * entries (at least one `REPL`) when neither tier 1 nor tier 2 is met is the visible pair of Code
+ * Mode, not the real list: it returns `{ tier: null, reprobe: true, warning }` (ahead of the
+ * claudeCli and tier-4 branches) so the director lists the tools a script can call and probes again.
+ * Any other list never carries a `reprobe` key.
  */
 export function selectTier({ tools = [], claudeCli = false } = {}) {
   const list = Array.isArray(tools) ? tools : [];
@@ -43,6 +50,13 @@ export function selectTier({ tools = [], claudeCli = false } = {}) {
     return { tier: 1, warning: null };
   }
   if (hasTool(list, 'Workflow')) return { tier: 2, warning: null };
+  if (
+    list.length > 0 &&
+    hasTool(list, 'REPL') &&
+    list.every((t) => toolMatches(t, 'REPL') || toolMatches(t, 'Poll'))
+  ) {
+    return { tier: null, reprobe: true, warning: REPROBE_WARNING };
+  }
   if (claudeCli === true) return { tier: 3, warning: null };
   return { tier: 4, warning: TIER4_WARNING };
 }
