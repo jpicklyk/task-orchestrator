@@ -104,10 +104,10 @@ Best-effort per global proposal: a failure becomes a one-line reason and the ret
 
 ### 8a. Verify Adopted Proposals
 
-Every non-dry run, outside the 3-or-more gate. Accepted proposals dwell in `review` with `outcome-verification` unfilled. List them (global container children included), oldest accepted first (`roleChangedAt`), and verify at most 10 per run (a skip does not count):
+Every non-dry run, outside the 3-or-more gate. Accepted proposals dwell in `review` with `outcome-verification` unfilled. List them once under the global `Improvement Proposals` container (found as in 7a) and, with a project root, once under `<rootId>`; follow `page.next`, sort the union by `roleChangedAt` (oldest accepted first; `list` cannot sort by it) and verify at most 10 per run (a skip does not count):
 
 ```to-call
-{"tool": "items_read", "select": "list", "args": {"type": "improvement-proposal", "role": "review", "ancestorId": "<rootId>", "limit": 50, "fields": ["roleChangedAt"]}}
+{"tool": "items_read", "select": "list", "args": {"type": "improvement-proposal", "role": "review", "ancestorId": "<container-or-root-id>", "limit": 200, "fields": ["roleChangedAt"]}}
 ```
 
 The adoption date is in the `adoption-decision` note; count the retrospectives created after it (a project proposal: that project's only). **Fewer than 2: skip and write nothing.** Otherwise compare the later retrospectives and the items created after the adoption date with the `proposal` note's expected effect, write the verdict, then complete the proposal, checking each element's result:
