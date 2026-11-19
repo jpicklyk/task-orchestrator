@@ -58,7 +58,7 @@ snapshot reads note bodies. So the work splits into five steps:
    `run-ops --phase open` names), and returns the `planned` report plus `{runId, serverRunId, args}`.
 2. When that report says `needs: approve launch` (excluded items, degradations or missing allow rules), the
    director gets the user's approval first. When the line also reads `allow rules missing: <n> (<names>)`
-   (the probe's `allow` members that are false: `workflow`, `mcp`, `bashGit`, `bashNode`), the
+   (the probe's `allow` members that are false: `workflow`, `mcp`, `bashGit`, `bashNode`; `workflow` is not named under Method B), the
    director shows the user those names with three answers: the user adds the rules (nobody edits
    settings for them), launch anyway and accept the permission prompts, or stop.
 3. The director calls `Workflow` with the `args`, then sends the coordinator a `SendMessage`
