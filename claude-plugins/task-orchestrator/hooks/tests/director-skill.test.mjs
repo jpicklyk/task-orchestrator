@@ -116,7 +116,15 @@ test('S12 O11: SKILL names the denied host tools and why PowerShell and Monitor 
 test('S12 O12: guard-coverage reference exists, is ASCII, holds the moved text, and SKILL links it', () => {
   const REF = rd('../../skills/director/references/guard-coverage.md');
   assert.equal(/[^\x00-\x7F]/.test(REF), false, 'non-ASCII byte in guard-coverage.md');
-  for (const s of ['notes_write', 'items_write', 'advance', 'server key', 'host server']) has(REF, s);
+  const flat = (t) => t.replace(/\s+/g, ' ');
+  const R = flat(REF);
+  for (const s of [
+    'in a skill-entered session it denies the file and shell tools, foreground `Agent`, `Bash` outside its read-only allow-list, the `config` tool (every op, `push`, `rollback` and `reset` included) and the reads that return note or document bodies.',
+    "It does not deny the orchestration connection's other writes (`notes_write`, `items_write`, `advance`). Only the hardened entry enforces the whole budget, through its tool list.",
+    'The limit: the guard recognises the orchestration connection by `task-orchestrator` in its server key',
+    'a server registered under a key without that word is treated as a host server and denied outright under the marker',
+    'a server whose key contains `task-orchestrator` is treated as the Task Orchestrator server, so only its listed reads are guarded.',
+  ]) assert.ok(R.includes(s), 'guard-coverage.md lost moved text: ' + s);
   has(SKILL, 'references/guard-coverage.md');
 });
 
