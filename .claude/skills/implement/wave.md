@@ -246,9 +246,11 @@ commit batch. Run no gradle — the contract's Compile self-check slot states wh
 it, and the Review scoping slot records the build state you rely on.
 
 Before your first review-note write, load the reviewer seat's skills as `items_read`
-`schema` gives them (`seats[]`), or the plugin defaults when the seat declares none.
-Fetch rules `protocol.read-only-agent` and `review-scoping`, plus the reviewer seat's own
-rules from `items_read` `schema`, with `config` op `rules`, and follow them. For each
+`schema` gives them (`seats[]`), or, when it declares none, the plugin defaults its hook
+names on your first `items_read` `context` read of the item.
+Fetch rules `protocol.read-only-agent` and `review-scoping`, plus the reviewer seat's
+`rules` from `items_read` `schema` (`seats[]`), or `review-cited-claims` when it has no
+`rules` field, with `config` op `rules`, and follow them. For each
 review-phase note the item's schema requires, read its `skillPointer` (`items_read`
 `schema`, `itemId`): a pointer that is a served rule key is fetched as a rule (`config`
 op `rules`), any other pointer is invoked as a skill. Follow it, then fill those notes.

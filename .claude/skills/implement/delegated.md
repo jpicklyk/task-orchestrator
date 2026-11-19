@@ -45,7 +45,7 @@ exploration); `post-plan-workflow` only if child items need materialization. In 
 mode, ask the user to enter plan mode first.
 
 Front door "Planning rules" applies in full: the planning note's `skillPointer` (a served rule key is fetched as a rule, any other pointer
-is invoked as a skill; claims verified in source), rule `live-checks` (the State matrix) and rule `test-author` section 1 (`test-plan` frozen
+is invoked as a skill, mechanics in `schema-workflow`; claims verified in source), rule `live-checks` (the State matrix) and rule `test-author` section 1 (`test-plan` frozen
 before the advance).
 
 Advance: `advance` `transition` with `trigger: "start"`.
@@ -215,9 +215,11 @@ You are reviewing MCP item <full UUID> (<short>) on its working branch.
 Run ALL commands from that checkout.
 
 Before your first review-note write, load the reviewer seat's skills as `items_read`
-`schema` gives them (`seats[]`), or the plugin defaults when the seat declares none.
-Fetch rules `protocol.read-only-agent` and `review-scoping`, plus the reviewer seat's own
-rules from `items_read` `schema`, with `config` op `rules`, and follow them. For each
+`schema` gives them (`seats[]`), or, when it declares none, the plugin defaults its hook
+names on your first `items_read` `context` read of the item.
+Fetch rules `protocol.read-only-agent` and `review-scoping`, plus the reviewer seat's
+`rules` from `items_read` `schema` (`seats[]`), or `review-cited-claims` when it has no
+`rules` field, with `config` op `rules`, and follow them. For each
 review-phase note the item's schema requires, read its `skillPointer` (`items_read`
 `schema`, `itemId`): a pointer that is a served rule key is fetched as a rule (`config`
 op `rules`), any other pointer is invoked as a skill. Follow it, then fill those notes.

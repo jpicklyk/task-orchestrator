@@ -74,11 +74,13 @@ check applies.
 - **No review phase** (still in work): go to Step 6.
 - **`newRole` is `review`:** review inline. Read the diff, verify correctness, confirm the
   Verification command passed. Load the reviewer seat's skills as `items_read` `schema` gives them
-  (`seats[]`), or the plugin defaults when the seat declares none, before the first review-note
-  write; inline, the hooks hint them and do not refuse. If the review-phase note has a
+  (`seats[]`), or, when it declares none, the plugin defaults the hook names on the `advance`
+  result that entered review, before the first review-note write; inline, nothing is refused.
+  Fetch the reviewer seat's `rules` likewise, or `review-cited-claims` when it has none, with
+  `config` op `rules`, and follow them. If the review-phase note has a
   `skillPointer` (in the `advance` result or via `items_read` `context`): a pointer that is a
   served rule key is fetched as a rule (`config` op `rules`), any other pointer is invoked as a
-  skill; apply it for the evaluation framework first.
+  skill (`schema-workflow`); apply it for the evaluation framework first.
   No separate review agent: the overhead exceeds the risk for 1-2 file changes with known fixes.
   This inline, orchestrator-written review applies only outside a run (Direct never runs under
   one).
