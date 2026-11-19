@@ -83,8 +83,8 @@ const SEATS = (implSkills, extra = {}) => [
 const schemaView = ({ seats = SEATS(['p:a', 'p:b']), features = ['seats', 'dispatchBySeat', 'seatSkills'], notes = [] } = {}) =>
   okEnvelope({ type: 'feature-task', configFingerprint: 'fp', configSource: 'per-root', notes, seats, features });
 
-/** Stub. `schema`: a reply or (itemId) => reply. `delays`: ms before answering per route. */
-async function startStub({ schema = schemaView(), delays = {} } = {}) {
+/** Stub. `schema`: a reply or (itemId) => reply. `delays`: ms before answering per route. `rules`: the `config` op `rules` reply (absent: 404 not_found, a served read that fails). */
+async function startStub({ schema = schemaView(), delays = {}, rules } = {}) {
   const requests = [];
   const sockets = new Set();
   const server = createServer((req, res) => {
@@ -105,6 +105,10 @@ async function startStub({ schema = schemaView(), delays = {} } = {}) {
       if (req.method === 'POST' && req.url === '/api/v1/ops/items_read' && body.select === 'schema') {
         reply = typeof schema === 'function' ? schema(body.itemId) : schema;
         delay = delays.schema ?? 0;
+      }
+      if (req.method === 'POST' && req.url === '/api/v1/ops/config' && body?.ops?.[0]?.op === 'rules') {
+        reply = rules ?? errEnvelope(404, 'not_found');
+        delay = delays.rules ?? 0;
       }
       setTimeout(() => {
         res.writeHead(reply.status, { 'Content-Type': 'application/json' });
@@ -368,7 +372,7 @@ test('S5: no callerSeat on a general-purpose agent gives no hint and no denial',
   });
 });
 
-test('S5: a declared empty list (shipped hooks) and an absent list (a plugin copy with an empty defaults table) have the same outcome: no hint, no denial', async () => {
+test('S5 (R6, D7, test-plan S3): a declared empty skills list (shipped hooks) and an absent list (a plugin copy with an empty defaults table) both give no SEAT SKILLS text, a SEAT RULES text listing the implementer keys, and no denial', async () => {
   const empty = pluginCopy({});
   const cases = [
     { seats: SEATS([]), hint: HINT, gatePath: GATE },
@@ -379,8 +383,13 @@ test('S5: a declared empty list (shipped hooks) and an absent list (a plugin cop
       const s = sid('s5e');
       const res = await run(hint, ctxCall(s), fx, { apiUrl: server.origin });
       assert.equal(res.status, 0, res.stderr);
-      assert.ok(isEmptyOut(res), JSON.stringify(seats) + res.stdout);
-      assert.ok(isEmptyOut(await gate(fx, editCall(s, 'agent-1'), { gatePath })));
+      const text = contextOf(res);
+      // Oracle D7: the rules text is given whenever a role resolves, skills or not; with no skills there is no SEAT SKILLS text.
+      assert.ok(text.startsWith('SEAT RULES:'), JSON.stringify(seats) + text);
+      assert.equal(text.includes(SEAT_SKILLS_PREFIX), false, text);
+      const at = (k) => text.indexOf(k);
+      assert.ok(at('protocol.entry-seat') !== -1 && at('protocol.entry-seat') < at('commit-discipline') && at('commit-discipline') < at('closure-notes'), text);
+      assert.equal(isDeny(await gate(fx, editCall(s, 'agent-1'), { gatePath })), false, 'the empty skills list refuses nothing');
     });
   }
 });
@@ -652,7 +661,9 @@ test('S15: project agent frontmatter skills (inline, flow, block) satisfy the se
       const s = sid(`s15-${form}`);
       const env = { CLAUDE_PROJECT_DIR: fx.dir };
       const hint = await run(HINT, ctxCall(s, { agentType: 'implementer' }), fx, { apiUrl: server.origin, env });
-      assert.ok(isEmptyOut(hint), `${form}: ${hint.stdout}`);
+      // Skills satisfied through the frontmatter: no SEAT SKILLS text; the rules text is still given (D7).
+      assert.equal(contextOf(hint).includes(SEAT_SKILLS_PREFIX), false, `${form}: ${hint.stdout}`);
+      assert.ok(contextOf(hint).startsWith('SEAT RULES:'), `${form}: ${hint.stdout}`);
       const res = await gate(fx, editCall(s, 'agent-1'), { env });
       assert.ok(isEmptyOut(res), `${form}: ${res.stdout}`);
     }
@@ -710,9 +721,11 @@ test('S18: the gate and the record make no REST request even with a URL set', as
     await run(GATE, upsertCall(s, 'agent-1', 'work'), fx, { apiUrl: server.origin });
     await run(RECORD, skillCall(s, 'agent-1', 'p:a'), fx, { apiUrl: server.origin });
     assert.equal(server.requests.length, 0, JSON.stringify(server.requests));
-    // Twin: the hint, with the same URL, does make a request, so the zero above can fail.
+    // Twin: the hint, with the same URL, does make requests, so the zero above can fail. D7: the schema read plus one served-rule-keys read.
     await boot(server, fx, s);
-    assert.equal(server.requests.length, 1);
+    assert.equal(server.requests.length, 2, JSON.stringify(server.requests.map((r) => [r.url, r.body.select ?? r.body?.ops?.[0]?.op])));
+    assert.equal(server.requests.filter((r) => r.url === '/api/v1/ops/items_read' && r.body.select === 'schema').length, 1);
+    assert.equal(server.requests.filter((r) => r.url === '/api/v1/ops/config' && r.body?.ops?.[0]?.op === 'rules').length, 1);
   });
 });
 

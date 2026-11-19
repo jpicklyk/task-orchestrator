@@ -108,6 +108,10 @@ type Rig = {
 }
 
 const retroState = (rig: Rig): RetroState => (rig.state.get('task-orchestrator-mod/retro/')?.value ?? {}) as RetroState
+/** Seeds the session's retro state so it owns `runIds` (as if its runs_write open had been recorded). */
+const own = (rig: Rig, ...runIds: string[]): void => {
+  rig.state.set('task-orchestrator-mod/retro/', { value: { ...retroState(rig), opened: runIds }, version: (rig.state.get('task-orchestrator-mod/retro/')?.version ?? 0) + 1 })
+}
 
 /** In-memory `$.state`, `$.env`, `$.fs`, `$.clock`, `$.agent` and `$.mcp` on the test's `on`. */
 function rig(on: On, opts: { config?: string | null; env?: Record<string, string>; agents?: Agent[]; files?: Record<string, string>; noApi?: boolean } = {}): Rig {
@@ -385,7 +389,7 @@ test('S15: a close with no project rootId is recorded without any server read', 
   expect(h.mcp.calls).toHaveLength(0)
 })
 
-test('S15: only runs_write closes count - an advance, a run open, a failed close and a mark do not', async ($, on) => {
+test('S15: only runs_write closes are evaluated - an advance, a run open, a failed close and a mark do not; the open is recorded as owned', async ($, on) => {
   const g = rig(on)
   g.mcp.runs = [{ runId: R1 }]
   g.mcp.terminal = { [R1]: 5 }
@@ -398,7 +402,8 @@ test('S15: only runs_write closes count - an advance, a run open, a failed close
   g.reply = () => ({ ref: 'r', result: { structuredContent: { ok: true, data: { results: [{ ok: true, runId: R1, marked: true }] } } }, text: 'ok' })
   expect((await $.tool.call({ tool: `${TO}runs_write`, ops: [{ op: 'mark', runId: R1, key: 'retro' }] } as never)).context).toBeUndefined()
   expect(g.mcp.calls).toHaveLength(0)
-  expect(g.state.size).toBe(0)
+  // the open is the one thing recorded: the run is this session's, and no close was seen
+  expect(retroState(g)).toEqual({ opened: [R1] })
 })
 
 test('S15: mode off has no effect and touches no state', async ($, on) => {
@@ -536,6 +541,7 @@ test('S15: stop_hook_active returns without spawning or nudging', async ($, on) 
 
 test('S16: at Stop with a project rootId, closed unmarked runs are evaluated: a won mark spawns once', async ($, on) => {
   const g = rig(on)
+  own(g, R1)
   g.mcp.runs = [{ runId: R1 }]
   g.mcp.terminal = { [R1]: 4 }
   const r = await $.classic.Stop({ stop_hook_active: false, background_tasks: [] } as never)
@@ -550,6 +556,7 @@ test('S16: at Stop with a project rootId, closed unmarked runs are evaluated: a 
 
 test('S16: at Stop a won mark while a background task runs is queued, then spawned by a later clear Stop', async ($, on) => {
   const g = rig(on)
+  own(g, R1)
   g.mcp.runs = [{ runId: R1 }]
   g.mcp.terminal = { [R1]: 4 }
   await $.classic.Stop({ stop_hook_active: false, background_tasks: [{ id: 'b1', type: 'shell', status: 'running', description: 'x' }] } as never)
@@ -561,6 +568,7 @@ test('S16: at Stop a won mark while a background task runs is queued, then spawn
 
 test('S16: at Stop a run below the threshold is nudged with a block, once', async ($, on) => {
   const g = rig(on)
+  own(g, R1)
   g.mcp.runs = [{ runId: R1 }]
   g.mcp.terminal = { [R1]: 1 }
   g.stopReply = { block: 'other plugin' }
@@ -624,4 +632,50 @@ test('S15: AGENT_CONFIG_DIR config is read first (mode off there leaves the even
   expect(r.context).toBeUndefined()
   expect(g.mcp.calls).toHaveLength(0)
   expect(retroState(g).sawClose).toBeUndefined()
+})
+
+// --- session ownership (observation f30d8252) ----------------------------------------------------
+
+const openReply = (runId: string) => ({ ref: 'r', result: { structuredContent: { ok: true, data: { results: [{ ok: true, runId, status: 'open' }], summary: { ok: 1, failed: 0 } } } }, text: 'ok' })
+const openCall = () => ({ tool: `${TO}runs_write`, ops: [{ op: 'open', rootId: ROOT, items: ['x'] }] }) as never
+
+test('ownership: a Stop in a session that never opened or closed the run is silent and leaves it unmarked', async ($, on) => {
+  const g = rig(on)
+  g.mcp.runs = [{ runId: R1 }]
+  g.mcp.terminal = { [R1]: 4 }
+  const r = await $.classic.Stop({ stop_hook_active: false, background_tasks: [] } as never)
+  expect(r.block).toBeUndefined()
+  expect(g.spawns).toHaveLength(0)
+  expect(markCalls(g)).toHaveLength(0)
+  expect(g.mcp.calls.filter(c => c.args.select === 'frontier')).toHaveLength(0)
+})
+
+test('ownership: a run this session opened is spawned at Stop after it closed elsewhere', async ($, on) => {
+  const g = rig(on)
+  g.reply = () => openReply(R1)
+  expect((await $.tool.call(openCall())).context).toBeUndefined()
+  g.mcp.runs = [{ runId: R1 }]
+  g.mcp.terminal = { [R1]: 4 }
+  await $.classic.Stop({ stop_hook_active: false, background_tasks: [] } as never)
+  expect(g.spawns).toHaveLength(1)
+  expect(g.spawns[0]?.prompt).toContain(`/session-retrospective --run ${R1}`)
+})
+
+test('ownership: an open made by a subagent counts for the session', async ($, on) => {
+  const g = rig(on)
+  g.reply = () => openReply(R1)
+  await $.tool.call({ ...(openCall() as object), agentId: 'coordinator-1' } as never)
+  expect(retroState(g).opened).toEqual([R1])
+})
+
+test('ownership: a close names only this session\'s runs; another session\'s unmarked run is neither named nor marked', async ($, on) => {
+  const g = rig(on)
+  g.mcp.runs = [{ runId: R1 }, { runId: R2 }]
+  g.mcp.terminal = { [R1]: 1, [R2]: 1 }
+  g.reply = () => closeReply(R1)
+  const r = await $.tool.call(closeCall(R1))
+  expect(r.context?.[0]).toContain(`/session-retrospective --run ${R1}`)
+  expect(r.context?.[0]).not.toContain(R2)
+  expect(retroState(g).closes).toEqual([R1])
+  expect(markCalls(g)).toHaveLength(0)
 })

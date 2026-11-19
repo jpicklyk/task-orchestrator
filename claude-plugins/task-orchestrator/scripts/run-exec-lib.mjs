@@ -20,16 +20,16 @@ import { extractLastBalancedJson } from './ralph-lib.mjs'
 import { formatProvenance, formatExtraSeats, parseExtraSeats, FIX_CYCLE_SEAT_RE } from './provenance-lib.mjs'
 import { sumUsage, transcriptMeters } from './lib/meters.mjs'
 import { formatCoordinatorReport, REPORT_EVENTS } from './lib/coordinator-report.mjs'
-// The dispatch policy is the one file read outside io: reseat escalates a fix cycle's effort with it.
+// The dispatch policy and the seat rule table are the files read outside io: reseat escalates a fix cycle's
+// effort with the policy; the review prompt and review-wave args take the reviewer's keys from the table.
 import { escalate, ceilingReached, forClass, loadPolicy } from './lib/dispatch-policy.mjs'
 import { policyClassFor, selectPostRunSteps } from './run-planner-lib.mjs'
+import { loadSeatRules, promptKeysFor } from '../hooks/lib/seat-rules.mjs'
 
 export const STATE_CONTRACT = 'run-wave/state-v1'
 
 /** Same behaviour-word list as implement-wave.js's scanDeclarations (kept in sync by hand). */
 export const SCAN_WORDS = ['returns', 'throws', 'falls back', 'catches', 'calls', 'if', 'when', 'otherwise', 'instead']
-
-export const REVIEW_RULES = ['protocol.read-only-agent', 'review-scoping']
 
 // ---------------------------------------------------------------------------------------
 // Path normalization (duplicated from implement-wave.js's normalizePath — verify(doc, result,
@@ -1769,7 +1769,8 @@ export function provenance({ core, doc, result, method, turns, meta, journal, ex
  * 'src/./a.js' and 'src//a.js' give one ':(literal)src/a.js'), plus an 'UNROOTED (not in
  * pathspec): ...' part naming each distinct non-empty unrooted entry (still absolute, or
  * containing '..'); else a bare diff noting 'owned files: planner output'), a line to fill the
- * review-phase notes and REVIEW_RULES by key (no rule text).
+ * review-phase notes and the reviewer's rule keys (seat rule table, promptKeysFor over the union of
+ * item.reviewRules) by key (no rule text).
  * Whole tree (D5): when any owned entry relativizes to '' ('.', './', the worktree or repo root
  * itself), the diff line is the bare `git -C <worktree> diff <base>..HEAD` with no ' -- '
  * pathspec at all; non-empty unrooted entries are still named on the UNROOTED line.
@@ -1830,7 +1831,7 @@ export function reviewPrompt(core, doc, idOrShort, result) {
 
   parts.push(
     `RULES: fetch each key below via config(ops:[{op:"rules", rootId:"${plan.rootId}", key:<key>}]) ` +
-    `and follow the returned body. Keys: ${[...new Set([...REVIEW_RULES, ...Object.values(item.reviewRules || {}).flat()])].join(', ')}.`
+    `and follow the returned body. Keys: ${promptKeysFor(loadSeatRules(), { phase: 'review', rules: [...new Set(Object.values(item.reviewRules || {}).flat())] }).join(', ')}.`
   )
 
   const seatSkillUnion = []
@@ -2267,6 +2268,8 @@ export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
     items: [],
   }
   if (plan.serverRunId) out.serverRunId = plan.serverRunId
+  // The reviewer row of the seat rule table names the lanes' protocol key.
+  const reviewerProtocol = (loadSeatRules().roles.reviewer || {}).protocol || null
   // Served rule keys: a note skill that names one is delivered to its lane as a rule, not a skill.
   const served = new Set(
     snapshot && Array.isArray(snapshot.rulesServed)
@@ -2329,7 +2332,7 @@ export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
         phase: 'review',
         notes: g.notes,
         writes: false,
-        protocol: 'protocol.read-only-agent',
+        protocol: reviewerProtocol,
         dispatch,
         output: g.output,
       }
@@ -2339,7 +2342,9 @@ export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
       if (laneSkills.length > 0) stage.skills = laneSkills
       if (g.mode === 'method-on-diff') stage.skillMode = 'method-on-diff'
       const seatRules = item.reviewRules && item.reviewRules[g.seat]
+      // Another role's protocol key (from a note skill or the seat's rules) is dropped silently; the run planner reports it.
       const laneRules = [...new Set([...noteRules, ...(Array.isArray(seatRules) ? seatRules : [])])]
+        .filter((k) => typeof k === 'string' && !(k.startsWith('protocol.') && k !== reviewerProtocol))
       if (laneRules.length > 0) stage.rules = laneRules
       const laneSeatSkills = item.reviewSeatSkills && item.reviewSeatSkills[g.seat]
       if (Array.isArray(laneSeatSkills) && laneSeatSkills.length > 0) stage.seatSkills = laneSeatSkills.slice()

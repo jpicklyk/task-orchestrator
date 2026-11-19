@@ -195,11 +195,15 @@ function boundDoc() {
   return JSON.parse(bound.stdout)
 }
 
-test('S8: REVIEW_RULES starts with protocol.read-only-agent; the review prompt names it and never protocol.in-phase-seat', () => {
-  assert.equal(execLib.REVIEW_RULES[0], 'protocol.read-only-agent')
+test('S8 (R1, AC3): the review prompt names protocol.read-only-agent and never protocol.in-phase-seat; with nothing served it lists no review-scoping', () => {
+  assert.equal(Object.hasOwn(execLib, 'REVIEW_RULES'), false, 'D4: run-exec-lib no longer exports its own REVIEW_RULES list')
   const text = execLib.reviewPrompt(loadWaveCore(), boundDoc(), 'aaaaaaaa')
   assert.ok(text.includes('protocol.read-only-agent'))
   assert.equal(text.includes('protocol.in-phase-seat'), false)
+  // Fixture condition: boundDoc serves no review-scoping, so a prompt that still always added it (the old rule) would list it.
+  const m = /Keys:([^\n]*)/.exec(text)
+  assert.ok(m, 'a prompt line lists the review rule keys')
+  assert.deepEqual(m[1].replace(/\.\s*$/, '').split(',').map((k) => k.trim()), ['protocol.read-only-agent'])
 })
 
 test('S8: every review-wave stage protocol is protocol.read-only-agent and its lane prompt names it', () => {
@@ -246,7 +250,7 @@ test('P2: a served key matches the skill name exactly (case-sensitive)', () => {
   assert.equal(Object.hasOwn(lanes['reviewer.note-rule'], 'rules'), false)
 })
 
-test('P3: a skill that is also a REVIEW_RULES key (review-scoping, served) is a rule and the Keys line lists it once', () => {
+test('P3: a skill that is also a reviewer default key (review-scoping, served) is a rule and the Keys line lists it once', () => {
   const args = argsFor([note('n-1', { skill: 'review-scoping' })], { servedKeys: ['review-scoping'] })
   const lane = lanesOf(args)['reviewer.review-scoping']
   assert.ok(lane, 'lane reviewer.review-scoping')

@@ -6,8 +6,10 @@
 // server's `retro` run mark (first write wins), and the retrospective is spawned with `$.agent.spawn` at
 // the run boundary instead of being handed to the model as a directive.
 //
-//   tool.call (runs_write)   a successful close: in a subagent or without a project rootId, record it;
-//                            else evaluate the root's closed, unmarked runs (runs_read list + frontier,
+//   tool.call (runs_write)   a successful open or close: record the run as this session's (only those runs
+//                            owe it a retrospective); on a close, in a subagent or without a project rootId,
+//                            stop there; else evaluate the root's closed, unmarked runs this session owns
+//                            (runs_read list + frontier,
 //                            REST runs_write mark) and add the one-line "queued" notice or a nudge to the
 //                            result's context
 //   classic.PostToolUse      forward `to_mod_retro` so retro-trigger.mjs steps aside
@@ -44,7 +46,8 @@ import {
   normalizeState,
   parseRetrospectiveConfig,
   recordCloses,
-  successfulCloses,
+  recordOwned,
+  successfulOps,
 } from './logic.ts'
 import type { RetroCall, RetroConfig } from './logic.ts'
 
@@ -215,9 +218,17 @@ export function registerRetro(on: On): void {
     // `isError` is not consulted: a batch with a failed element is isError although its closes succeeded.
     if (r.deny !== undefined) return r
     try {
-      const closes = successfulCloses(e, r)
-      if (closes === null) return r
-      const cur = (await load($)).state
+      const opens = successfulOps(e, r, 'open')
+      const closes = successfulOps(e, r, 'close')
+      if (opens === null && closes === null) return r
+      // Record what this session (its main thread or a subagent) opened and closed: only those runs owe it a
+      // retrospective (logic.ts ownsRun).
+      const cur = recordOwned((await load($)).state, opens ?? [], closes ?? [])
+      if (closes === null) {
+        await save($, cur)
+
+        return r
+      }
       // A subagent never acts, and without a project rootId there is nothing to evaluate: record the close
       // for the main session's Stop.
       if (e.agentId !== undefined || own.ancestorId === null) {
@@ -225,6 +236,7 @@ export function registerRetro(on: On): void {
 
         return r
       }
+      await save($, cur)
       const result = await evaluateRuns(toCall($), own.ancestorId, own.cfg, cur, await $.clock.now())
       const updated: RetroState = result.won.length > 0 ? { ...result.state, pendingDispatch: [...new Set([...(result.state.pendingDispatch ?? []), ...result.won])] } : result.state
       if (updated !== cur) await save($, updated)

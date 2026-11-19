@@ -187,13 +187,18 @@ test("S9: the implementer seat prompt's Keys line includes closure-notes", () =>
 
 // ---- Probes ----
 
-test("probe: note keys are case-sensitive, 'Implementation-Notes' triggers no rule", () => {
+test("probe: note keys are case-sensitive: 'Implementation-Notes' with a closure-notes-less note derives nothing, and the implementer carries closure-notes once only as its default (R5, D6)", () => {
     const schema = fixtureA([
         { key: "diagnosis", role: "queue", required: true, seat: "planner" },
         { key: "Implementation-Notes", role: "work", required: true, seat: "implementer" },
     ]);
     const result = deriveStages(candidate(), schema, { rulesServed: SERVED, noteOwners: [] });
-    for (const stage of result.stages) assert.equal(countOf(stage.rules, CLOSURE), 0, stage.seat);
+    assert.equal(countOf(stageOf(result, "planner").rules, CLOSURE), 0, "planner");
+    // Oracle R5/D6: closure-notes is the implementer default whatever its notes say, exactly once.
+    assert.equal(countOf(stageOf(result, "implementer").rules, CLOSURE), 1, "implementer");
+    // Fixture condition: a note-derived rule on that wrong-case key would put a second copy in, so the count would not stay 1
+    // if the default and the derivation did not collapse; the wrong-case key itself adds no other rule.
+    assert.deepEqual(stageOf(result, "implementer").rules, [CLOSURE]);
 });
 
 test("probe: served key 'Closure-Notes' (wrong case) is not served, so nothing is added", () => {

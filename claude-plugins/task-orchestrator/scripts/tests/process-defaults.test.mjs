@@ -268,7 +268,8 @@ test("S9: inputNotes are the queue notes sharing the test-manifest's skill; a sk
 })
 
 // ---------------------------------------------------------------------------------------------
-// AC4: closure-notes reaches a stage only through a served rule named by a note's skill.
+// AC4 / R5, D6: closure-notes is the default rule of the implementer seat (declared without rules, or the implicit one),
+// so it reaches the stage whatever its notes name as a skill; a declared rules list replaces it.
 // ---------------------------------------------------------------------------------------------
 
 const CLOSURE = 'closure-notes'
@@ -278,14 +279,22 @@ const implementerRules = (workNotes) =>
   stageOf(derive(seatSchema([{ key: 'task-scope', role: 'queue', required: true, seat: 'planner' }, ...workNotes],
     [{ name: 'planner', phase: 'queue' }, { name: 'implementer', phase: 'work', enters: true }]), CLOSURE_SERVED), 'implementer').rules
 
-test('S10: implementation-notes with skill closure-notes yields the rule once; the same note without a skill yields none', () => {
+test('S10 (R5, D6): the implementer yields closure-notes once with or without a note skill naming it', () => {
   assert.equal(countOf(implementerRules([{ key: 'implementation-notes', role: 'work', required: true, seat: 'implementer', skill: CLOSURE }]), CLOSURE), 1)
-  assert.equal(countOf(implementerRules([{ key: 'implementation-notes', role: 'work', required: true, seat: 'implementer' }]), CLOSURE), 0)
+  assert.equal(countOf(implementerRules([{ key: 'implementation-notes', role: 'work', required: true, seat: 'implementer' }]), CLOSURE), 1)
 })
 
-test("S11: a skill-less session-tracking yields no closure-notes; any note named 'wrap-up' with that skill does", () => {
-  assert.equal(countOf(implementerRules([{ key: 'session-tracking', role: 'work', required: true, seat: 'implementer' }]), CLOSURE), 0)
+test("S11 (R5, D6): a skill-less session-tracking still yields closure-notes once (the default); a note named 'wrap-up' with that skill yields it once, not twice", () => {
+  assert.equal(countOf(implementerRules([{ key: 'session-tracking', role: 'work', required: true, seat: 'implementer' }]), CLOSURE), 1)
   assert.equal(countOf(implementerRules([{ key: 'wrap-up', role: 'work', required: true, seat: 'implementer', skill: CLOSURE }]), CLOSURE), 1)
+})
+
+test('S11 (R5, D6): an implementer declaring rules [x-rule] is not given closure-notes; the declared list replaces the default', () => {
+  const served = [...CLOSURE_SERVED, { key: 'x-rule', rulesVersion: '1' }]
+  const result = derive(seatSchema(
+    [{ key: 'task-scope', role: 'queue', required: true, seat: 'planner' }, { key: 'implementation-notes', role: 'work', required: true, seat: 'implementer' }],
+    [{ name: 'planner', phase: 'queue' }, { name: 'implementer', phase: 'work', enters: true, rules: ['x-rule'] }]), served)
+  assert.deepEqual(stageOf(result, 'implementer').rules, ['x-rule'])
 })
 
 // ---------------------------------------------------------------------------------------------
@@ -338,8 +347,9 @@ test("probe: seat 'Test-Author' (case differs) is not a test-author-v1 stage and
   assert.equal(result.stages.some((s) => s.seat === 'declarations-extractor'), false)
 })
 
-test("probe: an empty-string skill is no skill (closure-notes and review lanes)", () => {
-  assert.equal(countOf(implementerRules([{ key: 'implementation-notes', role: 'work', required: true, seat: 'implementer', skill: '' }]), CLOSURE), 0)
+test("probe: an empty-string skill is no skill (implementer default only, and review lanes)", () => {
+  // R5/D6: the empty skill adds nothing of its own; closure-notes is present once because it is the implementer default.
+  assert.deepEqual(implementerRules([{ key: 'implementation-notes', role: 'work', required: true, seat: 'implementer', skill: '' }]), [CLOSURE])
   const args = reviewArgsOf([{ key: 'note-e', role: 'review', required: true, seat: 'reviewer', skill: '' }])
   assert.deepEqual(Object.keys(lanesOf(args)), ['reviewer'])
 })
