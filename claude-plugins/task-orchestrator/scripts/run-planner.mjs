@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // run-planner.mjs — CLI dispatcher for the run-wave front door's planner helper.
 //
-// Subcommands: probe | plan | explain | validate | bind-run. Input via --in <file> or stdin; JSON on
+// Subcommands: probe | plan | explain | validate | bind-run | snapshot. Input via --in <file> or stdin; JSON on
 // stdout; {error, detail} on stderr. Exit 0 ok, 2 invalid input, 3 refused (stdout still
 // carries the doc or {ok:false, errors}). A global `--out <path> [--force]` (any subcommand) writes the
 // document to <path> instead of stdout; it refuses (exit 3) to overwrite a launched run's existing file
@@ -25,7 +25,8 @@ import * as lib from './run-planner-lib.mjs';
 import * as exec from './run-exec-lib.mjs';
 import { loadWaveCore } from './lib/wave-core.mjs';
 import { checkServer } from '../hooks/lib/server-compat.mjs';
-import { apiBaseUrl } from '../hooks/lib/api-client.mjs';
+import { apiBaseUrl, callOp, wellKnown } from '../hooks/lib/api-client.mjs';
+import { buildSnapshot, snapshotArgErrors } from './lib/snapshot-builder.mjs';
 import { resolveOrchestratorEntryKey } from '../hooks/lib/mcp-registrations.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -116,7 +117,7 @@ async function probeServerCompat(args, cwd) {
   return checkServer({ baseUrl: base });
 }
 
-async function runProbe(args) {
+async function probeResult(args) {
   const cwd = resolve(flagValue(args, '--cwd', process.cwd()));
   const pluginRoot = resolvePluginRoot(args);
   const pluginJsonText = safeRead(join(pluginRoot, '.claude-plugin', 'plugin.json'));
@@ -137,7 +138,70 @@ async function runProbe(args) {
     serverCompat,
     mcpServerKey
   });
-  emit(JSON.stringify(result));
+  return result;
+}
+
+async function runProbe(args) {
+  emit(JSON.stringify(await probeResult(args)));
+  process.exit(0);
+}
+
+// snapshot: builds run-wave/snapshot-v1 over the resolved REST API (lib/snapshot-builder.mjs holds the logic;
+// this function supplies its io). The snapshot goes to --out through emit, then one summary line goes to stdout.
+// Exit 2: unusable arguments, no REST URL, a checkout or profile or --scopes file that cannot be read. Exit 3: a
+// required read failed, the snapshot fails validation, or the --out guard refuses. Nothing is written on either.
+async function runSnapshot(args) {
+  const split = (v) => (v ? v.split(',').map((x) => x.trim()).filter(Boolean) : undefined);
+  const input = {
+    root: flagValue(args, '--root', undefined),
+    ancestor: flagValue(args, '--ancestor', undefined),
+    items: split(flagValue(args, '--items', undefined)),
+    noFetch: args.includes('--no-fetch'),
+    now: flagValue(args, '--now', null) || new Date().toISOString()
+  };
+  const scopesPath = flagValue(args, '--scopes', null);
+  if (scopesPath) {
+    const scopes = parseJson(safeRead(scopesPath));
+    if (scopes === null || typeof scopes !== 'object' || Array.isArray(scopes)) {
+      return fail(2, 'invalid args', `--scopes ${scopesPath} is not a JSON object file`);
+    }
+    input.scopes = scopes;
+  }
+  const argErrors = snapshotArgErrors({ ...input, hasOut: OUT !== null });
+  if (argErrors.length) return fail(2, 'invalid args', argErrors.join('; '));
+  const cwd = resolve(flagValue(args, '--cwd', process.cwd()));
+  const baseUrl = flagValue(args, '--api-url', null) || apiBaseUrl({ cwd });
+  if (!baseUrl) return fail(2, 'invalid args', 'no REST API URL resolves: assemble the snapshot by hand (run-wave SKILL.md Step 2)');
+
+  const git = (gitArgs, timeout) => {
+    const r = spawnSync('git', ['-C', cwd, ...gitArgs], {
+      encoding: 'utf8',
+      timeout,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }
+    });
+    return { status: r.status === null ? 1 : r.status, stdout: r.stdout || '' };
+  };
+  const io = {
+    async call(tool, body) {
+      return (await callOp(tool, body, { timeoutMs: 10000, baseUrl })) || { ok: false, error: { code: 'no_response' } };
+    },
+    wellKnown: () => wellKnown({ timeoutMs: 10000, baseUrl }),
+    git: (gitArgs) => git(gitArgs, 30000),
+    fetchOrigin: () => git(['fetch', 'origin'], 60000),
+    readProfile(repoRoot) {
+      const path = join(repoRoot, '.taskorchestrator', 'run-profile.json');
+      if (!existsSync(path)) return { kind: 'absent' };
+      const text = safeRead(path).replace(/^\uFEFF/, '');
+      const value = parseJson(text);
+      return value === null ? { kind: 'invalid' } : { kind: 'ok', value };
+    },
+    probe: () => probeResult(args)
+  };
+  const result = await buildSnapshot(input, io);
+  if (!result.ok) return fail(result.exit, result.error, result.detail);
+  emit(JSON.stringify(result.snapshot));
+  const { candidates, needs, skipped, warnings } = result.summary;
+  process.stdout.write(`${JSON.stringify({ ok: true, out: resolve(OUT.path), candidates, needs, skipped, warnings })}\n`);
   process.exit(0);
 }
 
@@ -333,7 +397,7 @@ const EXEC_IO = {
 };
 
 // ---------------------------------------------------------------------------------------
-// Subcommand table. run-exec-lib.mjs supplies: next, prompt, stage-result, scan-declarations,
+// Subcommand table. snapshot is built here; run-exec-lib.mjs supplies: next, prompt, stage-result, scan-declarations,
 // verify, notes-audit, dispatch-meta, provenance, session-meters, review-prompt, reseat, run-ops,
 // follow-ups, report, review-args, post-run-steps.
 // ---------------------------------------------------------------------------------------
@@ -343,6 +407,7 @@ const SUBCOMMANDS = {
   explain: runExplain,
   validate: runValidate,
   'bind-run': runBindRun,
+  snapshot: runSnapshot,
   next: (args) => exec.EXEC_COMMANDS.next(args, EXEC_IO),
   prompt: (args) => exec.EXEC_COMMANDS.prompt(args, EXEC_IO),
   'stage-result': (args) => exec.EXEC_COMMANDS['stage-result'](args, EXEC_IO),
