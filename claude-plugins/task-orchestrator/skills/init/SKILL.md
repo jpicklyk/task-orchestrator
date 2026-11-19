@@ -275,7 +275,7 @@ Asked only in `--user` mode, in U3, against `userConfigPath()`; project mode nev
 
 ```
 AskUserQuestion(questions: [{
-  question: "Let the session retrospective file GitHub bug reports for Task Orchestrator product defects it finds? Reports are public issues on github.com/jpicklyk/task-orchestrator, filed under your own gh account. A report holds only the component, tool, op, error code, plugin and server versions, the call shape (type names only) and a fingerprint; no message, note text, title, id, path or name is sent. Off by default.",
+  question: "Let the session retrospective file GitHub bug reports for Task Orchestrator product defects it finds? Reports are public issues on github.com/jpicklyk/task-orchestrator, filed under your own gh account. A report holds only the component, the tool, op and error code (names from the tool catalog, or for a plugin script its own file name and a short identifier), the plugin and server versions, the call shape (type names of the top-level catalog fields only) and a fingerprint; no message, note text, title, id, path, URL or other free text is sent. Off by default.",
   header: "Bug reports",
   multiSelect: false,
   options: [
