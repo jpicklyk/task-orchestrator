@@ -362,7 +362,7 @@ Skills are invoked as slash commands in any Claude Code session:
 | `/task-orchestrator:create-item` | Create a tracked work item with smart container anchoring and tag inference |
 | `/task-orchestrator:quick-start` | Interactive onboarding — teaches by doing, adapts to empty or populated workspaces |
 | `/task-orchestrator:init` | Set up a project root, config and the two MCP entries for this directory, or `--user` for a personal root that serves every unconfigured directory |
-| `/task-orchestrator:manage-schemas` | Create, view, edit, delete, and validate note schemas in config.yaml |
+| `/task-orchestrator:manage-schemas` | Create, view, edit, delete, validate, and audit note schemas in config.yaml |
 | `/task-orchestrator:status-progression` | Navigate role transitions; shows current gate status and the correct trigger |
 | `/task-orchestrator:dependency-manager` | Visualize, create, and diagnose dependency graphs between work items |
 | `/task-orchestrator:batch-complete` | Complete or cancel multiple items at once — close out features or workstreams |

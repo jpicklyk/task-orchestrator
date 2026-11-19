@@ -1,12 +1,12 @@
 ---
 name: manage-schemas
-description: "Creates, views, edits, deletes, and validates note schemas for the MCP Task Orchestrator in .taskorchestrator/config.yaml — the templates that define which notes agents must fill at each workflow phase. Also recommends schema designs from a library of workflow patterns (autonomous coding loops, spec-driven teams, research pipelines, content production, support triage, data pipelines, incident response, document review) — use this skill whenever the user describes a workflow they want tracked or gated, even without the word 'schema': what schema should I use, help me design schemas, recommend gates for X, set up schemas for my team/workflow/pipeline. Use when user says: create schema, show schemas, edit schema, delete schema, validate config, what schemas exist, add a note to schema, remove note from schema, configure gates, roll back schema, undo schema change, run budget, decision class, human-only approval, or stall."
-argument-hint: "[optional: action + schema name or workflow description, e.g. 'view bug-fix', 'create research-spike', 'recommend schemas for support triage', 'validate']"
+description: "Creates, views, edits, deletes, validates, and audits note schemas for the MCP Task Orchestrator in .taskorchestrator/config.yaml — the templates that define which notes agents must fill at each workflow phase. Also recommends schema designs from a library of workflow patterns (autonomous coding loops, spec-driven teams, research pipelines, content production, support triage, data pipelines, incident response, document review) — use this skill whenever the user describes a workflow they want tracked or gated, even without the word 'schema': what schema should I use, help me design schemas, recommend gates for X, set up schemas for my team/workflow/pipeline. Use when user says: create schema, show schemas, edit schema, delete schema, validate config, audit schemas, is my schema current, stale guidance, what schemas exist, add a note to schema, remove note from schema, configure gates, roll back schema, undo schema change, run budget, decision class, human-only approval, or stall."
+argument-hint: "[optional: action + schema name or workflow description, e.g. 'view bug-fix', 'create research-spike', 'recommend schemas for support triage', 'validate', 'audit']"
 ---
 
 # Manage Schemas — Note Schema Lifecycle
 
-Create, view, edit, delete, and validate note schemas in `.taskorchestrator/config.yaml`. Schemas define which notes agents must fill at each workflow phase before advancing items.
+Create, view, edit, delete, validate, and audit note schemas in `.taskorchestrator/config.yaml`. Schemas define which notes agents must fill at each workflow phase before advancing items.
 
 Every tool call below is a `to-call` block, `{tool, select|op, args}`, in the shapes of [call-shapes.md](../_generated/call-shapes.md). The `config` tool is served by the orchestration profile only.
 
@@ -29,12 +29,13 @@ Classify from `$ARGUMENTS` and conversation context before making any tool calls
 | "delete", "remove schema", "drop" | DELETE |
 | "undo", "roll back", "restore", "previous version" | ROLLBACK |
 | "validate", "check", "verify", "lint" | VALIDATE |
+| "audit", "schema audit", "is my schema current", "stale guidance" | AUDIT |
 | "run budget", "stall", "stall_after", "attempts per seat", "run policy" | RUN POLICY |
 | "decision class", "human-only", "who can answer", "approval gate", "decision expires" | DECISION CLASSES |
 
-If `$ARGUMENTS` contains both an action and a schema name (e.g., "view bug-fix"), extract both. If intent cannot be determined, ask via `AskUserQuestion` with options: Create, View / Validate, Edit, Delete.
+If `$ARGUMENTS` contains both an action and a schema name (e.g., "view bug-fix"), extract both. If intent cannot be determined, ask via `AskUserQuestion` with options: Create, View / Validate / Audit, Edit, Delete.
 
-> Validate is grouped with View — both leave the config file unchanged.
+> Validate is grouped with View — both leave the config file unchanged. AUDIT also leaves the file unchanged until the user's yes.
 
 ---
 
@@ -43,7 +44,7 @@ If `$ARGUMENTS` contains both an action and a schema name (e.g., "view bug-fix")
 The target file is the path on the SessionStart context's `Config:` line (project or personal scope) when there is one, otherwise `.taskorchestrator/config.yaml`. In personal scope that is the user-level file, so an edit applies to every directory that has no project config of its own. Check if the target file exists by reading it.
 
 **If the file does not exist:**
-- For **VIEW** or **VALIDATE**: report "No schemas configured — `.taskorchestrator/config.yaml` does not exist." and stop.
+- For **VIEW**, **VALIDATE** or **AUDIT**: report "No schemas configured — `.taskorchestrator/config.yaml` does not exist." and stop.
 - For **CREATE**, create the file with the new schema (create-workflow Step 4). For **EDIT** or **DELETE**, report "No schemas configured" and stop.
 
 **If the file exists:** Read and parse it. Proceed to Step 3.
@@ -97,7 +98,7 @@ Add every `schemas[]` entry whose `configSource` is `global` and whose `type` th
 
 An empty `diff` (no added, removed or changed type, trait or setting) reads `in sync with head v<version>`. Otherwise name the changed keys and say that config-sync (on the next save or session start) or the Step 4 push puts the file on the server. A `not_found` from `get` means the root has no stored config yet.
 
-If the user specified a schema name, show that schema's full detail: each note with key, role, required, description, guidance, and skill (if set). Also show the schema's lifecycle mode and default_traits (if any).
+If the user specified a schema name, show that schema's full detail: each note with key, role, required, description, guidance, and skill (if set). Also show the schema's lifecycle mode and default_traits (if any). List the type's seats with their `rules` and `skills`, each with its source: `schema` (declared), `plugin default` or `none` (read the seats with `items_read` `schema` and `type` and `rootId`; see `references/audit-workflow.md` Stage 2 for the sources).
 
 If the config has a `traits:` section, show a separate traits summary table:
 
@@ -154,6 +155,14 @@ intended framework skill name (a specific name such as `code-review-checklist` i
 rule in `references/config-format.md` → "`skill` — exact-name rule".
 
 For detailed workflow, see `references/validate-workflow.md` in this skill folder.
+
+### AUDIT - Report Schema Quality
+
+Reports findings by tier (Structural, Pointer, Content, Usage) and one proposed config diff. Every finding is a point to consider, never an error, and nothing is written without the user's yes: the user chooses which changes to apply (`AskUserQuestion`). Stages, in order: the server's `config` `validate` with its `lint` list (needs `project.rootId`; without one, say the stage is skipped; with one the call is required, and only text over the server's size limit or an error answer lets it not run), skill-name pointer checks, content checks over guidance declared in the file, and usage checks; the stages after the first also need `project.rootId` for their server calls and each says so when it cannot run. A server whose `validate` result has no `lint` member is reported as such and the other stages run. A chosen change goes through `references/edit-workflow.md` and the Step 4 validate and push; choosing none writes nothing. The audit never moves guidance into a skill or writes a skill.
+
+In director mode the background agent writes the full report to a file and returns one line (counts per tier and the path); it applies nothing, and an accepted change is a second dispatch.
+
+For detailed workflow, see `references/audit-workflow.md` in this skill folder.
 
 ### ROLLBACK - Restore an Earlier Config Version
 
@@ -224,7 +233,7 @@ Needs a `project.rootId` (rollback is a server operation on the root's stored ve
      ```
 - Without `project.rootId` there is nothing to push: only the local file is edited. A server file (the one `AGENT_CONFIG_DIR` points at) is imported once at boot, so a change to it needs a server restart (for stdio, reconnecting with `/mcp` starts a new process). A successful per-root push takes effect immediately for new and unpinned items of that root, with no reconnect.
 
-**For VIEW and VALIDATE:** The output from Step 3 is the deliverable — no additional report needed.
+**For VIEW, VALIDATE and AUDIT:** The output from Step 3 is the deliverable — no additional report needed.
 
 ---
 
