@@ -80,7 +80,7 @@ class ToolSchemaRendererTest {
     @Test
     fun `S5 orchestration select tool offers every select in registration order and every field`() {
         val s = schema(fx.readTool, ToolProfile.ORCHESTRATION)
-        assertEquals(setOf("select", "id", "depth", "limit", "tag", "scope", "describe"), s.props().keys)
+        assertEquals(setOf("select", "id", "depth", "limit", "tag", "scope", "seatToken", "describe"), s.props().keys)
         assertEquals(
             listOf("get", "list", "audit"),
             s
@@ -283,7 +283,7 @@ class ToolSchemaRendererTest {
     fun `S5 an ops tool whose ops are all hidden renders no schema in knowledge`() {
         assertNull(ToolSchemaRenderer.inputSchema(fx.adminTool, ToolProfile.KNOWLEDGE))
         val orchestration = schema(fx.adminTool, ToolProfile.ORCHESTRATION)
-        assertEquals(setOf("ops", "atomic", "describe"), orchestration.props().keys)
+        assertEquals(setOf("ops", "atomic", "seatToken", "describe"), orchestration.props().keys)
         assertEquals(setOf("op", "reason", "idempotencyKey"), orchestration.itemProps().keys)
     }
 
