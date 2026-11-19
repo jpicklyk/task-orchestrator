@@ -4,7 +4,8 @@
 //   - the claim's anchor run carries the `retro` mark: the retrospective finished, the claim is dropped;
 //   - no `retro` mark and the subagent is that retrospective (its transcript's first 256 KB hold
 //     `/session-retrospective` and the anchor run id): the claim is marked failed, so the next Stop pass
-//     retries at once (retro-retry) instead of waiting out the 20 minute dead-claim window.
+//     retries at once (retro-retry). A session that holds an unfailed claim never takes it over itself: when
+//     this hook cannot see the transcript, a later session takes the claim over after 20 minutes.
 // Only the scope boundary has claims. Nothing here writes to the server and nothing is printed but `{}`:
 // the retry or the give-up happens in retro-backstop.mjs (hooks/README.md, "Retrospective firing").
 //
