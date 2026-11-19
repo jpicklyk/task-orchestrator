@@ -249,7 +249,7 @@ Poll pair.
 |------|---------|---------|
 | 1 | `start_session` and `SendMessage` (or `send_message`) in your tool list (not in the hardened entry) | Coordinators run as separate sessions; reach them with `SendMessage` |
 | 2 | The `Workflow` tool (not in the hardened entry) | A run executes as a background workflow; the director makes the one `Workflow` call and relays its args and result, since a background coordinator may lack `Workflow` |
-| 2b | `REPL` and `Agent` (Code Mode) | A Code Mode coordinator subagent runs the whole run, Method B; you compose its `Agent` call from the 2b brief; with 2 also present, 2 for Method A (coordinator-tiers.md) |
+| 2b | `REPL` and `Agent` (Code Mode) | A Code Mode coordinator subagent runs the whole run, Method B; its `Agent` prompt is the line `Run /task-orchestrator:run-wave <scope> --method B as a tier-2b coordinator.`; with 2 also present, 2 for Method A (coordinator-tiers.md) |
 | 3 | Neither, but `claude -p` is available on the host | Coordinators run as headless `claude -p` processes started by a background agent |
 | 4 | None of the above | No separate coordinator: every read and edit goes through background `Agent` dispatches from this session |
 
@@ -269,7 +269,7 @@ after idle), read the run that woke you. A message starting `TO report:` is a co
 read below, then Answering. In a tier-2 hand-off: on `planned` with `needs: approve launch`, get the
 user's approval (missing allow rules: coordinator-tiers.md step 2); then call `Workflow` with the returned `args` and `SendMessage` the coordinator
 `launched` with the call's task id, run id and script path; on the task notification, send it the
-result JSON verbatim, or the output file path when the notification is cut short.
+result JSON verbatim, or the output file path when the notification is cut short. Tier 2b: on that `planned`, get the approval, then `SendMessage` the coordinator `approved` or `stop`.
 
 ```to-call
 {"tool": "runs_read", "select": "get", "args": {"runId": "7c41e0a2"}, "profile": "director"}

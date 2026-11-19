@@ -86,16 +86,26 @@ results reach the coordinator, not the director. When both 2 and 2b are availabl
 Method A run and 2b when Method B suits: the plan exits 3 on `--method A` because `maxActiveSeats` is
 below the schema-seat count, or the director wants no `Workflow` call in its context.
 
-The director cannot run `node`, so it composes the one `Agent` call from the 2b brief below (model and
-effort from the `coordinator` class, `subagent_type` `general-purpose`, description
-`coordinator:<target-short>`); `launchProfile('2b', {scope})` returns the same call for a coordinator or
-background agent that needs it. There is no launched hand-off: the coordinator records `launched`
-itself. The Code Mode `Agent` call is always background and takes no `run_in_background`.
+The director cannot run `node` and the guard denies it a `Read` of this file, so it composes the one
+`Agent` call from line 1 of the 2b brief alone (model and effort from the `coordinator` class,
+`subagent_type` `general-purpose`, description `coordinator:<target-short>`, prompt the line `Run
+/task-orchestrator:run-wave <scope> --method B as a tier-2b coordinator.`): the coordinator's run-wave
+skill tells it to read this brief first and follow it. `launchProfile('2b', {scope})` returns the same call
+with the full brief for a coordinator or background agent that needs it. There is no `launched` hand-off:
+the coordinator records `launched` itself, on its first dispatch round. The Code Mode `Agent` call is always
+background and takes no `run_in_background`.
+
+**Launch gate.** The coordinator records phase `planned` and sends the `planned` report. When that report's
+`needs:` line is not `nothing` (excluded items, degradations or missing allow rules), the coordinator makes no
+seat call until the director's message: the director gets the user's approval (the same three answers as
+tier 2 step 2: the user adds the rules, accept the permission prompts, or stop), then `SendMessage`s the
+coordinator `approved` or `stop`. `approved` launches; `stop` closes the run `cancelled` and reports
+`closed`. With `needs: nothing` the coordinator launches at once.
 
 ### Tier 2b brief
 
 ```
-Run /task-orchestrator:run-wave <scope> --method B --altitude-safe.
+Run /task-orchestrator:run-wave <scope> --method B as a tier-2b coordinator.
 You are a tier-2b coordinator: a Code Mode subagent. Run every step that skills/run-wave/references/code-mode.md covers through its recipe; you have no Workflow tool.
 Report to "main" with SendMessage, only the output of the report helper (events planned, decision, paused, closed). Never send note bodies, diffs or tokens.
 Run each round as a short script, always well under the ~600 s REPL script limit (it binds a subagent whatever its $ timeout), and never wait inside a script.
@@ -103,6 +113,7 @@ Between rounds, wait on Poll with no script running: an idle coordinator is woke
 Take each seat's envelope from its task-notification result text, never from the task .output file, which stays empty.
 Never use a standalone sleep: a shell guard blocks it.
 After decision or paused, wait for the director's message; never answer a decision yourself. Stop on a director close and report closed.
+After a planned report whose needs: line is not nothing, wait for the director's message before the first dispatch round: approved launches, stop closes the run cancelled and reports closed.
 Never ask the user anything: put what you need (a decision, a permission) on the report's needs: line.
 At post-run Step 3 pass --coordinator coordinator:<target-short> to provenance (exact label only).
 ```
@@ -145,7 +156,8 @@ decision only from a manual refresh.
   `to: "main"` while it runs, and its final return for the event that ends its turn. With no
   director (a user session runs run-wave), show the block to the user.
 - **After `decision` or `paused`** the coordinator waits for the director's message (answered,
-  resume, close). It never answers a decision itself.
+  resume, close). It never answers a decision itself. A tier-2b coordinator also waits after a `planned`
+  report whose `needs:` line is not `nothing`, for `approved` or `stop` (see the launch gate above).
 
 ### Coordinator brief
 
