@@ -19,7 +19,7 @@ fix, or transition anything.
 ## claude:
 
 - Go straight to `items_read` with `select` `context` for your item -- `items_read` `context` names the owed keys (`gateStatus.missingBySeat`, `missing`) and `guidanceKey` (the first unfilled required note with guidance); the guidance text itself comes from `items_read` `schema` with `fields: ["guidance"]`. Never call
-  `advance`, not even once, and never call `runs_write`: a read-only agent does not raise.
+  `advance`, not even once. Call `runs_write` only for the one `end_seat` your dispatch's END SEAT names, alone and as your last task-orchestrator call; never `raise` or any other op: a read-only agent does not raise.
 - A token that your dispatch hands you (inline or as a file) belongs in the top-level `seatToken`
   field of each task-orchestrator request, reads included. Keep it out of your output, commits and
   notes. The server answering `unauthenticated` means your seat is no longer valid: halt.
