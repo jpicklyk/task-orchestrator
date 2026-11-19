@@ -2,21 +2,21 @@
 
 Report on the quality of the schemas in `.taskorchestrator/config.yaml`, then propose one config diff. The audit reports and never decides: every finding is a point to consider, never an error, and it does not move text from guidance into a skill, write a skill, or change anything without the user's yes. A finding that depends on a process choice states the observation and proposes nothing unless the user names the choice; the closing question (see Report) is where the user names it.
 
-Run the stages in order and collect every finding before reporting. A stage that cannot run says so in one line and the audit goes on. A stage cannot run only for a condition its own section names; the size of the file, the effort of a call, or the length of the text to pass is never one.
+Run the stages in order and collect every finding before reporting. A stage that cannot run says so in one line and the audit goes on. A stage cannot run only for a condition its own section names; the effort of a call or the length of the text to pass is never one.
 
 ## Stage 1 - Server (lint)
 
 Needs `project.rootId`. Without one, say "server stage skipped: no project.rootId" and go to Stage 2.
 
-With a `project.rootId` this call is required. The size of the file, or the effort of passing its text, is never a reason to skip it: several findings come only from this stage.
+With a `project.rootId` this call is required. The effort of passing its text is never a reason to skip it, and only the size limit and an error answer below let it not run: several findings come only from this stage.
 
 ```to-call
 {"tool": "config", "op": "validate", "args": {"rootId": "<project.rootId>", "configYaml": "<file text, CRLF replaced by LF>"}}
 ```
 
 - `configYaml` is the whole file's text as read, passed as one string argument, with every CRLF replaced by LF and nothing else changed: no trimming, summarising or splitting.
-- The server accepts at most 131072 bytes (UTF-8) in `configYaml`. When the file is larger, make no call and say "server stage not run: file is <n> bytes, over the 131072-byte limit" in one line.
-- When the call answers an error (an `error.code` in place of a result, such as `payload_too_large`), say "server stage not run: <error.code>" with the error's message in one line. Do not report an error answer as a clean result.
+- The server accepts at most 131072 bytes (UTF-8) in `configYaml`. The limit applies to the text after the CRLF replacement. When that text is larger, make no call and say "server stage not run: text is <n> bytes, over the 131072-byte limit" in one line.
+- When the call answers an error, it answers call-level `partial_failure` and the error is in `data.results[0].error` (SKILL.md Step 4 says where it is read), for example `payload_too_large`. Say "server stage not run: <code>" with that error's `code` and message in one line. Do not report an error answer as a clean result.
 - Report everything this stage returns in the Structural tier: `errors` first, then `warnings`, then `lint`, each lint finding marked `lint`.
 - `lint` is `[{path, reason}]`. It is always present on a server that has it and is `[]` when the document has errors, a parse failure or a rootId mismatch, so `[]` after errors is not clean: say the lint did not run on an invalid document.
 - `push` never returns or stores `lint`; only content declared in the per-root document is reported (the server layer is read for comparison only).
@@ -24,6 +24,8 @@ With a `project.rootId` this call is required. The size of the file, or the effo
 - Do not repeat in later stages what lint reports; whole-string identity of guidance is lint's.
 
 ## Stage 2 - Pointer (skill names)
+
+Needs `project.rootId`. Without one, say "pointer stage not run: no project.rootId" and go to Stage 3.
 
 Compare every skill name declared in the file with the skills available to the agent running the audit. Read no install path and invoke no skill to find out. A rule key is not a skill name and is never compared; only skill names are.
 
@@ -55,6 +57,8 @@ Compare every skill name declared in the file with the skills available to the a
 
 Over the guidance strings in the file only, never the server layer.
 
+Step 1 needs `project.rootId` for `config` `rules`. Without one, say "restatement check not run: no project.rootId" and go on to step 2.
+
 1. Restates a served rule or a bound plugin skill. Rule bodies come from `config` `rules` with `rootId` and `key`. A bound skill (on the note, or on the note's seat) named `task-orchestrator:<skill>` is read at `../<skill>/SKILL.md` relative to this skill folder (the folder is the part after the prefix); when that file cannot be read the report says the skill was not compared. Other skills are not compared and the report says so. A guidance that restates the body is a finding; propose pointing at the rule or skill instead.
 2. Size: guidance over 1500 characters by default (the user may name another threshold).
 3. Repeated text: a paragraph or a sentence that appears in the guidance of more than one note. Carry this out as an exact comparison, not by reading and recalling; a short script is fine, in any language the agent has.
@@ -69,6 +73,8 @@ Over the guidance strings in the file only, never the server layer.
 6. Craft rather than record: guidance that tells the agent how to do the work rather than what the note records and in what shape (the note guidance holds the record only). Report it with the skill bound to that note or seat, or "no skill bound". Propose nothing that moves text into a skill.
 
 ## Stage 4 - Usage
+
+Needs `project.rootId`. Without one, say "usage stage not run: no project.rootId" and go to the report.
 
 1. Traits no item carries. A trait named in any type's `default_traits` is in use. For each other trait:
 
