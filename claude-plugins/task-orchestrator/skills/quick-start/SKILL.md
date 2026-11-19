@@ -212,7 +212,7 @@ MCP items can have **required notes** that act as documentation gates:
 - `.taskorchestrator/config.yaml` defines schemas under `work_item_schemas:`: which notes must be filled before an item advances. `type` is required on every item and selects the schema (`type: "feature-implementation"` activates that schema's notes and gates).
 - Example: a `feature-implementation` schema can require a `feature-summary` note before work starts and a `review-checklist` note before completion.
 - Each schema sets a **lifecycle**: `auto`, `manual`, `permanent` or `none` (lifecycle-free: no roles, no transitions).
-- Notes can carry `guidance` (authoring hints) and `skill` (an evaluation framework to run before filling).
+- Notes can carry `guidance` (authoring hints) and `skill` (a skill to invoke, or a served rule to fetch, before filling).
 - **Composable traits** add note requirements per item. `traits` is always an array: `"traits": ["needs-security-review"]` adds a `security-assessment` note at the review phase.
 - Run `/manage-schemas` to set one up interactively.
 
