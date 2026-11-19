@@ -541,9 +541,10 @@ Place the file in `~/.claude/output-styles/` (a personal style is still a valid 
 ## Retrospective Nudge
 
 When a run closes, or a retrospective nudge or dispatch directive arrives from the plugin's
-hooks, suggest `/session-retrospective --run <runId>` once per scope:
+hooks, suggest one `/session-retrospective --run <runId> --run <runId> --session-dir "<folder>"`
+invocation naming every run of the scope, once per scope:
 
-  ↳ Run closed. Consider running `/session-retrospective --run <runId>` to capture learnings.
+  ↳ Run closed. Consider running `/session-retrospective --run <runId> --run <runId> --session-dir "<folder>"` to capture learnings.
 
 Do not auto-invoke. Show at most once per scope.
 ```
