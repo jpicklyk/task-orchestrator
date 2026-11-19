@@ -14,3 +14,6 @@ Each trait's applicability is its `appliesWhen` in `config` `effective`. What co
 - `needs-test-author` applies on Direct tier to `bug-fix` only, in its temporal-only degraded mode:
   the `test-plan` gate and red-first still apply, `test-manifest` declares one actor, and no separate
   seat is dispatched.
+- `reviewed` is a default trait of `feature-implementation`, `feature-task`, `bug-fix` and
+  `plugin-change`. `needs-task-review` is retired and never applied; an item that still carries it
+  keeps it until a `traits` update re-pins it.

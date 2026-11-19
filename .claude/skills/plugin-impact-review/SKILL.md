@@ -13,7 +13,7 @@ Evaluate which plugin components need updating after changes to MCP tools, confi
 The plugin-impact guidance (`items_read` `schema`, `fields` `["guidance"]`; checks (1)-(4)) lists what to
 check. This skill adds only where to look in this repo:
 
-1. Skills: both `claude-plugins/task-orchestrator/skills/` and `.claude/skills/`.
+1. Skills: grep both `claude-plugins/task-orchestrator/skills/` and `.claude/skills/` for the affected tool names, config keys or concepts.
 2. Hooks: `claude-plugins/task-orchestrator/hooks/`.
 3. Config format: `claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md`.
 4. Orchestration context: `hooks/orchestration-context.mjs` (the `workflow` and `schema` variants) and `skills/orchestrate/SKILL.md`.

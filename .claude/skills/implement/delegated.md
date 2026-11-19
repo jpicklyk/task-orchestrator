@@ -44,8 +44,8 @@ the first missing required note). `pre-plan-workflow` is optional (use it only i
 exploration); `post-plan-workflow` only if child items need materialization. In collaborative
 mode, ask the user to enter plan mode first.
 
-Front door "Planning rules" applies in full: the planning note's `skillPointer` (claims verified in
-source), rule `live-checks` (the State matrix) and rule `test-author` section 1 (`test-plan` frozen
+Front door "Planning rules" applies in full: the planning note's `skillPointer` (a served rule key is fetched as a rule, any other pointer
+is invoked as a skill, mechanics in `schema-workflow`; claims verified in source), rule `live-checks` (the State matrix) and rule `test-author` section 1 (`test-plan` frozen
 before the advance).
 
 Advance: `advance` `transition` with `trigger: "start"`.
@@ -212,9 +212,17 @@ You are reviewing MCP item <full UUID> (<short>) on its working branch.
 - Build state: the `Verified:` line of the item's session-tracking note (command, result,
   SHA). Run no gradle.
 
-Run ALL commands from that checkout. For each review-phase note the item's
-schema requires, read its `skillPointer` (`items_read` `schema`, `itemId`) and
-follow that framework, then fill those notes.
+Run ALL commands from that checkout.
+
+Before your first review-note write, load the reviewer seat's skills as `items_read`
+`schema` gives them (`seats[]`), or, when it declares none, the plugin defaults its hook
+names on your first `items_read` `context` read of the item.
+Fetch rules `protocol.read-only-agent` and `review-scoping`, plus the reviewer seat's
+`rules` from `items_read` `schema` (`seats[]`), or `review-cited-claims` when it has no
+`rules` field, with `config` op `rules`, and follow them. For each
+review-phase note the item's schema requires, read its `skillPointer` (`items_read`
+`schema`, `itemId`): a pointer that is a served rule key is fetched as a rule (`config`
+op `rules`), any other pointer is invoked as a skill. Follow it, then fill those notes.
 
 Report every finding at every severity — do not self-filter to a high-severity-only
 bar. Mark each finding blocking or observation and state your confidence; the

@@ -281,7 +281,7 @@ violation.
 
 Build state reviewers rely on: `Build state: <:current:test and :current:ktlintCheck> green|red at <sha>` (no tally; the orchestrator's one wave run). Reviewers run no gradle — see the Compile self-check slot's "Who runs gradle" table.
 
-Seat token (reviewer): `<path, or "none (hand-dispatch outside a run)">`, handled per rule `protocol.in-phase-seat` `claude:`.
+Seat token (reviewer): `<path, or "none (hand-dispatch outside a run)">`, handled per rule `protocol.read-only-agent` `claude:`.
 Pre-merge red-proof results (orchestrator-run in a scratch worktree, item tests only: the bug-fix
 revert and any coupled-authorship checks; every revert applied with
 `.claude/skills/implement/references/patch-anchored.py`, spec written with the Write tool, `DRY=1` first):
