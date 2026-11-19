@@ -36,6 +36,16 @@ test("E1b: items in plan order, review skills of item 1 come before stage skills
     assert.deepEqual(skillLines(explainPlan(doc)), ["Seat skills: x, y, z"]);
 });
 
+test("E1c: reviewSeatSkills with several lane seats are listed in sorted seat order, not insertion order", () => {
+    // The spec says "in key order" without naming one; sorted is chosen so the line does not depend on insertion order.
+    const doc = docOf([{
+        short: "aaaaaaaa",
+        stages: [stage("implementer", ["i"])],
+        reviewSeatSkills: { "reviewer-b": ["b1", "shared"], "reviewer-a": ["a1", "shared"] },
+    }]);
+    assert.deepEqual(skillLines(explainPlan(doc)), ["Seat skills: i, a1, shared, b1"]);
+});
+
 test("E2: no seat skills prints none, also with no args", () => {
     const doc = docOf([{ short: "aaaaaaaa", stages: [stage("implementer")] }]);
     assert.deepEqual(skillLines(explainPlan(doc)), ["Seat skills: none"]);
