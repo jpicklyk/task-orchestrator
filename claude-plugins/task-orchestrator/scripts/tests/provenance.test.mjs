@@ -15,7 +15,7 @@ import { dirname, join } from 'node:path'
 import { FIELD_ORDER, TAIL_ORDER, STRUCTURED_RE, formatProvenance, parseProvenance, formatExtraSeats, parseExtraSeats } from '../provenance-lib.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const SKILL_PATH = join(HERE, '..', '..', 'skills', 'session-retrospective', 'SKILL.md')
+const SKILL_PATH = join(HERE, '..', '..', 'skills', 'session-retrospective', 'references', 'metrics.md')
 
 // ── constants ────────────────────────────────────────────────────────────────────────────────
 
@@ -254,11 +254,11 @@ test('efforts: an absent or empty efforts list renders no efforts= token', () =>
 
 // ── doc-sync: read the example line from session-retrospective/SKILL.md at test time ───────────
 
-test('S13 (doc-sync): the provenance example line in session-retrospective/SKILL.md round-trips through parse/format', () => {
+test('S13 (doc-sync): the provenance example line in session-retrospective/references/metrics.md round-trips through parse/format', () => {
   const text = readFileSync(SKILL_PATH, 'utf8')
   const lines = text.split(/\r?\n/)
   const structuredLine = lines.map((l) => l.trim()).find((l) => STRUCTURED_RE.test(l))
-  assert.ok(structuredLine, 'expected a structured "adapter=..." provenance example line in SKILL.md')
+  assert.ok(structuredLine, 'expected a structured "adapter=..." provenance example line in references/metrics.md')
   assert.equal(formatProvenance(parseProvenance(structuredLine)), structuredLine)
   // sanity against the frozen B2b Appendix B example content (read live, not hardcoded as the oracle)
   assert.match(structuredLine, /\brun=r-20260928-b2d\b/)

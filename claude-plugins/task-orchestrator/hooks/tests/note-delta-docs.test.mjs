@@ -20,10 +20,11 @@ test('retrospective SKILL drops the files list, token bands and context-loss cla
   }
 });
 
-test('retrospective SKILL carries the derivability sample and note-volume figures', () => {
-  for (const needle of ['derivable', 'avgBytes', '1127']) {
+test('retrospective SKILL names the derivability sample and retro-metrics, and carries no dated work-note baseline', () => {
+  for (const needle of ['derivable', 'retro-metrics']) {
     assert.ok(RETRO.includes(needle), 'retrospective SKILL must contain "' + needle + '"');
   }
+  assert.equal(RETRO.includes('1127'), false, 'the 1127 baseline lives in config, not SKILL.md');
 });
 
 test('run-wave post-run no longer asks for files touched', () => {
