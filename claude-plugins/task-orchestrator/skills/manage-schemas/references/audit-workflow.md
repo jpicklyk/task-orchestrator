@@ -2,16 +2,21 @@
 
 Report on the quality of the schemas in `.taskorchestrator/config.yaml`, then propose one config diff. The audit reports and never decides: every finding is a point to consider, never an error, and it does not move text from guidance into a skill, write a skill, or change anything without the user's yes. A finding that depends on a process choice states the observation and proposes nothing unless the user names the choice; the closing question (see Report) is where the user names it.
 
-Run the stages in order and collect every finding before reporting. A stage that cannot run says so in one line and the audit goes on.
+Run the stages in order and collect every finding before reporting. A stage that cannot run says so in one line and the audit goes on. A stage cannot run only for a condition its own section names; the size of the file, the effort of a call, or the length of the text to pass is never one.
 
 ## Stage 1 - Server (lint)
 
 Needs `project.rootId`. Without one, say "server stage skipped: no project.rootId" and go to Stage 2.
 
+With a `project.rootId` this call is required. The size of the file, or the effort of passing its text, is never a reason to skip it: several findings come only from this stage.
+
 ```to-call
 {"tool": "config", "op": "validate", "args": {"rootId": "<project.rootId>", "configYaml": "<file text, CRLF replaced by LF>"}}
 ```
 
+- `configYaml` is the whole file's text as read, passed as one string argument, with every CRLF replaced by LF and nothing else changed: no trimming, summarising or splitting.
+- The server accepts at most 131072 bytes (UTF-8) in `configYaml`. When the file is larger, make no call and say "server stage not run: file is <n> bytes, over the 131072-byte limit" in one line.
+- When the call answers an error (an `error.code` in place of a result, such as `payload_too_large`), say "server stage not run: <error.code>" with the error's message in one line. Do not report an error answer as a clean result.
 - Report everything this stage returns in the Structural tier: `errors` first, then `warnings`, then `lint`, each lint finding marked `lint`.
 - `lint` is `[{path, reason}]`. It is always present on a server that has it and is `[]` when the document has errors, a parse failure or a rootId mismatch, so `[]` after errors is not clean: say the lint did not run on an invalid document.
 - `push` never returns or stores `lint`; only content declared in the per-root document is reported (the server layer is read for comparison only).
