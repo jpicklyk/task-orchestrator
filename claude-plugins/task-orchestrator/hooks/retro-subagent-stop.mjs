@@ -70,13 +70,20 @@ try {
   let head; // read lazily: only a claim whose retrospective has not finished needs the transcript
   let changed = false;
   const kept = [];
-  for (const claim of state.claims) {
+  // The claim reads run in parallel (a hung server costs one timeout, not one per claim); a failed claim is not read.
+  const views = await Promise.all(
+    state.claims.map(async (claim) => {
+      if (claim.failed) return null;
+      const res = await callOp('runs_read', { select: 'get', runId: claim.anchor }, { timeoutMs: CALL_TIMEOUT_MS });
+      return res && res.ok === true && isPlain(res.data) ? (isPlain(res.data.run) ? res.data.run : res.data) : null;
+    }),
+  );
+  for (const [i, claim] of state.claims.entries()) {
     if (claim.failed) {
       kept.push(claim);
       continue;
     }
-    const res = await callOp('runs_read', { select: 'get', runId: claim.anchor }, { timeoutMs: CALL_TIMEOUT_MS });
-    const view = res && res.ok === true && isPlain(res.data) ? (isPlain(res.data.run) ? res.data.run : res.data) : null;
+    const view = views[i];
     if (!view) {
       kept.push(claim); // error: state unchanged
       continue;
