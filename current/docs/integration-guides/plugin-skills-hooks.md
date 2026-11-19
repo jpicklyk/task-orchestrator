@@ -302,16 +302,17 @@ The plan id (`r-…`) names the scratch directory and the run's label; the serve
 
 ### Director mode and coordinator tiers
 
-`/task-orchestrator:director` shows open runs, their frontier, open decisions and rollups through the director connection and answers decisions (it withdraws one only as the decision's raiser, which includes a token-less raise by the same principal, or as the holder of the run's coordinator token, which it has only from an `open` it made; nobody withdraws a server-raised decision); the guard hooks above hold it at altitude. Its purpose is to keep the user's session free and small while coordinators run the waves. Two limits: one wave per project root at a time (`run-wave` resumes any open or paused run under the root instead of planning a new one), and the tiers differ in where the coordinator lives: at tier 1 it is a separate session that outlives the director, at tier 2 it is a background agent inside the director session, at tier 3 it is a separate `claude -p` process and only the background agent that starts it lives inside the director session, and tier 4 has no coordinator because the run executes inline in the director session. A director never runs a wave itself: a coordinator does. `scripts/coordinator-tiers.mjs` (`selectTier`, `launchProfile`) picks where the coordinator lives:
+`/task-orchestrator:director` shows open runs, their frontier, open decisions and rollups through the director connection and answers decisions (it withdraws one only as the decision's raiser, which includes a token-less raise by the same principal, or as the holder of the run's coordinator token, which it has only from an `open` it made; nobody withdraws a server-raised decision); the guard hooks above hold it at altitude. Its purpose is to keep the user's session free and small while coordinators run the waves. Two limits: one wave per project root at a time (`run-wave` resumes any open or paused run under the root instead of planning a new one), and the tiers differ in where the coordinator lives: at tier 1 it is a separate session that outlives the director, at tier 2 it is a background agent inside the director session, at tier 2b it is a Code Mode subagent inside the director session that runs the whole run with Method B, at tier 3 it is a separate `claude -p` process and only the background agent that starts it lives inside the director session, and tier 4 has no coordinator because the run executes inline in the director session. A director never runs a wave itself: a coordinator does. `scripts/coordinator-tiers.mjs` (`selectTier`, `launchProfile`) picks where the coordinator lives:
 
 | Tier | Needs | Coordinator |
 |------|-------|-------------|
 | 1 | `start_session` and `SendMessage` | A separate desktop session |
 | 2 | `Workflow` | A background coordinator agent; the director makes the one `Workflow` call with `args.altitudeSafe: true` |
+| 2b | `REPL` and `Agent` (Code Mode) | A background Code Mode coordinator subagent that runs the whole run with Method B |
 | 3 | The `claude` CLI | A headless `claude -p --allowedTools Workflow --max-budget-usd <X>` process (never `--bare`) |
 | 4 | Nothing above | None: the run executes inline, with an altitude warning |
 
-Tiers 1 and 2 need a director entered through the `/task-orchestrator:director` skill in a normal session. The hardened `claude --agent director` entry (`agents/director.md`) has neither `Workflow` nor `start_session`, so it probes tier 3 or 4.
+Tiers 1, 2 and 2b need a director entered through the `/task-orchestrator:director` skill in a normal session. The hardened `claude --agent director` entry (`agents/director.md`) has neither `Workflow` nor `start_session`, so it probes tier 3 or 4.
 
 An altitude-safe `implement-wave` result carries counts, statuses, commit SHAs, file lists and note keys, with reasons cut to 120 characters. Details: `skills/director/references/coordinator-tiers.md`.
 

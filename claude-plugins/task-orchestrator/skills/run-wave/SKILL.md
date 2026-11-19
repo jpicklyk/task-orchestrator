@@ -175,8 +175,10 @@ background coordinator agent (`run_in_background: true`, `model` set) for Steps 
 director makes the one `Workflow` call, then sends the coordinator `launched` with the call's task id,
 run id and script path; only then does the coordinator record phase `launched` and those keys in
 `state.json`. On the task notification the director sends the result JSON verbatim; the coordinator writes
-`result.json` and runs post-run, then reports. `plan` refuses `--method A` (exit 3) when `runBudget.maxActiveSeats` is below the schema-seat count; the coordinator returns that refusal instead of a `planned` report, and the director raises `maxActiveSeats` or drives tier 3. Decisions land between runs. See
+`result.json` and runs post-run, then reports. `plan` refuses `--method A` (exit 3) when `runBudget.maxActiveSeats` is below the schema-seat count; the coordinator returns that refusal instead of a `planned` report, and the director raises `maxActiveSeats` or drives tier 2b (Code Mode) or 3. Decisions land between runs. See
 `skills/director/references/coordinator-tiers.md`.
+
+**Director tier 2b.** A tier-2b coordinator is a Code Mode subagent: it runs Steps 0-9 and post-run itself with `--method B` per `references/code-mode.md`, records `launched` as usual (never the tier-2 `planned` wait), and sends each report to `"main"`.
 
 ---
 
