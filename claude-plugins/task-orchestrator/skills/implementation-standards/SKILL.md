@@ -1,6 +1,6 @@
 ---
 name: implementation-standards
-description: "Engineering standards for writing or changing production code: reuse before writing, matching local patterns, the smallest change that meets the requirement, error handling and logging, no speculative abstraction or dead code, behaviour-preserving refactoring, safe state and released resources, documentation kept in step with behaviour, and verifying the change before calling it done."
+description: "Engineering standards for building a code change: reuse before writing, matching local patterns, the smallest change that meets the requirement, error handling and logging, behaviour-preserving refactoring, safe state and released resources, documentation kept in step with behaviour, and verifying the change before calling it done. Use when writing new production code or changing existing code (a feature, a bug fix, a refactoring, a change to shared code), and before reporting the change as done."
 user-invocable: false
 ---
 
@@ -28,8 +28,8 @@ followed.
    dependency choices of the code around the change. Detail:
    [reuse and local patterns](references/reuse-and-local-patterns.md).
 3. **Make the smallest change that meets the requirement.** Change only what the requirement
-   needs: no unrelated cleanup, no speculative abstraction, no dead code. Detail:
-   [minimal change](references/minimal-change.md).
+   needs: no unrelated cleanup, no speculative abstraction, no dead code, and no silent departure
+   from the agreed design. Detail: [minimal change](references/minimal-change.md).
 4. **Handle errors.** Expected failures are handled or returned with context, programming errors
    fail fast, nothing is swallowed, and each failure is logged once. Detail:
    [error handling](references/error-handling.md).
@@ -45,8 +45,3 @@ followed.
 8. **Verify and report.** Verify your own change before calling it done, and say what you ran,
    what it showed, and what you did not run and why. Detail:
    [verification](references/verification.md).
-
-## Departures
-
-A departure from the agreed design is stated with its evidence, never substituted silently; the
-detail is in [minimal change](references/minimal-change.md).

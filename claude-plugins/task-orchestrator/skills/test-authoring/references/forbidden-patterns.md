@@ -1,6 +1,6 @@
 # Forbidden patterns
 
-Each construct below produces a passing result without verifying behaviour. Each is forbidden
+Each pattern below produces a passing result without verifying behaviour. Each is forbidden
 without a stated justification. The examples use language-neutral pseudo-code.
 
 ## 1. Skip guard on a behavioural condition

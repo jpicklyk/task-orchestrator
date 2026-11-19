@@ -1,6 +1,6 @@
 ---
 name: planning-standards
-description: "The bar for planning a software change before any code is written: testable acceptance criteria, real alternatives, resolved decisions, non-goals, blast radius, risk flags, test strategy, architecture fit and reuse before build."
+description: "Sets the bar for planning a software change before any code is written: testable acceptance criteria, real alternatives, resolved decisions, non-goals, blast radius, risk flags, test strategy, architecture fit and reuse before build. Use when writing or checking a plan, specification, task scope or bug diagnosis for a code change."
 user-invocable: false
 ---
 
