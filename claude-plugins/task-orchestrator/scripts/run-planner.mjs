@@ -490,7 +490,8 @@ async function runRetroMetrics(args) {
         note('session-tracking'),
         readRetro('items_read', { select: 'get', itemId: id }, gaps, 'items', ['not_found'])
       ]);
-      return { id, type: item && item.item ? item.item.type : null, delegationMetadata, sessionTracking };
+      // items_read get answers the item itself in data (type at the top level).
+      return { id, type: item && typeof item.type === 'string' ? item.type : null, delegationMetadata, sessionTracking };
     })
   );
 
