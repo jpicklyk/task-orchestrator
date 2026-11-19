@@ -43,6 +43,12 @@
       "reason": "Host integration: the host workflows command lists runs"
     },
     {
+      "file": "skills/run-wave/SKILL.md",
+      "name": "reload-skills",
+      "audit": "H17",
+      "reason": "Host session command named as such"
+    },
+    {
       "file": "hooks/orchestration-context.mjs",
       "name": "compact",
       "audit": "H17",
