@@ -169,7 +169,7 @@ test('S5: reseat of an implementer fix seat carries the SHARED WITH line from th
   assert.ok(!r2.prompt.includes('SHARED WITH'))
 })
 
-test('S6: makeMilestones.peek is undefined before settle, the value after, null after releaseFrom, and creates no promise', async () => {
+test('S6: makeMilestones.peek is undefined before settle, the value after, and null after releaseFrom, and leaves get working', async () => {
   const items = makePlan([A, B]).items
   const ms = loadWaveCore().makeMilestones(items)
   assert.equal(ms.peek(items[0].id, 'planner'), undefined)

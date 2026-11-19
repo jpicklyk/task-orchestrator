@@ -1637,7 +1637,7 @@ function reKeyOutsByOutputId(item, outsBySeat) {
  * seatPrompt(plan, item, stage, outs, siblings = []) -> string
  * siblings = [{short, output, roots}], the planner-v1 outputs of other items whose planner is done (SHARED WITH part).
  * Joins the non-empty prompt parts (§5.3) with "\n\n"; each part is a pure function of
- * plan/item/stage/outs. No rule text lives here — rules are fetched by key at runtime via the
+ * plan/item/stage/outs/siblings. No rule text lives here — rules are fetched by key at runtime via the
  * config tool's rules op (part 6). No seat token is ever inlined: part 4 names its file.
  */
 function seatPrompt(plan, item, stage, outs, siblings = []) {
