@@ -111,10 +111,15 @@ export function dispatchAncestorId(located) {
 
 // ---- per-session state -------------------------------------------------------------------------
 
-/** Per-session retro state: { closes: runId[], sawClose, nudged: runId[], backstopNudged }. */
+/**
+ * Per-session retro state: { opened: runId[], closes: runId[], sawClose, nudged: runId[], backstopNudged }.
+ * `opened` and `closes` are the runs this session (its main thread or one of its subagents) opened or
+ * closed through runs_write; only those runs owe this session a retrospective (ownsRun).
+ */
 export function readSessionState(sessionId) {
   const raw = readMarker(sessionMarkerPath(sessionId, 'retro'), {});
   return {
+    opened: Array.isArray(raw.opened) ? raw.opened.filter((v) => typeof v === 'string') : [],
     closes: Array.isArray(raw.closes) ? raw.closes.filter((v) => typeof v === 'string') : [],
     sawClose: raw.sawClose === true,
     nudged: Array.isArray(raw.nudged) ? raw.nudged.filter((v) => typeof v === 'string') : [],
@@ -124,6 +129,17 @@ export function readSessionState(sessionId) {
 
 export function writeSessionState(sessionId, state) {
   writeMarker(sessionMarkerPath(sessionId, 'retro'), state);
+}
+
+/**
+ * True when this session opened or closed `runId`. A run another session drove owes that session its
+ * retrospective, not this one; a director session is no exception, since a coordinator running in its
+ * own session handles its own run.
+ */
+export function ownsRun(state, runId) {
+  return Boolean(state) && typeof runId === 'string' && (
+    (Array.isArray(state.opened) && state.opened.includes(runId)) ||
+    (Array.isArray(state.closes) && state.closes.includes(runId)));
 }
 
 // ---- REST path ---------------------------------------------------------------------------------
@@ -149,7 +165,9 @@ export function fixCycleBaseRun(label) {
 
 /**
  * The shared run evaluation (trigger and backstop). Lists the root's closed runs not yet marked
- * `retro` (closed in the last 24 h), reads the terminal count of at most 5 of them, and for each:
+ * `retro` (closed in the last 24 h), keeps the ones this session opened or closed (ownsRun; any other
+ * run is left unmarked for the session that drove it), reads the terminal count of at most 5 of them,
+ * and for each:
  * dispatch mode and terminal >= threshold -> try to mark (first write wins); a run whose mark this call
  * wrote is won and dispatched; a lost race (marked false) is silent; a failed mark is nudged, never
  * dispatched unmarked. Everything else is nudged. A fix-cycle run (label '<runId>-a<n>') is marked in
@@ -171,6 +189,7 @@ export async function evaluateRuns({ rootId, config, state }) {
     for (const view of list.data.items) {
       if (!isPlain(view) || typeof view.runId !== 'string' || view.runId === '') continue;
       if (isPlain(view.marks) && Object.prototype.hasOwnProperty.call(view.marks, 'retro')) continue;
+      if (!ownsRun(state, view.runId)) continue; // another session's run: that session owes it
       if (state.nudged.includes(view.runId)) continue;
       if (candidates.includes(view.runId)) continue;
       candidates.push(view.runId);

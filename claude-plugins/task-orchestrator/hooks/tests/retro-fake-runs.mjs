@@ -430,6 +430,16 @@ export function markDirector(sbx, sessionId) {
   writeFileSync(join(dir, 'director.json'), '{}');
 }
 
+/**
+ * Seeds `sessionId`'s retro marker so the session owns `runIds` (as if its runs_write `open` or `close`
+ * had been recorded by retro-trigger): only owned runs owe a session a retrospective.
+ */
+export function ownRuns(sbx, sessionId, runIds, field = 'closes') {
+  const dir = join(sbx.tmp, 'task-orchestrator', String(sessionId).replace(/[^a-zA-Z0-9-]/g, '_'));
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'retro.json'), JSON.stringify({ [field]: runIds }));
+}
+
 /** A run fixture with a closed run's usual shape: `terminal` terminal members out of `members`. */
 export function runFixture(n, opts = {}) {
   const { terminal = 3, members = terminal } = opts;

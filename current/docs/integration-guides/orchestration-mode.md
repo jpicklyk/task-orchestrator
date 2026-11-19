@@ -195,7 +195,7 @@ Narration uses the `↳` prefix for background operations — one line each, ski
 
 ## Retrospective
 
-A retrospective is owed per closed run that has no `retro` mark, and the plugin's retrospective hooks — not the orchestrator's own judgment — are the trigger. `runs_write` `close` fires `retro-trigger`; `retro-backstop` runs the same check at `Stop` through `runs_read` with `unmarked: "retro"`, so a run closed in another session still gets one. The orchestrator follows the hook according to `retrospective.mode` under `extensions.claude-code` in `.taskorchestrator/config.yaml`:
+A retrospective is owed per closed run that has no `retro` mark, and the plugin's retrospective hooks — not the orchestrator's own judgment — are the trigger. `runs_write` `close` fires `retro-trigger`; `retro-backstop` runs the same check at `Stop` through `runs_read` with `unmarked: "retro"`, so a run this session opened that closed elsewhere (a subagent, a tool the trigger never saw) still gets one; a run another session opened and closed is left to that session. The orchestrator follows the hook according to `retrospective.mode` under `extensions.claude-code` in `.taskorchestrator/config.yaml`:
 
 | Mode | What the orchestrator does |
 |------|----------------------------|
