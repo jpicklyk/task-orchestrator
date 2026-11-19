@@ -14,7 +14,7 @@ not to use it: [references/purpose.md](references/purpose.md).
 
 Calling this skill entered director mode. The plugin's `director-guard` hook saw the `Skill` call
 and wrote a marker for this session (`<tmp>/task-orchestrator/<session>/director.json`). While the
-marker exists, the guard enforces the altitude rule below on the tools it matches: the built-in file, shell, web (`WebFetch`, `WebSearch`) and MCP-resource tools, foreground dispatch, `Skill` and `Workflow`, the reads on the orchestration connection, and every host MCP tool, which is denied unless it is `start_session`, `send_message`, a tier-1 launch profile call (`get_settings`, `set_session_output_style`) or a desktop UI tool (`update_plan`, `wrap_up`, `mark_chapter`).
+marker exists, the guard enforces the altitude rule below on the tools it matches: the built-in file, shell, web (`WebFetch`, `WebSearch`) and MCP-resource tools, foreground dispatch, `Skill` and `Workflow`, the reads on the orchestration connection, and every host MCP tool (terminal, file store, computer use and the like), which is denied unless it is `start_session`, `send_message`, a tier-1 launch profile call (`get_settings`, `set_session_output_style`) or a desktop UI tool (`update_plan`, `wrap_up`, `mark_chapter`).
 Subagents are exempt (their calls carry `agent_id`); a headless ralph iteration is never guarded.
 
 `/task-orchestrator:director off` removes the marker and ends director mode. Say so in one line
@@ -25,14 +25,14 @@ Calling the skill again refreshes the marker and the dashboard.
 ## The altitude rule
 
 - Never open or search a file. `Read`, `Edit`, `Write`, `Grep`, `Glob` and `NotebookEdit` are
-  denied. `PowerShell` and `Monitor` are denied outright; `Workflow` runs only `task-orchestrator:implement-wave` with an object `args` carrying
+  denied. `PowerShell` and `Monitor` are denied outright (each runs a shell command and prints its output, and only `Bash` has a read-only allow-list); `Workflow` runs only `task-orchestrator:implement-wave` with an object `args` carrying
   `altitudeSafe: true`.
 - Never read a note body, with two exceptions: a decision request (`runs_read` `decision`) and a
   run rollup (`report` `rollup`).
 - `Bash` (absent from the hardened entry's tool list) runs only `git status`, `git log`, `git branch`, `gh pr view`, `gh pr list` and
   `docker ps`, one command per segment, with no redirection (`<`, `>`), no substitution (backtick,
   `$`), no braces, globs or backslashes, and nothing chained after a command outside that list.
-  `git log`, `git status` and `git branch` take only listing flags (a flag allow-list): `git log`
+  `git log`, `git status` and `git branch` take only listing flags (a flag allow-list; the common ones, not the whole list): `git log`
   takes `--oneline`, `--format=`, `-n <k>`, `--graph`, `--since=`, `--author=`, `--grep=` and
   `--stat`, never `-p` or another patch flag; `git status` takes `-s`, `-b`, `--porcelain` and
   `-uno`, never `-v`; `git branch` may only list (`-a`, `-r`, `-v`, `--list`, `--show-current`,
@@ -68,11 +68,9 @@ The five MCP tools come from the director connection. Anything else (notes, item
 `advance`, config) is a coordinator's job. `runs_write` `open` is in the director profile on purpose:
 a session that opens a run holds that run's coordinator token.
 
-The guard enforces the altitude rule, not this whole budget: in a skill-entered session it denies the
-file and shell tools, foreground `Agent`, `Bash` outside its read-only allow-list, the `config` tool
-(every op, `push`, `rollback` and `reset` included) and the reads that return note or document bodies.
-It does not deny the orchestration connection's other writes (`notes_write`, `items_write`, `advance`).
-Only the hardened entry enforces the whole budget, through its tool list.
+The guard enforces the altitude rule, not this whole budget: it does not deny `notes_write`, `items_write`
+or `advance`, so keep to the budget yourself. Only the hardened entry enforces the whole budget, through
+its tool list. What the guard denies, and where it stops: [references/guard-coverage.md](references/guard-coverage.md).
 
 Run control: `pause` stops an open run (a manual pause, with no decision); `resume` lifts only a
 manual pause. A run paused on an `attempt-cap` decision is lifted only by answering
@@ -92,10 +90,8 @@ that connection the server enforces the rule. In a normal session the orchestrat
 stays registered, and the guard enforces the rule there too: `config`, `notes_read` and `docs_read` are denied,
 `items_read` is allowed only with the `get`, `list`, `overview` and `blocked` selects, and `runs_read` only with
 `get`, `list`, `frontier`, `decisions` and `decision` (both also with `describe: true`). `Skill` runs only the director
-skill and `task-orchestrator:model-effort`; another skill needs `/task-orchestrator:director off`. The limit: the guard
-recognises the orchestration connection by `task-orchestrator` in its server key, so a server registered under a key
-without that word is treated as a host server and denied outright under the marker, and a server whose key contains
-`task-orchestrator` is treated as the Task Orchestrator server, so only its listed reads are guarded. Use the hardened entry (below)
+skill and `task-orchestrator:model-effort`; another skill needs `/task-orchestrator:director off`. The guard tells the orchestration connection from a host server by its server key; the limit is in
+guard-coverage.md. Use the hardened entry (below)
 when enforcement matters.
 
 If the director tools are missing, say so and name `/task-orchestrator:init` as the fix. Until
@@ -243,7 +239,7 @@ per `/status-progression`. The board then shows the entry as "answered, needs re
 ## Coordinator tier
 
 Probe once per entry and state the result as one board line. The tier says where coordinators
-run; it does not launch one. Tiers 1, 2 and 2b show in your own tool list. Tier 3 needs the
+run; it does not launch one. Tiers 1, 2 and 2b show in your own tool list (no calls). Tier 3 needs the
 `claude` CLI on the host, which no tool list shows: ask the user, or dispatch one background agent
 to run `claude --version` and report. The hardened entry has no shell, so only the agent can.
 In Code Mode, probe the tools a script can call (Workflow, Agent, SendMessage), not the REPL and
