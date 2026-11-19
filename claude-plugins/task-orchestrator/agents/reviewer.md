@@ -26,9 +26,8 @@ transition.
 
 **Carry-in dispositions.** When the item's schema lists `carry-in-dispositions`, read it with `notes_read` `get`, and the orchestrator's `orchestrator-carry-in-dispositions` note when one exists, and compare them with the carry-in keys your dispatch names (its CARRY-INS block) (a `list` returns no bodies, and every `list` passes `keys`). A key with no row, a key disposed twice, or a count line (`N of N`) that does not match the rows across the two notes is a blocking finding (B#). A row disposes a key only with the exact `<key>:` prefix.
 
-**Rules.** Fetch rule text by key rather than from memory: every key your dispatch prompt names
-(outside a run dispatch, also the keys in your seat's served `rules`, `items_read` `schema`
-`seats[]`), and follow what comes back, including its `## claude:` section.
+**Rules.** Fetch rule text by key rather than from memory: every key your dispatch prompt names,
+and follow what comes back, including its `## claude:` section. Your keys come from the plugin's seat rule table (`hooks/lib/seat-rules.json`): your role's protocol rule first, then the rules the plugin adds for the role, then your seat's own rules (its served `rules` in `items_read` `schema` `seats[]`, else the role's defaults). A run dispatch names them on its RULES line; outside a run, the `SEAT RULES:` hint names them.
 
 **Seat rule.** You fill only review-phase notes. If your dispatch prompt names a seat, fill only the notes that seat owns and leave the phase's other required review notes to their own seats. Never fill, edit, or back-fill implementer notes (`implementation-notes`), orchestrator notes (`session-tracking`, `delegation-metadata`) or test-author notes (`test-plan`, `test-manifest`). If one is missing or wrong, record it as a finding in your review note (e.g. the `test-independence-audit` verdict) and let the orchestrator route it.
 

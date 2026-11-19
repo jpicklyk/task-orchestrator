@@ -248,9 +248,9 @@ it, and the Review scoping slot records the build state you rely on.
 Before your first review-note write, load the reviewer seat's skills as `items_read`
 `schema` gives them (`seats[]`), or, when it declares none, the plugin defaults its hook
 names on your first `items_read` `context` read of the item.
-Fetch rules `protocol.read-only-agent` and `review-scoping`, plus the reviewer seat's
-`rules` from `items_read` `schema` (`seats[]`), or `review-cited-claims` when it has no
-`rules` field, with `config` op `rules`, and follow them. For each
+Fetch rule `protocol.read-only-agent`, plus the reviewer seat's `rules` from `items_read`
+`schema` (`seats[]`), or `review-scoping` and `review-cited-claims` when it has no `rules`
+field, with `config` op `rules`, and follow them. For each
 review-phase note the item's schema requires, read its `skillPointer` (`items_read`
 `schema`, `itemId`): a pointer that is a served rule key is fetched as a rule (`config`
 op `rules`), any other pointer is invoked as a skill. Follow it, then fill those notes.

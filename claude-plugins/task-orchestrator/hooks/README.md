@@ -36,7 +36,10 @@ facts come from the server) and then stay silent; `phase-guard-record` is always
 Seat skills take three hooks plus `skill-enforcement`. `seat-skill-hint` (PostToolUse `advance` and `items_read`, beside
 `phase-guard-record`) reads a seat's first ok own-item read (an item-mode `context` read, or an ok `advance` element with
 `newRole`), takes the seat from `callerSeat` (else a known seat `agent_type`), reads the item's `items_read` `schema` once
-(`seats`, `features`) and adds `SEAT SKILLS:` context naming the skills and their binding source; in a subagent it writes the agent's required
+(`seats`, `notes`, `features`) and adds `SEAT SKILLS:` context naming the skills and their binding source, then a `SEAT RULES:` line naming
+the seat's rule keys in order from the seat rule table (`lib/seat-rules.json`, resolver `lib/seat-rules.mjs`): the role's protocol key, the
+keys the plugin adds for the role, then the seat's own rules (filtered by one served-rules read for the located `project.rootId`; unfiltered,
+with a skip clause, when that read does not answer). The rules line is a hint only: nothing is recorded or refused for a rule. In a subagent it writes the agent's required
 record, in the main session it hints once per item and role on an ok `advance` without a `seatToken`. `skill-record`
 (PostToolUse `Skill`) records each skill a subagent loads. `seat-skill-gate` (PreToolUse `Edit|Write|NotebookEdit` and
 `notes_write`) denies every gated call of a subagent (`SEAT SKILLS REQUIRED:`) until the record's skills are loaded or
@@ -71,7 +74,7 @@ the hook has no check for that column; "non-injecting" means it adds no context.
 | `post-plan.mjs` | `{}` | `{}` | `off` gives `{}` | `{}` |
 | `plan-capture.mjs` | Not gated; non-injecting outside a project session, one context line in one | Not gated; non-injecting outside a project session, one context line in one | Not read | Not gated; non-injecting outside a project session, one context line in one |
 | `skill-enforcement.mjs` | Not gated | Advice as in the main session, plus a denial (`NOTE SKILL REQUIRED:`) of every upsert of a key while a note skill is neither loaded nor preloaded, no release; no denial unless the item's own schema view lists `seatSkills`, and none without a served-rules answer or with an unwritable probe | Not read | Not gated |
-| `seat-skill-hint.mjs` | Not gated | Hints the seat's skills once per agent and writes its required record (seat from `callerSeat`, else a known seat `agent_type`); main session: once per item and role on an ok `advance` without a `seatToken`, no record | Not read | Not gated |
+| `seat-skill-hint.mjs` | Not gated | Hints the seat's skills and rule keys once per agent and writes its required record (seat from `callerSeat`, else a known seat `agent_type`); main session: once per item and role on an ok `advance` without a `seatToken`, no record | Not read | Not gated |
 | `skill-record.mjs` | Not gated; non-injecting | Acts only inside a subagent: records the loaded skill; non-injecting | Not read | Not gated; non-injecting |
 | `seat-skill-gate.mjs` | Not gated | Acts only inside a subagent with an enforcing record: a denial (`SEAT SKILLS REQUIRED:`) of every call at the seat's gate point while a skill is missing, no release; `{}` in the main session | Not read | Not gated |
 | `dispatch-model-guard.mjs` | `{}` | Not gated (guards the dispatch) | `off` gives `{}`; `schema` changes the deny reason | Not gated (still guarded) |

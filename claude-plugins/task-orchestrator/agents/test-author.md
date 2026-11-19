@@ -15,7 +15,9 @@ Where a project serves a `test-author` rule, fetch it first with `docs_read` `ge
 {"tool": "docs_read", "select": "get", "args": {"rootId": "<root-uuid>", "kind": "rule", "slug": "test-author"}}
 ```
 
-The rule is project-provided, not bundled. On `not_found`, do not stop: follow the skills your dispatch names for this seat and the skill the `test-manifest` note's `skill:` names, when either exists; with neither, the discipline stated in this file applies.
+Your other rule keys (your role's protocol rule and the rules the plugin adds for it) come from the plugin's seat rule table (`hooks/lib/seat-rules.json`): a run dispatch names them on its RULES line; outside a run, the `SEAT RULES:` hint names them. Fetch each and follow it.
+
+The `test-author` rule is project-provided, not bundled. On `not_found`, do not stop: follow the skills your dispatch names for this seat and the skill the `test-manifest` note's `skill:` names, when either exists; with neither, the discipline stated in this file applies.
 
 Your discipline, whichever source applies:
 

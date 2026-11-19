@@ -13,6 +13,7 @@
 import { isOrchestratorServerKey } from '../hooks/registration.mjs';
 import { forClass } from './lib/dispatch-policy.mjs';
 import { SEAT_SKILLS_FEATURE, seatSkillsFor, loadSeatSkillDefaults } from '../hooks/lib/seat-skills.mjs';
+import { loadSeatRules, seatRoleOf, seatRulesFor } from '../hooks/lib/seat-rules.mjs';
 
 export const SNAPSHOT_CONTRACT = 'run-wave/snapshot-v1';
 export const PLAN_DOC_CONTRACT = 'run-wave/plan-doc-v1';
@@ -625,12 +626,14 @@ export function ownership(schema, phases) {
  * extraction; any other seat takes its phase's class (queue -> planning, work -> implementation,
  * review -> review).
  */
+/** The inserted extractor stage's seat name: the seat rule role of a declarations-v1 stage. */
+const EXTRACTOR_SEAT = seatRoleOf({ output: 'declarations-v1' });
 const SEAT_CLASS = {
   planner: 'planning',
   implementer: 'implementation',
   'test-author': 'test-authoring',
   reviewer: 'review',
-  'declarations-extractor': 'extraction'
+  [EXTRACTOR_SEAT]: 'extraction'
 };
 const PHASE_CLASS = { queue: 'planning', work: 'implementation', review: 'review' };
 export function policyClassFor(seat, phase) {
@@ -692,40 +695,12 @@ function deriveRulesSkills(ownedKeys, allNotes, servedKeys) {
   return { rules, skills };
 }
 
-/**
- * The rules a seat works under when its config entry declares no `rules`, by stage output. Used for a declared seat
- * and for an implicit one alike; every other output has none. A default the server does not serve is dropped silently.
+/*
+ * A stage's rules come from the seat rule table (hooks/lib/seat-rules.mjs seatRulesFor): the note-derived rules, then
+ * the seat's declared `rules` list or, when it declares none, its role's defaults, filtered by the served keys. A
+ * declared key that is not served, and another role's protocol key, are reported as degradations; an unserved
+ * default is dropped silently. The role's protocol and plugin-chosen keys are added at prompt time (promptKeysFor).
  */
-export const DEFAULT_SEAT_RULES = {
-  'planner-v1': ['planning-sweeps', 'review-cited-claims'],
-  'review-v1': ['review-cited-claims']
-};
-
-/**
- * seatRulesFor(declared, output, servedKeys, seatName) -> {rules, degradations}
- * `declared` is the seat's served `rules` (array) or undefined/null when it declares none: an array is the seat's own
- * list (`[]` is none), anything else falls back to DEFAULT_SEAT_RULES[output]. A declared key that is not served is left
- * out and reported as `seat rule <key> not served (<seat>)`; a default that is not served is left out silently.
- */
-export function seatRulesFor(declared, output, servedKeys, seatName) {
-  const rules = [];
-  const degradations = [];
-  const isDeclared = Array.isArray(declared);
-  const wanted = isDeclared ? declared : (DEFAULT_SEAT_RULES[output] || []);
-  for (const k of wanted) {
-    if (typeof k !== 'string' || rules.includes(k)) continue;
-    if (servedKeys.has(k)) rules.push(k);
-    else if (isDeclared) degradations.push(`seat rule ${k} not served (${seatName})`);
-  }
-  return { rules, degradations };
-}
-
-/** The note-derived rules first, then the seat's rules, deduped with order kept. */
-function mergeRules(noteRules, seatRules) {
-  const out = [...noteRules];
-  for (const k of seatRules) if (!out.includes(k)) out.push(k);
-  return out;
-}
 
 /**
  * reviewSeatSkillsOf(schema, skillOpts) -> {<lane seat>: [skills]} | null
@@ -752,18 +727,27 @@ function reviewSeatSkillsOf(schema, skillOpts) {
  * reviewRules is {<lane seat>: [keys]} over the seats of the schema's review-role notes (the lane seat expression
  * reviewWaveArgs uses), omitted keys with no rule; the seat's declared `rules` or the review-v1 defaults. null when no lane has one.
  */
-function reviewRulesOf(schema, servedKeys) {
+function reviewRulesOf(schema, servedKeys, table) {
   const out = {};
   const degradations = [];
   const declaredSeats = schema.seats || [];
+  const reviewNotes = (schema.notes || []).filter((n) => n && n.role === 'review' && n.seat !== 'orchestrator');
   const seen = new Set();
-  for (const n of schema.notes || []) {
-    if (!n || n.role !== 'review' || n.seat === 'orchestrator') continue;
+  for (const n of reviewNotes) {
     const seat = n.seat || n.reviewer || 'reviewer';
     if (seen.has(seat)) continue;
     seen.add(seat);
+    // The lane's review-note skills that name a served rule, read here only to report another role's protocol key:
+    // review-wave args deliver a lane's note rules to it themselves.
+    const laneNoteRules = [];
+    for (const m of reviewNotes) {
+      if ((m.seat || m.reviewer || 'reviewer') !== seat) continue;
+      for (const sk of noteSkills(m)) if (servedKeys.has(sk) && !laneNoteRules.includes(sk)) laneNoteRules.push(sk);
+    }
+    const fromNotes = seatRulesFor(table, { role: 'reviewer', seat, noteRules: laneNoteRules, declared: [], served: servedKeys });
+    degradations.push(...fromNotes.degradations);
     const decl = declaredSeats.find((x) => x.name === seat && x.phase === 'review');
-    const r = seatRulesFor(decl ? decl.rules : undefined, 'review-v1', servedKeys, seat);
+    const r = seatRulesFor(table, { role: 'reviewer', seat, declared: decl ? decl.rules : undefined, served: servedKeys });
     degradations.push(...r.degradations);
     if (r.rules.length) out[seat] = r.rules;
   }
@@ -773,7 +757,8 @@ function reviewRulesOf(schema, servedKeys) {
 /**
  * deriveStages(candidate, schemaEntry, ctx) -> {stages, orchestratorNotes, unownedRequired,
  *   schemaFree, hasReviewPhase, warnings, degradations, exclude:null|string}
- * ctx = {rulesServed:[{key,rulesVersion}], noteOwners:[{key, seat}], features:[string], seatSkillDefaults}
+ * ctx = {rulesServed:[{key,rulesVersion}], noteOwners:[{key, seat}], features:[string], seatSkillDefaults, seatRules}
+ * seatRules is the seat rule table (default: loadSeatRules()); it names each stage's default rules.
  * Seat skills (stage `seatSkills`, result `reviewSeatSkills`) are honoured as declared only when features lists
  * `seatSkills`; otherwise the defaults table applies. Each is emitted only when non-empty.
  * noteOwners are this item's notes whose owner seat notes_read list reported (owner.seat, shown only
@@ -791,6 +776,7 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
     defaults: ctx.seatSkillDefaults || loadSeatSkillDefaults()
   };
   const servedKeys = new Set(rulesServed.map((r) => r.key));
+  const seatRules = ctx.seatRules || loadSeatRules();
   const ownerSeatByKey = new Map(noteOwners.map((n) => [n.key, n.seat]));
   const warnings = [];
   const degradations = [];
@@ -895,30 +881,33 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
       else output = 'generic-v1';
 
       if (s.phase === 'work' && (s.readsExclude || []).length && isTestAuthorSeat) {
-        const served = servedKeys.has('declarations-extractor');
-        if (!served) degradations.push('extractor without accuracy rule');
+        const extractorRules = seatRulesFor(seatRules, { role: EXTRACTOR_SEAT, seat: EXTRACTOR_SEAT, served: servedKeys }).rules;
+        if (!extractorRules.length) degradations.push('extractor without accuracy rule');
         stages.push({
-          seat: 'declarations-extractor',
+          seat: EXTRACTOR_SEAT,
           phase: 'work',
           inserted: true,
           writes: false,
           notes: [],
-          rules: served ? ['declarations-extractor'] : [],
+          rules: extractorRules,
           skills: [],
-          dispatch: resolveDispatch(schema, 'declarations-extractor', 'work', {}),
+          dispatch: resolveDispatch(schema, EXTRACTOR_SEAT, 'work', {}),
           output: 'declarations-v1'
         });
       }
 
       const rulesSkills = deriveRulesSkills(seatNotes, notes, servedKeys);
-      const seatRules = seatRulesFor(s.rules, output, servedKeys, s.name);
-      degradations.push(...seatRules.degradations);
+      const role = seatRoleOf({ seat: s.name, phase: s.phase, output, enters, writes, notes: seatNotes });
+      const stageRules = seatRulesFor(seatRules, {
+        role, seat: s.name, enters, declared: s.rules, noteRules: rulesSkills.rules, served: servedKeys
+      });
+      degradations.push(...stageRules.degradations);
       const dispatch = resolveDispatch(schema, s.name, s.phase, { enters, implicitOwner: false });
       const stage = {
         seat: s.name,
         phase: s.phase,
         notes: seatNotes,
-        rules: mergeRules(rulesSkills.rules, seatRules.rules),
+        rules: stageRules.rules,
         skills: rulesSkills.skills,
         writes,
         dispatch,
@@ -945,12 +934,15 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
         .filter((n) => n.role === 'queue' && !ORCHESTRATOR_OWNED_NOTES.includes(n.key))
         .map((n) => n.key);
       const rulesSkills = deriveRulesSkills(queueNotes, notes, servedKeys);
-      const plannerSeatRules = seatRulesFor(undefined, 'planner-v1', servedKeys, 'planner');
+      const plannerRules = seatRulesFor(seatRules, {
+        role: 'planner', seat: 'planner', enters: false, noteRules: rulesSkills.rules, served: servedKeys
+      });
+      degradations.push(...plannerRules.degradations);
       const plannerStage = {
         seat: 'planner',
         phase: 'queue',
         notes: queueNotes,
-        rules: mergeRules(rulesSkills.rules, plannerSeatRules.rules),
+        rules: plannerRules.rules,
         skills: rulesSkills.skills,
         writes: false,
         dispatch: resolveDispatch(schema, 'planner', 'queue', { enters: false, implicitOwner: true }),
@@ -968,13 +960,18 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
       .filter((n) => n.role === 'work' && !ORCHESTRATOR_OWNED_NOTES.includes(n.key))
       .map((n) => n.key);
     const rulesSkillsW = deriveRulesSkills(workNotes, notes, servedKeys);
+    // The implicit implementer takes its role's defaults, like a declared one that lists no rules.
+    const implementerRules = seatRulesFor(seatRules, {
+      role: 'implementer', seat: 'implementer', enters: true, noteRules: rulesSkillsW.rules, served: servedKeys
+    });
+    degradations.push(...implementerRules.degradations);
     const implementerStage = {
       seat: 'implementer',
       phase: 'work',
       enters: true,
       implicitOwner: true,
       notes: workNotes,
-      rules: rulesSkillsW.rules,
+      rules: implementerRules.rules,
       skills: rulesSkillsW.skills,
       writes: true,
       dispatch: resolveDispatch(schema, 'implementer', 'work', { enters: true, implicitOwner: true }),
@@ -998,7 +995,7 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
     exclude = 'nothing to run';
   }
 
-  const review = hasReviewPhase ? reviewRulesOf(schema, servedKeys) : { reviewRules: null, degradations: [] };
+  const review = hasReviewPhase ? reviewRulesOf(schema, servedKeys, seatRules) : { reviewRules: null, degradations: [] };
   degradations.push(...review.degradations);
   const reviewSeatSkills = hasReviewPhase ? reviewSeatSkillsOf(schema, skillOpts) : null;
 

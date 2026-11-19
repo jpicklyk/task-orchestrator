@@ -1,0 +1,44 @@
+{
+  "roles": {
+    "planner": {
+      "protocol": "protocol.in-phase-seat",
+      "pluginChosen": [],
+      "defaults": ["planning-sweeps", "review-cited-claims"]
+    },
+    "implementer": {
+      "protocol": "protocol.entry-seat",
+      "pluginChosen": ["commit-discipline"],
+      "defaults": ["closure-notes"]
+    },
+    "test-author": {
+      "protocol": "protocol.in-phase-seat",
+      "pluginChosen": ["commit-discipline"],
+      "defaults": []
+    },
+    "reviewer": {
+      "protocol": "protocol.read-only-agent",
+      "pluginChosen": [],
+      "defaults": ["review-scoping", "review-cited-claims"]
+    },
+    "declarations-extractor": {
+      "protocol": "protocol.read-only-agent",
+      "pluginChosen": [],
+      "defaults": ["declarations-extractor"]
+    },
+    "work-seat": {
+      "protocol": "protocol.in-phase-seat",
+      "pluginChosen": ["commit-discipline"],
+      "defaults": []
+    },
+    "queue-seat": {
+      "protocol": "protocol.in-phase-seat",
+      "pluginChosen": [],
+      "defaults": []
+    },
+    "read-only": {
+      "protocol": "protocol.read-only-agent",
+      "pluginChosen": [],
+      "defaults": []
+    }
+  }
+}
