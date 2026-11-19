@@ -5,6 +5,8 @@
 //
 // Flow per defect: qualify -> fingerprint -> scrub -> search upstream -> create | comment | skip.
 // Fail closed: a scrub rejection posts nothing. Best effort: a failed gh call skips that defect.
+// A create is attempted once: a failed or timed-out create posts nothing more for that defect in the run
+// and is recorded as create-unconfirmed in the state, so the next run's search finds the issue or files it.
 
 import { defectFingerprint, defectComponent } from './retro-metrics.mjs';
 import { readSection, childBlock } from '../../hooks/yaml-lite.mjs';
@@ -67,11 +69,14 @@ function catalogEntry(catalog, tool, op) {
 }
 
 /**
- * qualifies(defect, catalog) -> null when it qualifies, else the first failing field name. A server tool
- * needs its op among the catalog's entries (catalog absent: fails op); a plugin tool, op and code must
- * match fixed identifier patterns, so a posted field can never hold a path, URL or name.
+ * qualifies(defect, catalog, pluginTools) -> null when it qualifies, else the first failing field name.
+ * Signature change: the third parameter pluginTools is new. A server tool needs its op among the catalog's
+ * entries and its code among that entry's `errors` list (catalog absent: fails op). A plugin tool must be one
+ * of pluginTools, the plugin's own hook and script file names that the CLI lists and injects (absent or empty:
+ * fails tool), and also match PLUGIN_TOOL_RE; its op and code must match fixed identifier patterns. So a
+ * posted tool, op and code is a catalog name, a shipped file name or a short identifier, never a path or URL.
  */
-export function qualifies(d, catalog) {
+export function qualifies(d, catalog, pluginTools) {
   if (!isObj(d)) return 'kind';
   if (d.kind !== 'defect') return 'kind';
   if (d.scope !== 'product') return 'scope';
@@ -79,11 +84,13 @@ export function qualifies(d, catalog) {
   for (const f of ['tool', 'op', 'code', 'message', 'quote']) if (!nonEmpty(d[f])) return f;
   if (ENV_CODES.includes(String(d.code).trim().toLowerCase())) return 'code';
   if (defectComponent(d.tool) === 'server') {
-    if (!catalogEntry(catalog, d.tool, d.op)) return 'op';
-  } else {
-    if (!PLUGIN_TOOL_RE.test(d.tool)) return 'tool';
-    if (!OP_RE.test(d.op)) return 'op';
+    const entry = catalogEntry(catalog, d.tool, d.op);
+    if (!entry) return 'op';
+    if (!Array.isArray(entry.errors) || !entry.errors.includes(d.code)) return 'code';
+    return null;
   }
+  if (!PLUGIN_TOOL_RE.test(d.tool) || !Array.isArray(pluginTools) || !pluginTools.includes(d.tool)) return 'tool';
+  if (!OP_RE.test(d.op)) return 'op';
   if (!CODE_RE.test(d.code)) return 'code';
   return null;
 }
@@ -132,29 +139,35 @@ export function scrubFindings(text, { fingerprint = '', denyNames = [] } = {}) {
 // ---------------------------------------------------------------------------------------------
 // Title, body, comment
 
-/** typeShape(value) -> the value with every leaf replaced by its type name (identifier keys only, bounded). */
-export function typeShape(value, depth = 0) {
-  if (value === null) return 'null';
-  if (Array.isArray(value)) return depth >= 4 || value.length === 0 ? [] : [typeShape(value[0], depth + 1)];
-  if (isObj(value)) {
-    if (depth >= 4) return 'object';
-    const out = {};
-    for (const k of Object.keys(value).filter((key) => KEY_RE.test(key)).slice(0, 30)) out[k] = typeShape(value[k], depth + 1);
-    return out;
-  }
-  return typeof value;
+/** The type name of one value; nothing below an object or an array is read. */
+const leafType = (v) => (v === null ? 'null' : Array.isArray(v) ? 'array' : isObj(v) ? 'object' : typeof v);
+const slotType = (v) => (Array.isArray(v) ? (v.length === 0 ? [] : [leafType(v[0])]) : leafType(v));
+
+/**
+ * typeShape(value) -> the top level of value with every value replaced by its type name: identifier keys
+ * only (at most 30), an object or map value reads 'object' and none of its keys is kept, an array reads
+ * [type of its first element] ([] when empty). Signature change: the depth parameter is gone and nothing
+ * below the top level is read (earlier versions kept nested identifier keys up to four levels).
+ */
+export function typeShape(value) {
+  if (!isObj(value)) return slotType(value);
+  const out = {};
+  for (const k of Object.keys(value).filter((key) => KEY_RE.test(key)).slice(0, 30)) out[k] = slotType(value[k]);
+  return out;
 }
 
-/** The posted call shape: type names only; a server tool's top level is limited to its catalog fields. */
+/**
+ * The posted call shape: only a server tool's op has one. It keeps the entry's top-level catalog field names
+ * (the head of a dotted or bracketed catalog name such as root.id or children[].ref is the top-level name
+ * root or children), each as a type name; below an object, map or array field nothing is read. A plugin tool
+ * has no catalog entry, so its call shape reads 'not recorded'.
+ */
 function callShapeText(d, catalog) {
-  if (d.callShape === undefined || d.callShape === null) return 'not recorded';
-  let shape = d.callShape;
   const entry = defectComponent(str(d.tool)) === 'server' ? catalogEntry(catalog, d.tool, d.op) : null;
-  if (entry && isObj(shape)) {
-    const fields = isObj(entry.fields) ? entry.fields : {};
-    shape = Object.fromEntries(Object.entries(shape).filter(([k]) => Object.prototype.hasOwnProperty.call(fields, k)));
-  }
-  return '`' + JSON.stringify(typeShape(shape)) + '`';
+  if (!entry || !isObj(d.callShape)) return 'not recorded';
+  const top = new Set(Object.keys(isObj(entry.fields) ? entry.fields : {}).map((f) => f.split(/[.[]/)[0]));
+  const kept = Object.fromEntries(Object.entries(d.callShape).filter(([k]) => top.has(k)));
+  return '`' + JSON.stringify(typeShape(kept)) + '`';
 }
 
 function versionLines(versions) {
@@ -226,11 +239,17 @@ function pickHit(list, fp) {
 }
 
 /**
- * runBugReport({defects, configText, denyNames, versions, catalog, deps}) -> the 'run-wave/bug-report-v1' document.
+ * runBugReport({defects, configText, denyNames, versions, catalog, pluginTools, deps}) -> the
+ * 'run-wave/bug-report-v1' document. Signature change: pluginTools is new, the plugin's own hook and script
+ * file names (null or empty: no plugin defect qualifies); see qualifies.
  * deps: {gh(args)->{status, stdout}, now()->ms, readState()->object|null, writeState(obj)->bool,
  *        writeTemp(text)->path, removeTemp(path)}
+ * State: {seen: {<fingerprint>: {at, url}}}. A create that fails, times out or returns no issue URL is attempted
+ * once only: the defect posts nothing more in the run (result skipped, reason gh-create-failed) and its entry is
+ * {at, url: null, status: 'create-unconfirmed'}, so the next run's fingerprint search finds the issue or files it.
+ * A create that never reached gh (writeTemp threw) leaves no entry.
  */
-export function runBugReport({ defects, configText, denyNames = [], versions = {}, catalog = null, deps }) {
+export function runBugReport({ defects, configText, denyNames = [], versions = {}, catalog = null, pluginTools = null, deps }) {
   const gate = readGate(configText);
   const doc = { contract: CONTRACT, gate: 'disabled', repo: gate.repo, results: [] };
   if (!gate.open) return doc;
@@ -291,7 +310,7 @@ export function runBugReport({ defects, configText, denyNames = [], versions = {
   try {
     for (const d of Array.isArray(defects) ? defects : []) {
       const fp = isObj(d) ? fingerprintOf(d) : fingerprintOf({});
-      const bad = qualifies(d, catalog);
+      const bad = qualifies(d, catalog, pluginTools);
       if (bad) {
         push(fp, d, 'skipped', null, `not-qualifying:${bad}`);
         continue;
@@ -332,21 +351,22 @@ export function runBugReport({ defects, configText, denyNames = [], versions = {
           continue;
         }
         counts.creates += 1;
+        let attempted = false;
         const url = withTemp(body, (file) => {
-          const base = ['issue', 'create', '--repo', gate.repo, '--title', title, '--body-file', file];
-          let r = gh([...base, '--label', 'bug', '--label', 'auto-reported']);
-          if (r.status !== 0) {
-            // A failed attempt may still have created the issue: look once more (outside the cap) before retrying.
-            const again = gh(['issue', 'list', '--repo', gate.repo, '--state', 'all', '--search', `${fp} in:body`, '--json', 'number,url,state,stateReason,closedAt,labels,body', '--limit', '10']);
-            const found = again.status === 0 ? pickHit(parseJson(again.stdout), fp) : null;
-            if (found && typeof found.url === 'string' && URL_RE.test(found.url)) return found.url;
-            r = gh(base);
-          }
+          // One attempt, never retried: a failed or timed-out create may still have filed the issue, and the
+          // search index lags, so a second create here could duplicate it.
+          attempted = true;
+          const r = gh(['issue', 'create', '--repo', gate.repo, '--title', title, '--body-file', file, '--label', 'bug', '--label', 'auto-reported']);
           if (r.status !== 0) return null;
           const last = r.stdout.split(/\r?\n/).map((l) => l.trim()).filter((l) => URL_RE.test(l)).pop();
           return last || null;
         }, null);
         if (!url) {
+          if (attempted) {
+            // The next run's fingerprint search finds the issue if it exists, or files it then.
+            state.seen[fp] = { at: new Date(now).toISOString(), url: null, status: 'create-unconfirmed' };
+            stateChanged = true;
+          }
           push(fp, d, 'skipped', null, 'gh-create-failed');
           continue;
         }

@@ -564,6 +564,32 @@ function parseBugReportArgs(args) {
   return out;
 }
 
+// The plugin's own hook and script file names (.mjs under hooks/ and scripts/, test directories excluded):
+// the only plugin tools a bug report may name. Listed here and injected, as the catalog is; the library
+// reads no filesystem.
+function pluginToolNames() {
+  const root = resolve(HERE, '..');
+  const names = new Set();
+  const walk = (dir, depth) => {
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (e.isDirectory()) {
+        if (depth < 3 && e.name !== 'tests' && e.name !== 'node_modules') walk(join(dir, e.name), depth + 1);
+      } else if (e.isFile() && e.name.endsWith('.mjs')) {
+        names.add(e.name);
+      }
+    }
+  };
+  walk(join(root, 'hooks'), 0);
+  walk(join(root, 'scripts'), 0);
+  return [...names].sort();
+}
+
 async function runBugReportCmd(args) {
   const a = parseBugReportArgs(args);
   let input;
@@ -618,6 +644,7 @@ async function runBugReportCmd(args) {
       denyNames,
       versions,
       catalog,
+      pluginTools: pluginToolNames(),
       deps: {
         gh: (ghArgs) => {
           const r = spawnSync('gh', ghArgs, { encoding: 'utf8', timeout: 30000 });
