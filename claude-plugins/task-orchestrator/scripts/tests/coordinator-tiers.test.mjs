@@ -5,7 +5,7 @@
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -21,16 +21,17 @@ after(() => rmSync(scratch, { recursive: true, force: true }))
 
 // ---- TIERS ----
 
-test('TIERS: a frozen array of tiers 1-4 in order with the declared needs and coordinators', () => {
+test('TIERS: a frozen array of tiers 1, 2, 2b, 3 and 4 in order with the declared needs and coordinators', () => {
   assert.ok(Object.isFrozen(TIERS))
-  assert.deepEqual(TIERS.map((t) => t.tier), [1, 2, 3, 4])
+  assert.deepEqual(TIERS.map((t) => t.tier), [1, 2, '2b', 3, 4])
   for (const t of TIERS) assert.ok(Object.isFrozen(t), `tier ${t.tier} entry frozen`)
   assert.deepEqual([...TIERS[0].needs], ['start_session', 'SendMessage|send_message'])
   assert.deepEqual([...TIERS[1].needs], ['Workflow'])
-  assert.deepEqual([...TIERS[2].needs], ['claude CLI'])
-  assert.deepEqual([...TIERS[3].needs], [])
+  assert.deepEqual([...TIERS[2].needs], ['REPL', 'Agent'])
+  assert.deepEqual([...TIERS[3].needs], ['claude CLI'])
+  assert.deepEqual([...TIERS[4].needs], [])
   assert.equal(TIERS[0].coordinator, 'desktop session')
-  assert.equal(TIERS[3].coordinator, 'inline in the director session')
+  assert.equal(TIERS[4].coordinator, 'inline in the director session')
 })
 
 // ---- S1 selectTier ----
@@ -240,4 +241,143 @@ test('policy: tier 1 and tier 3 default model and effort to the coordinator clas
   const a = launchProfile(3, { prompt: 'p', budgetUsd: 1, effort: 'low' }).argv
   assert.equal(a[a.indexOf('--model') + 1], c.model)
   assert.equal(a[a.indexOf('--effort') + 1], 'low')
+})
+
+// ---- Code Mode: the visible REPL/Poll pair is not the real tool list (item edcc4405) ----
+
+test('Code Mode: a script tool list with Workflow selects tier 2 with no warning', () => {
+  const r = selectTier({ tools: ['Workflow', 'Agent', 'SendMessage', 'REPL', 'Poll'] })
+  assert.equal(r.tier, 2)
+  assert.equal(r.warning, null)
+})
+
+test('Code Mode: a bare REPL/Poll list asks for a reprobe, never a silent tier 4', () => {
+  for (const claudeCli of [false, true]) {
+    for (const tools of [['REPL', 'Poll'], ['REPL'], ['Poll', 'REPL'], ['mcp__x__REPL', 'Poll']]) {
+      const r = selectTier({ tools, claudeCli })
+      assert.equal(r.tier, null, JSON.stringify(tools))
+      assert.equal(r.reprobe, true)
+      assert.equal(typeof r.warning, 'string')
+      assert.ok(r.warning.length > 0)
+    }
+  }
+})
+
+test('Code Mode: near misses keep the old rule', () => {
+  assert.equal(selectTier({ tools: ['Poll'] }).tier, 4)
+  assert.equal(selectTier({ tools: ['Agent'] }).tier, 4)
+  assert.equal(selectTier({ tools: ['Agent'], claudeCli: true }).tier, 3)
+  assert.equal(selectTier({ tools: ['repl', 'Poll'] }).tier, 4)
+})
+
+test('Code Mode: a non-reprobe result has no reprobe key', () => {
+  for (const r of [
+    selectTier({ tools: ['REPL', 'Agent'] }),
+    selectTier({ tools: ['Workflow'] }),
+    selectTier({ tools: ['start_session', 'SendMessage'] }),
+    selectTier({ claudeCli: true }),
+    selectTier({}),
+  ]) {
+    assert.equal(Object.hasOwn(r, 'reprobe'), false)
+  }
+})
+
+// ---- Tier 2b: Code Mode coordinator subagent running Method B (item 0a68c15f) ----
+
+const BRIEF_DOC = join(HERE, '..', '..', 'skills', 'director', 'references', 'coordinator-tiers.md')
+const DIRECTOR_SKILL = join(HERE, '..', '..', 'skills', 'director', 'SKILL.md')
+const NL = String.fromCharCode(10)
+
+test('2b selectTier: REPL and Agent selects 2b, also with a claude CLI; Workflow and tier 1 still win', () => {
+  assert.deepEqual(selectTier({ tools: ['REPL', 'Agent'] }), { tier: '2b', warning: null })
+  assert.equal(selectTier({ tools: ['REPL', 'Agent'], claudeCli: true }).tier, '2b')
+  assert.equal(selectTier({ tools: ['REPL', 'Agent', 'Workflow'] }).tier, 2)
+  assert.equal(selectTier({ tools: ['REPL', 'Agent', 'start_session', 'SendMessage'] }).tier, 1)
+  assert.equal(selectTier({ tools: ['mcp__x__REPL', 'mcp__y__Agent'] }).tier, '2b')
+})
+
+test('2b selectTier: Agent alone, REPL alone, lowercase repl and REPL+Poll are not 2b', () => {
+  for (const tools of [['Agent'], ['REPL'], ['repl', 'Agent'], ['REPL', 'Poll'], ['REPL', 'agent']]) {
+    assert.notEqual(selectTier({ tools }).tier, '2b', JSON.stringify(tools))
+  }
+  assert.equal(selectTier({ tools: ['Agent'], claudeCli: true }).tier, 3)
+})
+
+test('2b launchProfile: the shape is the frozen Agent call and has no background key', () => {
+  const c = forClass('coordinator')
+  const p = launchProfile('2b', { scope: 'd5592535-d78a-4881-adec-3923ba455b95' })
+  assert.deepEqual(Object.keys(p), ['tier', 'agent', 'method', 'reportTo', 'messaging'])
+  assert.equal(p.tier, '2b')
+  assert.equal(p.method, 'B')
+  assert.equal(p.reportTo, 'main')
+  assert.equal(p.messaging, 'SendMessage')
+  assert.deepEqual(Object.keys(p.agent), ['description', 'subagent_type', 'model', 'effort', 'prompt'])
+  assert.equal(p.agent.description, 'coordinator:d5592535')
+  assert.equal(p.agent.subagent_type, 'general-purpose')
+  assert.equal(p.agent.model, c.model)
+  assert.equal(p.agent.effort, c.effort)
+  assert.equal(JSON.stringify(p).includes('run_in_background'), false)
+  assert.equal(JSON.stringify(p).includes('isolation'), false)
+})
+
+test('2b launchProfile: the prompt is 10 lines carrying the Code Mode rules', () => {
+  const prompt = launchProfile('2b', { scope: 'S1', target: 'T1' }).agent.prompt
+  assert.equal(prompt.split(NL).length, 10)
+  assert.equal(prompt.includes(String.fromCharCode(96)), false)
+  for (const needle of [
+    '~600 s REPL script limit', 'never wait inside a script', 'wait on Poll with no script running',
+    'task-notification result text', '.output file', 'standalone sleep', 'task-orchestrator:run-wave',
+    '--method B', '--altitude-safe', 'references/code-mode.md', '"main"',
+    'task-orchestrator:run-wave S1 --method B', '--coordinator coordinator:T1 to provenance',
+  ]) {
+    assert.ok(prompt.includes(needle), needle)
+  }
+})
+
+test('2b launchProfile: scope missing or empty throws naming scope; target derivation; overrides', () => {
+  for (const o of [undefined, {}, { scope: '' }, { scope: '  ' }, { scope: 5 }, { target: 'x' }]) {
+    assert.throws(() => launchProfile('2b', o), /scope/)
+  }
+  assert.equal(launchProfile('2b', { scope: 'abcdef12-3456 more words' }).agent.description, 'coordinator:abcdef12')
+  assert.equal(launchProfile('2b', { scope: 'a-b-c' }).agent.description, 'coordinator:abc')
+  assert.equal(launchProfile('2b', { scope: 'x,y' }).agent.description, 'coordinator:x')
+  assert.equal(launchProfile('2b', { scope: 'abcdef12', target: 'mine' }).agent.description, 'coordinator:mine')
+  const o = launchProfile('2b', { scope: 's', model: 'sonnet', effort: 'low' }).agent
+  assert.equal(o.model, 'sonnet')
+  assert.equal(o.effort, 'low')
+})
+
+test('2b launchProfile: 2B, b, 2.5, "3" and undefined throw with the new expected list', () => {
+  for (const t of ['2B', 'b', 2.5, '3', undefined]) {
+    assert.throws(() => launchProfile(t, { scope: 's' }), /expected 1, 2, 2b, 3 or 4/, String(t))
+  }
+})
+
+test('2b CLI: profile --tier 2b --scope prints the launchProfile JSON; --target is honoured', () => {
+  const scope = 'd5592535-d78a-4881-adec-3923ba455b95'
+  const r = cli(['profile', '--tier', '2b', '--scope', scope])
+  assert.equal(r.status, 0, r.stderr)
+  assert.deepEqual(JSON.parse(r.stdout), launchProfile('2b', { scope }))
+  const t = cli(['profile', '--tier', '2b', '--scope', scope, '--target', 'abc', '--model', 'sonnet'])
+  assert.equal(t.status, 0, t.stderr)
+  const j = JSON.parse(t.stdout)
+  assert.equal(j.agent.description, 'coordinator:abc')
+  assert.equal(j.agent.model, 'sonnet')
+})
+
+test('2b CLI: without --scope exits non-zero with empty stdout; a tier of 2B fails', () => {
+  const r = cli(['profile', '--tier', '2b'])
+  assert.notEqual(r.status, 0)
+  assert.equal(r.stdout, '')
+  const b = cli(['profile', '--tier', '2B', '--scope', 's'])
+  assert.notEqual(b.status, 0)
+  assert.equal(b.stdout, '')
+})
+
+test('2b doc sync: every prompt line appears verbatim in coordinator-tiers.md; the 2b rows exist', () => {
+  const doc = readFileSync(BRIEF_DOC, 'utf8')
+  const prompt = launchProfile('2b', { scope: '<scope>', target: '<target-short>' }).agent.prompt
+  for (const line of prompt.split(NL)) assert.ok(doc.includes(line), line)
+  assert.match(doc, /^\| 2b \|/m)
+  assert.match(readFileSync(DIRECTOR_SKILL, 'utf8'), /^\| 2b \|/m)
 })
