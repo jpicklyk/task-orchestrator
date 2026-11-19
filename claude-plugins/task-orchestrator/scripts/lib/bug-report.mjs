@@ -157,6 +157,19 @@ export function typeShape(value) {
 }
 
 /**
+ * The call shape to read for a defect's op. For an ops-batched tool (catalog kind 'ops') the catalog fields
+ * describe one op element, so a call shape recorded as the whole {ops: [...]} call is read from the element
+ * whose op equals the defect's op, else the first element; a shape recorded as the element itself, and the
+ * shape of a select tool, is read as it is.
+ */
+function opShape(callShape, d, catalog) {
+  const def = isObj(catalog) && isObj(catalog.tools) ? catalog.tools[d.tool] : null;
+  if (!isObj(def) || def.kind !== 'ops' || !Array.isArray(callShape.ops)) return callShape;
+  const elements = callShape.ops.filter(isObj);
+  return elements.find((e) => e.op === d.op) || elements[0] || {};
+}
+
+/**
  * The posted call shape: only a server tool's op has one. It keeps the entry's top-level catalog field names
  * (the head of a dotted or bracketed catalog name such as root.id or children[].ref is the top-level name
  * root or children), each as a type name; below an object, map or array field nothing is read. A plugin tool
@@ -166,7 +179,7 @@ function callShapeText(d, catalog) {
   const entry = defectComponent(str(d.tool)) === 'server' ? catalogEntry(catalog, d.tool, d.op) : null;
   if (!entry || !isObj(d.callShape)) return 'not recorded';
   const top = new Set(Object.keys(isObj(entry.fields) ? entry.fields : {}).map((f) => f.split(/[.[]/)[0]));
-  const kept = Object.fromEntries(Object.entries(d.callShape).filter(([k]) => top.has(k)));
+  const kept = Object.fromEntries(Object.entries(opShape(d.callShape, d, catalog)).filter(([k]) => top.has(k)));
   return '`' + JSON.stringify(typeShape(kept)) + '`';
 }
 
@@ -354,9 +367,10 @@ export function runBugReport({ defects, configText, denyNames = [], versions = {
         let attempted = false;
         const url = withTemp(body, (file) => {
           // One attempt, never retried: a failed or timed-out create may still have filed the issue, and the
-          // search index lags, so a second create here could duplicate it.
+          // search index lags, so a second create here could duplicate it. No label is passed (a label can make
+          // the create fail); a report is identified by its title prefix, fingerprint and footer.
           attempted = true;
-          const r = gh(['issue', 'create', '--repo', gate.repo, '--title', title, '--body-file', file, '--label', 'bug', '--label', 'auto-reported']);
+          const r = gh(['issue', 'create', '--repo', gate.repo, '--title', title, '--body-file', file]);
           if (r.status !== 0) return null;
           const last = r.stdout.split(/\r?\n/).map((l) => l.trim()).filter((l) => URL_RE.test(l)).pop();
           return last || null;
