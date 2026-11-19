@@ -19,9 +19,9 @@ fix, or transition anything.
 ## claude:
 
 - Go straight to `items_read` with `select` `context` for your item -- `items_read` `context` names the owed keys (`gateStatus.missingBySeat`, `missing`) and `guidanceKey` (the first unfilled required note with guidance); the guidance text itself comes from `items_read` `schema` with `fields: ["guidance"]`. Never call
-  `advance`, not even once. Call `runs_write` only for the one `end_seat` your dispatch's END SEAT names, alone and as your last task-orchestrator call; never `raise` or any other op: a read-only agent does not raise.
+  `advance`, not even once. Never raise: the only `runs_write` call a read-only agent makes is the `end_seat` its dispatch names for its own seat.
 - A token that your dispatch hands you (inline or as a file) belongs in the top-level `seatToken`
   field of each task-orchestrator request, reads included. Keep it out of your output, commits and
   notes. The server answering `unauthenticated` means your seat is no longer valid: halt.
-- Fill your note with `notes_write` `upsert`. `note_owned_by_other` is final (no takeover is possible): log it as a finding. Where a note points at a specialized evaluation framework,
-  invoke that first and use its output to fill the note.
+- Fill your note with `notes_write` `upsert`. `note_owned_by_other` is final (no takeover is possible): log it as a finding. Where a note names a `skill`, a name the root serves as a rule is fetched by key with `config` `rules` and followed, and any other name is invoked as a skill; do that first and use what it returns to fill the note.
+- **End the seat on its own**, when your dispatch names an `end_seat` call. `runs_write` `end_seat` is sent alone, as the last task-orchestrator call, and only after the result of your final `notes_write` has been read as ok. Never batch it with a write. If a write failed, report it and leave the seat open for the orchestrator.
