@@ -6,9 +6,12 @@
 // rulings B4 'enforce allowlists' (a server code must be in its catalog entry's errors list; a plugin tool
 // must be one of the injected pluginTools; the posted call shape is top-level catalog field names with type
 // names only, never a nested or map key) and N1 'never retry' (one create attempt; a failed or timed-out
-// create posts nothing more that run and is recorded create-unconfirmed) -- named in the comment above each
-// test. This file never opens bug-report.mjs, retro-metrics.mjs or run-planner.mjs: only their declared
-// exports are imported.
+// create posts nothing more that run and is recorded create-unconfirmed) and the A3 rulings B5 'no labels on
+// create' (the gh issue create args carry no --label at all; a report is identified by the '[bug]' title
+// prefix, the Fingerprint: line and the footer) and N3 (a call shape recorded as the whole {ops:[...]} call of
+// an ops tool posts the top-level catalog fields of the element whose op equals the defect's op, else of the
+// first object element) -- named in the comment above each test. This file never opens bug-report.mjs,
+// retro-metrics.mjs or run-planner.mjs: only their declared exports are imported.
 //
 // SAFETY: the real gh is never run. Every library test injects a fake gh through `deps`; nothing there
 // touches the network, the state file or GitHub. The only test that spawns the run-planner `bug-report`
@@ -95,6 +98,9 @@ const hit = (o = {}) => ({ number: 7, url: `https://github.com/${REPO}/issues/7`
 const ok = (stdout = '') => ({ status: 0, stdout })
 const fail = () => ({ status: 1, stdout: '' })
 const searchedFp = (args) => args[args.indexOf('--search') + 1].split(' ')[0]
+// A3 B5: true when a gh argument list carries a label in any spelling (--label, --label=x, -l, -lx) or either
+// label name the earlier versions used.
+const hasLabel = (args) => args.some((a) => /^(--label|-l)/.test(a) || a === 'auto-reported' || a === 'bug')
 
 // Fake gh keyed on args[0] + ' ' + args[1]. An override is a {status, stdout} or a function (args, nth).
 // o.failTemp(text) -> true makes writeTemp throw for that body.
@@ -191,8 +197,10 @@ test('S1 open hit with empty state: one seen-again comment with both versions an
 })
 
 // -- S2 ---------------------------------------------------------------------------------------------
-// Oracle: AC4, D5 (search shape), D6 (create shape), D13 (state), D15 (line, gh auth first).
-test('S2 no hit: one labelled create with a body file, filed with the url, state records it', async () => {
+// Oracle: AC4, D5 (search shape), D6 (create shape), D13 (state), D15 (line, gh auth first); A3 B5 user ruling
+// 2026-11-19 'no labels on create': the create args carry no --label at all, and a report is identified by the
+// '[bug]' title prefix, the Fingerprint: line and the footer.
+test('S2 no hit: one create with a body file and no label, filed with the url, state records it', async () => {
   const x = d()
   const F = fpOf(x)
   const url = `https://github.com/${REPO}/issues/101`
@@ -206,7 +214,8 @@ test('S2 no hit: one labelled create with a body file, filed with the url, state
   const creates = callsOf(r.calls, 'issue', 'create')
   assert.equal(creates.length, 1)
   assert.deepEqual(flag(creates[0], '--repo'), [REPO])
-  assert.deepEqual(flag(creates[0], '--label'), ['bug', 'auto-reported'])
+  assert.deepEqual(flag(creates[0], '--label'), [])
+  assert.equal(hasLabel(creates[0]), false, `a create carries no label: ${JSON.stringify(creates[0])}`)
   assert.equal(flag(creates[0], '--body-file').length, 1)
   assert.equal(flag(creates[0], '--title').length, 1)
   assert.equal(callsOf(r.calls, 'issue', 'comment').length, 0)
@@ -214,6 +223,32 @@ test('S2 no hit: one labelled create with a body file, filed with the url, state
   assert.equal(r.doc.results[0].url, url)
   assert.equal(r.doc.results[0].line, `bug-report ${F}: filed ${url}`)
   assert.equal(r.writes.at(-1).seen[F].url, url)
+  // B5: with no label, the report is identified by the title prefix, the Fingerprint line and the footer.
+  assert.ok(flag(creates[0], '--title')[0].startsWith('[bug] '), 'title prefix')
+  const lines = r.bodyOf(creates[0]).split(/\r?\n/)
+  assert.ok(lines.includes(`Fingerprint: ${F}`), 'Fingerprint line')
+  assert.equal(lines.filter((l) => l.trim() !== '').at(-1), FOOTER, 'footer')
+})
+
+test('S2 no create carries a label whichever defect it files: every create of a three-defect run is unlabelled', async () => {
+  const defects = [dn(1), dn(2), dn(3)]
+  const r = await run(defects)
+  const creates = callsOf(r.calls, 'issue', 'create')
+  assert.equal(creates.length, 3)
+  for (const c of creates) {
+    assert.equal(hasLabel(c), false, JSON.stringify(c))
+    assert.deepEqual(flag(c, '--label'), [])
+    assert.ok(flag(c, '--title')[0].startsWith('[bug] '))
+  }
+})
+
+test('S2 the next run after an unconfirmed create files the defect unlabelled too', async () => {
+  const x = d()
+  const F = fpOf(x)
+  const r = await run([x], { state: { seen: { [F]: { at: atOf(NOW - 3600000), url: null, status: 'create-unconfirmed' } } } })
+  const creates = callsOf(r.calls, 'issue', 'create')
+  assert.equal(creates.length, 1)
+  assert.equal(hasLabel(creates[0]), false, JSON.stringify(creates[0]))
 })
 
 // -- S3 ---------------------------------------------------------------------------------------------
@@ -622,6 +657,110 @@ test('S19 an array value of a catalog field posts no element and no key of an el
   for (const w of ['secret-tag-zz', 'contosoElementKey']) assert.ok(!bodyText(r).includes(w), `no ${w}`)
 })
 
+// A3 N3: for a tool whose catalog kind is 'ops', a call shape recorded as the whole {ops:[...]} call posts the
+// top-level catalog fields of the element whose op equals the defect's op, else of the first object element; a
+// shape recorded as the element itself, and a select tool's shape, post as before (type names only).
+const OPS_CASES = [
+  ['notes_write upsert', { tool: 'notes_write', op: 'upsert', code: 'note_too_long' },
+    { op: 'upsert', itemId: 'x', key: 'k', role: 'work', body: 'b', expectedVersion: 2, bogus_field: 'v' },
+    { itemId: 'string', key: 'string', role: 'string', body: 'string', expectedVersion: 'number' }],
+  ['items_write create', { tool: 'items_write', op: 'create', code: 'invalid_request' },
+    { op: 'create', title: 't', priority: 'high', complexity: 3, bogus_field: 'v' },
+    { title: 'string', priority: 'string', complexity: 'number' }],
+  ['advance transition', { tool: 'advance', op: 'transition', code: 'gate_blocked' },
+    { op: 'transition', itemId: 'x', trigger: 'start', summary: 's', bogus_field: 'v' },
+    { itemId: 'string', trigger: 'string', summary: 'string' }],
+  ['runs_write open', { tool: 'runs_write', op: 'open', code: 'invalid_request' },
+    { op: 'open', rootId: 'x', label: 'l', hints: { contosoSecret: 'v' }, budget: { attemptsPerSeat: 3 }, bogus_field: 'v' },
+    { rootId: 'string', label: 'string', hints: 'object', budget: 'object' }],
+]
+for (const [name, who, element, expected] of OPS_CASES) {
+  test(`S19 N3 ${name}: the whole {ops:[...]} call and the element itself post the same catalog fields as type names`, async () => {
+    const whole = await run([d({ ...who, callShape: { ops: [element], seatToken: 'SECRETTOKENZ' } })])
+    assert.equal(whole.doc.results[0].action, 'filed', JSON.stringify(whole.doc.results[0]))
+    assert.deepEqual(shapeOf(whole), expected, 'whole call')
+    const alone = await run([d({ ...who, callShape: element })])
+    assert.deepEqual(shapeOf(alone), expected, 'element itself')
+    assert.deepEqual(shapeOf(whole), shapeOf(alone))
+    for (const w of ['bogus_field', 'contosoSecret', 'attemptsPerSeat', 'SECRETTOKENZ', 'seatToken']) {
+      assert.ok(!bodyText(whole).includes(w), `whole call posts no ${w}`)
+      assert.ok(!bodyText(alone).includes(w), `element posts no ${w}`)
+    }
+  })
+}
+
+const DEL = { op: 'delete', itemId: 'a', key: 'k1', expectedVersion: 4 }
+const UPS = { op: 'upsert', itemId: 'a', key: 'k2', role: 'work', body: 'b' }
+const NW = (op, code) => ({ tool: 'notes_write', op, code })
+
+test('S19 N3 a whole ops call posts the fields of the element whose op equals the defect op, wherever it sits', async () => {
+  const lead = { op: 'delete', itemId: 'b', key: 'k0' }
+  const upsertShape = { itemId: 'string', key: 'string', role: 'string', body: 'string' }
+  for (const ops of [[DEL, UPS], [UPS, DEL], [lead, DEL, UPS], [DEL, lead, UPS]]) {
+    const r = await run([d({ ...NW('upsert', 'invalid_request'), callShape: { ops } })])
+    assert.deepEqual(shapeOf(r), upsertShape, `upsert among ${JSON.stringify(ops.map((e) => e.op))}`)
+  }
+  const deleteShape = { itemId: 'string', key: 'string', expectedVersion: 'number' }
+  for (const ops of [[UPS, DEL], [DEL, UPS], [UPS, UPS, DEL]]) {
+    const r = await run([d({ ...NW('delete', 'not_found'), callShape: { ops } })])
+    assert.deepEqual(shapeOf(r), deleteShape, `delete among ${JSON.stringify(ops.map((e) => e.op))}`)
+  }
+})
+
+test('S19 N3 with no element carrying the defect op, the first object element is read, skipping entries that are not objects', async () => {
+  const other = { op: 'delete', itemId: 'z' }
+  const first = { op: 'delete', itemId: 'a', key: 'k', expectedVersion: 4 }
+  const expected = { itemId: 'string', key: 'string', expectedVersion: 'number' }
+  for (const ops of [[first, other], ['junk', 7, first, other], [first, other, { op: 'update', itemId: 'q', key: 'w', role: 'work' }]]) {
+    const r = await run([d({ ...NW('upsert', 'invalid_request'), callShape: { ops } })])
+    assert.deepEqual(shapeOf(r), expected, JSON.stringify(ops.map((e) => (typeof e === 'object' ? e.op : e))))
+  }
+  const noOp = await run([d({ ...NW('upsert', 'invalid_request'), callShape: { ops: [{ itemId: 'a', key: 'k' }, other] } })])
+  assert.deepEqual(shapeOf(noOp), { itemId: 'string', key: 'string' }, 'an element with no op is still the first object element')
+})
+
+test('S19 N3 an op that differs from the defect op only in case does not match: the first object element is read', async () => {
+  const r = await run([d({ ...NW('upsert', 'invalid_request'), callShape: { ops: [DEL, { ...UPS, op: 'UPSERT' }] } })])
+  assert.deepEqual(shapeOf(r), { itemId: 'string', key: 'string', expectedVersion: 'number' })
+})
+
+test('S19 N3 a select tool call shape is read as before: an ops key is not unwrapped', async () => {
+  const r = await run([d({
+    tool: 'notes_read', op: 'get', code: 'not_found',
+    callShape: { itemId: 'x', key: 'k', ops: [{ itemId: 'y', ifVersion: 2 }] },
+  })])
+  assert.deepEqual(shapeOf(r), { itemId: 'string', key: 'string' })
+  const alone = await run([d({ tool: 'notes_read', op: 'list', code: 'not_found', callShape: { itemId: 'x', keys: ['SECRETELEMENT'], limit: 5 } })])
+  const shape = shapeOf(alone)
+  assert.equal(shape.itemId, 'string')
+  assert.equal(shape.limit, 'number')
+  assert.ok('keys' in shape)
+  assert.ok(!bodyText(alone).includes('SECRETELEMENT'), 'no array element')
+})
+
+test('S19 N3 a whole ops call posts no element value, no nested key, no key outside the catalog fields and no non-object entry', async () => {
+  const r = await run([d({
+    ...NW('upsert', 'invalid_request'),
+    callShape: {
+      ops: [{ op: 'upsert', itemId: 'SECRETVALUE', key: 'secret-key-zz', role: 'work', body: 'SECRETBODY', contosoExtra: 'v', metadata: { contosoNested: 1 } }, 'SECRETSTRING'],
+      seatToken: 'SECRETTOKEN', contosoTop: 'v',
+    },
+  })])
+  assert.deepEqual(shapeOf(r), { itemId: 'string', key: 'string', role: 'string', body: 'string' })
+  const text = bodyText(r)
+  for (const w of ['SECRETVALUE', 'secret-key-zz', 'SECRETBODY', 'contosoExtra', 'contosoNested', 'contosoTop', 'SECRETSTRING', 'SECRETTOKEN', 'seatToken']) {
+    assert.ok(!text.includes(w), `no ${w}`)
+  }
+})
+
+test('S19 N3 a whole ops call with no object element posts no element text and the defect is still filed', async () => {
+  for (const ops of [[], ['SECRETSTRING'], [7, 'SECRETSTRING']]) {
+    const r = await run([d({ ...NW('upsert', 'invalid_request'), callShape: { ops } })])
+    assert.equal(r.doc.results[0].action, 'filed', JSON.stringify(ops))
+    assert.ok(!bodyText(r).includes('SECRETSTRING'), JSON.stringify(ops))
+  }
+})
+
 test('S19 a script defect call shape never carries a non-identifier key or a value', async () => {
   const r = await run([script({ callShape: { 'C:\\Users\\a': 'SECRETVALUE', '/srv/a/b': 'SECRETVALUE2' } })], { catalog: null })
   const text = bodyText(r)
@@ -753,20 +892,22 @@ test('S8 the defensive scrub also covers the seen-again comment', async () => {
 // Oracle: AC4, D6, D12; A2 N1 'never retry' (one create attempt; a failed or timed-out create posts nothing
 // more that run for that defect, its result is skipped gh-create-failed and its state entry is
 // {at, url: null, status: 'create-unconfirmed'}, so the next run's fingerprint search finds the issue or
-// files it; a create that never reached gh leaves no entry).
+// files it; a create that never reached gh leaves no entry); A3 B5 user ruling 2026-11-19 'no labels on
+// create' (the one create attempt carries no --label at all).
 const FAILED_CREATES = [
   ['non-zero exit', { status: 1, stdout: '' }],
   ['non-zero exit with output', { status: 2, stdout: 'GraphQL: rate limited' }],
   ['timed out (no exit status)', { status: null, stdout: '' }],
 ]
 for (const [name, failed] of FAILED_CREATES) {
-  test(`S9 a failed create (${name}) is the only attempt: labelled, no unlabelled retry, skipped gh-create-failed`, async () => {
+  test(`S9 a failed create (${name}) is the only attempt: no label, no retry, skipped gh-create-failed`, async () => {
     const x = d()
     const F = fpOf(x)
     const r = await run([x], { 'issue create': failed })
     const creates = callsOf(r.calls, 'issue', 'create')
     assert.equal(creates.length, 1)
-    assert.deepEqual(flag(creates[0], '--label'), ['bug', 'auto-reported'])
+    assert.deepEqual(flag(creates[0], '--label'), [])
+    assert.equal(hasLabel(creates[0]), false, JSON.stringify(creates[0]))
     assert.equal(callsOf(r.calls, 'issue', 'comment').length, 0)
     assert.equal(r.doc.results[0].action, 'skipped')
     assert.equal(r.doc.results[0].reason, 'gh-create-failed')
