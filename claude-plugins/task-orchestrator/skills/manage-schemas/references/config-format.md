@@ -787,8 +787,8 @@ extensions:
 | `retrospective.github_feedback.enabled` | boolean | `false` | the `session-retrospective` and `review-proposals` skills |
 | `retrospective.github_feedback.repo` | `owner/repo` | `jpicklyk/task-orchestrator` | the same skills |
 
-A retrospective is owed per closed run of the project root that is not yet marked `retro`; the hooks
-decide by that run-mark, not by a cooldown. The `session-retrospective` skill describes the run-mark
+A retrospective is owed per closed run of the project root that is not yet marked `retro`, and only to
+the session that opened or closed it; the hooks decide by that run-mark, not by a cooldown. The `session-retrospective` skill describes the run-mark
 trigger in full ([session-retrospective](../../session-retrospective/SKILL.md)). There is no
 `cooldownMinutes`, no `headless` mode and no `actor_attribution` setting. The user-level config's
 `extensions.claude-code` applies in every directory that has no project config.
@@ -829,7 +829,7 @@ Default: `nudge` - applied when the block or `mode` key is absent, or the value 
 | `dispatch` | Hooks inject a directive that launches exactly one background retrospective agent per closed run, but only once that run's substance (items terminal in it) clears `dispatchThreshold`; the hook first writes the run's `retro` mark (the first write wins, so two sessions never both dispatch). Below threshold, the hook still injects the `nudge` suggestion instead of staying silent. The directive is **durable, not immediate**: it instructs the orchestrator to dispatch at the next run boundary - holding it while background tasks or subagents are still in flight, and merging any directives that accumulate while holding into a single dispatch covering the union of their roots. |
 | `off` | Hooks stay silent - no retrospective suggestion or dispatch directive is injected. |
 
-**The Stop backstop.** The `Stop` hook (`retro-backstop.mjs`) runs the same closed-run evaluation as the trigger, so a run closed elsewhere (another session, a subagent) still gets its retrospective. With a REST API it may dispatch (after winning the `retro` mark) as well as nudge, per the configured mode. Without REST it can only nudge, once per session, about runs this session saw close, and never marks or dispatches.
+**The Stop backstop.** The `Stop` hook (`retro-backstop.mjs`) runs the same closed-run evaluation as the trigger, so a run this session opened that closed elsewhere (a subagent, a tool the trigger never saw) still gets its retrospective. A run another session opened and closed is that session's, never nudged here. With a REST API it may dispatch (after winning the `retro` mark) as well as nudge, per the configured mode. Without REST it can only nudge, once per session, about runs this session saw close, and never marks or dispatches.
 
 ### Behavior
 

@@ -2,8 +2,8 @@
 // Stop hook — backstop for retro-trigger.mjs. Fires at the end of every turn.
 //
 // With REST (an API URL and a project rootId): runs the same closed-run evaluation as the trigger, so
-// a run closed elsewhere (another session, a subagent, a tool the trigger never saw) still gets its
-// retrospective; a closed run is a confirmed boundary, so this may dispatch (after winning the
+// a run this session opened that closed elsewhere (a subagent, a tool the trigger never saw) still gets
+// its retrospective; only runs this session opened or closed count (retro-lib ownsRun); a closed run is a confirmed boundary, so this may dispatch (after winning the
 // server-side `retro` mark) as well as nudge. Output is a `block` decision.
 //
 // Without REST: if this session recorded a successful run close (retro-trigger.mjs) and has not been
