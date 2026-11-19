@@ -76,7 +76,7 @@ Match each finding to a trend by title and summary; a match increments `Sessions
 **Skip in dry-run.** One `notes_write` for this run's evidence notes, one `items_write` for creates and summary updates.
 
 - **Recurrence:** upsert `evidence-<YYYY-MM-DD>-<retro-short-id>` (role `work`: what happened, retro item id, cost or impact) and update the trend `summary` (`Sessions: N+1`, `Last seen: <date>`, condensed).
-- **New pattern:** create `trend: <kebab-key> - <one-line claim>` (`type: "retrospective-trend"`, `tags: ["retrospective-trend", "<dimension>"]`, `parentId` the trends container, `priority: "low"`, summary `<observation>. Sessions: 1. Last seen: <date>.`) with its first evidence note; dimension tags are listed in `references/evaluation.md`.
+- **New pattern:** create `trend: <kebab-key> - <one-line claim>` (`type: "retrospective-trend"`, `tags: ["retrospective-trend", "<dimension>"]`, `parentId` the trends container, `priority: "low"`, summary `<observation>. Sessions: 1. Last seen: <date>.`) with its first evidence note. `<dimension>` is one of `schema-effectiveness | delegation | note-quality | plan-to-execution | friction | extension-candidate`; add `positive` for a positive pattern.
 - **Standing trends** `fix-cycle-cost` and `retro-cost` get one evidence note every run ([`references/evaluation.md`](references/evaluation.md), "Standing trends").
 - **Retire** (addressed, obsolete, superseded): `advance` `cancel` with `summary: "archived: <reason>"`. **Graduation:** put `GRADUATED -> proposal <short-id>` in the summary.
 
