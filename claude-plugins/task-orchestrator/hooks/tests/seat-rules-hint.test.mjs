@@ -387,3 +387,60 @@ test('S11: a main-session advance to review names the reviewer keys V once; the 
     assert.ok(isEmptyOut(await run(HINT, advCall(s, el), fx, { apiUrl: server.origin })), 'the same item and role again')
   })
 })
+
+// ---- S15 / S16 (amendment A1): on a schema without seats the seat's phase is the seat's own, not the item's ---------------
+//
+// Oracle: amendment A1 B1 (AC2, D2, D4, D6): the implicit implementer is a work seat that enters (D6, so protocol.entry-seat, commit-discipline,
+// closure-notes) and a reviewer is a review seat (D4), whatever phase the item is in; note rules come from the notes of the seat's own phase.
+// Fixture condition for each absence assertion: the twin right after it serves the same key on a note of the seat's own phase, with the same
+// schema, item phase and agent, and the hint then lists it. Without the fix the item phase picks the notes, so the absence assertion fails.
+// Forbidden-construct declaration: none.
+
+const ALL_SERVED_PLUS = (...extra) => rulesOk([...ALL_SERVED, ...extra])
+const note = (key, role, extra = {}) => ({ key, role, required: true, ...extra })
+/** The rule keys the SEAT RULES text lists, in order, read back out of the D7 text. */
+const listedKeys = (text) => {
+  const m = text.match(/in this order: (.*?)\. A not_found answer for /)
+  assert.ok(m, `no SEAT RULES key list in:\n${text}`)
+  return m[1].split(', ')
+}
+
+test('S15 (A1, AC2, D2, D6): a seatless schema, item in queue, an implementer agent: the keys are I, and a queue note\'s rule skill is not among them', async () => {
+  const notes = [note('task-scope', 'queue', { skill: 'x-q' }), note('implementation-notes', 'work')]
+  await withStub({ schema: schemaView({ seats: null, notes }), rules: ALL_SERVED_PLUS('x-q') }, async (server, fx) => {
+    const res = await run(HINT, ctxCall(sid('s15'), { role: 'queue' }), fx, { apiUrl: server.origin })
+    assert.equal(res.status, 0, res.stderr)
+    const text = contextOf(res)
+    assertRulesText(text, { seat: 'implementer', keys: I })
+    assert.equal(text.includes('x-q'), false, text)
+  })
+})
+
+test('S15 twin: the same fixture with x-q as a WORK note\'s skill lists x-q beside I (the absence above is not vacuous)', async () => {
+  const notes = [note('task-scope', 'queue'), note('implementation-notes', 'work', { skill: 'x-q' })]
+  await withStub({ schema: schemaView({ seats: null, notes }), rules: ALL_SERVED_PLUS('x-q') }, async (server, fx) => {
+    const text = contextOf(await run(HINT, ctxCall(sid('s15t'), { role: 'queue' }), fx, { apiUrl: server.origin }))
+    assert.deepEqual([...listedKeys(text)].sort(), [...I, 'x-q'].sort(), text)
+    assert.equal(listedKeys(text)[0], 'protocol.entry-seat', text)
+  })
+})
+
+test('S16 (A1, AC2, D2, D4): a seatless schema, item in work, a reviewer agent: the keys are V, and a work note\'s rule skill is not among them', async () => {
+  const notes = [note('implementation-notes', 'work', { skill: 'x-w' }), note('review-checklist', 'review')]
+  await withStub({ schema: schemaView({ seats: null, notes }), rules: ALL_SERVED_PLUS('x-w') }, async (server, fx) => {
+    const res = await run(HINT, ctxCall(sid('s16'), { ...ROLE_CTX.reviewer, role: 'work' }), fx, { apiUrl: server.origin })
+    assert.equal(res.status, 0, res.stderr)
+    const text = contextOf(res)
+    assertRulesText(text, { seat: 'reviewer', keys: V })
+    assert.equal(text.includes('x-w'), false, text)
+  })
+})
+
+test('S16 twin: the same fixture with x-w as a REVIEW note\'s skill lists x-w beside V (the absence above is not vacuous)', async () => {
+  const notes = [note('implementation-notes', 'work'), note('review-checklist', 'review', { skill: 'x-w' })]
+  await withStub({ schema: schemaView({ seats: null, notes }), rules: ALL_SERVED_PLUS('x-w') }, async (server, fx) => {
+    const text = contextOf(await run(HINT, ctxCall(sid('s16t'), { ...ROLE_CTX.reviewer, role: 'work' }), fx, { apiUrl: server.origin }))
+    assert.deepEqual([...listedKeys(text)].sort(), [...V, 'x-w'].sort(), text)
+    assert.equal(listedKeys(text)[0], 'protocol.read-only-agent', text)
+  })
+})
