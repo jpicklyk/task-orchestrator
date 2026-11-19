@@ -76,13 +76,13 @@ test('S5: a director session in nudge mode also marks the run it dispatches', as
 
 // ---- S6: directorConfig ---------------------------------------------------------------------------
 
-test('S6: directorConfig of {nudge, 3} and of {dispatch, 3} both deep-equal {mode: dispatch, dispatchThreshold: 0}', () => {
-  assert.deepEqual(directorConfig({ mode: 'nudge', dispatchThreshold: 3 }), { mode: 'dispatch', dispatchThreshold: 0 });
-  assert.deepEqual(directorConfig({ mode: 'dispatch', dispatchThreshold: 3 }), { mode: 'dispatch', dispatchThreshold: 0 });
+test('S6: directorConfig of {nudge, 3} and of {dispatch, 3} both deep-equal {mode: dispatch, minItems: 0, boundary: run}', () => {
+  assert.deepEqual(directorConfig({ mode: 'nudge', minItems: 3, boundary: 'run' }), { mode: 'dispatch', minItems: 0, boundary: 'run' });
+  assert.deepEqual(directorConfig({ mode: 'dispatch', minItems: 3, boundary: 'run' }), { mode: 'dispatch', minItems: 0, boundary: 'run' });
 });
 
 test('S6: directorConfig leaves mode off unchanged', () => {
-  assert.deepEqual(directorConfig({ mode: 'off', dispatchThreshold: 3 }), { mode: 'off', dispatchThreshold: 3 });
+  assert.deepEqual(directorConfig({ mode: 'off', minItems: 3, boundary: 'run' }), { mode: 'off', minItems: 3, boundary: 'run' });
 });
 
 // ---- S7: a lost race stays silent -----------------------------------------------------------------
@@ -222,10 +222,10 @@ test('S10: buildDispatch names both runs in ONE /session-retrospective invocatio
   assert.ok(text.includes('ONE retrospective'), text);
 });
 
-test('S10: buildNudge is unchanged: one command per run', () => {
+test('S10: buildNudge is one invocation with repeated --run (W1 AC7)', () => {
   const text = buildNudge(['run-aaa', 'run-bbb']);
-  assert.ok(text.includes('/session-retrospective --run run-aaa'), text);
-  assert.ok(text.includes('/session-retrospective --run run-bbb'), text);
+  assert.ok(text.includes('/session-retrospective --run run-aaa --run run-bbb'), text);
+  assert.equal((text.match(/\/session-retrospective/g) ?? []).length, 1, text);
 });
 
 test('S10 probe: a single run and an empty list keep the one-invocation shape', () => {
