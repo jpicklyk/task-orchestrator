@@ -121,16 +121,28 @@ function noteSkillNames(n) {
 }
 
 /**
+ * {phase, enters} of a seat the schema names no entry for: the default phase of its role (an `-a<n>` fix-cycle
+ * suffix read as its base), else the item's phase for an unknown seat. Only `implementer` itself, in work, enters.
+ */
+function unlistedSeatPhase(seat, itemPhase) {
+  const base = typeof seat === 'string' ? seat.replace(/-a[1-9][0-9]*$/, '') : '';
+  const phase = (Object.prototype.hasOwnProperty.call(DEFAULT_SEAT_PHASE, base) && DEFAULT_SEAT_PHASE[base]) || itemPhase;
+  return { phase, enters: seat === 'implementer' && phase === 'work' };
+}
+
+/**
  * The SEAT RULES line for a seat on an item, or null when its role does not resolve in the seat rule table.
- * The seat's entry in the schema gives its phase, enters and declared rules; a schema without that entry gives
- * the phase owner, which enters the work phase. The seat's owned notes give the note-derived rules.
+ * The seat's entry in the schema gives its phase, enters and declared rules; without an entry the seat's role
+ * gives its phase (unlistedSeatPhase), so the line does not depend on the phase the item is in. The seat's notes
+ * in that phase (every one on a schema without seats) give the note-derived rules.
  */
 async function rulesText(input, facts, seat, phase, itemId) {
   const table = loadSeatRules();
   const named = facts.seats.filter((s) => s.name === seat);
   const entry = named.find((s) => s.phase === phase) || named[0];
-  const seatPhase = (entry && nonEmpty(entry.phase)) || phase;
-  const enters = entry ? entry.enters === true : (seatPhase === 'work' ? true : undefined);
+  const unlisted = entry ? null : unlistedSeatPhase(seat, phase);
+  const seatPhase = entry ? nonEmpty(entry.phase) || phase : unlisted.phase;
+  const enters = entry ? entry.enters === true : unlisted.enters;
   const owned = facts.notes.filter((n) => n.role === seatPhase && (facts.seats.length === 0 || n.seat === seat));
   const stage = { seat, phase: seatPhase, enters, writes: seatPhase === 'work', notes: owned.map((n) => n.key) };
   const role = seatRoleOf(stage);
