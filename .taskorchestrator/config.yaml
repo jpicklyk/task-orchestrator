@@ -15,6 +15,10 @@ extensions:
       github_feedback:
         enabled: true
         repo: jpicklyk/task-orchestrator
+      # Measured figures of this project that the retrospective compares against (retro-metrics echoes them).
+      baselines:
+        note-volume: { measured: 2026-11-02, review-share-pct: 31, review-checklist-avg-kb: 6.5, largest-note-kb: 37 }
+        work-notes: { measured: 2026-11-07, work-avg-bytes: 1127, work-avg-target-bytes: 800 }
 
 work_item_schemas:
 

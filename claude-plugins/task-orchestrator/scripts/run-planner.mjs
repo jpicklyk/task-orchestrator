@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // run-planner.mjs — CLI dispatcher for the run-wave front door's planner helper.
 //
-// Subcommands: probe | plan | explain | validate | bind-run. Input via --in <file> or stdin; JSON on
+// Subcommands: probe | plan | explain | validate | bind-run | retro-metrics. Input via --in <file> or stdin; JSON on
 // stdout; {error, detail} on stderr. Exit 0 ok, 2 invalid input, 3 refused (stdout still
 // carries the doc or {ok:false, errors}). A global `--out <path> [--force]` (any subcommand) writes the
 // document to <path> instead of stdout; it refuses (exit 3) to overwrite a launched run's existing file
@@ -11,7 +11,7 @@
 // run-planner-lib.mjs stays pure.
 //
 // run-exec-lib.mjs adds rows to the subcommand table below: next, prompt, stage-result,
-// scan-declarations, verify, notes-audit, dispatch-meta, provenance, review-prompt, reseat, run-ops, follow-ups, report, review-args, post-run-steps.
+// scan-declarations, verify, notes-audit, dispatch-meta, provenance, session-meters, review-prompt, reseat, run-ops, follow-ups, report, review-args, post-run-steps.
 // provenance also takes the per-run layer flags --coordinator <label> (with --session-dir |
 // --projects-dir), --session-transcript <path>, --session-since <t> and --session-until <t>, which add
 // the 'layer-meters' member to its output.
@@ -25,8 +25,10 @@ import * as lib from './run-planner-lib.mjs';
 import * as exec from './run-exec-lib.mjs';
 import { loadWaveCore } from './lib/wave-core.mjs';
 import { checkServer } from '../hooks/lib/server-compat.mjs';
-import { apiBaseUrl } from '../hooks/lib/api-client.mjs';
+import { apiBaseUrl, callOp } from '../hooks/lib/api-client.mjs';
 import { resolveOrchestratorEntryKey } from '../hooks/lib/mcp-registrations.mjs';
+import { readSection, scalar } from '../hooks/yaml-lite.mjs';
+import { retroMetrics, parseBaselines, CONTRACT as RETRO_METRICS_CONTRACT } from './lib/retro-metrics.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -333,6 +335,209 @@ const EXEC_IO = {
 };
 
 // ---------------------------------------------------------------------------------------
+// retro-metrics: the session-retrospective's numbers as one JSON document (lib/retro-metrics.mjs
+// computes it; this handler gathers the input over REST, the session folder and the config file).
+// retro-metrics [--root <id>] [--run <id>]... [--item <id>]... [--session-dir <dir>] [--config <path>]
+//   [--since <ISO>] [--self-only]
+// Always exit 0 with a 'run-wave/retro-metrics-v1' document; exit 2 only for bad arguments. With no
+// REST API the document is {contract, measured:false, reason}; a read that fails marks its own section
+// {measured:false, reason:<code>} (or lands in `gaps`) and the others continue.
+// ---------------------------------------------------------------------------------------
+const RETRO_VALUE_FLAGS = ['--root', '--run', '--item', '--session-dir', '--config', '--since'];
+const RETRO_TIMEOUT_MS = 5000;
+const RETRO_MAX_ITEMS = 50;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function parseRetroArgs(args) {
+  const out = { root: null, runs: [], items: [], sessionDir: null, config: null, since: null, selfOnly: false };
+  for (let i = 0; i < args.length; i += 1) {
+    const a = args[i];
+    if (a === '--self-only') {
+      out.selfOnly = true;
+      continue;
+    }
+    if (!RETRO_VALUE_FLAGS.includes(a)) throw new Error(`invalid args: unknown argument ${a}`);
+    const v = args[i + 1];
+    if (v === undefined || v.startsWith('--')) throw new Error(`invalid args: ${a} needs a value`);
+    i += 1;
+    if (a === '--run') {
+      if (!out.runs.includes(v)) out.runs.push(v);
+    } else if (a === '--item') {
+      if (!out.items.includes(v)) out.items.push(v);
+    } else if (a === '--root') out.root = v;
+    else if (a === '--session-dir') out.sessionDir = v;
+    else if (a === '--config') out.config = v;
+    else if (a === '--since') {
+      if (Number.isNaN(Date.parse(v))) throw new Error('invalid args: --since must be an ISO 8601 instant');
+      out.since = v;
+    }
+  }
+  return out;
+}
+
+// readRetro(tool, body, gaps, section) -> the answer's data, or null (no REST, or an error: recorded in gaps unless tolerated).
+async function readRetro(tool, body, gaps, section, tolerate = []) {
+  const res = await callOp(tool, body, { timeoutMs: RETRO_TIMEOUT_MS });
+  if (res === null || res === undefined) return null;
+  if (res.ok) return res.data === undefined ? null : res.data;
+  const code = (res.error && res.error.code) || 'unknown';
+  if (!tolerate.includes(code)) gaps.push({ section, reason: code });
+  return null;
+}
+
+function retroIdsOf(list) {
+  const out = [];
+  for (const e of Array.isArray(list) ? list : []) {
+    const id = e && typeof e === 'object' ? e.itemId || e.id : null;
+    if (typeof id === 'string' && id !== '') out.push(id);
+  }
+  return out;
+}
+
+// Reads every page of a report select, following page.next; {rows} or {error: <code>}.
+async function retroReportRows(body) {
+  const rows = [];
+  let cursor;
+  const seen = new Set();
+  for (let page = 0; page < 20; page += 1) {
+    const res = await callOp('report', cursor ? { ...body, cursor } : body, { timeoutMs: RETRO_TIMEOUT_MS });
+    if (res === null || res === undefined) return { error: 'no_api' };
+    if (!res.ok) return { error: (res.error && res.error.code) || 'unknown' };
+    const data = res.data || {};
+    rows.push(...(Array.isArray(data.items) ? data.items : []));
+    const next = data.page && typeof data.page.next === 'string' ? data.page.next : null;
+    if (!next || seen.has(next)) break;
+    seen.add(next);
+    cursor = next;
+  }
+  return { rows };
+}
+
+// wallMs of the transcripts of one label: last minus first usage-line timestamp, null when fewer than two.
+function retroWallMs(sessionDir, label) {
+  let lo = Infinity;
+  let hi = -Infinity;
+  const dir = String(sessionDir).replace(/[\\/]+$/, '');
+  for (const entry of EXEC_IO.walkTranscripts(dir) || []) {
+    const meta = EXEC_IO.readInput(entry.path.replace(/\.jsonl$/, '.meta.json'));
+    if (!meta || typeof meta.description !== 'string' || exec.stripDisplayTag(meta.description) !== label) continue;
+    const text = EXEC_IO.readText(entry.path) || '';
+    for (const line of text.split('\n')) {
+      if (!line.includes('"usage"') || !line.includes('"timestamp"')) continue;
+      const rec = parseJson(line);
+      const t = rec && typeof rec.timestamp === 'string' ? Date.parse(rec.timestamp) : NaN;
+      if (Number.isFinite(t)) {
+        lo = Math.min(lo, t);
+        hi = Math.max(hi, t);
+      }
+    }
+  }
+  return lo !== Infinity && hi > lo ? hi - lo : null;
+}
+
+async function runRetroMetrics(args) {
+  const a = parseRetroArgs(args);
+  const cwd = process.cwd();
+  const gaps = [];
+  const configPath = a.config || join(cwd, '.taskorchestrator', 'config.yaml');
+  const configText = existsSync(configPath) ? safeRead(configPath) : '';
+  const baselines = configText ? parseBaselines(configText) : null;
+
+  // Session folder: the session sweep and the retrospective's own cost.
+  let meters = null;
+  let self = { measured: false, reason: 'no session dir' };
+  if (a.sessionDir) {
+    if (!EXEC_IO.isDir(a.sessionDir)) self = { measured: false, reason: 'session dir not found' };
+    else {
+      try {
+        meters = exec.sessionMeters({ io: EXEC_IO, sessionDir: a.sessionDir, warnings: [] });
+        const label = `retrospective:${a.runs.length > 0 ? a.runs[0].slice(0, 8) : 'unknown'}`;
+        const row = meters.agents.find((r) => r.label === label) || null;
+        self = { label, row, wallMs: row ? retroWallMs(a.sessionDir, label) : null, reason: 'no transcript carries the label' };
+      } catch (e) {
+        gaps.push({ section: 'session', reason: 'session_sweep_failed' });
+      }
+    }
+  }
+
+  if (!apiBaseUrl({ cwd })) {
+    const doc = { contract: RETRO_METRICS_CONTRACT, measured: false, reason: 'no REST API configured' };
+    if (a.selfOnly || a.sessionDir) doc.self = retroMetrics({ self }).self;
+    emit(JSON.stringify(doc));
+    process.exit(0);
+  }
+
+  // Members: --item ids plus every seat and frontier member of each --run.
+  const ids = [...a.items];
+  for (const runId of a.runs) {
+    const seats = await readRetro('runs_read', { select: 'seats', runId, ended: true }, gaps, 'members');
+    ids.push(...retroIdsOf(seats && (seats.seats || seats.items)));
+    const frontier = await readRetro('runs_read', { select: 'frontier', runId }, gaps, 'members');
+    if (frontier) ids.push(...retroIdsOf(frontier.waiting), ...retroIdsOf(frontier.inFlight));
+  }
+  const byShort = new Map();
+  for (const id of ids) if (!byShort.has(id.slice(0, 8))) byShort.set(id.slice(0, 8), id);
+  const members = [...byShort.values()].slice(0, RETRO_MAX_ITEMS);
+
+  const items = await Promise.all(
+    members.map(async (id) => {
+      const note = async (key) => {
+        const data = await readRetro('notes_read', { select: 'get', itemId: id, key }, gaps, 'notes', ['not_found']);
+        return data && typeof data.body === 'string' ? data.body : null;
+      };
+      const [delegationMetadata, sessionTracking, item] = await Promise.all([
+        note('delegation-metadata'),
+        note('session-tracking'),
+        readRetro('items_read', { select: 'get', itemId: id }, gaps, 'items', ['not_found'])
+      ]);
+      return { id, type: item && item.item ? item.item.type : null, delegationMetadata, sessionTracking };
+    })
+  );
+
+  let noteVolume = { measured: false, reason: 'not measured' };
+  if (!a.selfOnly) {
+    if (!a.root) noteVolume = { measured: false, reason: 'no --root' };
+    else {
+      const now = Date.now();
+      let since = a.since;
+      if (!since) {
+        const nameSection = configText ? readSection(configText, 'project', { blockOnly: true }) : null;
+        const name = nameSection ? scalar(nameSection.lines, 'name') : null;
+        const listed = await readRetro(
+          'items_read',
+          { select: 'list', tags: ['session-retrospective'], sort: 'createdAt', order: 'desc', limit: 20, fields: ['createdAt'] },
+          gaps,
+          'since'
+        );
+        const hit = ((listed && listed.items) || []).find((it) => typeof it.title === 'string' && (it.title.includes(a.root) || (name && it.title.includes(name))));
+        since = hit && typeof hit.createdAt === 'string' ? hit.createdAt : new Date(now - 7 * DAY_MS).toISOString();
+      }
+      const floor = now - 31 * DAY_MS;
+      if (Date.parse(since) < floor) since = new Date(floor + 60 * 1000).toISOString();
+      const base = { select: 'notes', rootId: a.root, since };
+      const role = await retroReportRows({ ...base, groupBy: 'role' });
+      const key = role.error ? role : await retroReportRows({ ...base, groupBy: 'noteKey' });
+      if (role.error || key.error) noteVolume = { measured: false, reason: role.error || key.error };
+      else {
+        const maxLengths = {};
+        const types = new Map();
+        for (const it of items) if (it.type && !types.has(it.type)) types.set(it.type, it.id);
+        for (const id of types.values()) {
+          const schema = await readRetro('items_read', { select: 'schema', itemId: id }, gaps, 'schema');
+          for (const n of (schema && schema.notes) || []) if (n && typeof n.key === 'string' && Number.isFinite(n.maxLength) && !(n.key in maxLengths)) maxLengths[n.key] = n.maxLength;
+        }
+        noteVolume = { window: { since }, byRole: role.rows, byNoteKey: key.rows, maxLengths };
+      }
+    }
+  }
+
+  const doc = retroMetrics({ items, sessionMeters: meters, noteVolume, baselines, self });
+  const out = a.selfOnly ? { contract: doc.contract, self: doc.self } : { ...doc, gaps };
+  emit(JSON.stringify(out));
+  process.exit(0);
+}
+
+// ---------------------------------------------------------------------------------------
 // Subcommand table. run-exec-lib.mjs supplies: next, prompt, stage-result, scan-declarations,
 // verify, notes-audit, dispatch-meta, provenance, session-meters, review-prompt, reseat, run-ops,
 // follow-ups, report, review-args, post-run-steps.
@@ -343,6 +548,7 @@ const SUBCOMMANDS = {
   explain: runExplain,
   validate: runValidate,
   'bind-run': runBindRun,
+  'retro-metrics': runRetroMetrics,
   next: (args) => exec.EXEC_COMMANDS.next(args, EXEC_IO),
   prompt: (args) => exec.EXEC_COMMANDS.prompt(args, EXEC_IO),
   'stage-result': (args) => exec.EXEC_COMMANDS['stage-result'](args, EXEC_IO),
