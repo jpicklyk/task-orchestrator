@@ -506,9 +506,11 @@ export async function evaluateScopes({ rootId, config, state, now = Date.now() }
     };
 
     // 2 / 3. A group that can act: a claim to retry or give up, or a due group this session owns (or that
-    // was orphaned for 60 minutes). null otherwise, which takes no slot of the 5.
+    // was orphaned for 60 minutes). null otherwise, which takes no slot of the 5. Outside dispatch mode a
+    // group this session already nudged stays unmarked and can act no more, so it takes no slot either.
     const qualify = async (g) => {
       try {
+        if (!dispatch && g.runs.every((r) => state.nudged.includes(r.runId))) return null;
         if (g.dead) return deadStep(g) ? { g } : null;
         const due = await dueOf(g);
         if (!due.due) return null;
@@ -543,7 +545,7 @@ export async function evaluateScopes({ rootId, config, state, now = Date.now() }
           return null;
         }
         // 9. Nudge mode.
-        if (!dispatch) return g.runs.every((r) => state.nudged.includes(r.runId)) ? null : { kind: 'nudge', g };
+        if (!dispatch) return { kind: 'nudge', g };
         // 5. Dispatch.
         if (!hourlyOk) return null;
         return (await markGroup(g, ['retro-claim'])) === 'won' ? { kind: 'claim', g, stale: due.stale } : null;
