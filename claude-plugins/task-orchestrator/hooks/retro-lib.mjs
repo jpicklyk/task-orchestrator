@@ -258,6 +258,7 @@ const OWNER_HOLD_MS = 60 * MIN_MS;
 const DISPATCH_GAP_MS = 60 * MIN_MS;
 const CLAIM_DEAD_MS = 20 * MIN_MS;
 const PASS_BUDGET_MS = 3500;
+const WAVE_START_MS = 2000;
 const MAX_GROUPS = 5;
 const SCOPE_LIST_LIMIT = 200;
 const TRIAGE_ITEM_CAP = 20;
@@ -265,7 +266,14 @@ const TRIAGE_ITEM_CAP = 20;
 const NON_IMPL_TYPES = new Set(['retrospective-trend', 'container', 'improvement-proposal', 'agent-observation']);
 
 const instantMs = (v) => (typeof v === 'string' ? Date.parse(v) : NaN);
-const sameId = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
+// Two ids name the same item iff one key (lowercase, no dashes) is a prefix of the other: a list answers
+// 8-hex ids where a run view and a get answer full ones (the prefix rule of scripts/run-planner-lib.mjs).
+const idKey = (v) => (typeof v === 'string' ? v.toLowerCase().replace(/-/g, '') : '');
+const sameId = (a, b) => {
+  const x = idKey(a);
+  const y = idKey(b);
+  return x !== '' && y !== '' && (x.startsWith(y) || y.startsWith(x));
+};
 
 /** The anchor ordering of runs: earliest openedAt first, ties by runId ascending. */
 function byOpened(a, b) {
@@ -296,9 +304,13 @@ class Skip extends Error {}
 /**
  * The scope-boundary evaluation (trigger and backstop, boundary `scope`): one retrospective per
  * completed scope. Groups the root's runs (closed unmarked `retro` in the last 30 days, plus open and
- * paused runs) by scope, and for each of at most 5 groups:
+ * paused runs) by scope, and for each of at most 5 actionable groups (a group that is not due, that this
+ * session may not act on yet or whose read failed takes no slot; the walk stops at 5, at the end of the list
+ * or when no new wave of 5 reads could start within 2000 ms of the pass start). A group with a run in
+ * flight is not due, and an unscoped fix-cycle run whose base run is not in the pass joins no group:
  *   - a claim from a dead session or a failed retrospective is retried (retro-retry), then given up
- *     (retro-failed, one nudge);
+ *     (retro-failed, one nudge); a session holding the claim takes it over only on its own failure
+ *     report, any other session after 20 minutes;
  *   - an unclaimed group that is due, owned by this session (or orphaned for 60 minutes) and not
  *     low-signal is claimed (retro-claim, first write wins on the anchor run) and dispatched; a
  *     low-signal group is marked retro-skipped + retro with no output.
@@ -383,14 +395,19 @@ export async function evaluateScopes({ rootId, config, state, now = Date.now() }
     for (const r of all) if (typeof r.label === 'string' && !byLabel.has(r.label)) byLabel.set(r.label, r);
     const scoped = (r) => typeof r.scopeId === 'string' && r.scopeId !== '' && !sameId(r.scopeId, rootId);
     const keyMemo = new Map();
+    // The group key of a run; null when the run joins no group: an unscoped fix-cycle run whose base run is
+    // not in this pass (it already has its retrospective mark, or lies outside the window) owes nothing.
     const keyOf = (r, depth = 0) => {
       if (keyMemo.has(r.runId)) return keyMemo.get(r.runId);
       let key = r.runId;
       if (scoped(r)) key = r.scopeId.toLowerCase();
       else {
         const base = fixCycleBaseRun(r.label);
-        const target = base ? byLabel.get(base) : undefined;
-        if (target && target !== r && depth < 5) key = keyOf(target, depth + 1);
+        if (base) {
+          const target = byLabel.get(base);
+          if (!target) key = null;
+          else if (target !== r && depth < 5) key = keyOf(target, depth + 1);
+        }
       }
       keyMemo.set(r.runId, key);
       return key;
@@ -398,6 +415,7 @@ export async function evaluateScopes({ rootId, config, state, now = Date.now() }
     const groups = new Map();
     for (const r of all) {
       const key = keyOf(r);
+      if (key === null) continue;
       if (!groups.has(key)) groups.set(key, { key, scopeId: null, runs: [], live: 0 });
       const g = groups.get(key);
       if (scoped(r)) g.scopeId = r.scopeId;
@@ -411,14 +429,13 @@ export async function evaluateScopes({ rootId, config, state, now = Date.now() }
       g.anchor = g.runs[0];
       g.marks = isPlain(g.anchor.marks) ? g.anchor.marks : {};
       if ('retro-failed' in g.marks) continue;
-      if (g.live > 0 && g.scopeId) continue; // a scoped group with a run in flight is not due
+      if (g.live > 0) continue; // a group with a run in flight is not due
       g.newestClosedMs = Math.max(...g.runs.map((r) => instantMs(r.closedAt) || 0));
       g.dead = 'retro-claim' in g.marks;
       pending.push(g);
     }
-    // Claims to retry or give up first, then the newest groups; at most 5 a pass.
+    // Claims to retry or give up first, then the newest groups; at most 5 actionable groups a pass.
     pending.sort((a, b) => Number(b.dead) - Number(a.dead) || b.newestClosedMs - a.newestClosedMs);
-    const batch = pending.slice(0, MAX_GROUPS);
     const claimOf = (g, key) => state.claims.find((c) => c.anchor === g.anchor.runId && c.key === key);
     const ownedByThisSession = (g) => g.runs.some((r) => state.closes.includes(r.runId));
     const lastDispatchMs = instantMs(state.lastDispatchAt);
@@ -443,8 +460,10 @@ export async function evaluateScopes({ rootId, config, state, now = Date.now() }
       if (items.filter((it) => it.role === 'terminal').length >= config.minItems) return false;
       const openedMs = Math.min(...g.runs.map((r) => instantMs(r.openedAt)).filter((n) => !Number.isNaN(n)));
       if (Number.isFinite(openedMs)) {
-        const obs = await readAll('items_read', { select: 'list', type: 'agent-observation', createdAfter: new Date(openedMs).toISOString(), limit: 1 });
-        if (obs.length > 0) return false;
+        // One row is the signal: a page that says more rows exist (truncated) is a signal too.
+        const obs = await read('items_read', { select: 'list', type: 'agent-observation', createdAfter: new Date(openedMs).toISOString(), limit: 1 });
+        if (!Array.isArray(obs.items)) throw new Skip('page');
+        if (obs.items.length > 0) return false;
       }
       if (items.length > TRIAGE_ITEM_CAP) return false;
       const clean = await Promise.all(
@@ -473,26 +492,50 @@ export async function evaluateScopes({ rootId, config, state, now = Date.now() }
       return { due: false };
     };
 
-    const handle = async (g) => {
+    // 6 / 7. A claim exists: what to write next, or null. Only a dispatching session writes either mark. A
+    // session that holds the claim takes it over only on its own failure report; the 20 minute age test is for
+    // sessions that hold none (a Stop hook that never saw the retrospective's transcript leaves it unfailed).
+    const deadStep = (g) => {
+      if (!dispatch) return null;
+      const retried = 'retro-retry' in g.marks;
+      const key = retried ? 'retro-retry' : 'retro-claim';
+      const mine = claimOf(g, key);
+      const takeOver = mine ? Boolean(mine.failed) : now - instantMs(g.marks[key]) > CLAIM_DEAD_MS;
+      if (!takeOver) return null;
+      return retried ? { kind: 'failed', mark: 'retro-failed' } : { kind: 'retry', mark: 'retro-retry' };
+    };
+
+    // 2 / 3. A group that can act: a claim to retry or give up, or a due group this session owns (or that
+    // was orphaned for 60 minutes). null otherwise, which takes no slot of the 5.
+    const qualify = async (g) => {
       try {
-        // 6 / 7. A claim exists: retry it, then give it up. Only a dispatching session writes either.
-        if (g.dead) {
-          if (!dispatch) return null;
-          if ('retro-retry' in g.marks) {
-            const mine = claimOf(g, 'retro-retry');
-            if (!((mine && mine.failed) || now - instantMs(g.marks['retro-retry']) > CLAIM_DEAD_MS)) return null;
-            return (await markGroup(g, ['retro-failed'])) === 'won' ? { kind: 'failed', g } : null;
-          }
-          const mine = claimOf(g, 'retro-claim');
-          if (!((mine && mine.failed) || now - instantMs(g.marks['retro-claim']) > CLAIM_DEAD_MS)) return null;
-          return (await markGroup(g, ['retro-retry'])) === 'won' ? { kind: 'retry', g } : null;
-        }
-        // 2 / 3. Due, then ownership.
+        if (g.dead) return deadStep(g) ? { g } : null;
         const due = await dueOf(g);
         if (!due.due) return null;
         if (!due.stale && !ownedByThisSession(g)) {
           const orphaned = now - due.since > OWNER_HOLD_MS;
           if (!dispatch || !orphaned) return null;
+        }
+        return { g, due };
+      } catch (e) {
+        if (e instanceof Skip) return null;
+        throw e;
+      }
+    };
+    // Waves of 5 in today's order until 5 groups can act, the list ends, or no new wave could start within
+    // 2000 ms of the pass start.
+    const actionable = [];
+    for (let next = 0; next < pending.length && actionable.length < MAX_GROUPS; next += MAX_GROUPS) {
+      if (Date.now() - t0 > WAVE_START_MS) break;
+      const wave = await Promise.all(pending.slice(next, next + MAX_GROUPS).map(qualify));
+      for (const q of wave) if (q && actionable.length < MAX_GROUPS) actionable.push(q);
+    }
+
+    const handle = async ({ g, due }) => {
+      try {
+        if (g.dead) {
+          const step = deadStep(g);
+          return step && (await markGroup(g, [step.mark])) === 'won' ? { kind: step.kind, g } : null;
         }
         // 4. Triage.
         if (await lowSignal(g)) {
@@ -509,7 +552,7 @@ export async function evaluateScopes({ rootId, config, state, now = Date.now() }
         throw e;
       }
     };
-    const actions = (await Promise.all(batch.map((g) => handle(g)))).filter(Boolean);
+    const actions = (await Promise.all(actionable.map(handle))).filter(Boolean);
 
     const at = new Date(now).toISOString();
     const record = (g, key) => {
