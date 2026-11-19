@@ -372,8 +372,12 @@ export async function evaluateScopes({ rootId, config, state, now = Date.now() }
       readAll('runs_read', { select: 'list', rootId, status: 'paused', limit: SCOPE_LIST_LIMIT }),
     ]);
     const valid = (v) => isPlain(v) && typeof v.runId === 'string' && v.runId !== '';
-    const closedRuns = closed.filter(valid).filter((v) => !(isPlain(v.marks) && 'retro' in v.marks));
-    const liveRuns = [...open, ...paused].filter(valid);
+    // A run the lists answer twice is one run: first row wins, in merge order closed, open, paused.
+    const seenRunIds = new Set();
+    const distinct = (rows) => rows.filter(valid).filter((v) => !seenRunIds.has(v.runId) && seenRunIds.add(v.runId));
+    const closedDistinct = distinct(closed);
+    const liveRuns = [...distinct(open), ...distinct(paused)];
+    const closedRuns = closedDistinct.filter((v) => !(isPlain(v.marks) && 'retro' in v.marks));
     const all = [...closedRuns, ...liveRuns].sort(byOpened);
     const byLabel = new Map();
     for (const r of all) if (typeof r.label === 'string' && !byLabel.has(r.label)) byLabel.set(r.label, r);
