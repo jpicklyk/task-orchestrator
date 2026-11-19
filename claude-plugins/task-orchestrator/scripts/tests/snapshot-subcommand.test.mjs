@@ -290,21 +290,32 @@ test('S4: no REST URL exits 2 naming it and writes no --out file', () => {
 
 test('S5: no note body, guidance or description enters the snapshot except the carry-in record', async () => {
   const w = parentWorld();
+  const W = 'b1b1b1b1-9999-4999-8999-999999999999';
+  w.items[W] = item(W, { parentId: P, role: 'work' });
+  w.workRows = [{ id: short(W) }];
+  // Every list row and every note a careless builder might read hands out a sentinel body.
   w.notes[A] = [
-    { key: 'specification', owner: { seat: 'planner' } },
-    { key: 'carry-in-x' },
-    { key: 'carry-in-dispositions' }
+    { key: 'specification', owner: { seat: 'planner' }, body: 'BODY-SENTINEL-ROW-A' },
+    { key: 'carry-in-x', body: 'BODY-SENTINEL-ROW-CARRY' },
+    { key: 'carry-in-dispositions', body: 'BODY-SENTINEL-ROW-RECORD' }
   ];
+  w.notes[W] = [{ key: 'specification', owner: { seat: 'planner' }, body: 'BODY-SENTINEL-ROW-W' }];
   w.bodies[`${A}/specification`] = 'BODY-SENTINEL';
   w.bodies[`${A}/carry-in-x`] = 'BODY-SENTINEL-CARRY';
+  w.bodies[`${W}/specification`] = 'BODY-SENTINEL-W';
   w.bodies[`${A}/carry-in-dispositions`] = 'carry-in-x: in scope (AC1)';
   w.schemas[A] = defaultSchema();
   w.schemas[A].data.seats = [{ name: 'implementer', description: 'DESC-SEAT-SENTINEL', skills: ['s'] }];
   const r = await run(w, { ancestor: P });
+  assert.equal(r.ok, true, JSON.stringify(r));
   const text = JSON.stringify(r.snapshot);
   for (const s of ['BODY-SENTINEL', 'GUIDE-SENTINEL', 'DESC-SENTINEL', 'DESC-SEAT-SENTINEL']) assert.ok(!text.includes(s), s);
   assert.equal(r.snapshot.carryIns[A].dispositions, 'carry-in-x: in scope (AC1)');
+  assert.deepEqual(r.snapshot.noteOwners[W], [{ key: 'specification', seat: 'planner' }]);
   assert.deepEqual(r.snapshot.schemas[A].seats, [{ name: 'implementer', skills: ['s'] }]);
+  // The only note body the builder reads is the carry-in record.
+  const gets = w.calls.filter((c) => c.tool === 'notes_read' && c.body.select === 'get').map((c) => c.body.key);
+  assert.deepEqual(gets, ['carry-in-dispositions']);
 });
 
 test('S5: a note projects to its structural fields only', () => {
@@ -389,6 +400,16 @@ test('S8: without a record the planner note section is used; a missing section g
   assert.equal(r.snapshot.carryIns[B].dispositions, null);
 });
 
+test('S8: a carry-in record answered ok without a string body is exit 3 with code bad_answer, not no_response', async () => {
+  const w = parentWorld();
+  w.notes[A] = [{ key: 'specification' }, { key: 'carry-in-a' }, { key: 'carry-in-dispositions' }];
+  w.bodies[`${A}/carry-in-dispositions`] = undefined;
+  const r = await run(w, { ancestor: P });
+  assert.equal(r.ok, false);
+  assert.equal(r.exit, 3);
+  assert.deepEqual(r.detail, { read: 'notes_read get', code: 'bad_answer' });
+});
+
 test('S8: carryInSection stops at the next heading, trims, and gives null when empty', () => {
   assert.equal(carryInSection('## Carry-in dispositions\n  x: y  \n# Other\nz'), 'x: y');
   assert.equal(carryInSection('## Carry-in dispositions\n\n## Next'), null);
@@ -447,20 +468,27 @@ test('S11: git facts: repoRoot, originMain, worktrees; warnings for a failed fet
 test('S12: argument errors are exit 2 (root mismatch, root not depth 0, missing or both scopes)', async () => {
   const w = parentWorld();
   w.items[L] = item(L, { parentId: ROOT, rootId: 'ffffffff-0000-4000-8000-00000000000f' });
-  const mismatch = await run(w, { ancestor: L });
-  assert.equal(mismatch.exit, 2);
-  const nonRoot = await buildSnapshot({ root: short(P), ancestor: short(A), now: NOW, noFetch: true }, fakeIo(w));
-  assert.equal(nonRoot.exit, 2);
-  assert.equal((await run(w, {})).exit, 2);
-  assert.equal((await run(w, { ancestor: P, items: [A] })).exit, 2);
-  assert.equal((await buildSnapshot({ ancestor: P, now: NOW }, fakeIo(w))).exit, 2);
+  const exit2 = (r, reason) => {
+    assert.equal(r.exit, 2, JSON.stringify(r));
+    assert.equal(r.error, 'invalid args');
+    assert.match(r.detail, reason);
+  };
+  exit2(await run(w, { ancestor: L }), /--ancestor .* belongs to another root/);
+  exit2(await buildSnapshot({ root: short(P), ancestor: short(A), now: NOW, noFetch: true }, fakeIo(w)), /is not a root item/);
+  exit2(await run(w, {}), /one of --ancestor <id> or --items <id,...> is required/);
+  exit2(await run(w, { ancestor: P, items: [A] }), /--ancestor and --items are mutually exclusive/);
+  exit2(await buildSnapshot({ ancestor: P, now: NOW }, fakeIo(w)), /--root <rootId> is required/);
 });
 
 test('S12: an unusable checkout or an invalid profile file is exit 2', async () => {
   const w = parentWorld();
   const badGit = { ...fakeIo(w), git: () => ({ status: 128, stdout: '' }) };
-  assert.equal((await buildSnapshot({ root: ROOT, ancestor: P, now: NOW, noFetch: true }, badGit)).exit, 2);
-  assert.equal((await run(w, { ancestor: P }, { profile: { kind: 'invalid' } })).exit, 2);
+  const git = await buildSnapshot({ root: ROOT, ancestor: P, now: NOW, noFetch: true }, badGit);
+  assert.equal(git.exit, 2);
+  assert.match(git.detail, /not a git checkout/);
+  const profile = await run(w, { ancestor: P }, { profile: { kind: 'invalid' } });
+  assert.equal(profile.exit, 2);
+  assert.match(profile.detail, /run-profile\.json is not valid JSON/);
 });
 
 test('S12 (CLI): missing --out, both scopes, neither scope and a non-object --scopes file exit 2', () => {
@@ -471,12 +499,24 @@ test('S12 (CLI): missing --out, both scopes, neither scope and a non-object --sc
   assert.match(noOut.stderr, /--out/);
   const both = cliRun(['snapshot', '--root', ROOT, '--ancestor', P, '--items', A, '--out', out, '--api-url', 'http://127.0.0.1:9']);
   assert.equal(both.status, 2);
+  assert.match(both.stderr, /mutually exclusive/);
   const neither = cliRun(['snapshot', '--root', ROOT, '--out', out, '--api-url', 'http://127.0.0.1:9']);
   assert.equal(neither.status, 2);
+  assert.match(neither.stderr, /one of --ancestor/);
   const badScopes = path.join(dir, 'scopes.json');
   writeFileSync(badScopes, '[1]');
   const bad = cliRun(['snapshot', '--root', ROOT, '--ancestor', P, '--out', out, '--scopes', badScopes, '--api-url', 'http://127.0.0.1:9']);
   assert.equal(bad.status, 2);
+  assert.match(bad.stderr, /is not a JSON object file/);
+  assert.equal(existsSync(out), false);
+});
+
+test('S12 (CLI): a flag whose next token is another flag has no value and exits 2 (not a failed read)', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'snap-s12b-'));
+  const out = path.join(dir, 's.json');
+  const res = cliRun(['snapshot', '--root', '--ancestor', P, '--out', out, '--api-url', 'http://127.0.0.1:9']);
+  assert.equal(res.status, 2, res.stderr);
+  assert.match(res.stderr, /--root needs a value/);
   assert.equal(existsSync(out), false);
 });
 
@@ -557,6 +597,36 @@ test('S10 (CLI): end to end against an http stub: exit 0, summary line with the 
     mkdirSync(path.join(scratch, 'run-wave'), { recursive: true });
     const plan = spawnSync(process.execPath, [CLI, 'plan', '--in', out, '--scratchpad', scratch], { encoding: 'utf8' });
     assert.equal(plan.status, 0, plan.stderr);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('S10 (CLI): a valid --scopes file reaches the snapshot and leaves the stdout needs', async () => {
+  const w = parentWorld();
+  const call = fakeCall(w);
+  const server = createServer((req, res) => {
+    let data = '';
+    req.on('data', (c) => (data += c));
+    req.on('end', async () => {
+      res.setHeader('Content-Type', 'application/json');
+      if (req.method === 'GET') return res.end(JSON.stringify(w.wellKnown));
+      const r = await call(req.url.split('/').pop(), JSON.parse(data || '{}'));
+      res.end(JSON.stringify(r.ok ? { ok: true, data: r.data } : { ok: false, error: { code: r.error.code, kind: 'permanent', message: r.error.code } }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const repo = mkdtempSync(path.join(tmpdir(), 'snap-s10c-'));
+    assert.equal(spawnSync('git', ['init', '-q', repo]).status, 0);
+    const out = path.join(repo, 'snapshot.json');
+    const scopesFile = path.join(repo, 'scopes.json');
+    const scopes = { [A]: { files: ['a.mjs'] }, [B]: { files: ['b.mjs'], dependsOn: [A] } };
+    writeFileSync(scopesFile, JSON.stringify(scopes));
+    const res = await cliRunAsync(['snapshot', '--root', ROOT, '--ancestor', P, '--out', out, '--scopes', scopesFile, '--api-url', `http://127.0.0.1:${server.address().port}`, '--no-server-check', '--no-fetch', '--cwd', repo, '--now', NOW], { cwd: repo });
+    assert.equal(res.status, 0, res.stderr);
+    assert.deepEqual(JSON.parse(res.stdout.trim()).needs.scopes, []);
+    assert.deepEqual(JSON.parse(readFileSync(out, 'utf8')).scopes, scopes);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

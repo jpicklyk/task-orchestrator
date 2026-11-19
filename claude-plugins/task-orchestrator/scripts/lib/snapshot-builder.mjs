@@ -385,7 +385,8 @@ async function build(input, io) {
     if (keys.length === 0) continue;
     let dispositions = null;
     const rec = await io.call('notes_read', { select: 'get', itemId: c.id, key: RECORD_KEY });
-    if (rec && rec.ok === true && isPlain(rec.data) && typeof rec.data.body === 'string') {
+    if (rec && rec.ok === true) {
+      if (!isPlain(rec.data) || typeof rec.data.body !== 'string') throw stop(3, 'refused', { read: 'notes_read get', code: 'bad_answer' });
       dispositions = rec.data.body;
     } else if (!rec || !rec.error || rec.error.code !== 'not_found') {
       throw stop(3, 'refused', { read: 'notes_read get', code: (rec && rec.error && rec.error.code) || 'no_response' });

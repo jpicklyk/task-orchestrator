@@ -151,6 +151,13 @@ async function runProbe(args) {
 // Exit 2: unusable arguments, no REST URL, a checkout or profile or --scopes file that cannot be read. Exit 3: a
 // required read failed, the snapshot fails validation, or the --out guard refuses. Nothing is written on either.
 async function runSnapshot(args) {
+  // A flag whose next token starts with `--` has no value of its own (`--root --ancestor X` is not a root `--ancestor`).
+  for (const name of ['--root', '--ancestor', '--items', '--scopes', '--cwd', '--api-url', '--plugin-root', '--now']) {
+    const at = args.indexOf(name);
+    if (at !== -1 && typeof args[at + 1] === 'string' && args[at + 1].startsWith('--')) {
+      return fail(2, 'invalid args', `${name} needs a value, not ${args[at + 1]}`);
+    }
+  }
   const split = (v) => (v ? v.split(',').map((x) => x.trim()).filter(Boolean) : undefined);
   const input = {
     root: flagValue(args, '--root', undefined),
