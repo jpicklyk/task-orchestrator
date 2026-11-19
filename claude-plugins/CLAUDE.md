@@ -79,12 +79,15 @@ Two skill systems — do not confuse them: **project-level skills** in `.claude/
 
 The plugin's view of the 4.0 tool surface is generated, never hand-edited: `skills/_generated/call-shapes.md`
 (per select/op fields, profiles, capability, errors, with `<a id="<tool>-<name>">` anchors),
+`skills/_generated/call-shapes-js.md` (the same entries as Code Mode script lines, same anchors),
 `hooks/lib/tool-catalog.json`, `hooks/lib/tool-names.mjs`, and the `TOOL_NAMES` region (between
 `// @generated:tool-names-begin` and `// @generated:tool-names-end`) of `workflows/implement-wave.js` and
 `workflows/review-wave.js`. After the server's tool goldens or `current/docs/api-reference.md` change, run
 `node claude-plugins/task-orchestrator/scripts/gen-call-shapes.mjs` and commit the result; CI runs the same command with
 `--check` and fails on a stale file (exit 1) or on a golden/API disagreement (exit 2). Workflow scripts run as function
 bodies and cannot import, which is why they carry the generated region instead of importing `tool-names.mjs`.
+
+The Code Mode recipes in `skills/run-wave/references/code-mode.md` carry a prelude generated from `scripts/lib/code-mode-helpers.mjs` (between `// @generated:code-mode-prelude-begin` and `// @generated:code-mode-prelude-end`): run `node claude-plugins/task-orchestrator/scripts/gen-code-mode-prelude.mjs` after editing the helpers; its `--check` runs inside `scripts/tests/code-mode-prelude.test.mjs`.
 
 Contract tests (`hooks/tests/contract-*.test.mjs`, library `scripts/lib/contract-checks.mjs`) pin the hook matchers
 to real tool names and reject a hard-coded retired 3.x tool name. The baseline `scripts/lib/contract-names-baseline.json` is empty (`pendingPort: []`, `proseExceptions: []`), so a new

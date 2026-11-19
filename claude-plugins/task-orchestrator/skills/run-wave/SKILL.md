@@ -27,6 +27,8 @@ its output looks wrong, report the raw stderr/stdout rather than improvising a p
 MCP responses directly — the whole point of the helper split is that frontier/edge/stage logic
 is fixture-tested, not reasoned about fresh each run.
 
+**Code Mode.** In a Code Mode session (only `REPL` and `Poll` are visible), run each step that `references/code-mode.md` covers through its recipe; the steps, rules, checkpoints and reports here are unchanged.
+
 ---
 
 ## The server run
@@ -173,8 +175,10 @@ background coordinator agent (`run_in_background: true`, `model` set) for Steps 
 director makes the one `Workflow` call, then sends the coordinator `launched` with the call's task id,
 run id and script path; only then does the coordinator record phase `launched` and those keys in
 `state.json`. On the task notification the director sends the result JSON verbatim; the coordinator writes
-`result.json` and runs post-run, then reports. `plan` refuses `--method A` (exit 3) when `runBudget.maxActiveSeats` is below the schema-seat count; the coordinator returns that refusal instead of a `planned` report, and the director raises `maxActiveSeats` or drives tier 3. Decisions land between runs. See
+`result.json` and runs post-run, then reports. `plan` refuses `--method A` (exit 3) when `runBudget.maxActiveSeats` is below the schema-seat count; the coordinator returns that refusal instead of a `planned` report, and the director raises `maxActiveSeats` or drives tier 2b (Code Mode) or 3. Decisions land between runs. See
 `skills/director/references/coordinator-tiers.md`.
+
+**Director tier 2b.** A tier-2b coordinator is a Code Mode subagent: it runs Steps 0-9 and post-run itself with `--method B` per `references/code-mode.md`, records `launched` as usual (never the tier-2 `planned` wait), and sends each report to `"main"`.
 
 ---
 
@@ -276,6 +280,7 @@ pointer line in `run-pointers` (or `session-tracking`) pointing at a closed run 
   unavailable or Step 0 selects Method B, including scheduling, per-batch seat assignment,
   envelope handling, the declarations scan, and the degradations Method B declares relative to
   Method A.
+- `references/code-mode.md` — the script recipes for a Code Mode session: one per coordinator step (probe and snapshot, open and assign, adopt-notes, the Method A launch, Method B dispatch and collect, post-run Steps 0 to 4).
 - `references/post-run.md` — the post-run protocol shared by both methods: the end-seats
   sweep, result verification, the notes audit, note-filling, the batched `advance` call, review
   hand-off, close, and the human checkpoints that close out a run.

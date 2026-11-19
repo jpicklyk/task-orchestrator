@@ -22,7 +22,7 @@ The plugin delivers the orchestration core through a SessionStart hook, not an o
 
 | Channel | What it carries | When |
 |---------|-----------------|------|
-| `orchestration-context` SessionStart hook | The always-on core: workflow principles, skill routing, retrospective handling, action items, visual conventions | Every session start, including after `/compact` and `/clear` |
+| `orchestration-context` SessionStart hook | The always-on core: workflow principles, skill routing, retrospective handling, action items, visual conventions and, in a Code Mode session, a pointer to the run-wave Code Mode recipes | Every session start, including after `/compact` and `/clear` |
 | `task-orchestrator:orchestrate` skill | On-demand depth: the tier table, phase-owner dispatch rules, and a pointer to the `task-orchestrator:model-effort` class table | Invoked from the orchestration context before sizing or dispatching work |
 | `dispatch-model-guard` PreToolUse hook (matcher `Agent`) | Denies an `Agent` dispatch that omits `model` or `effort`; the deny reason names what is missing and the retry (the `model-effort` class table or the item's dispatch profile) | Every `Agent` call |
 | `dispatch-hint` PostToolUse hook (matcher `advance`) | One line per transition into `work` or `review` naming the item's dispatch profile (`agent`, `model`, `effort`), taken from the `dispatch` object of the `advance` result | After each `advance`, main session only |
