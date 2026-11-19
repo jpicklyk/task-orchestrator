@@ -26,7 +26,7 @@ import * as exec from './run-exec-lib.mjs';
 import { loadWaveCore } from './lib/wave-core.mjs';
 import { checkServer } from '../hooks/lib/server-compat.mjs';
 import { apiBaseUrl, callOp, wellKnown } from '../hooks/lib/api-client.mjs';
-import { locateConfig, userHome } from '../hooks/config-locator.mjs';
+import { locateConfig, userHome, userConfigPath } from '../hooks/config-locator.mjs';
 import { runBugReport } from './lib/bug-report.mjs';
 import { resolveOrchestratorEntryKey } from '../hooks/lib/mcp-registrations.mjs';
 import { readSection, scalar } from '../hooks/yaml-lite.mjs';
@@ -545,19 +545,19 @@ async function runRetroMetrics(args) {
 // ---------------------------------------------------------------------------------------
 // bug-report: opt-in GitHub bug reports for product defects (lib/bug-report.mjs holds the logic; this
 // handler supplies gh, the clock, the per-install state file and the versions).
-// bug-report --in <file> [--config <path>] [--deny <name>]...
+// bug-report --in <file> [--deny <name>]...
+// The consent gate is read only from the user-level config (userConfigPath()); there is no --config.
 // Exit 0 with a 'run-wave/bug-report-v1' document; exit 2 only for bad arguments.
 // ---------------------------------------------------------------------------------------
 function parseBugReportArgs(args) {
-  const out = { in: null, config: null, deny: [] };
+  const out = { in: null, deny: [] };
   for (let i = 0; i < args.length; i += 1) {
     const a = args[i];
-    if (!['--in', '--config', '--deny'].includes(a)) throw new Error(`invalid args: unknown argument ${a}`);
+    if (!['--in', '--deny'].includes(a)) throw new Error(`invalid args: unknown argument ${a}`);
     const v = args[i + 1];
     if (v === undefined || v.startsWith('--')) throw new Error(`invalid args: ${a} needs a value`);
     i += 1;
     if (a === '--in') out.in = v;
-    else if (a === '--config') out.config = v;
     else out.deny.push(v);
   }
   if (!out.in) throw new Error('invalid args: --in <file> is required');
@@ -574,14 +574,13 @@ async function runBugReportCmd(args) {
   }
   if (!input || typeof input !== 'object' || !Array.isArray(input.defects)) throw new Error('invalid args: input needs a defects array');
   const cwd = process.cwd();
-  let configText = '';
-  if (a.config) configText = safeRead(a.config);
-  else {
-    const located = locateConfig({ cwd });
-    configText = located && typeof located.text === 'string' ? located.text : '';
-  }
+  // Consent is a user-level setting: a project config never opens the gate. The project config is
+  // read only for its project.name, which joins the deny names.
+  const configText = safeRead(userConfigPath());
+  const located = locateConfig({ cwd });
+  const projectText = located && typeof located.text === 'string' ? located.text : '';
   const statePath = join(userHome(), '.taskorchestrator', 'github-feedback-state.json');
-  const nameSection = configText ? readSection(configText, 'project', { blockOnly: true }) : null;
+  const nameSection = projectText ? readSection(projectText, 'project', { blockOnly: true }) : null;
   const denyNames = [...a.deny];
   const projectName = nameSection ? scalar(nameSection.lines, 'name') : null;
   if (projectName) denyNames.push(projectName);
@@ -601,6 +600,12 @@ async function runBugReportCmd(args) {
   } catch {
     // unknown
   }
+  let catalog = null;
+  try {
+    catalog = JSON.parse(readFileSync(resolve(HERE, '..', 'hooks', 'lib', 'tool-catalog.json'), 'utf8'));
+  } catch {
+    // no catalog: a server tool then fails qualification
+  }
   const doc = await (async () => {
     const gateProbe = runBugReport({ defects: [], configText, deps: { gh: () => ({ status: 1 }), now: () => 0, readState: () => null, writeState: () => false, writeTemp: () => '', removeTemp: () => {} } });
     if (gateProbe.gate === 'disabled') return gateProbe;
@@ -612,6 +617,7 @@ async function runBugReportCmd(args) {
       configText,
       denyNames,
       versions,
+      catalog,
       deps: {
         gh: (ghArgs) => {
           const r = spawnSync('gh', ghArgs, { encoding: 'utf8', timeout: 30000 });

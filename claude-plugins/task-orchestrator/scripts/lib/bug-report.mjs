@@ -6,8 +6,8 @@
 // Flow per defect: qualify -> fingerprint -> scrub -> search upstream -> create | comment | skip.
 // Fail closed: a scrub rejection posts nothing. Best effort: a failed gh call skips that defect.
 
-import { defectFingerprint, defectComponent, normaliseMessage } from './retro-metrics.mjs';
-import { readSection, childBlock, scalar } from '../../hooks/yaml-lite.mjs';
+import { defectFingerprint, defectComponent } from './retro-metrics.mjs';
+import { readSection, childBlock } from '../../hooks/yaml-lite.mjs';
 
 export const CONTRACT = 'run-wave/bug-report-v1';
 export const DEFAULT_REPO = 'jpicklyk/task-orchestrator';
@@ -18,6 +18,10 @@ const CAPS = { creates: 3, comments: 5, searches: 10 };
 const SIGNALS = ['tool-error', 'hook-failure', 'script-failure', 'shape-mismatch'];
 const ENV_CODES = ['network', 'unauthenticated', 'timeout', 'no_api', 'econnrefused', 'enotfound', 'etimedout', 'eai_again'];
 const FOOTER = 'Reported automatically by task-orchestrator session-retrospective';
+const PLUGIN_TOOL_RE = /^[a-z0-9][a-z0-9-]*\.mjs$/;
+const OP_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
+const CODE_RE = /^(exit:\d{1,3}|[A-Za-z][A-Za-z0-9_]{0,63})$/;
+const KEY_RE = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
 const URL_RE = /^https:\/\/github\.com\/.+\/issues\/\d+$/;
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -39,31 +43,48 @@ function githubFeedbackLines(configText) {
 }
 
 /**
- * readGate(configText) -> {open, repo}. open only for the unquoted scalar `bug_reports: true` at the
- * block's first level; independent of `enabled`. repo defaults to DEFAULT_REPO unless it is owner/repo.
+ * readGate(configText) -> {open, repo}. open only when the block's first level holds exactly one
+ * `bug_reports` line and it is the unquoted scalar `true`; independent of `enabled`. repo is always
+ * DEFAULT_REPO: a config value never redirects a bug report.
  */
 export function readGate(configText) {
   const lines = githubFeedbackLines(configText);
   if (!lines) return { open: false, repo: DEFAULT_REPO };
   const content = lines.filter((l) => l.trim() !== '' && !l.trim().startsWith('#'));
   const level = Math.min(...content.map((l) => l.length - l.trimStart().length));
-  const open = content.some((l) => l.length - l.trimStart().length === level && /^bug_reports\s*:\s*true\s*(#.*)?$/.test(l.trim().replace(/\r$/, '')));
-  const repoRaw = scalar(lines, 'repo');
-  const repo = repoRaw && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repoRaw) ? repoRaw : DEFAULT_REPO;
-  return { open, repo };
+  const atLevel = content.filter((l) => l.length - l.trimStart().length === level && /^bug_reports\s*:/.test(l.trim()));
+  const open = atLevel.length === 1 && /^bug_reports\s*:\s*true\s*(#.*)?$/.test(atLevel[0].trim().replace(/\r$/, ''));
+  return { open, repo: DEFAULT_REPO };
 }
 
 // ---------------------------------------------------------------------------------------------
 // Qualification
 
-/** qualifies(defect) -> null when it qualifies, else the first failing field name. */
-export function qualifies(d) {
+/** The catalog entry of a server tool's op: {fields, ...} or null. */
+function catalogEntry(catalog, tool, op) {
+  const entries = isObj(catalog) && isObj(catalog.tools) && isObj(catalog.tools[tool]) ? catalog.tools[tool].entries : null;
+  return isObj(entries) && Object.prototype.hasOwnProperty.call(entries, op) && isObj(entries[op]) ? entries[op] : null;
+}
+
+/**
+ * qualifies(defect, catalog) -> null when it qualifies, else the first failing field name. A server tool
+ * needs its op among the catalog's entries (catalog absent: fails op); a plugin tool, op and code must
+ * match fixed identifier patterns, so a posted field can never hold a path, URL or name.
+ */
+export function qualifies(d, catalog) {
   if (!isObj(d)) return 'kind';
   if (d.kind !== 'defect') return 'kind';
   if (d.scope !== 'product') return 'scope';
   if (!SIGNALS.includes(d.signal)) return 'signal';
   for (const f of ['tool', 'op', 'code', 'message', 'quote']) if (!nonEmpty(d[f])) return f;
   if (ENV_CODES.includes(String(d.code).trim().toLowerCase())) return 'code';
+  if (defectComponent(d.tool) === 'server') {
+    if (!catalogEntry(catalog, d.tool, d.op)) return 'op';
+  } else {
+    if (!PLUGIN_TOOL_RE.test(d.tool)) return 'tool';
+    if (!OP_RE.test(d.op)) return 'op';
+  }
+  if (!CODE_RE.test(d.code)) return 'code';
   return null;
 }
 
@@ -91,7 +112,7 @@ export function scrubFindings(text, { fingerprint = '', denyNames = [] } = {}) {
     /\\\\[^\s\\]+\\/.test(t) ||
     /(?<![\w~])~[\\/]/.test(t) ||
     /file:\/\//i.test(t) ||
-    /(?<![\w.:/<>-])\/[\w.@-]+\/[\w.@-]+/.test(t)
+    /(?<![\w./])\/[\w.@-]+\/[\w.@-]+/.test(t)
   ) {
     codes.add('absolute-path');
   }
@@ -111,37 +132,41 @@ export function scrubFindings(text, { fingerprint = '', denyNames = [] } = {}) {
 // ---------------------------------------------------------------------------------------------
 // Title, body, comment
 
-/** typeShape(value) -> the value with every leaf replaced by its type name (keys kept, bounded). */
+/** typeShape(value) -> the value with every leaf replaced by its type name (identifier keys only, bounded). */
 export function typeShape(value, depth = 0) {
   if (value === null) return 'null';
   if (Array.isArray(value)) return depth >= 4 || value.length === 0 ? [] : [typeShape(value[0], depth + 1)];
   if (isObj(value)) {
     if (depth >= 4) return 'object';
     const out = {};
-    for (const k of Object.keys(value).slice(0, 30)) out[k] = typeShape(value[k], depth + 1);
+    for (const k of Object.keys(value).filter((key) => KEY_RE.test(key)).slice(0, 30)) out[k] = typeShape(value[k], depth + 1);
     return out;
   }
   return typeof value;
 }
 
-const oneLine = (v, max) => {
-  const s = str(v).replace(/\s+/g, ' ').trim();
-  return s === '' ? 'not recorded' : s.slice(0, max);
-};
+/** The posted call shape: type names only; a server tool's top level is limited to its catalog fields. */
+function callShapeText(d, catalog) {
+  if (d.callShape === undefined || d.callShape === null) return 'not recorded';
+  let shape = d.callShape;
+  const entry = defectComponent(str(d.tool)) === 'server' ? catalogEntry(catalog, d.tool, d.op) : null;
+  if (entry && isObj(shape)) {
+    const fields = isObj(entry.fields) ? entry.fields : {};
+    shape = Object.fromEntries(Object.entries(shape).filter(([k]) => Object.prototype.hasOwnProperty.call(fields, k)));
+  }
+  return '`' + JSON.stringify(typeShape(shape)) + '`';
+}
 
 function versionLines(versions) {
   return [`- Plugin version: ${versions.plugin || 'unknown'}`, `- Server version: ${versions.server || 'unknown'}`];
 }
 
-export function buildTitle(d, fp) {
-  void fp;
-  const tool = str(d.tool);
-  return `[bug] ${defectComponent(tool)}: ${tool} ${str(d.op)}: ${str(d.code)} - ${normaliseMessage(d.message).slice(0, 80)}`;
+export function buildTitle(d) {
+  return `[bug] ${defectComponent(str(d.tool))}: ${str(d.tool)} ${str(d.op)}: ${str(d.code)}`;
 }
 
-export function buildBody(d, fp, versions) {
+export function buildBody(d, fp, versions, catalog) {
   const tool = str(d.tool);
-  const shape = d.callShape === undefined || d.callShape === null ? null : `\`${JSON.stringify(typeShape(d.callShape))}\``;
   return [
     '## Defect',
     '',
@@ -149,11 +174,7 @@ export function buildBody(d, fp, versions) {
     ...versionLines(versions),
     `- Tool and op: ${tool} ${str(d.op)}`,
     `- Error code: ${str(d.code)}`,
-    `- Message (normalised): ${normaliseMessage(d.message)}`,
-    `- Call shape: ${shape || 'not recorded'}`,
-    '',
-    `Expected: ${oneLine(d.expected, 200)}`,
-    `Actual: ${oneLine(d.actual, 200)}`,
+    `- Call shape: ${callShapeText(d, catalog)}`,
     '',
     `Fingerprint: ${fp}`,
     '',
@@ -205,11 +226,11 @@ function pickHit(list, fp) {
 }
 
 /**
- * runBugReport({defects, configText, denyNames, versions, deps}) -> the 'run-wave/bug-report-v1' document.
+ * runBugReport({defects, configText, denyNames, versions, catalog, deps}) -> the 'run-wave/bug-report-v1' document.
  * deps: {gh(args)->{status, stdout}, now()->ms, readState()->object|null, writeState(obj)->bool,
  *        writeTemp(text)->path, removeTemp(path)}
  */
-export function runBugReport({ defects, configText, denyNames = [], versions = {}, deps }) {
+export function runBugReport({ defects, configText, denyNames = [], versions = {}, catalog = null, deps }) {
   const gate = readGate(configText);
   const doc = { contract: CONTRACT, gate: 'disabled', repo: gate.repo, results: [] };
   if (!gate.open) return doc;
@@ -249,8 +270,13 @@ export function runBugReport({ defects, configText, denyNames = [], versions = {
     });
   };
 
-  const withTemp = (text, fn) => {
-    const path = deps.writeTemp(text);
+  const withTemp = (text, fn, fallback) => {
+    let path;
+    try {
+      path = deps.writeTemp(text);
+    } catch {
+      return fallback;
+    }
     try {
       return fn(path);
     } finally {
@@ -262,123 +288,131 @@ export function runBugReport({ defects, configText, denyNames = [], versions = {
     }
   };
 
-  for (const d of Array.isArray(defects) ? defects : []) {
-    const fp = isObj(d) ? fingerprintOf(d) : fingerprintOf({});
-    const bad = qualifies(d);
-    if (bad) {
-      push(fp, d, 'skipped', null, `not-qualifying:${bad}`);
-      continue;
-    }
-    if (seenFps.has(fp)) {
-      push(fp, d, 'skipped', null, 'duplicate');
-      continue;
-    }
-    seenFps.add(fp);
-
-    const title = buildTitle(d, fp);
-    const body = buildBody(d, fp, versions);
-    const open = buildComment(fp, versions, false);
-    const closedComment = buildComment(fp, versions, true);
-    const codes = new Set();
-    for (const t of [title, body, open, closedComment]) for (const c of scrubFindings(t.split(FOOTER).join(''), { fingerprint: fp, denyNames: names })) codes.add(c);
-    if (codes.size > 0) {
-      push(fp, d, 'skipped', null, `scrub-rejected:${[...codes].sort().join(',')}`);
-      continue;
-    }
-
-    if (counts.searches >= CAPS.searches) {
-      push(fp, d, 'overflow', null, 'search-cap');
-      continue;
-    }
-    counts.searches += 1;
-    const search = gh(['issue', 'list', '--repo', gate.repo, '--state', 'all', '--search', `${fp} in:body`, '--json', 'number,url,state,stateReason,closedAt,labels,body', '--limit', '10']);
-    const parsed = search.status === 0 ? parseJson(search.stdout) : null;
-    if (!Array.isArray(parsed)) {
-      push(fp, d, 'skipped', null, 'gh-search-failed');
-      continue;
-    }
-    const hit = pickHit(parsed, fp);
-
-    if (!hit) {
-      if (counts.creates >= CAPS.creates) {
-        push(fp, d, 'overflow', null, 'new-issue-cap');
+  try {
+    for (const d of Array.isArray(defects) ? defects : []) {
+      const fp = isObj(d) ? fingerprintOf(d) : fingerprintOf({});
+      const bad = qualifies(d, catalog);
+      if (bad) {
+        push(fp, d, 'skipped', null, `not-qualifying:${bad}`);
         continue;
       }
-      counts.creates += 1;
-      const url = withTemp(body, (file) => {
-        const base = ['issue', 'create', '--repo', gate.repo, '--title', title, '--body-file', file];
-        let r = gh([...base, '--label', 'bug', '--label', 'auto-reported']);
-        if (r.status !== 0) r = gh(base);
-        if (r.status !== 0) return null;
-        const last = r.stdout.split(/\r?\n/).map((l) => l.trim()).filter((l) => URL_RE.test(l)).pop();
-        return last || null;
-      });
-      if (!url) {
-        push(fp, d, 'skipped', null, 'gh-create-failed');
+      if (seenFps.has(fp)) {
+        push(fp, d, 'skipped', null, 'duplicate');
         continue;
       }
-      state.seen[fp] = { at: new Date(now).toISOString(), url };
+      seenFps.add(fp);
+
+      const title = buildTitle(d);
+      const body = buildBody(d, fp, versions, catalog);
+      const open = buildComment(fp, versions, false);
+      const closedComment = buildComment(fp, versions, true);
+      const codes = new Set();
+      for (const t of [title, body, open, closedComment]) for (const c of scrubFindings(t.split(FOOTER).join(''), { fingerprint: fp, denyNames: names })) codes.add(c);
+      if (codes.size > 0) {
+        push(fp, d, 'skipped', null, `scrub-rejected:${[...codes].sort().join(',')}`);
+        continue;
+      }
+
+      if (counts.searches >= CAPS.searches) {
+        push(fp, d, 'overflow', null, 'search-cap');
+        continue;
+      }
+      counts.searches += 1;
+      const search = gh(['issue', 'list', '--repo', gate.repo, '--state', 'all', '--search', `${fp} in:body`, '--json', 'number,url,state,stateReason,closedAt,labels,body', '--limit', '10']);
+      const parsed = search.status === 0 ? parseJson(search.stdout) : null;
+      if (!Array.isArray(parsed)) {
+        push(fp, d, 'skipped', null, 'gh-search-failed');
+        continue;
+      }
+      const hit = pickHit(parsed, fp);
+
+      if (!hit) {
+        if (counts.creates >= CAPS.creates) {
+          push(fp, d, 'overflow', null, 'new-issue-cap');
+          continue;
+        }
+        counts.creates += 1;
+        const url = withTemp(body, (file) => {
+          const base = ['issue', 'create', '--repo', gate.repo, '--title', title, '--body-file', file];
+          let r = gh([...base, '--label', 'bug', '--label', 'auto-reported']);
+          if (r.status !== 0) {
+            // A failed attempt may still have created the issue: look once more (outside the cap) before retrying.
+            const again = gh(['issue', 'list', '--repo', gate.repo, '--state', 'all', '--search', `${fp} in:body`, '--json', 'number,url,state,stateReason,closedAt,labels,body', '--limit', '10']);
+            const found = again.status === 0 ? pickHit(parseJson(again.stdout), fp) : null;
+            if (found && typeof found.url === 'string' && URL_RE.test(found.url)) return found.url;
+            r = gh(base);
+          }
+          if (r.status !== 0) return null;
+          const last = r.stdout.split(/\r?\n/).map((l) => l.trim()).filter((l) => URL_RE.test(l)).pop();
+          return last || null;
+        }, null);
+        if (!url) {
+          push(fp, d, 'skipped', null, 'gh-create-failed');
+          continue;
+        }
+        state.seen[fp] = { at: new Date(now).toISOString(), url };
+        stateChanged = true;
+        push(fp, d, 'filed', url, null);
+        continue;
+      }
+
+      const closed = String(hit.state || '').toUpperCase() === 'CLOSED';
+      if (closed) {
+        const labels = (Array.isArray(hit.labels) ? hit.labels : []).map((l) => String(isObj(l) ? l.name : l).toLowerCase());
+        if (String(hit.stateReason || '').toUpperCase() === 'NOT_PLANNED' || labels.includes('wontfix')) {
+          push(fp, d, 'skipped', hit.url, 'closed-not-planned');
+          continue;
+        }
+        let releaseTag = null;
+        const rel = gh(['release', 'list', '--repo', gate.repo, '--json', 'tagName,publishedAt', '--limit', '50']);
+        const releases = rel.status === 0 ? parseJson(rel.stdout) : null;
+        const closedAt = Date.parse(hit.closedAt);
+        if (Array.isArray(releases) && Number.isFinite(closedAt)) {
+          const before = releases
+            .filter((r) => isObj(r) && Number.isFinite(Date.parse(r.publishedAt)) && Date.parse(r.publishedAt) <= closedAt)
+            .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
+          releaseTag = before.length > 0 ? before[0].tagName : null;
+        }
+        if (!releaseTag || !(greater(versions.plugin, releaseTag) || greater(versions.server, releaseTag))) {
+          push(fp, d, 'skipped', hit.url, 'closed-no-regression');
+          continue;
+        }
+      }
+
+      const sighted = state.seen[fp];
+      const at = isObj(sighted) ? Date.parse(sighted.at) : NaN;
+      if (Number.isFinite(at) && now - at < RATE_LIMIT_MS) {
+        push(fp, d, 'skipped', hit.url, 'rate-limited');
+        continue;
+      }
+      if (counts.comments >= CAPS.comments) {
+        push(fp, d, 'overflow', hit.url, 'comment-cap');
+        continue;
+      }
+      counts.comments += 1;
+      const ok = withTemp(closed ? closedComment : open, (file) => gh(['issue', 'comment', String(hit.number), '--repo', gate.repo, '--body-file', file]).status === 0, false);
+      if (!ok) {
+        push(fp, d, 'skipped', hit.url, 'gh-comment-failed');
+        continue;
+      }
+      state.seen[fp] = { at: new Date(now).toISOString(), url: hit.url };
       stateChanged = true;
-      push(fp, d, 'filed', url, null);
-      continue;
+      push(fp, d, 'commented', hit.url, null);
     }
-
-    const closed = String(hit.state || '').toUpperCase() === 'CLOSED';
-    if (closed) {
-      const labels = (Array.isArray(hit.labels) ? hit.labels : []).map((l) => String(isObj(l) ? l.name : l).toLowerCase());
-      if (String(hit.stateReason || '').toUpperCase() === 'NOT_PLANNED' || labels.includes('wontfix')) {
-        push(fp, d, 'skipped', hit.url, 'closed-not-planned');
-        continue;
+  } finally {
+    if (stateChanged) {
+      for (const [k, v] of Object.entries(state.seen)) {
+        const t = isObj(v) ? Date.parse(v.at) : NaN;
+        if (!Number.isFinite(t) || now - t > RATE_LIMIT_MS) delete state.seen[k];
       }
-      let releaseTag = null;
-      const rel = gh(['release', 'list', '--repo', gate.repo, '--json', 'tagName,publishedAt', '--limit', '50']);
-      const releases = rel.status === 0 ? parseJson(rel.stdout) : null;
-      const closedAt = Date.parse(hit.closedAt);
-      if (Array.isArray(releases) && Number.isFinite(closedAt)) {
-        const before = releases
-          .filter((r) => isObj(r) && Number.isFinite(Date.parse(r.publishedAt)) && Date.parse(r.publishedAt) <= closedAt)
-          .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
-        releaseTag = before.length > 0 ? before[0].tagName : null;
+      let wrote = false;
+      try {
+        wrote = deps.writeState(state) === true;
+      } catch {
+        wrote = false;
       }
-      if (!releaseTag || !(greater(versions.plugin, releaseTag) || greater(versions.server, releaseTag))) {
-        push(fp, d, 'skipped', hit.url, 'closed-no-regression');
-        continue;
-      }
+      if (!wrote) doc.stateWrite = 'failed';
     }
-
-    const sighted = state.seen[fp];
-    const at = isObj(sighted) ? Date.parse(sighted.at) : NaN;
-    if (Number.isFinite(at) && now - at < RATE_LIMIT_MS) {
-      push(fp, d, 'skipped', hit.url, 'rate-limited');
-      continue;
-    }
-    if (counts.comments >= CAPS.comments) {
-      push(fp, d, 'overflow', hit.url, 'comment-cap');
-      continue;
-    }
-    counts.comments += 1;
-    const ok = withTemp(closed ? closedComment : open, (file) => gh(['issue', 'comment', String(hit.number), '--repo', gate.repo, '--body-file', file]).status === 0);
-    if (!ok) {
-      push(fp, d, 'skipped', hit.url, 'gh-comment-failed');
-      continue;
-    }
-    state.seen[fp] = { at: new Date(now).toISOString(), url: hit.url };
-    stateChanged = true;
-    push(fp, d, 'commented', hit.url, null);
-  }
-
-  if (stateChanged) {
-    for (const [k, v] of Object.entries(state.seen)) {
-      const t = isObj(v) ? Date.parse(v.at) : NaN;
-      if (!Number.isFinite(t) || now - t > RATE_LIMIT_MS) delete state.seen[k];
-    }
-    let wrote = false;
-    try {
-      wrote = deps.writeState(state) === true;
-    } catch {
-      wrote = false;
-    }
-    if (!wrote) doc.stateWrite = 'failed';
   }
   return doc;
 }
