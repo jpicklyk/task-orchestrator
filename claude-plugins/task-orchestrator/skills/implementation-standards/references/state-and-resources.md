@@ -36,7 +36,7 @@ call the change done, work through the cases below for each unit you wrote or ch
 - **Work proportional to input.** Check how the work grows with the size of the input. A loop
   inside a loop over the same collection, a query issued once per element, or a whole-collection
   copy per call grows faster than its input; replace it with a lookup, a batched query or a single
-  pass when the input can be large.
+  pass.
 
 ## Signs it was followed
 
@@ -49,4 +49,4 @@ call the change done, work through the cases below for each unit you wrote or ch
   error path as well as the success path.
 - Every cache, queue or buffer the change fills has a stated bound and a stated behaviour at that
   bound.
-- No loop in the change does work that grows faster than its input where the input can be large.
+- No loop in the change does work that grows faster than its input.

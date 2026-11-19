@@ -73,7 +73,7 @@ Use these when explaining a recommendation or resolving a customization question
 | Independent workers pull from a shared pool; crash-safety needed | Claim (`advance` claim + TTL lease) |
 | Worker fleet needing verified identity on writes | Either + `API_AUTH_MODE=jwks` (a server env setting, not config) |
 
-**Gate strength** (per note):
+**Gate strength** (per note or seat):
 
 | Intent | Mechanism |
 |---|---|
@@ -82,7 +82,7 @@ Use these when explaining a recommendation or resolving a customization question
 | Must follow a reusable methodology | `required: true` + `skill` |
 | Must cover project specifics | `required: true` + `guidance` |
 | Body must stay distilled | `maxLength` (+ top-level `note_limits.mode: reject` to enforce hard) |
-| A seat must work by a reusable methodology (per seat, not per note) | seat entry `skills` (absent: the plugin's default skills for that seat; a declared list replaces them; `[]` = none) |
+| A seat must work by a reusable methodology (per seat, not per note) | seat entry `skills` (absent: the plugin's default skills for that seat; a declared list replaces them, read only when the server lists the `seatSkills` feature, else the defaults apply and are hinted only; `[]` = none) |
 
 A note's `skill` and a seat's `skills` may each name a project skill, a plugin skill, or a Claude Code built-in. For sensitive
 domains, prefer an official built-in when one covers the need (e.g., `security-review` for

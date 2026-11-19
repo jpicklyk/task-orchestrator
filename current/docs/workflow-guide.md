@@ -215,6 +215,7 @@ The `lifecycle:` field on a schema controls how parent items cascade when all ch
 | `auto`         | *(default)* Parent automatically advances to terminal when all children reach terminal, unless it is in `review` (that cascade is suppressed with `reason: review-pending`; advance it explicitly). |
 | `manual`       | Suppress auto-cascade - parent must be completed explicitly with an `advance` `transition` (`complete`). |
 | `permanent`    | Parent never auto-terminates, regardless of child state.                                      |
+| `none`         | Lifecycle-free: items have no role and never transition (every `advance` trigger fails `invalid_transition`); cascades skip them. See [Lifecycle-free items](./config-reference.md#lifecycle-free-items). |
 
 The lifecycle also governs tree edits (4.0):
 

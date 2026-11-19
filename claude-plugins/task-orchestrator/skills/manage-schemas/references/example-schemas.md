@@ -246,7 +246,7 @@ work_item_schemas:
       - { name: reviewer,    phase: review }
 ```
 
-A declared list replaces the plugin's defaults for that seat and never merges with them, so a default is kept only by listing it, as the implementer entry does here. `skills: []` declares none. A seat with no `skills` list, like the planner and the reviewer above, keeps its defaults. Declaring `seats:` also makes the server enforce seats for run members (see "Seats" in `config-format.md`).
+A declared list replaces the plugin's defaults for that seat and never merges with them, so a default is kept only by listing it, as the implementer entry does here. The plugin reads a declared list only when the server lists the `seatSkills` feature; against a server without it the plugin's defaults apply and are hinted only. `skills: []` declares none. A seat with no `skills` list, like the planner and the reviewer above, keeps its defaults. Declaring `seats:` also makes the server enforce seats for run members (see "Seats" in `config-format.md`).
 
 **On a note.** A note's `skill:` binds the skill to whoever fills that note, here a review note added by a trait:
 
