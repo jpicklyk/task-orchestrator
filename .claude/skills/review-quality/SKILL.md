@@ -15,6 +15,13 @@ Read the build state the orchestrator recorded (the review scoping slot's build-
 rule `test-author` section 5 points 8 and 11. A missing build state, or one for an older SHA than
 the diff under review, is a blocking finding.
 
+## Test substance (every reviewed item, with or without `needs-test-author`)
+
+Fetch the served rules `forbidden-test-patterns` and `test-assertion-vacuity` as rules (`config` op
+`rules`, `key`, `rootId`) and judge every test the diff adds or changes against them. Also check
+for happy-path-only coverage: tests that cover only the happy path of a change that has failure and
+edge cases are a gap to report.
+
 ## Items with the `needs-test-author` trait
 
 - Inputs: the `test-plan` and `test-manifest` notes, and the orchestrator's per-child SHA table

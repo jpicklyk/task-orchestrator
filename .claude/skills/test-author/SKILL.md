@@ -1,6 +1,6 @@
 ---
 name: test-author
-description: Test authoring framework for items carrying the needs-test-author trait. Defines scenario derivation from acceptance criteria, the oracle-derivation and blindness rules that keep test authorship independent of implementation, the adversarial probe catalog, forbidden patterns, and the test-plan/test-manifest note formats. Referenced by trait note guidance during queue-phase test-plan and work-phase test-manifest filling. Use when filling test-plan or test-manifest notes, or when asked to author or review tests independently of an implementation.
+description: This codebase's supplements to the served rule test-author. Holds the numbered stubs that point at the rule, the tool-ban list, the claim-fixture instance, the red-proof shape strings, and the Kotlin, JUnit and MockK forbidden-pattern examples.
 user-invocable: false
 ---
 
