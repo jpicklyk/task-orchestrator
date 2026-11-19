@@ -429,6 +429,31 @@ test('S6e: call-shapes-js.md has no to-call blocks', () => {
   assert.deepEqual(parseToCallBlocks(JS_MD), []);
 });
 
+test('S6g: the Required nested line lists exactly the required fields one level under a top-level field, in catalog order', () => {
+  // one level: the path has exactly one '.' or one '[].' and no other nesting
+  const oneLevel = (f) => {
+    const parts = f.split(/\[\]\.|\./);
+    return parts.length === 2 && !parts.some((p) => p.includes('.') || p.includes('[') || p === '');
+  };
+  let withLine = 0;
+  for (const e of API.entries) {
+    const sec = JS_SECTIONS.get(`${e.tool}-${e.name}`);
+    const expected = Object.keys(e.fields).filter((f) => oneLevel(f) && e.fields[f].required);
+    const m = /^Required nested: (.*)\.$/m.exec(sec);
+    if (expected.length === 0) {
+      assert.equal(m, null, `${e.tool} ${e.name} has a Required nested line but no such field`);
+      continue;
+    }
+    withLine += 1;
+    assert.ok(m, `${e.tool} ${e.name} lacks its Required nested line`);
+    assert.deepEqual(m[1].split(', ').map((s) => s.replace(/`/g, '')), expected, `${e.tool} ${e.name} Required nested`);
+    assert.ok(sec.indexOf('Optional:') < m.index, 'the line follows the Optional line');
+  }
+  assert.ok(withLine >= 1);
+  const tree = JS_SECTIONS.get('items_write-create_tree');
+  assert.ok(tree.includes('`children[].ref`'), 'create_tree names children[].ref');
+});
+
 test('S6f: appending a character to call-shapes-js.md makes --check exit 1 naming only that file', () => {
   const tmp = tmpCopyOfPlugin();
   const args = ['--plugin-root', tmp, '--golden-dir', GOLDEN_DIR, '--api-reference', API_PATH];

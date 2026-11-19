@@ -2190,9 +2190,10 @@ export function reportFields(doc, opts = {}) {
     const admitted = (args.items || []).length
     fields.headline = `${admitted} item${admitted === 1 ? '' : 's'} planned, ${deferredPlan.length} deferred`
     fields.counts.deferred = deferredPlan.length
-    // A member exactly false in meta.allow (the probe's allow rules) is a missing allow rule.
+    // A member exactly false in meta.allow (the probe's allow rules) is a missing allow rule. Method B makes no
+    // Workflow call, so a missing `workflow` rule is not named for it (meta.allow itself stays the probe verbatim).
     const allow = meta.allow && typeof meta.allow === 'object' && !Array.isArray(meta.allow) ? meta.allow : {}
-    const missingAllow = ['workflow', 'mcp', 'bashGit', 'bashNode'].filter((k) => allow[k] === false)
+    const missingAllow = ['workflow', 'mcp', 'bashGit', 'bashNode'].filter((k) => allow[k] === false && !(k === 'workflow' && meta.method === 'B'))
     if (!fields.needs && missingAllow.length > 0) {
       fields.needs = `approve launch; allow rules missing: ${missingAllow.length} (${missingAllow.join(', ')})`
     } else if (!fields.needs && ((meta.excluded || []).length > 0 || (meta.degradations || []).length > 0)) {

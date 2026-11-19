@@ -115,3 +115,21 @@ test('S11 (D5): the closed event ignores meta.allow', () => {
   // fixture condition: the same plan reported as planned does name them
   assert.match(needsOf(path).line, /allow rules missing: 2 \(workflow, mcp\)/)
 })
+
+// Item 9e7e9ad1: Method B makes no Workflow call, so a missing `workflow` allow rule is not named for it.
+test('S10 (method B): allow {workflow:false, mcp:false} names only mcp', () => {
+  const { path } = planFile((d) => { d.meta.method = 'B'; d.meta.allow = allow({ workflow: false, mcp: false }) })
+  assert.equal(needsOf(path).line, 'needs: approve launch; allow rules missing: 1 (mcp)')
+})
+
+test('S10 (method B): workflow false alone on a clean plan needs nothing; with an excluded item it is the plain approve line', () => {
+  const clean = planFile((d) => { d.meta.method = 'B'; d.meta.allow = allow({ workflow: false }) })
+  assert.equal(needsOf(clean.path).line, 'needs: nothing')
+  const excluded = planFile((d) => { d.meta.method = 'B'; d.meta.allow = allow({ workflow: false }); d.meta.excluded = EXCLUDED })
+  assert.equal(needsOf(excluded.path).line, 'needs: approve launch')
+})
+
+test('S10 (method A unchanged): the same allow gives the workflow name', () => {
+  const { path } = planFile((d) => { d.meta.method = 'A'; d.meta.allow = allow({ workflow: false, mcp: false }) })
+  assert.equal(needsOf(path).line, 'needs: approve launch; allow rules missing: 2 (workflow, mcp)')
+})
