@@ -10,7 +10,7 @@ Triages `improvement-proposal` MCP items created by `/session-retrospective` whe
 
 Calls are 4.0 tool calls; shapes live in [`../_generated/call-shapes.md`](../_generated/call-shapes.md). Every answer is the response envelope (`ok`, `data` or `error`). A write is `{ops: [...]}` of flat elements (one per `to-call` block here). Results come back as `data.results[i]` in request order with `data.summary {ok, failed}`; read ops of an ops tool (`config` `get`, `validate`, `effective`) answer there too. These calls are non-atomic: if any element fails, even in a one-element call, the answer is `ok: false` with top-level `error.code: partial_failure` (no detail, no fix) beside the full `data`, and the cause is that element's `data.results[i].error` (`code`, `message`, `detail`, `fix`). Any other top-level `error.code` is a call-level rejection (envelope, unknown field, access).
 
-Shared GitHub conventions (issue template, scrub rule, `gh` guard, dedup procedure) are not duplicated here: see `<skill-base-dir>/../session-retrospective/references/github-feedback.md` for the C2/C4/C5 contract referenced in Step 5.
+Shared GitHub conventions (issue template, scrub rule, `gh` guard, dedup procedure) are not duplicated here: see [`../_shared/github-feedback.md`](../_shared/github-feedback.md) for the C2/C4/C5 contract referenced in Step 5.
 
 ---
 

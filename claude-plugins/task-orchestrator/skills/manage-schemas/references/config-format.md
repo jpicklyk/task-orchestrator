@@ -786,10 +786,11 @@ extensions:
 | `retrospective.dispatchThreshold` | integer >= 0: items terminal in the closed run | `3` | the retrospective hooks, in `dispatch` mode |
 | `retrospective.github_feedback.enabled` | boolean | `false` | the `session-retrospective` and `review-proposals` skills |
 | `retrospective.github_feedback.repo` | `owner/repo` | `jpicklyk/task-orchestrator` | the same skills |
+| `retrospective.baselines.<name>` | a map of dated figures the project measured, such as `note-volume: { measured: 2026-11-02, review-share-pct: 31 }` | absent | `run-planner retro-metrics`, which echoes them in `noteVolume.baselines` (null when absent) |
 
 A retrospective is owed per closed run of the project root that is not yet marked `retro`; the hooks
-decide by that run-mark, not by a cooldown. The `session-retrospective` skill describes the run-mark
-trigger in full ([session-retrospective](../../session-retrospective/SKILL.md)). There is no
+decide by that run-mark, not by a cooldown. The hooks README describes the run-mark
+trigger in full (the "Retrospective trigger" section of [hooks/README.md](../../../hooks/README.md)). There is no
 `cooldownMinutes`, no `headless` mode and no `actor_attribution` setting. The user-level config's
 `extensions.claude-code` applies in every directory that has no project config.
 

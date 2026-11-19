@@ -1,10 +1,12 @@
 # GitHub Feedback Filing (Improvement Proposals)
 
-Shared conventions for turning a **global-scoped** improvement proposal into a GitHub issue on the upstream repo. Used by `session-retrospective` Step 7c (filing) and referenced by `review-proposals` (issue reuse when confirming a global proposal) as `<skill-base-dir>/../session-retrospective/references/github-feedback.md`.
+Shared conventions for turning a **global-scoped** improvement proposal into a GitHub issue on the upstream repo. Used by `session-retrospective` Step 7c (filing) and by `review-proposals` (issue reuse when confirming a global proposal); both link it as `../_shared/github-feedback.md`. This file sits in `skills/_shared/`, which holds text two skills share and is not a skill directory.
 
 Project-scoped proposals never reach this file: they anchor under their project root instead (session-retrospective Step 7b) and are applied to config, not filed upstream.
 
-Call shapes are in [`../../_generated/call-shapes.md`](../../_generated/call-shapes.md).
+Call shapes are in [`../_generated/call-shapes.md`](../_generated/call-shapes.md).
+
+Contents: [Config gate](#config-gate) | [gh availability guard](#c5---gh-availability-guard) | [Dedup procedure](#dedup-procedure-cheapest-first) | [Issue template](#c4---issue-template) | [Record-back](#c2---record-back) | [Best-effort discipline](#best-effort-discipline)
 
 ---
 

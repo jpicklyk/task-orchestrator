@@ -90,3 +90,24 @@ Every row was re-derived from the hook sources at the P10/P12/P13 merge. A chang
 updates that hook's row in the same PR.
 
 Run the tests by glob: `node --test "claude-plugins/task-orchestrator/hooks/tests/*.test.mjs"`.
+
+## Retrospective trigger
+
+Moved from the `session-retrospective` skill, which now only reads its arguments and runs the analysis. Step numbers below name that skill's steps.
+
+A retrospective is owed per **closed** run that is not marked `retro`. Two hooks watch for it:
+
+- `retro-trigger` (PostToolUse on `runs_write`) acts only on a successful `op: close`.
+- `retro-backstop` (Stop) re-checks at the end of every turn, so a run closed elsewhere (another session, a subagent) is still found. A closed run is a confirmed boundary, so the backstop may dispatch as well as nudge.
+
+Both ask REST `runs_read` `list` with `unmarked: retro` and `endedSince = now - 24h`, and read each run's terminal count from `runs_read` `frontier` (`data.counts.terminal`), for at most 5 runs per pass. In mode `dispatch` with a terminal count at or above `dispatchThreshold` (default 3) they call `runs_write` `mark {runId, key: retro}` (REST only; first write wins, which is the cross-session dedupe; `marked: false` means another session won, so they stay silent) and emit the dispatch directive. A fix-cycle run (label `<runId>-a<n>`, the run a post-run fix cycle opens after the base run closed) always owes a retrospective in mode `dispatch`, whatever its terminal count: it often has one item, and the threshold would skip the only retrospective that sees the failure loop. Its directive names the base run, and that retrospective reports the base run's whole loop (Step 2, Fix-cycle cost). Below the threshold, in `nudge` mode (the default), or when the mark fails, they nudge once per run per session and never mark. There is no cross-session marker file (the server mark is the dedupe); per-session state (recorded closes, runs already nudged) lives in `os.tmpdir()/task-orchestrator/<session>/retro.json`. A run whose frontier read fails is skipped that pass, and a close made by a subagent is recorded for the main session's backstop, not acted on. Without an API URL or a project rootId the backstop only nudges once per session, from the closes the trigger recorded.
+
+`retro-ack.mjs` is the manual acknowledgement: `node retro-ack.mjs --run <id> [--run <id>]...` sends the same `runs_write` `mark {runId, key: retro}` over REST for each run (Step 8b calls it). It prints one line per id (`marked <id>`, `already marked <id>`, `mark failed <id>: <code>`, or `not marked <id>: no REST API configured`) and always exits 0.
+
+**Director sessions.** A director never runs a retrospective in its own context, so for it both hooks always dispatch (mode `dispatch`, threshold 0, whatever the config says; `off` stays off): every closed unmarked run it sees is marked first and then dispatched, so a later session does not dispatch it again. Without REST, `director-watch` dispatches once per run per session and only for a run closed within the last 24 h. The dispatch is ONE background agent that invokes this skill with a repeated `--run`.
+
+**Label and session folder.** The dispatched agent is labelled `retrospective:<run8>` (`<run8>` is the first 8 characters of the first run id; `retrospective:unknown` with no run id) and its invocation gains `--session-dir "<dir>"` when the hook saw a transcript path ending in `.jsonl` (the folder is that path without the extension, backslashes turned into `/`). The label rule is in the run-wave `references/post-run.md`.
+
+The settings (`mode`: `nudge` | `dispatch` | `off`, and `dispatchThreshold`) are read ONLY from `extensions.claude-code.retrospective`; a top-level `retrospective:` block is ignored and `cooldownMinutes` is gone. Headless iterations, `to_mod_retro` and `mode: off` make both hooks inert.
+
+**Honest limit.** The mark is REST-only. Without a resolvable REST API URL (Step 8b prints `not marked ...: no REST API configured`), a manually run retrospective leaves its run unmarked, so it can nudge or dispatch again in a later session inside the 24 h window; Step 5b's `run:<runId>` search keeps that repeat from creating a second retrospective item.
