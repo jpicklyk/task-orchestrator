@@ -127,6 +127,8 @@ const fixture = (rel) => JSON.parse(readFileSync(join(FIXTURES, rel), 'utf8'));
 const PROTOCOL_RULES = ['commit-discipline', 'protocol.entry-seat', 'protocol.in-phase-seat', 'protocol.read-only-agent'].map((key) => ({ key, rulesVersion: '1' }));
 const SERVER_RUN = '8f14e45f-ceea-4672-8a3e-5e8f4a9b7c10';
 const thrown = (code, extra) => new Error('boom\n' + JSON.stringify({ ok: false, error: { code, fix: 'f', detail: extra || null } }));
+// What the live tool global throws for a failed one-op non-atomic write: a top-level partial_failure whose element error (index 0) holds the real code.
+const thrownElement = (code, extra) => new Error('partial_failure: 1 of 1 elements failed.' + String.fromCharCode(10) + JSON.stringify({ ok: false, error: { code: 'partial_failure', kind: 'permanent', message: '1 of 1 elements failed.' }, data: { results: [{ index: 0, ok: false, error: { code, fix: 'f', detail: extra || null } }], summary: { ok: 0, failed: 1 } }, meta: { reqId: 'r' } }));
 
 function gitRepo(dir) {
   const repo = dir + '/repo';
@@ -661,8 +663,8 @@ function r5Tools({ log, deleteFails, upsertFailsWithToken, deleteCode = 'forbidd
     [ikey('notes_write')]: async (a) => {
       const op = a.ops[0];
       log.push({ kind: 'note', item: op.itemId.slice(0, 8), op: op.op, token: Boolean(a.seatToken), body: op.body });
-      if (op.op === 'delete' && deleteFails && deleteFails.has(op.itemId.slice(0, 8))) throw thrown(deleteCode);
-      if (op.op === 'upsert' && upsertFailsWithToken && upsertFailsWithToken.has(op.itemId.slice(0, 8)) && a.seatToken) throw thrown('invalid_request');
+      if (op.op === 'delete' && deleteFails && deleteFails.has(op.itemId.slice(0, 8))) throw thrownElement(deleteCode);
+      if (op.op === 'upsert' && upsertFailsWithToken && upsertFailsWithToken.has(op.itemId.slice(0, 8)) && a.seatToken) throw thrownElement('invalid_request');
       return env({ results: [{ ok: true }] });
     },
   };
@@ -801,7 +803,7 @@ function r11Setup({ postRun, closeFails } = {}) {
     [ikey('runs_read')]: async (a) => { if (a.select === 'seats') reads.seats += 1; return env({ seats: [] }); },
     [ikey('runs_write')]: async (a) => {
       calls.push(a);
-      if (a.ops[0].op === 'close' && closeFails && closeFails > 0) { closeFails -= 1; throw thrown('invalid_run_state'); }
+      if (a.ops[0].op === 'close' && closeFails && closeFails > 0) { closeFails -= 1; throw thrownElement('invalid_run_state'); }
       return env({ results: a.ops.map(() => ({ ok: true, runId: SERVER_RUN, snapshot: { reason: 'completed', openDecisions: 2 } })) });
     },
   };
@@ -896,7 +898,7 @@ const COVERAGE_ROWS = [
   'SKILL Step 1', 'SKILL Step 2 snapshot', 'SKILL Step 2 awaiting_decision', 'SKILL Step 3 plan', 'SKILL Step 3 lateCarryIns',
   'SKILL Step 4', 'SKILL Step 5 open', 'SKILL Step 5a pre-entered', 'SKILL Step 5a Method A assign', 'SKILL Step 5a Method A adopt-notes', 'SKILL Step 5a planned report',
   'SKILL Step 6a', 'SKILL Step 6b', 'SKILL Step 7 post-run', 'SKILL Step 8 review', 'SKILL Step 8a', 'SKILL Step 8b', 'SKILL Step 9', 'SKILL Stalled seats',
-  'method-b 1', 'method-b 2', 'method-b 3', 'method-b 4 scan', 'method-b 4a', 'method-b 5 persist', 'method-b 5a', 'method-b 6',
+  'method-b 0', 'method-b 1', 'method-b 2', 'method-b 3', 'method-b 4 scan', 'method-b 4a', 'method-b 5 persist', 'method-b 5a', 'method-b 6',
   'post-run Step 0 load', 'post-run Step 0b', 'post-run Step 1', 'post-run Step 2', 'post-run Step 3 item 1', 'post-run Step 3 item 2', 'post-run Step 4',
   'post-run Step 5 generic', 'post-run Step 5 handoff', 'post-run Step 5 review-wave', 'post-run Step 5 fix cycle', 'post-run Step 5 wave parent review',
   'post-run Step 6', 'post-run Step 7 close', 'post-run Step 7 run report', 'post-run Step 7a', 'post-run Step 7b',
@@ -914,7 +916,7 @@ test('S16 (AC6): the Coverage table has a row for every step and each cell is a 
   }
   assert.equal(rows.size, COVERAGE_ROWS.length, 'the table has a row the test does not know');
   const prose = [...rows.entries()].filter(([, v]) => v === 'prose').map(([k]) => k);
-  for (const want of ['SKILL Step 1', 'SKILL Step 2 awaiting_decision', 'SKILL Step 3 lateCarryIns', 'method-b 4 scan', 'method-b 4a', 'method-b 5a', 'SKILL Stalled seats', 'post-run Step 3 item 1', 'post-run Step 5 handoff', 'post-run Step 5 review-wave', 'post-run Step 5 fix cycle', 'post-run Step 5 wave parent review', 'post-run Step 6', 'post-run Step 7 run report', 'post-run Step 7a', 'post-run Step 7b', 'SKILL Step 8a', 'SKILL Step 8b', 'SKILL Step 9']) {
+  for (const want of ['SKILL F1', 'SKILL F5', 'SKILL F8', 'SKILL Step 1', 'SKILL Step 2 awaiting_decision', 'SKILL Step 3 lateCarryIns', 'method-b 4 scan', 'method-b 4a', 'method-b 5a', 'SKILL Stalled seats', 'post-run Step 3 item 1', 'post-run Step 5 handoff', 'post-run Step 5 review-wave', 'post-run Step 5 fix cycle', 'post-run Step 5 wave parent review', 'post-run Step 6', 'post-run Step 7 run report', 'post-run Step 7a', 'post-run Step 7b', 'SKILL Step 8a', 'SKILL Step 8b', 'SKILL Step 9']) {
     assert.ok(prose.some((k) => k.startsWith(want)), want + ' must be prose');
   }
   for (const [k, v] of rows) {
@@ -1261,7 +1263,7 @@ test('S20 (AC9): R9 dispatches a reviewer per item advanced with start: review c
   const agents = [];
   const out = await run(9, { runDir: s.runDir, scratch: s.scratch, tools: s.tools, agent: async (a) => { agents.push(a); return { agentId: 'rv-1' }; } });
   const X = s.items[0];
-  assert.deepEqual(out, { dispatched: [{ item: X.short, agentId: 'rv-1' }], waiting: [] });
+  assert.deepEqual(out, { dispatched: [{ item: X.short, agentId: 'rv-1' }], waiting: [], already: 1 });
   assert.equal(agents.length, 1, 'only the item advanced with start gets a reviewer');
   const policy = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'dispatch-policy.json'), 'utf8')).classes.review;
   assert.equal(agents[0].description, 'reviewer:' + X.short);
@@ -1299,11 +1301,34 @@ test('S20 (AC9): a handoff review mode and an unrouted unowned docs hit dispatch
 
 test('S20 (AC9): run_at_capacity on the reviewer assign holds that reviewer back', async () => {
   const s = r9Setup();
-  s.tools[ikey('runs_write')] = async (a) => { if (a.ops[0].op === 'assign') throw thrown('run_at_capacity', { active: 3, max: 3 }); return env({ results: a.ops.map(() => ({ ok: true })) }); };
+  s.tools[ikey('runs_write')] = async (a) => { if (a.ops[0].op === 'assign') throw thrownElement('run_at_capacity', { active: 3, max: 3 }); return env({ results: a.ops.map(() => ({ ok: true })) }); };
   const agents = [];
   const out = await run(9, { runDir: s.runDir, scratch: s.scratch, tools: s.tools, agent: async (a) => { agents.push(a); return {}; } });
-  assert.deepEqual(out, { dispatched: [], waiting: [s.items[0].short] });
+  assert.deepEqual(out, { dispatched: [], waiting: [s.items[0].short], already: 0 });
   assert.equal(agents.length, 0);
+});
+
+test('S20 (AC9): a rerun after run_at_capacity skips the reviewer already dispatched and never re-assigns it', async () => {
+  const base = r9Setup();
+  const advanced = base.items.map((i) => ({ short: i.short, itemId: i.id, trigger: 'start', ok: true }));
+  writeFileSync(base.runDir + '/advanced-items.json', JSON.stringify(advanced));
+  const assigned = [];
+  let full = true;
+  base.tools[ikey('runs_write')] = async (a) => {
+    if (a.ops[0].op !== 'assign') return env({ results: a.ops.map(() => ({ ok: true })) });
+    assigned.push(a.ops[0].itemId.slice(0, 8));
+    if (full && a.ops[0].itemId === base.items[1].id) throw thrownElement('run_at_capacity', { active: 3, max: 3 });
+    return env({ results: [{ ok: true, seatToken: 'REV-' + assigned.length }] });
+  };
+  const agents = [];
+  const agent = async (a) => { agents.push(a.description); return { agentId: 'rv' }; };
+  const first = await run(9, { runDir: base.runDir, scratch: base.scratch, tools: base.tools, agent });
+  assert.deepEqual(first.waiting, [base.items[1].short], JSON.stringify(first));
+  full = false;
+  const second = await run(9, { runDir: base.runDir, scratch: base.scratch, tools: base.tools, agent });
+  assert.deepEqual(second.dispatched.map((d) => d.item), [base.items[1].short], JSON.stringify(second));
+  assert.deepEqual(assigned, [base.items[0].short, base.items[1].short, base.items[1].short], 'the first reviewer was assigned again on the rerun');
+  assert.deepEqual(agents, ['reviewer:' + base.items[0].short, 'reviewer:' + base.items[1].short]);
 });
 
 // S21 (AC10): R7 writes the provenance lines.
@@ -1317,7 +1342,7 @@ test('S21 (AC10): R7 writes the provenance line to delegation-metadata under the
     schemaKeys: { [X.id]: ['delegation-metadata'], [Y.id]: ['delegation-metadata'] },
     notesWrite: async (a) => {
       writes.push(a);
-      if (a.ops[0].itemId === Y.id) throw thrown('version_conflict');
+      if (a.ops[0].itemId === Y.id) throw thrownElement('version_conflict');
       return env({ results: [{ ok: true }] });
     },
   });
@@ -1366,11 +1391,98 @@ test('S21 (AC3, AC10): R7 reports paused when the notified update answers run_pa
   const { scratch, runDir, items } = r7Setup();
   const result = resultFor(items, Object.fromEntries(items.map((i) => [i.id, true])));
   result.items[0].stages[0].decisionId = 'dec-0001';
-  const tools = r7Tools({ withNotes: new Set(items.map((i) => i.id)), advances: [], runsWrite: async (a) => { if (a.ops[0].op === 'update') throw thrown('run_paused', { pauseReason: 'manual', pauseDecisionId: null }); return env({ results: a.ops.map(() => ({ ok: true })) }); } });
+  const tools = r7Tools({ withNotes: new Set(items.map((i) => i.id)), advances: [], runsWrite: async (a) => { if (a.ops[0].op === 'update') throw thrownElement('run_paused', { pauseReason: 'manual', pauseDecisionId: null }); return env({ results: a.ops.map(() => ({ ok: true })) }); } });
   const out = await run(7, { runDir, scratch, tools, subst: literal(scratch, result) });
   assert.equal(out.paused, true, JSON.stringify(out));
   assert.deepEqual(out.decisionIds, ['dec-0001']);
   const paused = JSON.parse(readFileSync(runDir + '/paused.json', 'utf8'));
   assert.equal(paused.code, 'run_paused');
   assert.ok(existsSync(runDir + '/verify.json'), 'post-run work went on after the pause');
+});
+
+// A1 fix cycle: the live write shape (a top-level partial_failure whose element error holds the code) reaches every branch.
+test('A1 (B1): the kit elementCode and stop read the element error of a one-op write that answers partial_failure', async () => {
+  const s = r11Setup();
+  s.tools[ikey('runs_write')] = async () => { throw thrownElement('run_paused', { pauseReason: 'manual', pauseDecisionId: 'dec-9' }); };
+  const out = await run(11, { runDir: s.runDir, scratch: s.scratch, tools: s.tools, sendMessage: s.sendMessage });
+  assert.equal(out.paused, true, JSON.stringify(out));
+  assert.equal(out.decisionId, 'dec-9');
+  assert.equal(JSON.parse(readFileSync(s.runDir + '/paused.json', 'utf8')).detail.pauseDecisionId, 'dec-9');
+  const other = r11Setup();
+  other.tools[ikey('runs_write')] = async () => { throw thrownElement('forbidden'); };
+  const o2 = await run(11, { runDir: other.runDir, scratch: other.scratch, tools: other.tools, sendMessage: other.sendMessage });
+  assert.deepEqual([o2.failed, o2.step, o2.code], [true, 'close', 'forbidden'], JSON.stringify(o2));
+});
+
+test('A1 (B1): the R5 one-by-one assign after run_at_capacity holds back an element answered run_at_capacity', async () => {
+  const s = boundSetup();
+  const log = [];
+  const tools = r5Tools({ log });
+  let batches = 0;
+  tools[ikey('runs_write')] = async (a) => {
+    if (a.ops[0].op === 'assign') {
+      batches += 1;
+      if (a.atomic) throw new Error('run_at_capacity: full' + String.fromCharCode(10) + JSON.stringify({ ok: false, error: { code: 'run_at_capacity', kind: 'transient', detail: { active: 1, max: 1 } } }));
+      if (batches > 2) throw thrownElement('run_at_capacity', { active: 1, max: 1 });
+    }
+    return env({ results: a.ops.map(() => ({ ok: true, seatToken: 'SEAT-' + batches })) });
+  };
+  const out = await run(5, { runDir: s.runDir, scratch: s.scratch, tools, agent: async () => ({ agentId: 'a' }) });
+  assert.equal(out.failed, undefined, JSON.stringify(out));
+  assert.equal(out.dispatched.length, 1, 'the first seat fits, the second is held back: ' + JSON.stringify(out));
+});
+
+test('A1 (B1): a multi-element advance that answers partial_failure is read per element in R8', async () => {
+  const s = await after7();
+  const { runDir, scratch, X, Y, tools } = s;
+  tools[ikey('advance')] = async (a) => {
+    throw new Error('partial_failure: 1 of 2 elements failed.' + String.fromCharCode(10) + JSON.stringify({
+      ok: false, error: { code: 'partial_failure', kind: 'permanent', message: '1 of 2 elements failed.' },
+      data: { results: [{ index: 0, ok: true, itemId: X.id }, { index: 1, ok: false, error: { code: 'dependency_unmet', detail: null } }], summary: { ok: 1, failed: 1 } },
+    }));
+  };
+  const out = await run(8, { runDir, scratch, tools });
+  assert.deepEqual(out.advanced.map((a) => [a.short, a.ok, a.code]), [[X.short, true, undefined], [Y.short, false, 'dependency_unmet']], JSON.stringify(out));
+  assert.ok(existsSync(runDir + '/advance.json'));
+  assert.equal(JSON.parse(readFileSync(runDir + '/state.json', 'utf8')).phase, 'post-run');
+});
+
+test('A1 (O2): R8 holds an item with no Live-owed line whose State matrix has a live-owed cell, and reads entries across line breaks', async () => {
+  const matrix = await after7({ bodies: (X) => ({ [X.id + ':task-scope']: { body: 'State matrix:\n| fresh | terminal | live-owed: run the hook |', version: 1 } }) });
+  const out = await run(8, { runDir: matrix.runDir, scratch: matrix.scratch, tools: matrix.tools });
+  assert.deepEqual(out, { needs: 'hold', items: [matrix.X.short] }, JSON.stringify(out));
+  assert.equal(matrix.advances.length, 0);
+  const na = await after7({ bodies: (X) => ({ [X.id + ':task-scope']: { body: 'State matrix: n/a - docs only', version: 1 } }) });
+  const o2 = await run(8, { runDir: na.runDir, scratch: na.scratch, tools: na.tools });
+  assert.equal(o2.needs, undefined, JSON.stringify(o2));
+  const lines = await after7({ bodies: (X) => ({ [X.id + ':session-tracking']: { body: 'Outcome: x\n**Live-owed**: terminal check run 2026-11-19: pass\n  desktop check of the pane', version: 1 } }) });
+  const o3 = await run(8, { runDir: lines.runDir, scratch: lines.scratch, tools: lines.tools });
+  assert.deepEqual(o3, { needs: 'hold', items: [lines.X.short] }, JSON.stringify(o3));
+});
+
+test('A1 (O3): the session-tracking pointer skip needs a seat-less stage (implicitOwner); a seat-aware stage gets the pointer', async () => {
+  const s = r2Setup();
+  const plan = JSON.parse(readFileSync(s.runDir + '/plan.json', 'utf8'));
+  plan.meta.scopeId = plan.args.items[0].id;
+  for (const st of plan.args.items[0].stages) st.implicitOwner = false;
+  writeFileSync(s.runDir + '/plan.json', JSON.stringify(plan));
+  s.declared.value = ['session-tracking'];
+  const out = await run(2, { runDir: s.runDir, scratch: s.scratch, tools: s.tools });
+  assert.equal(out.pointer, 'session-tracking', JSON.stringify(out));
+  assert.equal(s.calls.notes.length, 1);
+});
+
+test('A1 (O4): R11 with REASON cancelled closes without returning the declared post-run steps', async () => {
+  const postRun = [{ step: 'live-acceptance', when: 'post-run', rule: 'live-checks' }];
+  const s = r11Setup({ postRun });
+  const out = await run(11, { runDir: s.runDir, scratch: s.scratch, tools: s.tools, sendMessage: s.sendMessage, subst: { 'const REASON = null;': "const REASON = 'cancelled';" } });
+  assert.equal(out.closed, true, JSON.stringify(out));
+  assert.equal(out.reason, 'cancelled');
+  assert.equal(s.calls.filter((c) => c.ops[0].op === 'close').length, 1);
+});
+
+test('A1 (B2): method-b.md has a loop step that records launched with run-ops update', () => {
+  const mb = readFileSync(join(PLUGIN_ROOT, 'skills', 'run-wave', 'references', 'method-b.md'), 'utf8');
+  assert.ok(/^0\. \*\*Record `launched`/m.test(mb), 'the Method B loop has no launched step');
+  assert.ok(mb.includes('--phase update --run-phase launched'));
 });

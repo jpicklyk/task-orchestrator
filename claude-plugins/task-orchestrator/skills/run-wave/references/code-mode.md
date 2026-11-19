@@ -9,7 +9,7 @@ Tool call shapes are in [call-shapes-js.md](../../_generated/call-shapes-js.md):
 - A token never leaves the script. A script reads a token with `(await file(path).text()).trim()`, writes one with `Write({file_path, content: tokenLine(token)})`, passes it as `seatToken`, and never calls `log()` on it.
 - A script never returns a raw tool result, a note body, a seat prompt or a token. Each return is a projection built field by field.
 - `stage-result` calls stay serial: each reads the state the previous call wrote, so never run two at once, not even inside one script.
-- A write whose failure code the script branches on uses `atomic: true`, so a failure leaves nothing written (a non-atomic batch that fails midway would lose the tokens its good elements answered, since a token is answered once). Otherwise read the state back after a failure.
+- A failed write throws a top-level `partial_failure` for a non-atomic batch, whatever the element's own code is (it sits in `data.results[i].error`). The kit's `call` keeps that `data`, and `elementCode` (and `stop`) read the first failed element's code, so a one-op write can be branched on by its element code. A write of several ops whose failure the script branches on uses `atomic: true`, so a failure leaves nothing written (a non-atomic batch that fails midway would lose the tokens its good elements answered, since a token is answered once) and answers only the failing element's own error, with `error.index`. Otherwise read the state back after a failure.
 - A failure goes through `parseErrorTail` and `refusal`, never through message text. The kit's `call` does it: `run_paused` writes `paused.json` (as `{code: 'run_paused', detail}`, the shape the `report` helper reads) and returns `{paused: true}`; `unavailable` is retried once after `retryAfterMs`; a refusal returns `{refused, tool, reason}` and the recipe stops; any other code returns `{failed, code, fix}`.
 - `file(path)` returns a handle, not text: read it with `.text()` (or `.json()`, `.lines()`), and test for it with `.exists()`. `$(command)` throws a `ShellError` on a non-zero exit unless the promise is `.nothrow()`; its result carries `exitCode` (`null` when the command moved to the background), and a command's stderr is merged into `stdout`. The kit's `sh` and `helper` wrap both.
 - A script's result is the value of its last expression, and `return` at the top level, `eval` and `Function` are refused. So each recipe is one `async function r<n>()` and a last line `await r<n>()`; the `return` statements are inside the function.
@@ -187,25 +187,35 @@ const call = async (tool, args) => {
         await new Promise((res) => setTimeout(res, er.retryAfterMs || 1000));
         continue;
       }
-      return { ok: false, code: er.code, fix: er.fix, detail: er.detail };
+      return { ok: false, code: er.code, fix: er.fix, detail: er.detail, data: env.data };
     }
   }
 };
+// A failed one-op non-atomic write throws a top-level partial_failure; the element's own error (the real code) is data.results[i].error.
+// failedElement returns that error of the first failed element, or null when r is not such an answer (an atomic batch throws the element's own code at the top).
+const failedElement = (r) => {
+  if (r.ok || r.code !== 'partial_failure') return null;
+  const els = (r.data && r.data.results) || [];
+  const el = els.find((x) => x && x.ok === false);
+  return el && el.error ? el.error : null;
+};
 const stop = async (r) => {
   if (r.refused) return r.refused;
-  if (r.code === 'run_paused') {
-    await writeJson(RUN_DIR + '/paused.json', { code: 'run_paused', detail: r.detail || {} }); // the run_paused error shape the report helper reads
-    return { paused: true, decisionId: r.detail && r.detail.pauseDecisionId };
+  const e = failedElement(r) || r;
+  if (e.code === 'run_paused') {
+    await writeJson(RUN_DIR + '/paused.json', { code: 'run_paused', detail: e.detail || {} }); // the run_paused error shape the report helper reads
+    return { paused: true, decisionId: e.detail && e.detail.pauseDecisionId };
   }
-  return { failed: true, code: r.code, fix: r.fix };
+  return { failed: true, code: e.code, fix: e.fix };
 };
 const writeToken = (path, token) => Write({ file_path: path, content: tokenLine(token) });
 const readToken = async (path) => (await file(path).text()).trim();
-// the error code of the first element of a write answer, null when it succeeded (a thrown answer gives its own code)
+// the error code of a write answer, null when it succeeded: the first failed element's code under a partial_failure, else the thrown code
+// (a resolved answer is ok only when every element is ok, so an ok answer has no failed element)
 const elementCode = (r) => {
-  if (!r.ok) return r.code || 'failed';
-  const el = r.data && r.data.results && r.data.results[0];
-  return el && el.ok === false ? (el.error && el.error.code) || 'failed' : null;
+  if (r.ok) return null;
+  const e = failedElement(r);
+  return (e ? e.code : r.code) || 'failed';
 };
 const initState = (plan, method) => ({ contract: 'run-wave/state-v1', runId: plan.args.runId, phase: 'planned', method, turns: 0, stages: {}, outs: {} });
 // Turn-boundary protocol: the run's hints.phase (coordinator token) and state.json both record the phase. Returns {ok: true} or {ok: false, r} with the failed answer.
@@ -233,7 +243,7 @@ const endSeats = async (plan) => {
   const ended = [];
   for (let i = 0; i < ends.json.ops.length; i += 1) {
     const r = await call('runs_write', { ops: [ends.json.ops[i]], seatToken: await readToken(ends.json.tokenFiles[i]) });
-    ended.push({ ok: r.ok, code: r.ok ? undefined : r.code }); // unauthenticated: superseded or ended already
+    ended.push({ ok: r.ok, code: r.ok ? undefined : elementCode(r) }); // unauthenticated: superseded or ended already
   }
   return { ended };
 };
@@ -576,7 +586,8 @@ async function r2() {
     const declared = sch.data.notes || [];
     const row = declared.find((n) => n.key === 'run-pointers') || declared.find((n) => n.key === 'session-tracking');
     const item = member(target);
-    const seatless = Boolean(row && row.key === 'session-tracking' && item && (item.stages || []).some((s) => (s.notes || []).includes('session-tracking')));
+    // SKILL Step 5: the skip applies to the session-tracking fallback only, and only on a seat-less schema (a stage with implicitOwner) whose stage owns that note
+    const seatless = Boolean(row && row.key === 'session-tracking' && item && (item.stages || []).some((s) => s.implicitOwner === true) && (item.stages || []).some((s) => (s.notes || []).includes('session-tracking')));
     if (row && !seatless) {
       const g = await call('notes_read', { select: 'get', itemId: target, key: row.key });
       if (g.refused) return g.refused;
@@ -735,7 +746,7 @@ async function r5() {
       for (const x of assignable) {
         const one = await call('runs_write', { ops: [x.op], seatToken: CT });
         if (one.ok) { await writeToken(x.tokenFile, one.data.results[0].seatToken); ready.push(x.e); }
-        else if (one.code !== 'run_at_capacity') return await stop(one);
+        else if (elementCode(one) !== 'run_at_capacity') return await stop(one); // a one-op write answers partial_failure: read the element's code
       }
     } else {
       return await stop(all);
@@ -842,8 +853,8 @@ async function r7() {
   const ph = await setPhase(plan, 'notified');
   if (!ph.ok) {
     if (ph.r.refused) return ph.r.refused;
-    if (ph.r.code !== 'run_paused') return await stop(ph.r);
-    await writeJson(RUN_DIR + '/paused.json', { code: 'run_paused', detail: ph.r.detail || {} });
+    if (elementCode(ph.r) !== 'run_paused') return await stop(ph.r);
+    await writeJson(RUN_DIR + '/paused.json', { code: 'run_paused', detail: (failedElement(ph.r) || ph.r).detail || {} });
     paused = true;
   }
 
@@ -942,7 +953,7 @@ Send the `paused` report (R10) when `paused` is true and the `decision` report w
 
 ## R8: post-run Step 4 batched advance
 
-Sends the one Step 4 `advance`, after the Step 3 notes. `HOLD` lists the shorts of items the coordinator found live-owed while writing `session-tracking`; they stay in work and are left out of the call, as is every item in `failing.json`. As a safety net the script reads each remaining item's `session-tracking`: a `**Live-owed**:` line with an entry that ends neither `run <date>: <result>` nor `deferred: <item id>` is an open entry, and the script then returns `{needs: 'hold', items}` and sends no advance (add those shorts to `HOLD` and run it again). The trigger is `start` for an item whose schema has a review-role note (the rule `plan` uses for its review phase) and `complete` for one without. The answer is saved as `advance.json` for the `follow-ups` helper, the per-item result as `advanced-items.json` (R9 reads it), and the run records phase `post-run`.
+Sends the one Step 4 `advance`, after the Step 3 notes. `HOLD` lists the shorts of items the coordinator found live-owed while writing `session-tracking`; they stay in work and are left out of the call, as is every item in `failing.json`. As a safety net the script reads each remaining item's `session-tracking`: a `**Live-owed**:` line (entries separated by `;` or a line break) with an entry that ends neither `run <date>: <result>` nor `deferred: <item id>` is an open entry, and so is an item with no such line whose spec note (`task-scope`, `diagnosis` or `specification`) has a State matrix with a `live-owed:` cell (rule `live-checks`); the script then returns `{needs: 'hold', items}` and sends no advance (add those shorts to `HOLD` and run it again). A multi-element `advance` that answers `partial_failure` is read per element: the elements that passed were applied. The trigger is `start` for an item whose schema has a review-role note (the rule `plan` uses for its review phase) and `complete` for one without. The answer is saved as `advance.json` for the `follow-ups` helper, the per-item result as `advanced-items.json` (R9 reads it), and the run records phase `post-run`.
 
 ```js
 async function r8() {
@@ -958,14 +969,23 @@ async function r8() {
   for (const item of go) {
     const g = await call('notes_read', { select: 'get', itemId: item.id, key: 'session-tracking' });
     if (g.refused) return g.refused;
-    if (!g.ok) {
-      if (g.code === 'not_found') continue;
-      return await stop(g);
+    if (!g.ok && g.code !== 'not_found') return await stop(g);
+    // the Live-owed line and its indented continuation lines; an entry is what sits between `;` or a line break
+    const m = /\*\*Live-owed\*\*:([^\n]*(?:\n[ \t]+[^\n]*)*)/.exec(g.ok ? String(g.data.body || '') : '');
+    if (m) {
+      const entries = m[1].split(/;|\n/).map((e) => e.trim()).filter((e) => e !== '' && !/^(none|n\/a)\b/i.test(e));
+      if (entries.some((e) => !/\brun \d{4}-\d{2}-\d{2}:/.test(e) && !/\bdeferred:/.test(e))) open.push(item.short);
+      continue;
     }
-    const m = /\*\*Live-owed\*\*:\s*(.*)/.exec(String(g.data.body || ''));
-    if (!m) continue;
-    const entries = m[1].split(';').map((e) => e.trim()).filter((e) => e !== '' && !/^(none|n\/a)\b/i.test(e));
-    if (entries.some((e) => !/\brun \d{4}-\d{2}-\d{2}:/.test(e) && !/\bdeferred:/.test(e))) open.push(item.short);
+    // live-checks: a State matrix with `live-owed:` cells and no Live-owed line counts as an open entry
+    for (const key of ['task-scope', 'diagnosis', 'specification']) {
+      const sp = await call('notes_read', { select: 'get', itemId: item.id, key });
+      if (sp.refused) return sp.refused;
+      if (!sp.ok && sp.code !== 'not_found') return await stop(sp);
+      const body = sp.ok ? String(sp.data.body || '') : '';
+      const at = body.search(/State matrix/i);
+      if (at !== -1 && /\blive-owed:/i.test(body.slice(at))) { open.push(item.short); break; }
+    }
   }
   if (open.length) return { needs: 'hold', items: open };
   const ops = [];
@@ -977,7 +997,9 @@ async function r8() {
   }
   if (ops.length === 0) return { advance: 'none', held, failing }; // every item failed Step 1 or 2 or is held: no advance call
   const advanced = await call('advance', { ops, seatToken: CT });
-  if (!advanced.ok) return { advance: await stop(advanced), held, failing };
+  // a multi-element advance answers partial_failure when an element fails; the elements that passed are applied and every element's answer is in its data
+  const answered = advanced.ok || (advanced.code === 'partial_failure' && advanced.data && Array.isArray(advanced.data.results));
+  if (!answered) return { advance: await stop(advanced), held, failing };
   await writeJson(RUN_DIR + '/advance.json', advanced.data);
   const results = advanced.data.results || [];
   const items = ops.map((op, i) => ({ short: op.itemId.slice(0, 8), itemId: op.itemId, trigger: op.trigger, ok: !results[i] || results[i].ok !== false, code: results[i] && results[i].ok === false ? (results[i].error && results[i].error.code) || 'failed' : undefined }));
@@ -987,8 +1009,8 @@ async function r8() {
   let paused = false;
   if (!ph.ok) {
     if (ph.r.refused) return ph.r.refused;
-    if (ph.r.code !== 'run_paused') return await stop(ph.r);
-    await writeJson(RUN_DIR + '/paused.json', { code: 'run_paused', detail: ph.r.detail || {} });
+    if (elementCode(ph.r) !== 'run_paused') return await stop(ph.r);
+    await writeJson(RUN_DIR + '/paused.json', { code: 'run_paused', detail: (failedElement(ph.r) || ph.r).detail || {} });
     paused = true;
   }
   return { advanced: items.map((x) => ({ short: x.short, trigger: x.trigger, ok: x.ok, code: x.code })), held, failing, followUps: fu.json, paused };
@@ -1000,7 +1022,7 @@ An element error is per element (`code` in `advanced`): `run_paused` stops the s
 
 ## R9: post-run Step 5 generic review dispatch
 
-For the generic review (`meta.review.mode` not `handoff`). A `handoff` mode returns `{handoff}` and dispatches nothing: the hand-off to the project's review step stays prose. Any `docs sweep unowned` hit in `verify.json` must have an owner first (a sibling item's amendment or a follow-up item, `post-run.md` Step 5): while `UNOWNED_ROUTED` is false the script returns `{needs: 'route-unowned'}` and dispatches nothing. Otherwise it records phase `review`, then for each item R8 advanced with `start` it assigns the reviewer seat, writes the token file, renders `review-prompt` with `--result` (raw text) and dispatches the reviewer with the `review` class model and effort of `dispatch-policy.json`, read at run time, and the schema's `dispatch.review.agent` (else `general-purpose`). A `run_at_capacity` answer holds that reviewer back (`waiting`): wait for a reviewer to end its seat, then run R9 again for the rest. Never pass `isolation`.
+For the generic review (`meta.review.mode` not `handoff`). A `handoff` mode returns `{handoff}` and dispatches nothing: the hand-off to the project's review step stays prose. Any `docs sweep unowned` hit in `verify.json` must have an owner first (a sibling item's amendment or a follow-up item, `post-run.md` Step 5): while `UNOWNED_ROUTED` is false the script returns `{needs: 'route-unowned'}` and dispatches nothing. Otherwise it records phase `review`, then for each item R8 advanced with `start` it assigns the reviewer seat, writes the token file, renders `review-prompt` with `--result` (raw text) and dispatches the reviewer with the `review` class model and effort of `dispatch-policy.json`, read at run time, and the schema's `dispatch.review.agent` (else `general-purpose`). A `run_at_capacity` answer holds that reviewer back (`waiting`): wait for a reviewer to end its seat, then run R9 again for the rest. The shorts it dispatched are saved in `reviewers.json` (`already` returns their count), and a rerun skips them: it never re-assigns a reviewer that was dispatched, since an assign supersedes the running reviewer's token. Never pass `isolation`.
 
 ```js
 async function r9() {
@@ -1014,7 +1036,10 @@ async function r9() {
   if (unowned.length && !UNOWNED_ROUTED) return { needs: 'route-unowned', unowned };
   const ph = await setPhase(plan, 'review');
   if (!ph.ok) return await stop(ph.r);
-  const sent = (await readJson(RUN_DIR + '/advanced-items.json')).filter((x) => x.ok && x.trigger === 'start');
+  // reviewers.json lists the shorts a run of this script already assigned and dispatched: a rerun skips them, so a running reviewer's token is never superseded
+  const rf = file(RUN_DIR + '/reviewers.json');
+  const already = (await rf.exists()) ? await readJson(RUN_DIR + '/reviewers.json') : [];
+  const sent = (await readJson(RUN_DIR + '/advanced-items.json')).filter((x) => x.ok && x.trigger === 'start' && !already.includes(x.short));
   const policyFile = HELPER.replace(/scripts[\\/]run-planner\.mjs$/, 'dispatch-policy.json');
   const policy = JSON.parse(await file(policyFile).text());
   const cls = policy.classes.review;
@@ -1027,7 +1052,7 @@ async function r9() {
     if (a.code !== 0 || !a.json) { dispatched.push({ item: item.short, failed: 'assign' }); continue; }
     const as = await call('runs_write', { ops: a.json.ops, seatToken: CT });
     if (!as.ok) {
-      if (as.code === 'run_at_capacity') { waiting.push(item.short); continue; }
+      if (elementCode(as) === 'run_at_capacity') { waiting.push(item.short); continue; } // a one-op write answers partial_failure: read the element's code
       return await stop(as);
     }
     if (a.json.tokenFiles[0]) await writeToken(a.json.tokenFiles[0], as.data.results[0].seatToken);
@@ -1037,8 +1062,10 @@ async function r9() {
     const agentType = s.ok && s.data.dispatch && s.data.dispatch.review && s.data.dispatch.review.agent ? s.data.dispatch.review.agent : 'general-purpose';
     const r = await Agent({ prompt: p.raw, model: cls.model, effort: cls.effort, description: 'reviewer:' + item.short, subagent_type: agentType });
     dispatched.push({ item: item.short, agentId: r && (r.agentId || r.agent_id) });
+    already.push(x.short);
+    await writeJson(RUN_DIR + '/reviewers.json', already);
   }
-  return { dispatched, waiting };
+  return { dispatched, waiting, already: already.length };
 }
 await r9()
 ```
@@ -1059,7 +1086,7 @@ await r10()
 
 ## R11: post-run Step 7 close
 
-Runs the Step 0b sweep, writes `changed-files.txt` (`git -C <worktree> diff --name-only <baseSha>..HEAD` of each worktree) and selects the declared post-run steps with `post-run-steps`. When steps come back and `STEPS_DONE` is false the script returns `{steps: [{id, rule}], skipped}` and closes nothing: run each step per the rule it names (`config` `op` `rules`), set `STEPS_DONE` true and run it again. Otherwise it renders `run-ops --phase close` and sends it as `call('runs_write', ...)`, the MCP tool global under the coordinator token, never over REST: the retrospective trigger is a hook on that tool call, so a REST close is invisible to it. `invalid_run_state` means a seat is still active: the script sweeps again and closes once more. It saves the answer as `close.json` and sends the `closed` report through the kit's `sendReport`. `REASON` is `null` for the usual close (`completed` or `failed` from the result), `'cancelled'` for a director stop and `'abandoned'` for a Resume re-plan of an unrecoverable run.
+Runs the Step 0b sweep, writes `changed-files.txt` (`git -C <worktree> diff --name-only <baseSha>..HEAD` of each worktree) and selects the declared post-run steps with `post-run-steps`. When steps come back and `STEPS_DONE` is false the script returns `{steps: [{id, rule}], skipped}` and closes nothing: run each step per the rule it names (`config` `op` `rules`), set `STEPS_DONE` true and run it again. Otherwise it renders `run-ops --phase close` and sends it as `call('runs_write', ...)`, the MCP tool global under the coordinator token, never over REST: the retrospective trigger is a hook on that tool call, so a REST close is invisible to it. With `REASON` `'cancelled'` (a stop before launch, nothing ran) it closes without returning the declared steps. `invalid_run_state` means a seat is still active: the script sweeps again and closes once more. It saves the answer as `close.json` and sends the `closed` report through the kit's `sendReport`. `REASON` is `null` for the usual close (`completed` or `failed` from the result), `'cancelled'` for a director stop and `'abandoned'` for a Resume re-plan of an unrecoverable run.
 
 ```js
 async function r11() {
@@ -1082,7 +1109,7 @@ async function r11() {
   const ps = await helper('post-run-steps', '--plan ' + q(RUN_DIR + '/plan.json') + ' --when post-run --files-from ' + q(RUN_DIR + '/changed-files.txt'));
   if (ps.ref) return ps.ref;
   if (ps.code !== 0 || !ps.json) return { failed: true, step: 'post-run-steps', code: ps.code, err: ps.err };
-  if ((ps.json.steps || []).length && !STEPS_DONE) return { steps: ps.json.steps.map((s) => ({ id: s.step, rule: s.rule })), skipped: ps.json.skipped || [] };
+  if ((ps.json.steps || []).length && !STEPS_DONE && REASON !== 'cancelled') return { steps: ps.json.steps.map((s) => ({ id: s.step, rule: s.rule })), skipped: ps.json.skipped || [] };
   const withResult = (await file(RUN_DIR + '/result.json').exists()) ? ' --result ' + q(RUN_DIR + '/result.json') : '';
   const cl = await helper('run-ops', '--plan ' + q(RUN_DIR + '/plan.json') + ' --phase close' + withResult + (REASON ? ' --reason ' + REASON : ''));
   if (cl.ref) return cl.ref;
@@ -1096,7 +1123,7 @@ async function r11() {
     if (closed.refused) return closed.refused;
   }
   const code = elementCode(closed);
-  if (code !== null) return !closed.ok && closed.code === 'run_paused' ? await stop(closed) : { failed: true, step: 'close', code };
+  if (code !== null) return code === 'run_paused' ? await stop(closed) : { failed: true, step: 'close', code };
   await writeJson(RUN_DIR + '/close.json', closed.data);
   const snap = (closed.data.results && closed.data.results[0] && closed.data.results[0].snapshot) || {};
   const rep = await sendReport('closed', {});
@@ -1114,14 +1141,14 @@ Every step of `SKILL.md`, `method-b.md` and `post-run.md` has a recipe or is pro
 | Step | Recipe |
 |---|---|
 | SKILL F0 helper resolvable | R1 |
-| SKILL F1 Workflow callable | R1 |
+| SKILL F1 Workflow callable | prose |
 | SKILL F2 server features | R1 |
 | SKILL F3 protocol rules | R1 |
 | SKILL F4 phase 0 hooks | R1 |
-| SKILL F5 size guideline | R1 |
+| SKILL F5 size guideline | prose |
 | SKILL F6 allow rules | R10 |
 | SKILL F7 open run exists | R1 |
-| SKILL F8 seat skills | R1 |
+| SKILL F8 seat skills | prose |
 | SKILL Step 1 scope | prose |
 | SKILL Step 2 snapshot | R1 |
 | SKILL Step 2 awaiting_decision resume | prose |
@@ -1141,6 +1168,7 @@ Every step of `SKILL.md`, `method-b.md` and `post-run.md` has a recipe or is pro
 | SKILL Step 8b feature closure | prose |
 | SKILL Step 9 loop | prose |
 | SKILL Stalled seats | prose |
+| method-b 0 record launched | R5 |
 | method-b 1 schedule, assign, adopt, dispatch | R5 |
 | method-b 2 respect ordering | R5 |
 | method-b 3 collect results | R6 |
