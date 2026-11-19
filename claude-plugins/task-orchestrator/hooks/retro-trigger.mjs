@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // PostToolUse hook for runs_write — a retrospective is owed per closed run that is not marked
-// `retro`. On a successful `close` op this hook (main session, REST configured with a project rootId)
-// lists the root's recently closed, unmarked runs, reads each run's terminal member count, and either
+// `retro`, and only to the session that opened or closed it. Every successful `open` and `close` op is
+// recorded in the per-session marker (a subagent's calls carry the parent's session_id). On a
+// successful `close` op this hook (main session, REST configured with a project rootId)
+// lists the root's recently closed, unmarked runs this session owns, reads each run's terminal member count, and either
 // dispatches a retrospective (mode: dispatch and terminal >= dispatchThreshold, after winning the
 // server-side `retro` mark: first write wins, so two sessions never both dispatch) or nudges.
 //
@@ -41,15 +43,16 @@ function emitContext(text) {
   process.exit(0);
 }
 
-// Run ids of the `close` ops whose result at the same index is ok === true. Null when there is none.
-function successfulCloses(toolInput, toolResponse) {
+// Run ids of the `kind` ops ('open' or 'close') whose result at the same index is ok === true; an open
+// op carries no runId, so its id comes from the result. Null when there is no such op.
+function successfulOps(toolInput, toolResponse, kind) {
   const parsed = parseToolResult(toolResponse?.structuredContent ?? toolResponse);
   if (!parsed) return null;
   const ops = opsOf(toolInput);
   const ids = [];
   let any = false;
   ops.forEach((op, i) => {
-    if (op.op !== 'close') return;
+    if (op.op !== kind) return;
     const r = parsed.results[i];
     if (!r || r.ok !== true) return;
     any = true;
@@ -58,6 +61,8 @@ function successfulCloses(toolInput, toolResponse) {
   });
   return any ? ids : null;
 }
+
+const merge = (prev, ids) => [...new Set([...prev, ...ids])].slice(-MAX_RECORDED);
 
 try {
   const hookInput = readHookInput();
@@ -79,22 +84,32 @@ try {
   const config = director ? directorConfig(parsedConfig) : parsedConfig;
   if (config.mode === 'off') emitEmpty();
 
-  const closes = successfulCloses(hookInput.tool_input, hookInput.tool_response);
-  if (closes === null) emitEmpty();
+  const opens = successfulOps(hookInput.tool_input, hookInput.tool_response, 'open');
+  const closes = successfulOps(hookInput.tool_input, hookInput.tool_response, 'close');
+  if (opens === null && closes === null) emitEmpty();
 
   const sessionId = hookInput.session_id;
   const state = readSessionState(sessionId);
   const rootId = restRootId(located);
 
-  // A subagent never acts; without REST there is nothing to evaluate. Either way, record the close so
-  // the main session's backstop can surface it.
-  if (isSubagentInvocation(hookInput) || !rootId) {
-    state.sawClose = true;
-    state.closes = [...new Set([...state.closes, ...closes])].slice(-MAX_RECORDED);
+  // Record what this session (its main thread or a subagent: both carry its session_id) opened and
+  // closed: only those runs owe this session a retrospective (retro-lib ownsRun).
+  if (opens) state.opened = merge(state.opened, opens);
+  if (closes) state.closes = merge(state.closes, closes);
+  if (closes === null) {
     writeSessionState(sessionId, state);
     emitEmpty();
   }
 
+  // A subagent never acts; without REST there is nothing to evaluate. Either way the recorded close
+  // lets the main session's backstop surface it.
+  if (isSubagentInvocation(hookInput) || !rootId) {
+    state.sawClose = true;
+    writeSessionState(sessionId, state);
+    emitEmpty();
+  }
+
+  writeSessionState(sessionId, state);
   const result = await evaluateRuns({ rootId, config, state });
   const text = directiveFor(result, located, { director, transcriptPath: hookInput.transcript_path });
   if (result.nudge.length > 0) writeSessionState(sessionId, state);

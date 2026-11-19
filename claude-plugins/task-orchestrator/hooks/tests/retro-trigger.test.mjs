@@ -28,6 +28,7 @@ import {
   runHook,
   makeSandbox,
   markDirector,
+  ownRuns,
 } from './retro-fake-runs.mjs';
 
 const sid = (p) => `${p}-${randomUUID()}`;
@@ -267,8 +268,10 @@ test('S5 probe: marks {} / absent / null / other key are all unmarked; only mark
     runFixture(4, { terminal: 3, marks: { retro: '2026-10-16T11:30:00Z' } }),
     runFixture(5, { terminal: 3, marks: null }),
   ];
-  await withFixture({ config: cfg(), runs, behavior: { unfiltered: true } }, async ({ trigger, fake }) => {
-    const res = await trigger(closePayload(sid('s5probe'), rid(1)));
+  await withFixture({ config: cfg(), runs, behavior: { unfiltered: true } }, async ({ sbx, trigger, fake }) => {
+    const session = sid('s5probe');
+    ownRuns(sbx, session, [rid(1), rid(2), rid(3), rid(4), rid(5)], 'opened');
+    const res = await trigger(closePayload(session, rid(1)));
     const text = contextOf(res);
     assert.ok(text?.includes(DISPATCH), res.stdout);
     assert.deepEqual(fake.frontiers.map((q) => q.body.runId).sort(), [rid(1), rid(2), rid(3), rid(5)]);
@@ -282,8 +285,10 @@ test('S5 probe: marks {} / absent / null / other key are all unmarked; only mark
 
 test('S5 probe: 7 unmarked runs -> at most 5 frontier reads and 5 marks, first five (list order) named', async () => {
   const runs = [1, 2, 3, 4, 5, 6, 7].map((n) => runFixture(n, { terminal: 3 }));
-  await withFixture({ config: cfg(), runs }, async ({ trigger, fake }) => {
-    const text = contextOf(await trigger(closePayload(sid('cap'), rid(1))));
+  await withFixture({ config: cfg(), runs }, async ({ sbx, trigger, fake }) => {
+    const session = sid('cap');
+    ownRuns(sbx, session, [1, 2, 3, 4, 5, 6, 7].map(rid), 'opened');
+    const text = contextOf(await trigger(closePayload(session, rid(1))));
     assert.ok(text?.includes(DISPATCH));
     assert.equal(fake.frontiers.length, 5);
     assert.equal(fake.marks.length, 5);
@@ -320,8 +325,10 @@ test('AC3f: one directive per invocation: a won run dispatches, a below-threshol
 
 test('AC3f: two below-threshold runs -> one nudge naming both, no mark', async () => {
   const runs = [runFixture(1, { terminal: 1 }), runFixture(2, { terminal: 2 })];
-  await withFixture({ config: cfg(), runs }, async ({ trigger, fake }) => {
-    const text = contextOf(await trigger(closePayload(sid('twonudge'), rid(1))));
+  await withFixture({ config: cfg(), runs }, async ({ sbx, trigger, fake }) => {
+    const session = sid('twonudge');
+    ownRuns(sbx, session, [rid(2)], 'opened');
+    const text = contextOf(await trigger(closePayload(session, rid(1))));
     assert.ok(text?.includes(NUDGE), text);
     assert.ok(text.includes(`--run ${rid(1)}`) && text.includes(`--run ${rid(2)}`), text);
     assert.equal(fake.marks.length, 0);

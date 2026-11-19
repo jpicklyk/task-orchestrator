@@ -8,7 +8,9 @@
 //    a decision but fires nothing, so this is the only push. Pushed ids are kept in the state file.
 // 2. Run-ended retrospective. A `runs_read` `get` result (the run view) for a run whose status is
 //    `closed` (idle or paused is not done) and that carries no `retro` mark yields the
-//    retrospective dispatch directive from retro-lib, once per run per session: a director session
+//    retrospective dispatch directive from retro-lib, once per run per session, for a run this session
+//    opened or closed (retro-lib ownsRun; a coordinator in a session of its own handles its own run's
+//    retrospective): a director session
 //    is always treated as dispatch mode (`nudge` included; `off` stays silent), because the director
 //    must never run a retrospective in its own context. A run closed more than 24 h ago is skipped
 //    (an absent or unparseable `closedAt` is not). When the
@@ -26,7 +28,7 @@ import { parseToolResult } from './lib/envelope.mjs';
 import { sessionMarkerPath, readMarker, writeMarker } from './lib/markers.mjs';
 import { isDirectorSession, isHeadlessIteration, isSubagentInvocation } from './execution-mode.mjs';
 import { locateConfig } from './config-locator.mjs';
-import { parseRetrospectiveConfig, restRootId, dispatchAncestorId, buildDispatch } from './retro-lib.mjs';
+import { parseRetrospectiveConfig, restRootId, dispatchAncestorId, buildDispatch, readSessionState, ownsRun } from './retro-lib.mjs';
 
 /** Per-session marker name of the watch state `{pushed: decisionId[], retro: runId[]}`. */
 export const WATCH_STATE_NAME = 'director-watch';
@@ -91,6 +93,10 @@ function runEndedOutput(data, toolInput, state, statePath, opts) {
   const rest = hasOwn(opts, 'rest') ? opts.rest : restRootId(locate());
   if (rest !== null && rest !== undefined) return {};
   if (state.retro.includes(runId)) return {};
+  // Only a run this session opened or closed (retro-trigger records both, a subagent's calls included):
+  // a coordinator running in a session of its own handles its own run's retrospective.
+  const retroState = isPlainObject(opts.retroState) ? opts.retroState : readSessionState(opts.sessionId);
+  if (!ownsRun(retroState, runId)) return {};
   const mode = typeof opts.retroMode === 'string' ? opts.retroMode : parseRetrospectiveConfig(locate().text).mode;
   if (mode !== 'nudge' && mode !== 'dispatch') return {};
   const text = buildDispatch([runId], dispatchAncestorId(locate()), undefined, { transcriptPath: opts.transcriptPath });
@@ -102,7 +108,7 @@ function runEndedOutput(data, toolInput, state, statePath, opts) {
 /**
  * Hook output for one parsed PostToolUse input. `opts.director` overrides the marker probe,
  * `opts.statePath` the state file, `opts.rest` the REST root (null = no REST), `opts.retroMode`
- * the configured retrospective mode.
+ * the configured retrospective mode, `opts.retroState` the session's retro state (default: its marker).
  */
 export function run(input, env = process.env, opts = {}) {
   try {
@@ -120,7 +126,7 @@ export function run(input, env = process.env, opts = {}) {
     if (select !== 'decisions' && select !== 'get') return {};
     const statePath = typeof o.statePath === 'string' && o.statePath !== '' ? o.statePath : sessionMarkerPath(input.session_id, WATCH_STATE_NAME);
     const state = readState(statePath);
-    return select === 'decisions' ? decisionsOutput(parsed.data, state, statePath) : runEndedOutput(parsed.data, toolInput, state, statePath, { ...o, transcriptPath: input.transcript_path });
+    return select === 'decisions' ? decisionsOutput(parsed.data, state, statePath) : runEndedOutput(parsed.data, toolInput, state, statePath, { ...o, transcriptPath: input.transcript_path, sessionId: input.session_id });
   } catch {
     return {};
   }

@@ -21,6 +21,7 @@ import {
   closePayload,
   contextOf,
   markDirector,
+  ownRuns,
 } from './retro-fake-runs.mjs';
 import { directorConfig, buildDispatch, buildNudge } from '../retro-lib.mjs';
 import { run as watchRun } from '../director-watch.mjs';
@@ -52,6 +53,7 @@ test('S5: a director Stop (backstop) of a 1-terminal run blocks with --run <id> 
   await withFixture({ config: cfg('dispatch', 3), runs: [runFixture(1, { terminal: 1 })] }, async ({ sbx, stop, fake }) => {
     const session = sid('s5b');
     markDirector(sbx, session);
+    ownRuns(sbx, session, [rid(1)]);
     const res = await stop(stopPayload(session));
     assert.equal(res.status, 0, res.stderr);
     assert.equal(res.json?.decision, 'block', res.stdout);
@@ -146,7 +148,9 @@ function watchOpts(seedRetro = []) {
   mkdirSync(dir, { recursive: true });
   const statePath = join(dir, 'state.json');
   writeFileSync(statePath, JSON.stringify({ pushed: [], retro: seedRetro }));
-  return { director: true, statePath, rest: null, retroMode: 'dispatch' };
+  // retroState: this session owns the run ids these tests use (retro-lib ownsRun).
+  const owned = ['run-aaa', 'run-bbb', 'run-edge', 'run-junk', 'run-new', 'run-none', 'run-num', 'run-off-new', 'run-off-old', 'run-old', 'run-seed'];
+  return { director: true, statePath, rest: null, retroMode: 'dispatch', retroState: { closes: owned } };
 }
 const stateOf = (o) => JSON.parse(readFileSync(o.statePath, 'utf8'));
 const HOUR = 60 * 60 * 1000;
