@@ -141,7 +141,9 @@ export interface GraphAgentInfo {
  * run mark, so nothing here is keyed by root or survives the session.
  */
 export interface RetroState {
-  /** Run ids of successful closes this session recorded without evaluating them (a subagent, or no project rootId); capped. */
+  /** Run ids of successful opens this session (or one of its subagents) made; capped. Only owned runs owe this session a retrospective. */
+  opened?: string[]
+  /** Run ids of successful closes this session (or one of its subagents) made; capped. */
   closes?: string[]
   /** A successful close was recorded; the no-rootId Stop backstop reads it. */
   sawClose?: boolean
