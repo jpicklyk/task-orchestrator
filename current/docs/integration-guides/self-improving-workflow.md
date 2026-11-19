@@ -60,7 +60,7 @@ work_item_schemas:
           `Commits: <sha or range>` (one line; never a file list, the commits name their files);
           `Verified: <command> green at <sha> | not run (<why>)` (one line; never test counts, CI holds them);
           `Deviations: <what differed from the plan and why> | none`;
-          `Friction: <type: description>, ... | none` (tool errors, round-trips, workarounds, API confusion);
+          `Friction: <type: description>, ... | none` (tool errors, round-trips, workarounds, API confusion; a server or plugin defect as `defect: <tool>, <op>, <code>, <message>`);
           `Observations: <process signal worth a trend>` (omit when none);
           `Follow-ups: see orchestrator-confirmation` (never per-finding dispositions here).
           Lines the run tooling adds (`run-wave:` pointer fallback, `**Live-owed**:`) stay as they are.
@@ -300,7 +300,7 @@ The skill scores the run across **five dimensions**:
 
 ### Trend Memory
 
-Trend memory lives in MCP, not in a file: each recurring pattern is a work item tagged `retrospective-trend` under a process-global `Retrospective Trends` container (created lazily, outside any project root — the same model as the `Session Retrospectives` and `Improvement Proposals` containers). The item's title carries a stable kebab-case key, its `summary` carries the distilled observation plus a session counter, and each recurrence adds one evidence note:
+Trend memory lives in MCP, not in a file: each recurring pattern is a work item tagged `retrospective-trend` under a process-global `Retrospective Trends` container (created lazily, outside any project root — the same model as the `Session Retrospectives` and `Improvement Proposals` containers). A pattern specific to one project is kept apart: it sits under a per-project `Retrospective Trends` container beneath the project root, tagged `project-<root8>` (the first 8 hex characters of the root id), and matches only that project's trends, so one project's pattern never counts toward another's. Each finding is classified by kind (defect, process, agent-discipline, positive) and scope (product, global-process, project) before it is matched. The item's title carries a stable kebab-case key, its `summary` carries the distilled observation plus a session counter, and each recurrence adds one evidence note:
 
 ```
 title:   trend: model-param-omitted — bulk MCP work dispatched without model param
@@ -340,9 +340,10 @@ Meta-findings append to the current retrospective's `improvement-signals` note.
 A retrospective run produces:
 
 1. One `session-retrospective` MCP item under a `Session Retrospectives` container (with three queue-phase notes filled)
-2. New or updated `retrospective-trend` MCP items under the `Retrospective Trends` container (new trends, incremented counters, evidence notes)
+2. New or updated `retrospective-trend` MCP items under the global or per-project `Retrospective Trends` container (new trends, incremented counters, evidence notes)
 3. Zero or more `improvement-proposal` MCP items under an `Improvement Proposals` container (one per graduated trend)
-4. A dashboard rendered to the user with dimension scores, trends, and any proposals created
+4. Bug observations for defects found (an `agent-observation` tagged `bug` and `retro-reported`, or evidence on an open one), created on first sighting with no session threshold; an agent-discipline slip creates no item and returns as a `memory:` line to the session that dispatched the retrospective
+5. A dashboard rendered to the user with dimension scores, trends, and any proposals created
 
 ### Settings
 

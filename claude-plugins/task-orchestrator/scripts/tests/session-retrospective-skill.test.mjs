@@ -8,7 +8,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PLUGIN = resolve(HERE, '..', '..')
@@ -95,7 +95,7 @@ test('S14: SKILL.md and the references it links ask nobody anything and carry no
   const files = [SKILL_PATH, ...linked]
   for (const f of files) {
     assert.ok(existsSync(f), 'linked file exists: ' + f)
-    const text = lf(readFileSync(f, 'utf8'))
+    const text = lf(readFileSync(f, 'utf8')).replaceAll('orchestrator-confirmation', '')
     for (const re of [/AskUserQuestion/, /\bconfirm/i, /end the turn/i, /--deep/]) {
       assert.equal(re.test(text), false, f + ' must not match ' + re)
     }
@@ -200,4 +200,97 @@ test('S19: hooks/README.md has a Retrospective trigger section naming retro-trig
     assert.ok(sec.includes(name), 'the section names ' + name)
   }
   assert.equal(SKILL.includes('How the trigger works'), false)
+})
+
+// -- W2 (item 16500580): finding classification and defect routing -----------------------------------
+// Oracles: the item's task-scope AC1-AC10 and decisions D1-D10.
+
+const ROUTING_PATH = join(SKILL_DIR, 'references', 'routing.md')
+const ROUTING = lf(readFileSync(ROUTING_PATH, 'utf8'))
+const EVALUATION = lf(readFileSync(join(SKILL_DIR, 'references', 'evaluation.md'), 'utf8'))
+
+test('W2-AC1: Step 1 reads observations created after the run opened, skips retro-reported, and gates the review record', () => {
+  const s1 = section(SKILL, /^## Step 1\b[^\n]*$/m)
+  for (const needle of ['createdAfter', 'retro-reported', 'orchestrator-confirmation', 'after A<n>', 'at most 10']) {
+    assert.ok(s1.includes(needle), 'Step 1 names ' + needle)
+  }
+})
+
+test('W2-AC2: no delegation-metadata read in SKILL.md, evaluation.md or routing.md', () => {
+  for (const [name, text] of [['SKILL.md', SKILL], ['evaluation.md', EVALUATION], ['routing.md', ROUTING]]) {
+    assert.equal(text.includes('delegation-metadata'), false, name)
+  }
+})
+
+test('W2-AC3: 3f names four kinds and three scopes; routing.md holds the rubric and the F-line', () => {
+  const s3 = section(SKILL, /^## Step 3\b[^\n]*$/m)
+  assert.ok(s3.includes('3f'))
+  for (const w of ['defect', 'process', 'agent-discipline', 'positive', 'product', 'global-process', 'project']) {
+    assert.ok(s3.includes('`' + w + '`'), '3f names ' + w)
+  }
+  assert.match(ROUTING, /F<n> kind=<[^>]*> scope=<[^>]*> dim=<dimension> route=/)
+})
+
+test('W2-AC4: 5e sits between 5d and Step 6 with no session threshold; routing.md carries the to-calls', () => {
+  const i5d = SKILL.indexOf('**5d**')
+  const i5e = SKILL.indexOf('**5e**')
+  const i6 = SKILL.search(/^## Step 6\b/m)
+  assert.ok(i5d !== -1 && i5d < i5e && i5e < i6)
+  assert.match(SKILL.slice(i5e, i6), /no session threshold/)
+  assert.match(ROUTING, /"select": "search"[^\n]*"matchMode": "substring"/)
+  assert.match(ROUTING, /"op": "create_tree"[^\n]*"tags": \["agent-observation", "bug", "retro-reported"\][^\n]*"key": "observation-detail"/)
+  assert.match(ROUTING, /"select": "schema"[^\n]*"type": "bug-fix"/)
+  assert.match(ROUTING, /evidence-<YYYY-MM-DD>-<retro8>/)
+})
+
+test('W2-AC5: project trends use the project-<root8> tag and a per-project container; no project: tag in any to-call', () => {
+  for (const text of [SKILL, ROUTING]) {
+    assert.ok(text.includes('project-<root8>'))
+    assert.equal(/"project:/.test(text), false, 'no project: tag value')
+  }
+  assert.match(ROUTING, /child of the project root/)
+})
+
+test('W2-AC6: agent-discipline creates nothing and ends the report as memory lines; the dispatch directive asks for them', async () => {
+  assert.match(ROUTING, /No item and no trend is created/)
+  assert.match(SKILL, /memory: <pattern> -> <correct behaviour> \(<reason>\)/)
+  const { buildDispatch } = await import(pathToFileURL(join(PLUGIN, 'hooks', 'retro-lib.mjs')).href)
+  const text = buildDispatch(['r-aaa'], 'root-1')
+  assert.ok(text.includes('memory: line'))
+  assert.ok(text.indexOf('save each memory: line') < text.indexOf('Dispatch exactly ONE'))
+  assert.ok(text.includes('any memory: lines'))
+})
+
+test('W2-AC7: 7c files product-scope proposals only and the shared reference says product-scope; 7b scope comes from the trend', () => {
+  assert.match(SKILL, /^### 7c\. GitHub issues \(product-scope proposals only\)/m)
+  assert.match(lf(readFileSync(join(SKILLS, '_shared', 'github-feedback.md'), 'utf8')).split('\n')[2], /product-scope/)
+  assert.match(section(SKILL, /^### 7b\b[^\n]*$/m), /`project-\*` tag/)
+})
+
+test('W2-AC8: the skill names the run marks and the stale rule', () => {
+  for (const needle of ['retro-skipped', 'retro-retry', 'retro-failed', '[stale]', 'Stale: scope']) {
+    assert.ok(SKILL.includes(needle), needle)
+  }
+})
+
+test('W2-AC9: the defect form is taught at every Friction-form site', () => {
+  const form = 'defect: <tool>, <op>, <code>, <message>'
+  const sites = [
+    ['..', '..', '.taskorchestrator', 'config.yaml'],
+    ['..', '..', 'current', 'docs', 'integration-guides', 'self-improving-workflow.md'],
+    ['skills', 'manage-schemas', 'references', 'example-schemas.md'],
+    ['skills', 'manage-schemas', 'references', 'create-workflow.md'],
+    ['skills', 'manage-schemas', 'references', 'edit-workflow.md'],
+    ['skills', 'run-wave', 'references', 'post-run.md'],
+  ]
+  for (const s of sites) {
+    const text = readFileSync(join(PLUGIN, ...s), 'utf8')
+    assert.ok(text.includes(form), s.join('/'))
+  }
+})
+
+test('W2-AC10: SKILL.md stays at most 230 lines and 12800 bytes', () => {
+  const lines = SKILL_RAW.split('\n').length - (SKILL_RAW.endsWith('\n') ? 1 : 0)
+  assert.ok(lines <= 230, 'lines: ' + lines)
+  assert.ok(Buffer.byteLength(SKILL_RAW, 'utf8') <= 12800, 'bytes')
 })

@@ -2,7 +2,7 @@
 
 What `run-planner.mjs retro-metrics` reads and how its figures are defined. The skill's Step 1 runs the command once and reads its numbers from the one JSON document (`run-wave/retro-metrics-v1`); nothing here is computed by hand. This file is the grammar and the thresholds behind that document.
 
-Contents: [The command](#the-command) | [Provenance grammar](#provenance-grammar) | [Legacy forms](#legacy-forms) | [Layer meters](#layer-meters) | [Fix-cycle cost](#fix-cycle-cost) | [Session coverage](#session-coverage) | [Note volume](#note-volume) | [Defects](#defects) | [The retrospective's own cost](#the-retrospectives-own-cost)
+Contents: [The command](#the-command) | [Provenance grammar](#provenance-grammar) | [Legacy forms](#legacy-forms) | [Layer meters](#layer-meters) | [Fix-cycle cost](#fix-cycle-cost) | [Session coverage](#session-coverage) | [Note volume](#note-volume) | [Defects](#defects) | [The retrospective's own cost](#the-retrospectives-own-cost) | [Troubleshooting](#troubleshooting)
 
 ## The command
 
@@ -82,3 +82,7 @@ A `session-tracking` entry `defect: <tool>, <op>, <code>, <message>` records one
 ## The retrospective's own cost
 
 `self` is the retrospective agent's own transcript, found by its label `retrospective:<first 8 characters of the first run id>` in the `--session-dir` sweep: `tokens`, the four meters, `wallMs` (last minus first usage-line timestamp), and `analysedShare` (its tokens over `fixCycle.runTokens`). It is partial, because the transcript is still being written when the number is read; Step 8b re-reads it with `--self-only` after the last write. Without a label or a session folder it reads `{measured: false, reason}`.
+
+## Troubleshooting
+
+No `session-tracking` notes: the items' schema does not require it. A run dispatched again: its `retro` mark is missing (REST-only), so run `retro-ack.mjs --run <runId>` by hand. Another project's items: set `project.rootId`, pass the root UUID or `--run`.
