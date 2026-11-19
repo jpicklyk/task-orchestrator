@@ -36,7 +36,7 @@ The project-scoped Accept path of review-proposals Step 5. The `proposal` note i
 
    Read `ok` and `data.results[0].newRole`; on a failure `data.results[0].error.code` (`gate_blocked` lists `error.detail.missing`). Do **not** use `complete`: it jumps to terminal and gate-checks required notes across all phases, so the intentionally unfilled `outcome-verification` note would block it. `start` checks only the current phase's notes and lands in `review`.
 8. **Stop in `review`.** Tell the user the item dwells in `review` with `outcome-verification` intentionally unfilled: `/session-retrospective` Step 8a verifies whether the change helped, fills it and completes the item once at least 2 later retrospectives exist. This is by design; the item shows under Awaiting verification until then.
-9. Apply the **Source-trend write-back** below: the config change is applied, so the source trend retires now.
+9. Apply the **Source-trend write-back** (the section of that name in the review-proposals `SKILL.md`): the config change is applied, so the source trend retires now.
 
 ## Troubleshooting
 

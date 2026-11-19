@@ -16,7 +16,7 @@ Only with `--deep`, and only when at least one retrospective has a `workflow-eva
 
 1. Findings: from each recent retrospective's `workflow-evaluation` note take every finding as `{fid: "f<n>", dimension, text, keywords}`. `dimension` maps 3a `schema-effectiveness`, 3b `delegation`, 3c `note-quality`, 3d `plan-to-execution`, 3e `friction`.
 2. Build `retro-analysis/args-v1`: `contract`, `runId: "ra-<YYYYMMDD>-<HHMM>"`, `date`, `mode: "deep"`, `rootId` (when known), `findings`, `trends` (Step 1's active trends as `{id, short, title}`), `observations` (one unscoped `items_read` `list`, `tags: ["agent-observation"]`, `limit: 100`, terminal ones dropped), `retros` (Step 1's retrospectives as `{id, short, title}`), and `models` and `efforts` keyed `match`, `cluster` and `adjudicate`, each the `research` class's model and effort from `task-orchestrator:model-effort`. Only ids and titles go in.
-3. With a known `rootId`, stash `{findings, retroScope}` as a plan document and add `planDocSlug: "retro/<runId>"` to the args:
+3. With a known `rootId`, stash `{findings, retroScope}` (`retroScope` = the project root id and the recent retrospectives' item ids from Step 1) as a plan document and add `planDocSlug: "retro/<runId>"` to the args:
 
 ```to-call
 {"tool": "docs_write", "op": "upsert", "args": {"rootId": "<rootId>", "kind": "plan", "slug": "retro/<runId>", "body": "<JSON of findings and retroScope>"}}
@@ -30,4 +30,8 @@ Only with `--deep`, and only when at least one retrospective has a `workflow-eva
 
 ## Audit sweep
 
-With `--audit` the `retro-analysis` workflow runs a standalone sweep (`mode: "audit"`, no findings) and returns the same `newTrends`, `staleTrends` and `observationLinks` shapes. Present that result to the user first; only after they confirm, Step 3 applies its create and retire shapes to it.
+Only with `--audit`, in the main session with the Workflow tool callable; otherwise say so and stay inline. It is a standalone sweep over the trends, bug observations and retrospectives Step 1 read, with no findings, and it needs no stash.
+
+1. Build `retro-analysis/args-v1` as in Deep mode step 2, with `mode: "audit"` and no `findings` (the workflow rejects findings in audit mode), no `planDocSlug`, and `models` and `efforts` keyed `match` and `cluster`. Only ids and titles go in.
+2. Launch `Workflow({name: "task-orchestrator:retro-analysis", args})` with args as a real object, then end the turn.
+3. On the task notification: if `started: false`, report its `reason` and stop. Otherwise the result carries `newTrends`, `staleTrends` and `observationLinks`. Present that result to the user first; only after they confirm, Step 3 applies its create and retire shapes to it. `newTrends` are create candidates, `staleTrends` are retire candidates, and `observationLinks` feed the dashboard.

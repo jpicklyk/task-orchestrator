@@ -215,3 +215,93 @@ test('S16: every Step n named in review-retrospectives deep-mode.md is a heading
   assert.ok(named.length > 0);
   for (const x of named) assert.ok(have.has(x), 'Step ' + x + ' has a heading');
 });
+
+// ---- A1 fix cycle: B1 and O1-O7 of the d85d3905 review register ---------------------------------------
+
+const RR_SKILL = readLf('skills', 'review-retrospectives', 'SKILL.md');
+const RR_DEEP = readLf('skills', 'review-retrospectives', 'references', 'deep-mode.md');
+const ROUTING = readLf('skills', 'session-retrospective', 'references', 'routing.md');
+
+/** Every items_write create of a retrospective-trend in the text, as the parsed call args. */
+const trendCreates = (md) => parseToCallBlocks(md)
+  .map((b) => b.value)
+  .filter((v) => v && v.tool === 'items_write' && v.op === 'create' && v.args.type === 'retrospective-trend')
+  .map((v) => v.args);
+
+test('B1: review-retrospectives reads project trends by the project-<root8> tag that session-retrospective writes', () => {
+  // The writer's spelling is the oracle: routing.md defines it, so a reader that spells it otherwise reads every project trend as global.
+  assert.ok(ROUTING.includes('`project-<root8>`'), 'routing.md defines project-<root8>');
+  assert.match(ROUTING, /A tag cannot hold a colon/);
+  const step1 = section(RR_SKILL, /^Step 1\b/);
+  assert.match(step1, /tagged `project-<root8>` is project scope/);
+  assert.match(step1, /no `project-\*` tag is global/);
+  assert.doesNotMatch(RR_SKILL + RR_DEEP, /[`"]project:/, 'a colon spelling of the project tag, in prose or in a call');
+  assert.match(section(RR_SKILL, /^Step 2\b/), /project-<root8>/);
+});
+
+test('O1: the New-pattern create has a global and a project variant, the project one tagged project-<root8> under the project container', () => {
+  const creates = trendCreates(section(RR_SKILL, /^Step 3\b/));
+  assert.equal(creates.length, 2);
+  const tags = creates.map((a) => a.tags);
+  assert.ok(tags.some((t) => t.includes('project-<root8>')), 'a project variant carries the tag');
+  assert.ok(tags.some((t) => !t.some((x) => x.startsWith('project'))), 'the global variant carries no project tag');
+  assert.deepEqual(creates.map((a) => a.parentId).sort(), ['<global-trends-container-id>', '<project-trends-container-id>']);
+  const step3 = section(RR_SKILL, /^Step 3\b/);
+  assert.match(step3, /child of the project root/);
+  assert.match(step3, /exact title/);
+});
+
+test('O2: the proposals read finds the global Improvement Proposals container as a root and follows page.next', () => {
+  const step1 = section(RR_SKILL, /^Step 1\b/);
+  const calls = parseToCallBlocks(step1).map((b) => b.value);
+  assert.ok(calls.some((c) => c.select === 'search' && c.args.query === 'Improvement Proposals'));
+  assert.match(step1, /no `parentId`/);
+  const proposals = step1.slice(step1.indexOf('**Proposals.**'), step1.indexOf('**Empty path'));
+  assert.match(proposals, /following `page\.next`/);
+});
+
+test('O3: the recurrence summary update keeps appended lines, including the do-not-re-graduate marker', () => {
+  const step3 = section(RR_SKILL, /^Step 3\b/);
+  assert.match(step3, /keep every other line/);
+  assert.match(step3, /do not re-graduate/);
+  const update = parseToCallBlocks(step3).map((b) => b.value).find((v) => v.tool === 'items_write' && v.op === 'update');
+  assert.doesNotMatch(update.args.summary, /<observation>/, 'the update no longer rebuilds the summary from a template');
+  // The marker it protects is the one review-proposals writes.
+  assert.match(PROPOSALS_SKILL, /do not re-graduate/);
+});
+
+test('O4: Triage now enters review-proposals at its Step 0 so its config defaults apply', () => {
+  const step4 = section(RR_SKILL, /^Step 4\b/);
+  const triage = step4.split('\n').find((l) => l.startsWith('- **Triage now:**'));
+  assert.match(triage, /from its Step 0/);
+  assert.doesNotMatch(triage, /Step 1/);
+  assert.ok(headings(PROPOSALS_SKILL).some((h) => /^Step 0\b/.test(h.text)), 'review-proposals has a Step 0');
+});
+
+test('O5: accept-project.md names the Source-trend write-back by its home in the review-proposals SKILL.md, not "below"', () => {
+  const ref = readLf('skills', 'review-proposals', 'references', 'accept-project.md');
+  assert.ok(headings(PROPOSALS_SKILL).some((h) => h.text === 'Source-trend write-back'), 'the section is in SKILL.md');
+  assert.equal(headings(ref).some((h) => h.text === 'Source-trend write-back'), false, 'and not in the reference');
+  const line = ref.split('\n').find((l) => l.includes('**Source-trend write-back**') && /^\d+\./.test(l));
+  assert.match(line, /review-proposals `SKILL\.md`/);
+  assert.doesNotMatch(line, /below/);
+});
+
+test('O6: deep-mode.md defines retroScope where it stashes it', () => {
+  const stash = RR_DEEP.split('\n').find((l) => l.includes('`retroScope`') && l.includes('stash'));
+  assert.ok(stash, 'a stash step names retroScope');
+  assert.match(stash, /`retroScope` = the project root id and the recent retrospectives' item ids/);
+});
+
+test('O7: the audit sweep has launch steps that match what retro-analysis accepts in audit mode', () => {
+  const audit = section(RR_DEEP, /^Audit sweep/);
+  assert.match(audit, /mode: "audit"/);
+  assert.match(audit, /no `findings`/);
+  assert.match(audit, /Workflow\(\{name: "task-orchestrator:retro-analysis", args\}\)/);
+  assert.match(audit, /`newTrends`, `staleTrends` and `observationLinks`/);
+  assert.match(audit, /only after they confirm/);
+  // The workflow is the oracle for the two constraints the steps state.
+  const wf = fs.readFileSync(path.join(PLUGIN, 'workflows', 'retro-analysis.js'), 'utf8');
+  assert.match(wf, /audit mode takes no findings/);
+  assert.match(wf, /planDocSlug requires rootId/);
+});
