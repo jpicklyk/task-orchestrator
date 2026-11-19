@@ -9,7 +9,7 @@ Tool call shapes are in [call-shapes-js.md](../../_generated/call-shapes-js.md):
 - A token never leaves the script. A script reads a token with `(await file(path).text()).trim()`, writes one with `Write({file_path, content: tokenLine(token)})`, passes it as `seatToken`, and never calls `log()` on it.
 - A script never returns a raw tool result, a note body, a seat prompt or a token. Each return is a projection built field by field.
 - `stage-result` calls stay serial: each reads the state the previous call wrote, so never run two at once, not even inside one script.
-- A failed write throws a top-level `partial_failure` for a non-atomic batch, whatever the element's own code is (it sits in `data.results[i].error`). The kit's `call` keeps that `data`, and `elementCode` (and `stop`) read the first failed element's code, so a one-op write can be branched on by its element code. A write of several ops whose failure the script branches on uses `atomic: true`, so a failure leaves nothing written (a non-atomic batch that fails midway would lose the tokens its good elements answered, since a token is answered once) and answers only the failing element's own error, with `error.index`. Otherwise read the state back after a failure.
+- A failed write throws a top-level `partial_failure` for a non-atomic batch, whatever the element's own code is (it sits in `data.results[i].error`). The kit's `call` keeps that `data`, and `elementCode` (and `stop`) read the first failed element's code, so a one-op write can be branched on by its element code. For a write of several ops that tail holds only the failing entries, each with its `index` (at most 10): read it by `index`, never by position, and an op with no entry passed but its answer is not there (R8). A write of several ops whose failure the script branches on uses `atomic: true`, so a failure leaves nothing written (a non-atomic batch that fails midway would lose the tokens its good elements answered, since a token is answered once) and answers only the failing element's own error, with `error.index`. Otherwise read the state back after a failure.
 - A failure goes through `parseErrorTail` and `refusal`, never through message text. The kit's `call` does it: `run_paused` writes `paused.json` (as `{code: 'run_paused', detail}`, the shape the `report` helper reads) and returns `{paused: true}`; `unavailable` is retried once after `retryAfterMs`; a refusal returns `{refused, tool, reason}` and the recipe stops; any other code returns `{failed, code, fix}`.
 - `file(path)` returns a handle, not text: read it with `.text()` (or `.json()`, `.lines()`), and test for it with `.exists()`. `$(command)` throws a `ShellError` on a non-zero exit unless the promise is `.nothrow()`; its result carries `exitCode` (`null` when the command moved to the background), and a command's stderr is merged into `stdout`. The kit's `sh` and `helper` wrap both.
 - A script's result is the value of its last expression, and `return` at the top level, `eval` and `Function` are refused. So each recipe is one `async function r<n>()` and a last line `await r<n>()`; the `return` statements are inside the function.
@@ -191,8 +191,9 @@ const call = async (tool, args) => {
     }
   }
 };
-// A failed one-op non-atomic write throws a top-level partial_failure; the element's own error (the real code) is data.results[i].error.
-// failedElement returns that error of the first failed element, or null when r is not such an answer (an atomic batch throws the element's own code at the top).
+// A failed non-atomic write throws a top-level partial_failure whose data.results keeps only the failing entries, each with its index (at most 10); the entry's error is the real code.
+// failedElement returns the error of the first failing entry (by content, never data.results[0] as the first op), or null when r is not such an answer (an atomic batch throws the element's own code at the top).
+// A caller that needs the answer per op of a batch of several reads the entries by index and treats an op with no entry as passed (R8).
 const failedElement = (r) => {
   if (r.ok || r.code !== 'partial_failure') return null;
   const els = (r.data && r.data.results) || [];
@@ -953,7 +954,7 @@ Send the `paused` report (R10) when `paused` is true and the `decision` report w
 
 ## R8: post-run Step 4 batched advance
 
-Sends the one Step 4 `advance`, after the Step 3 notes. `HOLD` lists the shorts of items the coordinator found live-owed while writing `session-tracking`; they stay in work and are left out of the call, as is every item in `failing.json`. As a safety net the script reads each remaining item's `session-tracking`: a `**Live-owed**:` line (entries separated by `;` or a line break) with an entry that ends neither `run <date>: <result>` nor `deferred: <item id>` is an open entry, and so is an item with no such line whose spec note (`task-scope`, `diagnosis` or `specification`) has a State matrix with a `live-owed:` cell (rule `live-checks`); the script then returns `{needs: 'hold', items}` and sends no advance (add those shorts to `HOLD` and run it again). A multi-element `advance` that answers `partial_failure` is read per element: the elements that passed were applied. The trigger is `start` for an item whose schema has a review-role note (the rule `plan` uses for its review phase) and `complete` for one without. The answer is saved as `advance.json` for the `follow-ups` helper, the per-item result as `advanced-items.json` (R9 reads it), and the run records phase `post-run`.
+Sends the one Step 4 `advance`, after the Step 3 notes. `HOLD` lists the shorts of items the coordinator found live-owed while writing `session-tracking`; they stay in work and are left out of the call, as is every item in `failing.json`. As a safety net the script reads each remaining item's `session-tracking`: a `**Live-owed**:` line (entries separated by `;` or a line break) with an entry that ends neither `run <date>: <result>` nor `deferred: <item id>` is an open entry, and so is an item with no such line whose spec note (`task-scope`, `diagnosis` or `specification`) has a State matrix with a `live-owed:` cell (rule `live-checks`); the script then returns `{needs: 'hold', items}` and sends no advance (add those shorts to `HOLD` and run it again). A multi-element `advance` that answers `partial_failure` applied the elements that passed, but its error tail keeps only the failing entries, each with its `index` (at most 10), and `summary {ok, failed}`: the script maps each entry to its op by `index`, never by position, treats an op with no entry as passed, and never claims a passed element's answer, which the tail does not carry. When `summary.failed` is larger than the entries listed (the cap cut some), it reads each op without an entry back with `items_read` (a failed transition leaves the item in `work`). The trigger is `start` for an item whose schema has a review-role note (the rule `plan` uses for its review phase) and `complete` for one without. The answer is saved as `advance.json` for the `follow-ups` helper, the per-item result as `advanced-items.json` (R9 reads it), and the run records phase `post-run`.
 
 ```js
 async function r8() {
@@ -997,12 +998,31 @@ async function r8() {
   }
   if (ops.length === 0) return { advance: 'none', held, failing }; // every item failed Step 1 or 2 or is held: no advance call
   const advanced = await call('advance', { ops, seatToken: CT });
-  // a multi-element advance answers partial_failure when an element fails; the elements that passed are applied and every element's answer is in its data
-  const answered = advanced.ok || (advanced.code === 'partial_failure' && advanced.data && Array.isArray(advanced.data.results));
-  if (!answered) return { advance: await stop(advanced), held, failing };
+  // a multi-element advance answers partial_failure when an element fails and applies the elements that passed, but its tail keeps only the failing entries
+  // (each with its index, at most 10) and summary {ok, failed}: a passed element's answer is not in it, so map entries by index, never by position
+  const partial = !advanced.ok && advanced.code === 'partial_failure' && Boolean(advanced.data) && Array.isArray(advanced.data.results);
+  if (!advanced.ok && !partial) return { advance: await stop(advanced), held, failing };
   await writeJson(RUN_DIR + '/advance.json', advanced.data);
-  const results = advanced.data.results || [];
-  const items = ops.map((op, i) => ({ short: op.itemId.slice(0, 8), itemId: op.itemId, trigger: op.trigger, ok: !results[i] || results[i].ok !== false, code: results[i] && results[i].ok === false ? (results[i].error && results[i].error.code) || 'failed' : undefined }));
+  const entries = partial ? advanced.data.results : [];
+  const byIndex = new Map(entries.filter((e) => e && Number.isInteger(e.index)).map((e) => [e.index, e]));
+  // failures the 10-entry cap cut off: an op with no entry may be one of them, so its role is read back (a failed transition leaves the item in work)
+  const unlisted = partial ? Math.max(0, ((advanced.data.summary && advanced.data.summary.failed) || 0) - entries.length) : 0;
+  const answers = advanced.ok ? advanced.data.results || [] : [];
+  const items = [];
+  for (let i = 0; i < ops.length; i += 1) {
+    const op = ops[i];
+    const el = partial ? byIndex.get(i) : answers[i];
+    let ok = !el || el.ok !== false;
+    let code = el && el.ok === false ? (el.error && el.error.code) || 'failed' : undefined;
+    if (partial && !el && unlisted > 0) {
+      const g = await call('items_read', { select: 'get', itemId: op.itemId });
+      if (g.refused) return g.refused;
+      if (!g.ok) return await stop(g);
+      ok = g.data.role !== 'work';
+      code = ok ? undefined : 'failed';
+    }
+    items.push({ short: op.itemId.slice(0, 8), itemId: op.itemId, trigger: op.trigger, ok, code });
+  }
   await writeJson(RUN_DIR + '/advanced-items.json', items);
   const fu = await helper('follow-ups', '--in ' + q(RUN_DIR + '/advance.json'));
   const ph = await setPhase(plan, 'post-run');
@@ -1013,12 +1033,12 @@ async function r8() {
     await writeJson(RUN_DIR + '/paused.json', { code: 'run_paused', detail: (failedElement(ph.r) || ph.r).detail || {} });
     paused = true;
   }
-  return { advanced: items.map((x) => ({ short: x.short, trigger: x.trigger, ok: x.ok, code: x.code })), held, failing, followUps: fu.json, paused };
+  return { advanced: items.map((x) => ({ short: x.short, trigger: x.trigger, ok: x.ok, code: x.code })), held, failing, followUps: fu.json, followUpsComplete: !partial, paused };
 }
 await r8()
 ```
 
-An element error is per element (`code` in `advanced`): `run_paused` stops the step (the `paused` report, R10) and anything else is reported for that item. `followUps` carries `{unblocked, seatBlocked, gateBlocked, reviewPending, gateMissing}` as `post-run.md` Step 4 describes. Held items are reported live-owed and are the post-merge steps' concern once the PR merges.
+An element error is per element (`code` in `advanced`): `run_paused` stops the step (the `paused` report, R10) and anything else is reported for that item. `followUps` carries `{unblocked, seatBlocked, gateBlocked, reviewPending, gateMissing}` as `post-run.md` Step 4 describes. After a `partial_failure` it holds nothing of the passed items (`followUpsComplete` is false): their cascades are not in the tail, so read the parents and the newly unblocked items back with `items_read` instead of taking an empty `followUps` for none. Held items are reported live-owed and are the post-merge steps' concern once the PR merges.
 
 ## R9: post-run Step 5 generic review dispatch
 

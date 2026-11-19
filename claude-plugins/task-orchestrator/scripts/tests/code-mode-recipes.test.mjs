@@ -72,8 +72,8 @@ const refused = (what) => () => { throw new EvalError(what + ' is refused in Cod
 
 // The script exactly as pasted: prelude + kit + recipe. It must parse as a module, end with the recipe call, and
 // is then run with that call returned (the REPL's last expression).
-function script(n, { runDir, scratch, rootId, subst = {} }) {
-  let src = PRELUDE + '\n' + KIT + '\n' + recipe(n);
+function script(n, { runDir, scratch, rootId, subst = {}, body }) {
+  let src = PRELUDE + '\n' + KIT + '\n' + (body || recipe(n));
   src = src.split('<scratchpad>/run-wave/<runId>').join(runDir || scratch + '/run-wave/r-test');
   src = src.split('<scratchpad>').join(scratch).split('<helper>').join(HELPER).split('<rootId>').join(rootId);
   for (const [from, to] of Object.entries(subst)) {
@@ -91,8 +91,8 @@ function checkScript(n, src, dir) {
   assert.equal(last.trim(), 'await r' + n + '()', 'R' + n + ' does not end with its call');
 }
 
-async function run(n, { runDir, scratch, rootId = '00000000-0000-4000-8000-000000000000', cwd, tools = {}, agent, workflow, sendMessage, subst = {}, shellFn, onSource }) {
-  const src = script(n, { runDir, scratch, rootId, subst });
+async function run(n, { runDir, scratch, rootId = '00000000-0000-4000-8000-000000000000', cwd, tools = {}, agent, workflow, sendMessage, subst = {}, shellFn, onSource, body }) {
+  const src = script(n, { runDir, scratch, rootId, subst, body });
   const dir = fwd(dirname(scratch));
   checkScript(n, src, dir);
   if (onSource) onSource(src);
@@ -1432,19 +1432,72 @@ test('A1 (B1): the R5 one-by-one assign after run_at_capacity holds back an elem
   assert.equal(out.dispatched.length, 1, 'the first seat fits, the second is held back: ' + JSON.stringify(out));
 });
 
-test('A1 (B1): a multi-element advance that answers partial_failure is read per element in R8', async () => {
+// What the live MCP tool global throws for a multi-element advance with failures: the tail cuts data.results to the failing entries, each with its index (McpOperationAdapter.tail).
+const thrownTail = (entries, summary) => new Error('partial_failure: ' + summary.failed + ' of ' + (summary.ok + summary.failed) + ' elements failed.' + String.fromCharCode(10) + JSON.stringify({
+  ok: false, error: { code: 'partial_failure', kind: 'permanent', message: summary.failed + ' of ' + (summary.ok + summary.failed) + ' elements failed.' },
+  data: { results: entries.map(([index, code]) => ({ index, ok: false, error: { code, detail: null } })), summary }, meta: { reqId: 'r' },
+}));
+
+test('A2 (B4): R8 maps a partial_failure tail by index: only the later op failing marks that op failed and the earlier one passed', async () => {
   const s = await after7();
   const { runDir, scratch, X, Y, tools } = s;
-  tools[ikey('advance')] = async (a) => {
-    throw new Error('partial_failure: 1 of 2 elements failed.' + String.fromCharCode(10) + JSON.stringify({
-      ok: false, error: { code: 'partial_failure', kind: 'permanent', message: '1 of 2 elements failed.' },
-      data: { results: [{ index: 0, ok: true, itemId: X.id }, { index: 1, ok: false, error: { code: 'dependency_unmet', detail: null } }], summary: { ok: 1, failed: 1 } },
-    }));
-  };
+  tools[ikey('advance')] = async () => { throw thrownTail([[1, 'dependency_unmet']], { ok: 1, failed: 1 }); };
   const out = await run(8, { runDir, scratch, tools });
   assert.deepEqual(out.advanced.map((a) => [a.short, a.ok, a.code]), [[X.short, true, undefined], [Y.short, false, 'dependency_unmet']], JSON.stringify(out));
-  assert.ok(existsSync(runDir + '/advance.json'));
+  assert.deepEqual(JSON.parse(readFileSync(runDir + '/advanced-items.json', 'utf8')).map((a) => [a.short, a.trigger, a.ok]), [[X.short, 'start', true], [Y.short, 'complete', false]]);
+  assert.equal(out.followUpsComplete, false, 'a tail carries no passed element, so the follow-ups are not complete');
+  assert.deepEqual(JSON.parse(readFileSync(runDir + '/advance.json', 'utf8')).results.map((e) => e.index), [1], 'advance.json is the tail as served');
   assert.equal(JSON.parse(readFileSync(runDir + '/state.json', 'utf8')).phase, 'post-run');
+});
+
+test('A2 (B4): R8 maps a tail whose only entry is the first op: the later op passed', async () => {
+  const s = await after7();
+  const { runDir, scratch, X, Y, tools } = s;
+  tools[ikey('advance')] = async () => { throw thrownTail([[0, 'gate_blocked']], { ok: 1, failed: 1 }); };
+  const out = await run(8, { runDir, scratch, tools });
+  assert.deepEqual(out.advanced.map((a) => [a.short, a.ok, a.code]), [[X.short, false, 'gate_blocked'], [Y.short, true, undefined]], JSON.stringify(out));
+});
+
+test('A2 (B4): R8 reads a no-entry op back when the cap cut failures (summary.failed above the entries listed)', async () => {
+  const s = await after7();
+  const { runDir, scratch, X, Y, tools } = s;
+  const schemaRead = tools[ikey('items_read')];
+  const roles = { [Y.id]: 'work' };
+  tools[ikey('items_read')] = async (a) => (a.select === 'get' ? env({ id: a.itemId, role: roles[a.itemId] }) : schemaRead(a));
+  tools[ikey('advance')] = async () => { throw thrownTail([[0, 'gate_blocked']], { ok: 0, failed: 2 }); };
+  const out = await run(8, { runDir, scratch, tools });
+  assert.deepEqual(out.advanced.map((a) => [a.short, a.ok, a.code]), [[X.short, false, 'gate_blocked'], [Y.short, false, 'failed']], 'Y is still in work: its failure was cut off the tail: ' + JSON.stringify(out));
+  const passed = await after7();
+  const read = passed.tools[ikey('items_read')];
+  passed.tools[ikey('items_read')] = async (a) => (a.select === 'get' ? env({ id: a.itemId, role: 'terminal' }) : read(a));
+  passed.tools[ikey('advance')] = async () => { throw thrownTail([[0, 'gate_blocked']], { ok: 0, failed: 2 }); };
+  const out2 = await run(8, { runDir: passed.runDir, scratch: passed.scratch, tools: passed.tools });
+  assert.deepEqual(out2.advanced.map((a) => [a.short, a.ok]), [[passed.X.short, false], [passed.Y.short, true]], JSON.stringify(out2));
+});
+
+test('A2 (B4): a fully applied advance still reads the answers by position and reports the follow-ups complete', async () => {
+  const s = await after7();
+  const out = await run(8, { runDir: s.runDir, scratch: s.scratch, tools: s.tools });
+  assert.deepEqual(out.advanced.map((a) => a.ok), [true, true]);
+  assert.equal(out.followUpsComplete, true);
+});
+
+// The kit's failedElement, elementCode and stop on a write of several ops: the tail keeps only the failing entries, so the first failing entry is not the first op.
+const KIT_PROBE = 'async function r99() {\n  const a = await call(\'runs_write\', { ops: [{ op: \'a\' }, { op: \'b\' }, { op: \'c\' }] });\n  return { code: elementCode(a), first: failedElement(a) && failedElement(a).code, stopped: await stop(a) };\n}\nawait r99()\n';
+
+test('A2 (B4): elementCode, failedElement and stop read the first failing entry of a multi-op tail whatever its index', async () => {
+  const s = boundSetup();
+  const probe = async (entries, summary) => {
+    const tools = { [ikey('runs_write')]: async () => { throw thrownTail(entries, summary); } };
+    return await run(99, { runDir: s.runDir, scratch: s.scratch, tools, body: KIT_PROBE });
+  };
+  const late = await probe([[2, 'forbidden']], { ok: 2, failed: 1 });
+  assert.deepEqual(late, { code: 'forbidden', first: 'forbidden', stopped: { failed: true, code: 'forbidden', fix: undefined } }, JSON.stringify(late));
+  const two = await probe([[1, 'version_conflict'], [2, 'forbidden']], { ok: 1, failed: 2 });
+  assert.equal(two.code, 'version_conflict', 'the first failing entry, not the last and not a position: ' + JSON.stringify(two));
+  const paused = await probe([[1, 'run_paused']], { ok: 2, failed: 1 });
+  assert.equal(paused.stopped.paused, true, JSON.stringify(paused));
+  assert.equal(JSON.parse(readFileSync(s.runDir + '/paused.json', 'utf8')).code, 'run_paused');
 });
 
 test('A1 (O2): R8 holds an item with no Live-owed line whose State matrix has a live-owed cell, and reads entries across line breaks', async () => {
