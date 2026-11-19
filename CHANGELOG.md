@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Plugin
 
+- **Changed: tier selection re-probes when only `REPL` and `Poll` are visible.** `selectTier` returns `{tier: null, reprobe: true}` with a warning for a tool list that includes `REPL` and holds nothing but `REPL` and `Poll` (what a Code Mode session shows), instead of falling to tier 4, so the tools a script can call are probed again (`coordinator-tiers.mjs` `selectTier`). Every other tool list selects as before.
 - **Added: coordinator tier 2b for a Code Mode director.** `coordinator-tiers.mjs` selects tier `2b` when `REPL` and `Agent` are present without `Workflow`, and `launchProfile('2b', {scope})` (CLI `--tier 2b --scope S`) returns one Code Mode coordinator `Agent` call that runs the whole run with Method B; the director text and `coordinator-tiers.md` carry the matching brief.
 - **Added: a SessionStart hint for Code Mode sessions.** `orchestration-context.mjs` appends a short `Code Mode` section, after the visual conventions in both variants, when `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE` is exactly `1`. It points at the run-wave `references/code-mode.md` recipes and `skills/_generated/call-shapes-js.md`; it gates nothing, and any other value leaves the output byte-identical.
 - **Added: a Code Mode call-shape reference.** `gen-call-shapes.mjs` now also writes `skills/_generated/call-shapes-js.md`: one `tools['mcp__...']` script line per entry and serving MCP entry, with the same anchors as `call-shapes.md`, covered by the same `--check`.
