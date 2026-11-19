@@ -520,14 +520,16 @@ async function runRetroMetrics(args) {
       const key = role.error ? role : await retroReportRows({ ...base, groupBy: 'noteKey' });
       if (role.error || key.error) noteVolume = { measured: false, reason: role.error || key.error };
       else {
-        const maxLengths = {};
+        const maxLengthsByType = {};
         const types = new Map();
         for (const it of items) if (it.type && !types.has(it.type)) types.set(it.type, it.id);
-        for (const id of types.values()) {
+        for (const [type, id] of types) {
           const schema = await readRetro('items_read', { select: 'schema', itemId: id }, gaps, 'schema');
-          for (const n of (schema && schema.notes) || []) if (n && typeof n.key === 'string' && Number.isFinite(n.maxLength) && !(n.key in maxLengths)) maxLengths[n.key] = n.maxLength;
+          const caps = {};
+          for (const n of (schema && schema.notes) || []) if (n && typeof n.key === 'string' && Number.isFinite(n.maxLength) && !(n.key in caps)) caps[n.key] = n.maxLength;
+          maxLengthsByType[type] = caps;
         }
-        noteVolume = { window: { since }, byRole: role.rows, byNoteKey: key.rows, maxLengths };
+        noteVolume = { window: { since }, byRole: role.rows, byNoteKey: key.rows, maxLengthsByType };
       }
     }
   }

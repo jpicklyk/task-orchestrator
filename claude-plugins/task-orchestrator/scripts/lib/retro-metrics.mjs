@@ -60,7 +60,7 @@ export function parseDefects(body) {
   const out = [];
   for (const line of lf(body).split('\n')) {
     const starts = [];
-    const re = /defect:\s*/g;
+    const re = /\bdefect:\s*/g;
     let m;
     while ((m = re.exec(line)) !== null) starts.push({ at: m.index, from: m.index + m[0].length });
     for (let i = 0; i < starts.length; i += 1) {
@@ -223,6 +223,9 @@ function perRunRows(analysed) {
       if (isObj(l.meters)) cache.known += isNum(l.meters.cacheRead) ? l.meters.cacheRead : 0;
       else cache.unknown += 1;
     }
+    // The turns are a run-level figure that provenance writes unchanged on every item line, so the run
+    // takes it once (the largest numeric value), never the sum over its lines.
+    const turns = lines.map((l) => l.orchestratorTurns).filter(isNum);
     rows.push({
       run,
       adapter: lines[0].adapter || null,
@@ -230,7 +233,7 @@ function perRunRows(analysed) {
       tokens: field('tokens'),
       cacheRead: cache,
       duration: field('duration'),
-      orchestratorTurns: field('orchestratorTurns')
+      orchestratorTurns: turns.length > 0 ? Math.max(...turns) : 'unknown'
     });
   }
   return rows;
@@ -372,7 +375,14 @@ function noteVolumeOf(nv, baselines) {
   if (nv.measured === false) return { measured: false, reason: nv.reason || 'unknown' };
   const byRole = Array.isArray(nv.byRole) ? nv.byRole : [];
   const byKey = Array.isArray(nv.byNoteKey) ? nv.byNoteKey : [];
-  const maxLengths = isObj(nv.maxLengths) ? nv.maxLengths : {};
+  const lengthsByType = isObj(nv.maxLengthsByType) ? nv.maxLengthsByType : {};
+  // The report groups by one dimension, so a key's largest write has no type: judge it against the caps of
+  // every type that declares the key (capsOf -> {<type>: n}).
+  const capsOf = (noteKey) => {
+    const caps = {};
+    for (const [type, keys] of Object.entries(lengthsByType)) if (isObj(keys) && isNum(keys[noteKey])) caps[type] = keys[noteKey];
+    return caps;
+  };
   const roleOf = (r) => (isObj(r.key) ? r.key.role : undefined);
   const keyOf = (r) => (isObj(r.key) ? r.key.noteKey : undefined);
   const bytes = (r) => (isNum(r.bytes) ? r.bytes : 0);
@@ -385,7 +395,15 @@ function noteVolumeOf(nv, baselines) {
   const overruns = [];
   for (const r of byKey) {
     const k = keyOf(r);
-    if (k !== undefined && isNum(maxLengths[k]) && isNum(r.maxBytes) && r.maxBytes > maxLengths[k]) overruns.push({ noteKey: k, maxBytes: r.maxBytes, maxLength: maxLengths[k] });
+    if (k === undefined || !isNum(r.maxBytes)) continue;
+    const caps = capsOf(k);
+    const values = Object.values(caps);
+    if (values.length === 0) continue;
+    const smallest = Math.min(...values);
+    if (r.maxBytes <= smallest) continue;
+    const entry = { noteKey: k, maxBytes: r.maxBytes, maxLength: smallest };
+    if (new Set(values).size > 1) entry.capsByType = caps;
+    overruns.push(entry);
   }
   return {
     window: nv.window || null,
@@ -426,8 +444,9 @@ function selfOf(self, runTokens) {
  *   layerLines?: string[]                  extra 'layer-meters=' lines (the run report's); lines inside a
  *                                          delegationMetadata body are found too,
  *   sessionMeters?: session-meters-v1 doc  (run-planner session-meters output) or null,
- *   noteVolume?: {window, byRole: [report notes rows], byNoteKey: [rows], maxLengths: {key: n}}
- *                or {measured: false, reason},
+ *   noteVolume?: {window, byRole: [report notes rows], byNoteKey: [rows], maxLengthsByType: {<type>: {<key>: n}}}
+ *                or {measured: false, reason}; an overrun is a key's maxBytes above the smallest cap among the
+ *                types declaring it, with capsByType {<type>: n} added when those caps differ,
  *   baselines?: object|null,               parseBaselines() output, echoed in noteVolume.baselines,
  *   self?: {label, row: agents row|null, wallMs?} | {measured: false, reason} | null
  * }
