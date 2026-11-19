@@ -109,6 +109,36 @@ test('S1: structured line gives seats (reviewer-a1 -> type reviewer), perRun tok
   assert.deepEqual(r2.cacheRead, { known: 0, unknown: 1 })
 })
 
+// A2/B1: orchestratorTurns is a run-level value; provenance writes the same run turns on every item line
+// of a run, so the run row takes it once (max of the numeric values), never the sum.
+test('A2 B1: perRun orchestratorTurns is taken once per run (max), not summed over the run\'s lines', () => {
+  const line = (turns) => structured({ run: 'r-1', orchestratorTurns: turns })
+  // three lines of r-1, each 3 -> 3 (a sum would read 9)
+  const same = retroMetrics({ items: [
+    item(ID_A, { delegationMetadata: line(3) }),
+    item(ID_B, { delegationMetadata: line(3) }),
+    item(ID_C, { delegationMetadata: line(3) }),
+  ] })
+  assert.equal(findRun(same, 'r-1').orchestratorTurns, 3)
+  // lines 2 and 5 -> 5 (a sum would read 7)
+  const differ = retroMetrics({ items: [
+    item(ID_A, { delegationMetadata: line(2) }),
+    item(ID_B, { delegationMetadata: line(5) }),
+  ] })
+  assert.equal(findRun(differ, 'r-1').orchestratorTurns, 5)
+  // a numeric value wins over an unknown one; all unknown reads 'unknown'
+  const mixed = retroMetrics({ items: [
+    item(ID_A, { delegationMetadata: line('unknown') }),
+    item(ID_B, { delegationMetadata: line(4) }),
+  ] })
+  assert.equal(findRun(mixed, 'r-1').orchestratorTurns, 4)
+  const none = retroMetrics({ items: [
+    item(ID_A, { delegationMetadata: line('unknown') }),
+    item(ID_B, { delegationMetadata: line('unknown') }),
+  ] })
+  assert.equal(findRun(none, 'r-1').orchestratorTurns, 'unknown')
+})
+
 // -- S2: extra-seats rows of three shapes -----------------------------------------------------------
 
 test('S2: six-field rows feed the seats layer sums; five- and three-field rows are flagged legacyBasis and left out; unknown tokens is a gap, not 0', () => {
@@ -379,6 +409,14 @@ test('D7: defects parse from session-tracking; message ends at the next defect, 
   assert.deepEqual(parseDefects(null), [])
 })
 
+// A2/O6: the marker matches on a word boundary, so "nodefect:" inside a longer word is not a defect.
+test('A2 O6: defect: matches on a word boundary ("nodefect:" is not a marker; "x; defect:" is)', () => {
+  assert.deepEqual(parseDefects('nodefect: a, b, c, d'), [])
+  const one = parseDefects('x; defect: a, b, c, d')
+  assert.equal(one.length, 1)
+  assert.deepEqual([one[0].tool, one[0].op, one[0].code, one[0].message], ['a', 'b', 'c', 'd'])
+})
+
 // -- S10: baselines, self ---------------------------------------------------------------------------
 
 const CONFIG_WITH_BASELINES = [
@@ -535,6 +573,8 @@ const json = (r) => {
   return JSON.parse(r.stdout)
 }
 const share = (v) => (v > 1 ? v / 100 : v)
+// Two days back: inside the CLI's 31-day --since floor, whenever the suite runs (A2/B2).
+const SINCE_RECENT = () => new Date(Date.now() - 2 * 86400000).toISOString()
 
 // -- S7: CLI note volume over REST ------------------------------------------------------------------
 
@@ -543,7 +583,7 @@ test('S7: note volume over REST /api/v1/ops/report (two role pages), review shar
   const cfg = join(TMP, 'config-with.yaml')
   writeFileSync(cfg, CONFIG_WITH_BASELINES)
   try {
-    const since = '2026-11-10T00:00:00.000Z'
+    const since = SINCE_RECENT()
     const r = await runCli(['--root', ROOT, '--item', ID_A, '--since', since, '--config', cfg], { env: { TASK_ORCHESTRATOR_API_URL: fake.url } })
     assert.equal(r.status, 0, r.stderr)
     const doc = json(r)
@@ -577,6 +617,47 @@ test('S7: note volume over REST /api/v1/ops/report (two role pages), review shar
   }
 })
 
+// A2/O7: report notes groups by one dimension, so a key's largest write has no type; the overrun is judged
+// against the smallest cap among the types declaring the key, with capsByType listed when caps differ.
+test('A2 O7: a noteKey declared by two types with different caps overruns the smaller cap, in either item order', async () => {
+  const TYPE_CAPS = { 'type-a': 12000, 'type-b': 4000 }
+  const typeOfItem = { [ID_A]: 'type-a', [ID_B]: 'type-b' }
+  const mkHandler = () => baseHandler({
+    items_read: (body) => {
+      if (body.select === 'get') {
+        const id = body.itemId
+        const type = Object.entries(typeOfItem).find(([k]) => k === id || k.startsWith(String(id)))?.[1] ?? 'type-a'
+        return ok({ id, type, rootId: ROOT, role: 'terminal', traits: [] })
+      }
+      if (body.select === 'schema') {
+        const type = body.type ?? typeOfItem[body.itemId] ?? Object.entries(typeOfItem).find(([k]) => k.startsWith(String(body.itemId)))?.[1]
+        return ok({ type, notes: [{ key: 'task-scope', role: 'queue', maxLength: TYPE_CAPS[type] }] })
+      }
+      return null
+    },
+    report: (body) => {
+      if (body.groupBy === 'noteKey') {
+        // task-scope largest write 5000: above type-b's 4000, below type-a's 12000
+        return ok({ items: [{ key: { noteKey: 'task-scope' }, writes: 2, notes: 2, rewrites: 0, bytes: 6000, maxBytes: 5000, avgBytes: 3000 }], page: { total: 1, truncated: false } })
+      }
+      return null
+    },
+  })
+  const expected = [{ noteKey: 'task-scope', maxBytes: 5000, maxLength: 4000, capsByType: { 'type-a': 12000, 'type-b': 4000 } }]
+  for (const order of [[ID_A, ID_B], [ID_B, ID_A]]) {
+    const fake = await startFake(mkHandler())
+    try {
+      const args = ['--root', ROOT, '--since', SINCE_RECENT()]
+      for (const id of order) args.push('--item', id)
+      const r = await runCli(args, { env: { TASK_ORCHESTRATOR_API_URL: fake.url } })
+      assert.equal(r.status, 0, r.stderr)
+      assert.deepEqual(json(r).noteVolume.overruns, expected, 'item order ' + order.map((i) => i.slice(0, 8)).join(','))
+    } finally {
+      await stopFake(fake)
+    }
+  }
+})
+
 test('S7 probe: page.next absent on the only page ends the read after one request per grouping', async () => {
   const fake = await startFake(baseHandler({
     report: (body) => (body.groupBy === 'role'
@@ -584,7 +665,7 @@ test('S7 probe: page.next absent on the only page ends the read after one reques
       : null),
   }))
   try {
-    const r = await runCli(['--root', ROOT, '--item', ID_A, '--since', '2026-11-10T00:00:00.000Z'], { env: { TASK_ORCHESTRATOR_API_URL: fake.url } })
+    const r = await runCli(['--root', ROOT, '--item', ID_A, '--since', SINCE_RECENT()], { env: { TASK_ORCHESTRATOR_API_URL: fake.url } })
     assert.equal(r.status, 0, r.stderr)
     assert.equal(fake.calls.filter((c) => c.tool === 'report' && c.body.groupBy === 'role').length, 1)
     assert.ok(Math.abs(share(json(r).noteVolume.reviewShare) - 0.5) < 0.005)
@@ -604,7 +685,7 @@ test('S8: no REST base URL is measured:false with reason "no REST API configured
 test('S8: a failing report read gives noteVolume {measured:false, reason:<code>} while the other sections are present; exit 0', async () => {
   const fake = await startFake(baseHandler({ report: () => err(403, 'forbidden') }))
   try {
-    const r = await runCli(['--root', ROOT, '--item', ID_A, '--since', '2026-11-10T00:00:00.000Z'], { env: { TASK_ORCHESTRATOR_API_URL: fake.url } })
+    const r = await runCli(['--root', ROOT, '--item', ID_A, '--since', SINCE_RECENT()], { env: { TASK_ORCHESTRATOR_API_URL: fake.url } })
     assert.equal(r.status, 0, r.stderr)
     const doc = json(r)
     assert.equal(doc.noteVolume.measured, false)
@@ -638,7 +719,7 @@ test('S10: a --config without baselines gives noteVolume.baselines null', async 
   const cfg = join(TMP, 'config-without.yaml')
   writeFileSync(cfg, 'project:\n  rootId: ' + ROOT + '\n')
   try {
-    const r = await runCli(['--root', ROOT, '--item', ID_A, '--since', '2026-11-10T00:00:00.000Z', '--config', cfg], { env: { TASK_ORCHESTRATOR_API_URL: fake.url } })
+    const r = await runCli(['--root', ROOT, '--item', ID_A, '--since', SINCE_RECENT(), '--config', cfg], { env: { TASK_ORCHESTRATOR_API_URL: fake.url } })
     assert.equal(r.status, 0, r.stderr)
     assert.equal(json(r).noteVolume.baselines, null)
   } finally {
