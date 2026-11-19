@@ -101,6 +101,8 @@ docker run --rm -i \
   task-orchestrator:dev
 ```
 
+Name Node test commands by file path or glob (`node --test path/to/*.test.mjs`), never by directory: Node 22 on Windows reads a directory argument as a module and fails.
+
 Never pipe `./gradlew` output to `tail`; run it directly and read the full output. Tests use JUnit 5, MockK and a real file-backed SQLite fixture (`SqliteTestDatabase`).
 
 ## Git workflow
