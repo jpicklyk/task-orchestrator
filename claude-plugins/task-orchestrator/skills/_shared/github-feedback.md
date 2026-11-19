@@ -1,6 +1,6 @@
 # GitHub Feedback Filing (Improvement Proposals)
 
-Shared conventions for turning a **global-scoped** improvement proposal into a GitHub issue on the upstream repo. Used by `session-retrospective` Step 7c (filing) and by `review-proposals` (issue reuse when confirming a global proposal); both link it as `../_shared/github-feedback.md`. This file sits in `skills/_shared/`, which holds text two skills share and is not a skill directory.
+Shared conventions for turning a **global-scoped** improvement proposal into a GitHub issue on the upstream repo. Used by `session-retrospective` Step 7c (filing) and by `review-proposals` (issue reuse when accepting a global proposal); both link it as `../_shared/github-feedback.md`. This file sits in `skills/_shared/`, which holds text two skills share and is not a skill directory.
 
 Project-scoped proposals never reach this file: they anchor under their project root instead (session-retrospective Step 7b) and are applied to config, not filed upstream.
 

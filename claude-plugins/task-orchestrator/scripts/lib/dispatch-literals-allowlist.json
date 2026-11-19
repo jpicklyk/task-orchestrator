@@ -4,5 +4,7 @@
   { "file": "skills/manage-schemas/references/config-format.md", "text": "B's `effort: high` is never folded in", "comment": "precedence example" },
   { "file": "skills/manage-schemas/references/config-format.md", "text": "test-author: { agent: task-orchestrator:test-author, model: sonnet }", "comment": "seat override examples" },
   { "file": "skills/manage-schemas/references/config-format.md", "text": "extractor:   { agent: null, model: sonnet, effort: low }", "comment": "seat override examples" },
-  { "file": "skills/session-retrospective/SKILL.md", "text": "adapter=claude-workflow run=r-20260928-b2d", "comment": "provenance line format example parsed by the retrospective" }
+  { "file": "skills/session-retrospective/references/metrics.md", "text": "adapter=claude-workflow run=r-20260928-b2d", "comment": "provenance line format example parsed by the retrospective" },
+  { "file": "skills/session-retrospective/SKILL.md", "text": "model: sonnet", "comment": "skill frontmatter: the research class model, host integration pinned by a test to dispatch-policy.json" },
+  { "file": "skills/session-retrospective/SKILL.md", "text": "effort: medium", "comment": "skill frontmatter: the research class effort, host integration pinned by a test to dispatch-policy.json" }
 ]
