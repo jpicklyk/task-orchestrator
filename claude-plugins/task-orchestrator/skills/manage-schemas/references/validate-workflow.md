@@ -2,7 +2,7 @@
 
 Structural and semantic validation of `.taskorchestrator/config.yaml`.
 
-**The server is the authority.** The `config` tool's `validate` op runs the same pipeline a push runs (structure against the JSON Schema, the parser's findings, then semantics) without writing, and returns `{valid, errors[{path, reason}], warnings[{path, reason}]}` plus a diff against the root's head and, for a valid document, `affectedInFlight`. When the file has a `project.rootId`, call it first and report its result; the local checks below are for a file with no root, for a quick pre-read, and for the plugin-level checks the server does not make (kebab-case keys, description length, skill names). See [config-reference.md](../../../../../current/docs/config-reference.md#strict-validation), "Strict validation", for every rule the server enforces.
+**The server is the authority.** The `config` tool's `validate` op runs the same pipeline a push runs (structure against the JSON Schema, the parser's findings, then semantics) without writing, and returns `{valid, errors[{path, reason}], warnings[{path, reason}], lint[{path, reason}]}` plus a diff against the root's head and, for a valid document, `affectedInFlight`. When the file has a `project.rootId`, call it first and report its result; the local checks below are for a file with no root, for a quick pre-read, and for the plugin-level checks the server does not make (kebab-case keys, description length). VALIDATE shows the count of `lint` findings and points at AUDIT for them; `lint` never changes `valid`. See [config-reference.md](../../../../../current/docs/config-reference.md#strict-validation), "Strict validation", for every rule the server enforces.
 
 ```to-call
 {"tool": "config", "op": "validate", "args": {"rootId": "<project.rootId>", "configYaml": "<file text, CRLF replaced by LF>"}}
@@ -77,7 +77,7 @@ For each note in each schema (and trait):
 - `description` should be under 80 characters (warn if longer)
 - `key` values must be unique within a schema (error if duplicated)
 - At least one note should have `required: true` (warn if all notes in a schema are optional — the schema has no gate effect)
-- `skill` values should reference skills that exist in the project (warn if unknown — not an error since skill availability varies)
+- `skill` values: whether a name is an available skill is checked by AUDIT, Stage 2 (pointer); see [audit-workflow.md](audit-workflow.md)
 - `session-tracking` and `implementation-notes` guidance should not ask for a file list or test counts (warn when it matches `files changed`, `file(s) changed`, `test results`, or `pass/fail` not preceded by `no ` or `never `); point to the Legacy Closure-Note Guidance section of `edit-workflow.md`
 
 ### 6. Cross-Schema Consistency

@@ -1805,6 +1805,15 @@ export function reviewPrompt(core, doc, idOrShort, result) {
     `and follow the returned body. Keys: ${[...new Set([...REVIEW_RULES, ...Object.values(item.reviewRules || {}).flat()])].join(', ')}.`
   )
 
+  const seatSkillUnion = []
+  for (const list of Object.values(item.reviewSeatSkills || {})) {
+    if (!Array.isArray(list)) continue
+    for (const k of list) if (typeof k === 'string' && k !== '' && !seatSkillUnion.includes(k)) seatSkillUnion.push(k)
+  }
+  if (seatSkillUnion.length > 0) {
+    parts.push(`SEAT SKILLS: invoke each skill below with the Skill tool, in this order, before your seat's first file edit or note write: ${seatSkillUnion.join(', ')}.`)
+  }
+
   const tokenFile = core.seatTokenFile(plan, item, { seat: 'reviewer' })
   if (tokenFile) {
     parts.push(
@@ -2303,6 +2312,8 @@ export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
       const seatRules = item.reviewRules && item.reviewRules[g.seat]
       const laneRules = [...new Set([...noteRules, ...(Array.isArray(seatRules) ? seatRules : [])])]
       if (laneRules.length > 0) stage.rules = laneRules
+      const laneSeatSkills = item.reviewSeatSkills && item.reviewSeatSkills[g.seat]
+      if (Array.isArray(laneSeatSkills) && laneSeatSkills.length > 0) stage.seatSkills = laneSeatSkills.slice()
       const tokenFile = core.seatTokenFile(plan, item, { seat: g.seat })
       if (tokenFile) stage.tokenFile = tokenFile
       stages.push(stage)

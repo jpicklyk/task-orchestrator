@@ -431,7 +431,7 @@ traits:
     // including a SEAT-LESS config.
     // ─────────────────────────────────────────────────────────────────────
 
-    private val expectedFeatures = listOf("seats", "dispatchBySeat", "independent_of", "rules")
+    private val expectedFeatures = listOf("seats", "dispatchBySeat", "independent_of", "rules", "seatSkills")
 
     @Test
     fun `S13 - query_items schema by type reports features on both a seat-aware and a seat-less schema`(

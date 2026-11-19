@@ -98,7 +98,7 @@ internal object ConfigKeyCatalog {
             "lane"
         )
     val NOTE_LANE: Set<String> = setOf("output", "after")
-    val SEAT_ENTRY: Set<String> = setOf("name", "phase", "enters", "after", "reads_exclude", "transitions", "rules")
+    val SEAT_ENTRY: Set<String> = setOf("name", "phase", "enters", "after", "reads_exclude", "transitions", "rules", "skills")
     val INDEPENDENCE: Set<String> = setOf("mode", "require_verified")
     val NOTE_LIMITS: Set<String> = setOf("mode")
     val RUNS: Set<String> = setOf("stall_after", "budgets")
@@ -660,6 +660,7 @@ internal object YamlSchemaParser {
             val readsExclude = parseSeatStringListField(entryMap, "reads_exclude", context, name, entryPath, warnings)
             val transitions = parseSeatTransitions(entryMap, context, name, entryPath, warnings)
             val rules = parseSeatRules(entryMap, context, name, entryPath, warnings)
+            val skills = parseSeatSkills(entryMap, context, name, entryPath, warnings)
 
             for (key in entryMap.keys) {
                 if (key !in VALID_SEAT_ENTRY_KEYS) {
@@ -678,7 +679,8 @@ internal object YamlSchemaParser {
                     after = after,
                     readsExclude = readsExclude,
                     transitions = transitions,
-                    rules = rules
+                    rules = rules,
+                    skills = skills
                 )
             )
         }
@@ -804,6 +806,44 @@ internal object YamlSchemaParser {
                 continue
             }
             result.add(key)
+        }
+        return result.toList()
+    }
+
+    /**
+     * A seat's `skills:` list: null when absent (the plugin's default skills apply) or when not a list (a soft warning at
+     * `<entry>/skills`); otherwise the declared skill names verbatim, duplicates collapsed in first order. An element that
+     * is not a string, or is blank, is a soft warning at `<entry>/skills/<i>` and is dropped. `[]` declares no skill at
+     * all. Existence is not checked: a skill is resolved by the plugin, not the server.
+     */
+    private fun parseSeatSkills(
+        entryMap: Map<String, Any>,
+        context: String,
+        seatName: String,
+        entryPath: String,
+        warnings: ParseFindings
+    ): List<String>? {
+        if (!entryMap.containsKey("skills")) return null
+        val raw = entryMap["skills"]
+        val list =
+            raw as? List<*> ?: run {
+                warnings.soft(
+                    "$entryPath/skills",
+                    "$context seats (name='$seatName') has non-list 'skills' value '$raw'; ignoring"
+                )
+                return null
+            }
+        val result = LinkedHashSet<String>()
+        for ((i, element) in list.withIndex()) {
+            val name = element as? String
+            if (name == null || name.isBlank()) {
+                warnings.soft(
+                    "$entryPath/skills/$i",
+                    "$context seats (name='$seatName') has invalid skill name '$element' (expected a non-blank string); ignoring"
+                )
+                continue
+            }
+            result.add(name)
         }
         return result.toList()
     }

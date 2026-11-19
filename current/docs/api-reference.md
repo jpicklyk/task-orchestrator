@@ -488,10 +488,11 @@ No matching schema is not an error: the answer is `{schemaFree: true}`. Giving b
 and `itemId`, or `rootId` without `type`, is `invalid_request`.
 
 **Server feature advertisement.** `features` lists the optional-response capabilities this server can serve
-(`seats`, `dispatchBySeat`, `independent_of`, `rules`), unconditionally, whatever the resolved config
+(`seats`, `dispatchBySeat`, `independent_of`, `rules`, `seatSkills`), unconditionally, whatever the resolved config
 declares, so a client can tell an old server from a config that declares no seats. `features` also appears
 on REST `GET /api/v1/info` and the `.well-known` service descriptor (see `api-rest.md`). `rules` advertises
-per-root rule text served by the [`config`](#config) tool's `rules` op.
+per-root rule text served by the [`config`](#config) tool's `rules` op. `seatSkills` advertises a seat's `skills` list in
+the served `seats` and the `callerSeat` member of `context` and `transition`.
 
 **`search`.** Ranked full-text hits through the shared search service. `kinds` picks the content: `item`
 (title, summary, description), `note` (bodies) and/or `document` (title and body of plan, rule and page
@@ -612,7 +613,9 @@ omitted from `blockers` while its item stays listed.
   only, flat `{<seat>: {agent?, model?, effort?}}`) follow the seat rules of
   [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seats-trait--schema-dimension);
   `dispatch` is the `{agent?, model?, effort?}` profile of the current role of the item. All are omitted for a
-  seat-less or terminal item, never `[]`/`{}`.
+  seat-less or terminal item, never `[]`/`{}`. A seat serves `rules` and `skills` only when it declares them.
+- `callerSeat` is the name of the seat the call's seat token holds, present only when the token's item is this item
+  (omitted without a token, for the run's coordinator token and for a token of another item).
 - `gateStatus.violations` (`[{key, seat?, constraint, conflictingSeat?, waived?}]`, actor-free) reports the
   independence-attestation findings of the current phase: present (possibly `[]`) when independence `mode` is not
   `off` and the schema declares `independent_of`, omitted otherwise
@@ -1237,7 +1240,7 @@ key with another payload is `idempotency_mismatch`. All ops need the `advance` c
 
 | Op | Result element (on top of `ok: true`) |
 |---|---|
-| `transition` | `{itemId, previousRole, newRole, trigger, statusLabel?, cascades?, unblocked?, expectedNotes?, guidanceKey?, skillPointer?, skillPointers?, skillMode?, dispatch?, violations?}` |
+| `transition` | `{itemId, previousRole, newRole, trigger, statusLabel?, cascades?, unblocked?, expectedNotes?, guidanceKey?, skillPointer?, skillPointers?, skillMode?, dispatch?, callerSeat?, violations?}` |
 | `claim` | `{itemId, claimed: true, version, claimedAt, expiresAt, originalClaimedAt, released?, refreshed?, selected?, claimRef?, displaced?}` |
 | `release` | `{itemId, released: true}` |
 | `heartbeat` | `{itemId, claimed: true, version, claimedAt, expiresAt, originalClaimedAt, released?, refreshed: true}` |
@@ -1434,7 +1437,7 @@ caller's scope is `forbidden`, never `not_found`.
 | `get` | `{rootId, version, fingerprint, source, createdAt, configYaml, relation?}` |
 | `history` | `{rootId, headVersion?, versions: [{version, fingerprint, source, createdAt, principalId?, warningsCount, canonical}]}` newest first |
 | `push` | `{rootId, version, fingerprint, appended, createdAt, warnings?}` |
-| `validate` | `{rootId, valid, errors: [{path, reason}], warnings: [{path, reason}], diff?, affectedInFlight?}` |
+| `validate` | `{rootId, valid, errors: [{path, reason}], warnings: [{path, reason}], lint: [{path, reason}], diff?, affectedInFlight?}` |
 | `rollback` | `{rootId, version, fingerprint, source, appended, createdAt}` |
 | `reset` | `{rootId, appended}` |
 | `effective` | `{rootId?, schemas, traits, types, statusGraph, defaultSchema?, globalFingerprint?, perRootFingerprint?}` |
@@ -1467,7 +1470,9 @@ head (`effective` after `push` reads the new layer).
 
 **`validate`** runs the same size, parse, `rootId` and validation steps as `push` without writing, without
 `expectedVersion` and without the older-content guard. Problems come back in the result (`valid: false`, `errors`),
-including a parse failure and a `project.rootId` mismatch; an oversized document stays `payload_too_large`. When the
+including a parse failure and a `project.rootId` mismatch; an oversized document stays `payload_too_large`. `lint` is
+always present: warning-only `{path, reason}` schema quality findings, `[]` unless the document is valid, never part of
+`errors` or `warnings`, and never stored by `push`. When the
 document has no errors, `diff` is the change against the head, `{types, traits, settings}` each with `added`,
 `removed` and `changed` name lists (no head, or a reset head, counts as empty). A valid document also gets
 `affectedInFlight: {count, sample}`: the non-terminal items (queue, work, review, blocked, and lifecycle-free) in the root's subtree, visible

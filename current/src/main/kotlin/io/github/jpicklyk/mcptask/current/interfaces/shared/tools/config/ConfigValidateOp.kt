@@ -60,6 +60,7 @@ internal val configValidateOp =
             fun report(
                 errors: List<AppViolation>,
                 warnings: List<AppViolation>,
+                lint: List<AppViolation> = emptyList(),
                 diff: JsonElement? = null,
                 affected: JsonElement? = null
             ): Outcome<JsonElement> =
@@ -69,6 +70,7 @@ internal val configValidateOp =
                         put("valid", errors.isEmpty())
                         put("errors", JsonArray(errors.map(ConfigSupport::violationJson)))
                         put("warnings", JsonArray(warnings.map(ConfigSupport::violationJson)))
+                        put("lint", JsonArray(lint.map(ConfigSupport::violationJson)))
                         diff?.let { put("diff", it) }
                         affected?.let { put("affectedInFlight", it) }
                     }
@@ -81,7 +83,13 @@ internal val configValidateOp =
                             result.candidate
                                 ?.takeIf { result.isValid }
                                 ?.let { ConfigImpactService(env.configResolver, env.unitOfWork).affectedInFlight(rootId, it, ctx.scope) }
-                        report(result.errors, result.warnings, result.diff?.let(ConfigSupport::diffJson), impact?.let(::impactJson))
+                        report(
+                            result.errors,
+                            result.warnings,
+                            result.lint,
+                            result.diff?.let(ConfigSupport::diffJson),
+                            impact?.let(::impactJson)
+                        )
                     }
                     is ConfigValidateResult.ParseError ->
                         report(ConfigSupport.parseViolations(result.detail, result.violations), emptyList())

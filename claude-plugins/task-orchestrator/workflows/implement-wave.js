@@ -1150,9 +1150,11 @@ function promptRules(plan, stage) {
     if (!keys.includes(k)) keys.push(k)
   }
   const skillKeys = Array.isArray(stage.skills) ? stage.skills : []
+  const seatSkills = Array.isArray(stage.seatSkills) ? stage.seatSkills.filter((x) => typeof x === 'string' && x !== '') : []
   const lines = [
     `RULES: fetch each key below via config(ops:[{op:"rules", rootId:"${plan.rootId}", key:<key>}]) and follow the returned body over anything paraphrased here.`,
     `Keys: ${keys.join(', ')}.`,
+    ...(seatSkills.length ? [`SEAT SKILLS: invoke each skill below with the Skill tool, in this order, before your seat's first file edit or note write: ${seatSkills.join(', ')}.`] : []),
     `A not_found result for a key falls back to this stage's skills entry of the same name${skillKeys.length ? ` (${skillKeys.join(', ')})` : ''}.`,
     `A missing PROTOCOL key (${protocolKey}) is fatal: status stopped, reason "rule ${protocolKey} unavailable".`,
     'Record every key you fetched, with its rulesVersion, under the envelope\'s rulesFetched.',

@@ -145,6 +145,15 @@ seat apply) and `[]` declares no rule. Duplicates collapse in first order; a non
 match the rule key grammar is a parser finding and is dropped. Existence is not checked, because rules are pushed
 separately: the server only serves the list, and only on a seat that declares it. Nothing in the server enforces it.
 
+### Seat skills
+
+A seat entry may declare `skills`, a list of skill names. It is absent when not declared (the plugin's defaults for that
+seat apply), `[]` declares no skill, and a declared list is served as written. Each name is kept verbatim (no trim, no
+pattern: a plugin skill carries a `plugin:` prefix, a project skill is bare). Duplicates collapse in first order; a
+non-string or blank element is a parser finding and is dropped, and a non-list value is a parser finding and the field
+is absent. Existence is not checked and nothing in the server enforces the list: the server only serves it, and only on
+a seat that declares it. The `seatSkills` feature advertises it.
+
 ## Runs (`runs:`)
 
 The `runs:` block sets how long a run may go quiet and, optionally, ceilings on a run's caps. It is allowed in the
@@ -229,7 +238,7 @@ three parts, merged into one result:
    cases, a non-string `status_labels` value, a `maxLength` of 0 or a fractional TTL are now errors. A note entry's
    `shared` (boolean, default `false`; `true` exempts the key from note ownership) must be a boolean. A note entry's `skill` must be a string or a list of strings, `skill_mode` one of `invoke` or
    `method-on-diff` and only with a `skill`, and `lane` only on a review note with a known `output`; a trait's
-   `description` and `applies_when` must be strings; a seat's `rules` must be a list of rule keys. Under `MIGRATION`
+   `description` and `applies_when` must be strings; a seat's `rules` must be a list of rule keys and its `skills` a list of non-blank strings. Under `MIGRATION`
    each of these is dropped with a warning. A seat's
    `transitions` must be a list of `complete`, `block`, `hold`, `resume`, `cancel` or `reopen` (`start` is
    governed by `enters`); outside strict validation a non-list is ignored and a bad element is dropped, with a warning.
@@ -276,6 +285,15 @@ items are compared at their pin, unpinned items at the heads, against the candid
 gate-relevant changes count (a note key added or removed, or its role or required flag changed, a different base schema
 or a different lifecycle mode); guidance and description edits do not. `sample` holds the first 20 of them as
 `{itemId, changedNotes, schema?, lifecycle?}` objects (see the `config` `validate` section of `api-reference.md`).
+
+`validate` also returns `lint`, a list of `{path, reason}` findings about schema quality. It is separate from `errors`
+and `warnings`, never changes `valid`, and is `[]` for an invalid document, a parse failure and a rootId mismatch. `push`
+does not compute or store it. Only content declared in the per-root document is reported; the server layer is read for
+resolution and comparison only. The checks: a seat that owns no note of its phase; an optional note with no seat on a
+schema or trait that declares seats (a required unseated note keeps its parser warning); the same guidance on several
+notes; a per-root type or trait that shadows a server one (with what differs); a trait with no `applies_when`; a seat
+`rules` entry the root does not serve; a seat `skills` entry or note `skill` that names a served rule. Every finding is
+a point to consider, not a defect.
 
 ## Parse modes
 
