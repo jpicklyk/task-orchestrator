@@ -826,7 +826,7 @@ class RunsSeatOpsTest {
             write.described("links")
         )
         assertTrue(
-            write.described("itemId").startsWith("Item id: a UUID or a hex prefix of 8 to 32 characters. [ops: assign"),
+            write.described("itemId").startsWith("Item id: UUID or 8-32 hex. [ops: assign"),
             write.described("itemId")
         )
         assertTrue(

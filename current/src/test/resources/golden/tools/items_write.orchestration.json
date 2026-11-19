@@ -137,14 +137,14 @@
                 },
                 "tags": {
                   "type": "array",
-                  "description": "Lowercase, hyphenated. Update: [] clears.",
+                  "description": "Lowercase, hyphenated.",
                   "items": {
                     "type": "string"
                   }
                 },
                 "traits": {
                   "type": "array",
-                  "description": "Declared traits, max 100 chars each. Update: [] clears.",
+                  "description": "Declared traits, max 100 chars each.",
                   "items": {
                     "type": "string"
                   }
@@ -243,14 +243,14 @@
                   },
                   "tags": {
                     "type": "array",
-                    "description": "Lowercase, hyphenated. Update: [] clears.",
+                    "description": "Lowercase, hyphenated.",
                     "items": {
                       "type": "string"
                     }
                   },
                   "traits": {
                     "type": "array",
-                    "description": "Declared traits, max 100 chars each. Update: [] clears.",
+                    "description": "Declared traits, max 100 chars each.",
                     "items": {
                       "type": "string"
                     }
@@ -457,6 +457,10 @@
       "describe": {
         "type": "boolean",
         "description": "true: return each operation's parameters and errors; nothing runs."
+      },
+      "seatToken": {
+        "type": "string",
+        "description": "Run seat token; omit when not seated."
       }
     },
     "type": "object"

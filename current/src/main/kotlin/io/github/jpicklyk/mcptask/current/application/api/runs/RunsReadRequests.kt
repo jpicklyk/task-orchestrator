@@ -23,9 +23,9 @@ enum class RunStatusFilter(
     CLOSED(RunStatus.CLOSED)
 }
 
-internal const val RUN_ID_DOC = "Run id: a UUID or a hex prefix of 8 to 32 characters."
-internal const val DECISION_ID_DOC = "Decision id: a UUID or a hex prefix of 8 to 32 characters."
-private const val ROOT_FILTER_DOC = "Only those on this root. Item id: a UUID or a hex prefix of 8 to 32 characters."
+internal const val RUN_ID_DOC = "Run id: UUID or 8-32 hex."
+internal const val DECISION_ID_DOC = "Decision id: UUID or 8-32 hex."
+private const val ROOT_FILTER_DOC = "Only those on this root. Item id: UUID or 8-32 hex."
 private const val ITEM_FILTER_DOC = "Only those on this item (a UUID or a hex prefix)."
 private const val LIMIT_DOC = "Page size, 1 to 200 (default 50)."
 private const val CURSOR_DOC = "The page.next value of the previous page."

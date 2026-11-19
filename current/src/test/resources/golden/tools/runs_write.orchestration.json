@@ -23,7 +23,7 @@
             },
             "rootId": {
               "type": "string",
-              "description": "The root item the run belongs to. Item id: a UUID or a hex prefix of 8 to 32 characters. [ops: open, raise]"
+              "description": "The root item the run belongs to. Item id: UUID or 8-32 hex. [ops: open, raise]"
             },
             "items": {
               "type": "array",
@@ -34,7 +34,7 @@
             },
             "scopeId": {
               "type": "string",
-              "description": "An item the run is scoped to. Item id: a UUID or a hex prefix of 8 to 32 characters. [ops: open]"
+              "description": "An item the run is scoped to. Item id: UUID or 8-32 hex. [ops: open]"
             },
             "label": {
               "type": "string",
@@ -71,18 +71,18 @@
             },
             "runId": {
               "type": "string",
-              "description": "Run id: a UUID or a hex prefix of 8 to 32 characters. [ops: update, close, assign, raise]"
+              "description": "Run id: UUID or 8-32 hex. [ops: update, close, assign, raise]"
             },
             "addItems": {
               "type": "array",
-              "description": "Items to add to the run. Item id: a UUID or a hex prefix of 8 to 32 characters. [ops: update]",
+              "description": "Items to add to the run. Item id: UUID or 8-32 hex. [ops: update]",
               "items": {
                 "type": "string"
               }
             },
             "removeItems": {
               "type": "array",
-              "description": "Items to remove from the run. Item id: a UUID or a hex prefix of 8 to 32 characters. [ops: update]",
+              "description": "Items to remove from the run. Item id: UUID or 8-32 hex. [ops: update]",
               "items": {
                 "type": "string"
               }
@@ -103,7 +103,7 @@
             },
             "itemId": {
               "type": "string",
-              "description": "Item id: a UUID or a hex prefix of 8 to 32 characters. [ops: assign, raise]"
+              "description": "Item id: UUID or 8-32 hex. [ops: assign, raise]"
             },
             "seat": {
               "type": "string",
@@ -171,7 +171,7 @@
             },
             "decisionId": {
               "type": "string",
-              "description": "Decision id: a UUID or a hex prefix of 8 to 32 characters. [ops: withdraw]"
+              "description": "Decision id: UUID or 8-32 hex. [ops: withdraw]"
             },
             "idempotencyKey": {
               "type": "string",
@@ -190,6 +190,10 @@
       "describe": {
         "type": "boolean",
         "description": "true: return each operation's parameters and errors; nothing runs."
+      },
+      "seatToken": {
+        "type": "string",
+        "description": "Run seat token; omit when not seated."
       }
     },
     "type": "object"

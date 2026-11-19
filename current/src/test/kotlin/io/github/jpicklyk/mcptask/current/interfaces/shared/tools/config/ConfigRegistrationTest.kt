@@ -164,7 +164,7 @@ class ConfigRegistrationTest {
                 .first()
                 .getValue("description")
                 .jsonPrimitive.content
-        assertTrue("UUID" in rootDoc && "prefix" in rootDoc, rootDoc)
+        assertTrue("UUID" in rootDoc && "8-32 hex" in rootDoc, rootDoc)
         assertTrue(
             "131072" in
                 schemas("configYaml")

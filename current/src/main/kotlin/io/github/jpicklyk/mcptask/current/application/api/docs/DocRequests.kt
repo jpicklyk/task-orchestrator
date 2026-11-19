@@ -39,7 +39,7 @@ enum class DocLinkDirection {
  * `docs_write`: the same field name must generate the same schema in every select/op of a tool.
  */
 object DocDocs {
-    const val ROOT_ID = "Id of the depth-0 project root that owns the document: a full UUID or 8 to 32 hex characters."
+    const val ROOT_ID = "Id of the depth-0 project root that owns the document: UUID or 8-32 hex."
     const val KIND = "Document kind: plan, rule or page."
     const val KIND_READ = "$KIND On list it is optional and filters."
     const val SLUG_READ = "Document slug, unique per (root, kind)."
@@ -51,7 +51,7 @@ object DocDocs {
     const val EXPECTED_VERSION =
         "Guard on the document's version: omit to write unconditionally, 0 to require that it does not exist, " +
             "n to require that its current version is n. Anything else is version_conflict and nothing is written."
-    const val ITEM_ID = "Id of the work item: a full UUID or 8 to 32 hex characters of one. It must be under the document's root."
+    const val ITEM_ID = "Id of the work item: UUID or 8-32 hex. It must be under the document's root."
 }
 
 /** `docs_read get`: one document with its body, or one stored version of it. */

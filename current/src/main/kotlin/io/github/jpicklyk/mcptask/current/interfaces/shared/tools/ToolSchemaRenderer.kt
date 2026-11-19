@@ -4,6 +4,7 @@ import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -12,9 +13,9 @@ import kotlinx.serialization.json.put
  * Renders a [ToolSpec] for one [ToolView] (an MCP [ToolProfile], or [ToolView.Rest]): its input schema, its description and its MCP annotations.
  *
  * - Select tool properties: `select` (an enum of the visible selects in registration order), the union of
- *   the visible selects' fields (first appearance order), then `describe`.
+ *   the visible selects' fields (first appearance order), then `describe`, then `seatToken` (orchestration only).
  * - Ops tool properties: `ops` (an array whose items hold `op`, an enum of the visible ops, the union of
- *   the visible ops' fields, and `idempotencyKey`; items require `op`), `atomic`, then `describe`.
+ *   the visible ops' fields, and `idempotencyKey`; items require `op`), `atomic`, then `describe`, then `seatToken` (orchestration only).
  * - There is no top-level `required`, so a `{describe:true}` call is schema-valid. Per-select/op
  *   requiredness is published by `describe` and enforced by the decoder.
  * - A union field not declared by every visible select/op gets ` [select: a, b]` / ` [ops: a, b]`
@@ -29,6 +30,7 @@ object ToolSchemaRenderer {
     const val IDEMPOTENCY_KEY_DOC =
         "Optional client key (1-128 chars). Resending the same op with the same key returns the stored result."
     const val DESCRIBE_DOC = "true: return each operation's parameters and errors; nothing runs."
+    const val SEAT_TOKEN_DOC = "Run seat token; omit when not seated."
     const val DESCRIBE_HINT = "Call with describe:true for parameters and errors."
 
     /** The input schema `{type:object, properties}` of [spec] in [profile], or null when nothing is visible. */
@@ -87,6 +89,7 @@ object ToolSchemaRenderer {
             put("select", enumProperty(SELECT_DOC, names))
             for ((field, schema) in union(visible.map { it.name to it.request.descriptor }, "select")) put(field, schema)
             put("describe", booleanProperty(DESCRIBE_DOC))
+            putSeatToken(profile)
         }
     }
 
@@ -127,7 +130,12 @@ object ToolSchemaRenderer {
             )
             put("atomic", booleanProperty(ATOMIC_DOC))
             put("describe", booleanProperty(DESCRIBE_DOC))
+            putSeatToken(profile)
         }
+    }
+
+    private fun JsonObjectBuilder.putSeatToken(profile: ToolView) {
+        if (profile == ToolProfile.ORCHESTRATION) put(ToolDispatcher.SEAT_TOKEN, stringProperty(SEAT_TOKEN_DOC))
     }
 
     /**
@@ -168,6 +176,12 @@ object ToolSchemaRenderer {
             put("type", "string")
             put("description", doc)
             put("enum", JsonArray(values.map { JsonPrimitive(it) }))
+        }
+
+    private fun stringProperty(doc: String): JsonObject =
+        buildJsonObject {
+            put("type", "string")
+            put("description", doc)
         }
 
     private fun booleanProperty(doc: String): JsonObject =
