@@ -83,7 +83,7 @@ For each candidate (pending and stalled; cap 15, taking the 15 oldest by creatio
 From the notes extract:
 
 - **Proposal body**: the `proposal` note (or the item's `summary` if the note is absent; an absent note is backfilled before any Accept, see Step 5).
-- **Scope clause**: the scope classification the note states (global or project-specific). If it cannot be parsed unambiguously, **treat as global**: never auto-edit a project's config on an ambiguous scope reading.
+- **Scope clause**: the scope classification the note states (`product`, `global-process` or legacy `global`, all read as global, or project-specific). If it cannot be parsed unambiguously, **treat as global**: never auto-edit a project's config on an ambiguous scope reading.
 - **Existing `github-issue:` line**: the last line of the proposal body, `github-issue: <url>`. Carry it forward so the global-accept path reuses it instead of filing a duplicate.
 
 ---
@@ -125,7 +125,7 @@ For Reject or Defer collect the reasons in one follow-up batched call (up to 4 q
 The floor schema requires the `proposal` note in the queue phase, and `start` is gate-blocked without it. A proposal created before the retrospective filled it has none, so every Accept path (project, global, maintainer or community) first checks Step 2's list. When the `proposal` note is absent, upsert it from the item's `summary`, the Step 2 scope classification and a backfill marker, **before any config edit, push or `start`**:
 
 ```to-call
-{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<uuid>", "key": "proposal", "role": "queue", "body": "Problem and evidence: <from the item summary>.\nChange: <the exact change the summary names>.\nExpected effect: <as stated in the summary, or not stated>.\nBlast radius: <as stated, or not stated>.\nScope: <global | project-specific; target rootId>.\nbackfilled by review-proposals <YYYY-MM-DD>"}}
+{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<uuid>", "key": "proposal", "role": "queue", "body": "Problem and evidence: <from the item summary>.\nChange: <the exact change the summary names>.\nExpected effect: <as stated in the summary, or not stated>.\nBlast radius: <as stated, or not stated>.\nScope: <product | global-process | project-specific; target rootId>.\nbackfilled by review-proposals <YYYY-MM-DD>"}}
 ```
 
 Check `data.results[0].ok`. Never write a note that is only a URL.

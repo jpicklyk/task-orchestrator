@@ -68,7 +68,7 @@ Global trends sit under the process-global `Retrospective Trends` container, a d
 
 **5d** `advance` `start` on the retrospective; completion is Step 8b.
 
-**5e** Route defects, no session threshold: each `defect` finding and `defects[]` entry becomes evidence on an open item, a regression item or a new `[bug]` observation tagged `retro-reported` (a project defect: a declared `bug-fix`); one an input observation records creates nothing. Procedure: [`references/routing.md`](references/routing.md). An `agent-discipline` finding creates no item and no trend, only a `memory:` line (Step 9).
+**5e** Route defects, no session threshold: each `defect` finding and `defects[]` entry becomes evidence on an open item, a regression item or a new `[bug]` observation tagged `retro-reported` (a project defect: a declared `bug-fix`); one an input observation records creates nothing. Procedure: [`references/routing.md`](references/routing.md). A qualifying product defect can also be filed upstream (opt-in): [`../_shared/github-feedback.md#bug-reports-product-defects`](../_shared/github-feedback.md#bug-reports-product-defects). An `agent-discipline` finding creates no item and no trend, only a `memory:` line (Step 9).
 
 ## Step 6 - Update Trends
 
@@ -81,14 +81,14 @@ For each trend touched in Step 6 with **Sessions >= 2** (a standing trend only w
 **7a** Find or create the `Improvement Proposals` root item (unscoped, as 5a).
 
 ### 7b. Create proposal items
-Scope is its trend's: a `project-*` tag is project scope, any other trend global. Create the item (`type: "improvement-proposal"`, `tags: ["improvement-proposal"]`, `priority: "low"`, title `Proposal: <concrete change>`) under the 7a container (project scope: the per-project container, [`references/routing.md`](references/routing.md)). Fill its `proposal` note straight after the create, or `review-proposals` is gate-blocked:
+Scope is its trend's: a `project-*` tag is project scope (`project-specific`); any other trend is `product` when every F-line routed to it this run is `scope=product`, else `global-process`. Create the item (`type: "improvement-proposal"`, `tags: ["improvement-proposal"]`, `priority: "low"`, title `Proposal: <concrete change>`) under the 7a container (project scope: the per-project container, [`references/routing.md`](references/routing.md)). Fill its `proposal` note straight after the create, or `review-proposals` is gate-blocked:
 
 ```to-call
-{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<proposal-uuid>", "key": "proposal", "role": "queue", "body": "Problem and evidence: <pattern, retrospective ids, sessions>.\nChange: <exact YAML or rule text, skill file and section, or hook event, matcher and purpose>.\nExpected effect: <measurable effect and how later runs measure it>.\nBlast radius: <schemas, skills or agents touched>.\nScope: <global | project-specific; target rootId when project-specific>."}}
+{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<proposal-uuid>", "key": "proposal", "role": "queue", "body": "Problem and evidence: <pattern, retrospective ids, sessions>.\nChange: <exact YAML or rule text, skill file and section, or hook event, matcher and purpose>.\nExpected effect: <measurable effect and how later runs measure it>.\nBlast radius: <schemas, skills or agents touched>.\nScope: <product | global-process | project-specific; target rootId when project-specific>."}}
 ```
 
 ### 7c. GitHub issues (product-scope proposals only)
-Best-effort: a failure is a one-line reason, the retrospective continues. Gate, guard, dedup, template, record-back: [`../_shared/github-feedback.md`](../_shared/github-feedback.md).
+Files only a proposal whose `Scope:` is `product`. Best-effort: a failure is a one-line reason, the retrospective continues. Gate, guard, dedup, template, record-back: [`../_shared/github-feedback.md`](../_shared/github-feedback.md).
 
 ## Step 8 - Meta-Evaluation
 
@@ -122,7 +122,7 @@ Then update the source trend: `effective` `cancel`s it (`summary: "archived: ver
 node "<helper>" retro-metrics --root <rootId> --run <runId> --session-dir "<dir>" --self-only
 ```
 
-Upsert the work note `actions-taken`: proposals (title, short id), bug items (short id, `created` or `evidence`), memory lines, each global proposal's GitHub outcome (`filed <url>`, `linked existing <url>`, `github filing skipped: <reason>`), each project proposal's anchor, trends created, updated or retired, adopted proposals verified. Then the gate loop:
+Upsert the work note `actions-taken`: proposals (title, short id), bug items (short id, `created` or `evidence`), memory lines, each `bug-report` result `line`, each global proposal's GitHub outcome (`filed <url>`, `linked existing <url>`, `github filing skipped: <reason>`), each project proposal's anchor, trends created, updated or retired, adopted proposals verified. Then the gate loop:
 
 ```to-call
 {"tool": "items_read", "select": "context", "args": {"itemId": "<retro-uuid>"}}

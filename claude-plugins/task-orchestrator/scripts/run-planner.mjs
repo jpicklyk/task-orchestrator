@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // run-planner.mjs — CLI dispatcher for the run-wave front door's planner helper.
 //
-// Subcommands: probe | plan | explain | validate | bind-run | retro-metrics. Input via --in <file> or stdin; JSON on
+// Subcommands: probe | plan | explain | validate | bind-run | retro-metrics | bug-report. Input via --in <file> or stdin; JSON on
 // stdout; {error, detail} on stderr. Exit 0 ok, 2 invalid input, 3 refused (stdout still
 // carries the doc or {ok:false, errors}). A global `--out <path> [--force]` (any subcommand) writes the
 // document to <path> instead of stdout; it refuses (exit 3) to overwrite a launched run's existing file
@@ -16,8 +16,8 @@
 // --projects-dir), --session-transcript <path>, --session-since <t> and --session-until <t>, which add
 // the 'layer-meters' member to its output.
 
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { homedir, tmpdir, userInfo, hostname } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,7 +25,9 @@ import * as lib from './run-planner-lib.mjs';
 import * as exec from './run-exec-lib.mjs';
 import { loadWaveCore } from './lib/wave-core.mjs';
 import { checkServer } from '../hooks/lib/server-compat.mjs';
-import { apiBaseUrl, callOp } from '../hooks/lib/api-client.mjs';
+import { apiBaseUrl, callOp, wellKnown } from '../hooks/lib/api-client.mjs';
+import { locateConfig, userHome } from '../hooks/config-locator.mjs';
+import { runBugReport } from './lib/bug-report.mjs';
 import { resolveOrchestratorEntryKey } from '../hooks/lib/mcp-registrations.mjs';
 import { readSection, scalar } from '../hooks/yaml-lite.mjs';
 import { retroMetrics, parseBaselines, CONTRACT as RETRO_METRICS_CONTRACT } from './lib/retro-metrics.mjs';
@@ -541,6 +543,106 @@ async function runRetroMetrics(args) {
 }
 
 // ---------------------------------------------------------------------------------------
+// bug-report: opt-in GitHub bug reports for product defects (lib/bug-report.mjs holds the logic; this
+// handler supplies gh, the clock, the per-install state file and the versions).
+// bug-report --in <file> [--config <path>] [--deny <name>]...
+// Exit 0 with a 'run-wave/bug-report-v1' document; exit 2 only for bad arguments.
+// ---------------------------------------------------------------------------------------
+function parseBugReportArgs(args) {
+  const out = { in: null, config: null, deny: [] };
+  for (let i = 0; i < args.length; i += 1) {
+    const a = args[i];
+    if (!['--in', '--config', '--deny'].includes(a)) throw new Error(`invalid args: unknown argument ${a}`);
+    const v = args[i + 1];
+    if (v === undefined || v.startsWith('--')) throw new Error(`invalid args: ${a} needs a value`);
+    i += 1;
+    if (a === '--in') out.in = v;
+    else if (a === '--config') out.config = v;
+    else out.deny.push(v);
+  }
+  if (!out.in) throw new Error('invalid args: --in <file> is required');
+  return out;
+}
+
+async function runBugReportCmd(args) {
+  const a = parseBugReportArgs(args);
+  let input;
+  try {
+    input = JSON.parse(readFileSync(a.in, 'utf8'));
+  } catch (e) {
+    throw new Error(`invalid args: --in is not readable JSON (${(e && e.code) || 'parse'})`);
+  }
+  if (!input || typeof input !== 'object' || !Array.isArray(input.defects)) throw new Error('invalid args: input needs a defects array');
+  const cwd = process.cwd();
+  let configText = '';
+  if (a.config) configText = safeRead(a.config);
+  else {
+    const located = locateConfig({ cwd });
+    configText = located && typeof located.text === 'string' ? located.text : '';
+  }
+  const statePath = join(userHome(), '.taskorchestrator', 'github-feedback-state.json');
+  const nameSection = configText ? readSection(configText, 'project', { blockOnly: true }) : null;
+  const denyNames = [...a.deny];
+  const projectName = nameSection ? scalar(nameSection.lines, 'name') : null;
+  if (projectName) denyNames.push(projectName);
+  try {
+    denyNames.push(userInfo().username);
+  } catch {
+    // no OS user
+  }
+  try {
+    denyNames.push(hostname());
+  } catch {
+    // no hostname
+  }
+  const versions = { plugin: null, server: null };
+  try {
+    versions.plugin = JSON.parse(readFileSync(resolve(HERE, '..', '.claude-plugin', 'plugin.json'), 'utf8')).version || null;
+  } catch {
+    // unknown
+  }
+  const doc = await (async () => {
+    const gateProbe = runBugReport({ defects: [], configText, deps: { gh: () => ({ status: 1 }), now: () => 0, readState: () => null, writeState: () => false, writeTemp: () => '', removeTemp: () => {} } });
+    if (gateProbe.gate === 'disabled') return gateProbe;
+    const base = apiBaseUrl({ cwd });
+    const wk = base ? await wellKnown({ baseUrl: base, timeoutMs: RETRO_TIMEOUT_MS }) : null;
+    if (wk && typeof wk.version === 'string' && wk.version) versions.server = wk.version;
+    return runBugReport({
+      defects: input.defects,
+      configText,
+      denyNames,
+      versions,
+      deps: {
+        gh: (ghArgs) => {
+          const r = spawnSync('gh', ghArgs, { encoding: 'utf8', timeout: 30000 });
+          return { status: typeof r.status === 'number' ? r.status : 1, stdout: r.stdout || '' };
+        },
+        now: () => Date.now(),
+        readState: () => parseJson(safeRead(statePath)),
+        writeState: (st) => {
+          try {
+            mkdirSync(dirname(statePath), { recursive: true });
+            writeFileSync(statePath, JSON.stringify(st));
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        writeTemp: (text) => {
+          const dir = mkdtempSync(join(tmpdir(), 'bug-report-'));
+          const file = join(dir, 'body.md');
+          writeFileSync(file, text);
+          return file;
+        },
+        removeTemp: (file) => rmSync(dirname(file), { recursive: true, force: true })
+      }
+    });
+  })();
+  emit(JSON.stringify(doc));
+  process.exit(0);
+}
+
+// ---------------------------------------------------------------------------------------
 // Subcommand table. run-exec-lib.mjs supplies: next, prompt, stage-result, scan-declarations,
 // verify, notes-audit, dispatch-meta, provenance, session-meters, review-prompt, reseat, run-ops,
 // follow-ups, report, review-args, post-run-steps.
@@ -552,6 +654,7 @@ const SUBCOMMANDS = {
   validate: runValidate,
   'bind-run': runBindRun,
   'retro-metrics': runRetroMetrics,
+  'bug-report': runBugReportCmd,
   next: (args) => exec.EXEC_COMMANDS.next(args, EXEC_IO),
   prompt: (args) => exec.EXEC_COMMANDS.prompt(args, EXEC_IO),
   'stage-result': (args) => exec.EXEC_COMMANDS['stage-result'](args, EXEC_IO),

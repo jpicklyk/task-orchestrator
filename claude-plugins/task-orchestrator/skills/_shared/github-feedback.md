@@ -1,12 +1,12 @@
-# GitHub Feedback Filing (Improvement Proposals)
+# GitHub Feedback Filing
 
-Shared conventions for turning a **product-scope** improvement proposal into a GitHub issue on the upstream repo. Used by `session-retrospective` Step 7c (filing) and by `review-proposals` (issue reuse when accepting a global proposal); both link it as `../_shared/github-feedback.md`. This file sits in `skills/_shared/`, which holds text two skills share and is not a skill directory.
+Shared conventions for turning a **product-scope** improvement proposal, or a qualifying product defect, into a GitHub issue on the upstream repo. Used by `session-retrospective` Step 7c (filing) and by `review-proposals` (issue reuse when accepting a global proposal); both link it as `../_shared/github-feedback.md`. This file sits in `skills/_shared/`, which holds text two skills share and is not a skill directory.
 
 Project-scoped proposals never reach this file: they anchor under their project root instead (session-retrospective Step 7b) and are applied to config, not filed upstream.
 
 Call shapes are in [`../_generated/call-shapes.md`](../_generated/call-shapes.md).
 
-Contents: [Config gate](#config-gate) | [gh availability guard](#c5---gh-availability-guard) | [Dedup procedure](#dedup-procedure-cheapest-first) | [Issue template](#c4---issue-template) | [Record-back](#c2---record-back) | [Best-effort discipline](#best-effort-discipline)
+Contents: [Config gate](#config-gate) | [gh availability guard](#c5---gh-availability-guard) | [Dedup procedure](#dedup-procedure-cheapest-first) | [Issue template](#c4---issue-template) | [Record-back](#c2---record-back) | [Bug reports (product defects)](#bug-reports-product-defects) | [Best-effort discipline](#best-effort-discipline)
 
 ---
 
@@ -111,6 +111,28 @@ When the item has **no `proposal` note** (a legacy item), do not write a note th
 
 ---
 
+## Bug reports (product defects)
+
+A product defect the retrospective routed in Step 5e can reach the upstream repo as a scrubbed `[bug]` issue, or as a rate-limited `seen again` comment on an existing one. Opt-in, off by default: the consent is asked once, at init. The logic lives in code (`scripts/lib/bug-report.mjs`); the agent writes the input, runs one command and records the result back.
+
+**Gate.** `extensions.claude-code.retrospective.github_feedback.bug_reports` must be exactly `true`; it is independent of `enabled`, and `repo` is shared. Anything else is gate `disabled`: no `gh` call, nothing written.
+
+**What qualifies.** Only a `defect` finding of `scope: product` with signal `tool-error`, `hook-failure`, `script-failure` or `shape-mismatch`, and non-empty `tool`, `op`, `code`, `message` and `quote`. An environment code (`network`, `unauthenticated`, `timeout`, `no_api`, `ECONNREFUSED`, `ENOTFOUND`, `ETIMEDOUT`, `EAI_AGAIN`) never qualifies. The code checks those fields; misuse is your judgment: a defect caused by the caller's own wrong arguments or by project config is not a product defect, so leave it out of the input. For a hook or script failure, `tool` is the file name, `op` the event or subcommand, `code` `exit:<n>` or the error class. The `quote` is evidence for you and is never posted.
+
+**Input.** Write a JSON file `{"defects": [{"kind", "scope", "signal", "tool", "op", "code", "message", "quote", "expected"?, "actual"?, "callShape"?, "observation"?}]}`, one entry per routed defect (`observation` is its item's short id). `expected` and `actual` are one line each, with no names, paths or ids. The fingerprint is never an input: the command computes it.
+
+**Command.** Once per retrospective, after 5e:
+
+```
+node "<helper>" bug-report --in <file> [--config <path>] [--deny <name>]...
+```
+
+`--config` defaults to the located project config; each `--deny` adds a name the scrub must reject (the project name, OS user, host name and `gh` login are always denied). It exits 0 with `{contract: 'run-wave/bug-report-v1', gate, repo, results}`; exit 2 means a bad argument. `gate` is `disabled`, `gh-unavailable` or `ran`. Each result has `fingerprint`, `observation`, `action` (`filed`, `commented`, `skipped` or `overflow`), `url`, `reason` and `line` (`bug-report <fp>: <action> <url|reason>`). Caps per run: 3 new issues, 5 comments, 10 searches. A scrub rejection (`scrub-rejected:<codes>`) posts nothing; fix the input only if the cause is yours, otherwise leave it.
+
+**Record-back.** For a `filed` or `commented` result with an `observation`, add the issue URL to that observation's `observation-detail` note: re-upsert the whole body (key `observation-detail`, role `queue`) with `github-issue: <url>` as its final line, unless that line is already last. Report each result's `line` in the caller's closure note.
+
+---
+
 ## Best-effort discipline
 
-Every sub-step above (config gate, gh guard, dedup, filing, record-back) is best-effort. A failure at any point (network error, `gh` crash, rate limit, note-upsert failure) is caught, logged as a one-line reason in the caller's closure note, and the parent workflow continues. Filing a GitHub issue must never be the reason a retrospective or proposal review fails to complete.
+Every sub-step above and the bug-report command (config gate, gh guard, dedup, filing, record-back) is best-effort. A failure at any point (network error, `gh` crash, rate limit, note-upsert failure) is caught, logged as a one-line reason in the caller's closure note, and the parent workflow continues. Filing a GitHub issue must never be the reason a retrospective or proposal review fails to complete.

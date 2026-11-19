@@ -52,6 +52,13 @@ export function defectFingerprint({ component, tool, op, code, message } = {}) {
 }
 
 /**
+ * defectComponent(tool) -> 'server' when tool names a server tool, else 'plugin'.
+ */
+export function defectComponent(tool) {
+  return TOOLS.includes(tool) ? 'server' : 'plugin';
+}
+
+/**
  * parseDefects(body) -> [{tool, op, code, message}] for every 'defect: <tool>, <op>, <code>, <message>'
  * entry of a session-tracking body. The message ends at the next 'defect: ', at '; ' or at the end of
  * the line; an entry with fewer than four comma-separated parts is skipped.
@@ -462,7 +469,7 @@ export function retroMetrics(input) {
   const defects = [];
   for (const it of items) {
     for (const d of parseDefects(it.sessionTracking)) {
-      const component = TOOLS.includes(d.tool) ? 'server' : 'plugin';
+      const component = defectComponent(d.tool);
       defects.push({ item: it.id, component, tool: d.tool, op: d.op, code: d.code, message: d.message, fingerprint: defectFingerprint({ component, ...d }) });
     }
   }
