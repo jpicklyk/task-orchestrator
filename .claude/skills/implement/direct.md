@@ -73,14 +73,18 @@ check applies.
 
 - **No review phase** (still in work): go to Step 6.
 - **`newRole` is `review`:** review inline. Read the diff, verify correctness, confirm the
-  Verification command passed. If the review-phase note has a `skillPointer` (in the `advance`
-  result or via `items_read` `context`), invoke that skill for the evaluation framework first.
+  Verification command passed. Load the reviewer seat's skills as `items_read` `schema` gives them
+  (`seats[]`), or the plugin defaults when the seat declares none, before the first review-note
+  write; inline, the hooks hint them and do not refuse. If the review-phase note has a
+  `skillPointer` (in the `advance` result or via `items_read` `context`): a pointer that is a
+  served rule key is fetched as a rule (`config` op `rules`), any other pointer is invoked as a
+  skill; apply it for the evaluation framework first.
   No separate review agent: the overhead exceeds the risk for 1-2 file changes with known fixes.
   This inline, orchestrator-written review applies only outside a run (Direct never runs under
   one).
 
 **On a bug-fix carrying `needs-test-author`**, fill `test-independence-audit` per its guidance and
-`skillPointer`. Direct is temporal-only: the verdict is at best `independent-degraded`, and the
+`skillPointer` (a served rule key is fetched as a rule, any other pointer is invoked as a skill). Direct is temporal-only: the verdict is at best `independent-degraded`, and the
 two-range check is recorded as `N/A: temporal-only, single seat`.
 
 Write the review note; do not advance until Step 6.
