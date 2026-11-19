@@ -1820,6 +1820,27 @@ export function buildPlanDoc(snap, opts = {}) {
 }
 
 /**
+ * planSeatSkills(doc) -> string[]
+ * Every distinct non-empty string of items[].stages[].seatSkills and items[].reviewSeatSkills.<seat>[],
+ * first-seen order: items in plan order, per item its stages in order, then its reviewSeatSkills values
+ * in sorted seat-name order.
+ */
+function planSeatSkills(doc) {
+  const seen = [];
+  const take = (list) => {
+    if (!Array.isArray(list)) return;
+    for (const n of list) if (typeof n === 'string' && n !== '' && !seen.includes(n)) seen.push(n);
+  };
+  const items = (doc && doc.args && Array.isArray(doc.args.items)) ? doc.args.items : [];
+  for (const item of items) {
+    for (const s of Array.isArray(item.stages) ? item.stages : []) take(s && s.seatSkills);
+    const rev = item.reviewSeatSkills;
+    if (rev && typeof rev === 'object') for (const k of Object.keys(rev).sort()) take(rev[k]);
+  }
+  return seen;
+}
+
+/**
  * explainPlan(doc) -> string
  * Renders a plan-doc-v1 as a text table: stages, edges, deferrals, refusals, agent estimate.
  */
@@ -1846,6 +1867,7 @@ export function explainPlan(doc) {
   lines.push(`Refusals/excluded: ${(meta.excluded || []).map((e) => `${e.id}: ${e.reason}`).join('; ') || 'none'}`);
   lines.push(`Estimated agents: ${meta.estAgents ?? '?'} vs size guideline ${meta.sizeGuideline ?? 'unset'}`);
   lines.push(`Degradations: ${(meta.degradations || []).join('; ') || 'none'}`);
+  lines.push(`Seat skills: ${planSeatSkills(doc).join(', ') || 'none'}`);
   if ((meta.lateCarryIns || []).length) {
     lines.push(`Late carry-ins: ${meta.lateCarryIns.map((l) => `${l.short}:${l.key}`).join(', ')}`);
   }

@@ -63,10 +63,10 @@ export function selectTier({ tools = [], claudeCli = false } = {}) {
   return { tier: 4, warning: TIER4_WARNING };
 }
 
-/** The tier-2b coordinator brief: 10 lines, pinned verbatim in skills/director/references/coordinator-tiers.md. */
+/** The tier-2b coordinator brief: 11 lines, pinned verbatim in skills/director/references/coordinator-tiers.md. */
 function tier2bPrompt(scope, target) {
   return [
-    `Run /task-orchestrator:run-wave ${scope} --method B --altitude-safe.`,
+    `Run /task-orchestrator:run-wave ${scope} --method B as a tier-2b coordinator.`,
     'You are a tier-2b coordinator: a Code Mode subagent. Run every step that skills/run-wave/references/code-mode.md covers through its recipe; you have no Workflow tool.',
     'Report to "main" with SendMessage, only the output of the report helper (events planned, decision, paused, closed). Never send note bodies, diffs or tokens.',
     'Run each round as a short script, always well under the ~600 s REPL script limit (it binds a subagent whatever its $ timeout), and never wait inside a script.',
@@ -74,6 +74,7 @@ function tier2bPrompt(scope, target) {
     "Take each seat's envelope from its task-notification result text, never from the task .output file, which stays empty.",
     'Never use a standalone sleep: a shell guard blocks it.',
     "After decision or paused, wait for the director's message; never answer a decision yourself. Stop on a director close and report closed.",
+    "After a planned report whose needs: line is not nothing, wait for the director's message before the first dispatch round: approved launches, stop closes the run cancelled and reports closed.",
     "Never ask the user anything: put what you need (a decision, a permission) on the report's needs: line.",
     `At post-run Step 3 pass --coordinator coordinator:${target} to provenance (exact label only).`,
   ].join('\n');

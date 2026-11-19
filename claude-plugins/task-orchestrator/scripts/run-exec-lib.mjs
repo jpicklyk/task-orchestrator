@@ -471,12 +471,40 @@ export function next(core, doc, state) {
   return { dispatch, waiting, settled, complete }
 }
 
-/** prompt(core, doc, state, idOrShort, seat) -> core.seatPrompt(plan, item, stage, outsBySeat(item, state)). */
+/** Planner-v1 outputs of the other items whose planner stage is done in state: the SHARED WITH siblings. */
+function siblingsFromState(plan, item, state) {
+  const out = []
+  for (const other of plan.items) {
+    if (other.id === item.id) continue
+    const plannerStage = other.stages.find((s) => s.output === 'planner-v1')
+    if (!plannerStage || stageStateStatus(state, other, plannerStage) !== 'done') continue
+    const output = outsBySeat(other, state)[plannerStage.seat]
+    if (output) out.push({ short: other.short, output, roots: itemRootsOf(plan, other) })
+  }
+  return out
+}
+
+/** The same siblings from a run result (reseat): other items whose planner stage record is done with an output. */
+function siblingsFromResult(plan, item, result) {
+  const out = []
+  for (const other of plan.items) {
+    if (other.id === item.id) continue
+    const plannerStage = other.stages.find((s) => s.output === 'planner-v1')
+    const resOther = plannerStage && result.items.find((r) => r.id === other.id)
+    if (!resOther) continue
+    const rec = (resOther.stages || []).find((s) => s.seat === plannerStage.seat)
+    const output = resOther.outputs && resOther.outputs[plannerStage.seat]
+    if (rec && rec.status === 'done' && output) out.push({ short: other.short, output, roots: itemRootsOf(plan, other) })
+  }
+  return out
+}
+
+/** prompt(core, doc, state, idOrShort, seat) -> core.seatPrompt(plan, item, stage, outsBySeat(item, state), siblings). */
 export function prompt(core, doc, state, idOrShort, seat) {
   const { plan } = resolvePlan(core, doc)
   const item = findItem(plan, idOrShort)
   const stage = findStage(item, seat)
-  const base = core.seatPrompt(plan, item, stage, outsBySeat(item, state))
+  const base = core.seatPrompt(plan, item, stage, outsBySeat(item, state), siblingsFromState(plan, item, state))
   return isMethodB(doc) ? `${base}\n${methodBReturn(core, plan, stage)}` : base
 }
 
@@ -652,7 +680,7 @@ export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
   // The server knows only the base seat: the fix cycle reads the base seat's token file.
   const tokenFile = core.seatTokenFile(plan, item, baseStage)
   const promptPlan = tokenFile ? Object.assign({}, plan, { serverRunId: null }) : plan
-  let text = core.seatPrompt(promptPlan, item, stage, outs)
+  let text = core.seatPrompt(promptPlan, item, stage, outs, siblingsFromResult(plan, item, result))
   if (tokenFile) text = withRunsWriteTool(text, plan) + `\n${reseatTokenPart(plan, baseStage, tokenFile)}`
   const hasAmendmentsNote = (item.stages || []).some((st) => Array.isArray(st.notes) && st.notes.includes('amendments'))
   const rewriteSentence = noteRewriteSentence(baseStage)

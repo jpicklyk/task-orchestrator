@@ -81,7 +81,7 @@ test('every js block in code-mode.md parses as an async function body', () => {
 
 test('code-mode.md has a section per recipe and names the rules; SKILL.md routes to it', () => {
   const text = doc();
-  for (const n of [1, 2, 3, 4, 5, 6, 7]) assert.ok(new RegExp(`^## R${n}: `, 'm').test(text), `R${n} section missing`);
+  for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]) assert.ok(new RegExp(`^## R${n}: `, 'm').test(text), `R${n} section missing`);
   for (const needle of ['stage-result', 'atomic: true', 'parseErrorTail', 'refusal', 'call-shapes-js.md']) {
     assert.ok(text.includes(needle), `missing ${needle}`);
   }

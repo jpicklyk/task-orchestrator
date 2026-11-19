@@ -271,11 +271,13 @@ test('S8: in-phase-seat claude section names items_read, notes_write, runs_write
   assert.ok(!toolsInBlocks(file).includes('advance'), 'a non-entry seat never calls advance');
 });
 
-test('S8: read-only-agent claude section names items_read and notes_write; no block calls advance or runs_write', () => {
+test('S8: read-only-agent claude section names items_read, notes_write and end_seat and forbids raise; no block calls advance or runs_write', () => {
   const file = rulePath('protocol.read-only-agent');
   const section = sectionOf(readText(file), 'claude:');
   assert.notEqual(section, null);
-  assert.deepEqual(missingTicked(section, ['items_read', 'notes_write']), []);
+  assert.deepEqual(missingTicked(section, ['items_read', 'notes_write', 'end_seat']), []);
+  assert.ok(section.includes('Never raise'), 'the no-raise statement stays');
+  assert.ok(section.includes('the only `runs_write` call a read-only agent makes is the `end_seat`'), 'end_seat is the one runs_write allowed');
   const tools = toolsInBlocks(file);
   assert.ok(!tools.includes('advance'), 'a read-only agent never transitions');
   assert.ok(!tools.includes('runs_write'), 'a read-only agent never raises');

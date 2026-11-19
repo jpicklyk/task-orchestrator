@@ -30,7 +30,7 @@ A plan with no `adoptedBy` is still pending. `docs_read` `get` with `kind: "plan
 
 2. **Dependencies.** A `blocks` edge (the `deps` array, or `deps_write` later) is for a semantic dependency only: the dependent cannot start meaningfully until the other item is done.
    - Give each edge a `Depends on <short>: <reason>` line on the dependent's spec note (write it once `items[]` gives the ids).
-   - Items that only share files in one shared-worktree run get NO edge; the per-file lock serializes same-file edits. Record each shared file as `Shared file, lock-serialized: <path> (with <short>)` in both items' scopes.
+   - Items that only share files in one shared-worktree run get NO edge; the per-file lock serializes same-file edits. The later writing seat's prompt names the sibling and the file on a `SHARED WITH <short>: <paths>.` line, so it does not change what the sibling wrote. Record each shared file as `Shared file, lock-serialized: <path> (with <short>)` in both items' scopes.
    - Qualifications: this holds in shared-worktree mode only; an edge that unblocks at review or terminal costs a separate run, because the dependent cannot enter the run until the blocker reaches that role; per-item worktree mode still defers on overlap.
 
 3. **Fill queue notes.** Read the schema (a create returns no `expectedNotes`):

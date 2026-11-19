@@ -320,14 +320,17 @@ test('2b launchProfile: the shape is the frozen Agent call and has no background
   assert.equal(JSON.stringify(p).includes('isolation'), false)
 })
 
-test('2b launchProfile: the prompt is 10 lines carrying the Code Mode rules', () => {
+test('2b launchProfile: the prompt is 11 lines carrying the Code Mode rules and the launch gate', () => {
   const prompt = launchProfile('2b', { scope: 'S1', target: 'T1' }).agent.prompt
-  assert.equal(prompt.split(NL).length, 10)
+  assert.equal(prompt.split(NL).length, 11)
+  assert.equal(prompt.split(NL)[0], 'Run /task-orchestrator:run-wave S1 --method B as a tier-2b coordinator.')
+  assert.equal(prompt.includes('--altitude-safe'), false)
+  assert.ok(prompt.includes("After a planned report whose needs: line is not nothing, wait for the director's message before the first dispatch round: approved launches, stop closes the run cancelled and reports closed."))
   assert.equal(prompt.includes(String.fromCharCode(96)), false)
   for (const needle of [
     '~600 s REPL script limit', 'never wait inside a script', 'wait on Poll with no script running',
     'task-notification result text', '.output file', 'standalone sleep', 'task-orchestrator:run-wave',
-    '--method B', '--altitude-safe', 'references/code-mode.md', '"main"',
+    '--method B', 'references/code-mode.md', '"main"',
     'task-orchestrator:run-wave S1 --method B', '--coordinator coordinator:T1 to provenance',
   ]) {
     assert.ok(prompt.includes(needle), needle)
@@ -380,4 +383,16 @@ test('2b doc sync: every prompt line appears verbatim in coordinator-tiers.md; t
   for (const line of prompt.split(NL)) assert.ok(doc.includes(line), line)
   assert.match(doc, /^\| 2b \|/m)
   assert.match(readFileSync(DIRECTOR_SKILL, 'utf8'), /^\| 2b \|/m)
+})
+
+test('2b launch gate: the director skill and run-wave SKILL.md state the bootstrap line and the approved or stop answers', () => {
+  const line1 = 'Run /task-orchestrator:run-wave <scope> --method B as a tier-2b coordinator.'
+  const director = readFileSync(DIRECTOR_SKILL, 'utf8')
+  assert.ok(director.includes(line1), 'director skill row 2b names the one-line Agent prompt')
+  assert.ok(/Tier 2b: on that `planned`[^.]*`approved` or `stop`/.test(director), 'Waking up names approved and stop')
+  const runWave = readFileSync(join(dirname(DIRECTOR_SKILL), '..', 'run-wave', 'SKILL.md'), 'utf8')
+  assert.ok(!runWave.includes('never the tier-2 `planned` wait'), 'the old no-wait sentence is gone')
+  assert.ok(runWave.includes(line1) && runWave.includes('`approved` or `stop`'))
+  const doc = readFileSync(BRIEF_DOC, 'utf8')
+  assert.ok(doc.includes('**Launch gate.**') && doc.includes('`approved` or `stop`'))
 })

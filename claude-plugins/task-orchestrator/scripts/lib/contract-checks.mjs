@@ -332,7 +332,7 @@ export function scanDispatchLiterals({ pluginRoot, dirs, allowlist }) {
  * server's own endpoint path, which a text scan cannot tell apart.
  */
 export const HOST_SKILLS = Object.freeze([
-  'agents', 'claude-api', 'clear', 'code-review', 'compact', 'init', 'loop', 'review', 'schedule',
+  'agents', 'claude-api', 'clear', 'code-review', 'compact', 'init', 'loop', 'reload-skills', 'review', 'schedule',
   'security-review', 'simplify', 'skill-creator', 'workflows',
 ]);
 

@@ -317,6 +317,7 @@ Every dispatch (run-wave, `implement-wave`, ralph, coordinators, retrospective e
 
 `/task-orchestrator:run-wave` resolves a frontier of ready items into a run plan (`scripts/run-planner.mjs`), then:
 
+- builds the Step 2 snapshot with the helper subcommand `snapshot` over the REST API when a REST API URL resolves (by hand otherwise);
 - opens the server run with `runs_write` `open` (answering a coordinator token once), assigns one seat per schema-seat stage with `assign` (each answering a `seatToken` once), ends every seat with `end_seat` (with a post-run sweep) and closes the run with `close` (`completed`, `failed`, `cancelled` or `abandoned`);
 - delivers each seat token through a token file, `<scratchpad>/run-wave/<runId>/tokens/<short>.<seat>.token`, never through prompt text, notes, logs or the plan; a seat sends its own token as the top-level `seatToken` of every call;
 - reads run state from the server (`runs_read` `get`, `frontier`, `seats`), not from documents: the `run/<runId>` plan and state documents are no longer written;

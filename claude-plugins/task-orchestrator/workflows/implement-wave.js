@@ -633,7 +633,7 @@ function preflight(plan) {
 }
 
 /**
- * makeMilestones(items) -> {get(itemId, seat), settle(itemId, seat, v), releaseFrom(item, i)}
+ * makeMilestones(items) -> {get(itemId, seat), peek(itemId, seat), settle(itemId, seat, v), releaseFrom(item, i)}
  * A settle-once promise per (itemId, seat), created lazily on first get/settle.
  */
 function makeMilestones(items) {
@@ -658,10 +658,16 @@ function makeMilestones(items) {
     get(itemId, seat) {
       return ensure(itemId, seat).promise
     },
+    /** peek(itemId, seat) -> the settled value, or undefined while unsettled; never creates a promise. */
+    peek(itemId, seat) {
+      const entry = store.get(keyFor(itemId, seat))
+      return entry && entry.settled ? entry.value : undefined
+    },
     settle(itemId, seat, v) {
       const entry = ensure(itemId, seat)
       if (entry.settled) return
       entry.settled = true
+      entry.value = v
       entry.resolve(v)
     },
     releaseFrom(item, i) {
@@ -669,6 +675,7 @@ function makeMilestones(items) {
         const entry = ensure(item.id, item.stages[idx].seat)
         if (!entry.settled) {
           entry.settled = true
+          entry.value = null
           entry.resolve(null)
         }
       }
@@ -1657,6 +1664,39 @@ function promptRerunAndEntry(plan, item, stage) {
   return lines.join('\n')
 }
 
+/**
+ * Part 15b: SHARED WITH, writing seats of a shared worktree only. siblings = [{short, output, roots}]
+ * (planner-v1 output of other plan items whose planner stage settled done). One line per sibling,
+ * in plan.items order, naming this seat's locked file: paths a sibling's declared claims also cover
+ * (equal, or a directory/glob containing it; appendOnlyFiles matches are not exempt), then one
+ * instruction sentence. '' when no sibling overlaps.
+ */
+function promptSharedWith(plan, item, stage, outs, siblings) {
+  if (plan.worktreeMode !== 'shared' || !stage.writes) return ''
+  const list = Array.isArray(siblings) ? siblings : []
+  if (list.length === 0) return ''
+  const mine = lockKeysFor(item, stage, outs || {}, plan)
+    .filter((k) => k.startsWith('file:'))
+    .map((k) => k.slice('file:'.length))
+  if (mine.length === 0) return ''
+  const lines = []
+  for (const p of plan.items) {
+    if (p.id === item.id) continue
+    const sib = list.find((s) => s && s.short === p.short)
+    if (!sib || !sib.output) continue
+    const claims = collectFiles(sib.output, sib.roots || []).filter((c) => c !== '**')
+    const hit = mine.filter((m) => claims.some((c) => lockKeysConflict(`file:${m}`, `file:${c}`)))
+    if (hit.length) lines.push(`SHARED WITH ${sib.short}: ${hit.join(', ')}.`)
+  }
+  if (lines.length === 0) return ''
+  lines.push(
+    'These files are shared with the sibling item(s) named above in this worktree. Never change an assertion, claim or rule a ' +
+      'sibling wrote in them; when your change needs one changed, leave it as it is and record it as a deviation (DEVIATION ' +
+      'below), so the orchestrator routes it.'
+  )
+  return lines.join('\n')
+}
+
 /** Part 16: deviation protocol, writing seats only. */
 function promptDeviation(plan, item, stage) {
   if (!stage.writes) return ''
@@ -1758,12 +1798,13 @@ function reKeyOutsByOutputId(item, outsBySeat) {
 }
 
 /**
- * seatPrompt(plan, item, stage, outs) -> string
+ * seatPrompt(plan, item, stage, outs, siblings = []) -> string
+ * siblings = [{short, output, roots}], the planner-v1 outputs of other items whose planner is done (SHARED WITH part).
  * Joins the non-empty prompt parts (§5.3) with "\n\n"; each part is a pure function of
- * plan/item/stage/outs. No rule text lives here — rules are fetched by key at runtime via the
+ * plan/item/stage/outs/siblings. No rule text lives here — rules are fetched by key at runtime via the
  * config tool's rules op (part 6). No seat token is ever inlined: part 4 names its file.
  */
-function seatPrompt(plan, item, stage, outs) {
+function seatPrompt(plan, item, stage, outs, siblings = []) {
   const outsByOutput = reKeyOutsByOutputId(item, outs || {})
   if (
     stage.output === 'test-author-v1' &&
@@ -1793,6 +1834,7 @@ function seatPrompt(plan, item, stage, outs) {
     promptSmokeRoot(plan, item, stage),
     handoff(stage, outsByOutput, itemRoots(plan, item), item),
     promptRerunAndEntry(plan, item, stage),
+    promptSharedWith(plan, item, stage, outs, siblings),
     promptDeviation(plan, item, stage),
     promptEndSeat(plan, item, stage),
     promptReturn(stage, item, plan),
@@ -1831,8 +1873,22 @@ function dispatchTag(d) {
   return d && d.effort ? `[${model}/${d.effort}]` : `[${model}]`
 }
 
+/** siblingPlanners(plan, item, milestones) -> [{short, output, roots}] of other items whose planner settled done (non-blocking). */
+function siblingPlanners(plan, item, milestones) {
+  const out = []
+  if (!milestones || typeof milestones.peek !== 'function') return out
+  for (const other of plan.items) {
+    if (other.id === item.id) continue
+    const plannerStage = other.stages.find((s) => s.output === 'planner-v1')
+    if (!plannerStage) continue
+    const v = milestones.peek(other.id, plannerStage.seat)
+    if (v && v.status === 'done' && v.output) out.push({ short: other.short, output: v.output, roots: itemRoots(plan, other) })
+  }
+  return out
+}
+
 async function callSeat(plan, item, stage, outs, deps) {
-  const prompt = seatPrompt(plan, item, stage, outs)
+  const prompt = seatPrompt(plan, item, stage, outs, siblingPlanners(plan, item, deps.milestones))
   const schema = envelopeSchema(stage.output, plan.outputSchemas, { enters: stage.enters })
   const opts = {
     label: `${stage.seat}:${item.short} ${dispatchTag(stage.dispatch)}`,
