@@ -32,7 +32,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ConfigViolation as ErrorV
 
 /** The one documentation source of each field two or more `config` ops share (a shared name has one schema). */
 internal object ConfigDocs {
-    const val ROOT_ID = "Project root item (depth 0): a UUID or a hex prefix of 8 to 32 characters."
+    const val ROOT_ID = "Project root item (depth 0): UUID or 8-32 hex."
     const val VERSION = "Config version number, 1 or greater."
     const val EXPECTED_VERSION =
         "Compare-and-set: the head version this write expects, 1 or greater. A different head is version_conflict; force does not skip it."

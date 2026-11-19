@@ -23,7 +23,7 @@
             },
             "rootId": {
               "type": "string",
-              "description": "The root item the run belongs to. Item id: a UUID or a hex prefix of 8 to 32 characters. [ops: open]"
+              "description": "The root item the run belongs to. Item id: UUID or 8-32 hex. [ops: open]"
             },
             "items": {
               "type": "array",
@@ -34,7 +34,7 @@
             },
             "scopeId": {
               "type": "string",
-              "description": "An item the run is scoped to. Item id: a UUID or a hex prefix of 8 to 32 characters. [ops: open]"
+              "description": "An item the run is scoped to. Item id: UUID or 8-32 hex. [ops: open]"
             },
             "label": {
               "type": "string",
@@ -71,7 +71,7 @@
             },
             "runId": {
               "type": "string",
-              "description": "Run id: a UUID or a hex prefix of 8 to 32 characters. [ops: close, pause, resume]"
+              "description": "Run id: UUID or 8-32 hex. [ops: close, pause, resume]"
             },
             "reason": {
               "type": "string",
@@ -85,7 +85,7 @@
             },
             "decisionId": {
               "type": "string",
-              "description": "Decision id: a UUID or a hex prefix of 8 to 32 characters. [ops: ack, answer, withdraw]"
+              "description": "Decision id: UUID or 8-32 hex. [ops: ack, answer, withdraw]"
             },
             "option": {
               "type": "string",

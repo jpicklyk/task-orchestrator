@@ -635,8 +635,9 @@ internal fun productionServerCapabilities(): ServerCapabilities =
  * The `initialize` `instructions` of [profile]'s Server, written for a client that sees only tool names and these
  * instructions until it loads a tool's schema: the profile and `describe`, what the tools are for, and every tool the
  * profile serves by name (and no other tool). Caps: orchestration 1,200 characters, director and knowledge 700. The
- * orchestration text is the one place `seatToken` is documented (R22): a top-level field of every call made under a
- * run seat, on every tool, unadvertised in the per-tool schemas.
+ * orchestration text documents `seatToken` (R22): a top-level field of every call made under a run seat, on every
+ * tool. The orchestration per-tool schemas declare it too, as an optional string, so a client that validates
+ * arguments against the schema (Code Mode) accepts it; knowledge and director schemas do not.
  */
 internal fun profileInstructions(profile: ToolProfile): String =
     when (profile) {

@@ -14,11 +14,11 @@
       },
       "runId": {
         "type": "string",
-        "description": "Run id: a UUID or a hex prefix of 8 to 32 characters. [select: get, seats, frontier]"
+        "description": "Run id: UUID or 8-32 hex. [select: get, seats, frontier]"
       },
       "rootId": {
         "type": "string",
-        "description": "Only those on this root. Item id: a UUID or a hex prefix of 8 to 32 characters. [select: list]"
+        "description": "Only those on this root. Item id: UUID or 8-32 hex. [select: list]"
       },
       "status": {
         "type": "string",
@@ -57,6 +57,10 @@
       "describe": {
         "type": "boolean",
         "description": "true: return each operation's parameters and errors; nothing runs."
+      },
+      "seatToken": {
+        "type": "string",
+        "description": "Run seat token; omit when not seated."
       }
     },
     "type": "object"

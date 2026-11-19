@@ -17,7 +17,7 @@ tool section ends with a block between `<!-- generated:tool NAME -->` markers, a
 class `@Doc` (or the op's profile, capability or errors) and run `./gradlew :current:regenerateApiReference`;
 `ApiReferenceFreshnessTest` fails when a block is stale and names that task. The same data is served at runtime
 by a `describe: true` call on any tool. A write element also takes `op` and an optional `idempotencyKey`, and a select call takes
-`select` and `describe`, and any call may carry a top-level `seatToken` (a run's seat or coordinator token, see [Runs](#category-runs)); the dispatcher reads those first, so the generated tables do not list them. No call takes
+`select` and `describe`, and any call may carry a top-level `seatToken` (a run's seat or coordinator token, see [Runs](#category-runs)); the dispatcher reads those first, so the generated tables do not list them. The orchestration profile's tool schemas declare `seatToken` as an optional top-level string, so a client that validates arguments against the schema (Code Mode) accepts it; the knowledge and director schemas do not. No call takes
 an `actor`: the caller is the principal its transport established (the bearer credential over REST and HTTP `/mcp`,
 the `local` principal over stdio and in the unauthenticated modes), and a body `actor` is `unknown_parameter`. A call
 with no principal is `unauthenticated` before anything in it is read.
@@ -324,8 +324,8 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 | `root.title` | string | no | Title; required without id. |
 | `root.type` | string | no | Declared type; required without id. |
 | `root.priority` | string: high \| medium \| low | no | Create defaults to medium. |
-| `root.tags` | array of string | no | Lowercase, hyphenated. Update: [] clears. |
-| `root.traits` | array of string | no | Declared traits, max 100 chars each. Update: [] clears. |
+| `root.tags` | array of string | no | Lowercase, hyphenated. |
+| `root.traits` | array of string | no | Declared traits, max 100 chars each. |
 | `root.summary` | string | no | Short summary, max 2000 chars. |
 | `root.description` | string | no | Long description. |
 | `root.statusLabel` | string | no | Status label. |
@@ -344,8 +344,8 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 | `children[].type` | string | yes | Declared item type. |
 | `children[].parentRef` | string | no | Parent ref; default root. |
 | `children[].priority` | string: high \| medium \| low | no | Create defaults to medium. |
-| `children[].tags` | array of string | no | Lowercase, hyphenated. Update: [] clears. |
-| `children[].traits` | array of string | no | Declared traits, max 100 chars each. Update: [] clears. |
+| `children[].tags` | array of string | no | Lowercase, hyphenated. |
+| `children[].traits` | array of string | no | Declared traits, max 100 chars each. |
 | `children[].summary` | string | no | Short summary, max 2000 chars. |
 | `children[].description` | string | no | Long description. |
 | `children[].statusLabel` | string | no | Status label. |
@@ -925,7 +925,7 @@ Read the notes on work items: get one note with its body, or list an item's note
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `itemId` | string | yes | Id of the work item that owns the note: a full UUID or 8 to 32 hex characters of one. |
+| `itemId` | string | yes | Id of the work item that owns the note: UUID or 8-32 hex. |
 | `key` | string | yes | Note key, unique per item (1 to 200 characters, case-sensitive). |
 | `ifVersion` | integer | no | The version the caller already holds (at least 1). When it equals the current version the answer is {unchanged: true, version} with no body. |
 
@@ -935,7 +935,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`,
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `itemId` | string | yes | Id of the work item that owns the note: a full UUID or 8 to 32 hex characters of one. |
+| `itemId` | string | yes | Id of the work item that owns the note: UUID or 8-32 hex. |
 | `role` | string | no | Only notes of this role: queue, work or review (case-insensitive). |
 | `keys` | array of string | no | Only notes with one of these keys. An empty list matches nothing. |
 | `limit` | integer | no | Page size, 1 to 200 (default 50). |
@@ -1015,7 +1015,7 @@ Create, replace or delete notes on work items, in batches. Every element commits
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `itemId` | string | yes | Id of the work item that owns the note: a full UUID or 8 to 32 hex characters of one. |
+| `itemId` | string | yes | Id of the work item that owns the note: UUID or 8-32 hex. |
 | `key` | string | yes | Note key, unique per item (1 to 200 characters, case-sensitive). |
 | `role` | string | yes | Note role: queue, work or review (case-insensitive). |
 | `body` | string | no | Inline note text (may be empty), at most 65,536 bytes. Exactly one of body and bodyFromFile is required. |
@@ -1029,7 +1029,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `itemId` | string | yes | Id of the work item that owns the note: a full UUID or 8 to 32 hex characters of one. |
+| `itemId` | string | yes | Id of the work item that owns the note: UUID or 8-32 hex. |
 | `key` | string | yes | Note key, unique per item (1 to 200 characters, case-sensitive). |
 | `expectedVersion` | integer | no | Guard on the note's version: omit to write unconditionally, 0 to require that the note does not exist, n to require that its current version is n. Anything else is version_conflict and nothing is written. |
 
@@ -1087,7 +1087,7 @@ Read dependency edges between items. select: list (edges of one item, with direc
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `item` | string | yes | Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `item` | string | yes | Item id: UUID or 8-32 hex. |
 | `direction` | string: incoming \| outgoing \| all | no | incoming = edges whose to is item (what blocks it), outgoing = edges whose from is item. Default all. |
 | `type` | string: blocks \| relates_to | no | Only edges of this type. Default both. |
 | `limit` | integer | no | Page size, 1 to 200 (default 50). |
@@ -1099,7 +1099,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `item` | string | yes | Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `item` | string | yes | Item id: UUID or 8-32 hex. |
 | `limit` | integer | no | Page size, 1 to 200 (default 50). |
 | `cursor` | string | no | The page.next value of the previous page. |
 
@@ -1165,8 +1165,8 @@ Create and delete dependency edges between items: create, delete, and the patter
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `from` | string | yes | Source item of the edge (the blocker for blocks): a UUID or a hex prefix of 8 to 32 characters. |
-| `to` | string | yes | Target item of the edge (the blocked item for blocks): a UUID or a hex prefix of 8 to 32 characters. |
+| `from` | string | yes | Source item of the edge (the blocker for blocks): UUID or 8-32 hex. |
+| `to` | string | yes | Target item of the edge (the blocked item for blocks): UUID or 8-32 hex. |
 | `type` | string: blocks \| relates_to | no | Edge type: blocks or relates_to. Create applies blocks when absent; delete matches either type when absent. |
 | `unblockAt` | string: queue \| work \| review \| terminal | no | Role the blocker must reach to unblock the target: queue, work, review or terminal (default terminal). Not allowed with relates_to. |
 
@@ -1177,10 +1177,10 @@ Errors: `ambiguous_id`, `cycle_detected`, `duplicate`, `forbidden`, `idempotency
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | string | no | Full dependency UUID (not a prefix). |
-| `from` | string | no | Source item of the edge (the blocker for blocks): a UUID or a hex prefix of 8 to 32 characters. |
-| `to` | string | no | Target item of the edge (the blocked item for blocks): a UUID or a hex prefix of 8 to 32 characters. |
+| `from` | string | no | Source item of the edge (the blocker for blocks): UUID or 8-32 hex. |
+| `to` | string | no | Target item of the edge (the blocked item for blocks): UUID or 8-32 hex. |
 | `type` | string: blocks \| relates_to | no | Edge type: blocks or relates_to. Create applies blocks when absent; delete matches either type when absent. |
-| `item` | string | no | Delete every edge touching this item (either end). Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `item` | string | no | Delete every edge touching this item (either end). Item id: UUID or 8-32 hex. |
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_claim_holder`, `not_found`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`
 
@@ -1198,7 +1198,7 @@ Errors: `ambiguous_id`, `cycle_detected`, `duplicate`, `forbidden`, `idempotency
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `from` | string | yes | Source item of the edge (the blocker for blocks): a UUID or a hex prefix of 8 to 32 characters. |
+| `from` | string | yes | Source item of the edge (the blocker for blocks): UUID or 8-32 hex. |
 | `toIds` | array of string | yes | Target items, at least 1: from blocks each of them. |
 | `type` | string: blocks \| relates_to | no | Edge type: blocks or relates_to. Create applies blocks when absent; delete matches either type when absent. |
 | `unblockAt` | string: queue \| work \| review \| terminal | no | Role the blocker must reach to unblock the target: queue, work, review or terminal (default terminal). Not allowed with relates_to. |
@@ -1210,7 +1210,7 @@ Errors: `ambiguous_id`, `cycle_detected`, `duplicate`, `forbidden`, `idempotency
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `fromIds` | array of string | yes | Source items, at least 1: each of them blocks to. |
-| `to` | string | yes | Target item of the edge (the blocked item for blocks): a UUID or a hex prefix of 8 to 32 characters. |
+| `to` | string | yes | Target item of the edge (the blocked item for blocks): UUID or 8-32 hex. |
 | `type` | string: blocks \| relates_to | no | Edge type: blocks or relates_to. Create applies blocks when absent; delete matches either type when absent. |
 | `unblockAt` | string: queue \| work \| review \| terminal | no | Role the blocker must reach to unblock the target: queue, work, review or terminal (default terminal). Not allowed with relates_to. |
 
@@ -1584,7 +1584,7 @@ Per-root config and rules. Each ops[] element has an op: get, history, push, val
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | yes | Project root item (depth 0): a UUID or a hex prefix of 8 to 32 characters. |
+| `rootId` | string | yes | Project root item (depth 0): UUID or 8-32 hex. |
 | `version` | integer | no | Config version number, 1 or greater. |
 | `fingerprint` | string | no | Content fingerprint to classify against the root's history; adds relation: current, superseded or unknown. |
 
@@ -1594,7 +1594,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | yes | Project root item (depth 0): a UUID or a hex prefix of 8 to 32 characters. |
+| `rootId` | string | yes | Project root item (depth 0): UUID or 8-32 hex. |
 | `limit` | integer | no | Page size, 1 to 200 (default 50). |
 | `before` | integer | no | Page back: only versions below this number (exclusive); pass the last version of the previous page. |
 
@@ -1604,7 +1604,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | yes | Project root item (depth 0): a UUID or a hex prefix of 8 to 32 characters. |
+| `rootId` | string | yes | Project root item (depth 0): UUID or 8-32 hex. |
 | `configYaml` | string | yes | The config document, YAML text of at most 131072 bytes. |
 | `force` | boolean | no | Skip the project.rootId mismatch and older-content guards (default false). Never skips validation or expectedVersion. |
 | `expectedVersion` | integer | no | Compare-and-set: the head version this write expects, 1 or greater. A different head is version_conflict; force does not skip it. |
@@ -1615,7 +1615,7 @@ Errors: `ambiguous_id`, `config_invalid`, `forbidden`, `idempotency_mismatch`, `
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | yes | Project root item (depth 0): a UUID or a hex prefix of 8 to 32 characters. |
+| `rootId` | string | yes | Project root item (depth 0): UUID or 8-32 hex. |
 | `configYaml` | string | yes | The config document, YAML text of at most 131072 bytes. |
 
 Errors: `ambiguous_id`, `config_invalid`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `payload_too_large`, `unavailable`, `unknown_parameter`
@@ -1624,7 +1624,7 @@ Errors: `ambiguous_id`, `config_invalid`, `forbidden`, `idempotency_mismatch`, `
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | yes | Project root item (depth 0): a UUID or a hex prefix of 8 to 32 characters. |
+| `rootId` | string | yes | Project root item (depth 0): UUID or 8-32 hex. |
 | `version` | integer | yes | Config version number, 1 or greater. |
 | `expectedVersion` | integer | no | Compare-and-set: the head version this write expects, 1 or greater. A different head is version_conflict; force does not skip it. |
 
@@ -1634,7 +1634,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | yes | Project root item (depth 0): a UUID or a hex prefix of 8 to 32 characters. |
+| `rootId` | string | yes | Project root item (depth 0): UUID or 8-32 hex. |
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
 
@@ -1642,7 +1642,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | no | Project root item (depth 0): a UUID or a hex prefix of 8 to 32 characters. |
+| `rootId` | string | no | Project root item (depth 0): UUID or 8-32 hex. |
 
 Errors: `ambiguous_id`, `config_invalid`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
 
@@ -1650,9 +1650,9 @@ Errors: `ambiguous_id`, `config_invalid`, `forbidden`, `idempotency_mismatch`, `
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | no | Project root item (depth 0): a UUID or a hex prefix of 8 to 32 characters. |
+| `rootId` | string | no | Project root item (depth 0): UUID or 8-32 hex. |
 | `key` | string | no | Rule key: lowercase letters, digits, dot, underscore or hyphen, starting alphanumeric, at most 100 characters. |
-| `itemId` | string | no | Item whose effective schema holds noteKey: a UUID or a hex prefix of 8 to 32 characters. A root item is its own root. |
+| `itemId` | string | no | Item whose effective schema holds noteKey: UUID or 8-32 hex. A root item is its own root. |
 | `noteKey` | string | no | Note key looked up in itemId's effective schema; its first skill names the rule key. |
 
 Errors: `ambiguous_id`, `config_invalid`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
@@ -1698,7 +1698,7 @@ Read the versioned documents of a project root. select: get (one document or one
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | yes | Id of the depth-0 project root that owns the document: a full UUID or 8 to 32 hex characters. |
+| `rootId` | string | yes | Id of the depth-0 project root that owns the document: UUID or 8-32 hex. |
 | `kind` | string: plan \| rule \| page | yes | Document kind: plan, rule or page. On list it is optional and filters. |
 | `slug` | string | yes | Document slug, unique per (root, kind). |
 | `version` | integer | no | Read this stored version (at least 1) instead of the current one. Not together with ifVersion. |
@@ -1710,7 +1710,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`,
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | yes | Id of the depth-0 project root that owns the document: a full UUID or 8 to 32 hex characters. |
+| `rootId` | string | yes | Id of the depth-0 project root that owns the document: UUID or 8-32 hex. |
 | `kind` | string: plan \| rule \| page | no | Document kind: plan, rule or page. On list it is optional and filters. |
 | `includeArchived` | boolean | no | Include archived documents. Default false. |
 | `limit` | integer | no | Page size, 1 to 200 (default 50). |
@@ -1722,7 +1722,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | yes | Id of the depth-0 project root that owns the document: a full UUID or 8 to 32 hex characters. |
+| `rootId` | string | yes | Id of the depth-0 project root that owns the document: UUID or 8-32 hex. |
 | `kind` | string: plan \| rule \| page | yes | Document kind: plan, rule or page. On list it is optional and filters. |
 | `slug` | string | yes | Document slug, unique per (root, kind). |
 | `limit` | integer | no | Page size, 1 to 200 (default 50). |
@@ -1734,7 +1734,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | yes | Id of the depth-0 project root that owns the document: a full UUID or 8 to 32 hex characters. |
+| `rootId` | string | yes | Id of the depth-0 project root that owns the document: UUID or 8-32 hex. |
 | `kind` | string: plan \| rule \| page | yes | Document kind: plan, rule or page. On list it is optional and filters. |
 | `slug` | string | yes | Document slug, unique per (root, kind). |
 | `direction` | string: outgoing \| incoming \| all | no | outgoing = links the document makes, incoming = links that point at it. Default all. |
@@ -1806,7 +1806,7 @@ Write the versioned documents (plans, rules, pages) of a project root, in batche
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | yes | Id of the depth-0 project root that owns the document: a full UUID or 8 to 32 hex characters. |
+| `rootId` | string | yes | Id of the depth-0 project root that owns the document: UUID or 8-32 hex. |
 | `kind` | string: plan \| rule \| page | yes | Document kind: plan, rule or page. |
 | `slug` | string | yes | Document slug, unique per (root, kind). On upsert: 1 to 200 characters, no leading or trailing whitespace, no control characters, none of [ ] #; a plan slug must not start with rule/. |
 | `body` | string | no | Inline document text (may be empty). Exactly one of body and bodyFromFile is required. |
@@ -1820,7 +1820,7 @@ Errors: `ambiguous_id`, `duplicate`, `forbidden`, `idempotency_mismatch`, `inter
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | yes | Id of the depth-0 project root that owns the document: a full UUID or 8 to 32 hex characters. |
+| `rootId` | string | yes | Id of the depth-0 project root that owns the document: UUID or 8-32 hex. |
 | `kind` | string: plan \| rule \| page | yes | Document kind: plan, rule or page. |
 | `slug` | string | yes | Document slug, unique per (root, kind). On upsert: 1 to 200 characters, no leading or trailing whitespace, no control characters, none of [ ] #; a plan slug must not start with rule/. |
 | `expectedVersion` | integer | no | Guard on the document's version: omit to write unconditionally, 0 to require that it does not exist, n to require that its current version is n. Anything else is version_conflict and nothing is written. |
@@ -1831,7 +1831,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | yes | Id of the depth-0 project root that owns the document: a full UUID or 8 to 32 hex characters. |
+| `rootId` | string | yes | Id of the depth-0 project root that owns the document: UUID or 8-32 hex. |
 | `kind` | string: plan \| rule \| page | yes | Document kind: plan, rule or page. |
 | `slug` | string | yes | Document slug, unique per (root, kind). On upsert: 1 to 200 characters, no leading or trailing whitespace, no control characters, none of [ ] #; a plan slug must not start with rule/. |
 | `expectedVersion` | integer | no | Guard on the document's version: omit to write unconditionally, 0 to require that it does not exist, n to require that its current version is n. Anything else is version_conflict and nothing is written. |
@@ -1842,7 +1842,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | yes | Id of the depth-0 project root that owns the document: a full UUID or 8 to 32 hex characters. |
+| `rootId` | string | yes | Id of the depth-0 project root that owns the document: UUID or 8-32 hex. |
 | `kind` | string: plan \| rule \| page | yes | Document kind: plan, rule or page. |
 | `slug` | string | yes | Document slug, unique per (root, kind). On upsert: 1 to 200 characters, no leading or trailing whitespace, no control characters, none of [ ] #; a plan slug must not start with rule/. |
 
@@ -1852,10 +1852,10 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | yes | Id of the depth-0 project root that owns the document: a full UUID or 8 to 32 hex characters. |
+| `rootId` | string | yes | Id of the depth-0 project root that owns the document: UUID or 8-32 hex. |
 | `kind` | string: plan \| rule \| page | yes | Document kind: plan, rule or page. |
 | `slug` | string | yes | Document slug, unique per (root, kind). On upsert: 1 to 200 characters, no leading or trailing whitespace, no control characters, none of [ ] #; a plan slug must not start with rule/. |
-| `itemId` | string | yes | Id of the work item: a full UUID or 8 to 32 hex characters of one. It must be under the document's root. |
+| `itemId` | string | yes | Id of the work item: UUID or 8-32 hex. It must be under the document's root. |
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
 
@@ -1863,10 +1863,10 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | yes | Id of the depth-0 project root that owns the document: a full UUID or 8 to 32 hex characters. |
+| `rootId` | string | yes | Id of the depth-0 project root that owns the document: UUID or 8-32 hex. |
 | `kind` | string: plan \| rule \| page | yes | Document kind: plan, rule or page. |
 | `slug` | string | yes | Document slug, unique per (root, kind). On upsert: 1 to 200 characters, no leading or trailing whitespace, no control characters, none of [ ] #; a plan slug must not start with rule/. |
-| `itemId` | string | yes | Id of the work item: a full UUID or 8 to 32 hex characters of one. It must be under the document's root. |
+| `itemId` | string | yes | Id of the work item: UUID or 8-32 hex. It must be under the document's root. |
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
 <!-- /generated:tool docs_write -->
@@ -2164,7 +2164,7 @@ Read runs, the bounded budgeted passes over a set of items. select: get (one run
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+| `runId` | string | yes | Run id: UUID or 8-32 hex. |
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
@@ -2172,7 +2172,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`,
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | no | Only those on this root. Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `rootId` | string | no | Only those on this root. Item id: UUID or 8-32 hex. |
 | `status` | string: open \| paused \| closed | no | Only runs in this status: open, paused or closed. |
 | `endedSince` | string (date-time) | no | Only runs closed at or after this instant (ISO 8601 UTC, for example 2026-10-13T00:00:00Z). |
 | `unmarked` | string | no | Only closed runs that do not carry this mark key (lowercase letters, digits, - and _, starting with a letter). Implies closed runs. |
@@ -2185,7 +2185,7 @@ Errors: `ambiguous_id`, `internal`, `invalid_cursor`, `invalid_request`, `not_fo
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+| `runId` | string | yes | Run id: UUID or 8-32 hex. |
 | `itemId` | string | no | Only those on this item (a UUID or a hex prefix). |
 | `ended` | boolean | no | true: include ended seats; default only active ones. |
 
@@ -2195,7 +2195,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`,
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+| `runId` | string | yes | Run id: UUID or 8-32 hex. |
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
@@ -2203,9 +2203,9 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`,
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `runId` | string | no | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+| `runId` | string | no | Run id: UUID or 8-32 hex. |
 | `itemId` | string | no | Only those on this item (a UUID or a hex prefix). |
-| `rootId` | string | no | Only those on this root. Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `rootId` | string | no | Only those on this root. Item id: UUID or 8-32 hex. |
 | `overdue` | boolean | no | true: only decisions past their expiry. |
 | `limit` | integer | no | Page size, 1 to 200 (default 50). |
 | `cursor` | string | no | The page.next value of the previous page. |
@@ -2216,7 +2216,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_cursor`, `invalid_requ
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `decisionId` | string | yes | Decision id: a UUID or a hex prefix of 8 to 32 characters. |
+| `decisionId` | string | yes | Decision id: UUID or 8-32 hex. |
 
 Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 <!-- /generated:tool runs_read -->
@@ -2283,9 +2283,9 @@ Open, update, close, pause, resume and mark runs; assign and end seats; raise, a
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `rootId` | string | yes | The root item the run belongs to. Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `rootId` | string | yes | The root item the run belongs to. Item id: UUID or 8-32 hex. |
 | `items` | array of string | no | Member items, at most 500. Each is an item of the root that has a lifecycle and is in no other open run. |
-| `scopeId` | string | no | An item the run is scoped to. Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `scopeId` | string | no | An item the run is scoped to. Item id: UUID or 8-32 hex. |
 | `label` | string | no | A short label, at most 64 characters. |
 | `title` | string | no | A title, at most 200 characters. |
 | `budget` | object | no | Run budget: attemptsPerSeat, maxActiveSeats; absent means no cap. On open it may not exceed a configured ceiling; on update a field can only be lowered or newly set. |
@@ -2300,9 +2300,9 @@ Errors: `ambiguous_id`, `duplicate`, `forbidden`, `idempotency_mismatch`, `inter
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
-| `addItems` | array of string | no | Items to add to the run. Item id: a UUID or a hex prefix of 8 to 32 characters. |
-| `removeItems` | array of string | no | Items to remove from the run. Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `runId` | string | yes | Run id: UUID or 8-32 hex. |
+| `addItems` | array of string | no | Items to add to the run. Item id: UUID or 8-32 hex. |
+| `removeItems` | array of string | no | Items to remove from the run. Item id: UUID or 8-32 hex. |
 | `budget` | object | no | Run budget: attemptsPerSeat, maxActiveSeats; absent means no cap. On open it may not exceed a configured ceiling; on update a field can only be lowered or newly set. |
 | `budget.attemptsPerSeat` | integer | no | Most attempts one seat may take. |
 | `budget.maxActiveSeats` | integer | no | Most seats active at once. |
@@ -2315,7 +2315,7 @@ Errors: `ambiguous_id`, `duplicate`, `forbidden`, `idempotency_mismatch`, `inter
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+| `runId` | string | yes | Run id: UUID or 8-32 hex. |
 | `reason` | string: completed \| cancelled \| failed \| abandoned | yes | Why the run ends: completed, cancelled, failed or abandoned. completed is refused while a seat is active. |
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_run_state`, `not_found`, `partial_failure`, `run_closed`, `unavailable`, `unknown_parameter`
@@ -2324,7 +2324,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+| `runId` | string | yes | Run id: UUID or 8-32 hex. |
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_run_state`, `not_found`, `partial_failure`, `run_closed`, `unavailable`, `unknown_parameter`
 
@@ -2332,7 +2332,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+| `runId` | string | yes | Run id: UUID or 8-32 hex. |
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `invalid_run_state`, `not_found`, `partial_failure`, `run_closed`, `unavailable`, `unknown_parameter`
 
@@ -2340,7 +2340,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
+| `runId` | string | yes | Run id: UUID or 8-32 hex. |
 | `key` | string | yes | The mark key: lowercase letters, digits, - and _, starting with a letter, at most 64 characters. |
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
@@ -2349,8 +2349,8 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `runId` | string | yes | Run id: a UUID or a hex prefix of 8 to 32 characters. |
-| `itemId` | string | yes | Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `runId` | string | yes | Run id: UUID or 8-32 hex. |
+| `itemId` | string | yes | Item id: UUID or 8-32 hex. |
 | `seat` | string | yes | A seat of the item's schema (implementer or planner when it has none, plus reviewer when it has review notes). Returns a seat token; re-assigning supersedes. |
 | `hints` | map of string | no | Short structured coordinator hints, string to string. On update they replace the stored hints. |
 
@@ -2377,9 +2377,9 @@ Errors: `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `par
 | `links` | array of object | no | Up to 10 {kind, ref} pointers; kind is item, note, doc, commit or url. |
 | `context` | string | no | Background for the answerer, at most 1000 characters. |
 | `dedupeKey` | string | yes | Re-raising the same key returns the open or answered decision instead of a new one. |
-| `itemId` | string | no | Item id: a UUID or a hex prefix of 8 to 32 characters. |
-| `runId` | string | no | Run id: a UUID or a hex prefix of 8 to 32 characters. |
-| `rootId` | string | no | The root item the run belongs to. Item id: a UUID or a hex prefix of 8 to 32 characters. |
+| `itemId` | string | no | Item id: UUID or 8-32 hex. |
+| `runId` | string | no | Run id: UUID or 8-32 hex. |
+| `rootId` | string | no | The root item the run belongs to. Item id: UUID or 8-32 hex. |
 | `severity` | string: high \| normal \| low | no | Class default. |
 | `block` | boolean | no | true: also block itemId as awaiting_decision in the same unit. |
 
@@ -2389,7 +2389,7 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `decisionId` | string | yes | Decision id: a UUID or a hex prefix of 8 to 32 characters. |
+| `decisionId` | string | yes | Decision id: UUID or 8-32 hex. |
 
 Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`, `version_conflict`
 
@@ -2397,7 +2397,7 @@ Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, 
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `decisionId` | string | yes | Decision id: a UUID or a hex prefix of 8 to 32 characters. |
+| `decisionId` | string | yes | Decision id: UUID or 8-32 hex. |
 | `option` | string | no | Key of the chosen option. |
 | `text` | string | no | Free-form answer, at most 1000 characters; freeform classes only. |
 | `rationale` | string | no | Why this answer, at most 1000 characters. |
@@ -2408,7 +2408,7 @@ Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, 
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `decisionId` | string | yes | Decision id: a UUID or a hex prefix of 8 to 32 characters. |
+| `decisionId` | string | yes | Decision id: UUID or 8-32 hex. |
 
 Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`, `version_conflict`
 <!-- /generated:tool runs_write -->

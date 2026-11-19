@@ -232,6 +232,10 @@
       "describe": {
         "type": "boolean",
         "description": "true: return each operation's parameters and errors; nothing runs."
+      },
+      "seatToken": {
+        "type": "string",
+        "description": "Run seat token; omit when not seated."
       }
     },
     "type": "object"

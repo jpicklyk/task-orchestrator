@@ -104,6 +104,8 @@ internal object ItemDocs {
     const val METADATA = "Metadata text."
     const val TAGS = "Lowercase, hyphenated. Update: [] clears."
     const val TRAITS = "Declared traits, max 100 chars each. Update: [] clears."
+    const val TREE_TAGS = "Lowercase, hyphenated."
+    const val TREE_TRAITS = "Declared traits, max 100 chars each."
     const val PROPERTIES = "JSON object; no traits key."
     const val EXPECTED_VERSION = "Fails version_conflict if the item is at another version."
     const val CLEAR = "Update only: optional fields to set to null."

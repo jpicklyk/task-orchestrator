@@ -15,11 +15,11 @@
       },
       "runId": {
         "type": "string",
-        "description": "Run id: a UUID or a hex prefix of 8 to 32 characters. [select: get, frontier, decisions]"
+        "description": "Run id: UUID or 8-32 hex. [select: get, frontier, decisions]"
       },
       "rootId": {
         "type": "string",
-        "description": "Only those on this root. Item id: a UUID or a hex prefix of 8 to 32 characters. [select: list, decisions]"
+        "description": "Only those on this root. Item id: UUID or 8-32 hex. [select: list, decisions]"
       },
       "status": {
         "type": "string",
@@ -57,7 +57,7 @@
       },
       "decisionId": {
         "type": "string",
-        "description": "Decision id: a UUID or a hex prefix of 8 to 32 characters. [select: decision]"
+        "description": "Decision id: UUID or 8-32 hex. [select: decision]"
       },
       "describe": {
         "type": "boolean",
