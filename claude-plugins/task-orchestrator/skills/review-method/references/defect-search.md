@@ -22,27 +22,23 @@ For each changed unit (a function, a handler, a query, a migration, a script):
 
 Use this list to drive the third step. It is a prompt for questions, not a checklist to tick.
 
-- **Logic errors.** Inverted or missing conditions, wrong operator, off-by-one, a branch that can
-  never be taken, a fall-through that should not happen, the wrong variable used.
-- **Edge and boundary inputs.** Empty, null or missing; zero, negative, maximum and overflow; a
-  single element; duplicates; very long strings; unusual characters and encodings; values exactly
-  at a limit.
-- **State and ordering.**
-  - Concurrency: two callers at once, a read and a write racing, a check followed by an act on stale
-    state.
-  - Re-entry: the unit called again while it is still running, directly or through a callback.
-  - Idempotency: the same request applied twice; is the second time harmless?
-  - Partial failure: a step fails half way; what is left behind, and is it consistent?
-  - Retry: a retry after a failure that actually succeeded; a retry that repeats a side effect.
-- **Resources.** Handles, connections, locks or temporary files that are not released on every
-  path, the error path included; unbounded growth of a cache, queue or buffer; work that grows
-  faster than its input.
-- **Unsafe input handling.** Untrusted input reaching a query, a shell command, a file path, a
-  template or a deserializer without validation or escaping; secrets written to a log or an error
-  message; a check done on one value and an action taken on another.
 - **Changed contracts and their callers.** A changed signature, return value, error, default,
   ordering or format: find every caller and check each still works. A caller outside the change is
   the most common place for this defect to hide.
+- **State and ordering.** Two callers at once; the unit re-entered through a callback; the same
+  request applied twice; a step that fails half way; a retry after a failure that actually
+  succeeded.
+- **A check and an act on different values.** A value validated in one form and used in another
+  (before and after decoding, normalising or a second read), or a check made on state that changes
+  before the act.
+- **Resources.** A handle, lock or temporary file not released on the error path; a cache, queue or
+  buffer with no bound; work that grows faster than its input.
+- **Secrets in output.** A credential, token or piece of personal data written to a log, an error
+  message or a response.
+- **Logic, boundaries and unsafe input.** The usual classes (inverted conditions, off-by-one,
+  empty and maximum inputs, untrusted input reaching a query, shell command, file path, template
+  or deserializer) apply as always; spend the attention on the classes above, which a reading of
+  the diff alone misses.
 
 ## Reporting a defect
 

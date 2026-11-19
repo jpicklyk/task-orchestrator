@@ -1,6 +1,6 @@
 ---
 name: review-method
-description: "Method for reviewing a change: a spec axis (does it do the right thing), a standards axis (is it built well) and a defect search beyond the stated criteria. Every finding names its axis and carries location, expected and source, found, severity and confidence; the review closes with one verdict per axis."
+description: "Method for reviewing a code change: a spec axis (does it do the right thing), a standards axis (is it built well) and a defect search beyond the stated criteria. Every finding names its axis and carries location, expected and source, found, severity and confidence; the review closes with one verdict per axis. Use when reviewing a diff, branch or pull request someone else wrote, or when writing up review findings and a verdict for a change."
 user-invocable: false
 ---
 
@@ -44,9 +44,8 @@ built, and knowing what it must do tells you where to look for defects.
 - **Standards**: is the change built well? Readable, consistent with its surroundings, no more
   complex than the problem, and safe to change later.
 
-Every finding names its axis. A defect-search finding carries axis **spec**, because a defect is
-wrong behaviour, unless it is only poor construction with no wrong behaviour, in which case it
-carries axis **standards**.
+Every finding names its axis; [defect search](references/defect-search.md) says which axis a
+defect takes.
 
 ## What a finding contains
 
@@ -55,13 +54,8 @@ carries axis **standards**.
 - **Expected, and its source**: what should be there, and where that expectation comes from (the
   criterion, the standard, or the correct behaviour the change must have).
 - **Found**: what is actually there.
-- **Severity**: blocking or observation.
-  - Spec axis: blocking when a stated criterion is not met, or when the change produces wrong
-    behaviour a user or caller can reach; observation when the behaviour is correct but a gap is
-    minor or unlikely to be reached.
-  - Standards axis: blocking when the construction will cause wrong behaviour or makes the code
-    unsafe to change (a broken dependency direction, swallowed errors, duplicated logic that must
-    stay in step); observation for anything that only makes the code harder to read or extend.
+- **Severity**: blocking or observation, by the "Severity on this axis" rules of the finding's
+  axis ([spec](references/spec-axis.md), [standards](references/standards-axis.md)).
 - **Confidence**: how sure you are that this is a real problem and not a misreading, with what
   would settle it when you are not sure.
 

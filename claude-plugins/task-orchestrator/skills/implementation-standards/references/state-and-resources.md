@@ -27,9 +27,8 @@ call the change done, work through the cases below for each unit you wrote or ch
 ## Resources
 
 - **Release on every path.** A handle, connection, lock or temporary file the change acquires is
-  released on every path, the error path included. Use the language's scoped construct for it (a
-  block that releases on exit, a finally clause, a destructor) rather than a release call placed
-  only at the end of the success path.
+  released on every path, the error path included, through the language's scoped construct rather
+  than a release call at the end of the success path.
 - **Bounded growth.** A cache, queue or buffer the change adds or fills has a bound: a size limit,
   an eviction rule or an expiry. State what happens when the bound is reached (block, drop, evict or
   refuse) and make that choice on purpose.
