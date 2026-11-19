@@ -8,7 +8,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { RetroState } from '../types'
-import { MAX_RECORDED, evaluateRuns, markRequest, normalizeState, recordCloses, successfulCloses } from '../src/retro/logic.ts'
+import { MAX_RECORDED, evaluateRuns, markRequest, normalizeState, ownsRun, recordCloses, recordOwned, successfulCloses, successfulOps } from '../src/retro/logic.ts'
 import type { RetroConfig } from '../src/retro/logic.ts'
 
 const ROOT = 'ce064d2c-7c03-4eac-ae7d-89a14c2ba273'
@@ -139,10 +139,12 @@ function scripted(s: Script) {
   return { call, log }
 }
 const NOW = 5_000_000
+/** A state in which this session opened `ids` (logic.ts ownsRun): only owned runs are evaluated. */
+const owns = (...ids: string[]): RetroState => ({ opened: ids })
 
 test('S15 evaluateRuns: a run at the threshold in dispatch mode is marked and won; the list read carries the window', async () => {
   const s = scripted({ runs: [{ runId: R1 }], terminal: { [R1]: 3 }, mark: { [R1]: 'won' } })
-  const r = await evaluateRuns(s.call, ROOT, cfg(), {}, NOW)
+  const r = await evaluateRuns(s.call, ROOT, cfg(), owns(R1), NOW)
   expect(r.won).toEqual([R1])
   expect(r.nudge).toEqual([])
   expect(s.log[0]).toEqual({ tool: 'runs_read', args: { select: 'list', rootId: ROOT, unmarked: 'retro', endedSince: new Date(NOW - 24 * HOUR).toISOString(), limit: 20 } })
@@ -151,12 +153,12 @@ test('S15 evaluateRuns: a run at the threshold in dispatch mode is marked and wo
 })
 
 test('S15 evaluateRuns: a lost mark race is silent; a failed or thrown mark is a nudge, never a dispatch', async () => {
-  const lost = await evaluateRuns(scripted({ runs: [{ runId: R1 }], terminal: { [R1]: 5 }, mark: { [R1]: 'lost' } }).call, ROOT, cfg(), {}, NOW)
+  const lost = await evaluateRuns(scripted({ runs: [{ runId: R1 }], terminal: { [R1]: 5 }, mark: { [R1]: 'lost' } }).call, ROOT, cfg(), owns(R1), NOW)
   expect(lost.won).toEqual([])
   expect(lost.nudge).toEqual([])
   expect(lost.state.nudged ?? []).toEqual([])
   for (const mark of ['fail', 'throw'] as const) {
-    const r = await evaluateRuns(scripted({ runs: [{ runId: R1 }], terminal: { [R1]: 5 }, mark: { [R1]: mark } }).call, ROOT, cfg(), {}, NOW)
+    const r = await evaluateRuns(scripted({ runs: [{ runId: R1 }], terminal: { [R1]: 5 }, mark: { [R1]: mark } }).call, ROOT, cfg(), owns(R1), NOW)
     expect([mark, r.won, r.nudge]).toEqual([mark, [], [R1]])
     expect(r.state.nudged).toEqual([R1])
   }
@@ -164,18 +166,18 @@ test('S15 evaluateRuns: a lost mark race is silent; a failed or thrown mark is a
 
 test('S15 evaluateRuns: below the threshold, or in nudge mode, a run is nudged and no mark is written', async () => {
   const below = scripted({ runs: [{ runId: R1 }], terminal: { [R1]: 2 }, mark: {} })
-  const a = await evaluateRuns(below.call, ROOT, cfg(), {}, NOW)
+  const a = await evaluateRuns(below.call, ROOT, cfg(), owns(R1), NOW)
   expect(a.nudge).toEqual([R1])
   expect(a.won).toEqual([])
   expect(below.log.some(c => c.tool === 'runs_write')).toBe(false)
   const nudgeMode = scripted({ runs: [{ runId: R1 }], terminal: { [R1]: 9 }, mark: {} })
-  const b = await evaluateRuns(nudgeMode.call, ROOT, cfg({ mode: 'nudge' }), {}, NOW)
+  const b = await evaluateRuns(nudgeMode.call, ROOT, cfg({ mode: 'nudge' }), owns(R1), NOW)
   expect(b.nudge).toEqual([R1])
   expect(nudgeMode.log.some(c => c.tool === 'runs_write')).toBe(false)
   // the threshold itself counts
-  const exact = await evaluateRuns(scripted({ runs: [{ runId: R1 }], terminal: { [R1]: 3 }, mark: { [R1]: 'won' } }).call, ROOT, cfg({ dispatchThreshold: 3 }), {}, NOW)
+  const exact = await evaluateRuns(scripted({ runs: [{ runId: R1 }], terminal: { [R1]: 3 }, mark: { [R1]: 'won' } }).call, ROOT, cfg({ dispatchThreshold: 3 }), owns(R1), NOW)
   expect(exact.won).toEqual([R1])
-  const zero = await evaluateRuns(scripted({ runs: [{ runId: R1 }], terminal: { [R1]: 0 }, mark: { [R1]: 'won' } }).call, ROOT, cfg({ dispatchThreshold: 0 }), {}, NOW)
+  const zero = await evaluateRuns(scripted({ runs: [{ runId: R1 }], terminal: { [R1]: 0 }, mark: { [R1]: 'won' } }).call, ROOT, cfg({ dispatchThreshold: 0 }), owns(R1), NOW)
   expect(zero.won).toEqual([R1])
 })
 
@@ -185,7 +187,7 @@ test('S15 evaluateRuns: a run carrying the retro mark, a run already nudged, and
     terminal: { [R2]: 4, [R3]: 'fail' },
     mark: { [R2]: 'won' },
   })
-  const r = await evaluateRuns(s.call, ROOT, cfg(), { nudged: [R2] }, NOW)
+  const r = await evaluateRuns(s.call, ROOT, cfg(), { nudged: [R2], opened: [R1, R2, R3] }, NOW)
   expect(r.won).toEqual([])
   expect(r.nudge).toEqual([])
   expect(s.log.filter(c => c.args.select === 'frontier').map(c => c.args.runId)).toEqual([R3])
@@ -196,12 +198,12 @@ test('S15 evaluateRuns: at most 5 runs are examined; the nudged ones are appende
   const runs = Array.from({ length: 8 }, (_, i) => ({ runId: `00000000-0000-4000-8000-00000000000${i}` }))
   const terminal = Object.fromEntries(runs.map(r => [r.runId, 1]))
   const s = scripted({ runs, terminal, mark: {} })
-  const start: RetroState = { nudged: ['earlier'] }
+  const start: RetroState = { nudged: ['earlier'], opened: runs.map(r => r.runId) }
   const r = await evaluateRuns(s.call, ROOT, cfg(), start, NOW)
   expect(r.nudge).toHaveLength(5)
   expect(s.log.filter(c => c.args.select === 'frontier')).toHaveLength(5)
   expect(r.state.nudged).toEqual(['earlier', ...r.nudge])
-  expect(start).toEqual({ nudged: ['earlier'] })
+  expect(start).toEqual({ nudged: ['earlier'], opened: runs.map(r => r.runId) })
 })
 
 test('S15 evaluateRuns: an unreadable list gives nothing, without throwing', async () => {
@@ -212,3 +214,42 @@ test('S15 evaluateRuns: an unreadable list gives nothing, without throwing', asy
   expect(r.nudge).toEqual([])
 })
 
+
+// --- session ownership (observation f30d8252): only runs this session opened or closed ---------
+
+test('ownership: evaluateRuns skips a run this session neither opened nor closed: no frontier read, no mark', async () => {
+  const s = scripted({ runs: [{ runId: R1 }, { runId: R2 }], terminal: { [R1]: 5, [R2]: 5 }, mark: { [R1]: 'won', [R2]: 'won' } })
+  const r = await evaluateRuns(s.call, ROOT, cfg(), { closes: [R2] }, NOW)
+  expect(r.won).toEqual([R2])
+  expect(s.log.filter(c => c.args.select === 'frontier').map(c => c.args.runId)).toEqual([R2])
+  expect(s.log.filter(c => c.tool === 'runs_write').map(c => (c.args.ops as { runId: string }[])[0]?.runId)).toEqual([R2])
+  const none = scripted({ runs: [{ runId: R1 }], terminal: { [R1]: 1 }, mark: {} })
+  const n = await evaluateRuns(none.call, ROOT, cfg({ mode: 'nudge' }), {}, NOW)
+  expect([n.won, n.nudge]).toEqual([[], []])
+  expect(none.log.filter(c => c.args.select === 'frontier')).toHaveLength(0)
+})
+
+test('ownership: ownsRun accepts an opened or a closed run only', () => {
+  expect(ownsRun({ opened: [R1] }, R1)).toBe(true)
+  expect(ownsRun({ closes: [R2] }, R2)).toBe(true)
+  expect(ownsRun({ opened: [R1], closes: [R2] }, R3)).toBe(false)
+  expect(ownsRun({}, R1)).toBe(false)
+})
+
+test('ownership: recordOwned unions opens and closes without setting sawClose, keeps the newest 50, and returns the state itself for nothing', () => {
+  const one = recordOwned({}, [R1], [R2])
+  expect(one).toEqual({ opened: [R1], closes: [R2] })
+  expect(recordOwned(one, [R1, R3], [])).toEqual({ opened: [R1, R3], closes: [R2] })
+  const many = Array.from({ length: MAX_RECORDED + 3 }, (_, i) => `run-${i}`)
+  expect(recordOwned({}, many, []).opened).toEqual(many.slice(3))
+  const same: RetroState = { nudged: [R1] }
+  expect(recordOwned(same, [], [])).toBe(same)
+  expect(normalizeState({ opened: [R1, 7] })).toEqual({ opened: [R1] })
+})
+
+test('ownership: successfulOps reads open ids from the result row; failed opens give none', () => {
+  const open = (rows: unknown[], ok = true) => ({ structuredContent: { ok, data: { results: rows, summary: {} } } })
+  expect(successfulOps({ ops: [{ op: 'open', rootId: ROOT }] }, open([{ ok: true, runId: R1, status: 'open' }]), 'open')).toEqual([R1])
+  expect(successfulOps({ ops: [{ op: 'open', rootId: ROOT }] }, open([{ ok: false, error: { code: 'duplicate' } }], false), 'open')).toBeNull()
+  expect(successfulOps({ ops: [{ op: 'close', runId: R1 }] }, open([{ ok: true, runId: R1 }]), 'open')).toBeNull()
+})
