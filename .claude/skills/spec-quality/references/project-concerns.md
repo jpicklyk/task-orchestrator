@@ -62,3 +62,10 @@ implementations in `infrastructure/sqlite/repository/`. SQLite and Exposed code 
 dialect SQL tokens in string literals) stays under `infrastructure/sqlite/` (`DialectNeutralityTest`). Adding a method to a port requires
 updating the implementation, and any mocks in test files that use that repository.
 Search for `mockk<RepositoryName>` across test files to find affected mocks.
+
+## Plugin Changes
+
+A change to plugin skills, hooks or scripts also asks:
+- whether it needs a plugin cache refresh and session restart (procedure in `claude-plugins/CLAUDE.md`);
+- whether CRLF line endings will break script execution;
+- whether new skill trigger phrases conflict with existing skills.
