@@ -106,8 +106,9 @@ test('S14: SKILL.md and the references it links ask nobody anything and carry no
   assert.equal(FM['argument-hint'].includes('--deep'), false)
 })
 
-test('S14: the deep-mode reference exists and SKILL.md does not link it', () => {
-  assert.ok(existsSync(join(SKILL_DIR, 'references', 'deep-mode.md')))
+test('S14: deep-mode.md lives under review-retrospectives, is gone here, and SKILL.md does not link it', () => {
+  assert.equal(existsSync(join(SKILL_DIR, 'references', 'deep-mode.md')), false)
+  assert.ok(existsSync(join(SKILLS, 'review-retrospectives', 'references', 'deep-mode.md')))
   assert.equal(linkedFiles(SKILL, SKILL_DIR).some((f) => /deep-mode\.md$/.test(f)), false)
 })
 

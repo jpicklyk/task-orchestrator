@@ -792,7 +792,7 @@ test('T-repo: script text contains no repo-identifying strings', () => {
 
 // ── T-deep ─────────────────────────────────────────────────────────────────────
 
-const DEEP_PATH = join(PLUGIN, 'skills', 'session-retrospective', 'references', 'deep-mode.md')
+const DEEP_PATH = join(PLUGIN, 'skills', 'review-retrospectives', 'references', 'deep-mode.md')
 
 test('T-deep: references/deep-mode.md holds the Deep mode heading once, at or under 25 lines, naming retro/<runId> and the args contract', () => {
   const text = readFileSync(DEEP_PATH, 'utf8').replace(/\r\n/g, '\n')

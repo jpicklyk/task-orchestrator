@@ -379,7 +379,8 @@ Skills are invoked as slash commands in any Claude Code session:
 | `/task-orchestrator:run-wave` | Plan and run a multi-item wave on a server run (Method A via the `implement-wave` Workflow, or Method B direct-Agent fallback) |
 | `/task-orchestrator:ralph` | Emit the `ralph-loop.mjs` invocation for a headless queue drain — one run per loop, one `claude -p --worktree` per iteration |
 | `/task-orchestrator:session-retrospective` | Analyze an implementation run (`--run <runId>`), record cross-session trends, and graduate recurring patterns into improvement proposals |
-| `/task-orchestrator:review-proposals` | Triage pending improvement proposals — accept, reject, or defer each and carry out the disposition |
+| `/task-orchestrator:review-retrospectives` | User-run review of the retrospective record: Summarise (dashboard), Suggest (ranked actions by product, global-process, project), apply confirmed trend changes, Decide (hand pending proposals to review-proposals); `--audit` and `--deep` add the retro-analysis workflow |
+| `/task-orchestrator:review-proposals` | Triage pending improvement proposals — accept, reject, or defer each and carry out the disposition (user-invoked only) |
 | `/task-orchestrator:adopt-project-scope` | Migrate an already-populated, unscoped database in place to the project-scoping convention |
 | `/task-orchestrator:director` | Director mode: a board of open runs, frontier, decisions and rollups; answer decisions; delegate every read; `off` leaves |
 | `/task-orchestrator:configure-server` | Configure how the server runs and is reached — transport, REST API, port publishing, config mounts, config-sync |
@@ -430,7 +431,7 @@ test-authoring seat, respectively.
 The shipped workflows, each launched on its own terms:
 
 - `audit` — read-only report + proposal; materializing its findings goes through [create-item](../../../claude-plugins/task-orchestrator/skills/create-item/SKILL.md#from-a-workflow-findings-proposal). Cost scales with the preset: `quick`, `standard` or `full`; `full` runs roughly 90 minutes and about 30M tokens.
-- `retro-analysis` — two modes. `deep` is invoked via `/session-retrospective --deep`; `audit` is a standalone sweep whose consumer is the session-retrospective skill's "Audit sweep" paragraph (present the result, then apply Step 6's create and retire shapes after the user confirms).
+- `retro-analysis` — two modes. `deep` and `audit` are invoked via `/task-orchestrator:review-retrospectives --deep` and `--audit`; the consumer is that skill's Step 3 (present the result, then apply its create and retire shapes after the user confirms).
 - `review-wave` — independent review lanes over an item's owned-file diff, aggregated into one verdict in args order. Verdict lanes (the default) decide the verdict; a lane whose review notes declare `lane.output: findings` reports findings only and never sets it, though its stopped status still stops the item; `lane.after` orders lanes and never halts or skips one. Shipped; the `run-wave` front door builds the lanes from the review notes' `lane` declarations.
 
 ---

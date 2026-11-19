@@ -1,7 +1,7 @@
 export const meta = {
   name: 'retro-analysis',
   description: 'Two-phase retrospective trend matcher: shards trends, observations, and retrospectives across Match agents, then adjudicates ambiguous and orphan findings into matched trends or new-trend candidates.',
-  whenToUse: 'Two modes: audit runs a standalone sweep over trends, observations, and retrospectives; deep matches findings the session-retrospective skill supplies via its --deep flag. runId and date are required. User-invoked only, never launched from a hook or a background agent. Every phase is read-only -- the skill performs all writes afterward.',
+  whenToUse: 'Two modes: audit runs a standalone sweep over trends, observations, and retrospectives; deep matches findings the review-retrospectives skill supplies via its --deep flag (audit via its --audit flag). runId and date are required. User-invoked only, never launched from a hook or a background agent. Every phase is read-only -- the skill performs all writes afterward.',
   phases: [
     { title: 'Match' }, { title: 'Adjudicate' },
   ],
@@ -369,7 +369,7 @@ function routeFindings(plan, collected) {
 
 /**
  * findingsSource(plan) -> string; '' unless the plan names its findings document (deep mode, where
- * the session-retrospective skill stashed the findings with docs_write upsert kind plan slug
+ * the review-retrospectives skill stashed the findings with docs_write upsert kind plan slug
  * retro/<runId>). The document is the authority; the FINDINGS list in the prompt is its projection.
  */
 function findingsSource(plan) {
