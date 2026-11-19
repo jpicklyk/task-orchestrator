@@ -592,7 +592,7 @@ not restate it.
 | Item reviewer, feature reviewer | `reviewer:<short>` (the parent's short id for the feature) | seat |
 | Post-merge step runner | `<step>:<parent-short>` | red-proofs when the step is named so |
 | Retrospective agent | `retrospective:<run8>` (first 8 hex of the server run id) | retrospective |
-| Tier 2 coordinator | `coordinator:<target-short>` | coordinator |
+| Tier 2 or 2b coordinator | `coordinator:<target-short>` | coordinator |
 | Research, audit, mining | `research:<topic>` | research |
 
 Any other description, or none, is class unlabelled. `<short>` is the item's 8-hex short id. A fix-cycle seat is

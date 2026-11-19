@@ -14,7 +14,7 @@ not to use it: [references/purpose.md](references/purpose.md).
 
 Calling this skill entered director mode. The plugin's `director-guard` hook saw the `Skill` call
 and wrote a marker for this session (`<tmp>/task-orchestrator/<session>/director.json`). While the
-marker exists, the guard enforces the altitude rule below on the tools it matches: the built-in file, shell, web (`WebFetch`, `WebSearch`) and MCP-resource tools, foreground dispatch, `Skill` and `Workflow`, the reads on the orchestration connection, and every host MCP tool (terminal, file store, computer use), which is denied unless it is `start_session`, `send_message`, a tier-1 launch profile call (`get_settings`, `set_session_output_style`) or a desktop UI tool (`update_plan`, `wrap_up`, `mark_chapter`).
+marker exists, the guard enforces the altitude rule below on the tools it matches: the built-in file, shell, web (`WebFetch`, `WebSearch`) and MCP-resource tools, foreground dispatch, `Skill` and `Workflow`, the reads on the orchestration connection, and every host MCP tool, which is denied unless it is `start_session`, `send_message`, a tier-1 launch profile call (`get_settings`, `set_session_output_style`) or a desktop UI tool (`update_plan`, `wrap_up`, `mark_chapter`).
 Subagents are exempt (their calls carry `agent_id`); a headless ralph iteration is never guarded.
 
 `/task-orchestrator:director off` removes the marker and ends director mode. Say so in one line
@@ -25,8 +25,7 @@ Calling the skill again refreshes the marker and the dashboard.
 ## The altitude rule
 
 - Never open or search a file. `Read`, `Edit`, `Write`, `Grep`, `Glob` and `NotebookEdit` are
-  denied. `PowerShell` and `Monitor` are denied outright (they run a shell command and print its
-  output); `Workflow` runs only `task-orchestrator:implement-wave` with an object `args` carrying
+  denied. `PowerShell` and `Monitor` are denied outright; `Workflow` runs only `task-orchestrator:implement-wave` with an object `args` carrying
   `altitudeSafe: true`.
 - Never read a note body, with two exceptions: a decision request (`runs_read` `decision`) and a
   run rollup (`report` `rollup`).
@@ -102,8 +101,7 @@ when enforcement matters.
 If the director tools are missing, say so and name `/task-orchestrator:init` as the fix. Until
 then the director-only members are unavailable on the orchestration connection: `runs_read`
 `decisions`/`decision`, `runs_write` `pause`/`resume`/`ack`/`answer` and the `report`
-tool. Decisions cannot be shown or answered until `/task-orchestrator:init`.
-Still never call `notes_read`.
+tool. Decisions cannot be shown or answered until init runs. Still never call `notes_read`.
 
 ## Dashboard
 
@@ -177,6 +175,8 @@ Blocked: 2
 Coordinator tier: 2 (Workflow)
 ```
 
+In Code Mode: `Coordinator tier: 2 (Workflow), 2b (Code Mode)`.
+
 Add a coordinator cell to each run's line, from the frontier's `stalled`: show `coord idle (Method A)`
 when the run's `hints.method` is `A` and `hints.phase` is `launched` (nothing runs under the
 coordinator token during a Workflow), `coord idle, seats live` when any `inFlight` seat has
@@ -228,8 +228,7 @@ Withdraw a decision the run no longer needs (for example the user cancelled that
 ```
 
 Withdraw succeeds only for a decision this principal raised without a seat, or under the coordinator
-token of the decision's run. On stdio or an unauthenticated local-mode server every caller is the one
-`local` principal, so there "this principal raised" covers every decision raised without a seat.
+token of the decision's run. With the one `local` principal (stdio, unauthenticated local mode) that covers every decision raised without a seat.
 Nobody can withdraw a server-raised attempt-cap decision.
 For a seat's decision, `SendMessage` the run's coordinator to withdraw it, or answer it.
 `decision_closed` means someone already answered or withdrew it: refresh the board.
@@ -244,26 +243,27 @@ per `/status-progression`. The board then shows the entry as "answered, needs re
 ## Coordinator tier
 
 Probe once per entry and state the result as one board line. The tier says where coordinators
-run; it does not launch one. Tiers 1 and 2 show in your own tool list (no calls). Tier 3 needs the
+run; it does not launch one. Tiers 1, 2 and 2b show in your own tool list. Tier 3 needs the
 `claude` CLI on the host, which no tool list shows: ask the user, or dispatch one background agent
-to run `claude --version` and report. The hardened entry has no shell, so that is its only way.
+to run `claude --version` and report. The hardened entry has no shell, so only the agent can.
+In Code Mode, probe the tools a script can call (Workflow, Agent, SendMessage), not the REPL and
+Poll pair.
 
 | Tier | Present | Meaning |
 |------|---------|---------|
 | 1 | `start_session` and `SendMessage` (or `send_message`) in your tool list (not in the hardened entry) | Coordinators run as separate sessions; reach them with `SendMessage` |
-| 2 | The `Workflow` tool (not in the hardened entry) | A run executes as a background workflow; the director makes the one `Workflow` call and relays its args and result, because the coordinator is a background agent and a background subagent may lack `Workflow` |
+| 2 | The `Workflow` tool (not in the hardened entry) | A run executes as a background workflow; the director makes the one `Workflow` call and relays its args and result, since a background coordinator may lack `Workflow` |
+| 2b | `REPL` and `Agent` (Code Mode) | A Code Mode coordinator subagent runs the whole run, Method B; you compose its `Agent` call from the 2b brief; with 2 also present, 2 for Method A (coordinator-tiers.md) |
 | 3 | Neither, but `claude -p` is available on the host | Coordinators run as headless `claude -p` processes started by a background agent |
 | 4 | None of the above | No separate coordinator: every read and edit goes through background `Agent` dispatches from this session |
 
-At tier 4, warn the user once: the altitude holds only as long as each delegated agent reports a
-summary instead of raw file content, so ask each agent for a short summary.
+At tier 4, warn the user once: the altitude holds only while each delegated agent reports a
+summary, not raw file content, so ask each agent for a short summary.
 
-How to launch a coordinator at each tier (the desktop session profile, the tier-2 hand-off with
-`--altitude-safe`, the tier-3 `claude -p` argv with `--max-budget-usd`, and the tier-4 warning) is
-in [references/coordinator-tiers.md](references/coordinator-tiers.md). The plugin's
-`scripts/coordinator-tiers.mjs` holds the same probe rule and prints each launch profile; a
-coordinator or background agent runs it, not this session. A small run (one or two items) skips the
-coordinator layer: dispatch it as one background agent.
+How to launch a coordinator at each tier is in [references/coordinator-tiers.md](references/coordinator-tiers.md).
+`scripts/coordinator-tiers.mjs` has the same probe rule and prints each launch profile; a
+coordinator or background agent runs it, not you. A run of one or two items skips the
+coordinator layer: dispatch one background agent.
 
 ## Waking up
 
@@ -290,5 +290,5 @@ it reads note bodies. Each fires once per decision or run per session.
 ## Hardened entry
 
 `claude --agent director` starts a session whose tool list is already limited to the director
-budget (the plugin's `agents/director.md`), which has neither `Workflow` nor `start_session`: it probes tier 3 or 4. Tiers 1-2 need a director entered via the `/task-orchestrator:director` skill in a normal session. It still invokes this skill first, so the marker and
+budget (the plugin's `agents/director.md`), which has neither `Workflow` nor `start_session`: it probes tier 3 or 4. Tiers 1, 2 and 2b need a director entered via the `/task-orchestrator:director` skill in a normal session. It still invokes this skill first, so the marker and
 the guard apply too.

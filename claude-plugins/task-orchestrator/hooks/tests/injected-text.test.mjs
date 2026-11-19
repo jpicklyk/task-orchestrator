@@ -107,6 +107,7 @@ function run(script, { config, stdin, env = {}, withUserConfig } = {}) {
       TASK_ORCHESTRATOR_MODE: '',
       TASK_ORCHESTRATOR_API_URL: '',
       TASK_ORCHESTRATOR_SETUP_HINT: '',
+      CLAUDE_CODE_EXPERIMENTAL_CODE_MODE: '',
       TEMP: fx.tmpDir,
       TMP: fx.tmpDir,
       TMPDIR: fx.tmpDir,
