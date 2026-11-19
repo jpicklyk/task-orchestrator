@@ -98,7 +98,7 @@ The target root is the parent of `git rev-parse --path-format=absolute --git-com
 
 ### P2 - Already initialized?
 
-If `<main>/.taskorchestrator/config.yaml` exists with a non-empty `project.rootId`, the project is initialized. Skip to the Bug-report consent (only when the config has no `bug_reports` key), then P5 (push), then the P5b `client.json` step, then Rule seeding, so an already-initialized project still gets its `client.json`. Re-running is idempotent.
+If `<main>/.taskorchestrator/config.yaml` exists with a non-empty `project.rootId`, the project is initialized. Skip to P5 (push), then the P5b `client.json` step, then Rule seeding, so an already-initialized project still gets its `client.json`. Re-running is idempotent.
 
 ### P3 - Find or create the anchor
 
@@ -139,8 +139,6 @@ project:
 ```
 
 Read-modify-write surgically: preserve all other content byte for byte; update an existing `project:` key in place rather than duplicating it. Create the file with only the block when it does not exist.
-
-Then run the Bug-report consent below, before P5, so one push covers both.
 
 ### P5 - Validate, then push
 
@@ -193,7 +191,7 @@ Close with one line on the orchestration mode, because a located config turns th
 
 > Orchestration mode: `<mode>`. The plugin now injects its orchestration core at session start, denies `Agent` dispatches that omit `model`, and adds a dispatch hint after `advance`. Set `extensions.claude-code.orchestration.mode` to `schema` (no tiers or model table) or `off` (all three hooks silent) in `.taskorchestrator/config.yaml` to change it.
 
-Do not write the `extensions:` block yourself in project mode, with one exception: the Bug-report consent writes `bug_reports`. Absent orchestration mode already means `workflow`, and init touches this file surgically.
+Do not write the `extensions:` block yourself in project mode. Absent orchestration mode already means `workflow`, and init touches this file surgically.
 
 ---
 
@@ -271,23 +269,23 @@ Then run Rule seeding.
 
 ---
 
-## Bug-report consent (both modes)
+## Bug-report consent (--user mode)
 
-Ask only when the target config (the project file in project mode, `userConfigPath()` in `--user` mode) has no `extensions.claude-code.retrospective.github_feedback.bug_reports` key; a present key, true or false, is kept and not asked again. One question:
+Asked only in `--user` mode, in U3, against `userConfigPath()`; project mode never asks, and a `bug_reports` key in a project config is never read. Ask only when `userConfigPath()` has no `extensions.claude-code.retrospective.github_feedback.bug_reports` key; a present key, true or false, is kept and not asked again. One question:
 
 ```
 AskUserQuestion(questions: [{
-  question: "Let the session retrospective file GitHub bug reports for Task Orchestrator product defects it finds? Reports are public issues on github.com/<repo>, filed under your own gh account, scrubbed of note text, titles, ids, paths, and account or project names. Off by default.",
+  question: "Let the session retrospective file GitHub bug reports for Task Orchestrator product defects it finds? Reports are public issues on github.com/jpicklyk/task-orchestrator, filed under your own gh account. A report holds only the component, tool, op, error code, plugin and server versions, the call shape (type names only) and a fingerprint; no message, note text, title, id, path or name is sent. Off by default.",
   header: "Bug reports",
   multiSelect: false,
   options: [
-    { label: "No (default)", description: "Write bug_reports false. Nothing is ever filed automatically." },
+    { label: "No (default)", description: "Write bug_reports false. No bug reports are filed; proposal issues still follow github_feedback.enabled." },
     { label: "Yes, file bug reports", description: "Write bug_reports true. Needs gh installed and authenticated; qualifying product defects are filed or commented on, within per-run caps." }
   ]
 }])
 ```
 
-`<repo>` is the config's `github_feedback.repo`, else `jpicklyk/task-orchestrator`. Write the answer in block form under `extensions:`, `claude-code:`, `retrospective:` and `github_feedback:`, surgically (preserve all other content byte for byte; add only the missing levels, and the key beside an existing `enabled` or `repo`):
+The repo is always `jpicklyk/task-orchestrator`. Write the answer in block form under `extensions:`, `claude-code:`, `retrospective:` and `github_feedback:`, surgically (preserve all other content byte for byte; add only the missing levels, and the key beside an existing `enabled` or `repo`):
 
 ```yaml
 extensions:
@@ -297,7 +295,7 @@ extensions:
         bug_reports: false   # or true
 ```
 
-Write it before the validate-and-push, so one push covers it.
+Write it before the validate-and-push of U3, so one push covers it.
 
 ---
 

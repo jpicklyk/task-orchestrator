@@ -344,7 +344,7 @@ A retrospective run produces:
 3. Zero or more `improvement-proposal` MCP items under an `Improvement Proposals` container (one per graduated trend)
 4. Bug observations for defects found (an `agent-observation` tagged `bug` and `retro-reported`, or evidence on an open one), created on first sighting with no session threshold; an agent-discipline slip creates no item and returns as a `memory:` line to the session that dispatched the retrospective
 5. A dashboard rendered to the user with dimension scores, trends, and any proposals created
-6. Opt-in only (`bug_reports: true`, asked once at init): for each qualifying product defect, a scrubbed public `[bug]` issue on the upstream repo, or a rate-limited `seen again` comment on an existing one, filed under your own `gh` account and linked from the defect's observation. No note text, titles, ids, paths, or account or project names are sent
+6. Opt-in only (`bug_reports: true` in the user-level config, asked once by `init --user`): for each qualifying product defect, a public `[bug]` issue on the upstream repo, or a rate-limited `seen again` comment on an existing one, filed under your own `gh` account and linked from the defect's observation. Only the component, tool, op, error code, plugin and server versions, the call shape (type names) and a fingerprint are sent; no message, note text, title, id, path or name
 
 ### Settings
 
@@ -360,7 +360,7 @@ extensions:
       github_feedback:
         enabled: false
         repo: jpicklyk/task-orchestrator
-        bug_reports: false     # opt-in, independent of enabled; init asks once
+        bug_reports: false     # opt-in, user-level config only, independent of enabled; init --user asks once
 ```
 
 A top-level `retrospective:` block is ignored, and a 4.0 server rejects it on push. Edits take effect on the next hook trigger, with no `/mcp` reconnect. Full field reference: [config-format.md → Retrospective](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#retrospective).
