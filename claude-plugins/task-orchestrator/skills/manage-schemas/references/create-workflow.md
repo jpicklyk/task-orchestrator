@@ -116,7 +116,7 @@ work_item_schemas:
         role: queue
         required: true
         description: "Lean feature-level summary — goal, findings-to-tasks mapping, dependency edges, non-goals pointer."
-        guidance: "Keep this lean — target under 2k chars. Cover: goal (2-3 sentences), a findings→tasks table mapping research/brainstorm findings to child task-scope items, dependency edges between those tasks, and a pointer to non-goals. Full spec-quality depth (alternatives, blast radius, risk flags, test strategy) belongs in each child's task-scope note, not here."
+        guidance: "Keep this lean - target under 2k chars. Cover: goal (2-3 sentences), a findings->tasks table mapping research/brainstorm findings to child task-scope items, dependency edges between those tasks, and a pointer to non-goals. Full planning depth (alternatives, blast radius, risk flags, test strategy) belongs in each child's task-scope note, not here."
       - key: implementation-notes
         role: work
         required: true
@@ -131,7 +131,7 @@ work_item_schemas:
         role: review
         required: true
         description: "Quality gate — plan alignment, test quality, simplification, verdict."
-        guidance: "Verify: (1) what was built aligns with the feature-summary and each child's task-scope, (2) tests cover the test strategy — not strawman tests, (3) no unnecessary complexity in changed files. End with a verdict."
+        guidance: "Verify: (1) what was built aligns with the feature-summary and each child's task-scope, (2) tests cover the test strategy - not strawman tests, (3) no unnecessary complexity in changed files. Tag each finding spec or standards, then close with one verdict line per axis: `Spec: Pass | Pass with observations | Fail` and `Standards: Pass | Pass with observations | Fail`."
 ```
 
 ### Bug Fix Template
@@ -161,10 +161,10 @@ Show this schema to the user:
         role: review
         required: true
         description: "Quality gate — fix alignment, regression coverage, simplification, verdict."
-        guidance: "Verify: (1) fix addresses diagnosed root cause, (2) regression test exists, (3) edge cases covered. End with verdict."
+        guidance: "Verify: (1) fix addresses diagnosed root cause, (2) regression test exists, (3) edge cases covered. Tag each finding spec or standards, then close with one verdict line per axis: `Spec: Pass | Pass with observations | Fail` and `Standards: Pass | Pass with observations | Fail`."
 ```
 
-These templates carry no `skill:` lines: add a `skill:` to a note only for a skill the workspace actually has (exact-name rule, see `config-format.md`). A `default_traits` entry must name a trait defined in the same document or the server config (an unknown name rejects a push); see the trait library in `workflow-patterns.md`.
+These templates carry no `skill:` lines: add a `skill:` to a note only for a skill the workspace actually has (exact-name rule, see `config-format.md`). They declare no `seats:` either, so each phase's seat gets the plugin's default skills; a seat's own `skills:` list is described in the seat-entry table of `config-format.md`. A `default_traits` entry must name a trait defined in the same document or the server config (an unknown name rejects a push); see the trait library in `workflow-patterns.md`.
 
 ### After showing the template
 

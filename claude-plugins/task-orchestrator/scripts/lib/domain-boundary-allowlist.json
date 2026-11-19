@@ -20,49 +20,7 @@
     },
     {
       "file": "skills/manage-schemas/references/example-schemas.md",
-      "name": "api-compat-review",
-      "audit": "H15",
-      "reason": "Labelled example of a project skill a note can point to, not process routing"
-    },
-    {
-      "file": "skills/manage-schemas/references/example-schemas.md",
-      "name": "migration-review",
-      "audit": "H15",
-      "reason": "Labelled example of a project skill a note can point to, not process routing"
-    },
-    {
-      "file": "skills/manage-schemas/references/example-schemas.md",
-      "name": "perf-review",
-      "audit": "H15",
-      "reason": "Labelled example of a project skill a note can point to, not process routing"
-    },
-    {
-      "file": "skills/manage-schemas/references/example-schemas.md",
-      "name": "plugin-impact-review",
-      "audit": "H15",
-      "reason": "Labelled example of a project skill a note can point to, not process routing"
-    },
-    {
-      "file": "skills/manage-schemas/references/example-schemas.md",
-      "name": "review-quality",
-      "audit": "H15",
-      "reason": "Labelled example of a project skill a note can point to, not process routing"
-    },
-    {
-      "file": "skills/manage-schemas/references/example-schemas.md",
       "name": "security-review",
-      "audit": "H15",
-      "reason": "Labelled example of a project skill a note can point to, not process routing"
-    },
-    {
-      "file": "skills/manage-schemas/references/example-schemas.md",
-      "name": "test-author",
-      "audit": "H15",
-      "reason": "Labelled example of a project skill a note can point to, not process routing"
-    },
-    {
-      "file": "skills/manage-schemas/references/example-schemas.md",
-      "name": "spec-quality",
       "audit": "H15",
       "reason": "Labelled example of a project skill a note can point to, not process routing"
     },

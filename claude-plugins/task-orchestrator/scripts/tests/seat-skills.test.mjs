@@ -154,9 +154,16 @@ test('S7: a declared empty list on the seat entry means none even with defaults'
 
 // ---- S8: the defaults table ----------------------------------------------------------------------
 
-test('S8: the shipped defaults table is empty and the loader returns it', () => {
-  assert.deepEqual(JSON.parse(readFileSync(DEFAULTS_JSON, 'utf8')), {})
-  assert.deepEqual(loadSeatSkillDefaults(), {})
+const SHIPPED_DEFAULTS = {
+  planner: ['task-orchestrator:planning-standards'],
+  implementer: ['task-orchestrator:implementation-standards'],
+  reviewer: ['task-orchestrator:review-method'],
+  'test-author': ['task-orchestrator:test-authoring'],
+}
+
+test('S8: the shipped defaults table names one engineering skill per seat and the loader returns it', () => {
+  assert.deepEqual(JSON.parse(readFileSync(DEFAULTS_JSON, 'utf8')), SHIPPED_DEFAULTS)
+  assert.deepEqual(loadSeatSkillDefaults(), SHIPPED_DEFAULTS)
 })
 
 test('S8 probe: two loadSeatSkillDefaults calls are equal (replay)', () => {
@@ -302,7 +309,7 @@ test('S10 probe: features [] behaves like features absent', () => {
   assert.deepEqual(stageOf(derive(entry, { features: FEATURES, seatSkillDefaults: {} }), 'planner').seatSkills, ['p:a'])
 })
 
-test('S11: a ctx without features or defaults adds no seatSkills and reviewSeatSkills is null', () => {
+test('S11: a ctx without features and with an empty defaults table adds no seatSkills and reviewSeatSkills is null', () => {
   const entry = schema({
     notes: [
       { key: 'diagnosis', role: 'queue', required: true, seat: 'planner' },
@@ -315,11 +322,11 @@ test('S11: a ctx without features or defaults adds no seatSkills and reviewSeatS
       { name: 'reviewer', phase: 'review', skills: ['rv'] },
     ],
   })
-  const result = derive(entry)
+  const result = derive(entry, { seatSkillDefaults: {} })
   for (const s of result.stages) assert.equal(hasSkills(s), false, s.seat)
   assert.equal(result.reviewSeatSkills ?? null, null)
   // Twin: the same schema with the feature carries them.
-  const twin = derive(entry, { features: FEATURES })
+  const twin = derive(entry, { features: FEATURES, seatSkillDefaults: {} })
   assert.deepEqual(stageOf(twin, 'planner').seatSkills, ['p:a'])
   assert.deepEqual(twin.reviewSeatSkills, { reviewer: ['rv'] })
 })
@@ -410,22 +417,25 @@ test('S12: a lane of another review seat that declares nothing carries no seatSk
 
 // ---- S11 (plan level), S10 (plan level) ---------------------------------------------------------------
 
-test('S11: a snapshot without features adds no reviewSeatSkills to the item and no seatSkills to any stage', () => {
+test("S11: a snapshot without features gives each stage only its seat's shipped default and ignores the declared list", () => {
   const snap = makeSnap([{ name: 'reviewer', phase: 'review', skills: ['rv'] }], { features: null })
   const built = buildPlanDoc(snap, { now: NOW })
   assert.equal(built.ok, true, JSON.stringify(built.errors))
   const item = built.doc.args.items.find((i) => i.id === ITEM)
   assert.ok(item, 'the fixture item is in the plan')
-  assert.equal(Object.hasOwn(item, 'reviewSeatSkills'), false)
-  for (const s of item.stages) assert.equal(hasSkills(s), false, s.seat)
+  assert.deepEqual(item.reviewSeatSkills, { reviewer: ['task-orchestrator:review-method'] }, 'the declared rv is ignored')
+  for (const s of item.stages) {
+    if (s.seat === 'orchestrator' || !Object.hasOwn(SHIPPED_DEFAULTS, s.seat)) assert.equal(hasSkills(s), false, s.seat)
+    else assert.deepEqual(s.seatSkills, SHIPPED_DEFAULTS[s.seat], s.seat)
+  }
   // Twin: the same seats with the feature listed carry the member.
   const twin = buildPlanDoc(makeSnap([{ name: 'reviewer', phase: 'review', skills: ['rv'] }]), { now: NOW })
   assert.deepEqual(twin.doc.args.items.find((i) => i.id === ITEM).reviewSeatSkills, { reviewer: ['rv'] })
 })
 
-test('S10: a snapshot whose features lack seatSkills ignores the declared list', () => {
+test('S10: a snapshot whose features lack seatSkills ignores the declared list and keeps the shipped default', () => {
   const { item } = argsFor(makeSnap([{ name: 'reviewer', phase: 'review', skills: ['rv'] }], { features: ['seats', 'dispatchBySeat', 'independent_of', 'rules'] }))
-  assert.equal(Object.hasOwn(item, 'reviewSeatSkills'), false)
+  assert.deepEqual(item.reviewSeatSkills, { reviewer: ['task-orchestrator:review-method'] })
 })
 
 // ---- S13-S15: prompt lines ----------------------------------------------------------------------------
@@ -488,10 +498,11 @@ test('S15: absent or empty seatSkills adds no SEAT SKILLS line and leaves the re
 
   const laneWith = lanePromptOf(laneArgs(['rv']))
   assert.ok(laneWith.includes('SEAT SKILLS'), 'twin: the lane field produces the line')
-  const laneNone = lanePromptOf(laneArgs(undefined))
+  const laneNone = lanePromptOf(laneArgs([]))
   assert.equal(laneNone.includes('SEAT SKILLS'), false)
-  assert.equal(lanePromptOf(laneArgs([])), laneNone)
   assert.equal(laneWith.split('\n').filter((l) => !l.includes('SEAT SKILLS')).join('\n'), laneNone)
+  // An absent list takes the shipped reviewer default.
+  assert.ok(lanePromptOf(laneArgs(undefined)).split('\n').map((l) => l.trim()).includes(LINE('task-orchestrator:review-method')))
 })
 
 // ---- S16: Method B review prompt ----------------------------------------------------------------------
@@ -502,7 +513,7 @@ function cli(args, input) {
 
 function boundDoc() {
   const dir = mkdtempSync(join(tmpdir(), 'seat-skills-'))
-  const snap = makeSnap([{ name: 'reviewer', phase: 'review' }])
+  const snap = makeSnap([{ name: 'reviewer', phase: 'review', skills: [] }])
   const planRes = cli(['plan', '--now', NOW, '--scratchpad', join(dir, 'sp')], snap)
   assert.equal(planRes.status, 0, planRes.stderr)
   const planPath = join(dir, 'plan.json')
@@ -550,6 +561,6 @@ test('S19 probe: undefined options behave like null, and a declared list still w
   // Twin fixture: the same call with a non-null options object resolves a seat, so the null result above is not a constant.
   assert.equal(seatNameFor({ callerSeat: 'planner' }), 'planner')
   assert.deepEqual(seatSkillsFor(['a'], 'planner', undefined), ['a'])
-  assert.deepEqual(seatSkillsFor(undefined, 'planner', null), [])
+  assert.deepEqual(seatSkillsFor(undefined, 'planner', null), ['task-orchestrator:planning-standards'])
   assert.equal(seatNameFor(undefined), null)
 })
