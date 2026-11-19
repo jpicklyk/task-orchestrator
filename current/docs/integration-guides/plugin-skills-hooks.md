@@ -47,7 +47,7 @@ An HTTP director entry is the orchestration URL with `/mcp/director` in place of
 
 ### Plugin settings
 
-The plugin reads its own settings from `extensions.claude-code` in `.taskorchestrator/config.yaml` (`orchestration.mode`, `retrospective.mode`, `retrospective.dispatchThreshold`, `retrospective.github_feedback`). A top-level `orchestration:` or `retrospective:` block is ignored by the hooks and rejected by a 4.0 server on push. The keys, values and defaults are in [config-format.md](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#plugin-settings-extensionsclaude-code), and [config-reference.md](../config-reference.md#extensions) says who owns each key.
+The plugin reads its own settings from `extensions.claude-code` in `.taskorchestrator/config.yaml` (`orchestration.mode`, `retrospective.mode`, `retrospective.minItems`, `retrospective.boundary`, `retrospective.github_feedback`). A top-level `orchestration:` or `retrospective:` block is ignored by the hooks and rejected by a 4.0 server on push. The keys, values and defaults are in [config-format.md](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#plugin-settings-extensionsclaude-code), and [config-reference.md](../config-reference.md#extensions) says who owns each key.
 
 ---
 
@@ -241,7 +241,7 @@ A call that carries a non-empty top-level `seatToken` belongs to a run seat and 
 
 **Script:** `retro-trigger.mjs`. **Event:** `PostToolUse` on `runs_write`.
 
-**What it does:** a retrospective is owed per closed run of the project root that is not yet marked `retro`. On a successful `close` op, in the main session with a REST API URL and a project `rootId`, the hook lists the root's recently closed, unmarked runs (`runs_read` `list` with `unmarked: "retro"`, the last 24 hours), reads each run's terminal member count from its frontier (at most 5 per call), and either dispatches a retrospective or nudges. In `dispatch` mode and with at least `dispatchThreshold` terminal members it first writes the run's `retro` mark with `runs_write` `mark`; the first mark wins, so two sessions never both dispatch. Otherwise it injects the nudge naming `/session-retrospective --run <runId>`. In a director session (the director marker is present) `nudge` is treated as `dispatch`, and a run that would be nudged (below the threshold, or a failed mark) is named in the dispatch directive instead. Without a REST API URL or a project `rootId` it only records the close in the session marker for the Stop backstop. The settings are `extensions.claude-code.retrospective.mode` (`nudge` default, `dispatch`, `off`) and `dispatchThreshold` (default 3); there is no cooldown and no tmp marker file.
+**What it does:** at the default boundary `scope` the hook records every successful `close` in the session state and runs the scope evaluation (one retrospective per completed scope; the state machine is the "Retrospective firing" section of the [hooks README](../../../claude-plugins/task-orchestrator/hooks/README.md)), which yields nothing while the scope is open. The rest of this paragraph is the `run` boundary (`retrospective.boundary: run`): a retrospective is owed per closed run of the project root that is not yet marked `retro`. On a successful `close` op, in the main session with a REST API URL and a project `rootId`, the hook lists the root's recently closed, unmarked runs (`runs_read` `list` with `unmarked: "retro"`, the last 24 hours), reads each run's terminal member count from its frontier (at most 5 per call), and either dispatches a retrospective or nudges. In `dispatch` mode and with at least `minItems` terminal members (`dispatchThreshold` is the older name of the key) it first writes the run's `retro` mark with `runs_write` `mark`; the first mark wins, so two sessions never both dispatch. Otherwise it injects the nudge naming `/session-retrospective --run <runId>`. In a director session (the director marker is present) `nudge` is treated as `dispatch`, and a run that would be nudged (below the threshold, or a failed mark) is named in the dispatch directive instead. Without a REST API URL or a project `rootId` it only records the close in the session marker for the Stop backstop. The settings are `extensions.claude-code.retrospective.mode` (`nudge` default, `dispatch`, `off`) `minItems` (default 3) and `boundary` (`scope` default, `run`); there is no cooldown and no tmp marker file.
 
 **Inert when:** the session is a headless iteration, `retrospective.mode` is `off`, or the call is a failed or non-`close` result. A subagent records the close for the main session and never nudges. It is not read against `orchestration.mode`.
 
@@ -249,7 +249,15 @@ A call that carries a non-empty top-level `seatToken` belongs to a run seat and 
 
 **Script:** `retro-backstop.mjs`. **Event:** `Stop`.
 
-**What it does:** the same closed-run evaluation as Retro Trigger, so a run closed elsewhere (another session, a subagent, a tool the trigger never saw) still gets its retrospective: with a REST API URL and a project `rootId` it may dispatch (after winning the `retro` mark) as well as nudge, and the output is a `block` decision. Without REST it nudges once per session, only about closes the trigger recorded in this session, and never marks or dispatches. In a director session it applies the same director rule as Retro Trigger: the directive is always the dispatch form.
+**What it does:** the same evaluation as Retro Trigger (the scope or the run boundary, per config), so a run closed elsewhere (another session, a subagent, a tool the trigger never saw) still gets its retrospective: with a REST API URL and a project `rootId` it may dispatch (after winning the `retro` mark) as well as nudge, and the output is a `block` decision. Without REST it nudges once per session, only about closes the trigger recorded in this session, and never marks or dispatches. In a director session it applies the same director rule as Retro Trigger: the directive is always the dispatch form. At the scope boundary this Stop pass is also where a failed or dead dispatch is retried, a second failure is given up with one nudge, and an abandoned scope (not terminal, no run for 7 days) is dispatched with a `[stale]` title.
+
+### Retro Subagent Stop
+
+**Script:** `retro-subagent-stop.mjs`. **Event:** `SubagentStop`, a second command beside Phase Guard.
+
+**What it does:** with the scope boundary and dispatch claims in the session's retro state, a stopping subagent makes it read each claim's anchor run. A `retro` mark drops the claim; no mark, with a transcript (`agent_transcript_path`, first 256 KB) that holds `/session-retrospective` and the anchor run id, marks the claim failed, so the next Stop retries at once. It never writes to the server and always answers `{}`.
+
+**Inert when:** the session is a headless iteration, `retrospective.mode` is `off`, the boundary is `run`, there is no REST API URL or project `rootId`, or the state holds no claim.
 
 **Inert when:** the session is a headless iteration, `retrospective.mode` is `off`, or `stop_hook_active` is set. It is not gated by subagent or director status.
 
@@ -348,9 +356,9 @@ An altitude-safe `implement-wave` result carries counts, statuses, commit SHAs, 
 
 ### The retrospective on run marks
 
-A run labelled `<runId>-a<n>` (a fix-cycle run) always owes a retrospective in `dispatch` mode, whatever `dispatchThreshold` says.
+A run labelled `<runId>-a<n>` (a fix-cycle run) always owes a retrospective in `dispatch` mode, whatever `minItems` says (at the `run` boundary).
 
-A retrospective is owed per closed run that has no `retro` mark. `runs_write` `close` triggers Retro Trigger, Retro Backstop checks at `Stop` via `runs_read` `unmarked: retro`, and the first `mark` wins. `/task-orchestrator:session-retrospective --run <runId>` takes the run's members from its ended seats and frontier. See [Self-Improving Workflow](self-improving-workflow.md).
+At the default boundary `scope` a retrospective is owed per completed scope, covering every run of it, and the hooks fire it at that boundary (a low-signal scope is skipped by the hook at zero model tokens); at boundary `run` it is owed per closed run that has no `retro` mark. `runs_write` `close` triggers Retro Trigger, Retro Backstop checks at `Stop` via `runs_read` `unmarked: retro`, and the first `mark` wins. `/task-orchestrator:session-retrospective --run <runId>` takes the run's members from its ended seats and frontier. See [Self-Improving Workflow](self-improving-workflow.md).
 
 ---
 

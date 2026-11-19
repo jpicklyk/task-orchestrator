@@ -1,8 +1,14 @@
-// Shared helpers for the retrospective hooks (retro-trigger.mjs, retro-backstop.mjs, retro-ack.mjs).
-// A retrospective is owed per closed run on the project root that is not marked `retro`; the
-// server-side mark (runs_write mark, first write wins) is the cross-session dedupe, so no hook keeps
-// a cross-session marker file. Per-session state (closes seen without REST, runs already nudged)
-// lives in lib/markers.mjs session markers. No side effects at import time, no top-level I/O.
+// Shared helpers for the retrospective hooks (retro-trigger.mjs, retro-backstop.mjs,
+// retro-subagent-stop.mjs, retro-ack.mjs).
+// Boundary `scope` (the default): a retrospective is owed per completed scope (the item a run is scoped
+// to), covering every run of that scope; evaluateScopes groups the root's runs, decides when a group is
+// due, triages low-signal groups away at zero model tokens and claims the dispatch with run marks.
+// Boundary `run`: a retrospective is owed per closed run on the project root that is not marked
+// `retro`, evaluated by evaluateRuns as before.
+// Either way the server-side mark (runs_write mark, first write wins) is the cross-session dedupe, so no
+// hook keeps a cross-session marker file. Per-session state (closes seen, runs already nudged, claims
+// this session won) lives in lib/markers.mjs session markers. No side effects at import time, no
+// top-level I/O. The state machine is described in hooks/README.md, "Retrospective firing".
 
 import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
@@ -15,7 +21,9 @@ import { forClass } from '../scripts/lib/dispatch-policy.mjs';
 
 const VALID_MODES = ['nudge', 'dispatch', 'off'];
 const DEFAULT_MODE = 'nudge';
-const DEFAULT_DISPATCH_THRESHOLD = 3;
+const DEFAULT_MIN_ITEMS = 3;
+const VALID_BOUNDARIES = ['scope', 'run'];
+const DEFAULT_BOUNDARY = 'scope';
 
 const LIST_WINDOW_MS = 24 * 60 * 60 * 1000;
 const LIST_LIMIT = 20;
@@ -65,11 +73,14 @@ function childBlock(lines, key) {
 //     claude-code:
 //       retrospective:
 //         mode: dispatch
-//         dispatchThreshold: 3
-// A top-level `retrospective:` block is not read. Absent keys, an absent block, or an invalid value
-// fall back to the documented default for that key; this never throws. Returns { mode, dispatchThreshold }.
+//         minItems: 3
+//         boundary: scope
+// `dispatchThreshold` is the older name of `minItems` and is read when `minItems` is absent; `minItems`
+// wins when both are present. A top-level `retrospective:` block is not read. Absent keys, an absent
+// block, or an invalid value fall back to the documented default for that key; this never throws.
+// Returns { mode, minItems, boundary }.
 export function parseRetrospectiveConfig(configContent) {
-  const result = { mode: DEFAULT_MODE, dispatchThreshold: DEFAULT_DISPATCH_THRESHOLD };
+  const result = { mode: DEFAULT_MODE, minItems: DEFAULT_MIN_ITEMS, boundary: DEFAULT_BOUNDARY };
   try {
     if (!configContent) return result;
     const ext = readSection(configContent, 'extensions', { blockOnly: true });
@@ -87,10 +98,17 @@ export function parseRetrospectiveConfig(configContent) {
       if (VALID_MODES.includes(val)) result.mode = val;
     }
 
-    const rawThreshold = read('dispatchThreshold');
+    const rawMin = read('minItems');
+    const rawThreshold = rawMin !== null ? rawMin : read('dispatchThreshold');
     if (rawThreshold !== null) {
       const n = Number(rawThreshold);
-      if (Number.isInteger(n) && n >= 0) result.dispatchThreshold = n;
+      if (Number.isInteger(n) && n >= 0) result.minItems = n;
+    }
+
+    const rawBoundary = read('boundary');
+    if (rawBoundary !== null) {
+      const val = rawBoundary.toLowerCase();
+      if (VALID_BOUNDARIES.includes(val)) result.boundary = val;
     }
   } catch {
     // defaults
@@ -111,14 +129,31 @@ export function dispatchAncestorId(located) {
 
 // ---- per-session state -------------------------------------------------------------------------
 
-/** Per-session retro state: { closes: runId[], sawClose, nudged: runId[], backstopNudged }. */
+/**
+ * Per-session retro state: { closes: runId[], sawClose, nudged: runId[], backstopNudged,
+ * claims: [{anchor, runs, key, at, failed}], lastDispatchAt }. `claims` are the dispatches this session
+ * won (key retro-claim or retro-retry on the anchor run); `at` and `lastDispatchAt` are ISO instants.
+ */
 export function readSessionState(sessionId) {
   const raw = readMarker(sessionMarkerPath(sessionId, 'retro'), {});
+  const claims = Array.isArray(raw.claims)
+    ? raw.claims
+        .filter((c) => isPlain(c) && typeof c.anchor === 'string' && typeof c.key === 'string')
+        .map((c) => ({
+          anchor: c.anchor,
+          runs: Array.isArray(c.runs) ? c.runs.filter((v) => typeof v === 'string') : [c.anchor],
+          key: c.key,
+          at: typeof c.at === 'string' ? c.at : '',
+          failed: c.failed === true,
+        }))
+    : [];
   return {
     closes: Array.isArray(raw.closes) ? raw.closes.filter((v) => typeof v === 'string') : [],
     sawClose: raw.sawClose === true,
     nudged: Array.isArray(raw.nudged) ? raw.nudged.filter((v) => typeof v === 'string') : [],
     backstopNudged: raw.backstopNudged === true,
+    claims,
+    lastDispatchAt: typeof raw.lastDispatchAt === 'string' ? raw.lastDispatchAt : undefined,
   };
 }
 
@@ -148,7 +183,7 @@ export function fixCycleBaseRun(label) {
 }
 
 /**
- * The shared run evaluation (trigger and backstop). Lists the root's closed runs not yet marked
+ * The run-boundary evaluation (trigger and backstop, boundary `run`). Lists the root's closed runs not yet marked
  * `retro` (closed in the last 24 h), reads the terminal count of at most 5 of them, and for each:
  * dispatch mode and terminal >= threshold -> try to mark (first write wins); a run whose mark this call
  * wrote is won and dispatched; a lost race (marked false) is silent; a failed mark is nudged, never
@@ -190,7 +225,7 @@ export async function evaluateRuns({ rootId, config, state }) {
       if (typeof terminal !== 'number') return; // failed frontier read: skip this run this time
       // A fix-cycle run ('<runId>-a<n>') always owes a retrospective: it often has one item, so the
       // terminal-count threshold would skip the only retrospective that sees the failure loop.
-      if (config.mode === 'dispatch' && (terminal >= config.dispatchThreshold || out.fixCycle[runId])) toMark.push(runId);
+      if (config.mode === 'dispatch' && (terminal >= config.minItems || out.fixCycle[runId])) toMark.push(runId);
       else out.nudge.push(runId);
     });
 
@@ -214,13 +249,303 @@ export async function evaluateRuns({ rootId, config, state }) {
   return out;
 }
 
+// ---- scope boundary ----------------------------------------------------------------------------
+
+const MIN_MS = 60 * 1000;
+const SCOPE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+const ABANDONED_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+const OWNER_HOLD_MS = 60 * MIN_MS;
+const DISPATCH_GAP_MS = 60 * MIN_MS;
+const CLAIM_DEAD_MS = 20 * MIN_MS;
+const PASS_BUDGET_MS = 3500;
+const MAX_GROUPS = 5;
+const SCOPE_LIST_LIMIT = 200;
+const TRIAGE_ITEM_CAP = 20;
+// Items that are not implementation work: they never count toward the size or the session-tracking triage.
+const NON_IMPL_TYPES = new Set(['retrospective-trend', 'container', 'improvement-proposal', 'agent-observation']);
+
+const instantMs = (v) => (typeof v === 'string' ? Date.parse(v) : NaN);
+const sameId = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
+
+/** The anchor ordering of runs: earliest openedAt first, ties by runId ascending. */
+function byOpened(a, b) {
+  const d = (instantMs(a.openedAt) || 0) - (instantMs(b.openedAt) || 0);
+  return d !== 0 ? d : a.runId < b.runId ? -1 : a.runId > b.runId ? 1 : 0;
+}
+
+/**
+ * The clean-closure test of a session-tracking note: `Outcome:` starts with success or implemented, and
+ * `Friction:` and `Deviations:` are `none` (trimmed, any case, one trailing period, CRLF allowed). A
+ * missing line is not clean.
+ */
+export function sessionTrackingClean(body) {
+  if (typeof body !== 'string') return false;
+  const text = body.replace(/\r/g, '');
+  const line = (label) => {
+    const m = new RegExp('^[ \\t]*(?:[-*][ \\t]+)?' + label + ':[ \\t]*(.*)$', 'im').exec(text);
+    return m ? m[1].trim() : null;
+  };
+  const outcome = line('Outcome');
+  if (outcome === null || !/^(success|implemented)/i.test(outcome)) return false;
+  const isNone = (v) => v !== null && v.toLowerCase().replace(/\.$/, '').trim() === 'none';
+  return isNone(line('Friction')) && isNone(line('Deviations'));
+}
+
+class Skip extends Error {}
+
+/**
+ * The scope-boundary evaluation (trigger and backstop, boundary `scope`): one retrospective per
+ * completed scope. Groups the root's runs (closed unmarked `retro` in the last 30 days, plus open and
+ * paused runs) by scope, and for each of at most 5 groups:
+ *   - a claim from a dead session or a failed retrospective is retried (retro-retry), then given up
+ *     (retro-failed, one nudge);
+ *   - an unclaimed group that is due, owned by this session (or orphaned for 60 minutes) and not
+ *     low-signal is claimed (retro-claim, first write wins on the anchor run) and dispatched; a
+ *     low-signal group is marked retro-skipped + retro with no output.
+ * First dispatch claims are limited to one per hour per session; retries are exempt. Returns
+ * { won: runId[], nudge: runId[], failed: runId[], stale: scopeId[], fixCycle: {[runId]: baseRunLabel} }
+ * and updates `state` (claims, lastDispatchAt, nudged) for the caller to persist. Fail-open: a read
+ * error skips the group or the pass and writes nothing for it. No call starts 3500 ms after the pass began.
+ */
+export async function evaluateScopes({ rootId, config, state, now = Date.now() }) {
+  const out = { won: [], nudge: [], failed: [], stale: [], fixCycle: {} };
+  const t0 = Date.now();
+  const dispatch = config.mode === 'dispatch';
+
+  const call = async (tool, body) => {
+    if (Date.now() - t0 > PASS_BUDGET_MS) throw new Skip('budget');
+    const res = await callOp(tool, body, { timeoutMs: CALL_TIMEOUT_MS });
+    if (!res) throw new Skip('no rest');
+    return res;
+  };
+  const read = async (tool, body) => {
+    const res = await call(tool, body);
+    if (res.ok !== true || !isPlain(res.data)) throw new Skip(tool);
+    return res.data;
+  };
+  // The items of a list read; a truncated page is a read error (a partial group would mislead).
+  const readAll = async (tool, body) => {
+    const data = await read(tool, body);
+    if (!Array.isArray(data.items) || (isPlain(data.page) && data.page.truncated === true)) throw new Skip('page');
+    return data.items;
+  };
+  // 'won' | 'lost' | 'error'
+  const mark = async (runId, key) => {
+    try {
+      const res = await call('runs_write', { ops: [{ op: 'mark', runId, key }] });
+      const r = Array.isArray(res.results) ? res.results[0] : null;
+      if (isPlain(r) && r.ok === true) return r.marked === false ? 'lost' : 'won';
+    } catch {
+      // error
+    }
+    return 'error';
+  };
+  // Marks `keys` in order on every run, the runs in parallel; the anchor's first-key outcome decides.
+  const markGroup = async (g, keys) => {
+    const outcomes = await Promise.all(
+      g.runs.map(async (r) => {
+        let first = null;
+        for (const key of keys) {
+          const o = await mark(r.runId, key);
+          if (first === null) first = o;
+        }
+        return first;
+      }),
+    );
+    return outcomes[g.runs.indexOf(g.anchor)];
+  };
+  const getItem = async (itemId, fields) => {
+    const data = await read('items_read', { select: 'get', itemId, ...(fields ? { fields } : {}) });
+    return isPlain(data.item) ? data.item : data;
+  };
+  const subtree = async (scopeId) => {
+    const items = await readAll('items_read', { select: 'list', ancestorId: scopeId, limit: SCOPE_LIST_LIMIT, fields: ['roleChangedAt'] });
+    return items.filter((it) => isPlain(it) && !sameId(it.id, scopeId));
+  };
+
+  try {
+    // 1. Group.
+    const endedSince = new Date(now - SCOPE_WINDOW_MS).toISOString();
+    const [closed, open, paused] = await Promise.all([
+      readAll('runs_read', { select: 'list', rootId, status: 'closed', unmarked: 'retro', endedSince, limit: SCOPE_LIST_LIMIT }),
+      readAll('runs_read', { select: 'list', rootId, status: 'open', limit: SCOPE_LIST_LIMIT }),
+      readAll('runs_read', { select: 'list', rootId, status: 'paused', limit: SCOPE_LIST_LIMIT }),
+    ]);
+    const valid = (v) => isPlain(v) && typeof v.runId === 'string' && v.runId !== '';
+    const closedRuns = closed.filter(valid).filter((v) => !(isPlain(v.marks) && 'retro' in v.marks));
+    const liveRuns = [...open, ...paused].filter(valid);
+    const all = [...closedRuns, ...liveRuns].sort(byOpened);
+    const byLabel = new Map();
+    for (const r of all) if (typeof r.label === 'string' && !byLabel.has(r.label)) byLabel.set(r.label, r);
+    const scoped = (r) => typeof r.scopeId === 'string' && r.scopeId !== '' && !sameId(r.scopeId, rootId);
+    const keyMemo = new Map();
+    const keyOf = (r, depth = 0) => {
+      if (keyMemo.has(r.runId)) return keyMemo.get(r.runId);
+      let key = r.runId;
+      if (scoped(r)) key = r.scopeId.toLowerCase();
+      else {
+        const base = fixCycleBaseRun(r.label);
+        const target = base ? byLabel.get(base) : undefined;
+        if (target && target !== r && depth < 5) key = keyOf(target, depth + 1);
+      }
+      keyMemo.set(r.runId, key);
+      return key;
+    };
+    const groups = new Map();
+    for (const r of all) {
+      const key = keyOf(r);
+      if (!groups.has(key)) groups.set(key, { key, scopeId: null, runs: [], live: 0 });
+      const g = groups.get(key);
+      if (scoped(r)) g.scopeId = r.scopeId;
+      if (liveRuns.includes(r)) g.live += 1;
+      else g.runs.push(r);
+    }
+    const pending = [];
+    for (const g of groups.values()) {
+      if (g.runs.length === 0) continue;
+      g.runs.sort(byOpened);
+      g.anchor = g.runs[0];
+      g.marks = isPlain(g.anchor.marks) ? g.anchor.marks : {};
+      if ('retro-failed' in g.marks) continue;
+      if (g.live > 0 && g.scopeId) continue; // a scoped group with a run in flight is not due
+      g.newestClosedMs = Math.max(...g.runs.map((r) => instantMs(r.closedAt) || 0));
+      g.dead = 'retro-claim' in g.marks;
+      pending.push(g);
+    }
+    // Claims to retry or give up first, then the newest groups; at most 5 a pass.
+    pending.sort((a, b) => Number(b.dead) - Number(a.dead) || b.newestClosedMs - a.newestClosedMs);
+    const batch = pending.slice(0, MAX_GROUPS);
+    const claimOf = (g, key) => state.claims.find((c) => c.anchor === g.anchor.runId && c.key === key);
+    const ownedByThisSession = (g) => g.runs.some((r) => state.closes.includes(r.runId));
+    const lastDispatchMs = instantMs(state.lastDispatchAt);
+    const hourlyOk = Number.isNaN(lastDispatchMs) || now - lastDispatchMs >= DISPATCH_GAP_MS;
+
+    // 4. Triage: true when the group is low-signal (no reason to spend model tokens on it). Each test
+    // below is a signal that ends the triage with false; reads stop at the first signal.
+    const lowSignal = async (g) => {
+      if (g.runs.some((r) => fixCycleBaseRun(r.label))) return false;
+      let items;
+      if (g.scopeId) items = await subtree(g.scopeId);
+      else {
+        const seen = new Set();
+        for (const r of g.runs) {
+          const data = await read('runs_read', { select: 'seats', runId: r.runId, ended: true });
+          for (const s of Array.isArray(data.seats) ? data.seats : []) if (isPlain(s) && typeof s.itemId === 'string') seen.add(s.itemId);
+        }
+        if (seen.size > TRIAGE_ITEM_CAP) return false;
+        items = await Promise.all([...seen].map((id) => getItem(id)));
+      }
+      items = items.filter((it) => isPlain(it) && !NON_IMPL_TYPES.has(it.type));
+      if (items.filter((it) => it.role === 'terminal').length >= config.minItems) return false;
+      const openedMs = Math.min(...g.runs.map((r) => instantMs(r.openedAt)).filter((n) => !Number.isNaN(n)));
+      if (Number.isFinite(openedMs)) {
+        const obs = await readAll('items_read', { select: 'list', type: 'agent-observation', createdAfter: new Date(openedMs).toISOString(), limit: 1 });
+        if (obs.length > 0) return false;
+      }
+      if (items.length > TRIAGE_ITEM_CAP) return false;
+      const clean = await Promise.all(
+        items.map(async (it) => {
+          const res = await call('notes_read', { select: 'get', itemId: it.id, key: 'session-tracking' });
+          if (res.ok !== true) {
+            if (res.error && res.error.code === 'not_found') return false; // a missing note is a signal
+            throw new Skip('notes_read');
+          }
+          return sessionTrackingClean(isPlain(res.data) ? res.data.body : undefined);
+        }),
+      );
+      return clean.every(Boolean);
+    };
+
+    // 2. Due: { due, stale, since } (since: the instant the group completed, for the orphan rule).
+    const dueOf = async (g) => {
+      if (!g.scopeId) return { due: true, stale: false, since: g.newestClosedMs };
+      const scope = await getItem(g.scopeId, ['roleChangedAt']);
+      if (scope.role === 'terminal') {
+        const items = await subtree(g.scopeId);
+        if (items.some((it) => it.role === 'work' || it.role === 'review')) return { due: false };
+        return { due: true, stale: false, since: instantMs(scope.roleChangedAt) };
+      }
+      if (g.live === 0 && g.newestClosedMs > 0 && now - g.newestClosedMs > ABANDONED_AFTER_MS) return { due: true, stale: true, since: NaN };
+      return { due: false };
+    };
+
+    const handle = async (g) => {
+      try {
+        // 6 / 7. A claim exists: retry it, then give it up. Only a dispatching session writes either.
+        if (g.dead) {
+          if (!dispatch) return null;
+          if ('retro-retry' in g.marks) {
+            const mine = claimOf(g, 'retro-retry');
+            if (!((mine && mine.failed) || now - instantMs(g.marks['retro-retry']) > CLAIM_DEAD_MS)) return null;
+            return (await markGroup(g, ['retro-failed'])) === 'won' ? { kind: 'failed', g } : null;
+          }
+          const mine = claimOf(g, 'retro-claim');
+          if (!((mine && mine.failed) || now - instantMs(g.marks['retro-claim']) > CLAIM_DEAD_MS)) return null;
+          return (await markGroup(g, ['retro-retry'])) === 'won' ? { kind: 'retry', g } : null;
+        }
+        // 2 / 3. Due, then ownership.
+        const due = await dueOf(g);
+        if (!due.due) return null;
+        if (!due.stale && !ownedByThisSession(g)) {
+          const orphaned = now - due.since > OWNER_HOLD_MS;
+          if (!dispatch || !orphaned) return null;
+        }
+        // 4. Triage.
+        if (await lowSignal(g)) {
+          await markGroup(g, ['retro-skipped', 'retro']);
+          return null;
+        }
+        // 9. Nudge mode.
+        if (!dispatch) return g.runs.every((r) => state.nudged.includes(r.runId)) ? null : { kind: 'nudge', g };
+        // 5. Dispatch.
+        if (!hourlyOk) return null;
+        return (await markGroup(g, ['retro-claim'])) === 'won' ? { kind: 'claim', g, stale: due.stale } : null;
+      } catch (e) {
+        if (e instanceof Skip) return null;
+        throw e;
+      }
+    };
+    const actions = (await Promise.all(batch.map((g) => handle(g)))).filter(Boolean);
+
+    const at = new Date(now).toISOString();
+    const record = (g, key) => {
+      state.claims = state.claims.filter((c) => !(c.anchor === g.anchor.runId && c.key === key));
+      state.claims.push({ anchor: g.anchor.runId, runs: g.runs.map((r) => r.runId), key, at, failed: false });
+    };
+    for (const a of actions) {
+      const ids = a.g.runs.map((r) => r.runId);
+      for (const r of a.g.runs) {
+        const base = fixCycleBaseRun(r.label);
+        if (base) out.fixCycle[r.runId] = base;
+      }
+      if (a.kind === 'claim' || a.kind === 'retry') {
+        out.won.push(...ids);
+        if (a.stale && a.g.scopeId) out.stale.push(a.g.scopeId.slice(0, 8).toLowerCase());
+        record(a.g, a.kind === 'claim' ? 'retro-claim' : 'retro-retry');
+        if (a.kind === 'claim') state.lastDispatchAt = at;
+      } else if (a.kind === 'failed') {
+        out.failed.push(...ids);
+        state.claims = state.claims.filter((c) => c.anchor !== a.g.anchor.runId);
+      } else {
+        out.nudge.push(...ids);
+        for (const id of ids) if (!state.nudged.includes(id)) state.nudged.push(id);
+      }
+    }
+  } catch {
+    // fail-open: a read error skips the pass
+  }
+  return out;
+}
+
 /**
  * A director session never runs a retrospective in its own context (its altitude rule forbids note-body
- * reads), so it is always treated as dispatch mode with threshold 0: every closed run it sees is marked
- * (first write wins) and dispatched, whatever the configured mode or threshold. `off` stays off.
+ * reads), so it is always treated as dispatch mode. At the run boundary the threshold is 0 as well: every
+ * closed run it sees is marked (first write wins) and dispatched. At the scope boundary `minItems` stays,
+ * because it is the triage's size signal. `off` stays off.
  */
 export function directorConfig(config) {
-  return config.mode === 'off' ? config : { ...config, mode: 'dispatch', dispatchThreshold: 0 };
+  if (config.mode === 'off') return config;
+  return config.boundary === 'run' ? { ...config, mode: 'dispatch', minItems: 0 } : { ...config, mode: 'dispatch' };
 }
 
 /**
@@ -228,13 +553,18 @@ export function directorConfig(config) {
  * eligible run (won or nudged) is named in one dispatch directive and nothing is nudged.
  */
 export function directiveFor(result, located, { director = false, transcriptPath } = {}) {
+  const stale = Array.isArray(result.stale) && result.stale.length > 0 ? result.stale : undefined;
+  const failed = !director && Array.isArray(result.failed) ? result.failed : [];
+  const parts = [];
   if (director) {
     const runs = [...result.won, ...result.nudge];
-    return runs.length > 0 ? buildDispatch(runs, dispatchAncestorId(located), result.fixCycle, { transcriptPath }) : null;
+    if (runs.length > 0) parts.push(buildDispatch(runs, dispatchAncestorId(located), result.fixCycle, { transcriptPath, stale }));
+  } else {
+    if (result.won.length > 0) parts.push(buildDispatch(result.won, dispatchAncestorId(located), result.fixCycle, { transcriptPath, stale }));
+    else if (result.nudge.length > 0) parts.push(buildNudge(result.nudge, { transcriptPath }));
   }
-  if (result.won.length > 0) return buildDispatch(result.won, dispatchAncestorId(located), result.fixCycle, { transcriptPath });
-  if (result.nudge.length > 0) return buildNudge(result.nudge);
-  return null;
+  if (failed.length > 0) parts.push(buildNudge(failed, { transcriptPath, failed: true }));
+  return parts.length > 0 ? parts.join(' ') : null;
 }
 
 // Extracts the tool's JSON payload from a PostToolUse hook's tool_response field. The exact
@@ -282,10 +612,6 @@ export function debugCapture(raw) {
   }
 }
 
-function runCommands(runIds) {
-  return runIds.map((id) => `\`/session-retrospective --run ${id}\``);
-}
-
 // ONE invocation covering every run: `--run` repeats and the skill analyzes the union of the runs.
 function runCommand(runIds, sessionDir) {
   const dir = sessionDir ? ` --session-dir "${sessionDir}"` : '';
@@ -299,22 +625,35 @@ function sessionDirOf(transcriptPath) {
   return transcriptPath.replaceAll('\\', '/').slice(0, -'.jsonl'.length);
 }
 
-export function buildNudge(runIds) {
+/**
+ * Nudge text: ONE `/session-retrospective` invocation naming every run, plus the session folder when
+ * `opts.transcriptPath` names one. `opts.failed` is the second-failure form (the dispatched
+ * retrospective failed twice; this nudge is the last word on it).
+ */
+export function buildNudge(runIds, opts = {}) {
   const list = (runIds || []).filter(Boolean);
+  const sessionDir = sessionDirOf(isPlain(opts) ? opts.transcriptPath : undefined);
+  const failed = isPlain(opts) && opts.failed === true;
   const tail =
     `Skip if the feature still has items in progress, if background tasks or subagents are still ` +
     `running (revisit once they finish), or if this was minor housekeeping.`;
   if (list.length === 0) {
+    const invoke = sessionDir ? `\`/session-retrospective --session-dir "${sessionDir}"\`` : '`/session-retrospective`';
     return `Retrospective suggested — an implementation run closed. ` +
-      `Consider running \`/session-retrospective\` to capture learnings before the session ends. ${tail}`;
+      `Consider running ${invoke} to capture learnings before the session ends. ${tail}`;
+  }
+  if (failed) {
+    return `Retrospective suggested — the dispatched retrospective for run(s) ${list.join(', ')} failed twice and will not be dispatched again. ` +
+      `Run ${runCommand(list, sessionDir)} yourself if the learnings are worth capturing.`;
   }
   return `Retrospective suggested — a run closed (run(s): ${list.join(', ')}). ` +
-    `Consider running ${runCommands(list).join(' and ')} to capture learnings before the session ends. ${tail}`;
+    `Consider running ${runCommand(list, sessionDir)} to capture learnings before the session ends. ${tail}`;
 }
 
 /**
  * fixCycle ({[runId]: baseRunLabel}, optional): runs in `runIds` that are fix-cycle runs. Their
  * retrospective reports the base run's whole failure loop, so the directive names each base run.
+ * opts.stale: the scope ids (an array; a string or `true` also reads) of scopes that never completed.
  */
 export function buildDispatch(runIds, ancestorId, fixCycle, opts = {}) {
   const list = (runIds || []).filter(Boolean);
@@ -327,7 +666,11 @@ export function buildDispatch(runIds, ancestorId, fixCycle, opts = {}) {
   const loops = list.filter((id) => isPlain(fixCycle) && typeof fixCycle[id] === 'string').map((id) => `${id} (base run ${fixCycle[id]})`);
   const loopNote = loops.length === 0 ? '' :
     `Fix-cycle run(s) ${loops.join(', ')}: report the base run's whole fix loop (every -a<n> cycle so far) in the fix-cycle section. `;
-  return `Retrospective dispatch (mode: dispatch). Run ${list.join(', ')} closed. ${loopNote}` +
+  const staleIds = isPlain(opts) && Array.isArray(opts.stale) ? opts.stale.map((v) => String(v).slice(0, 8)).filter(Boolean) : [];
+  const staleNote = isPlain(opts) && (staleIds.length > 0 || opts.stale === true || (typeof opts.stale === 'string' && opts.stale !== ''))
+    ? `Scope(s) ${staleIds.length > 0 ? staleIds.join(', ') : typeof opts.stale === 'string' ? opts.stale.slice(0, 8) : 'unknown'} never completed: start the retrospective title with [stale]. `
+    : '';
+  return `Retrospective dispatch (mode: dispatch). Run ${list.join(', ')} closed. ${loopNote}${staleNote}` +
     `This directive is durable — act on it at the next run boundary: if background tasks or subagents ` +
     `are still running, hold it and dispatch only after the last of them completes and its results are ` +
     `processed. If further dispatch directives arrive while holding, merge them: dispatch ONE retrospective ` +
@@ -337,6 +680,5 @@ export function buildDispatch(runIds, ancestorId, fixCycle, opts = {}) {
     `state (session-tracking + delegation-metadata notes, schema config, agent-observation items — no ` +
     `conversation context), write the retrospective into the process-global 'Session Retrospectives' ` +
     `container, return only the retrospective item UUID plus a 2-3 line ` +
-    `headline. Do not dispatch more than one retrospective for this run; skip entirely if the feature still ` +
-    `has active items.`;
+    `headline.`;
 }

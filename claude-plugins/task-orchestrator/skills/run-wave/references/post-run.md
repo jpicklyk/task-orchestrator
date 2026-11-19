@@ -679,8 +679,9 @@ Report, in one place, every item that was **deferred** (cross-run edge, resource
 run-size cap — with reasons), every item that was **stopped** (invalid envelope, verify/notes-audit
 failure, `awaiting_decision`, `run_paused`, `seat-token-rejected`, `seat-token-missing`), every item **held** live-owed,
 and every item that was **excluded** at planning time (unowned required note, unavailable schema
-config) — each with its specific reason, not a bare count. Suggest `/session-retrospective --run
-<serverRunId>` for the retrospective of this run. Then return to `SKILL.md` Step 9: re-run Step 2
+config) — each with its specific reason, not a bare count. With the hook boundary
+`scope` (the default) suggest no retrospective: the hooks fire one at the scope boundary, covering every run of the scope.
+With boundary `run`, suggest `/session-retrospective --run <serverRunId> --session-dir "<folder>"` for this run. Then return to `SKILL.md` Step 9: re-run Step 2
 (a fresh snapshot), letting the items surfaced in Step 4's `unblocked` join the new frontier.
 
 Cleanup: once an item's seats have committed, delete its recovery snapshots with `git for-each-ref --format=%(refname) refs/wip/<short>` piped to `git update-ref -d` for each ref (`refs/wip/<short>` and `refs/wip/<short>-<seat>`). Leave a snapshot in place for any item that stopped without committing. Delete `<scratchpad>/run-wave/<runId>/tokens/` once the run is closed: its tokens are dead.

@@ -278,13 +278,13 @@ Loops 1 and 2 fire continuously during work. Loop 3 fires at session boundaries,
 A retrospective is owed **per closed run** that has no `retro` mark. Two trigger paths:
 
 1. **Manual** — user invokes `/session-retrospective`, optionally with a root item UUID or `--run <runId>`. `--run` takes the run's members from its ended seats and frontier, and wins over a root UUID.
-2. **Hook-driven** — closing a run (`runs_write` `close`) fires `retro-trigger`; `retro-backstop` runs the same check at `Stop` through `runs_read` with `unmarked: "retro"`, so a run closed in another session or by a subagent is still found. The first `runs_write` `mark` wins, so two sessions never both dispatch. In the default `nudge` mode the orchestrator is told to suggest it:
+2. **Hook-driven** — closing a run (`runs_write` `close`) fires `retro-trigger`; `retro-backstop` runs the same check at `Stop`, so a run closed in another session or by a subagent is still found. At the default boundary `scope` one retrospective fires per completed scope (covering every run of it, fix-cycle runs included) and a low-signal scope is skipped by the hook at zero model tokens; at boundary `run` one fires per closed run still unmarked `retro`. The first `runs_write` `mark` wins, so two sessions never both dispatch. In the default `nudge` mode the orchestrator is told to suggest it:
 
 ```
 Retrospective suggested — a run closed (run(s): <runId>). Consider running `/session-retrospective --run <runId>` to capture learnings before the session ends.
 ```
 
-In `nudge` mode the suggestion names each closed, unmarked run and the user opts in. With `retrospective.mode: dispatch`, the hook instead wins the `retro` mark and directs the orchestrator to launch the retrospective as a background agent at the next run boundary, once the run has at least `dispatchThreshold` terminal members (below that it nudges) — see option 6b under [Setup](#setup) for the modes. Work that ran outside a run (an item advanced by hand) has no close to trigger on: run `/session-retrospective` yourself.
+In `nudge` mode the suggestion names each closed, unmarked run and the user opts in. With `retrospective.mode: dispatch`, the hook instead wins the claim mark (`retro-claim` at the scope boundary, `retro` at the run boundary) and directs the orchestrator to launch the retrospective as a background agent at the next run boundary (at boundary `run`, once the run has at least `minItems` terminal members; below that it nudges) — see option 6b under [Setup](#setup) for the modes. Work that ran outside a run (an item advanced by hand) has no close to trigger on: run `/session-retrospective` yourself.
 
 ### What It Evaluates
 
@@ -353,7 +353,8 @@ extensions:
   claude-code:
     retrospective:
       mode: nudge            # nudge (default) | dispatch | off
-      dispatchThreshold: 3   # terminal members a closed run needs before dispatch mode dispatches
+      minItems: 3            # triage size signal (scope) / terminal members a closed run needs (run)
+      boundary: scope        # scope (default, one per completed scope) | run (one per closed run)
       github_feedback:
         enabled: false
         repo: jpicklyk/task-orchestrator
@@ -553,8 +554,9 @@ This relies on the agent noticing the run close and remembering to nudge. Soft s
 
 | Hook | Fires on | Role |
 |------|----------|------|
-| `retro-trigger.mjs` | PostToolUse on `runs_write` | On a successful `close`, nudges or (in `dispatch` mode) wins the run's `retro` mark and directs a background retrospective |
-| `retro-backstop.mjs` | Stop | End-of-turn backstop: finds closed, unmarked runs (`runs_read` `unmarked: "retro"`) so a close is never silently missed |
+| `retro-trigger.mjs` | PostToolUse on `runs_write` | On a successful `close`, records it and nudges or (in `dispatch` mode) wins the claim mark and directs a background retrospective |
+| `retro-backstop.mjs` | Stop | End-of-turn backstop: finds completed scopes (or closed, unmarked runs) so a close is never silently missed; retries a failed dispatch |
+| `retro-subagent-stop.mjs` | SubagentStop | Marks a dispatched retrospective that stopped without the `retro` mark as failed, so the next Stop retries it |
 
 Both are registered automatically via the plugin's `hooks-config.json` — there is nothing to copy into `.claude/hooks/` and no `.claude/settings.json` wiring to add. Enabling the plugin (see [Claude Code Plugin Discovery](../../../CLAUDE.md#claude-code-plugin-discovery) in the repo root `CLAUDE.md`) is enough.
 

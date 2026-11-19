@@ -3,6 +3,9 @@
 // REST `runs_write` `mark {runId, key: retro}` per distinct id (first write wins, so a replay answers
 // `marked: false`). The session-retrospective skill calls it at its closing step: a retrospective run by
 // hand or by a dispatched agent sets the same mark the hooks set, so a later session does not owe it again.
+// At the scope boundary this `retro` mark is also the "done" end of the claim state machine: the hooks write
+// `retro-claim` / `retro-retry` / `retro-failed` / `retro-skipped`, and `retro` on every run of the group
+// completes it (hooks/README.md, "Retrospective firing"). A skill run names every run of the scope.
 //
 // One line per id on stdout:
 //   marked <id> | already marked <id> | mark failed <id>: <code> | not marked <id>: no REST API configured

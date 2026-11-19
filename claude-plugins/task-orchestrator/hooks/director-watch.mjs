@@ -15,6 +15,9 @@
 //    REST path is configured (restRootId non-null) retro-trigger / retro-backstop own the mark and
 //    the dispatch, so this hook stays silent.
 //
+// Grouping runs by scope needs REST, so this no-REST path keeps its per-run dispatch whatever the
+// configured boundary (hooks/README.md, "Retrospective firing").
+//
 // Inert (`{}`) for a headless ralph iteration, a subagent call (`agent_id`), a non-director
 // session, a failed tool result, any other select, and on any throw. Never blocks a tool call.
 

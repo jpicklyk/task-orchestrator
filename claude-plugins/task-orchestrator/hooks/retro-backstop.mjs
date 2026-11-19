@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 // Stop hook — backstop for retro-trigger.mjs. Fires at the end of every turn.
 //
-// With REST (an API URL and a project rootId): runs the same closed-run evaluation as the trigger, so
-// a run closed elsewhere (another session, a subagent, a tool the trigger never saw) still gets its
-// retrospective; a closed run is a confirmed boundary, so this may dispatch (after winning the
-// server-side `retro` mark) as well as nudge. Output is a `block` decision.
+// With REST (an API URL and a project rootId): runs the same evaluation as the trigger (the scope or the
+// run boundary, per config), so a run closed elsewhere (another session, a subagent, a tool the trigger
+// never saw) still gets its retrospective; a closed run is a confirmed boundary, so this may dispatch
+// (after winning the server-side claim or `retro` mark) as well as nudge. At the scope boundary the Stop
+// pass is also where a failed or dead dispatch is retried and an abandoned scope is picked up
+// (hooks/README.md, "Retrospective firing"). Output is a `block` decision.
 //
 // Without REST: if this session recorded a successful run close (retro-trigger.mjs) and has not been
 // nudged this way yet, block once with a nudge naming the recorded runs. Never marks, never dispatches,
@@ -21,6 +23,7 @@ import {
   readSessionState,
   writeSessionState,
   evaluateRuns,
+  evaluateScopes,
   directiveFor,
   directorConfig,
   dispatchAncestorId,
@@ -62,9 +65,10 @@ try {
   const rootId = restRootId(located);
 
   if (rootId) {
-    const result = await evaluateRuns({ rootId, config, state });
+    const scope = config.boundary === 'scope';
+    const result = scope ? await evaluateScopes({ rootId, config, state }) : await evaluateRuns({ rootId, config, state });
     const text = directiveFor(result, located, { director, transcriptPath: hookInput.transcript_path });
-    if (result.nudge.length > 0) writeSessionState(sessionId, state);
+    if (scope || result.nudge.length > 0) writeSessionState(sessionId, state);
     if (text) emitBlock(text);
     emitEmpty();
   }
@@ -72,7 +76,7 @@ try {
   if (!state.sawClose || state.backstopNudged) emitEmpty();
   state.backstopNudged = true;
   writeSessionState(sessionId, state);
-  emitBlock(director ? buildDispatch(state.closes, dispatchAncestorId(located), undefined, { transcriptPath: hookInput.transcript_path }) : buildNudge(state.closes));
+  emitBlock(director ? buildDispatch(state.closes, dispatchAncestorId(located), undefined, { transcriptPath: hookInput.transcript_path }) : buildNudge(state.closes, { transcriptPath: hookInput.transcript_path }));
 } catch {
   emitEmpty();
 }

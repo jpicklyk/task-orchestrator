@@ -773,7 +773,8 @@ extensions:
       mode: workflow
     retrospective:
       mode: dispatch
-      dispatchThreshold: 3
+      minItems: 3
+      boundary: scope
       github_feedback:
         enabled: true
         repo: jpicklyk/task-orchestrator
@@ -783,14 +784,15 @@ extensions:
 |-----|--------|---------|---------|
 | `orchestration.mode` | `workflow`, `schema`, `off` | `workflow` | the orchestration hooks (see "Orchestration") |
 | `retrospective.mode` | `nudge`, `dispatch`, `off` | `nudge` | the retrospective hooks (see "Retrospective") |
-| `retrospective.dispatchThreshold` | integer >= 0: items terminal in the closed run | `3` | the retrospective hooks, in `dispatch` mode |
+| `retrospective.minItems` | integer >= 0: terminal items that make a group worth a retrospective (`dispatchThreshold` is the older name, read when `minItems` is absent) | `3` | the retrospective hooks |
+| `retrospective.boundary` | `scope`, `run` | `scope` | the retrospective hooks |
 | `retrospective.github_feedback.enabled` | boolean | `false` | the `session-retrospective` and `review-proposals` skills |
 | `retrospective.github_feedback.repo` | `owner/repo` | `jpicklyk/task-orchestrator` | the same skills |
 | `retrospective.baselines.<name>` | a map of dated figures the project measured, such as `note-volume: { measured: 2026-11-02, review-share-pct: 31 }` | absent | `run-planner retro-metrics`, which echoes them in `noteVolume.baselines` (null when absent) |
 
-A retrospective is owed per closed run of the project root that is not yet marked `retro`; the hooks
-decide by that run-mark, not by a cooldown. The hooks README describes the run-mark
-trigger in full (the "Retrospective trigger" section of [hooks/README.md](../../../hooks/README.md)). There is no
+A retrospective is owed per completed scope (boundary `scope`) or per closed run not yet marked `retro` (boundary `run`);
+the hooks decide by run marks, not by a cooldown. The hooks README describes the run-mark
+trigger and the scope state machine in full (the "Retrospective trigger" and "Retrospective firing" sections of [hooks/README.md](../../../hooks/README.md)). There is no
 `cooldownMinutes`, no `headless` mode and no `actor_attribution` setting. The user-level config's
 `extensions.claude-code` applies in every directory that has no project config.
 
@@ -805,7 +807,8 @@ extensions:
   claude-code:
     retrospective:
       mode: nudge          # nudge (default) | dispatch | off
-      dispatchThreshold: 3 # items terminal in the closed run required to auto-spawn (default 3)
+      minItems: 3          # terminal items that make a group worth a retrospective (default 3)
+      boundary: scope      # scope (default: one per completed scope) | run (one per closed run)
       github_feedback:                     # optional
         enabled: true                      # default false - opt-in
         repo: jpicklyk/task-orchestrator   # optional; this is the default
@@ -818,7 +821,8 @@ Default: `nudge` - applied when the block or `mode` key is absent, or the value 
 | Field | Required | Type | Notes |
 |-------|----------|------|-------|
 | `mode` | no | string | `nudge`, `dispatch` or `off`. Defaults to `nudge` |
-| `dispatchThreshold` | no | integer >= 0 | Only meaningful in `mode: dispatch`. The count of items terminal in the closed run required before a hard background dispatch fires. Below this, the run still gets a nudge - it is never silent. Defaults to `3`; a non-integer or negative value falls back to the default. |
+| `minItems` | no | integer >= 0 | At boundary `scope` it is one of the triage's signals: a completed scope with at least this many terminal items always gets a retrospective; a smaller, clean one is skipped by the hook. At boundary `run`, in `mode: dispatch`, it is the count of items terminal in the closed run required before a background dispatch fires; below it the run gets a nudge. `dispatchThreshold` is the older name, read when `minItems` is absent; `minItems` wins when both are set. Defaults to `3`; a non-integer or negative value falls back to the default. |
+| `boundary` | no | string | `scope` or `run`. `scope` (default) fires one retrospective per completed scope, covering every run of it; `run` fires one per closed run. An unrecognized value reads as `scope`. |
 | `github_feedback.enabled` | no | boolean | Opt-in. When `true`, the session-retrospective skill files a GitHub enhancement issue for **global-scoped** improvement proposals via the `gh` CLI. Defaults to `false`. Requires `gh` installed and authenticated; filing is skipped gracefully otherwise. |
 | `github_feedback.repo` | no | string | `owner/repo` target for filed issues. Defaults to `jpicklyk/task-orchestrator` (the plugin's upstream). |
 
@@ -827,14 +831,14 @@ Default: `nudge` - applied when the block or `mode` key is absent, or the value 
 | Mode | Behavior |
 |------|----------|
 | `nudge` (default) | Hooks inject a suggestion to run `/session-retrospective` when a run closes. The agent decides whether to act on it. |
-| `dispatch` | Hooks inject a directive that launches exactly one background retrospective agent per closed run, but only once that run's substance (items terminal in it) clears `dispatchThreshold`; the hook first writes the run's `retro` mark (the first write wins, so two sessions never both dispatch). Below threshold, the hook still injects the `nudge` suggestion instead of staying silent. The directive is **durable, not immediate**: it instructs the orchestrator to dispatch at the next run boundary - holding it while background tasks or subagents are still in flight, and merging any directives that accumulate while holding into a single dispatch covering the union of their roots. |
+| `dispatch` | Hooks inject a directive that launches exactly one background retrospective agent per completed scope (boundary `scope`; the hook first writes a `retro-claim` mark, the first write wins, so two sessions never both dispatch, and a low-signal scope is skipped with no output) or per closed run (boundary `run`, once the run clears `minItems`; the hook first writes the run's `retro` mark, and below the threshold it injects the `nudge` suggestion instead of staying silent). The directive is **durable, not immediate**: it instructs the orchestrator to dispatch at the next run boundary - holding it while background tasks or subagents are still in flight, and merging any directives that accumulate while holding into a single dispatch covering the union of their roots. |
 | `off` | Hooks stay silent - no retrospective suggestion or dispatch directive is injected. |
 
-**The Stop backstop.** The `Stop` hook (`retro-backstop.mjs`) runs the same closed-run evaluation as the trigger, so a run closed elsewhere (another session, a subagent) still gets its retrospective. With a REST API it may dispatch (after winning the `retro` mark) as well as nudge, per the configured mode. Without REST it can only nudge, once per session, about runs this session saw close, and never marks or dispatches.
+**The Stop backstop.** The `Stop` hook (`retro-backstop.mjs`) runs the same evaluation as the trigger (it also retries a failed or dead dispatch and picks up an abandoned scope at the scope boundary), so a run closed elsewhere (another session, a subagent) still gets its retrospective. With a REST API it may dispatch (after winning the `retro` mark) as well as nudge, per the configured mode. Without REST it can only nudge, once per session, about runs this session saw close, and never marks or dispatches.
 
 ### Behavior
 
-- **Read by hooks, not the server.** The block is read directly from the workspace file by the plugin hooks (`retro-trigger.mjs`, `retro-backstop.mjs`) - the MCP server stores `extensions` without interpreting it.
+- **Read by hooks, not the server.** The block is read directly from the workspace file by the plugin hooks (`retro-trigger.mjs`, `retro-backstop.mjs`, `retro-subagent-stop.mjs`) - the MCP server stores `extensions` without interpreting it.
 - **No hot-reload needed.** Because hooks read the file fresh on every fire, an edit takes effect on the next hook trigger - no `/mcp` reconnect required.
 - **`project.rootId` required for runs.** The hooks list the closed, unmarked runs of the project root, so they need the `project.rootId` of the located config.
 - **`github_feedback` is skill-read, not hook-read.** The nested block is read by the skills (`session-retrospective`, `review-proposals`) as plain YAML - the hooks' scalar reads are unaffected by its presence.

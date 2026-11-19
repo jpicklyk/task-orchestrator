@@ -227,6 +227,11 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/phase-guard.mjs\"",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/retro-subagent-stop.mjs\"",
+            "timeout": 5
           }
         ]
       }
