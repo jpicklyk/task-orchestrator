@@ -2,9 +2,13 @@
 // fingerprintOf, typeShape), the run-planner `bug-report` subcommand (S23) and the docs the item edits.
 //
 // Scenario ids S1-S23 match the item's frozen `test-plan` note and its `amendments` note (A1 adds S18-S23).
-// Oracles: task-scope decisions D2-D17, acceptance criteria AC1-AC14 and amendment ruling A1 (named in the
-// comment above each test). This file never opens bug-report.mjs, retro-metrics.mjs or run-planner.mjs: only
-// their declared exports are imported.
+// Oracles: task-scope decisions D2-D17, acceptance criteria AC1-AC14, amendment ruling A1 and the A2 user
+// rulings B4 'enforce allowlists' (a server code must be in its catalog entry's errors list; a plugin tool
+// must be one of the injected pluginTools; the posted call shape is top-level catalog field names with type
+// names only, never a nested or map key) and N1 'never retry' (one create attempt; a failed or timed-out
+// create posts nothing more that run and is recorded create-unconfirmed) -- named in the comment above each
+// test. This file never opens bug-report.mjs, retro-metrics.mjs or run-planner.mjs: only their declared
+// exports are imported.
 //
 // SAFETY: the real gh is never run. Every library test injects a fake gh through `deps`; nothing there
 // touches the network, the state file or GitHub. The only test that spawns the run-planner `bug-report`
@@ -64,16 +68,23 @@ function cfg({ bug = 'true', repo = null, enabled = null, extra = [] } = {}) {
   return lines.join('\n') + '\n'
 }
 
-// A qualifying defect by construction: kind defect, scope product, a listed signal, a server tool that is in
-// the catalog with an op among its entries, a code matching the A1 pattern (not an environment code), and
-// non-empty message and quote.
+// The plugin's own hook and script file names, as the CLI would inject them (pluginTools). Every plugin
+// script name a qualifying test uses is listed here; a test about the allowlist passes its own list.
+const PLUGIN_TOOLS = ['run-planner.mjs', 'a.mjs', '0x-y.mjs', 'retro-hook.mjs']
+
+// A qualifying defect by construction (A2 B4): kind defect, scope product, a listed signal, a server tool that
+// is in the catalog with an op among its entries, a code that is in THAT entry's errors list (items_write
+// create lists invalid_request; it is not an environment code), and non-empty message and quote.
 const d = (o = {}) => ({
   kind: 'defect', scope: 'product', signal: 'tool-error', tool: 'items_write', op: 'create',
-  code: 'validation_error', message: 'Item title is required', quote: 'raw quote text', ...o,
+  code: 'invalid_request', message: 'Item title is required', quote: 'raw quote text', ...o,
 })
-// Distinct defects: distinct code (the op must stay inside the catalog), hence distinct fingerprints.
-const dn = (i, o = {}) => d({ code: `e${i}`, ...o })
-// A qualifying plugin-script defect (no catalog involved).
+// Distinct defects: a distinct letters-only word in the message (digit runs are normalised away, so the word
+// carries the difference), hence distinct fingerprints. Tool, op and code stay inside the catalog entry.
+const WORDS = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf', 'hotel', 'india', 'juliet', 'kilo', 'lima',
+  'mike', 'november', 'oscar']
+const dn = (i, o = {}) => d({ message: `Item title is required ${WORDS[i]}`, ...o })
+// A qualifying plugin-script defect (no catalog involved; its tool is one of PLUGIN_TOOLS).
 const script = (o = {}) => d({ signal: 'script-failure', tool: 'run-planner.mjs', op: 'bug-report', code: 'exit:2', ...o })
 // Fingerprint oracle: defectFingerprint of the inputs with the component from defectComponent(tool).
 const fpOf = (x) => defectFingerprint({ component: defectComponent(x.tool), tool: x.tool, op: x.op, code: x.code, message: x.message })
@@ -124,11 +135,15 @@ function makeEnv(o = {}) {
   return { calls, temps, writes, deps, stateReads: () => stateReads, bodyOf: (args) => temps.get(flag(args, '--body-file')[0]) }
 }
 
+// o.catalog and o.pluginTools may be given explicitly (null and undefined included); absent they default to
+// the real catalog and PLUGIN_TOOLS.
 async function run(defects, o = {}) {
   const env = makeEnv(o)
   const catalog = 'catalog' in o ? o.catalog : CATALOG
+  const pluginTools = 'pluginTools' in o ? o.pluginTools : PLUGIN_TOOLS
   const doc = await runBugReport({
-    defects, configText: o.configText ?? cfg(), denyNames: o.denyNames ?? [], versions: o.versions ?? VERSIONS, catalog, deps: env.deps,
+    defects, configText: o.configText ?? cfg(), denyNames: o.denyNames ?? [], versions: o.versions ?? VERSIONS, catalog, pluginTools,
+    deps: env.deps,
   })
   return { doc, ...env }
 }
@@ -138,6 +153,14 @@ const openHitPerFp = () => (args) => {
   const fp = searchedFp(args)
   return ok(JSON.stringify([hit({ number: 50, body: `Fingerprint: ${fp}` })]))
 }
+
+// The state schema's `at` encoding is not declared (task-scope D13 gives only {seen: {fp: {at, url}}}).
+// atOf(ms) encodes a timestamp the way a state written by this module does (number or ISO string), taken
+// from one probe write at NOW; only the encoding is learned that way, never any behaviour. Recorded as an
+// ambiguity in test-manifest. Defined before any test so no test can run ahead of it.
+const probe = await run([d()])
+const WRITTEN_AT = probe.writes.at(-1).seen[fpOf(d())].at
+const atOf = (ms) => (typeof WRITTEN_AT === 'number' ? ms : new Date(ms).toISOString())
 
 // -- S1 ---------------------------------------------------------------------------------------------
 // Oracle: AC5, D7, D9 (comment lines), D15 (result shape and line); A1 B1 (repo fixed).
@@ -215,7 +238,7 @@ test('S3 title and body hold exactly the structured fields in order, the exact f
   const r = await run([x])
   const create = callsOf(r.calls, 'issue', 'create')[0]
   const title = flag(create, '--title')[0]
-  assert.equal(title, `[bug] ${comp}: items_write create: validation_error`)
+  assert.equal(title, `[bug] ${comp}: items_write create: invalid_request`)
   assert.ok(!title.includes(F), 'the title holds no fingerprint')
   const body = r.bodyOf(create)
   const lines = body.split(/\r?\n/)
@@ -225,7 +248,7 @@ test('S3 title and body hold exactly the structured fields in order, the exact f
   expectLine(`- Component: ${comp}`)
   expectLine('- Plugin version: 4.0.2')
   expectLine('- Server version: 4.0.1')
-  expectLine('- Error code: validation_error')
+  expectLine('- Error code: invalid_request')
   expectLine(`Fingerprint: ${F}`)
   expectLine('---')
   const order = ['## Defect', '- Component:', '- Plugin version:', '- Server version:', '- Tool and op:', '- Error code:',
@@ -338,8 +361,13 @@ test('S6 gh auth status failing: gh-unavailable after one gh call', async () => 
 // -- S7 ---------------------------------------------------------------------------------------------
 // Oracle: AC3, D4; A1 R2 (a server tool needs its op among the catalog entries, absent catalog fails op; a
 // plugin tool matches ^[a-z0-9][a-z0-9-]*\.mjs$, its op ^[A-Za-z][A-Za-z0-9_-]{0,63}$; code
-// ^(exit:\d{1,3}|[A-Za-z][A-Za-z0-9_]{0,63})$; else not-qualifying:<field>).
+// ^(exit:\d{1,3}|[A-Za-z][A-Za-z0-9_]{0,63})$; else not-qualifying:<field>); A2 B4 (a server code must be in
+// its catalog entry's errors list; a plugin tool must be one of the injected pluginTools). A row that spreads
+// PLUGIN_BASE runs with its tool added to pluginTools, so only the name pattern can reject it; the code
+// pattern and environment-code rows use a plugin script defect for the same reason (a server code outside the
+// entry's errors list would reject them anyway). Rows on the server fixture isolate the B4 membership check.
 const PLUGIN_BASE = { signal: 'script-failure', tool: 'run-planner.mjs', op: 'bug-report', code: 'exit:2' }
+const ENV_CODES = ['network', 'unauthenticated', 'timeout', 'no_api', 'ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'EAI_AGAIN']
 const NOT_QUALIFYING = [
   ['kind process', { kind: 'process' }, 'kind'],
   ['scope global-process', { scope: 'global-process' }, 'scope'],
@@ -351,10 +379,10 @@ const NOT_QUALIFYING = [
   ['empty op', { op: '' }, 'op'],
   ['empty code', { code: '' }, 'code'],
   ['empty message', { message: '' }, 'message'],
-  ['code network', { code: 'network' }, 'code'],
-  ['code UNAUTHENTICATED', { code: 'UNAUTHENTICATED' }, 'code'],
-  ...['network', 'unauthenticated', 'timeout', 'no_api', 'ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'EAI_AGAIN']
-    .flatMap((c) => [[`env code ${c}`, { code: c }, 'code'], [`env code ${c.toLowerCase()}`, { code: c.toLowerCase() }, 'code']]),
+  ...ENV_CODES.flatMap((c) => [...new Set([c, c.toLowerCase(), c.toUpperCase()])]
+    .map((v) => [`env code ${v}`, { ...PLUGIN_BASE, code: v }, 'code'])),
+  ['env code unauthenticated, which the catalog lists for advance transition', { tool: 'advance', op: 'transition', code: 'unauthenticated' }, 'code'],
+  ['env code UNAUTHENTICATED on a catalog entry that lists it', { tool: 'advance', op: 'transition', code: 'UNAUTHENTICATED' }, 'code'],
   // A1: tool, op and code patterns
   ['server tool op outside the catalog', { op: 'nonesuch' }, 'op'],
   ['server tool op that is a prototype name constructor', { op: 'constructor' }, 'op'],
@@ -381,17 +409,25 @@ const NOT_QUALIFYING = [
   ['code exit with four digits', { ...PLUGIN_BASE, code: 'exit:1234' }, 'code'],
   ['code exit without digits', { ...PLUGIN_BASE, code: 'exit:' }, 'code'],
   ['code exit with a sign', { ...PLUGIN_BASE, code: 'exit:-1' }, 'code'],
-  ['code starting with a digit', { code: '1abc' }, 'code'],
-  ['code with a hyphen', { code: 'a-b' }, 'code'],
-  ['code of 65 characters', { code: 'a'.repeat(65) }, 'code'],
-  ['code that is a path', { code: 'C:\\Users\\a' }, 'code'],
-  ['code that is a rooted path', { code: '/srv/a/b' }, 'code'],
-  ['code with a space', { code: 'has space' }, 'code'],
-  ['code with a trailing newline', { code: 'abc\n' }, 'code'],
+  ['plugin code starting with a digit', { ...PLUGIN_BASE, code: '1abc' }, 'code'],
+  ['plugin code with a hyphen', { ...PLUGIN_BASE, code: 'a-b' }, 'code'],
+  ['plugin code of 65 characters', { ...PLUGIN_BASE, code: 'a'.repeat(65) }, 'code'],
+  ['plugin code that is a path', { ...PLUGIN_BASE, code: 'C:\\Users\\a' }, 'code'],
+  ['plugin code that is a rooted path', { ...PLUGIN_BASE, code: '/srv/a/b' }, 'code'],
+  ['plugin code with a space', { ...PLUGIN_BASE, code: 'has space' }, 'code'],
+  ['plugin code with a trailing newline', { ...PLUGIN_BASE, code: 'abc\n' }, 'code'],
+  // A2 B4: a server code must be among the errors its own catalog entry lists
+  ['server code identifier-shaped but in no catalog list', { code: 'ContosoPayrollError' }, 'code'],
+  ['server code that was the old default and is in no list', { code: 'validation_error' }, 'code'],
+  ['server code that another entry lists but items_write create does not', { code: 'claim_held' }, 'code'],
+  ['server code differing from a listed one only in case', { code: 'Invalid_Request' }, 'code'],
+  ['server code with a trailing space after a listed one', { code: 'invalid_request ' }, 'code'],
+  ['server code in the exit form, which no catalog entry lists', { code: 'exit:2' }, 'code'],
 ]
 for (const [name, over, field] of NOT_QUALIFYING) {
   test(`S7 not qualifying: ${name}`, async () => {
-    const r = await run([d(over)])
+    const pluginRow = over.signal === 'script-failure' && typeof over.tool === 'string'
+    const r = await run([d(over)], { pluginTools: pluginRow ? [...PLUGIN_TOOLS, over.tool] : PLUGIN_TOOLS })
     assert.equal(r.doc.results[0].action, 'skipped')
     assert.equal(r.doc.results[0].reason, `not-qualifying:${field}`)
     assert.equal(callsOf(r.calls, 'issue', 'list').length, 0)
@@ -405,12 +441,14 @@ test('S7 control: every listed signal qualifies, and a code merely resembling an
     const r = await run([d({ signal })])
     assert.equal(r.doc.results[0].action, 'filed', signal)
   }
-  const r = await run([d({ code: 'network_error' })])
+  const r = await run([script({ code: 'network_error' })])
   assert.equal(r.doc.results[0].action, 'filed')
 })
 
 // -- S19 --------------------------------------------------------------------------------------------
-// Oracle: A1 R2 (qualification by catalog and patterns, call shape limited to the catalog fields).
+// Oracle: A1 R2 (qualification by catalog and patterns, call shape limited to the catalog fields); A2 B4
+// (server code in the entry's errors list; plugin tool one of pluginTools; call shape top-level catalog field
+// names with type names only, never a nested or map key).
 for (const [name, over] of [
   ['plugin script with an exit code', {}],
   ['plugin script single character name', { tool: 'a.mjs' }],
@@ -421,7 +459,7 @@ for (const [name, over] of [
   ['code exit zero', { code: 'exit:0' }],
   ['code of 64 characters', { code: `A${'z'.repeat(63)}` }],
   ['code with an underscore and digits', { code: 'E_BAD_9' }],
-  ['hook failure signal', { signal: 'hook-failure' }],
+  ['hook failure signal', { signal: 'hook-failure', tool: 'retro-hook.mjs' }],
 ]) {
   test(`S19 qualifies: ${name}`, async () => {
     const x = script(over)
@@ -443,25 +481,102 @@ test('S19 a server tool without a catalog fails the op check; a script does not 
   assert.equal(b.doc.results[0].action, 'filed')
 })
 
-test('S19 every op of every server tool in the catalog qualifies; the same op under another tool does not', async () => {
-  for (const [tool, def] of Object.entries(CATALOG_DOC.tools)) {
-    for (const op of Object.keys(def.entries)) {
-      const r = await run([d({ tool, op, code: 'bad_input' })])
-      assert.equal(r.doc.results[0].action, 'filed', `${tool} ${op}: ${JSON.stringify(r.doc.results[0])}`)
+// B4 catalog errors: every entry of the real catalog document is walked.
+const isEnvCode = (c) => ENV_CODES.some((e) => e.toLowerCase() === c.toLowerCase())
+const ENTRIES = Object.entries(CATALOG_DOC.tools).flatMap(([tool, def]) =>
+  Object.entries(def.entries).map(([op, entry]) => ({ tool, op, errors: entry.errors })))
+
+test('S19 every op of every server tool in the catalog qualifies with each code its entry lists, an environment code excepted', async () => {
+  assert.ok(ENTRIES.length > 0)
+  for (const { tool, op, errors } of ENTRIES) {
+    const codes = errors.filter((c) => !isEnvCode(c))
+    assert.ok(codes.length > 0, `${tool} ${op} lists a usable code`)
+    for (const code of codes) {
+      const r = await run([d({ tool, op, code })])
+      assert.equal(r.doc.results[0].action, 'filed', `${tool} ${op} ${code}: ${JSON.stringify(r.doc.results[0])}`)
     }
   }
-  const stray = await run([d({ tool: 'notes_read', op: 'create' })])
+  const stray = await run([d({ tool: 'notes_read', op: 'create', code: 'not_found' })])
   assert.equal(stray.doc.results[0].reason, 'not-qualifying:op')
 })
 
+test('S19 a code that the entry does not list does not qualify, whichever other entry lists it or whatever its shape', async () => {
+  const all = [...Object.keys(CATALOG_DOC.errors), 'ContosoPayrollError', 'jeff_secret_code', 'exit:2']
+  for (const { tool, op, errors } of ENTRIES) {
+    for (const code of all.filter((c) => !errors.includes(c))) {
+      const r = await run([d({ tool, op, code })])
+      assert.equal(r.doc.results[0].reason, 'not-qualifying:code', `${tool} ${op} ${code}: ${JSON.stringify(r.doc.results[0])}`)
+      assert.equal(callsOf(r.calls, 'issue', 'list').length, 0, `${tool} ${op} ${code} searched`)
+    }
+  }
+})
+
+const smallCatalog = (errors, documentErrors = {}) => catalogOf({
+  tools: { items_write: { kind: 'ops', entries: { create: { ...CATALOG_DOC.tools.items_write.entries.create, errors } } } },
+  errors: documentErrors,
+})
+test('S19 the code check follows the supplied entry: its list decides, not the document errors map and not a fixed list', async () => {
+  const listed = await run([d({ code: 'not_found' })], { catalog: smallCatalog(['not_found']) })
+  assert.equal(listed.doc.results[0].action, 'filed', 'a code the entry lists qualifies although the errors map is empty')
+  const unlisted = await run([d({ code: 'invalid_request' })], {
+    catalog: smallCatalog(['not_found'], { invalid_request: { kind: 'permanent', http: 400 }, not_found: { kind: 'permanent', http: 404 } }),
+  })
+  assert.equal(unlisted.doc.results[0].reason, 'not-qualifying:code', 'the errors map listing it does not admit it')
+  const empty = await run([d({ code: 'not_found' })], { catalog: smallCatalog([]) })
+  assert.equal(empty.doc.results[0].reason, 'not-qualifying:code', 'an empty list admits no code')
+  assert.equal(callsOf(empty.calls, 'issue', 'list').length, 0)
+})
+
 test('S19 qualification follows the supplied catalog: an op missing from it does not qualify', async () => {
-  const small = catalogOf({ tools: { items_write: { kind: 'ops', entries: { create: CATALOG_DOC.tools.items_write.entries.create } } }, errors: {} })
+  const small = smallCatalog(CATALOG_DOC.tools.items_write.entries.create.errors)
   const a = await run([d({ op: 'create' })], { catalog: small })
   assert.equal(a.doc.results[0].action, 'filed')
   const b = await run([d({ op: 'update' })], { catalog: small })
   assert.equal(b.doc.results[0].reason, 'not-qualifying:op')
 })
 
+// B4 plugin allowlist.
+test('S19 a plugin tool qualifies only when it is one of pluginTools', async () => {
+  const x = script()
+  const listed = await run([x], { pluginTools: ['run-planner.mjs'] })
+  assert.equal(listed.doc.results[0].action, 'filed')
+  for (const list of [['other.mjs'], ['run-planner.mjs.bak', 'planner.mjs', 'run-planner-2.mjs'], ['RUN-PLANNER.MJS', 'Run-Planner.mjs']]) {
+    const r = await run([x], { pluginTools: list })
+    assert.equal(r.doc.results[0].action, 'skipped', JSON.stringify(list))
+    assert.equal(r.doc.results[0].reason, 'not-qualifying:tool', JSON.stringify(list))
+    assert.equal(callsOf(r.calls, 'issue', 'list').length, 0)
+    assert.equal(callsOf(r.calls, 'issue', 'create').length, 0)
+  }
+})
+
+test('S19 a name shaped like a plugin file but not injected does not qualify, whatever its op and code', async () => {
+  for (const over of [{ tool: 'contoso-payroll.mjs' }, { tool: 'contoso-payroll.mjs', op: 'jeffsecret', code: 'exit:1' }, { tool: 'zz.mjs', signal: 'hook-failure' }]) {
+    const r = await run([script(over)])
+    assert.equal(r.doc.results[0].reason, 'not-qualifying:tool', JSON.stringify(over))
+    assert.equal(callsOf(r.calls, 'issue', 'list').length, 0)
+  }
+})
+
+test('S19 an empty, null, undefined or absent pluginTools admits no plugin defect', async () => {
+  for (const pluginTools of [[], null, undefined]) {
+    const r = await run([script()], { pluginTools })
+    assert.equal(r.doc.results[0].reason, 'not-qualifying:tool', String(pluginTools))
+    assert.equal(callsOf(r.calls, 'issue', 'list').length, 0)
+  }
+  const env = makeEnv()
+  const doc = await runBugReport({ defects: [script()], configText: cfg(), versions: VERSIONS, catalog: CATALOG, deps: env.deps })
+  assert.equal(doc.results[0].reason, 'not-qualifying:tool', 'key absent')
+  assert.equal(callsOf(env.calls, 'issue', 'list').length, 0)
+})
+
+test('S19 pluginTools does not gate a server tool: a catalog defect qualifies with pluginTools empty, null or undefined', async () => {
+  for (const pluginTools of [[], null, undefined]) {
+    const r = await run([d()], { pluginTools })
+    assert.equal(r.doc.results[0].action, 'filed', String(pluginTools))
+  }
+})
+
+// B4 call shape: the catalog fields of the tool and op, as type names, never a nested or map key.
 const shapeOf = (r) => {
   const create = callsOf(r.calls, 'issue', 'create')[0]
   const line = r.bodyOf(create).split(/\r?\n/).find((l) => l.startsWith('- Call shape:'))
@@ -469,14 +584,15 @@ const shapeOf = (r) => {
   assert.ok(m, `call shape line: ${line}`)
   return JSON.parse(m[1])
 }
+const bodyText = (r) => r.bodyOf(callsOf(r.calls, 'issue', 'create')[0])
 
 test('S19 the call shape keeps only the catalog fields of the tool and op, as type names', async () => {
   const r = await run([d({
-    tool: 'notes_read', op: 'get',
+    tool: 'notes_read', op: 'get', code: 'not_found',
     callShape: { itemId: 'x', key: 'k', ifVersion: 3, bogus_field: 'v', secret_note: 'zz', 'C:\\Users\\a': 1 },
   })])
   assert.deepEqual(shapeOf(r), { itemId: 'string', key: 'string', ifVersion: 'number' })
-  const text = JSON.stringify(r.temps.get(flag(callsOf(r.calls, 'issue', 'create')[0], '--body-file')[0]))
+  const text = JSON.stringify(bodyText(r))
   for (const w of ['bogus_field', 'secret_note', 'Users']) assert.ok(!text.includes(w), `no ${w}`)
 })
 
@@ -486,26 +602,69 @@ test('S19 the call shape follows the catalog supplied, not a fixed field list', 
   assert.deepEqual(shapeOf(r), { title: 'string' })
 })
 
+test('S19 an object or map value of a catalog field reads object and none of its keys is posted', async () => {
+  const a = await run([d({
+    tool: 'runs_write', op: 'open',
+    callShape: { rootId: 'x', label: 'l', hints: { contosoSecret: 'v', other: 'w' }, budget: { attemptsPerSeat: 3, maxActiveSeats: 2 } },
+  })])
+  assert.deepEqual(shapeOf(a), { rootId: 'string', label: 'string', hints: 'object', budget: 'object' })
+  for (const w of ['contosoSecret', 'attemptsPerSeat', 'maxActiveSeats']) assert.ok(!bodyText(a).includes(w), `no ${w}`)
+  const b = await run([d({ callShape: { title: 'x', properties: { a: { contosoDeep: 1 }, contosoMapKey: 2 } } })])
+  assert.deepEqual(shapeOf(b), { title: 'string', properties: 'object' })
+  for (const w of ['contosoDeep', 'contosoMapKey']) assert.ok(!bodyText(b).includes(w), `no ${w}`)
+})
+
+test('S19 an array value of a catalog field posts no element and no key of an element', async () => {
+  const r = await run([d({ callShape: { title: 'x', tags: ['secret-tag-zz', { contosoElementKey: 1 }] } })])
+  const shape = shapeOf(r)
+  assert.equal(shape.title, 'string')
+  assert.ok('tags' in shape, 'the catalog field itself is kept')
+  for (const w of ['secret-tag-zz', 'contosoElementKey']) assert.ok(!bodyText(r).includes(w), `no ${w}`)
+})
+
 test('S19 a script defect call shape never carries a non-identifier key or a value', async () => {
   const r = await run([script({ callShape: { 'C:\\Users\\a': 'SECRETVALUE', '/srv/a/b': 'SECRETVALUE2' } })], { catalog: null })
-  const text = r.bodyOf(callsOf(r.calls, 'issue', 'create')[0])
+  const text = bodyText(r)
   for (const w of ['SECRETVALUE', 'Users', '/srv/a/b']) assert.ok(!text.includes(w), `no ${w}`)
 })
 
-// typeShape (declared: the value with every leaf replaced by its type name, identifier keys only, bounded).
-test('S19 typeShape replaces every leaf by its type name', () => {
-  assert.deepEqual(typeShape({ a: 1, b: 's', c: true, d: { e: 2 } }), { a: 'number', b: 'string', c: 'boolean', d: { e: 'number' } })
+test('S19 a script defect call shape never carries a nested identifier key or a value', async () => {
+  const r = await run([script({ callShape: { outer: { contosoDeep: 'SECRETVALUE' }, flat: 'SECRETVALUE2' } })], { catalog: null })
+  const text = bodyText(r)
+  for (const w of ['contosoDeep', 'SECRETVALUE']) assert.ok(!text.includes(w), `no ${w}`)
+})
+
+// typeShape (declared: the top level of the value with every value replaced by its type name; identifier keys
+// only, at most 30; an object or map value reads 'object' and none of its keys is kept; below the top level
+// nothing is read). The name an array reads is cut off in the declaration, so no test fixes it.
+test('S19 typeShape replaces every top-level value by its type name; an object value reads object', () => {
+  assert.deepEqual(typeShape({ a: 1, b: 's', c: true, d: { e: 2 } }), { a: 'number', b: 'string', c: 'boolean', d: 'object' })
   assert.ok(!JSON.stringify(typeShape({ secret: 'SECRETVALUE' })).includes('SECRETVALUE'))
+  assert.deepEqual(typeShape({ hints: { contosoSecret: 'v' } }), { hints: 'object' })
 })
-test('S19 typeShape drops keys that are not identifiers, at every depth', () => {
-  assert.deepEqual(typeShape({ ok: 1, 'C:\\Users\\a': 2, '/srv/a/b': 3, 'has space': 4, 'a@b.io': 5 }), { ok: 'number' })
-  assert.deepEqual(typeShape({ outer: { '/srv/a/b': 1, inner: 2 } }), { outer: { inner: 'number' } })
-})
-test('S19 typeShape is bounded in depth', () => {
+test('S19 typeShape keeps no key below the top level, however deep the value is', () => {
   let deep = 'leaf'
   for (let i = 0; i < 100; i++) deep = { k: deep }
-  const levels = JSON.stringify(typeShape(deep)).split('"k"').length - 1
-  assert.ok(levels < 100, `levels kept ${levels}`)
+  assert.deepEqual(typeShape({ outer: deep }), { outer: 'object' })
+  assert.deepEqual(typeShape(deep), { k: 'object' })
+  assert.deepEqual(typeShape({ outer: { inner: 2 } }), { outer: 'object' })
+})
+test('S19 typeShape drops top-level keys that are not identifiers', () => {
+  assert.deepEqual(typeShape({ ok: 1, 'C:\\Users\\a': 2, '/srv/a/b': 3, 'has space': 4, 'a@b.io': 5 }), { ok: 'number' })
+})
+test('S19 typeShape keeps at most 30 keys', () => {
+  const many = (n) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`key${i}`, i]))
+  assert.equal(Object.keys(typeShape(many(5))).length, 5)
+  assert.equal(Object.keys(typeShape(many(30))).length, 30)
+  const forty = typeShape(many(40))
+  assert.ok(Object.keys(forty).length <= 30, `kept ${Object.keys(forty).length}`)
+  assert.ok(Object.keys(forty).every((k) => k.startsWith('key') && forty[k] === 'number'))
+})
+test('S19 typeShape of an array value leaks no element and no key of an element', () => {
+  const s = typeShape({ list: ['SECRETVALUE', { contosoElementKey: 1 }] })
+  assert.ok('list' in s)
+  assert.ok(!JSON.stringify(s).includes('SECRETVALUE'))
+  assert.ok(!JSON.stringify(s).includes('contosoElementKey'))
 })
 
 // -- S8 ---------------------------------------------------------------------------------------------
@@ -591,24 +750,59 @@ test('S8 the defensive scrub also covers the seen-again comment', async () => {
 })
 
 // -- S9 ---------------------------------------------------------------------------------------------
-// Oracle: AC4, D6, D12.
-test('S9 labelled create fails, unlabelled retry passes: two creates, filed', async () => {
-  const r = await run([d()], { 'issue create': (a, n) => (a.includes('--label') ? fail() : ok(`https://github.com/${REPO}/issues/55\n`)) })
-  const creates = callsOf(r.calls, 'issue', 'create')
-  assert.equal(creates.length, 2)
-  assert.ok(creates[0].includes('--label'))
-  assert.ok(!creates[1].includes('--label'))
-  assert.equal(r.doc.results[0].action, 'filed')
-  assert.equal(r.doc.results[0].url, `https://github.com/${REPO}/issues/55`)
+// Oracle: AC4, D6, D12; A2 N1 'never retry' (one create attempt; a failed or timed-out create posts nothing
+// more that run for that defect, its result is skipped gh-create-failed and its state entry is
+// {at, url: null, status: 'create-unconfirmed'}, so the next run's fingerprint search finds the issue or
+// files it; a create that never reached gh leaves no entry).
+const FAILED_CREATES = [
+  ['non-zero exit', { status: 1, stdout: '' }],
+  ['non-zero exit with output', { status: 2, stdout: 'GraphQL: rate limited' }],
+  ['timed out (no exit status)', { status: null, stdout: '' }],
+]
+for (const [name, failed] of FAILED_CREATES) {
+  test(`S9 a failed create (${name}) is the only attempt: labelled, no unlabelled retry, skipped gh-create-failed`, async () => {
+    const x = d()
+    const F = fpOf(x)
+    const r = await run([x], { 'issue create': failed })
+    const creates = callsOf(r.calls, 'issue', 'create')
+    assert.equal(creates.length, 1)
+    assert.deepEqual(flag(creates[0], '--label'), ['bug', 'auto-reported'])
+    assert.equal(callsOf(r.calls, 'issue', 'comment').length, 0)
+    assert.equal(r.doc.results[0].action, 'skipped')
+    assert.equal(r.doc.results[0].reason, 'gh-create-failed')
+    assert.equal(r.doc.results[0].line, `bug-report ${F}: skipped gh-create-failed`)
+  })
+  test(`S9 a failed create (${name}) is recorded create-unconfirmed with no url`, async () => {
+    const x = d()
+    const F = fpOf(x)
+    const r = await run([x], { 'issue create': failed })
+    assert.deepEqual(r.writes.at(-1).seen[F], { at: WRITTEN_AT, url: null, status: 'create-unconfirmed' })
+    assert.equal(r.doc.stateWrite, undefined)
+  })
+}
+
+test('S9 a create that fails does not stop the next defect, which is filed; each gets its own state entry', async () => {
+  const d1 = dn(1)
+  const d2 = dn(2)
+  const r = await run([d1, d2], { 'issue create': (_a, n) => (n === 1 ? fail() : ok(`https://github.com/${REPO}/issues/77\n`)) })
+  assert.equal(callsOf(r.calls, 'issue', 'create').length, 2, 'one attempt per defect')
+  assert.equal(r.doc.results[0].reason, 'gh-create-failed')
+  assert.equal(r.doc.results[1].action, 'filed')
+  assert.equal(r.doc.results[1].url, `https://github.com/${REPO}/issues/77`)
+  const seen = r.writes.at(-1).seen
+  assert.deepEqual(seen[fpOf(d1)], { at: WRITTEN_AT, url: null, status: 'create-unconfirmed' })
+  assert.equal(seen[fpOf(d2)].url, `https://github.com/${REPO}/issues/77`)
+  assert.notEqual(seen[fpOf(d2)].status, 'create-unconfirmed')
 })
 
-test('S9 both creates fail: gh-create-failed and no state entry', async () => {
+test('S9 the next run after an unconfirmed create files the defect when the search finds nothing, and the state then holds its url', async () => {
   const x = d()
-  const r = await run([x], { 'issue create': fail() })
-  assert.equal(callsOf(r.calls, 'issue', 'create').length, 2)
-  assert.equal(r.doc.results[0].action, 'skipped')
-  assert.equal(r.doc.results[0].reason, 'gh-create-failed')
-  assert.ok(!r.writes.some((w) => w.seen && w.seen[fpOf(x)]))
+  const F = fpOf(x)
+  const r = await run([x], { state: { seen: { [F]: { at: atOf(NOW - 3600000), url: null, status: 'create-unconfirmed' } } } })
+  assert.equal(callsOf(r.calls, 'issue', 'list').length, 1, 'the fingerprint search runs')
+  assert.equal(callsOf(r.calls, 'issue', 'create').length, 1)
+  assert.equal(r.doc.results[0].action, 'filed')
+  assert.equal(r.writes.at(-1).seen[F].url, `https://github.com/${REPO}/issues/101`)
 })
 
 // -- S10 --------------------------------------------------------------------------------------------
@@ -633,14 +827,6 @@ test('S10 a failed comment skips that defect with gh-comment-failed', async () =
   assert.equal(r.doc.results[0].action, 'skipped')
   assert.equal(r.doc.results[0].reason, 'gh-comment-failed')
 })
-
-// The state schema's `at` encoding is not declared (task-scope D13 gives only {seen: {fp: {at, url}}}).
-// atOf(ms) encodes a timestamp the way a state written by this module does (number or ISO string), taken
-// from one probe write; only the encoding is learned that way, never any behaviour. Recorded as an
-// ambiguity in test-manifest.
-const probe = await run([d()])
-const WRITTEN_AT = probe.writes.at(-1).seen[fpOf(d())].at
-const atOf = (ms) => (typeof WRITTEN_AT === 'number' ? ms : new Date(ms).toISOString())
 
 // -- S11 --------------------------------------------------------------------------------------------
 // Oracle: D7 (under 7x24h rate-limited, exactly 7 days comments), D13 (state shape).
@@ -977,9 +1163,9 @@ test('S20 control: exactly one true line among other keys opens the gate', async
 })
 
 // -- S21 --------------------------------------------------------------------------------------------
-// Oracle: A1 O4 (after a failed create attempt search once more, outside the cap; a hit holding the
-// fingerprint -> filed <its url>, state set, no further create).
-test('S21 a failed create followed by a hit on the re-search reads filed with that hit url and no further create', async () => {
+// Oracle: A2 N1 'never retry' (retires the A1 O4 re-search: after one failed create attempt nothing more is
+// searched or posted for that defect that run; the next run's search finds the issue or files it).
+test('S21 a failed create is not followed by a re-search: an issue that a second search would find is not read', async () => {
   const x = d()
   const F = fpOf(x)
   const found = hit({ number: 61, url: `https://github.com/${REPO}/issues/61`, body: `Fingerprint: ${F}` })
@@ -987,53 +1173,50 @@ test('S21 a failed create followed by a hit on the re-search reads filed with th
     'issue list': (_a, n) => (n === 1 ? ok('[]') : ok(JSON.stringify([found]))),
     'issue create': fail(),
   })
-  assert.equal(r.doc.results[0].action, 'filed')
-  assert.equal(r.doc.results[0].url, found.url)
-  assert.equal(r.doc.results[0].line, `bug-report ${F}: filed ${found.url}`)
-  assert.equal(r.writes.at(-1).seen[F].url, found.url)
-  assert.equal(callsOf(r.calls, 'issue', 'list').length, 2)
+  assert.equal(callsOf(r.calls, 'issue', 'list').length, 1, 'one search only')
+  assert.equal(callsOf(r.calls, 'issue', 'create').length, 1)
   assert.equal(callsOf(r.calls, 'issue', 'comment').length, 0)
-  const lists = r.calls.map((c, i) => (c[0] === 'issue' && c[1] === 'list' ? i : -1)).filter((i) => i >= 0)
-  assert.equal(r.calls.slice(lists[1]).filter((c) => c[0] === 'issue' && c[1] === 'create').length, 0, 'no create after the re-search')
-})
-test('S21 a failed create and an empty re-search reads gh-create-failed with no state entry', async () => {
-  const x = d()
-  const r = await run([x], { 'issue create': fail() })
+  assert.equal(r.doc.results[0].action, 'skipped')
   assert.equal(r.doc.results[0].reason, 'gh-create-failed')
-  assert.equal(callsOf(r.calls, 'issue', 'list').length, 2)
-  assert.ok(!r.writes.some((w) => w.seen && w.seen[fpOf(x)]))
+  assert.deepEqual(r.writes.at(-1).seen[F], { at: WRITTEN_AT, url: null, status: 'create-unconfirmed' })
 })
-test('S21 a re-search hit whose body lacks the fingerprint is no hit', async () => {
-  const x = d()
-  const r = await run([x], {
-    'issue list': (_a, n) => (n === 1 ? ok('[]') : ok(JSON.stringify([hit({ body: 'Fingerprint: to-bug-00000000' })]))),
+test('S21 two defects whose creates fail: one search and one create attempt each, both create-unconfirmed', async () => {
+  const defects = [dn(1), dn(2)]
+  const r = await run(defects, { 'issue create': fail() })
+  assert.equal(callsOf(r.calls, 'issue', 'list').length, 2)
+  assert.equal(callsOf(r.calls, 'issue', 'create').length, 2)
+  assert.deepEqual(r.doc.results.map((x) => x.reason), ['gh-create-failed', 'gh-create-failed'])
+  for (const x of defects) assert.deepEqual(r.writes.at(-1).seen[fpOf(x)], { at: WRITTEN_AT, url: null, status: 'create-unconfirmed' })
+})
+test('S21 a failed create takes no search outside the ten-search cap: twelve defects, ten searches, the last two overflow search-cap', async () => {
+  const r = await run(Array.from({ length: 12 }, (_, i) => dn(i + 1)), { 'issue create': fail() })
+  assert.equal(callsOf(r.calls, 'issue', 'list').length, 10)
+  assert.equal(r.doc.results.length, 12)
+  for (const i of [10, 11]) {
+    assert.equal(r.doc.results[i].action, 'overflow')
+    assert.equal(r.doc.results[i].reason, 'search-cap')
+  }
+})
+test('S21 a failed create changes nothing for a later defect that has an open hit: it is commented, not created', async () => {
+  const d1 = dn(1)
+  const d2 = dn(2)
+  const r = await run([d1, d2], {
+    'issue list': (args) => (searchedFp(args) === fpOf(d1) ? ok('[]') : ok(JSON.stringify([hit({ number: 9, body: `Fingerprint: ${fpOf(d2)}` })]))),
     'issue create': fail(),
   })
   assert.equal(r.doc.results[0].reason, 'gh-create-failed')
-})
-test('S21 the re-search is outside the ten-search cap: ten defects are all searched', async () => {
-  const defects = Array.from({ length: 10 }, (_, i) => dn(i + 1))
-  const F1 = fpOf(defects[0])
-  const seen = {}
-  const list = (args) => {
-    const fp = searchedFp(args)
-    seen[fp] = (seen[fp] ?? 0) + 1
-    if (fp === F1 && seen[fp] === 1) return ok('[]')
-    return ok(JSON.stringify([hit({ number: 50, body: `Fingerprint: ${fp}` })]))
-  }
-  const r = await run(defects, { 'issue list': list, 'issue create': fail() })
-  assert.equal(callsOf(r.calls, 'issue', 'list').length, 11)
-  assert.equal(r.doc.results[0].action, 'filed')
-  assert.ok(r.doc.results.every((x) => x.reason !== 'search-cap'), JSON.stringify(r.doc.results.map((x) => x.reason)))
-  assert.deepEqual(r.doc.results.slice(6).map((x) => x.reason), ['comment-cap', 'comment-cap', 'comment-cap', 'comment-cap'])
+  assert.equal(r.doc.results[1].action, 'commented')
+  assert.equal(callsOf(r.calls, 'issue', 'comment').length, 1)
+  assert.equal(callsOf(r.calls, 'issue', 'list').length, 2)
 })
 
 // -- S22 --------------------------------------------------------------------------------------------
 // Oracle: A1 O6 (a throwing writeTemp is caught as gh-create-failed / gh-comment-failed with no gh call; the
-// state write still runs).
+// state write still runs); A2 N1 (a create that never reached gh leaves no state entry, not even
+// create-unconfirmed).
 test('S22 a writeTemp that throws on the second create skips it as gh-create-failed and keeps the first filing in the state', async () => {
-  const x1 = d({ code: 'Qfirst' })
-  const x2 = d({ code: 'Qsecond' })
+  const x1 = dn(1)
+  const x2 = dn(2)
   const r = await run([x1, x2], { failTemp: (text) => text.includes(fpOf(x2)) })
   assert.equal(r.doc.results[0].action, 'filed')
   assert.equal(r.doc.results[1].action, 'skipped')
@@ -1041,12 +1224,12 @@ test('S22 a writeTemp that throws on the second create skips it as gh-create-fai
   assert.equal(callsOf(r.calls, 'issue', 'create').length, 1)
   assert.ok(r.writes.length >= 1, 'state written')
   assert.ok(fpOf(x1) in r.writes.at(-1).seen)
-  assert.ok(!(fpOf(x2) in r.writes.at(-1).seen))
+  assert.ok(!(fpOf(x2) in r.writes.at(-1).seen), 'no entry for a create that never reached gh')
   assert.equal(r.doc.stateWrite, undefined)
 })
 test('S22 a writeTemp that throws on the second comment skips it as gh-comment-failed with no comment call', async () => {
-  const x1 = d({ code: 'Qfirst' })
-  const x2 = d({ code: 'Qsecond' })
+  const x1 = dn(1)
+  const x2 = dn(2)
   const r = await run([x1, x2], { 'issue list': openHitPerFp(), failTemp: (text) => text.includes(fpOf(x2)) })
   assert.equal(r.doc.results[0].action, 'commented')
   assert.equal(r.doc.results[1].action, 'skipped')
@@ -1055,11 +1238,13 @@ test('S22 a writeTemp that throws on the second comment skips it as gh-comment-f
   assert.ok(fpOf(x1) in r.writes.at(-1).seen)
   assert.ok(!(fpOf(x2) in r.writes.at(-1).seen))
 })
-test('S22 a writeTemp that throws for the only defect still returns a document and posts nothing', async () => {
-  const r = await run([d()], { failTemp: () => true })
+test('S22 a writeTemp that throws for the only defect still returns a document, posts nothing and records no entry', async () => {
+  const x = d()
+  const r = await run([x], { failTemp: () => true })
   assert.equal(r.doc.results[0].action, 'skipped')
   assert.equal(r.doc.results[0].reason, 'gh-create-failed')
   assert.equal(callsOf(r.calls, 'issue', 'create').length, 0)
+  assert.ok(!r.writes.some((w) => w.seen && fpOf(x) in w.seen), 'no state entry, create-unconfirmed included')
 })
 
 // -- S23 --------------------------------------------------------------------------------------------
