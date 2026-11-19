@@ -49,14 +49,14 @@ const RULES_DIR = join(REPO, '.taskorchestrator', 'rules')
 // ── Core, loaded once by name (Appendix A "Core names for loadCoreNamed") ──
 const CORE_NAMES = [
   'ENVELOPE_VERSION', 'VERDICTS', 'INDEPENDENCE_MODES',
-  'PROTOCOL_KEY', 'SCOPING_RULE_KEY', 'REQUIRED_FEATURES', 'REVIEW_OUTPUT_SCHEMAS',
+  'SEAT_RULES', 'REQUIRED_FEATURES', 'REVIEW_OUTPUT_SCHEMAS',
   'normalizePath', 'normalizeArgs', 'preflight', 'laneSchema', 'lanePrompt',
   'mapLaneResult', 'aggregateVerdict', 'runItem', 'runReview',
 ]
 const core = loadCoreNamed(SCRIPT_PATH, CORE_NAMES)
 const {
   ENVELOPE_VERSION, VERDICTS, INDEPENDENCE_MODES,
-  PROTOCOL_KEY, SCOPING_RULE_KEY, REQUIRED_FEATURES, REVIEW_OUTPUT_SCHEMAS,
+  SEAT_RULES, REQUIRED_FEATURES, REVIEW_OUTPUT_SCHEMAS,
   normalizePath, normalizeArgs, preflight, laneSchema, lanePrompt,
   mapLaneResult, aggregateVerdict, runItem, runReview,
 } = core
@@ -197,8 +197,8 @@ test('T-schema: constants match the declared literals verbatim', () => {
   assert.equal(ENVELOPE_VERSION, 'envelope-v1')
   assert.deepEqual(VERDICTS, ['pass', 'pass-with-observations', 'fail-blocking'])
   assert.deepEqual(INDEPENDENCE_MODES, ['independent', 'independent-degraded', 'not-independent', 'n/a'])
-  assert.equal(PROTOCOL_KEY, 'protocol.read-only-agent')
-  assert.equal(SCOPING_RULE_KEY, 'review-scoping')
+  assert.equal(SEAT_RULES.roles.reviewer.protocol, 'protocol.read-only-agent')
+  assert.deepEqual(SEAT_RULES.roles.reviewer.defaults, ['review-scoping', 'review-cited-claims'])
   assert.deepEqual(REQUIRED_FEATURES, ['seats', 'dispatchBySeat', 'rules'])
 })
 

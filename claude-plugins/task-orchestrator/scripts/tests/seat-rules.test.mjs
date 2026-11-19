@@ -2,7 +2,7 @@
 // `test-plan` note. Oracles: task-scope AC2 (a stage's rules are the note-skill rules then the seat's declared rules, each
 // once; the seat's output class supplies defaults only when the seat declares nothing), D2 (a declared rule that is not served
 // is dropped with the degradation text "seat rule <key> not served (<seat>)"), D3 (a reviewer seat's declared rules reach the
-// review lane and the review prompt after REVIEW_RULES) and the run-planner and run-exec declarations supplied to the seat.
+// review lane and the review prompt after the reviewer protocol key) and the run-planner and run-exec declarations supplied to the seat.
 // BLIND test author: no implementation source was opened. Node 22, node:test, no dependencies.
 
 import { test } from 'node:test'
@@ -307,26 +307,27 @@ function reviewFixture({ reviewerRules, servedKeys }) {
   }
 }
 
-test('S10: a reviewer seat declaring a served rule yields plan item reviewRules, a lane with rules, and a prompt Keys after REVIEW_RULES', () => {
+const keysOfReview = (text) => {
+  const line = text.split('\n').find((l) => l.includes('Keys:'))
+  assert.ok(line, 'the review prompt lists its rule keys on a Keys line')
+  return line.slice(line.indexOf('Keys:') + 5).replace(/[.\s]+$/, '').split(',').map((k) => k.trim())
+}
+
+test('S10: a reviewer seat declaring a served rule yields plan item reviewRules, a lane with rules, and a prompt Keys [protocol.read-only-agent, x-rule]', () => {
   const fx = reviewFixture({ reviewerRules: ['x-rule'], servedKeys: ['x-rule'] })
   assert.deepEqual(fx.planItem.reviewRules, { reviewer: ['x-rule'] })
   assert.deepEqual(fx.lane.rules, ['x-rule'])
   const text = execLib.reviewPrompt(loadWaveCore(), fx.doc, 'aaaaaaaa')
-  const line = text.split('\n').find((l) => l.includes(execLib.REVIEW_RULES[0]))
-  assert.ok(line, 'a prompt line lists the review rule keys')
-  const at = (k) => line.indexOf(k)
-  assert.ok(at(execLib.REVIEW_RULES[0]) !== -1 && at(execLib.REVIEW_RULES[0]) < at(execLib.REVIEW_RULES[1]), line)
-  assert.ok(at(execLib.REVIEW_RULES[1]) < at('x-rule'), `x-rule follows REVIEW_RULES: ${line}`)
+  // Oracle R1/R4/D4: the reviewer's own protocol key, then the declared list; review-scoping is a default, replaced by it.
+  assert.deepEqual(keysOfReview(text), ['protocol.read-only-agent', 'x-rule'])
 })
 
-test('S10: with no review rules there is no reviewRules key, no lane rules member, and the prompt lists only REVIEW_RULES', () => {
+test('S10: with no review rules there is no reviewRules key, no lane rules member, and the prompt lists only the protocol key', () => {
   const fx = reviewFixture({ reviewerRules: undefined, servedKeys: [] })
   assert.equal(Object.hasOwn(fx.planItem, 'reviewRules'), false)
   assert.equal(Object.hasOwn(fx.lane, 'rules'), false)
   const text = execLib.reviewPrompt(loadWaveCore(), fx.doc, 'aaaaaaaa')
-  const line = text.split('\n').find((l) => l.includes(execLib.REVIEW_RULES[0]))
-  assert.ok(line)
-  assert.equal(line.includes('x-rule'), false)
+  assert.deepEqual(keysOfReview(text), ['protocol.read-only-agent'])
 })
 
 test('S10 probe: a reviewer rule that is not served leaves no reviewRules key and no lane rules', () => {

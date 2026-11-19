@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url'
 import { loadCore as harnessLoadCore, planFixture, itemFixture, stages, fakeAgent, fakeParallel } from './workflow-harness.mjs'
 import { loadWaveCore, CORE_NAMES } from '../lib/wave-core.mjs'
 import {
-  STATE_CONTRACT, REVIEW_RULES,
+  STATE_CONTRACT,
   initState, checkState, resolvePlan, findItem, findStage, outsBySeat,
   next, prompt, validateAgainst, stageResult, scanReport, resultFromState,
   verify, expectedNotes, notesAudit, provenance, reviewPrompt,
@@ -1113,9 +1113,12 @@ test('S15 (4.0): reviewPrompt includes the seat line, run id, scoped diff comman
   assert.match(text, /SEAT: reviewer for item .*\(aaaaaaaa\)/)
   assert.match(text, /Run r-test-0055/)
   assert.match(text, /git -C \/repo\/\.claude\/worktrees\/x-aaaaaaaa diff e77c3e95\.\.HEAD/)
-  for (const key of REVIEW_RULES) {
-    assert.ok(text.includes(key), `expected review-prompt to reference rule key ${key}`)
-  }
+  // S4 (R1, AC3): a plan item with no review rules gives the reviewer its protocol key only; review-scoping is a
+  // reviewer default now (a served declared list replaces it), so a hand-built plan that carries none lists none.
+  assert.ok(text.includes('protocol.read-only-agent'), 'expected review-prompt to reference the reviewer protocol key')
+  const km = /Keys:([^\n]*)/.exec(text)
+  assert.ok(km, 'the prompt has a Keys line')
+  assert.deepEqual(km[1].replace(/\.\s*$/, '').split(',').map((k) => k.trim()), ['protocol.read-only-agent'])
   assert.equal(/reviewer:aaaaaaaa:r-test-0055/.test(text), false, 'AC1: no reviewer actor id')
   assert.equal(text.includes('ACTOR:'), false)
   assert.equal(text.includes('query_rules'), false, 'AC2: the retired rules tool is gone')
