@@ -30,7 +30,7 @@ rest), not the visible REPL and Poll pair.
 
 Tiers 1, 2 and 2b need a director entered through the `/task-orchestrator:director` skill in a normal
 session. The hardened `claude --agent director` entry (`agents/director.md`) has neither `Workflow`
-nor `start_session`, so it probes tier 3 or 4 (a Code Mode session adds 2b when `Agent` is there).
+nor `start_session`, and its tool list has no `REPL`, so it probes tier 3 or 4, never 2b.
 
 ## Tier 1: desktop session
 

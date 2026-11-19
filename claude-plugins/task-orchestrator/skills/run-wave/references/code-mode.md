@@ -11,7 +11,7 @@ Tool call shapes are in [call-shapes-js.md](../../_generated/call-shapes-js.md):
 - `stage-result` calls stay serial: each reads the state the previous call wrote, so never run two at once, not even inside one script.
 - A write whose failure code the script branches on uses `atomic: true`, so a failure leaves nothing written (a non-atomic batch that fails midway would lose the tokens its good elements answered, since a token is answered once). Otherwise read the state back after a failure.
 - A failure goes through `parseErrorTail` and `refusal`, never through message text. The kit's `call` does it: `run_paused` writes `paused.json` and returns `{paused: true}`; `unavailable` is retried once after `retryAfterMs`; a refusal returns `{refused, tool, reason}` and the recipe stops; any other code returns `{failed, code, fix}`.
-- One round per script. No recipe waits for a seat, so each finishes far under the 10-minute foreground limit. Seats finish while no script runs; their notifications arrive through `Poll`.
+- One round per script. No recipe waits for a seat, so each finishes far under the limit of about 600 seconds that stops a REPL script whatever its `$` timeout. Seats finish while no script runs; their notifications arrive through `Poll`.
 - Every recipe starts with the prelude block and the kit block below pasted verbatim, then the recipe body. Placeholders such as `<scratchpad>` are string literals you replace before running.
 
 ## Script globals
@@ -139,12 +139,12 @@ const sh = async (cmd) => {
   }
   return { ref: null, code, out: String(r.stdout === undefined ? '' : r.stdout), err: String(r.stderr === undefined ? '' : r.stderr) };
 };
-// node "<helper>" <cmd> <args>; the helper prints JSON, and verify or notes-audit exit 3 on findings.
+// node "<helper>" <cmd> <args>; the helper prints JSON (verify or notes-audit exit 3 on findings), except prompt, which prints the seat prompt as raw text: read it from raw.
 const helper = async (cmd, args) => {
   const r = await sh('node ' + q(HELPER) + ' ' + cmd + ' ' + (args || ''));
   let json = null;
   try { json = JSON.parse(r.out); } catch (_) { json = null; }
-  return { ref: r.ref, code: r.code, json, err: r.err.slice(0, 300) };
+  return { ref: r.ref, code: r.code, json, raw: r.out, err: r.err.slice(0, 300) };
 };
 const call = async (tool, args) => {
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -219,6 +219,7 @@ const candidates = [];
 const schemas = {};
 const noteOwners = {};
 const parentIds = new Set();
+let features = null; // the server features, from the first schema answer (SKILL.md Step 0 F2)
 const ruleRows = await call('config', { ops: [{ op: 'rules', rootId: ROOT_ID }] });
 if (!ruleRows.ok) return await stop(ruleRows);
 const rulesServed = ruleRows.data.results[0].rules.map((r) => ({ key: r.key, rulesVersion: r.rulesVersion }));
@@ -229,6 +230,7 @@ for (const [id, source] of seen) {
   candidates.push({ id: it.id, short: it.id.slice(0, 8), title: it.title, priority: it.priority, type: it.type, role: it.role, parentId: it.parentId, traits: it.traits || [], hasChildren: false, source });
   if (it.parentId) parentIds.add(it.parentId);
   const s = await call('items_read', { select: 'schema', itemId: it.id });
+  if (s.ok && features === null) features = s.data.features || [];
   schemas[it.id] = s.ok
     ? { status: 'ok', type: s.data.type, configFingerprint: s.data.configFingerprint, configSource: s.data.configSource, notes: s.data.notes, seats: s.data.seats, dispatch: s.data.dispatch, dispatchBySeat: s.data.dispatchBySeat, resources: s.data.resources }
     : { status: s.code === 'not_found' ? 'not-found' : 'unavailable' };
@@ -246,11 +248,14 @@ for (const pid of parentIds) {
 const git = async (a) => (await sh('git ' + a)).out.trim();
 const repoRoot = (await git('rev-parse --show-toplevel')).replace(/\\/g, '/');
 await sh('git fetch origin');
+let profileText = null; // the run profile, or {} when the file is absent; a file that does not parse stops the script
+try { profileText = await file(repoRoot + '/.taskorchestrator/run-profile.json'); } catch (_) { profileText = null; }
+const profile = profileText === null ? {} : JSON.parse(profileText);
 const snapshot = {
   contract: 'run-wave/snapshot-v1', rootId: ROOT_ID, ancestorId: ANCESTOR_ID, capturedAt: new Date().toISOString(),
-  features: [], rulesServed, candidates, noteOwners, parents, schemas, probe: probe.json,
+  features: features || [], rulesServed, candidates, noteOwners, parents, schemas, probe: probe.json,
   blocked: blocked.items.map((b) => ({ itemId: b.id, role: b.role, blockType: b.blockType, blockedBy: (b.blockers || []).map((x) => ({ itemId: x.id, role: x.role, effectiveUnblockRole: x.threshold, satisfied: x.satisfied })) })),
-  profile: {}, git: { repoRoot, originMain: await git('rev-parse origin/main'), worktrees: {} },
+  profile, git: { repoRoot, originMain: await git('rev-parse origin/main'), worktrees: {} },
 };
 if (EXTRA.scopes) snapshot.scopes = EXTRA.scopes;
 if (EXTRA.carryIns) snapshot.carryIns = EXTRA.carryIns;
@@ -261,7 +266,8 @@ await writeJson(SCRATCH + '/run-wave/snapshot.json', snapshot);
 const plan = await helper('plan', '--in ' + q(SCRATCH + '/run-wave/snapshot.json') + ' --scratchpad ' + q(SCRATCH) + ' --method ' + METHOD + ' --out ' + q(SCRATCH + '/run-wave/plan-draft.json'));
 if (plan.code !== 0) return { failed: true, step: 'plan', code: plan.code, err: plan.err };
 const exp = await helper('explain', '--in ' + q(SCRATCH + '/run-wave/plan-draft.json'));
-return { explain: exp.json, warnings: exp.json && exp.json.warnings };
+if (exp.code !== 0 || !exp.raw) return { failed: true, step: 'explain', code: exp.code, err: exp.err };
+return { explain: exp.raw }; // explain prints a text table, not JSON: read raw
 ```
 
 After Checkpoint 1, copy `plan-draft.json` and the snapshot into `<scratchpad>/run-wave/<runId>/` as Step 3 says (the `runId` is in the plan), then use R2.
@@ -354,6 +360,7 @@ state.phase = 'launched';
 state.taskId = launched.taskId;
 state.wfRunId = launched.wfRunId;
 state.wfScriptPath = launched.wfScriptPath;
+state.taskOutputFile = launched.outputFile || launched.output_file || null; // none when the launch result names no output file; R7 then takes the path from the notification
 await writeJson(RUN_DIR + '/state.json', state);
 return { taskId: launched.taskId };
 ```
@@ -373,33 +380,37 @@ const inserted = []; // entries with no schema seat (e.g. a declarations extract
 const assignable = [];
 for (const e of batch) {
   const a = await helper('run-ops', '--plan ' + q(RUN_DIR + '/plan.json') + ' --phase assign --item ' + e.item + ' --seat ' + e.seat);
+  if (a.ref) return a.ref;
   if (a.code !== 0) { inserted.push(e); continue; }
   assignable.push({ e, op: a.json.ops[0], tokenFile: a.json.tokenFiles[0] });
 }
 let ready = [];
-const all = await call('runs_write', { ops: assignable.map((x) => x.op), atomic: true, seatToken: CT });
-if (all.ok) {
-  for (let i = 0; i < assignable.length; i += 1) {
-    await writeToken(assignable[i].tokenFile, all.data.results[i].seatToken);
-    ready.push(assignable[i].e);
+if (assignable.length) { // no schema-seat entry: nothing to assign, and an empty ops list would be refused
+  const all = await call('runs_write', { ops: assignable.map((x) => x.op), atomic: true, seatToken: CT });
+  if (all.ok) {
+    for (let i = 0; i < assignable.length; i += 1) {
+      await writeToken(assignable[i].tokenFile, all.data.results[i].seatToken);
+      ready.push(assignable[i].e);
+    }
+  } else if (all.code === 'run_at_capacity') {
+    // hold back what does not fit: assign one by one, in order
+    for (const x of assignable) {
+      const one = await call('runs_write', { ops: [x.op], seatToken: CT });
+      if (one.ok) { await writeToken(x.tokenFile, one.data.results[0].seatToken); ready.push(x.e); }
+      else if (one.code !== 'run_at_capacity') return await stop(one);
+    }
+  } else {
+    return await stop(all);
   }
-} else if (all.code === 'run_at_capacity') {
-  // hold back what does not fit: assign one by one, in order
-  for (const x of assignable) {
-    const one = await call('runs_write', { ops: [x.op], seatToken: CT });
-    if (one.ok) { await writeToken(x.tokenFile, one.data.results[0].seatToken); ready.push(x.e); }
-    else if (one.code !== 'run_at_capacity') return await stop(one);
-  }
-} else {
-  return await stop(all);
 }
 ready = ready.concat(inserted);
 const dispatched = [];
 for (const e of ready) {
+  // prompt prints raw text, not JSON: take it from raw
   const p = await helper('prompt', '--plan ' + q(RUN_DIR + '/plan.json') + ' --state ' + q(RUN_DIR + '/state.json') + ' --item ' + e.item + ' --seat ' + e.seat);
-  if (p.code !== 0) { dispatched.push({ item: e.item, seat: e.seat, failed: 'prompt' }); continue; }
+  if (p.code !== 0 || !p.raw) { dispatched.push({ item: e.item, seat: e.seat, failed: 'prompt' }); continue; }
   const r = await Agent({
-    prompt: p.json.prompt,
+    prompt: p.raw,
     model: e.model,
     effort: e.effort,
     description: e.seat + ':' + e.item + ' [' + e.model + '/' + e.effort + ']',
@@ -410,7 +421,7 @@ for (const e of ready) {
 return { dispatched, waiting: nx.json.waiting.length, settled: nx.json.settled.map((s) => ({ item: s.item, status: s.status })), complete: nx.json.complete };
 ```
 
-Never pass `isolation`: each item's worktree comes from the plan. If `prompt` prints the text rather than a `prompt` member, read the member the helper actually names. A `run_paused` answer stops the loop and sends a `paused` report. After `complete: true`, go to R7.
+Never pass `isolation`: each item's worktree comes from the plan. A `run_paused` answer stops the loop and sends a `paused` report. After `complete: true`, go to R7.
 
 ## R6: Method B collect
 
@@ -442,23 +453,28 @@ The loop is serial on purpose: do not turn it into `Promise.all`. A second faile
 
 ## R7: post-run Steps 0 to 4
 
-Loads the result, sweeps the seats, verifies, audits notes, builds provenance and sends the batched advance. It returns findings only. For Method A, the notification's result goes to `result.json` first: when the notification is cut short, the script reads the task output file (pretty-printed JSON) and saves its `result` member; otherwise paste the result object as a literal like R6.
+Loads the result, sweeps the seats, verifies, audits notes, builds provenance and sends the batched advance. It returns findings only. For Method A, the notification's result goes to `result.json` first: paste the result object as a literal like R6; when the notification is cut short, set `OUTPUT_FILE` to the task output file it names (or rely on the `state.taskOutputFile` R4 recorded) and the script saves that file's `result` member. For Method B the script saves the state document itself, and the helper converts it when it reads `result.json`.
 
 ```js
-const RESULT_LITERAL = null; // Method A: the pasted result object, or null to read the task output file
+const RESULT_LITERAL = null; // Method A: the pasted result object
+const OUTPUT_FILE = null; // Method A, notification cut short: the task output file path (pretty-printed JSON)
 const state = await readJson(RUN_DIR + '/state.json');
 const plan = await readJson(RUN_DIR + '/plan.json');
 const CT = await readToken(RUN_DIR + '/tokens/coordinator.token');
 const serverRunId = plan.args.serverRunId;
 let result = RESULT_LITERAL;
-if (!result && state.taskOutputFile) result = JSON.parse(await file(state.taskOutputFile)).result;
-if (!result) result = { started: true, items: state.items || [], stages: state.stages || [] }; // Method B: accumulated state
+const outFile = OUTPUT_FILE || state.taskOutputFile;
+if (!result && outFile) result = JSON.parse(await file(outFile)).result;
+if (!result && ((plan.meta && plan.meta.method === 'B') || state.method === 'B')) result = state; // Method B: the state document (run-wave/state-v1) is the result
+if (!result) return { needs: 'result', why: 'Method A: paste the notification result as RESULT_LITERAL, or set OUTPUT_FILE' };
 await writeJson(RUN_DIR + '/result.json', result);
 
 const seats = await call('runs_read', { select: 'seats', runId: serverRunId });
 if (!seats.ok) return await stop(seats);
 await writeJson(RUN_DIR + '/seats.json', seats.data);
 const ends = await helper('run-ops', '--plan ' + q(RUN_DIR + '/plan.json') + ' --phase end-seats --seats ' + q(RUN_DIR + '/seats.json') + ' --result ' + q(RUN_DIR + '/result.json'));
+if (ends.ref) return ends.ref;
+if (ends.code !== 0 || !ends.json) return { failed: true, step: 'end-seats', code: ends.code, err: ends.err };
 const ended = [];
 for (let i = 0; i < ends.json.ops.length; i += 1) {
   const r = await call('runs_write', { ops: [ends.json.ops[i]], seatToken: await readToken(ends.json.tokenFiles[i]) });

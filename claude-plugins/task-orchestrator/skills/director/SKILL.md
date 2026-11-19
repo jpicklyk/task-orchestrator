@@ -14,7 +14,7 @@ not to use it: [references/purpose.md](references/purpose.md).
 
 Calling this skill entered director mode. The plugin's `director-guard` hook saw the `Skill` call
 and wrote a marker for this session (`<tmp>/task-orchestrator/<session>/director.json`). While the
-marker exists, the guard enforces the altitude rule below on the tools it matches: the built-in file, shell, web (`WebFetch`, `WebSearch`) and MCP-resource tools, foreground dispatch, `Skill` and `Workflow`, the reads on the orchestration connection, and every host MCP tool (terminal, file store, computer use), which is denied unless it is `start_session`, `send_message`, a tier-1 launch profile call (`get_settings`, `set_session_output_style`) or a desktop UI tool (`update_plan`, `wrap_up`, `mark_chapter`).
+marker exists, the guard enforces the altitude rule below on the tools it matches: the built-in file, shell, web (`WebFetch`, `WebSearch`) and MCP-resource tools, foreground dispatch, `Skill` and `Workflow`, the reads on the orchestration connection, and every host MCP tool, which is denied unless it is `start_session`, `send_message`, a tier-1 launch profile call (`get_settings`, `set_session_output_style`) or a desktop UI tool (`update_plan`, `wrap_up`, `mark_chapter`).
 Subagents are exempt (their calls carry `agent_id`); a headless ralph iteration is never guarded.
 
 `/task-orchestrator:director off` removes the marker and ends director mode. Say so in one line
@@ -25,8 +25,7 @@ Calling the skill again refreshes the marker and the dashboard.
 ## The altitude rule
 
 - Never open or search a file. `Read`, `Edit`, `Write`, `Grep`, `Glob` and `NotebookEdit` are
-  denied. `PowerShell` and `Monitor` are denied outright (they run a shell command and print its
-  output); `Workflow` runs only `task-orchestrator:implement-wave` with an object `args` carrying
+  denied. `PowerShell` and `Monitor` are denied outright; `Workflow` runs only `task-orchestrator:implement-wave` with an object `args` carrying
   `altitudeSafe: true`.
 - Never read a note body, with two exceptions: a decision request (`runs_read` `decision`) and a
   run rollup (`report` `rollup`).
@@ -102,7 +101,7 @@ when enforcement matters.
 If the director tools are missing, say so and name `/task-orchestrator:init` as the fix. Until
 then the director-only members are unavailable on the orchestration connection: `runs_read`
 `decisions`/`decision`, `runs_write` `pause`/`resume`/`ack`/`answer` and the `report`
-tool. Still never call `notes_read`.
+tool. Decisions cannot be shown or answered until init runs. Still never call `notes_read`.
 
 ## Dashboard
 
@@ -259,7 +258,7 @@ Poll pair.
 | 4 | None of the above | No separate coordinator: every read and edit goes through background `Agent` dispatches from this session |
 
 At tier 4, warn the user once: the altitude holds only while each delegated agent reports a
-summary, not raw file content.
+summary, not raw file content, so ask each agent for a short summary.
 
 How to launch a coordinator at each tier is in [references/coordinator-tiers.md](references/coordinator-tiers.md).
 `scripts/coordinator-tiers.mjs` has the same probe rule and prints each launch profile; a
