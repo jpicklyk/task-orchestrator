@@ -15,7 +15,7 @@ import kotlinx.serialization.json.put
  * - Select tool properties: `select` (an enum of the visible selects in registration order), the union of
  *   the visible selects' fields (first appearance order), then `describe`, then `seatToken` (orchestration only).
  * - Ops tool properties: `ops` (an array whose items hold `op`, an enum of the visible ops, the union of
- *   the visible ops' fields, and `idempotencyKey`; items require `op`), `atomic`, then `describe`.
+ *   the visible ops' fields, and `idempotencyKey`; items require `op`), `atomic`, then `describe`, then `seatToken` (orchestration only).
  * - There is no top-level `required`, so a `{describe:true}` call is schema-valid. Per-select/op
  *   requiredness is published by `describe` and enforced by the decoder.
  * - A union field not declared by every visible select/op gets ` [select: a, b]` / ` [ops: a, b]`
