@@ -31,8 +31,8 @@ Each step's detail is in the reference it links.
 6. **Red evidence**: observe each test fail where it should, then pass.
    [Red evidence](references/red-evidence.md).
 7. **Coverage account**: every scenario is mapped to a test or marked not covered with a reason;
-   every probe is listed, including those that found nothing and those that do not apply.
-   [Probes](references/probes.md), "Accounting".
+   every probe is listed, including those that found nothing and those that do not apply. The
+   scenario rule is stated here; the probe rule is in [probes](references/probes.md), "Accounting".
 8. **Forbidden patterns**: list each one present, with its justification. An empty list is a claim
    and must be true. [Forbidden patterns](references/forbidden-patterns.md).
 9. **Fixture invariants**: state what each fixture satisfies by construction.

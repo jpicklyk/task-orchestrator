@@ -33,9 +33,12 @@ Use this list to drive the third step. It is a prompt for questions, not a check
   before the act.
 - **Resources.** A handle, lock or temporary file not released on the error path; a cache, queue or
   buffer with no bound; work that grows faster than its input.
+- **Secrets in output.** A credential, token or piece of personal data written to a log, an error
+  message or a response.
 - **Logic, boundaries and unsafe input.** The usual classes (inverted conditions, off-by-one,
-  empty and maximum inputs, untrusted input reaching a query, shell, path or deserializer) apply
-  as always; spend the attention on the classes above, which a reading of the diff alone misses.
+  empty and maximum inputs, untrusted input reaching a query, shell command, file path, template
+  or deserializer) apply as always; spend the attention on the classes above, which a reading of
+  the diff alone misses.
 
 ## Reporting a defect
 

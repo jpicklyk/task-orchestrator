@@ -23,7 +23,8 @@
 - Log each failure once, where it is handled. Logging and rethrowing at every level produces many
   records of one failure and buries the useful one.
 - The level matches the severity: a failure the code recovered from is not an error, and a failure
-  that loses data is not a debug line. Credentials, tokens and personal data are never logged.
+  that loses data is not a debug line. The record carries the identifiers and inputs involved as
+  context fields; credentials, tokens and personal data are never logged.
 
 ## Retries
 
