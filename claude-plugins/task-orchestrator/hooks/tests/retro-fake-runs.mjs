@@ -257,7 +257,7 @@ export function contextOf(res) {
  *   frontier: { [runId]: 'http500' },
  *   mark: 'ok' | 'http500' | 'forbidden' | 'itemfail' | 'badjson' | 'hang',
  *   runGet / seats / itemsGet / itemsList / notes: 'ok' | 'http500' | 'hang',
- *   dup: true         -> list answers every row twice
+ *   dup: true         -> list answers every row twice (both copies count in page.total)
  *   stale: true       -> list and get answer every run with only its static marks (a snapshot older than
  *                        another session's mark), whatever the server holds
  *   unfiltered: true  -> list ignores the `unmarked` filter and returns every run, with the server's
@@ -266,6 +266,9 @@ export function contextOf(res) {
  * list filters honoured: rootId, status, unmarked <key> (closed runs without the key), endedSince (only for a
  * run whose closedAt the fixture set), limit. mark is first-write-wins per (runId, key), static marks
  * included: a replay answers marked:false.
+ * Both lists answer page: { total: matches before limit, truncated: rows returned < total }. The runs list keeps
+ * full runIds (RunView.kt:46-48); the items list answers id and parentId as their first 8 characters
+ * (ItemView.kt:24,109) while items_read get answers full ids; a list filter accepts either form of an id.
  */
 export async function startFakeRuns(init = {}) {
   const runs = (init.runs ?? []).map((r) => ({ rootId: ROOT, members: r.terminal ?? 0, terminal: 0, ...r }));
@@ -313,9 +316,10 @@ export async function startFakeRuns(init = {}) {
   };
   const findRun = (id) => runs.find((x) => typeof id === 'string' && (x.runId === id || x.runId.startsWith(id)));
   const findItem = (id) => items.find((x) => typeof id === 'string' && (x.id === id || x.id.startsWith(id)));
-  const itemView = (i) => {
-    const v = { id: i.id, type: i.type, role: i.role, title: `item ${i.id.slice(-4)}`, version: 1 };
-    if (i.parent) v.parentId = i.parent;
+  const sameItemId = (full, given) => typeof given === 'string' && given.length > 0 && full.startsWith(given);
+  const itemView = (i, short = false) => {
+    const v = { id: short ? i.id.slice(0, 8) : i.id, type: i.type, role: i.role, title: `item ${i.id.slice(-4)}`, version: 1 };
+    if (i.parent) v.parentId = short ? i.parent.slice(0, 8) : i.parent;
     if (i.createdAt) v.createdAt = i.createdAt;
     if (i.roleChangedAt) v.roleChangedAt = i.roleChangedAt;
     return v;
@@ -367,10 +371,11 @@ export async function startFakeRuns(init = {}) {
       } else if (b.unmarked === undefined && b.status === undefined && !behavior.unfiltered && !behavior.stale) {
         rows = rows.filter((r) => !isMarked(r));
       }
-      if (Number.isInteger(b.limit)) rows = rows.slice(0, b.limit);
       let views = rows.map((r) => viewOf(r, withServer));
       if (behavior.dup) views = views.flatMap((v) => [v, v]);
-      return send(res, 200, okEnvelope({ items: views, page: { total: views.length, truncated: false } }));
+      const total = views.length;
+      if (Number.isInteger(b.limit)) views = views.slice(0, b.limit);
+      return send(res, 200, okEnvelope({ items: views, page: { total, truncated: views.length < total } }));
     }
 
     if (tool === 'runs_read' && b.select === 'get') {
@@ -423,13 +428,14 @@ export async function startFakeRuns(init = {}) {
     if (tool === 'items_read' && b.select === 'list') {
       if (faulty(res, behavior.itemsList)) return;
       let rows = typeof b.ancestorId === 'string' ? subtreeOf(b.ancestorId) : items;
-      if (typeof b.parentId === 'string') rows = rows.filter((i) => i.parent === b.parentId);
+      if (typeof b.parentId === 'string') rows = rows.filter((i) => i.parent && sameItemId(i.parent, b.parentId));
       if (typeof b.type === 'string') rows = rows.filter((i) => i.type === b.type);
       if (typeof b.role === 'string') rows = rows.filter((i) => i.role === b.role);
       if (typeof b.createdAfter === 'string') rows = rows.filter((i) => i.createdAt && Date.parse(i.createdAt) >= Date.parse(b.createdAfter));
+      const total = rows.length;
       if (Number.isInteger(b.limit)) rows = rows.slice(0, b.limit);
-      const out = rows.map(itemView);
-      return send(res, 200, okEnvelope({ items: out, page: { total: out.length, truncated: false } }));
+      const out = rows.map((i) => itemView(i, true));
+      return send(res, 200, okEnvelope({ items: out, page: { total, truncated: out.length < total } }));
     }
 
     if (tool === 'notes_read' && b.select === 'get') {
@@ -603,8 +609,8 @@ export function writeRetroState(sbx, sessionId, patch) {
   writeFileSync(join(dir, 'retro.json'), JSON.stringify({ ...base, ...patch }));
 }
 
-/** Item ids for fixtures: stable, valid UUIDs. */
-export const iid = (n) => `10101010-0000-4000-8000-${String(n).padStart(12, '0')}`;
+/** Item ids for fixtures: stable, valid UUIDs whose first 8 characters differ per n (a list answers 8-hex ids). */
+export const iid = (n) => `${String(n).padStart(8, '0')}-1010-4000-8000-${String(n).padStart(12, '0')}`;
 /** The scope item every scope fixture hangs its group on. */
 export const SCOPE = iid(900);
 
@@ -625,6 +631,7 @@ export function scopeFixture({
   runs = 2,
   runStart = 1,
   closedMs = 2 * HOUR,
+  openedMs = 5 * HOUR,
   itemStart = 1,
   impl = [{}, {}, {}],
   labels = {},
@@ -650,7 +657,7 @@ export function scopeFixture({
       members: impl.length,
       terminal: impl.length,
       marks: {},
-      openedAt: ago(5 * HOUR - n * MIN),
+      openedAt: ago(openedMs - n * MIN),
       closedAt: ago(closedMs + n * 1000),
       ...(labels[n] ? { label: labels[n] } : {}),
     });

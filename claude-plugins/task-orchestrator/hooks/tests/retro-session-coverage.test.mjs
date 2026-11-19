@@ -19,6 +19,7 @@ import {
   rid,
   retroConfig,
   withFixture,
+  startFakeRuns,
   runFixture,
   closePayload,
   contextOf,
@@ -968,4 +969,211 @@ test('S17: hooks-config.json SubagentStop "" group runs retro-subagent-stop.mjs 
   assert.equal(retro.type, 'command');
   assert.equal(retro.timeout, 5);
   assert.ok(retro.command.includes('${CLAUDE_PLUGIN_ROOT}/hooks/retro-subagent-stop.mjs'), retro.command);
+});
+// ======================================================================================================
+// Fix cycle A2 (review B1, B2, O2, O3, O4, O10): written before the fixes, from the amendments note and the
+// frozen task-scope. The harness (retro-fake-runs.mjs) now answers like the server: an items list carries
+// 8-hex id and parentId, both lists carry page.total (matches before the limit) and page.truncated.
+// ======================================================================================================
+
+const opsPost = async (fake, tool, body) => (await fetch(`${fake.url}/api/v1/ops/${tool}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+
+test('O1 harness: the items list answers 8-hex id and parentId (get answers full ids); a filter takes either form', async () => {
+  const sf = scopeFixture({ runs: 1 });
+  const fake = await startFakeRuns({ runs: sf.runs, items: sf.items, notes: sf.notes });
+  try {
+    const list = (await opsPost(fake, 'items_read', { select: 'list', ancestorId: SCOPE })).data;
+    assert.equal(list.items.length, 4, JSON.stringify(list));
+    for (const row of list.items) assert.match(row.id, /^[0-9a-f]{8}$/, JSON.stringify(row));
+    for (const row of list.items.filter((r) => r.id !== SCOPE.slice(0, 8))) assert.equal(row.parentId, SCOPE.slice(0, 8), JSON.stringify(row));
+    assert.equal(list.items.some((r) => r.id === SCOPE.slice(0, 8)), true, 'ancestorId includes the item itself');
+    const kids = (await opsPost(fake, 'items_read', { select: 'list', parentId: SCOPE.slice(0, 8) })).data;
+    assert.equal(kids.items.length, 3, JSON.stringify(kids));
+    const got = (await opsPost(fake, 'items_read', { select: 'get', itemId: sf.implIds[0] })).data;
+    assert.equal(got.id, sf.implIds[0]);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('O1 harness: both lists answer page.total before the limit and truncated = returned < total; a duplicated row counts twice', async () => {
+  const sf = scopeFixture({ runs: 3 });
+  const fake = await startFakeRuns({ runs: sf.runs, items: sf.items, notes: sf.notes, behavior: {} });
+  try {
+    const all = (await opsPost(fake, 'items_read', { select: 'list', ancestorId: SCOPE })).data;
+    assert.deepEqual(all.page, { total: 4, truncated: false });
+    const two = (await opsPost(fake, 'items_read', { select: 'list', ancestorId: SCOPE, limit: 2 })).data;
+    assert.equal(two.items.length, 2);
+    assert.deepEqual(two.page, { total: 4, truncated: true });
+    const exact = (await opsPost(fake, 'items_read', { select: 'list', ancestorId: SCOPE, limit: 4 })).data;
+    assert.deepEqual(exact.page, { total: 4, truncated: false });
+    const runs = (await opsPost(fake, 'runs_read', { select: 'list', limit: 2 })).data;
+    assert.equal(runs.items.length, 2);
+    assert.deepEqual(runs.page, { total: 3, truncated: true });
+    for (const r of runs.items) assert.equal(r.runId.length, 36, 'runs keep full ids');
+    fake.behavior.dup = true;
+    const dup = (await opsPost(fake, 'runs_read', { select: 'list', limit: 4 })).data;
+    assert.equal(dup.items.length, 4);
+    assert.deepEqual(dup.page, { total: 6, truncated: true });
+  } finally {
+    await fake.close();
+  }
+});
+
+// ---- B1: a truncated observation list is still a signal ------------------------------------------------
+
+/** An unscoped clean 2-item group read through run seats (full item ids), so only the signal reads decide it. */
+function unscopedClean2() {
+  const sf = CLEAN2();
+  for (const r of sf.runs) {
+    delete r.scopeId;
+    r.seats = sf.implIds.map((itemId) => ({ itemId }));
+  }
+  return sf;
+}
+
+test('B1 control: an unscoped clean 2-item group with ONE agent-observation after the first openedAt dispatches', async () => {
+  const sf = unscopedClean2();
+  sf.items.push({ id: iid(720), type: 'agent-observation', role: 'queue', parent: ROOT, createdAt: ago(HOUR) });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+    assertDispatchBlock(await stop(stopPayload(sid('b1c'))), sf.runIds);
+    assert.deepEqual(fake.won('retro-skipped'), []);
+  });
+});
+
+test('B1: an unscoped clean 2-item group with TWO agent-observations after the first openedAt dispatches (the list answers one item, truncated: that is a signal)', async () => {
+  const sf = unscopedClean2();
+  for (const n of [720, 721]) sf.items.push({ id: iid(n), type: 'agent-observation', role: 'queue', parent: ROOT, createdAt: ago(HOUR) });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+    assertDispatchBlock(await stop(stopPayload(sid('b1u'))), sf.runIds);
+    assert.deepEqual(fake.won('retro-skipped'), []);
+    assert.deepEqual(fake.won('retro'), []);
+    assert.deepEqual([...fake.won('retro-claim')].sort(), [...sf.runIds].sort());
+  });
+});
+
+test('B1: a scope group of 2 clean items with TWO agent-observations after the first openedAt dispatches', async () => {
+  const sf = CLEAN2();
+  for (const n of [720, 721]) sf.items.push({ id: iid(n), type: 'agent-observation', role: 'queue', parent: ROOT, createdAt: ago(HOUR) });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+    assertDispatchBlock(await stop(stopPayload(sid('b1'))), sf.runIds);
+    assert.deepEqual(fake.won('retro-skipped'), []);
+    assert.deepEqual(fake.won('retro'), []);
+    assert.deepEqual([...fake.won('retro-claim')].sort(), [...sf.runIds].sort());
+  });
+});
+
+// ---- B2: the scope's subtree is read through 8-hex ids ---------------------------------------------------
+
+test('B2: with the list answering 8-hex ids, 3 clean items still dispatch at minItems 3 and the scope itself is not counted as an item', async () => {
+  const sf = scopeFixture({ runs: 2 });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG({ minItems: 3 })), async ({ stop, fake }) => {
+    assertDispatchBlock(await stop(stopPayload(sid('b2'))), sf.runIds);
+    assert.deepEqual(fake.won('retro-skipped'), []);
+  });
+  const two = CLEAN2();
+  await withFixture(fixtureOpts(two, SCOPE_CFG({ minItems: 3 })), async ({ stop, fake }) => {
+    assertSilentRun(await stop(stopPayload(sid('b2b'))));
+    assertSkipped(fake, two.runIds);
+  });
+});
+
+// ---- O2: a session that holds the claim takes over only when its claim failed -----------------------------
+
+test('O2: this session\'s own retro-retry, 21 min old, not failed: {} and no new mark (the age test is for sessions that hold no claim)', async () => {
+  const sf = scopeFixture({ runs: 2 });
+  for (const r of sf.runs) r.marks = { 'retro-claim': ago(45 * MIN), 'retro-retry': ago(21 * MIN) };
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ sbx, stop, fake }) => {
+    const s = sid('o2a');
+    writeRetroState(sbx, s, { claims: [{ anchor: rid(1), runs: sf.runIds, key: 'retro-retry', at: ago(21 * MIN), failed: false }], lastDispatchAt: ago(70 * MIN) });
+    assertSilentRun(await stop(stopPayload(s)));
+    assertNoMarks(fake);
+    assert.equal(readRetroState(sbx, s).claims[0].failed, false);
+  });
+});
+
+test('O2: this session\'s own retro-claim, 25 min old, not failed: {} and no mark', async () => {
+  const sf = scopeFixture({ runs: 2 });
+  for (const r of sf.runs) r.marks = { 'retro-claim': ago(25 * MIN) };
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ sbx, stop, fake }) => {
+    const s = sid('o2b');
+    writeRetroState(sbx, s, { claims: [{ anchor: rid(1), runs: sf.runIds, key: 'retro-claim', at: ago(25 * MIN), failed: false }], lastDispatchAt: ago(70 * MIN) });
+    assertSilentRun(await stop(stopPayload(s)));
+    assertNoMarks(fake);
+  });
+});
+
+// ---- O3: a live run holds its group; a fix-cycle run without its base run joins no group ----------------
+
+/** Two unscoped runs w and w-a1 (seats on three clean items), so a due group would dispatch. */
+function unscopedPair() {
+  const sf = scopeFixture({ runs: 2, labels: { 0: 'w', 1: 'w-a1' } });
+  for (const r of sf.runs) {
+    delete r.scopeId;
+    r.seats = sf.implIds.map((itemId) => ({ itemId }));
+  }
+  return sf;
+}
+
+test('O3 control: unscoped w and w-a1, both closed and unmarked, dispatch as one group naming both', async () => {
+  const sf = unscopedPair();
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop }) => {
+    assertDispatchBlock(await stop(stopPayload(sid('o3c'))), sf.runIds);
+  });
+});
+
+test('O3: unscoped w closed + w-a1 open: the group has a live run, so it is not due: {} and no marks', async () => {
+  const sf = unscopedPair();
+  sf.runs[1].status = 'open';
+  delete sf.runs[1].closedAt;
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+    assertSilentRun(await stop(stopPayload(sid('o3a'))));
+    assertNoMarks(fake);
+  });
+});
+
+test('O3: w already marked retro + w-a1 closed and unmarked: w-a1 joins no group: {} and no marks', async () => {
+  const sf = unscopedPair();
+  sf.runs[0].marks = { retro: ago(3 * HOUR) };
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+    assertSilentRun(await stop(stopPayload(sid('o3b'))));
+    assertNoMarks(fake);
+  });
+});
+
+// ---- O4: the cap of 5 counts groups that can act, not groups that cannot -----------------------------------
+
+test('O4: 6 newer scope groups that are not due + 1 older due group this session owns: the one pass dispatches the older group', async () => {
+  const notDue = Array.from({ length: 6 }, (_, k) =>
+    scopeFixture({ scopeId: iid(910 + k), scopeRole: 'work', runs: 2, runStart: 10 + 2 * k, itemStart: 100 + 10 * k, openedMs: 2 * HOUR, closedMs: HOUR }),
+  );
+  const due = scopeFixture({ runs: 2, openedMs: 6 * HOUR, closedMs: 3 * HOUR });
+  const sf = mergeFixtures(...notDue, due);
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ sbx, stop, fake }) => {
+    const s = sid('o4');
+    writeRetroState(sbx, s, { closes: [rid(2)], sawClose: true });
+    const reason = assertDispatchBlock(await stop(stopPayload(s)), due.runIds);
+    assert.equal(runFlags(reason), 2, reason);
+    assert.deepEqual([...fake.won('retro-claim')].sort(), [...due.runIds].sort());
+    assert.deepEqual(fake.won('retro-skipped'), []);
+  });
+});
+
+// ---- O10: the SubagentStop claim reads run in parallel ------------------------------------------------------
+
+test('O10: four claims, every runs_read get hangs: exit 0, {}, all four reads sent, no claim failed, in under 3 s', async () => {
+  const sf = scopeFixture({ runs: 4 });
+  const claims = sf.runIds.map((runId) => ({ anchor: runId, runs: [runId], key: 'retro-claim', at: new Date().toISOString(), failed: false }));
+  await withFixture(fixtureOpts(sf, SCOPE_CFG(), { runGet: 'hang' }), async ({ sbx, subagentStop, fake }) => {
+    const s = sid('o10');
+    writeRetroState(sbx, s, { claims });
+    const transcript = writeTranscript(sbx, 'o10.jsonl', `/session-retrospective ${sf.runIds.map((i) => `--run ${i}`).join(' ')}`);
+    const started = Date.now();
+    const res = await subagentStop(subagentInput(s, transcript));
+    const took = Date.now() - started;
+    assertSilentRun(res);
+    assert.ok(took < 3000, `took ${took} ms`);
+    assert.equal(fake.calls('runs_read', 'get').length, 4, JSON.stringify(fake.requests.map((q) => q.body)));
+    assert.deepEqual(readRetroState(sbx, s).claims.map((c) => c.failed), [false, false, false, false]);
+  });
 });
