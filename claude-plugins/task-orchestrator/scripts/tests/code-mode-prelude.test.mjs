@@ -96,6 +96,7 @@ test('code-mode.md says the prelude and kit are defined once per REPL context an
   const text = doc().replace(/\s+/g, ' ');
   assert.ok(text.includes('The REPL refuses `eval` and `Function`, so the prelude and the kit are defined once per REPL context as persistent globals'), 'once-per-context sentence missing');
   assert.ok(text.includes('After a REPL context reset (a recipe fails with `<name> is not defined`, for example `readJson`) define them again and run that recipe again'), 'reset sentence missing');
+  assert.ok(text.includes('Defining the kit again puts `RUN_DIR`, `HELPER` and `REPORT_TO` back to their placeholder text, so set all three again before that recipe runs'), 'reset does not say to set the run globals again');
   assert.ok(!text.includes('is the prelude block and the kit block below pasted verbatim'), 'the paste-into-every-script sentence is still there');
 });
 
