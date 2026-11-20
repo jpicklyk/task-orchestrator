@@ -15,6 +15,9 @@
 // provenance also takes the per-run layer flags --coordinator <label> (with --session-dir |
 // --projects-dir), --session-transcript <path>, --session-since <t> and --session-until <t>, which add
 // the 'layer-meters' member to its output.
+//
+// bug-report spawns gh. The env var TASK_ORCHESTRATOR_GH_SHIM, when non-empty, names a script node runs instead
+// (argv = the gh arguments); it exists for the retrospective evals (evals/retrospective/fake-gh.mjs) and one test.
 
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { homedir, tmpdir, userInfo, hostname } from 'node:os';
@@ -647,7 +650,12 @@ async function runBugReportCmd(args) {
       pluginTools: pluginToolNames(),
       deps: {
         gh: (ghArgs) => {
-          const r = spawnSync('gh', ghArgs, { encoding: 'utf8', timeout: 30000 });
+          // TASK_ORCHESTRATOR_GH_SHIM (test seam, same power as PATH): a script node runs in place of gh, because a
+          // Windows spawn cannot start a scripted gh. Unset or empty: the real gh.
+          const shim = process.env.TASK_ORCHESTRATOR_GH_SHIM;
+          const r = shim
+            ? spawnSync(process.execPath, [shim, ...ghArgs], { encoding: 'utf8', timeout: 30000 })
+            : spawnSync('gh', ghArgs, { encoding: 'utf8', timeout: 30000 });
           return { status: typeof r.status === 'number' ? r.status : 1, stdout: r.stdout || '' };
         },
         now: () => Date.now(),

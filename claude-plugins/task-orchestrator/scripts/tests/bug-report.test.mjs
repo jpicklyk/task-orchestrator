@@ -1395,7 +1395,7 @@ test('S22 a writeTemp that throws for the only defect still returns a document, 
 // SAFETY: see the file header. PATH is an empty directory; gh is never reachable.
 const SCRUBBED_ENV = [
   'AGENT_CONFIG_DIR', 'TASK_ORCHESTRATOR_API_URL', 'TASK_ORCHESTRATOR_API_TOKEN', 'TASK_ORCHESTRATOR_MODE',
-  'TASK_ORCHESTRATOR_HOME', 'TASK_ORCHESTRATOR_CEILING', 'RETRO_HOOK_DEBUG',
+  'TASK_ORCHESTRATOR_HOME', 'TASK_ORCHESTRATOR_CEILING', 'RETRO_HOOK_DEBUG', 'TASK_ORCHESTRATOR_GH_SHIM', 'FAKE_GH_DIR',
 ]
 const RUN_PLANNER = join(PLUGIN, 'scripts', 'run-planner.mjs')
 
@@ -1418,7 +1418,7 @@ async function startCounter() {
 
 // project / user: config text or null (absent). args: the CLI arguments after `bug-report`, `<IN>` replaced
 // by the input file; defects: the input file's defects.
-async function cli({ project = null, user = null, args = ['--in', '<IN>'], defects = [d()] }) {
+async function cli({ project = null, user = null, args = ['--in', '<IN>'], defects = [d()], extraEnv = null }) {
   const sbx = makeSandbox({ config: project, scope: 'project' })
   const counter = await startCounter()
   try {
@@ -1440,6 +1440,7 @@ async function cli({ project = null, user = null, args = ['--in', '<IN>'], defec
       AGENT_CONFIG_DIR: sbx.cfg,
       TASK_ORCHESTRATOR_API_URL: counter.url,
     })
+    if (extraEnv) Object.assign(env, extraEnv(sbx))
     assert.equal(env.PATH, emptyPath, 'SAFETY: PATH is the empty directory')
     assert.equal(Object.keys(env).filter((k) => k.toLowerCase() === 'path').length, 1, 'SAFETY: a single PATH variable')
     if (user !== null) {
@@ -1465,7 +1466,11 @@ async function cli({ project = null, user = null, args = ['--in', '<IN>'], defec
         resolve({ status, stdout, stderr, json })
       })
     })
-    return { ...res, requests: counter.requests.length }
+    let ghCalls = []
+    if (env.FAKE_GH_DIR) {
+      try { ghCalls = readFileSync(join(env.FAKE_GH_DIR, 'calls.jsonl'), 'utf8').split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l)) } catch { ghCalls = [] }
+    }
+    return { ...res, requests: counter.requests.length, ghCalls }
   } finally {
     await counter.close()
     sbx.cleanup()
@@ -1512,4 +1517,25 @@ test('S23 a missing --in is a bad argument: exit 2', async () => {
   const r = await cli({ user: cfg({ bug: 'true' }), args: [] })
   assert.equal(r.status, 2, r.stderr)
   assert.equal(r.requests, 0)
+})
+
+// -- S24 --------------------------------------------------------------------------------------------
+// Oracle: task-scope D7 and AC3: with TASK_ORCHESTRATOR_GH_SHIM naming evals/retrospective/fake-gh.mjs and PATH the
+// empty directory, the CLI files exactly one issue through the shim, and the create argv carries no --label.
+// SAFETY: the shim never touches the network; PATH is still the empty directory (S23 asserts no gh in it).
+test('S24 the gh shim seam: the CLI files one issue through fake-gh with no --label', async () => {
+  const shim = join(PLUGIN, 'evals', 'retrospective', 'fake-gh.mjs')
+  let ghDir = null
+  const r = await cli({
+    user: cfg({ bug: 'true' }),
+    extraEnv: (sbx) => { ghDir = join(sbx.base, 'ghlog'); return { TASK_ORCHESTRATOR_GH_SHIM: shim, FAKE_GH_DIR: ghDir } },
+  })
+  assert.equal(r.status, 0, r.stderr)
+  assert.equal(r.json.gate, 'ran')
+  assert.equal(r.json.results.length, 1)
+  assert.equal(r.json.results[0].action, 'filed')
+  assert.equal(r.json.results[0].url, 'https://github.com/jpicklyk/task-orchestrator/issues/990001')
+  const creates = r.ghCalls.filter((c) => c.argv[0] === 'issue' && c.argv[1] === 'create')
+  assert.equal(creates.length, 1)
+  assert.ok(!creates[0].argv.includes('--label'), 'no --label on create')
 })

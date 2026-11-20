@@ -13,7 +13,7 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -56,7 +56,7 @@ function structured(over = {}) {
 
 const item = (id, over = {}) => ({ id, type: 'feature-task', runId: 'r-1', delegationMetadata: structured(), sessionTracking: null, ...over })
 
-const isGap = (v) => v === null || v === undefined || v === 'unknown'
+const isGap = (v) => v === null || v === 'unknown'
 
 // six-field, five-field and three-field extra-seats rows (provenance grammar of parseExtraSeats)
 const ROW6 = 'reviewer-a1:sonnet:100:medium:review:1/2/3/4'
@@ -736,6 +736,90 @@ test('S10: --self-only without a session dir gives self measured:false with a re
     assert.equal(doc.self.measured, false)
     assert.equal(typeof doc.self.reason, 'string')
     assert.ok(doc.self.reason.length > 0)
+  } finally {
+    await stopFake(fake)
+  }
+})
+
+// -- W6 carry-in O8: the three CLI paths the earlier scenarios left unpinned -------------------------------
+// Oracle: the retro-metrics header comment in run-planner (members of --run = its ended seats plus its
+// frontier waiting and inFlight; since = the createdAt of the newest prior retrospective whose title holds
+// the root id; self = label retrospective:<first 8 of the run>, its tokens and the first-to-last usage span).
+
+const NL = String.fromCharCode(10)
+
+test('O8: --run gathers the ended seats plus the frontier waiting and inFlight, deduped on the first 8 hex', async () => {
+  // seats: A. frontier waiting: B. inFlight: A again (as a short 8-hex id) and C. Members: A, B, C (3 distinct).
+  const fake = await startFake(baseHandler({
+    runs_read: (body) => {
+      if (body.select === 'seats') return ok({ seats: [{ itemId: ID_A }] })
+      if (body.select === 'frontier') return ok({ waiting: [{ itemId: ID_B }], inFlight: [{ itemId: ID_A.slice(0, 8) }, { itemId: ID_C }] })
+      return null
+    },
+  }))
+  try {
+    const r = await runCli(['--root', ROOT, '--run', 'r-1', '--since', SINCE_RECENT()], { env: { TASK_ORCHESTRATOR_API_URL: fake.url } })
+    assert.equal(r.status, 0, r.stderr)
+    const seatsCall = fake.calls.find((c) => c.tool === 'runs_read' && c.body.select === 'seats')
+    assert.equal(seatsCall.body.ended, true, 'seats read with ended:true')
+    assert.ok(fake.calls.some((c) => c.tool === 'runs_read' && c.body.select === 'frontier'))
+    const doc = json(r)
+    assert.deepEqual(doc.delegations.map((d) => d.item).sort(), [ID_A, ID_B, ID_C].sort())
+    const readOf = (id) => fake.calls.filter((c) => c.tool === 'notes_read' && c.body.key === 'delegation-metadata' && c.body.itemId.slice(0, 8) === id.slice(0, 8))
+    assert.equal(readOf(ID_A).length, 1, 'A read once although seen twice')
+  } finally {
+    await stopFake(fake)
+  }
+})
+
+test('O8: without --since the window starts at the createdAt of the newest prior retrospective whose title holds the root id', async () => {
+  const wanted = new Date(Date.now() - 3 * 86400000).toISOString()
+  const older = new Date(Date.now() - 9 * 86400000).toISOString()
+  const other = new Date(Date.now() - 1 * 86400000).toISOString()
+  const fake = await startFake(baseHandler({
+    items_read: (body) => {
+      if (body.select === 'list') {
+        return ok({ items: [
+          { id: 'x1', title: 'Retrospective of another project', createdAt: other },
+          { id: 'x2', title: 'Retrospective ' + ROOT, createdAt: wanted },
+          { id: 'x3', title: 'Retrospective ' + ROOT, createdAt: older },
+        ], page: { total: 3, truncated: false } })
+      }
+      return null
+    },
+  }))
+  try {
+    const r = await runCli(['--root', ROOT, '--item', ID_A], { env: { TASK_ORCHESTRATOR_API_URL: fake.url } })
+    assert.equal(r.status, 0, r.stderr)
+    const list = fake.calls.find((c) => c.tool === 'items_read' && c.body.select === 'list')
+    assert.deepEqual(list.body.tags, ['session-retrospective'])
+    const reports = fake.calls.filter((c) => c.tool === 'report')
+    assert.ok(reports.length >= 3)
+    for (const c of reports) assert.equal(c.body.since, wanted)
+    assert.equal(json(r).noteVolume.window.since, wanted)
+  } finally {
+    await stopFake(fake)
+  }
+})
+
+test('O8: --session-dir with --run gives self for label retrospective:<first 8 of the run>: its tokens and first-to-last usage span', async () => {
+  // two usage lines (ids m1, m2): input 10+1, cacheWrite 20+2, cacheRead 30+3, output 40+4.
+  // tokens = input + cacheWrite + output = 11 + 22 + 44 = 77; cacheRead 33; span 10:00 to 11:00 = 3600000 ms.
+  const root = mkdtempSync(join(TMP, 'self-'))
+  const sdir = join(root, 's')
+  mkdirSync(join(sdir, 'subagents'), { recursive: true })
+  const mk = (id, u, ts) => JSON.stringify({ type: 'assistant', timestamp: ts, message: { role: 'assistant', id, model: 'claude-sonnet-5-5', usage: { input_tokens: u[0], cache_creation_input_tokens: u[1], cache_read_input_tokens: u[2], output_tokens: u[3] } } })
+  writeFileSync(join(sdir, 'subagents', 'agent-1.jsonl'), [mk('m1', [10, 20, 30, 40], '2026-11-14T10:00:00.000Z'), mk('m2', [1, 2, 3, 4], '2026-11-14T11:00:00.000Z'), ''].join(NL))
+  writeFileSync(join(sdir, 'subagents', 'agent-1.meta.json'), JSON.stringify({ description: 'retrospective:abcdef12', model: 'sonnet' }))
+  const fake = await startFake(baseHandler())
+  try {
+    const r = await runCli(['--root', ROOT, '--run', 'abcdef123456', '--session-dir', sdir, '--self-only'], { env: { TASK_ORCHESTRATOR_API_URL: fake.url } })
+    assert.equal(r.status, 0, r.stderr)
+    const self = json(r).self
+    assert.equal(self.label, 'retrospective:abcdef12')
+    assert.equal(self.tokens, 77)
+    assert.equal(self.cacheRead, 33)
+    assert.equal(self.wallMs, 3600000)
   } finally {
     await stopFake(fake)
   }

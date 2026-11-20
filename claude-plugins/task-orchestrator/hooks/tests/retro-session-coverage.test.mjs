@@ -1159,6 +1159,30 @@ test('O4: 6 newer scope groups that are not due + 1 older due group this session
   });
 });
 
+// ---- N1: in nudge mode a group this session already nudged takes no slot of the 5 --------------------------
+// Oracle: W1 task-scope step 2/3 comment "outside dispatch mode a group this session already nudged stays
+// unmarked and can act no more, so it takes no slot either": 5 newer due groups all nudged before, plus 1
+// older owned due group: the pass nudges the older group and names none of the five.
+
+test('N1: nudge mode, 5 newer owned due groups all already nudged + 1 older owned due group: the pass nudges only the older group', async () => {
+  const newer = Array.from({ length: 5 }, (_, k) =>
+    scopeFixture({ scopeId: iid(910 + k), runs: 2, runStart: 10 + 2 * k, itemStart: 100 + 10 * k, openedMs: 2 * HOUR, closedMs: HOUR }),
+  );
+  const older = scopeFixture({ runs: 2, openedMs: 6 * HOUR, closedMs: 3 * HOUR });
+  const sf = mergeFixtures(...newer, older);
+  const newerIds = newer.flatMap((f) => f.runIds);
+  await withFixture(fixtureOpts(sf, SCOPE_CFG({ mode: 'nudge' })), async ({ sbx, stop }) => {
+    const s = sid('n1');
+    writeRetroState(sbx, s, { closes: sf.runIds, sawClose: true, nudged: newerIds });
+    const res = await stop(stopPayload(s));
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(res.json?.decision, 'block', res.stdout);
+    const reason = res.json.reason;
+    for (const id of older.runIds) assert.ok(reason.includes(`--run ${id}`), `${id} missing from: ${reason}`);
+    for (const id of newerIds) assert.ok(!reason.includes(id), `${id} named in: ${reason}`);
+  });
+});
+
 // ---- O10: the SubagentStop claim reads run in parallel ------------------------------------------------------
 
 test('O10: four claims, every runs_read get hangs: exit 0, {}, all four reads sent, no claim failed, in under 3 s', async () => {

@@ -283,9 +283,23 @@ test('W2-AC9: the defect form is taught at every Friction-form site', () => {
     ['skills', 'manage-schemas', 'references', 'edit-workflow.md'],
     ['skills', 'run-wave', 'references', 'post-run.md'],
   ]
+  const friction = 'Friction: <type: description>'
+  const occurrences = (text, needle) => text.split(needle).length - 1
   for (const s of sites) {
     const text = readFileSync(join(PLUGIN, ...s), 'utf8')
     assert.ok(text.includes(form), s.join('/'))
+    // every site of the Friction form teaches the defect form at least as often as the Friction form occurs
+    assert.ok(occurrences(text, form) >= occurrences(text, friction), s.join('/') + ': defect form fewer than Friction-form sites')
+  }
+  // no skill .md outside the listed sites holds the Friction form
+  const listed = new Set(sites.map((s) => resolve(PLUGIN, ...s)))
+  const walk = (dir) => readdirSync(dir).flatMap((n) => {
+    const p = join(dir, n)
+    return statSync(p).isDirectory() ? walk(p) : p.endsWith('.md') ? [p] : []
+  })
+  for (const f of walk(SKILLS)) {
+    if (listed.has(resolve(f))) continue
+    assert.equal(readFileSync(f, 'utf8').includes(friction), false, f + ' holds the Friction form but is not a listed site')
   }
 })
 
