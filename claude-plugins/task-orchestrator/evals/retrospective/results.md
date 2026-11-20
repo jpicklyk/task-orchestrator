@@ -13,6 +13,8 @@ and a failure is recorded as it happened, never retried. How to run: [README.md]
 | 2-L2b | 2026-11-20 | b38d3c50 | n/a | not run: the second feature could not be seeded (harness defect, fixed after: the plugin's config-sync hook replaced the seeded schemas with the working directory's config) and the stage needs the filed issue 2-L2a did not produce |
 | 2-L2a | 2026-11-20 | db19b02b | main:claude-opus-5-5,main:claude-sonnet-5-5,fork:claude-opus-5-5,fork:claude-sonnet-5-5 | fail: D2, D3 (rerun after the Step 5e wording fix) |
 | 2-L2b | 2026-11-20 | db19b02b | main:claude-opus-5-5,main:claude-sonnet-5-5,fork:claude-opus-5-5,fork:claude-sonnet-5-5 | fail: D5 (rerun after the Step 5e wording fix) |
+| 2-L2a | 2026-11-20 | 50485ea2 | main:claude-opus-5-5,fork:claude-opus-5-5,fork:claude-sonnet-5-5 | fail: D2, D3 (rerun after bug-report gained --root/--run) |
+| 2-L2b | 2026-11-20 | 50485ea2 | main:claude-opus-5-5,fork:claude-opus-5-5,fork:claude-sonnet-5-5 | fail: D5 (rerun after bug-report gained --root/--run) |
 | 3-L3 | 2026-11-20 | b38d3c50 | main:claude-opus-5-5,fork:claude-opus-5-5,fork:claude-sonnet-5-5 | pass |
 | 4a | 2026-11-20 | b38d3c50 | fork:claude-opus-5-5,fork:claude-sonnet-5-5 | pass |
 | 4b | 2026-11-20 | b38d3c50 | main:claude-opus-5-5,fork:claude-opus-5-5,fork:claude-sonnet-5-5 | pass |
@@ -29,3 +31,4 @@ and a failure is recorded as it happened, never retried. How to run: [README.md]
   example a scope whose last run closed over 7 days ago) needs a clock the server does not let the eval move.
 - 1-clean through 4-stale used `task-orchestrator:current` (`--image`); the default tag `task-orchestrator:dev` was a June
   image that refuses `API_AUTH_MODE=none`.
+- **2-L2a, 2-L2b at 50485ea2 (`--root/--run`).** `bug-report` no longer needs an input file, but the forked session still never ran it: its closing text says the defect was logged as an observation and "not filed on GitHub because I didn't check whether bug reports are allowed" (0 issue create, 0 comment calls; the transcripts hold `retro-metrics` and `retro-ack` Bash calls and no `bug-report` call). The D2 diagnostic earlier read `ran` from any transcript text that mentioned the command (the skill text the fork read); it now matches a Bash call only, so the `ran`/`never ran` wording of the earlier rows is not reliable. The failure is the fork not weighing Step 5e's filing, not a missing input.
