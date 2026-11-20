@@ -195,18 +195,18 @@ Narration uses the `↳` prefix for background operations — one line each, ski
 
 ## Retrospective
 
-A retrospective is owed per closed run that has no `retro` mark, and the plugin's retrospective hooks — not the orchestrator's own judgment — are the trigger. `runs_write` `close` fires `retro-trigger`; `retro-backstop` runs the same check at `Stop` through `runs_read` with `unmarked: "retro"`, so a run this session opened that closed elsewhere (a subagent, a tool the trigger never saw) still gets one; a run another session opened and closed is left to that session. The orchestrator follows the hook according to `retrospective.mode` under `extensions.claude-code` in `.taskorchestrator/config.yaml`:
+A retrospective is owed per completed scope (the item a run is scoped to; boundary `scope`, the default) or per closed run that has no `retro` mark (boundary `run`), and the plugin's retrospective hooks — not the orchestrator's own judgment — are the trigger. It is owed to the session that opened or closed one of its runs; a run another session opened and closed is left to that session. `runs_write` `close` fires `retro-trigger`; `retro-backstop` runs the same check at `Stop`, so a run this session opened that closed elsewhere (a subagent, a tool the trigger never saw) still gets one, and in `dispatch` mode a scope completed after its owning session ended is picked up by another session an hour later. At the scope boundary a low-signal scope (a small, clean one) is skipped by the hook itself and the orchestrator hears nothing; a failed retrospective is retried once and then reported with one nudge. The state machine is the "Retrospective firing" section of the plugin's hooks README. The orchestrator follows the hook according to `retrospective.mode` under `extensions.claude-code` in `.taskorchestrator/config.yaml`:
 
 | Mode | What the orchestrator does |
 |------|----------------------------|
-| `nudge` (default) | Surfaces a suggestion to run `/session-retrospective --run <runId>`; the user opts in |
-| `dispatch` | Launches the background retrospective agent the hook specifies, at the next run boundary — one per run, after the hook wins the `retro` mark (the first mark wins, so two sessions never both dispatch). A run with fewer terminal members than `dispatchThreshold` (default 3) still arrives as a nudge |
+| `nudge` (default) | Surfaces one suggestion naming every run of the scope in a single `/session-retrospective --run <runId> --run <runId> --session-dir "<folder>"` invocation; the user opts in |
+| `dispatch` | Launches the background retrospective agent the hook specifies, at the next run boundary — one per scope, after the hook wins the claim (the first mark wins, so two sessions never both dispatch). At boundary `run`, a run with fewer terminal members than `minItems` (default 3) still arrives as a nudge |
 | `off` | Nothing |
 
-An item reaching terminal by itself does not trigger anything: the unit is the run. In `nudge` mode the suggestion looks like:
+An item reaching terminal by itself does not trigger anything: the unit is the scope (or, at boundary `run`, the run). In `nudge` mode the suggestion looks like:
 
 ```
-Retrospective suggested — a run closed (run(s): <runId>). Consider running `/session-retrospective --run <runId>` to capture learnings before the session ends.
+Retrospective suggested — a run closed (run(s): <runId>, <runId>). Consider running `/session-retrospective --run <runId> --run <runId> --session-dir "<folder>"` to capture learnings before the session ends.
 ```
 
 See [config-format.md → Retrospective](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#retrospective) for the full field reference and [Self-Improving Workflow](self-improving-workflow.md) for what the retrospective does with it.

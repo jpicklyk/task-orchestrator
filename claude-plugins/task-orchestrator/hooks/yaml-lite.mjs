@@ -132,3 +132,43 @@ export function inlineScalar(inline, key) {
   }
   return null;
 }
+
+function indentOf(line) {
+  return line.length - line.trimStart().length;
+}
+
+function isContent(line) {
+  const t = line.trim();
+  return t !== '' && !t.startsWith('#');
+}
+
+/**
+ * Finds the direct child `key:` of a block (the lines readSection or a previous childBlock returned).
+ * Returns `{ inline, lines }` like readSection: `inline` is the interior of a `{ ... }` form (lines
+ * is then empty), `lines` the nested block lines otherwise; null when the key is absent. The child
+ * level is the minimum indent of the block's content lines; deeper keys never match.
+ */
+export function childBlock(lines, key) {
+  let firstLevel = Infinity;
+  for (const line of lines) {
+    if (isContent(line)) firstLevel = Math.min(firstLevel, indentOf(line));
+  }
+  if (firstLevel === Infinity) return null;
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp('^' + escaped + '\\s*:\\s*(?:\\{(.*)\\}.*|(?:#.*)?)$');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].replace(/\r$/, '');
+    if (!isContent(line) || indentOf(line) !== firstLevel) continue;
+    const m = line.trim().match(re);
+    if (!m) continue;
+    if (m[1] !== undefined) return { inline: m[1], lines: [] };
+    const out = [];
+    for (let j = i + 1; j < lines.length; j++) {
+      const next = lines[j];
+      if (isContent(next) && indentOf(next) <= firstLevel) break;
+      out.push(next);
+    }
+    return { inline: null, lines: out };
+  }
+  return null;
+}

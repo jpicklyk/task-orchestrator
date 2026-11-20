@@ -18,7 +18,13 @@ import { parseToCallBlocks } from '../lib/contract-checks.mjs';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PLUGIN = path.resolve(HERE, '..', '..');
 const RETRO = fs.readFileSync(path.join(PLUGIN, 'skills', 'session-retrospective', 'SKILL.md'), 'utf8').replace(/\r\n/g, '\n');
-const PROPOSALS = fs.readFileSync(path.join(PLUGIN, 'skills', 'review-proposals', 'SKILL.md'), 'utf8').replace(/\r\n/g, '\n');
+const readLf = (...p) => fs.readFileSync(path.join(PLUGIN, ...p), 'utf8').replace(/\r\n/g, '\n');
+const PROPOSALS_SKILL = readLf('skills', 'review-proposals', 'SKILL.md');
+const PROPOSALS = [
+  PROPOSALS_SKILL,
+  readLf('skills', 'review-proposals', 'references', 'accept-project.md'),
+  readLf('skills', 'review-proposals', 'references', 'accept-global.md'),
+].join('\n');
 
 /** Markdown headings outside fenced code: [{ idx, level, text }] (idx is the 0-based line index). */
 function headings(md) {
@@ -136,4 +142,166 @@ test('S14: Step 0 says --run repeats, and the argument-hint marks it repeatable'
   const hint = /^argument-hint:\s*(.*)$/m.exec(RETRO.split('\n---')[0])?.[1] ?? '';
   assert.ok(hint.includes('--run <runId>]...'), `argument-hint: ${hint}`);
   assert.match(hint, /repeatable/i);
+});
+
+// ---- S15/S16: user-only review skills (item d85d3905, AC1-AC9) -------------------------------------
+
+function fm(md) {
+  const lines = md.split('\n');
+  assert.equal(lines[0], '---');
+  const end = lines.indexOf('---', 1);
+  const out = {};
+  for (const l of lines.slice(1, end)) {
+    const m = /^([A-Za-z][\w-]*):\s*(.*)$/.exec(l);
+    if (m) out[m[1]] = m[2].replace(/^"(.*)"$/, '$1');
+  }
+  return out;
+}
+
+/** Raw targets of markdown links that end in .md. */
+const mdLinks = (md) => [...md.matchAll(/\]\(([^)#\s]+\.md)(?:#[^)]*)?\)/g)].map((m) => m[1]);
+
+const RR_DIR = path.join(PLUGIN, 'skills', 'review-retrospectives');
+const RP_DIR = path.join(PLUGIN, 'skills', 'review-proposals');
+
+function checkUserSkill(skillMd, dir) {
+  const f = fm(skillMd);
+  assert.equal(f['disable-model-invocation'], 'true');
+  assert.ok(f.description.length <= 1024, 'description <= 1024 chars');
+  assert.doesNotMatch(f.description, /\b(I|you|your)\b/i, 'third person');
+  assert.doesNotMatch(f.description, /use when (a user|the user) says/i, 'no trigger-phrase list');
+  assert.ok(skillMd.split('\n').length <= 300, 'SKILL.md at most 300 lines');
+  for (const ref of fs.readdirSync(path.join(dir, 'references'))) {
+    const refText = fs.readFileSync(path.join(dir, 'references', ref), 'utf8');
+    assert.ok(mdLinks(skillMd).includes('references/' + ref), ref + ' is linked from SKILL.md');
+    assert.deepEqual(mdLinks(refText), [], ref + ' links no further .md file');
+  }
+}
+
+test('S15: review-proposals is user-only, short, links each accept reference and batches Step 4 by up to 4', () => {
+  checkUserSkill(PROPOSALS_SKILL, RP_DIR);
+  const step4 = section(PROPOSALS_SKILL, /^Step 4\b/);
+  assert.match(step4, /up to 4/i);
+  assert.match(step4, /Recommended/);
+  assert.match(PROPOSALS_SKILL, /^### Before any Accept\b/m, 'S13 ordering and github-feedback cite this heading');
+  const nothing = PROPOSALS_SKILL.split('\n').find((l) => l.includes('No pending improvement proposals.'));
+  assert.match(nothing, /awaiting-verification/i);
+});
+
+test('S16: review-retrospectives is user-only, states the empty path, reads its sources and hands off to review-proposals', () => {
+  const skill = readLf('skills', 'review-retrospectives', 'SKILL.md');
+  checkUserSkill(skill, RR_DIR);
+  const hint = fm(skill)['argument-hint'];
+  assert.ok(hint.includes('--audit') && hint.includes('--deep'));
+  const empty = 'No retrospective data found: no retrospectives, trends or proposals.';
+  assert.ok(skill.includes(empty));
+  assert.ok(skill.indexOf(empty) < skill.indexOf('print one dashboard'), 'empty path precedes the dashboard');
+  const step1 = section(skill, /^Step 1\b/);
+  for (const needle of ['session-retrospective', 'workflow-evaluation', 'session-metrics', 'retrospective-trend', '"bug"', 'improvement-proposal', 'fix-cycle-cost']) {
+    assert.ok(step1.includes(needle), 'Step 1 reads ' + needle);
+  }
+  const step2 = section(skill, /^Step 2\b/);
+  for (const g of ['product', 'global-process', 'project']) assert.ok(step2.includes('**' + g + '**'), g);
+  assert.match(section(skill, /^Step 4\b/), /review-proposals/);
+  assert.doesNotMatch(skill, /4\.[234]|W5/);
+});
+
+test('S16: every Step n named in review-retrospectives deep-mode.md is a heading of its SKILL.md', () => {
+  const skill = readLf('skills', 'review-retrospectives', 'SKILL.md');
+  const deep = readLf('skills', 'review-retrospectives', 'references', 'deep-mode.md');
+  assert.doesNotMatch(deep, /4\.[234]|W5/);
+  const have = new Set(headings(skill).map((h) => /^Step (\d+)\b/.exec(h.text)?.[1]).filter(Boolean));
+  const named = [...deep.matchAll(/\bStep (\d+)\b/g)].map((m) => m[1]);
+  assert.ok(named.length > 0);
+  for (const x of named) assert.ok(have.has(x), 'Step ' + x + ' has a heading');
+});
+
+// ---- A1 fix cycle: B1 and O1-O7 of the d85d3905 review register ---------------------------------------
+
+const RR_SKILL = readLf('skills', 'review-retrospectives', 'SKILL.md');
+const RR_DEEP = readLf('skills', 'review-retrospectives', 'references', 'deep-mode.md');
+const ROUTING = readLf('skills', 'session-retrospective', 'references', 'routing.md');
+
+/** Every items_write create of a retrospective-trend in the text, as the parsed call args. */
+const trendCreates = (md) => parseToCallBlocks(md)
+  .map((b) => b.value)
+  .filter((v) => v && v.tool === 'items_write' && v.op === 'create' && v.args.type === 'retrospective-trend')
+  .map((v) => v.args);
+
+test('B1: review-retrospectives reads project trends by the project-<root8> tag that session-retrospective writes', () => {
+  // The writer's spelling is the oracle: routing.md defines it, so a reader that spells it otherwise reads every project trend as global.
+  assert.ok(ROUTING.includes('`project-<root8>`'), 'routing.md defines project-<root8>');
+  assert.match(ROUTING, /A tag cannot hold a colon/);
+  const step1 = section(RR_SKILL, /^Step 1\b/);
+  assert.match(step1, /tagged `project-<root8>` is project scope/);
+  assert.match(step1, /no `project-\*` tag is global/);
+  assert.doesNotMatch(RR_SKILL + RR_DEEP, /[`"]project:/, 'a colon spelling of the project tag, in prose or in a call');
+  assert.match(section(RR_SKILL, /^Step 2\b/), /project-<root8>/);
+});
+
+test('O1: the New-pattern create has a global and a project variant, the project one tagged project-<root8> under the project container', () => {
+  const creates = trendCreates(section(RR_SKILL, /^Step 3\b/));
+  assert.equal(creates.length, 2);
+  const tags = creates.map((a) => a.tags);
+  assert.ok(tags.some((t) => t.includes('project-<root8>')), 'a project variant carries the tag');
+  assert.ok(tags.some((t) => !t.some((x) => x.startsWith('project'))), 'the global variant carries no project tag');
+  assert.deepEqual(creates.map((a) => a.parentId).sort(), ['<global-trends-container-id>', '<project-trends-container-id>']);
+  const step3 = section(RR_SKILL, /^Step 3\b/);
+  assert.match(step3, /child of the project root/);
+  assert.match(step3, /exact title/);
+});
+
+test('O2: the proposals read finds the global Improvement Proposals container as a root and follows page.next', () => {
+  const step1 = section(RR_SKILL, /^Step 1\b/);
+  const calls = parseToCallBlocks(step1).map((b) => b.value);
+  assert.ok(calls.some((c) => c.select === 'search' && c.args.query === 'Improvement Proposals'));
+  assert.match(step1, /no `parentId`/);
+  const proposals = step1.slice(step1.indexOf('**Proposals.**'), step1.indexOf('**Empty path'));
+  assert.match(proposals, /following `page\.next`/);
+});
+
+test('O3: the recurrence summary update keeps appended lines, including the do-not-re-graduate marker', () => {
+  const step3 = section(RR_SKILL, /^Step 3\b/);
+  assert.match(step3, /keep every other line/);
+  assert.match(step3, /do not re-graduate/);
+  const update = parseToCallBlocks(step3).map((b) => b.value).find((v) => v.tool === 'items_write' && v.op === 'update');
+  assert.doesNotMatch(update.args.summary, /<observation>/, 'the update no longer rebuilds the summary from a template');
+  // The marker it protects is the one review-proposals writes.
+  assert.match(PROPOSALS_SKILL, /do not re-graduate/);
+});
+
+test('O4: Triage now enters review-proposals at its Step 0 so its config defaults apply', () => {
+  const step4 = section(RR_SKILL, /^Step 4\b/);
+  const triage = step4.split('\n').find((l) => l.startsWith('- **Triage now:**'));
+  assert.match(triage, /from its Step 0/);
+  assert.doesNotMatch(triage, /Step 1/);
+  assert.ok(headings(PROPOSALS_SKILL).some((h) => /^Step 0\b/.test(h.text)), 'review-proposals has a Step 0');
+});
+
+test('O5: accept-project.md names the Source-trend write-back by its home in the review-proposals SKILL.md, not "below"', () => {
+  const ref = readLf('skills', 'review-proposals', 'references', 'accept-project.md');
+  assert.ok(headings(PROPOSALS_SKILL).some((h) => h.text === 'Source-trend write-back'), 'the section is in SKILL.md');
+  assert.equal(headings(ref).some((h) => h.text === 'Source-trend write-back'), false, 'and not in the reference');
+  const line = ref.split('\n').find((l) => l.includes('**Source-trend write-back**') && /^\d+\./.test(l));
+  assert.match(line, /review-proposals `SKILL\.md`/);
+  assert.doesNotMatch(line, /below/);
+});
+
+test('O6: deep-mode.md defines retroScope where it stashes it', () => {
+  const stash = RR_DEEP.split('\n').find((l) => l.includes('`retroScope`') && l.includes('stash'));
+  assert.ok(stash, 'a stash step names retroScope');
+  assert.match(stash, /`retroScope` = the project root id and the recent retrospectives' item ids/);
+});
+
+test('O7: the audit sweep has launch steps that match what retro-analysis accepts in audit mode', () => {
+  const audit = section(RR_DEEP, /^Audit sweep/);
+  assert.match(audit, /mode: "audit"/);
+  assert.match(audit, /no `findings`/);
+  assert.match(audit, /Workflow\(\{name: "task-orchestrator:retro-analysis", args\}\)/);
+  assert.match(audit, /`newTrends`, `staleTrends` and `observationLinks`/);
+  assert.match(audit, /only after they confirm/);
+  // The workflow is the oracle for the two constraints the steps state.
+  const wf = fs.readFileSync(path.join(PLUGIN, 'workflows', 'retro-analysis.js'), 'utf8');
+  assert.match(wf, /audit mode takes no findings/);
+  assert.match(wf, /planDocSlug requires rootId/);
 });

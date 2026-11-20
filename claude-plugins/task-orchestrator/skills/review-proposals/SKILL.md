@@ -1,7 +1,8 @@
 ---
 name: review-proposals
-description: "Triages pending improvement-proposal MCP items - presents each with its scope and evidence, collects an accept/reject/defer decision per proposal, and carries out the disposition: project-scoped acceptances get their exact YAML applied to .taskorchestrator/config.yaml and pushed per-root; global acceptances get a tracked GitHub issue (or dwell in review for the maintainer); rejections are recorded and cancelled; deferrals are recorded and left in queue. Use when a user says: review proposals, triage proposals, pending proposals, what proposals are open, adopt proposals, process improvement proposals, accept or reject proposals."
+description: "Triages pending improvement-proposal MCP items: presents each with its scope and evidence, collects an accept, reject or defer decision per proposal, and carries out the disposition (project changes applied and pushed per-root, global changes tracked on GitHub, rejections recorded, deferrals left in queue). Use when the user wants to review or act on open improvement proposals."
 argument-hint: "[optional: proposal UUID | --scope global|project]"
+disable-model-invocation: true
 ---
 
 # Review Proposals
@@ -10,7 +11,7 @@ Triages `improvement-proposal` MCP items created by `/session-retrospective` whe
 
 Calls are 4.0 tool calls; shapes live in [`../_generated/call-shapes.md`](../_generated/call-shapes.md). Every answer is the response envelope (`ok`, `data` or `error`). A write is `{ops: [...]}` of flat elements (one per `to-call` block here). Results come back as `data.results[i]` in request order with `data.summary {ok, failed}`; read ops of an ops tool (`config` `get`, `validate`, `effective`) answer there too. These calls are non-atomic: if any element fails, even in a one-element call, the answer is `ok: false` with top-level `error.code: partial_failure` (no detail, no fix) beside the full `data`, and the cause is that element's `data.results[i].error` (`code`, `message`, `detail`, `fix`). Any other top-level `error.code` is a call-level rejection (envelope, unknown field, access).
 
-Shared GitHub conventions (issue template, scrub rule, `gh` guard, dedup procedure) are not duplicated here: see `<skill-base-dir>/../session-retrospective/references/github-feedback.md` for the C2/C4/C5 contract referenced in Step 5.
+Shared GitHub conventions (issue template, scrub rule, `gh` guard, dedup procedure) are not duplicated here: see [`../_shared/github-feedback.md`](../_shared/github-feedback.md) for the C2/C4/C5 contract referenced in Step 5.
 
 ---
 
@@ -27,7 +28,7 @@ Read the config file directly (a file read, not an MCP call): the path on the Se
 - `extensions.claude-code.retrospective.github_feedback.enabled`: default `false` when the block or key is absent.
 - `extensions.claude-code.retrospective.github_feedback.repo`: default `jpicklyk/task-orchestrator`.
 
-A leftover top-level `retrospective:` block is not read by the plugin and is rejected by a strict push (see Step 5, Accept - project-scoped).
+A leftover top-level `retrospective:` block is not read by the plugin and is rejected by a strict push (see `references/accept-project.md`).
 
 ---
 
@@ -63,7 +64,7 @@ Classify each candidate by role and notes:
 - **Awaiting verification**: role `review` (accepted and applied; `outcome-verification` unfilled). List separately as `` `<short-id>` - awaiting verification (accepted <date from its adoption-decision note>) ``. No decision is offered: `/session-retrospective` Step 8a fills `outcome-verification` once at least 2 later retrospectives exist.
 - **Terminal**: skip.
 
-If nothing is pending (no queue-role item without an `adoption-decision`, and no stalled item), report `No pending improvement proposals.` and stop.
+If nothing is pending (no queue-role item without an `adoption-decision`, and no stalled item), report `No pending improvement proposals.`, list the awaiting-verification and deferred proposals as Step 3 does, and stop.
 
 ---
 
@@ -82,7 +83,7 @@ For each candidate (pending and stalled; cap 15, taking the 15 oldest by creatio
 From the notes extract:
 
 - **Proposal body**: the `proposal` note (or the item's `summary` if the note is absent; an absent note is backfilled before any Accept, see Step 5).
-- **Scope clause**: the scope classification the note states (global or project-specific). If it cannot be parsed unambiguously, **treat as global**: never auto-edit a project's config on an ambiguous scope reading.
+- **Scope clause**: the scope classification the note states (`product`, `global-process` or legacy `global`, all read as global, or project-specific). If it cannot be parsed unambiguously, **treat as global**: never auto-edit a project's config on an ambiguous scope reading.
 - **Existing `github-issue:` line**: the last line of the proposal body, `github-issue: <url>`. Carry it forward so the global-accept path reuses it instead of filing a duplicate.
 
 ---
@@ -107,20 +108,13 @@ Below it list proposals awaiting verification (no decision offered), deferred pr
 
 ## Step 4 - Collect Decisions
 
-For each pending or stalled proposal, show the proposed change (the exact YAML or rule it names, or, for a mechanics change, the file and section it targets) and ask via `AskUserQuestion`:
+Print each pending or stalled proposal's change block above the question: the exact YAML or rule it names, or, for a mechanics change, the file and section it targets. Then ask via `AskUserQuestion`, batched: up to 4 proposals per call, one question each, the header the proposal's short id, options `Accept`, `Reject`, `Defer` and `Skip`. Put the recommended option first and label it `(Recommended)`:
 
-```
-◆ "<proposal title>"  [scope: project]
-  Proposed change:
-  <exact YAML or rule text, or the file+section of a mechanics change, from the proposal note>
+- **Accept** when the note carries an exact change that can be applied as written.
+- **Defer** when the change is prose-only, or the evidence is one trend at `Sessions: 2`.
+- **Reject** when an earlier proposal with the same change was rejected.
 
-  1. Accept - apply this change
-  2. Reject - do not adopt, record why
-  3. Defer - revisit later, leave in queue
-  4. Skip - no decision this round
-```
-
-For Reject or Defer take a one-line reason from the follow-up (or an "Other" free-text option) so the rationale is recorded verbatim in the `adoption-decision` note. `Skip` leaves the item untouched: no note, no transition.
+For Reject or Defer collect the reasons in one follow-up batched call (up to 4 questions) offering a drafted reason plus Other, so the rationale is recorded verbatim in the `adoption-decision` note. `Skip` leaves the item untouched: no note, no transition.
 
 ---
 
@@ -131,62 +125,18 @@ For Reject or Defer take a one-line reason from the follow-up (or an "Other" fre
 The floor schema requires the `proposal` note in the queue phase, and `start` is gate-blocked without it. A proposal created before the retrospective filled it has none, so every Accept path (project, global, maintainer or community) first checks Step 2's list. When the `proposal` note is absent, upsert it from the item's `summary`, the Step 2 scope classification and a backfill marker, **before any config edit, push or `start`**:
 
 ```to-call
-{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<uuid>", "key": "proposal", "role": "queue", "body": "Problem and evidence: <from the item summary>.\nChange: <the exact change the summary names>.\nExpected effect: <as stated in the summary, or not stated>.\nBlast radius: <as stated, or not stated>.\nScope: <global | project-specific; target rootId>.\nbackfilled by review-proposals <YYYY-MM-DD>"}}
+{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<uuid>", "key": "proposal", "role": "queue", "body": "Problem and evidence: <from the item summary>.\nChange: <the exact change the summary names>.\nExpected effect: <as stated in the summary, or not stated>.\nBlast radius: <as stated, or not stated>.\nScope: <product | global-process | project-specific; target rootId>.\nbackfilled by review-proposals <YYYY-MM-DD>"}}
 ```
 
 Check `data.results[0].ok`. Never write a note that is only a URL.
 
 ### Accept - project-scoped
 
-1. **Extract the exact YAML** from the proposal note. If it has none ready to apply, draft the edit, show it as a diff against the current config file, and confirm via `AskUserQuestion` before applying anything.
-2. **A different `rootId`.** If the proposal targets a different `rootId` than this workspace's `project.rootId`, do not edit this config. Upsert `adoption-decision` recording that the change must be applied from the owning workspace, and treat the item as **deferred** (leave it in queue; do not advance).
-3. Otherwise apply the change (additive and targeted, not a rewrite). A config change is an **Edit** of the config file. A rule change is an edit of `.taskorchestrator/rules/<key>.md`, which config-sync pushes at the next session start (the file-change hook watches only `config.yaml`), so confirm it is served (`config` `rules`) before closing: steps 4 and 5 (validate and push `config.yaml`) apply only to config changes, so for a rule change skip to step 6. An accepted process change (which passes run, what a note must cover, which skill a note points to) lands in config or a rule, not in skill or plugin text; skill text changes only for mechanics (Task Orchestrator mechanics in the plugin, a project's own mechanics in its project skills) or generic engineering practice (the plugin's engineering skills). If the proposal names skill text for a process change, retarget it to the owning config layer and show that retargeted edit before applying it.
-4. **Validate** (config changes only) the full file text, LF-normalized, before pushing. Act on `data.results[0].valid` and `data.results[0].errors` (each `{path, reason}`); validate reports an invalid document there, it does not fail the element with `config_invalid`. Strict validation rejects an unknown key: a top-level `retrospective:` or `orchestration:` block fails, so move it under `extensions.claude-code`. Rules: [`current/docs/config-reference.md`](../../../../current/docs/config-reference.md).
-
-```to-call
-{"tool": "config", "op": "validate", "args": {"rootId": "<rootId>", "configYaml": "<full file text>"}}
-```
-
-5. **Read the head version** (config changes only), then **push** with it as `expectedVersion`:
-
-```to-call
-{"tool": "config", "op": "get", "args": {"rootId": "<rootId>"}}
-```
-
-```to-call
-{"tool": "config", "op": "push", "args": {"rootId": "<rootId>", "configYaml": "<full file text>", "expectedVersion": "<head version from get>"}}
-```
-
-   `expectedVersion` is the `data.results[0].version` that `get` returned (an integer, 1 or greater; `0` is `invalid_request`). When the root has no config yet, `get`'s element fails with `not_found`: omit `expectedVersion` from the push. Then check `ok` and `data.results[0].ok`; on a failure read `data.results[0].error.code`. On `version_conflict` (`error.detail` `{expected, actual}`) never force blindly: `get` the head again. If its version differs from the one you sent, the head moved: diff its `configYaml` against the local file, show the user, and once they confirm the local file wins re-push with the new head version as `expectedVersion`. If it still equals what you sent, the local text matches an older version (superseded): re-push with `force: true` and the same `expectedVersion` only after the user confirms that revert. `force` never skips the compare-and-set. `config_invalid` carries `error.detail.errors` as `{path, reason}` pointers: fix and re-validate.
-6. Upsert the closure note:
-
-```to-call
-{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<uuid>", "key": "adoption-decision", "role": "work", "body": "accepted - <rationale>. Applied to <config or rule file actually edited> (<section>), pushed per-root <rootId> on <YYYY-MM-DD> (a rule change: record the date `config` `rules` first served it, not the edit date)."}}
-```
-
-7. Advance with `start` twice, as two sequential calls (queue to work, then work to review):
-
-```to-call
-{"tool": "advance", "op": "transition", "args": {"itemId": "<uuid>", "trigger": "start"}}
-```
-
-   Read `ok` and `data.results[0].newRole`; on a failure `data.results[0].error.code` (`gate_blocked` lists `error.detail.missing`). Do **not** use `complete`: it jumps to terminal and gate-checks required notes across all phases, so the intentionally unfilled `outcome-verification` note would block it. `start` checks only the current phase's notes and lands in `review`.
-8. **Stop in `review`.** Tell the user the item dwells in `review` with `outcome-verification` intentionally unfilled: `/session-retrospective` Step 8a verifies whether the change helped, fills it and completes the item once at least 2 later retrospectives exist. This is by design; the item shows under Awaiting verification until then.
-9. Apply the **Source-trend write-back** below: the config change is applied, so the source trend retires now.
+Follow [`references/accept-project.md`](references/accept-project.md): extract or draft the exact change, apply it, validate and push per-root, record `adoption-decision`, advance `start` twice, stop in `review`, then the Source-trend write-back below.
 
 ### Accept - global
 
-1. **Ensure the `proposal` note exists** (see Before any Accept), then **ensure a GitHub issue exists.** If Step 2 found a `github-issue:` line, reuse it. Else, if `github_feedback.enabled` is `true` and the `gh` guard (C5) passes, file an issue per the C4 template and append the record-back line (C2) to the proposal note. Else proceed without an issue and say so plainly in the `adoption-decision` note.
-2. **Distinguish install type:** `gh repo view <repo> --json viewerPermission -q .viewerPermission`.
-   - **ADMIN, MAINTAIN or WRITE: maintainer path.** Upsert `adoption-decision` with `accepted - will implement; tracked in <url>.` and advance `start` twice (the same dwell-in-review pattern as project-scoped acceptance, with the same `complete` caveat). Outcome verification is filled by a later retrospective.
-   - **Anything else, or `gh` unavailable: community handoff (the default).** Upsert **both** notes (one `notes_write` call, two `upsert` elements; the first shown):
-
-```to-call
-{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<uuid>", "key": "adoption-decision", "role": "work", "body": "accepted - delegated upstream; tracked in <issue-url>."}}
-```
-
-   The second element is `key: "outcome-verification"`, `role: "review"`, body `delegated upstream - verification happens in <repo> issue #<N>, not this workspace. Verdict: n/a (handed off).` Check `data.results[i].ok` for both. Then advance `start`, then `complete`, as two calls: `start` enters work, and `complete` goes straight to terminal because the all-phases note gate passes (`proposal`, `adoption-decision` and `outcome-verification` are filled). The item is now terminal; the GitHub issue is the living tracker.
-3. Finish with the **Source-trend write-back**: community handoff (terminal) retires the source trend now; the maintainer path leaves it active until a later retrospective verifies the landed change.
+Follow [`references/accept-global.md`](references/accept-global.md): ensure a GitHub issue, then the maintainer path (dwell in `review`) or the community handoff (terminal), then the Source-trend write-back below.
 
 ### Reject
 
@@ -218,7 +168,7 @@ Most proposals graduated from a trend item (tag `retrospective-trend`) whose sum
 
 Skip silently when no trend matches: a proposal can be created ad hoc.
 
-- **After Reject:** `get` the trend for its full summary, then `items_write` `update {id, summary}` with one line appended: `proposal <short-id> rejected <YYYY-MM-DD> - do not re-graduate; see its adoption-decision note.` The trend stays active, and every future retrospective sees the rejection inline in its Step 4.2 listing.
+- **After Reject:** `get` the trend for its full summary, then `items_write` `update {id, summary}` with one line appended: `proposal <short-id> rejected <YYYY-MM-DD> - do not re-graduate; see its adoption-decision note.` The trend stays active, and every future retrospective sees the rejection inline in its Step 4 listing.
 - **After Accept, once the change is applied or landed** (config pushed, or a community handoff filed and the item taken terminal): retire the trend with `advance` `transition`, `trigger: "cancel"`, `summary: "archived: addressed via proposal <short-id>"`. While adoption is only tracked (maintainer path dwelling in `review`), leave the trend active: the retrospective that fills `outcome-verification` retires it once the change held.
 - **After Defer:** no write-back.
 
@@ -238,17 +188,3 @@ Skip silently when no trend matches: a proposal can be created ad hoc.
 ```
 
 Close with a reminder: accepted items dwelling in `review` are not stuck. Their `outcome-verification` note is filled by `/session-retrospective` (Step 8a) once at least 2 retrospectives have run since the adoption and the change has had time to show effect.
-
----
-
-## Troubleshooting
-
-**`gh` unavailable or unauthenticated.** `gh auth status` failed (the C5 guard in the shared reference). For global acceptances proceed without an issue and say so in the note (`accepted - no GitHub issue filed (gh unavailable).`). Filing is best-effort and never blocks the disposition; the user can file the issue later and record the URL on the proposal note.
-
-**`version_conflict` on a config push.** The head moved since this workspace last read it (another session, `manage-schemas` or `quick-start` pushed). `get` the head, diff, show the user exactly what differs, and after explicit confirmation re-push with the new head version as `expectedVersion`. `force: true` bypasses only the superseded-content guard (local text equal to an older version), never the compare-and-set.
-
-**`config_invalid` on push.** The element error carries `error.detail.errors`; `validate` reports the same problems as `valid: false` with `errors`. The usual cause is a section written at the top level that belongs under `extensions.claude-code` (`retrospective`, `orchestration`, `actor_attribution`).
-
-**Proposal has no exact YAML.** The body describes the change in prose only. Draft the edit, show it as a diff, and get explicit confirmation via `AskUserQuestion` before applying. Do not guess silently and push.
-
-**Proposal targets a different workspace's `rootId`.** It was likely created in another project sharing the database. Do not edit this config. Record in `adoption-decision` that the change must be applied from the owning workspace (name the `rootId` if known), and leave the proposal in `queue`.

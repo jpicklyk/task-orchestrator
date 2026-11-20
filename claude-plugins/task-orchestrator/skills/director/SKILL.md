@@ -276,12 +276,12 @@ result JSON verbatim, or the output file path when the notification is cut short
 ```
 
 and the run's decisions (Dashboard step 3). Do not decide on your own whether to push or run a
-retrospective: the plugin's `director-watch` hook reads those results and tells you. A
-`Decision waiting:` directive means call `PushNotification` once for the ids it names; a
-retrospective directive (only for a `closed` run, since an idle run is not done) is always the
-dispatch form in a director session, whatever `retrospective.mode` says (`off` still sends none):
-dispatch the one background agent it names. Never run `/session-retrospective` in this session;
-it reads note bodies. Each fires once per decision or run per session.
+retrospective: the plugin's hooks tell you. A `Decision waiting:` directive means call
+`PushNotification` once for the ids it names. A retrospective directive comes one per completed
+scope (per closed run at boundary `run` or without REST) and is always the dispatch form in a
+director session, whatever `retrospective.mode` says (`off` still sends none): dispatch the one
+background agent it names. Never run `/session-retrospective` in this session; it reads note
+bodies. Each fires once per decision, scope or run per session.
 
 ## Hardened entry
 

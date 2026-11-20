@@ -792,22 +792,20 @@ test('T-repo: script text contains no repo-identifying strings', () => {
 
 // ── T-deep ─────────────────────────────────────────────────────────────────────
 
-test('T-deep: the Deep mode heading appears exactly once, between 4.3 and 4.4, at or under 25 lines, and names retro/<runId> plus the args contract', () => {
-  const text = readFileSync(SKILL_PATH, 'utf8')
+const DEEP_PATH = join(PLUGIN, 'skills', 'review-retrospectives', 'references', 'deep-mode.md')
 
-  const headingMatches = text.match(/^#### Deep mode/gm) || []
-  assert.equal(headingMatches.length, 1)
+test('T-deep: references/deep-mode.md holds the Deep mode heading once, at or under 25 lines, naming retro/<runId> and the args contract', () => {
+  const text = readFileSync(DEEP_PATH, 'utf8').replace(/\r\n/g, '\n')
 
-  const nameMatches = text.match(/task-orchestrator:retro-analysis/g) || []
-  assert.equal(nameMatches.length, 1)
+  const headings = text.match(/^#{1,6} Deep mode[ \t]*$/gm) || []
+  assert.equal(headings.length, 1)
 
-  const i43 = text.indexOf('### 4.3 Match findings')
-  const iDeep = text.indexOf('#### Deep mode')
-  const i44 = text.indexOf('### 4.4 Fetch full evidence (only when it matters)')
-  assert.ok(i43 !== -1 && iDeep !== -1 && i44 !== -1)
-  assert.ok(i43 < iDeep && iDeep < i44)
-
-  const block = text.slice(iDeep, i44).replace(/\n+$/, '')
+  const m = /^(#{1,6}) Deep mode[ \t]*$/m.exec(text)
+  const level = m[1].length
+  const rest = text.slice(m.index + m[0].length)
+  const re = new RegExp('^#{1,' + level + '} ', 'm')
+  const next = rest.search(re)
+  const block = (m[0] + (next === -1 ? rest : rest.slice(0, next))).replace(/\n+$/, '')
   const lineCount = block.split('\n').length
   assert.ok(lineCount <= 25, `deep block is ${lineCount} lines, expected <= 25`)
 
@@ -817,13 +815,15 @@ test('T-deep: the Deep mode heading appears exactly once, between 4.3 and 4.4, a
 
 // ── T-skill-followups (D1/D2/D4/O10/O11) ─────────────────────────────────────
 
-test('T-skill-followups: session-retrospective names plan-to-execution, --deep in its hint, the audit sweep, unmatchedShards, and the sorted retro query', () => {
+test('T-skill-followups: deep-mode.md names plan-to-execution, the audit sweep, unmatchedShards and the sorted retro query; SKILL.md has no --deep hint and no retro-analysis mention', () => {
+  const deep = readFileSync(DEEP_PATH, 'utf8')
+  assert.match(deep, /3d `plan-to-execution`/)
+  assert.match(deep, /^#{1,6} Audit sweep[ \t]*$|\*\*Audit sweep\.\*\*/m)
+  assert.match(deep, /stats\.unmatchedShards[^\n]*targetIds/)
+  assert.match(deep, /"tags": \["session-retrospective"\], "sort": "createdAt", "order": "desc", "limit": 10/)
+
   const text = readFileSync(SKILL_PATH, 'utf8')
-  assert.match(text.split('\n').find((l) => l.startsWith('argument-hint:')), /--deep/)
-  assert.match(text, /3d `plan-to-execution`/)
+  assert.doesNotMatch(text.split('\n').find((l) => l.startsWith('argument-hint:')), /--deep/)
+  assert.equal((text.match(/task-orchestrator:retro-analysis/g) || []).length, 0)
   assert.match(text, /`<dimension>` is one of [^\n]*plan-to-execution/)
-  assert.match(text, /\*\*Audit sweep\.\*\*[^\n]*only after they confirm/)
-  assert.match(text, /stats\.unmatchedShards[^\n]*targetIds/)
-  assert.match(text, /"tags": \["session-retrospective"\], "sort": "createdAt", "order": "desc", "limit": 10/)
-  assert.equal((text.match(/task-orchestrator:retro-analysis/g) || []).length, 1)
 })

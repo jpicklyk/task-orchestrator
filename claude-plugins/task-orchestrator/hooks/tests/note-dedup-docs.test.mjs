@@ -82,17 +82,11 @@ test('S10 AC-SURF: work-summary has one director-profile report notes call group
   assert.ok(WORK_SUMMARY.includes('note volume (7d)'), 'the rendered line is named');
 });
 
-test('S10 AC-SURF: session-retrospective has director report notes calls for groupBy role and noteKey, with the baseline figures', () => {
+test('S10 AC-SURF: session-retrospective reads note volume through retro-metrics: no director report call, no baseline figures', () => {
   const blocks = notesBlocks(RETRO);
-  for (const groupBy of ['role', 'noteKey']) {
-    const hit = blocks.filter((b) => b.value.args && b.value.args.groupBy === groupBy);
-    assert.ok(hit.length >= 1, 'a notes call grouped by ' + groupBy);
-    for (const b of hit) {
-      assert.equal(b.value.profile, 'director', groupBy);
-      assert.deepEqual(checkToCall(b.value, CATALOG), [], groupBy);
-    }
-  }
+  const directorReports = blocks.filter((b) => b.value && b.value.profile === 'director');
+  assert.equal(directorReports.length, 0, 'no profile: director report call in SKILL.md');
   for (const figure of ['31%', '6.5 KB', '37 KB']) {
-    assert.ok(RETRO.includes(figure), 'baseline figure ' + figure);
+    assert.equal(RETRO.includes(figure), false, 'baseline figure ' + figure + ' must not be in SKILL.md');
   }
 });

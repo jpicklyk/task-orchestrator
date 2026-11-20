@@ -47,7 +47,7 @@ An HTTP director entry is the orchestration URL with `/mcp/director` in place of
 
 ### Plugin settings
 
-The plugin reads its own settings from `extensions.claude-code` in `.taskorchestrator/config.yaml` (`orchestration.mode`, `retrospective.mode`, `retrospective.dispatchThreshold`, `retrospective.github_feedback`). A top-level `orchestration:` or `retrospective:` block is ignored by the hooks and rejected by a 4.0 server on push. The keys, values and defaults are in [config-format.md](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#plugin-settings-extensionsclaude-code), and [config-reference.md](../config-reference.md#extensions) says who owns each key.
+The plugin reads its own settings from `extensions.claude-code` in `.taskorchestrator/config.yaml` (`orchestration.mode`, `retrospective.mode`, `retrospective.minItems`, `retrospective.boundary`, `retrospective.github_feedback`). A top-level `orchestration:` or `retrospective:` block is ignored by the hooks and rejected by a 4.0 server on push. The keys, values and defaults are in [config-format.md](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#plugin-settings-extensionsclaude-code), and [config-reference.md](../config-reference.md#extensions) says who owns each key.
 
 ---
 
@@ -241,7 +241,7 @@ A call that carries a non-empty top-level `seatToken` belongs to a run seat and 
 
 **Script:** `retro-trigger.mjs`. **Event:** `PostToolUse` on `runs_write`.
 
-**What it does:** a retrospective is owed per closed run of the project root that is not yet marked `retro`, and only to the session that opened or closed it. Every successful `open` and `close` op is recorded in the session marker (a subagent's calls carry the parent's session id). On a successful `close` op, in the main session with a REST API URL and a project `rootId`, the hook lists the root's recently closed, unmarked runs this session owns (`runs_read` `list` with `unmarked: "retro"`, the last 24 hours), reads each run's terminal member count from its frontier (at most 5 per call), and either dispatches a retrospective or nudges. In `dispatch` mode and with at least `dispatchThreshold` terminal members it first writes the run's `retro` mark with `runs_write` `mark`; the first mark wins, so two sessions never both dispatch. Otherwise it injects the nudge naming `/session-retrospective --run <runId>`. In a director session (the director marker is present) `nudge` is treated as `dispatch`, and a run that would be nudged (below the threshold, or a failed mark) is named in the dispatch directive instead. Without a REST API URL or a project `rootId` it only records the close in the session marker for the Stop backstop. The settings are `extensions.claude-code.retrospective.mode` (`nudge` default, `dispatch`, `off`) and `dispatchThreshold` (default 3); there is no cooldown and no tmp marker file.
+**What it does:** every successful `open` and `close` op is recorded in the session marker (a subagent's calls carry the parent's session id): a retrospective is owed only to the session that opened or closed the run (exceptions at the scope boundary: a dead claim is taken over by any dispatching session after 20 minutes; in a dispatch-configured project any session takes a completed scope 60 minutes after it finished and an abandoned scope at once; in nudge mode an abandoned scope is nudged only to the session that owns it). At the default boundary `scope` the hook runs the scope evaluation on a successful `close` (one retrospective per completed scope; the state machine is the "Retrospective firing" section of the [hooks README](../../../claude-plugins/task-orchestrator/hooks/README.md)), which yields nothing while the scope is open. The rest of this paragraph is the `run` boundary (`retrospective.boundary: run`): a retrospective is owed per closed run of the project root that is not yet marked `retro`. On a successful `close` op, in the main session with a REST API URL and a project `rootId`, the hook lists the root's recently closed, unmarked runs this session owns (`runs_read` `list` with `unmarked: "retro"`, the last 24 hours), reads each run's terminal member count from its frontier (at most 5 per call), and either dispatches a retrospective or nudges. In `dispatch` mode and with at least `minItems` terminal members (`dispatchThreshold` is the older name of the key) it first writes the run's `retro` mark with `runs_write` `mark`; the first mark wins, so two sessions never both dispatch. Otherwise it injects the nudge naming `/session-retrospective --run <runId>`. In a director session (the director marker is present) `nudge` is treated as `dispatch`, and a run that would be nudged (below the threshold, or a failed mark) is named in the dispatch directive instead. Without a REST API URL or a project `rootId` it only records the close in the session marker for the Stop backstop. The settings are `extensions.claude-code.retrospective.mode` (`nudge` default, `dispatch`, `off`) `minItems` (default 3) and `boundary` (`scope` default, `run`); there is no cooldown and no tmp marker file.
 
 **Inert when:** the session is a headless iteration, `retrospective.mode` is `off`, or the call is a failed or non-`close` result. A subagent records the close for the main session and never nudges. It is not read against `orchestration.mode`.
 
@@ -249,9 +249,17 @@ A call that carries a non-empty top-level `seatToken` belongs to a run seat and 
 
 **Script:** `retro-backstop.mjs`. **Event:** `Stop`.
 
-**What it does:** the same closed-run evaluation as Retro Trigger, so a run this session opened that closed elsewhere (a subagent, a tool the trigger never saw) still gets its retrospective; a run another session drove is left to that session: with a REST API URL and a project `rootId` it may dispatch (after winning the `retro` mark) as well as nudge, and the output is a `block` decision. Without REST it nudges once per session, only about closes the trigger recorded in this session, and never marks or dispatches. In a director session it applies the same director rule as Retro Trigger: the directive is always the dispatch form.
+**What it does:** the same evaluation as Retro Trigger (the scope or the run boundary, per config), so a run this session opened that closed elsewhere (a subagent, a tool the trigger never saw) still gets its retrospective; a run another session drove is left to that session (barring the scope-boundary exceptions in the hooks README, Ownership): with a REST API URL and a project `rootId` it may dispatch (after winning the `retro` mark) as well as nudge, and the output is a `block` decision. Without REST it nudges once per session, only about closes the trigger recorded in this session, and never marks or dispatches. In a director session it applies the same director rule as Retro Trigger: the directive is always the dispatch form. At the scope boundary this Stop pass is also where a failed or dead dispatch is retried, a second failure is given up with one nudge, and an abandoned scope (not terminal, no run for 7 days) is dispatched with a `[stale]` title (in nudge mode only its owner is nudged).
 
 **Inert when:** the session is a headless iteration, `retrospective.mode` is `off`, or `stop_hook_active` is set. It is not gated by subagent or director status.
+
+### Retro Subagent Stop
+
+**Script:** `retro-subagent-stop.mjs`. **Event:** `SubagentStop`, a second command beside Phase Guard.
+
+**What it does:** with the scope boundary and dispatch claims in the session's retro state, a stopping subagent makes it read each claim's anchor run. A `retro` mark drops the claim; no mark, with a transcript (`agent_transcript_path`, first 256 KB) that holds `/session-retrospective` and the anchor run id, marks the claim failed, so the next Stop retries at once. It never writes to the server and always answers `{}`.
+
+**Inert when:** the session is a headless iteration, `retrospective.mode` is `off`, the boundary is `run`, there is no REST API URL or project `rootId`, or the state holds no claim.
 
 ### Director Guard
 
@@ -349,9 +357,9 @@ An altitude-safe `implement-wave` result carries counts, statuses, commit SHAs, 
 
 ### The retrospective on run marks
 
-A run labelled `<runId>-a<n>` (a fix-cycle run) always owes a retrospective in `dispatch` mode, whatever `dispatchThreshold` says.
+A run labelled `<runId>-a<n>` (a fix-cycle run) always owes a retrospective in `dispatch` mode, whatever `minItems` says (at the `run` boundary).
 
-A retrospective is owed per closed run that has no `retro` mark, to the session that opened or closed it. `runs_write` `close` triggers Retro Trigger, Retro Backstop checks at `Stop` via `runs_read` `unmarked: retro`, and the first `mark` wins. `/task-orchestrator:session-retrospective --run <runId>` takes the run's members from its ended seats and frontier. See [Self-Improving Workflow](self-improving-workflow.md).
+At the default boundary `scope` a retrospective is owed per completed scope, covering every run of it, and the hooks fire it at that boundary (a low-signal scope is skipped by the hook at zero model tokens); at boundary `run` it is owed per closed run that has no `retro` mark. Either way it is owed to the session that opened or closed one of its runs (exceptions at the scope boundary: a dead claim is taken over by any dispatching session after 20 minutes; in a dispatch-configured project any session takes a completed scope 60 minutes after it finished and an abandoned scope at once; in nudge mode an abandoned scope is nudged only to the session that owns it). `runs_write` `close` triggers Retro Trigger, Retro Backstop checks at `Stop` via `runs_read` `unmarked: retro`, and the first `mark` wins. `/task-orchestrator:session-retrospective --run <runId>` takes the run's members from its ended seats and frontier. See [Self-Improving Workflow](self-improving-workflow.md).
 
 ---
 
@@ -372,7 +380,8 @@ Skills are invoked as slash commands in any Claude Code session:
 | `/task-orchestrator:run-wave` | Plan and run a multi-item wave on a server run (Method A via the `implement-wave` Workflow, or Method B direct-Agent fallback) |
 | `/task-orchestrator:ralph` | Emit the `ralph-loop.mjs` invocation for a headless queue drain — one run per loop, one `claude -p --worktree` per iteration |
 | `/task-orchestrator:session-retrospective` | Analyze an implementation run (`--run <runId>`), record cross-session trends, and graduate recurring patterns into improvement proposals |
-| `/task-orchestrator:review-proposals` | Triage pending improvement proposals — accept, reject, or defer each and carry out the disposition |
+| `/task-orchestrator:review-retrospectives` | User-run review of the retrospective record: Summarise (dashboard), Suggest (ranked actions by product, global-process, project), apply confirmed trend changes, Decide (hand pending proposals to review-proposals); `--audit` and `--deep` add the retro-analysis workflow |
+| `/task-orchestrator:review-proposals` | Triage pending improvement proposals — accept, reject, or defer each and carry out the disposition (user-invoked only) |
 | `/task-orchestrator:adopt-project-scope` | Migrate an already-populated, unscoped database in place to the project-scoping convention |
 | `/task-orchestrator:director` | Director mode: a board of open runs, frontier, decisions and rollups; answer decisions; delegate every read; `off` leaves |
 | `/task-orchestrator:configure-server` | Configure how the server runs and is reached — transport, REST API, port publishing, config mounts, config-sync |
@@ -423,7 +432,7 @@ test-authoring seat, respectively.
 The shipped workflows, each launched on its own terms:
 
 - `audit` — read-only report + proposal; materializing its findings goes through [create-item](../../../claude-plugins/task-orchestrator/skills/create-item/SKILL.md#from-a-workflow-findings-proposal). Cost scales with the preset: `quick`, `standard` or `full`; `full` runs roughly 90 minutes and about 30M tokens.
-- `retro-analysis` — two modes. `deep` is invoked via `/session-retrospective --deep`; `audit` is a standalone sweep whose consumer is the session-retrospective skill's "Audit sweep" paragraph (present the result, then apply Step 6's create and retire shapes after the user confirms).
+- `retro-analysis` — two modes. `deep` and `audit` are invoked via `/task-orchestrator:review-retrospectives --deep` and `--audit`; the consumer is that skill's Step 3 (present the result, then apply its create and retire shapes after the user confirms).
 - `review-wave` — independent review lanes over an item's owned-file diff, aggregated into one verdict in args order. Verdict lanes (the default) decide the verdict; a lane whose review notes declare `lane.output: findings` reports findings only and never sets it, though its stopped status still stops the item; `lane.after` orders lanes and never halts or skips one. Shipped; the `run-wave` front door builds the lanes from the review notes' `lane` declarations.
 
 ---

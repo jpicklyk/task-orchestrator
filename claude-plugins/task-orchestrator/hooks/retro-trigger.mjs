@@ -1,15 +1,18 @@
 #!/usr/bin/env node
-// PostToolUse hook for runs_write — a retrospective is owed per closed run that is not marked
-// `retro`, and only to the session that opened or closed it. Every successful `open` and `close` op is
-// recorded in the per-session marker (a subagent's calls carry the parent's session_id). On a
-// successful `close` op this hook (main session, REST configured with a project rootId)
-// lists the root's recently closed, unmarked runs this session owns, reads each run's terminal member count, and either
-// dispatches a retrospective (mode: dispatch and terminal >= dispatchThreshold, after winning the
-// server-side `retro` mark: first write wins, so two sessions never both dispatch) or nudges.
+// PostToolUse hook for runs_write. Every successful `open` and `close` op is recorded in the per-session
+// state (a subagent's calls carry the parent's session_id; a subagent never acts, the main session's
+// backstop does): a retrospective is owed only to the session that opened or closed the run (retro-lib
+// ownsRun). On a successful `close`, in the main session with REST configured and a project rootId, it
+// evaluates what is owed:
+//   boundary scope (default): one retrospective per completed scope; evaluateScopes groups the runs, and
+//     a group not yet due (its scope still open) yields nothing (hooks/README.md, "Retrospective firing").
+//   boundary run: one per closed run this session owns and not marked `retro`; lists the root's recently
+//     closed, unmarked runs, reads each run's terminal member count, and either dispatches (mode: dispatch
+//     and terminal >= minItems, after winning the server-side `retro` mark: first write wins, so two
+//     sessions never both dispatch) or nudges.
 //
-// Without REST (no API URL, or no project rootId) the hook only records the close in the per-session
-// marker; the Stop backstop (retro-backstop.mjs) nudges once from it. A subagent never acts: it records
-// the close for the main session's backstop.
+// Without REST (no API URL, or no project rootId) the hook only records the close; the Stop backstop
+// (retro-backstop.mjs) nudges once from it.
 //
 // Fail-open by design: any error, missing config, or unrecognized tool shape results in a silent `{}`
 // on stdout and exit 0 — this hook must never block a tool call.
@@ -24,6 +27,7 @@ import {
   readSessionState,
   writeSessionState,
   evaluateRuns,
+  evaluateScopes,
   directiveFor,
   directorConfig,
   debugCapture,
@@ -93,7 +97,8 @@ try {
   const rootId = restRootId(located);
 
   // Record what this session (its main thread or a subagent: both carry its session_id) opened and
-  // closed: only those runs owe this session a retrospective (retro-lib ownsRun).
+  // closed: only those runs owe this session a retrospective (retro-lib ownsRun). An open alone has
+  // nothing to evaluate.
   if (opens) state.opened = merge(state.opened, opens);
   if (closes) state.closes = merge(state.closes, closes);
   if (closes === null) {
@@ -101,18 +106,17 @@ try {
     emitEmpty();
   }
 
-  // A subagent never acts; without REST there is nothing to evaluate. Either way the recorded close
-  // lets the main session's backstop surface it.
-  if (isSubagentInvocation(hookInput) || !rootId) {
-    state.sawClose = true;
-    writeSessionState(sessionId, state);
-    emitEmpty();
-  }
-
+  // A subagent never acts, and without REST there is nothing to evaluate: the main session's backstop
+  // surfaces the close.
+  const scope = config.boundary === 'scope';
+  const acts = !isSubagentInvocation(hookInput) && rootId;
+  if (scope || !acts) state.sawClose = true;
   writeSessionState(sessionId, state);
-  const result = await evaluateRuns({ rootId, config, state });
+  if (!acts) emitEmpty();
+
+  const result = scope ? await evaluateScopes({ rootId, config, state, configuredMode: parsedConfig.mode }) : await evaluateRuns({ rootId, config, state });
   const text = directiveFor(result, located, { director, transcriptPath: hookInput.transcript_path });
-  if (result.nudge.length > 0) writeSessionState(sessionId, state);
+  if (scope || result.nudge.length > 0) writeSessionState(sessionId, state);
   if (text) emitContext(text);
   emitEmpty();
 } catch {

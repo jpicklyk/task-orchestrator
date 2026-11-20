@@ -216,7 +216,7 @@ run report instead.
 1. **`session-tracking`** — the line formats of closure-notes rule 2 (the bundled `closure-notes`
    rule), one line each, in this order: `Outcome:`; `Commits:` one sha or one range (never a file
    list, never two shas); `Verified: <command> green at <sha> | not run (<why>)` (one line, never test
-   or pass/fail counts); `Deviations: <what and why> | none`; `Friction: <type: description>, ... | none`;
+   or pass/fail counts); `Deviations: <what and why> | none`; `Friction: <type: description>, ... | none` (a server or plugin defect as `defect: <tool>, <op>, <code>, <message>`);
    `Observations:` (omit when there are none); `Follow-ups: see orchestrator-confirmation`.
    The item's `Friction:` keeps only what is specific to that item: its declarations-scan hit count
    from Method B step 4, its own `verify`/notes-audit failure, a write refused on that item.
@@ -679,8 +679,9 @@ Report, in one place, every item that was **deferred** (cross-run edge, resource
 run-size cap — with reasons), every item that was **stopped** (invalid envelope, verify/notes-audit
 failure, `awaiting_decision`, `run_paused`, `seat-token-rejected`, `seat-token-missing`), every item **held** live-owed,
 and every item that was **excluded** at planning time (unowned required note, unavailable schema
-config) — each with its specific reason, not a bare count. Suggest `/session-retrospective --run
-<serverRunId>` for the retrospective of this run. Then return to `SKILL.md` Step 9: re-run Step 2
+config) — each with its specific reason, not a bare count. With the hook boundary
+`scope` (the default) suggest no retrospective: the hooks fire one at the scope boundary, covering every run of the scope.
+With boundary `run`, suggest `/session-retrospective --run <serverRunId> --session-dir "<folder>"` for this run. Then return to `SKILL.md` Step 9: re-run Step 2
 (a fresh snapshot), letting the items surfaced in Step 4's `unblocked` join the new frontier.
 
 Cleanup: once an item's seats have committed, delete its recovery snapshots with `git for-each-ref --format=%(refname) refs/wip/<short>` piped to `git update-ref -d` for each ref (`refs/wip/<short>` and `refs/wip/<short>-<seat>`). Leave a snapshot in place for any item that stopped without committing. Delete `<scratchpad>/run-wave/<runId>/tokens/` once the run is closed: its tokens are dead.

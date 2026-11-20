@@ -320,3 +320,34 @@ export function parseExtraSeats(text) {
       }
     })
 }
+
+/**
+ * parseLayerMeters(line) -> {run, sessionWindow, layers} or null. Reads one line of the form
+ * 'layer-meters=<layer>:<i>/<cw>/<cr>/<o>,... run=<runId>[ session-window=run|whole-session]', the
+ * cost of the two layers above the seats ('coordinator', 'session'). layers maps a layer name to
+ * {input, cacheWrite, cacheRead, output} or to 'unknown' ('<layer>:unknown', a gap and never zero);
+ * a layer the line omits is absent. run and sessionWindow are null when their token is absent. A
+ * non-string, or a line whose first token is not 'layer-meters=', gives null.
+ */
+export function parseLayerMeters(line) {
+  if (typeof line !== 'string') return null
+  const tokens = line.replace(/\r/g, '').trim().split(/\s+/)
+  const head = tokens[0] || ''
+  if (!head.startsWith('layer-meters=')) return null
+  const layers = {}
+  for (const pair of head.slice('layer-meters='.length).split(',').filter((s) => s.length > 0)) {
+    const idx = pair.indexOf(':')
+    if (idx === -1) continue
+    layers[unescapeValue(pair.slice(0, idx))] = parseMeters(pair.slice(idx + 1))
+  }
+  let run = null
+  let sessionWindow = null
+  for (const tok of tokens.slice(1)) {
+    const eq = tok.indexOf('=')
+    if (eq === -1) continue
+    const key = tok.slice(0, eq)
+    if (key === 'run') run = unescapeValue(tok.slice(eq + 1))
+    else if (key === 'session-window') sessionWindow = tok.slice(eq + 1)
+  }
+  return { run, sessionWindow, layers }
+}

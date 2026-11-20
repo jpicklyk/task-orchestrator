@@ -191,7 +191,7 @@ Close with one line on the orchestration mode, because a located config turns th
 
 > Orchestration mode: `<mode>`. The plugin now injects its orchestration core at session start, denies `Agent` dispatches that omit `model`, and adds a dispatch hint after `advance`. Set `extensions.claude-code.orchestration.mode` to `schema` (no tiers or model table) or `off` (all three hooks silent) in `.taskorchestrator/config.yaml` to change it.
 
-Do not write the `extensions:` block yourself in project mode: absent already means `workflow`, and init touches this file surgically.
+Do not write the `extensions:` block yourself in project mode. Absent orchestration mode already means `workflow`, and init touches this file surgically.
 
 ---
 

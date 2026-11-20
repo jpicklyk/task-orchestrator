@@ -1,0 +1,26 @@
+{
+  "id": "3-project-friction",
+  "title": "Project-only friction: the project trend recurs, a project proposal is raised, nothing global is written",
+  "taskScopeMaxLength": 3000,
+  "bugReports": false,
+  "features": [
+    {
+      "key": "P",
+      "items": [
+        { "friction": "tool-error: task-scope note rejected at the 3000 character cap, rewritten twice" },
+        { "friction": "tool-error: task-scope note rejected at the 3000 character cap again, trimmed by hand" },
+        { "friction": "tool-error: task-scope note over the 3000 character cap on write, split into two notes" }
+      ],
+      "runs": 1
+    }
+  ],
+  "projectTrend": {
+    "title": "trend: task-scope-cap-overruns - task-scope notes overrun the project's 3000 character cap",
+    "dimension": "friction",
+    "evidence": "Seed evidence: a task-scope note overran the 3000 character cap in an earlier session."
+  },
+  "emptyGlobalProposalsRoot": true,
+  "stages": [
+    { "id": "3-L3", "kind": "live", "features": ["P"], "prompt": "directive", "checks": ["P1", "P2", "P3", "P4", "P5"] }
+  ]
+}

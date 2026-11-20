@@ -17,6 +17,9 @@
 //    REST path is configured (restRootId non-null) retro-trigger / retro-backstop own the mark and
 //    the dispatch, so this hook stays silent.
 //
+// Grouping runs by scope needs REST, so this no-REST path keeps its per-run dispatch whatever the
+// configured boundary (hooks/README.md, "Retrospective firing").
+//
 // Inert (`{}`) for a headless ralph iteration, a subagent call (`agent_id`), a non-director
 // session, a failed tool result, any other select, and on any throw. Never blocks a tool call.
 
@@ -99,7 +102,7 @@ function runEndedOutput(data, toolInput, state, statePath, opts) {
   if (!ownsRun(retroState, runId)) return {};
   const mode = typeof opts.retroMode === 'string' ? opts.retroMode : parseRetrospectiveConfig(locate().text).mode;
   if (mode !== 'nudge' && mode !== 'dispatch') return {};
-  const text = buildDispatch([runId], dispatchAncestorId(locate()), undefined, { transcriptPath: opts.transcriptPath });
+  const text = buildDispatch([runId], dispatchAncestorId(locate()), undefined, { transcriptPath: opts.transcriptPath, director: true });
   state.retro.push(runId);
   writeState(statePath, state);
   return contextOutput('PostToolUse', text);

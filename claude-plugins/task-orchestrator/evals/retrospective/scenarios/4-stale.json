@@ -1,0 +1,19 @@
+{
+  "id": "4-stale",
+  "title": "Stale rule: a manual run of a scope that still has an open run is not stale; the directive form with the stale sentence is",
+  "taskScopeMaxLength": 12000,
+  "bugReports": false,
+  "features": [
+    {
+      "key": "S",
+      "items": [{ "note": "clean" }, { "note": "clean" }, { "note": "clean" }],
+      "runs": 3,
+      "pendingItems": 1
+    }
+  ],
+  "stages": [
+    { "id": "4a", "kind": "live", "features": ["S"], "runIndexes": [0], "prompt": "manual", "checks": ["T1"] },
+    { "id": "4b", "kind": "live", "features": ["S"], "runIndexes": [1], "prompt": "stale", "checks": ["T2"] },
+    { "id": "4a-redproof", "kind": "live", "features": ["S"], "runIndexes": [2], "prompt": "manual", "redProof": true, "checks": ["T1"] }
+  ]
+}

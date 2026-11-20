@@ -12,10 +12,34 @@ import './hermetic-claude-config.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { rid, retroConfig, withFixture, runFixture, closePayload, contextOf, markDirector, ownRuns } from './retro-fake-runs.mjs';
+import {
+  rid,
+  retroConfig,
+  withFixture,
+  startFakeRuns,
+  runFixture,
+  closePayload,
+  contextOf,
+  markDirector,
+  HOOKS_CONFIG,
+  ROOT,
+  SCOPE,
+  MIN,
+  HOUR,
+  DAY,
+  ago,
+  iid,
+  CLEAN_NOTE,
+  scopeFixture,
+  mergeFixtures,
+  readRetroState,
+  writeRetroState,
+  writeTranscript,
+  ownRuns,
+} from './retro-fake-runs.mjs';
 import { buildDispatch, buildNudge } from '../retro-lib.mjs';
 import { run as watchRun } from '../director-watch.mjs';
 
@@ -29,6 +53,7 @@ const ID1 = '1b056448-3504-462e-82fe-5e4549095427';
 const ID2 = 'aaaaaaaa-3504-462e-82fe-5e4549095427';
 const ID3 = 'bbbbbbbb-3504-462e-82fe-5e4549095427';
 const count = (text, needle) => text.split(needle).length - 1;
+const NL = String.fromCharCode(10);
 const desc = (run8) => `description "retrospective:${run8}"`;
 const dirFlag = (dir) => `--session-dir "${dir}"`;
 
@@ -209,14 +234,14 @@ test('S7: buildNudge has no description label and no --session-dir', () => {
   assert.ok(!text.includes('--session-dir'), text);
 });
 
-test('S7: a nudge-mode hook run with transcript_path nudges without label or --session-dir', async () => {
+test('S7: a nudge-mode hook run with transcript_path nudges with --session-dir and no label', async () => {
   await withFixture({ config: cfg('nudge', 3), runs: [runFixture(1, { terminal: 1 })] }, async ({ trigger }) => {
     const res = await trigger(closePayload(sid('s7'), rid(1), { extra: { transcript_path: 'C:/p/899f5f7e.jsonl' } }));
     const text = contextOf(res);
     assert.ok(text?.includes(NUDGE), res.stdout);
     assert.ok(!text.includes(DISPATCH), text);
     assert.ok(!text.includes('description "retrospective:'), text);
-    assert.ok(!text.includes('--session-dir'), text);
+    assert.ok(text.includes(dirFlag('C:/p/899f5f7e')), text);
   });
 });
 
@@ -321,4 +346,924 @@ test('probe: a fixCycle map plus transcriptPath keeps both the base-run sentence
   assert.ok(text.includes('r-base-run'), text);
   assert.ok(text.includes(dirFlag('/p/x')), text);
   assert.ok(text.includes(desc('1b056448')), text);
+});
+
+// ======================================================================================================
+// W1 (item 20fa8b17): retrospective firing policy. BLIND author: written from the frozen task-scope and
+// test-plan notes (steps 1-12, D1-D11, AC1-AC10), the supplied declarations and the existing harness. Oracle:
+// task-scope steps and acceptance criteria, cited per scenario. Scenario ids Sn are those of the test-plan.
+// Fixtures: scopeFixture in retro-fake-runs.mjs (a scope item, closed runs of it, implementation items with
+// session-tracking notes); the anchor is the earliest-opened run, rid(1). Timing probes sit 2 s (claim age)
+// or 1 min / 1 h (hourly limit, abandonment) either side of their limit.
+// ======================================================================================================
+
+const CR = String.fromCharCode(13);
+const SCOPE_CFG = (o = {}) => retroConfig({ mode: 'dispatch', boundary: 'scope', ...o });
+const invocations = (text) => count(text, '/session-retrospective');
+const runFlags = (text) => count(text, '--run ');
+const fixtureOpts = (sf, config, behavior) => ({ config, runs: sf.runs, items: sf.items, notes: sf.notes, behavior });
+const note = (...lines) => [...lines, ''].join(NL);
+
+/** Asserts a Stop answer is a dispatch block naming every id; returns the reason. */
+function assertDispatchBlock(res, ids = []) {
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.json?.decision, 'block', res.stdout);
+  const reason = res.json.reason;
+  assert.ok(reason.includes(DISPATCH), reason);
+  for (const id of ids) assert.ok(reason.includes(`--run ${id}`), `${id} missing from: ${reason}`);
+  return reason;
+}
+/** Asserts {} on stdout, exit 0. */
+function assertSilentRun(res) {
+  assert.equal(res.status, 0, res.stderr);
+  assert.deepEqual(res.json, {}, res.stdout);
+}
+/** No mark of any kind was written. */
+function assertNoMarks(fake) {
+  assert.equal(fake.markOutcomes.length, 0, JSON.stringify(fake.markOutcomes));
+}
+/** The run carries retro-skipped and retro, written in that order. */
+function assertSkipped(fake, runIds) {
+  for (const id of runIds) {
+    const keys = fake.markOutcomes.filter((o) => o.runId === id && o.marked).map((o) => o.key);
+    assert.ok(keys.includes('retro-skipped') && keys.includes('retro'), `${id}: ${JSON.stringify(keys)}`);
+    assert.ok(keys.indexOf('retro-skipped') < keys.indexOf('retro'), `${id}: retro-skipped before retro: ${JSON.stringify(keys)}`);
+    assert.ok(!keys.includes('retro-claim'), `${id} claimed: ${JSON.stringify(keys)}`);
+  }
+}
+
+// ---- S1 (AC1, TS1-TS2): one directive per completed scope, naming every run -------------------------
+
+/** 12 runs of one scope: 10 plain, one fix-cycle run with the scope, one fix-cycle run without a scopeId. */
+function bigGroup() {
+  const sf = scopeFixture({ runs: 12, labels: { 0: 'wave', 10: 'wave-a1' } });
+  sf.runs[11].label = 'wave-a2';
+  delete sf.runs[11].scopeId;
+  return sf;
+}
+
+test('S1: 10 runs + 2 fix-cycle runs of one scope: nothing while the scope is in work; once terminal ONE directive naming all 12', async () => {
+  const sf = bigGroup();
+  sf.items[0].role = 'work';
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+    const s = sid('s1');
+    assertSilentRun(await stop(stopPayload(s)));
+    assertNoMarks(fake);
+    fake.setItem(SCOPE, { role: 'terminal', roleChangedAt: ago(2 * HOUR) });
+    const reason = assertDispatchBlock(await stop(stopPayload(s)), sf.runIds);
+    assert.equal(invocations(reason), 1, reason);
+    assert.equal(runFlags(reason), 12, reason);
+    assert.deepEqual([...fake.won('retro-claim')].sort(), [...sf.runIds].sort());
+    assert.deepEqual(fake.won('retro'), [], 'a claim is not a done mark');
+    for (const id of sf.runIds) assert.equal(fake.hasMark(id, 'retro-claim'), true, id);
+  });
+});
+
+test('S1 probe: a replayed Stop pass does not claim again (no second write of retro-claim, no second directive)', async () => {
+  const sf = scopeFixture({ runs: 2 });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+    const s = sid('s1r');
+    assertDispatchBlock(await stop(stopPayload(s)), sf.runIds);
+    const writes = fake.markOutcomes.length;
+    assertSilentRun(await stop(stopPayload(s)));
+    assert.equal(fake.markOutcomes.length, writes, JSON.stringify(fake.markOutcomes));
+    assert.equal(fake.markOutcomes.filter((o) => o.key === 'retro-claim').length, 2);
+  });
+});
+
+test('S1 probe: a run the list answers twice is named once and claimed once', async () => {
+  const sf = scopeFixture({ runs: 2 });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG(), { dup: true }), async ({ stop, fake }) => {
+    const reason = assertDispatchBlock(await stop(stopPayload(sid('s1d'))), sf.runIds);
+    for (const id of sf.runIds) assert.equal(count(reason, `--run ${id}`), 1, reason);
+    for (const id of sf.runIds) assert.equal(fake.markOutcomes.filter((o) => o.runId === id && o.key === 'retro-claim').length, 1, id);
+  });
+});
+
+// ---- S2 (AC1): a scope is not due while anything of it is open --------------------------------------
+
+const blockers = {
+  'an open run of the scope': {
+    apply: (sf) => sf.runs.push({ runId: rid(50), scopeId: SCOPE, status: 'open', members: 3, terminal: 0, marks: {}, openedAt: ago(HOUR) }),
+    clear: (fake) => Object.assign(fake.runs.find((r) => r.runId === rid(50)), { status: 'closed', closedAt: ago(30 * MIN) }),
+  },
+  'a paused run of the scope': {
+    apply: (sf) => sf.runs.push({ runId: rid(51), scopeId: SCOPE, status: 'paused', members: 3, terminal: 0, marks: {}, openedAt: ago(HOUR) }),
+    clear: (fake) => Object.assign(fake.runs.find((r) => r.runId === rid(51)), { status: 'closed', closedAt: ago(30 * MIN) }),
+  },
+  'a subtree item in review': {
+    apply: (sf) => {
+      sf.items.find((i) => i.id === sf.implIds[0]).role = 'review';
+    },
+    clear: (fake, sf) => fake.setItem(sf.implIds[0], { role: 'terminal' }),
+  },
+  'a subtree item in work': {
+    apply: (sf) => {
+      sf.items.find((i) => i.id === sf.implIds[1]).role = 'work';
+    },
+    clear: (fake, sf) => fake.setItem(sf.implIds[1], { role: 'terminal' }),
+  },
+};
+for (const [name, b] of Object.entries(blockers)) {
+  test(`S2: a terminal scope with ${name} is not due: no directive, no mark; clearing it makes the scope due`, async () => {
+    const sf = scopeFixture({ runs: 2 });
+    b.apply(sf);
+    await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+      const s = sid('s2');
+      assertSilentRun(await stop(stopPayload(s)));
+      assertNoMarks(fake);
+      b.clear(fake, sf);
+      assertDispatchBlock(await stop(stopPayload(s)), [rid(1), rid(2)]);
+    });
+  });
+}
+
+// ---- S3 (D3): scopeId == rootId is no scope: due at close ---------------------------------------------
+
+for (const [label, scopeId] of [['the root id', ROOT], ['an empty string', ''], ['absent', undefined]]) {
+  test(`S3: a run whose scopeId is ${label} is due at its close: the trigger dispatches`, async () => {
+    const sf = scopeFixture({ runs: 1, impl: [{}, {}, {}] });
+    const run = sf.runs[0];
+    if (scopeId === undefined) delete run.scopeId;
+    else run.scopeId = scopeId;
+    run.seats = sf.implIds.map((itemId) => ({ itemId }));
+    await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ trigger, fake }) => {
+      const res = await trigger(closePayload(sid('s3'), rid(1)));
+      assert.equal(res.status, 0, res.stderr);
+      const text = contextOf(res);
+      assert.ok(text?.includes(DISPATCH), res.stdout);
+      assert.ok(text.includes(`--run ${rid(1)}`), text);
+      assert.deepEqual(fake.won('retro-claim'), [rid(1)]);
+    });
+  });
+}
+
+// ---- S4, S5 (AC2, TS4): the triage gate ---------------------------------------------------------------
+
+const CLEAN2 = () => scopeFixture({ runs: 2, impl: [{}, {}] });
+
+test('S4: a clean 2-item group: retro-skipped then retro on every run, nothing written to the session', async () => {
+  const sf = CLEAN2();
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+    const res = await stop(stopPayload(sid('s4')));
+    assertSilentRun(res);
+    assert.equal(res.stdout.trim(), '{}');
+    assertSkipped(fake, sf.runIds);
+  });
+});
+
+const friction = (text) => note('Outcome: success', `Friction: ${text}`, 'Deviations: none');
+const signals = {
+  'Friction: x': (sf) => (sf.notes[sf.implIds[0]]['session-tracking'] = friction('slow gate')),
+  'Deviations: x': (sf) => (sf.notes[sf.implIds[1]]['session-tracking'] = note('Outcome: success', 'Friction: none', 'Deviations: changed the schema')),
+  'Outcome: partial': (sf) => (sf.notes[sf.implIds[0]]['session-tracking'] = note('Outcome: partial', 'Friction: none', 'Deviations: none')),
+  'a fix-cycle run': (sf) => {
+    sf.runs[0].label = 'wave';
+    sf.runs[1].label = 'wave-a1';
+  },
+  'an agent-observation created after the first openedAt': (sf) =>
+    sf.items.push({ id: iid(700), type: 'agent-observation', role: 'queue', parent: ROOT, createdAt: ago(HOUR) }),
+  'a third implementation item (minItems 3)': (sf) => {
+    sf.items.push({ id: iid(701), type: 'feature-task', role: 'terminal', parent: SCOPE, createdAt: ago(10 * DAY), roleChangedAt: ago(3 * HOUR) });
+    sf.notes[iid(701)] = { 'session-tracking': CLEAN_NOTE };
+  },
+  'a missing session-tracking note': (sf) => delete sf.notes[sf.implIds[1]],
+  'a note without a Deviations line': (sf) => (sf.notes[sf.implIds[0]]['session-tracking'] = note('Outcome: success', 'Friction: none')),
+};
+for (const [name, mutate] of Object.entries(signals)) {
+  test(`S5: ${name} alone makes the clean group dispatch (not skipped)`, async () => {
+    const sf = CLEAN2();
+    mutate(sf);
+    await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+      assertDispatchBlock(await stop(stopPayload(sid('s5'))), sf.runIds);
+      assert.deepEqual(fake.won('retro-skipped'), []);
+      assert.deepEqual(fake.won('retro'), []);
+      assert.deepEqual([...fake.won('retro-claim')].sort(), [...sf.runIds].sort());
+    });
+  });
+}
+
+test('S5: still skipped: 2 implementation items beside excluded-type items (container, proposal, trend, an old observation)', async () => {
+  const sf = CLEAN2();
+  const kid = (n, type, createdAt) => sf.items.push({ id: iid(710 + n), type, role: 'terminal', parent: SCOPE, createdAt, roleChangedAt: ago(3 * HOUR) });
+  kid(0, 'container', ago(10 * DAY));
+  kid(1, 'improvement-proposal', ago(10 * DAY));
+  kid(2, 'retrospective-trend', ago(10 * DAY));
+  kid(3, 'agent-observation', ago(10 * DAY));
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+    assertSilentRun(await stop(stopPayload(sid('s5x'))));
+    assertSkipped(fake, sf.runIds);
+  });
+});
+
+test('S5 probe: Friction / Deviations none in any casing, one trailing period, padded, with CRLF line ends: still skipped', async () => {
+  const bodies = [
+    note('Outcome: success', 'Friction: NONE', 'Deviations: None'),
+    note('Outcome: implemented', 'Friction: none.', 'Deviations: none.'),
+    note('Outcome: success', 'Friction:   none  ', 'Deviations: none'),
+    ['Outcome: success', 'Friction: None.', 'Deviations: none', ''].join(CR + NL),
+  ];
+  for (const body of bodies) {
+    const sf = CLEAN2();
+    sf.notes[sf.implIds[0]]['session-tracking'] = body;
+    await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+      assertSilentRun(await stop(stopPayload(sid('s5p'))));
+      assertSkipped(fake, sf.runIds);
+    });
+  }
+});
+
+test('S5 probe: two trailing periods are not "none": the group dispatches', async () => {
+  const sf = CLEAN2();
+  sf.notes[sf.implIds[0]]['session-tracking'] = friction('none..');
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop }) => {
+    assertDispatchBlock(await stop(stopPayload(sid('s5pp'))), sf.runIds);
+  });
+});
+
+test('S5 probe: a run labelled -a0 is not a fix-cycle run: the clean group is still skipped', async () => {
+  const sf = scopeFixture({ runs: 2, impl: [{}, {}], labels: { 0: 'wave', 1: 'wave-a0' } });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+    assertSilentRun(await stop(stopPayload(sid('s5a0'))));
+    assertSkipped(fake, sf.runIds);
+  });
+});
+
+test('S5 probe: the minItems boundary: 3 clean items dispatch at minItems 3 and skip at 4; 2 dispatch at 2', async () => {
+  for (const [impl, minItems, dispatches] of [[3, 3, true], [3, 4, false], [2, 2, true], [2, 3, false]]) {
+    const sf = scopeFixture({ runs: 2, impl: Array.from({ length: impl }, () => ({})) });
+    await withFixture(fixtureOpts(sf, SCOPE_CFG({ minItems })), async ({ stop, fake }) => {
+      const res = await stop(stopPayload(sid('s5m')));
+      if (dispatches) assertDispatchBlock(res, sf.runIds);
+      else {
+        assertSilentRun(res);
+        assertSkipped(fake, sf.runIds);
+      }
+    });
+  }
+});
+
+// ---- S6 (hook level): minItems and the older dispatchThreshold ----------------------------------------
+
+test('S6: minItems 0 makes the clean 2-item group dispatch', async () => {
+  const sf = CLEAN2();
+  await withFixture(fixtureOpts(sf, SCOPE_CFG({ minItems: 0 })), async ({ stop }) => {
+    assertDispatchBlock(await stop(stopPayload(sid('s60'))), sf.runIds);
+  });
+});
+
+test('S6: dispatchThreshold 5 alone acts as minItems 5 (3 clean items skip); with minItems 2 beside it, minItems wins', async () => {
+  const sf = scopeFixture({ runs: 2 });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG({ threshold: 5 })), async ({ stop, fake }) => {
+    assertSilentRun(await stop(stopPayload(sid('s65'))));
+    assertSkipped(fake, sf.runIds);
+  });
+  const both = scopeFixture({ runs: 2, impl: [{}, {}] });
+  await withFixture(fixtureOpts(both, SCOPE_CFG({ threshold: 5, minItems: 2 })), async ({ stop }) => {
+    assertDispatchBlock(await stop(stopPayload(sid('s66'))), both.runIds);
+  });
+});
+
+test('S6: an invalid boundary acts as scope; an omitted boundary acts as scope', async () => {
+  for (const boundary of ['bogus', null]) {
+    const sf = scopeFixture({ runs: 2 });
+    sf.items[0].role = 'work';
+    await withFixture(fixtureOpts(sf, SCOPE_CFG({ boundary })), async ({ stop, fake }) => {
+      assertSilentRun(await stop(stopPayload(sid('s6b'))));
+      assertNoMarks(fake);
+      fake.setItem(SCOPE, { role: 'terminal' });
+      assertDispatchBlock(await stop(stopPayload(sid('s6c'))), sf.runIds);
+    });
+  }
+});
+
+// ---- S7, S8 (AC3): claim and done are separate; a retrospective that stops without finishing -----------
+
+const retrospectiveTranscript = (sbx, name, anchor, ids) =>
+  writeTranscript(sbx, name, `/session-retrospective ${ids.map((i) => `--run ${i}`).join(' ')} (anchor ${anchor})`);
+const subagentInput = (session, transcriptPath) => ({ session_id: session, agent_id: 'agent-1', agent_type: 'general-purpose', agent_transcript_path: transcriptPath });
+
+test('S7: a retrospective that stops without retro: the next Stop retries at once; its second failure fails the group with one nudge, then silence', async () => {
+  const sf = scopeFixture({ runs: 2 });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ sbx, stop, subagentStop, fake }) => {
+    const s = sid('s7');
+    const anchor = rid(1);
+    assertDispatchBlock(await stop(stopPayload(s)), sf.runIds);
+    const claimed = readRetroState(sbx, s);
+    assert.equal(claimed.claims.length, 1, JSON.stringify(claimed));
+    assert.equal(claimed.claims[0].anchor, anchor);
+    assert.equal(claimed.claims[0].key, 'retro-claim');
+    assert.equal(claimed.claims[0].failed, false);
+    assert.ok(Date.now() - Date.parse(claimed.lastDispatchAt) < MIN, 'the hourly limit is armed: ' + claimed.lastDispatchAt);
+
+    const transcript = retrospectiveTranscript(sbx, 'sub1.jsonl', anchor, sf.runIds);
+    assertSilentRun(await subagentStop(subagentInput(s, transcript)));
+    assert.equal(readRetroState(sbx, s).claims[0].failed, true);
+
+    const retry = await stop(stopPayload(s));
+    assertDispatchBlock(retry, sf.runIds);
+    assert.deepEqual([...fake.won('retro-retry')].sort(), [...sf.runIds].sort(), 'retro-retry on every run, though the hourly limit was just armed');
+
+    assertSilentRun(await subagentStop(subagentInput(s, retrospectiveTranscript(sbx, 'sub2.jsonl', anchor, sf.runIds))));
+    const failed = await stop(stopPayload(s));
+    assert.equal(failed.status, 0, failed.stderr);
+    assert.equal(failed.json?.decision, 'block', failed.stdout);
+    assert.equal(count(failed.json.reason, 'Retrospective suggested'), 1, failed.json.reason);
+    assert.ok(!failed.json.reason.includes(DISPATCH), failed.json.reason);
+    assert.deepEqual([...fake.won('retro-failed')].sort(), [...sf.runIds].sort());
+    assertSilentRun(await stop(stopPayload(s)));
+    assert.deepEqual(fake.won('retro'), []);
+  });
+});
+
+test('S7 probe: a SubagentStop whose transcript lacks the command, or the anchor id, is not a failed retrospective', async () => {
+  const sf = scopeFixture({ runs: 2 });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ sbx, stop, subagentStop }) => {
+    const s = sid('s7n');
+    assertDispatchBlock(await stop(stopPayload(s)), sf.runIds);
+    const other = writeTranscript(sbx, 'other.jsonl', `/session-retrospective --run ${rid(77)} (some other anchor)`);
+    assertSilentRun(await subagentStop(subagentInput(s, other)));
+    assert.equal(readRetroState(sbx, s).claims[0].failed, false, 'a retrospective of another anchor');
+  });
+});
+
+test('S8: a SubagentStop with retro present on the anchor drops the claim; the next Stop is {}', async () => {
+  const sf = scopeFixture({ runs: 2 });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ sbx, stop, subagentStop, fake }) => {
+    const s = sid('s8a');
+    assertDispatchBlock(await stop(stopPayload(s)), sf.runIds);
+    for (const id of sf.runIds) fake.setMark(id, 'retro');
+    const transcript = retrospectiveTranscript(sbx, 'done.jsonl', rid(1), sf.runIds);
+    assertSilentRun(await subagentStop(subagentInput(s, transcript)));
+    assert.deepEqual(readRetroState(sbx, s).claims, []);
+    assertSilentRun(await stop(stopPayload(s)));
+  });
+});
+
+test('S8: a transcript without the command keeps the claim; the next Stop is {}', async () => {
+  const sf = scopeFixture({ runs: 2 });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ sbx, stop, subagentStop }) => {
+    const s = sid('s8b');
+    assertDispatchBlock(await stop(stopPayload(s)), sf.runIds);
+    const unrelated = writeTranscript(sbx, 'unrelated.jsonl', 'implement the item');
+    assertSilentRun(await subagentStop(subagentInput(s, unrelated)));
+    const claim = readRetroState(sbx, s).claims[0];
+    assert.equal(claim.failed, false);
+    assert.equal(claim.anchor, rid(1));
+    assertSilentRun(await stop(stopPayload(s)));
+  });
+});
+
+test('S8 probe: a missing transcript path (absent, or a file that does not exist) keeps the claim unfailed', async () => {
+  const sf = scopeFixture({ runs: 2 });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ sbx, stop, subagentStop }) => {
+    const s = sid('s8c');
+    assertDispatchBlock(await stop(stopPayload(s)), sf.runIds);
+    assertSilentRun(await subagentStop({ session_id: s, agent_id: 'agent-1', agent_type: 'general-purpose' }));
+    assertSilentRun(await subagentStop(subagentInput(s, join(sbx.base, 'does-not-exist.jsonl'))));
+    assert.equal(readRetroState(sbx, s).claims[0].failed, false);
+  });
+});
+
+test('S8 probe: a SubagentStop does no REST work with no claim, in mode off, or under boundary run', async () => {
+  const sf = scopeFixture({ runs: 2 });
+  const claim = { anchor: rid(1), runs: sf.runIds, key: 'retro-claim', at: new Date().toISOString(), failed: false };
+  const cases = [
+    ['no claim', SCOPE_CFG(), false],
+    ['mode off', SCOPE_CFG({ mode: 'off' }), true],
+    ['boundary run', SCOPE_CFG({ boundary: 'run' }), true],
+  ];
+  for (const [label, config, withClaim] of cases) {
+    await withFixture(fixtureOpts(sf, config), async ({ sbx, subagentStop, fake }) => {
+      const s = sid('s8d');
+      const transcript = retrospectiveTranscript(sbx, 'x.jsonl', rid(1), sf.runIds);
+      if (withClaim) writeRetroState(sbx, s, { claims: [claim] });
+      assertSilentRun(await subagentStop(subagentInput(s, transcript)));
+      assert.equal(fake.requests.length, 0, `${label}: ${JSON.stringify(fake.requests)}`);
+      if (withClaim) assert.equal(readRetroState(sbx, s).claims[0].failed, false, label);
+    });
+  }
+});
+
+// ---- S9 (AC4): another session's claim is retried once it is old enough -----------------------------
+
+test('S9: another session\'s retro-claim 19m58s old: {}; 20m02s old: a directive with retro-retry on every run', async () => {
+  for (const [ageMs, retries] of [[20 * MIN - 2000, false], [20 * MIN + 2000, true]]) {
+    const sf = scopeFixture({ runs: 2 });
+    for (const r of sf.runs) r.marks = { 'retro-claim': ago(ageMs) };
+    await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+      const res = await stop(stopPayload(sid('s9')));
+      if (retries) {
+        assertDispatchBlock(res, sf.runIds);
+        assert.deepEqual([...fake.won('retro-retry')].sort(), [...sf.runIds].sort());
+      } else {
+        assertSilentRun(res);
+        assertNoMarks(fake);
+      }
+    });
+  }
+});
+
+test('S9 probe: a second failure seen by another session: retro-retry 21 min old -> retro-failed and one nudge; 19m58s old -> {}', async () => {
+  for (const [retryAge, fails] of [[21 * MIN, true], [20 * MIN - 2000, false]]) {
+    const sf = scopeFixture({ runs: 2 });
+    for (const r of sf.runs) r.marks = { 'retro-claim': ago(45 * MIN), 'retro-retry': ago(retryAge) };
+    await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+      const res = await stop(stopPayload(sid('s9f')));
+      if (fails) {
+        assert.equal(res.json?.decision, 'block', res.stdout);
+        assert.equal(count(res.json.reason, 'Retrospective suggested'), 1, res.json.reason);
+        assert.deepEqual([...fake.won('retro-failed')].sort(), [...sf.runIds].sort());
+        assertSilentRun(await stop(stopPayload(sid('s9g'))));
+      } else {
+        assertSilentRun(res);
+        assertNoMarks(fake);
+      }
+    });
+  }
+});
+
+// ---- S10 (AC5): an abandoned scope -------------------------------------------------------------------
+
+test('S10: a scope still in work, no open run, newest close 8 d old: one [stale] directive, then {} for another session', async () => {
+  const sf = scopeFixture({ runs: 2, scopeRole: 'work', closedMs: 8 * DAY });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop }) => {
+    const reason = assertDispatchBlock(await stop(stopPayload(sid('s10a'))), sf.runIds);
+    assert.ok(reason.includes('[stale]'), reason);
+    assert.ok(reason.includes(SCOPE.slice(0, 8)), reason);
+    assertSilentRun(await stop(stopPayload(sid('s10b'))));
+  });
+});
+
+test('S10: newest close 6 d old: {} and no mark; probe 7 d + 1 h: dispatches; 7 d - 1 h: {}', async () => {
+  for (const [closedMs, dispatches] of [[6 * DAY, false], [7 * DAY + HOUR, true], [7 * DAY - HOUR, false]]) {
+    const sf = scopeFixture({ runs: 2, scopeRole: 'work', closedMs });
+    await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+      const res = await stop(stopPayload(sid('s10c')));
+      if (dispatches) assert.ok(assertDispatchBlock(res, sf.runIds).includes('[stale]'));
+      else {
+        assertSilentRun(res);
+        assertNoMarks(fake);
+      }
+    });
+  }
+});
+
+test('S10: a scope that is not terminal and has an open run is not abandoned however old its last close', async () => {
+  const sf = scopeFixture({ runs: 2, scopeRole: 'work', closedMs: 9 * DAY });
+  sf.runs.push({ runId: rid(60), scopeId: SCOPE, status: 'open', members: 3, terminal: 0, marks: {}, openedAt: ago(HOUR) });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+    assertSilentRun(await stop(stopPayload(sid('s10o'))));
+    assertNoMarks(fake);
+  });
+});
+
+// ---- S11 (AC9): at most one first dispatch an hour; two due groups share a directive -----------------
+
+test('S11: lastDispatchAt 10 min ago: a newly due group waits ({}); 61 min ago: it dispatches; probe 59 min: waits', async () => {
+  for (const [lastMs, dispatches] of [[10 * MIN, false], [61 * MIN, true], [59 * MIN, false]]) {
+    const sf = scopeFixture({ runs: 2 });
+    await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ sbx, stop, fake }) => {
+      const s = sid('s11');
+      writeRetroState(sbx, s, { lastDispatchAt: ago(lastMs) });
+      const res = await stop(stopPayload(s));
+      if (dispatches) assertDispatchBlock(res, sf.runIds);
+      else {
+        assertSilentRun(res);
+        assertNoMarks(fake);
+      }
+    });
+  }
+});
+
+test('S11: two groups due in one pass share ONE directive naming every run of both', async () => {
+  const a = scopeFixture({ runs: 2 });
+  const b = scopeFixture({ scopeId: iid(901), runs: 2, runStart: 3, itemStart: 10 });
+  const sf = mergeFixtures(a, b);
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+    const reason = assertDispatchBlock(await stop(stopPayload(sid('s11b'))), sf.runIds);
+    assert.equal(invocations(reason), 1, reason);
+    assert.equal(runFlags(reason), 4, reason);
+    assert.equal(fake.won('retro-claim').length, 4);
+  });
+});
+
+// ---- S12 (AC8): ownership holds in both modes ---------------------------------------------------------
+
+test('S12: nudge mode: a session that closed no run of the group stays silent; the session whose trigger saw a close gets one nudge, one invocation', async () => {
+  const sf = scopeFixture({ runs: 2 });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG({ mode: 'nudge' })), async ({ stop, trigger }) => {
+    assertSilentRun(await stop(stopPayload(sid('s12a'))));
+    const owner = sid('s12b');
+    const res = await trigger(closePayload(owner, rid(1)));
+    assert.equal(res.status, 0, res.stderr);
+    const text = contextOf(res);
+    assert.ok(text?.includes('Retrospective suggested'), res.stdout);
+    assert.ok(!text.includes(DISPATCH), text);
+    assert.equal(invocations(text), 1, text);
+    for (const id of sf.runIds) assert.ok(text.includes(`--run ${id}`), text);
+    assertSilentRun(await stop(stopPayload(owner)));
+  });
+});
+
+test('S12: dispatch mode, unowned: the scope delivered 30 min ago waits ({}); 61 min ago it dispatches; probe 59 min: waits', async () => {
+  for (const [changedMs, dispatches] of [[30 * MIN, false], [61 * MIN, true], [59 * MIN, false]]) {
+    const sf = scopeFixture({ runs: 2, scopeChangedMs: changedMs });
+    await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+      const res = await stop(stopPayload(sid('s12c')));
+      if (dispatches) assertDispatchBlock(res, sf.runIds);
+      else {
+        assertSilentRun(res);
+        assertNoMarks(fake);
+      }
+    });
+  }
+});
+
+test('S12: dispatch mode, owned: a session that closed a run of the group dispatches at once, scope delivered 30 min ago', async () => {
+  const sf = scopeFixture({ runs: 2, scopeChangedMs: 30 * MIN });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ sbx, stop }) => {
+    const s = sid('s12d');
+    writeRetroState(sbx, s, { closes: [rid(2)], sawClose: true });
+    assertDispatchBlock(await stop(stopPayload(s)), sf.runIds);
+  });
+});
+
+test('S12: nudge mode, unowned, however old the scope: {}', async () => {
+  const sf = scopeFixture({ runs: 2, scopeChangedMs: 3 * HOUR });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG({ mode: 'nudge' })), async ({ stop, fake }) => {
+    assertSilentRun(await stop(stopPayload(sid('s12e'))));
+    assertNoMarks(fake);
+  });
+});
+
+// ---- S13 (TS10): a director session ---------------------------------------------------------------------
+
+test('S13: a director session with REST skips the clean 2-item group: retro-skipped and retro, no directive', async () => {
+  const sf = CLEAN2();
+  await withFixture(fixtureOpts(sf, SCOPE_CFG({ mode: 'nudge' })), async ({ sbx, stop, fake }) => {
+    const s = sid('s13a');
+    markDirector(sbx, s);
+    ownRuns(sbx, s, [rid(1)]);
+    assertSilentRun(await stop(stopPayload(s)));
+    assertSkipped(fake, sf.runIds);
+  });
+});
+
+test('S13: a director session is forced to dispatch even when the configured mode is nudge', async () => {
+  const sf = scopeFixture({ runs: 2 });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG({ mode: 'nudge' })), async ({ sbx, stop }) => {
+    const s = sid('s13b');
+    markDirector(sbx, s);
+    ownRuns(sbx, s, [rid(1)]);
+    const reason = assertDispatchBlock(await stop(stopPayload(s)), sf.runIds);
+    assert.ok(!reason.includes('Retrospective suggested'), reason);
+  });
+});
+
+// ---- ownership at the scope boundary (review fixes B1, O1, O6) -------------------------------------------
+
+test('O6a: a session that only OPENED a run of the scope owns the group at once (nudge mode, scope delivered 30 min ago)', async () => {
+  const sf = scopeFixture({ runs: 2, scopeChangedMs: 30 * MIN });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG({ mode: 'nudge' })), async ({ sbx, stop }) => {
+    const s = sid('o6a');
+    ownRuns(sbx, s, [rid(1)], 'opened');
+    const text = assertNudge(await stop(stopPayload(s)));
+    for (const id of sf.runIds) assert.ok(text.includes(`--run ${id}`), text);
+  });
+});
+
+test('O6b: nudge mode, abandoned scope: the owning session is nudged, a bystander is not', async () => {
+  const sf = scopeFixture({ runs: 2, scopeRole: 'work', closedMs: 8 * DAY, impl: [{ note: null }, { note: null }, { note: null }] });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG({ mode: 'nudge' })), async ({ sbx, stop }) => {
+    assertSilentRun(await stop(stopPayload(sid('o6b-bystander'))));
+    const owner = sid('o6b-owner');
+    ownRuns(sbx, owner, [rid(1)], 'opened');
+    assertNudge(await stop(stopPayload(owner)));
+  });
+});
+
+test('O6c: a director in a nudge-mode project does not take over an orphaned scope after 60 minutes; a dispatch-mode project does', async () => {
+  const sf = scopeFixture({ runs: 2, scopeChangedMs: 61 * MIN });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG({ mode: 'nudge' })), async ({ sbx, stop, fake }) => {
+    const s = sid('o6c-nudge');
+    markDirector(sbx, s);
+    assertSilentRun(await stop(stopPayload(s)));
+    assertNoMarks(fake);
+  });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG({ mode: 'dispatch' })), async ({ sbx, stop }) => {
+    const s = sid('o6c-dispatch');
+    markDirector(sbx, s);
+    assertDispatchBlock(await stop(stopPayload(s)), sf.runIds);
+  });
+});
+
+test('N1: a director in a nudge-mode project does not take an abandoned scope it does not own; a dispatch-mode project does', async () => {
+  const sf = scopeFixture({ runs: 2, scopeRole: 'work', closedMs: 8 * DAY, impl: [{ note: null }, { note: null }, { note: null }] });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG({ mode: 'nudge' })), async ({ sbx, stop, fake }) => {
+    const s = sid('n1-nudge');
+    markDirector(sbx, s);
+    assertSilentRun(await stop(stopPayload(s)));
+    assertNoMarks(fake);
+  });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG({ mode: 'dispatch' })), async ({ sbx, stop }) => {
+    const s = sid('n1-dispatch');
+    markDirector(sbx, s);
+    assertDispatchBlock(await stop(stopPayload(s)), sf.runIds);
+  });
+});
+
+function assertNudge(res) {
+  assert.equal(res.status, 0, res.stderr);
+  const text = res.json?.reason ?? contextOf(res);
+  assert.ok(text?.includes(NUDGE), res.stdout);
+  assert.ok(!text.includes(DISPATCH), text);
+  return text;
+}
+
+// ---- S16 (AC10): every REST failure fails open --------------------------------------------------------
+
+const failures = {
+  'the run list answers 500': { sf: () => scopeFixture({ runs: 2 }), behavior: { list: 'http500' } },
+  'the run list never answers': { sf: () => scopeFixture({ runs: 2 }), behavior: { list: 'hang' } },
+  'the run list answers malformed JSON': { sf: () => scopeFixture({ runs: 2 }), behavior: { list: 'badjson' } },
+  'the scope item read answers 500': { sf: () => scopeFixture({ runs: 2 }), behavior: { itemsGet: 'http500' } },
+  'the subtree list answers 500': { sf: () => scopeFixture({ runs: 2 }), behavior: { itemsList: 'http500' } },
+  'the notes read answers 500 (clean 2-item group)': { sf: CLEAN2, behavior: { notes: 'http500' } },
+  'the scope item is unknown to the server': { sf: () => scopeFixture({ runs: 2 }), mutate: (sf) => sf.items.shift() },
+};
+for (const [name, f] of Object.entries(failures)) {
+  test(`S16: ${name}: exit 0, {}, no mark`, async () => {
+    const sf = f.sf();
+    f.mutate?.(sf);
+    await withFixture(fixtureOpts(sf, SCOPE_CFG(), f.behavior), async ({ stop, fake }) => {
+      assertSilentRun(await stop(stopPayload(sid('s16'))));
+      assertNoMarks(fake);
+    });
+  });
+}
+
+test('S16: a lost anchor claim (another session wrote retro-claim after this list) gives no directive', async () => {
+  const sf = scopeFixture({ runs: 2 });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG(), { stale: true }), async ({ stop, fake }) => {
+    fake.setMark(rid(1), 'retro-claim');
+    assertSilentRun(await stop(stopPayload(sid('s16l'))));
+    assert.ok(fake.markOutcomes.some((o) => o.runId === rid(1) && o.key === 'retro-claim' && o.marked === false), JSON.stringify(fake.markOutcomes));
+    assert.ok(!fake.won('retro-claim').includes(rid(1)), 'the anchor claim was lost');
+  });
+});
+
+test('S16: an anchor claimed by another session a minute ago: no directive, no write', async () => {
+  const sf = scopeFixture({ runs: 2 });
+  for (const r of sf.runs) r.marks = { 'retro-claim': ago(MIN) };
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+    assertSilentRun(await stop(stopPayload(sid('s16c'))));
+    assertNoMarks(fake);
+  });
+});
+
+// ---- S17: the hook is registered ---------------------------------------------------------------------
+
+test('S17: hooks-config.json SubagentStop "" group runs retro-subagent-stop.mjs (timeout 5) beside phase-guard.mjs', () => {
+  const cfgJson = JSON.parse(readFileSync(HOOKS_CONFIG, 'utf8'));
+  const groups = cfgJson.hooks.SubagentStop.filter((g) => g.matcher === '');
+  assert.equal(groups.length, 1, JSON.stringify(cfgJson.hooks.SubagentStop));
+  const commands = groups[0].hooks.map((h) => h.command);
+  assert.ok(commands.some((c) => c.includes('phase-guard.mjs')), commands.join(' | '));
+  const retro = groups[0].hooks.find((h) => h.command.includes('retro-subagent-stop.mjs'));
+  assert.ok(retro, commands.join(' | '));
+  assert.equal(retro.type, 'command');
+  assert.equal(retro.timeout, 5);
+  assert.ok(retro.command.includes('${CLAUDE_PLUGIN_ROOT}/hooks/retro-subagent-stop.mjs'), retro.command);
+});
+// ======================================================================================================
+// Fix cycle A2 (review B1, B2, O2, O3, O4, O10): written before the fixes, from the amendments note and the
+// frozen task-scope. The harness (retro-fake-runs.mjs) now answers like the server: an items list carries
+// 8-hex id and parentId, both lists carry page.total (matches before the limit) and page.truncated.
+// ======================================================================================================
+
+const opsPost = async (fake, tool, body) => (await fetch(`${fake.url}/api/v1/ops/${tool}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+
+test('O1 harness: the items list answers 8-hex id and parentId (get answers full ids); a filter takes either form', async () => {
+  const sf = scopeFixture({ runs: 1 });
+  const fake = await startFakeRuns({ runs: sf.runs, items: sf.items, notes: sf.notes });
+  try {
+    const list = (await opsPost(fake, 'items_read', { select: 'list', ancestorId: SCOPE })).data;
+    assert.equal(list.items.length, 4, JSON.stringify(list));
+    for (const row of list.items) assert.match(row.id, /^[0-9a-f]{8}$/, JSON.stringify(row));
+    for (const row of list.items.filter((r) => r.id !== SCOPE.slice(0, 8))) assert.equal(row.parentId, SCOPE.slice(0, 8), JSON.stringify(row));
+    assert.equal(list.items.some((r) => r.id === SCOPE.slice(0, 8)), true, 'ancestorId includes the item itself');
+    const kids = (await opsPost(fake, 'items_read', { select: 'list', parentId: SCOPE.slice(0, 8) })).data;
+    assert.equal(kids.items.length, 3, JSON.stringify(kids));
+    const got = (await opsPost(fake, 'items_read', { select: 'get', itemId: sf.implIds[0] })).data;
+    assert.equal(got.id, sf.implIds[0]);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('O1 harness: both lists answer page.total before the limit and truncated = returned < total; a duplicated row counts twice', async () => {
+  const sf = scopeFixture({ runs: 3 });
+  const fake = await startFakeRuns({ runs: sf.runs, items: sf.items, notes: sf.notes, behavior: {} });
+  try {
+    const all = (await opsPost(fake, 'items_read', { select: 'list', ancestorId: SCOPE })).data;
+    assert.deepEqual(all.page, { total: 4, truncated: false });
+    const two = (await opsPost(fake, 'items_read', { select: 'list', ancestorId: SCOPE, limit: 2 })).data;
+    assert.equal(two.items.length, 2);
+    assert.deepEqual(two.page, { total: 4, truncated: true });
+    const exact = (await opsPost(fake, 'items_read', { select: 'list', ancestorId: SCOPE, limit: 4 })).data;
+    assert.deepEqual(exact.page, { total: 4, truncated: false });
+    const runs = (await opsPost(fake, 'runs_read', { select: 'list', limit: 2 })).data;
+    assert.equal(runs.items.length, 2);
+    assert.deepEqual(runs.page, { total: 3, truncated: true });
+    for (const r of runs.items) assert.equal(r.runId.length, 36, 'runs keep full ids');
+    fake.behavior.dup = true;
+    const dup = (await opsPost(fake, 'runs_read', { select: 'list', limit: 4 })).data;
+    assert.equal(dup.items.length, 4);
+    assert.deepEqual(dup.page, { total: 6, truncated: true });
+  } finally {
+    await fake.close();
+  }
+});
+
+// ---- B1: a truncated observation list is still a signal ------------------------------------------------
+
+/** An unscoped clean 2-item group read through run seats (full item ids), so only the signal reads decide it. */
+function unscopedClean2() {
+  const sf = CLEAN2();
+  for (const r of sf.runs) {
+    delete r.scopeId;
+    r.seats = sf.implIds.map((itemId) => ({ itemId }));
+  }
+  return sf;
+}
+
+test('B1 control: an unscoped clean 2-item group with ONE agent-observation after the first openedAt dispatches', async () => {
+  const sf = unscopedClean2();
+  sf.items.push({ id: iid(720), type: 'agent-observation', role: 'queue', parent: ROOT, createdAt: ago(HOUR) });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+    assertDispatchBlock(await stop(stopPayload(sid('b1c'))), sf.runIds);
+    assert.deepEqual(fake.won('retro-skipped'), []);
+  });
+});
+
+test('B1: an unscoped clean 2-item group with TWO agent-observations after the first openedAt dispatches (the list answers one item, truncated: that is a signal)', async () => {
+  const sf = unscopedClean2();
+  for (const n of [720, 721]) sf.items.push({ id: iid(n), type: 'agent-observation', role: 'queue', parent: ROOT, createdAt: ago(HOUR) });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+    assertDispatchBlock(await stop(stopPayload(sid('b1u'))), sf.runIds);
+    assert.deepEqual(fake.won('retro-skipped'), []);
+    assert.deepEqual(fake.won('retro'), []);
+    assert.deepEqual([...fake.won('retro-claim')].sort(), [...sf.runIds].sort());
+  });
+});
+
+test('B1: a scope group of 2 clean items with TWO agent-observations after the first openedAt dispatches', async () => {
+  const sf = CLEAN2();
+  for (const n of [720, 721]) sf.items.push({ id: iid(n), type: 'agent-observation', role: 'queue', parent: ROOT, createdAt: ago(HOUR) });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+    assertDispatchBlock(await stop(stopPayload(sid('b1'))), sf.runIds);
+    assert.deepEqual(fake.won('retro-skipped'), []);
+    assert.deepEqual(fake.won('retro'), []);
+    assert.deepEqual([...fake.won('retro-claim')].sort(), [...sf.runIds].sort());
+  });
+});
+
+// ---- B2: the scope's subtree is read through 8-hex ids ---------------------------------------------------
+
+test('B2: with the list answering 8-hex ids, 3 clean items still dispatch at minItems 3 and the scope itself is not counted as an item', async () => {
+  const sf = scopeFixture({ runs: 2 });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG({ minItems: 3 })), async ({ stop, fake }) => {
+    assertDispatchBlock(await stop(stopPayload(sid('b2'))), sf.runIds);
+    assert.deepEqual(fake.won('retro-skipped'), []);
+  });
+  const two = CLEAN2();
+  await withFixture(fixtureOpts(two, SCOPE_CFG({ minItems: 3 })), async ({ stop, fake }) => {
+    assertSilentRun(await stop(stopPayload(sid('b2b'))));
+    assertSkipped(fake, two.runIds);
+  });
+});
+
+// ---- O2: a session that holds the claim takes over only when its claim failed -----------------------------
+
+test('O2: this session\'s own retro-retry, 21 min old, not failed: {} and no new mark (the age test is for sessions that hold no claim)', async () => {
+  const sf = scopeFixture({ runs: 2 });
+  for (const r of sf.runs) r.marks = { 'retro-claim': ago(45 * MIN), 'retro-retry': ago(21 * MIN) };
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ sbx, stop, fake }) => {
+    const s = sid('o2a');
+    writeRetroState(sbx, s, { claims: [{ anchor: rid(1), runs: sf.runIds, key: 'retro-retry', at: ago(21 * MIN), failed: false }], lastDispatchAt: ago(70 * MIN) });
+    assertSilentRun(await stop(stopPayload(s)));
+    assertNoMarks(fake);
+    assert.equal(readRetroState(sbx, s).claims[0].failed, false);
+  });
+});
+
+test('O2: this session\'s own retro-claim, 25 min old, not failed: {} and no mark', async () => {
+  const sf = scopeFixture({ runs: 2 });
+  for (const r of sf.runs) r.marks = { 'retro-claim': ago(25 * MIN) };
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ sbx, stop, fake }) => {
+    const s = sid('o2b');
+    writeRetroState(sbx, s, { claims: [{ anchor: rid(1), runs: sf.runIds, key: 'retro-claim', at: ago(25 * MIN), failed: false }], lastDispatchAt: ago(70 * MIN) });
+    assertSilentRun(await stop(stopPayload(s)));
+    assertNoMarks(fake);
+  });
+});
+
+// ---- O3: a live run holds its group; a fix-cycle run without its base run joins no group ----------------
+
+/** Two unscoped runs w and w-a1 (seats on three clean items), so a due group would dispatch. */
+function unscopedPair() {
+  const sf = scopeFixture({ runs: 2, labels: { 0: 'w', 1: 'w-a1' } });
+  for (const r of sf.runs) {
+    delete r.scopeId;
+    r.seats = sf.implIds.map((itemId) => ({ itemId }));
+  }
+  return sf;
+}
+
+test('O3 control: unscoped w and w-a1, both closed and unmarked, dispatch as one group naming both', async () => {
+  const sf = unscopedPair();
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop }) => {
+    assertDispatchBlock(await stop(stopPayload(sid('o3c'))), sf.runIds);
+  });
+});
+
+test('O3: unscoped w closed + w-a1 open: the group has a live run, so it is not due: {} and no marks', async () => {
+  const sf = unscopedPair();
+  sf.runs[1].status = 'open';
+  delete sf.runs[1].closedAt;
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+    assertSilentRun(await stop(stopPayload(sid('o3a'))));
+    assertNoMarks(fake);
+  });
+});
+
+test('O3: w already marked retro + w-a1 closed and unmarked: w-a1 joins no group: {} and no marks', async () => {
+  const sf = unscopedPair();
+  sf.runs[0].marks = { retro: ago(3 * HOUR) };
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ stop, fake }) => {
+    assertSilentRun(await stop(stopPayload(sid('o3b'))));
+    assertNoMarks(fake);
+  });
+});
+
+// ---- O4: the cap of 5 counts groups that can act, not groups that cannot -----------------------------------
+
+test('O4: 6 newer scope groups that are not due + 1 older due group this session owns: the one pass dispatches the older group', async () => {
+  const notDue = Array.from({ length: 6 }, (_, k) =>
+    scopeFixture({ scopeId: iid(910 + k), scopeRole: 'work', runs: 2, runStart: 10 + 2 * k, itemStart: 100 + 10 * k, openedMs: 2 * HOUR, closedMs: HOUR }),
+  );
+  const due = scopeFixture({ runs: 2, openedMs: 6 * HOUR, closedMs: 3 * HOUR });
+  const sf = mergeFixtures(...notDue, due);
+  await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ sbx, stop, fake }) => {
+    const s = sid('o4');
+    writeRetroState(sbx, s, { closes: [rid(2)], sawClose: true });
+    const reason = assertDispatchBlock(await stop(stopPayload(s)), due.runIds);
+    assert.equal(runFlags(reason), 2, reason);
+    assert.deepEqual([...fake.won('retro-claim')].sort(), [...due.runIds].sort());
+    assert.deepEqual(fake.won('retro-skipped'), []);
+  });
+});
+
+// ---- N1: in nudge mode a group this session already nudged takes no slot of the 5 --------------------------
+// Oracle: W1 task-scope step 2/3 comment "outside dispatch mode a group this session already nudged stays
+// unmarked and can act no more, so it takes no slot either": 5 newer due groups all nudged before, plus 1
+// older owned due group: the pass nudges the older group and names none of the five.
+
+test('N1: nudge mode, 5 newer owned due groups all already nudged + 1 older owned due group: the pass nudges only the older group', async () => {
+  const newer = Array.from({ length: 5 }, (_, k) =>
+    scopeFixture({ scopeId: iid(910 + k), runs: 2, runStart: 10 + 2 * k, itemStart: 100 + 10 * k, openedMs: 2 * HOUR, closedMs: HOUR }),
+  );
+  const older = scopeFixture({ runs: 2, openedMs: 6 * HOUR, closedMs: 3 * HOUR });
+  const sf = mergeFixtures(...newer, older);
+  const newerIds = newer.flatMap((f) => f.runIds);
+  await withFixture(fixtureOpts(sf, SCOPE_CFG({ mode: 'nudge' })), async ({ sbx, stop }) => {
+    const s = sid('n1');
+    writeRetroState(sbx, s, { closes: sf.runIds, sawClose: true, nudged: newerIds });
+    const res = await stop(stopPayload(s));
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(res.json?.decision, 'block', res.stdout);
+    const reason = res.json.reason;
+    for (const id of older.runIds) assert.ok(reason.includes(`--run ${id}`), `${id} missing from: ${reason}`);
+    for (const id of newerIds) assert.ok(!reason.includes(id), `${id} named in: ${reason}`);
+  });
+});
+
+// ---- O10: the SubagentStop claim reads run in parallel ------------------------------------------------------
+
+test('O10: four claims, every runs_read get hangs: exit 0, {}, all four reads sent, no claim failed, in under 3 s', async () => {
+  const sf = scopeFixture({ runs: 4 });
+  const claims = sf.runIds.map((runId) => ({ anchor: runId, runs: [runId], key: 'retro-claim', at: new Date().toISOString(), failed: false }));
+  await withFixture(fixtureOpts(sf, SCOPE_CFG(), { runGet: 'hang' }), async ({ sbx, subagentStop, fake }) => {
+    const s = sid('o10');
+    writeRetroState(sbx, s, { claims });
+    const transcript = writeTranscript(sbx, 'o10.jsonl', `/session-retrospective ${sf.runIds.map((i) => `--run ${i}`).join(' ')}`);
+    const started = Date.now();
+    const res = await subagentStop(subagentInput(s, transcript));
+    const took = Date.now() - started;
+    assertSilentRun(res);
+    assert.ok(took < 3000, `took ${took} ms`);
+    assert.equal(fake.calls('runs_read', 'get').length, 4, JSON.stringify(fake.requests.map((q) => q.body)));
+    assert.deepEqual(readRetroState(sbx, s).claims.map((c) => c.failed), [false, false, false, false]);
+  });
 });

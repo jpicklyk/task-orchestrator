@@ -1,0 +1,16 @@
+{
+  "id": "2-defect",
+  "title": "Tool defect: one bug observation and one fake-gh issue, then evidence and one comment on the second sighting",
+  "taskScopeMaxLength": 12000,
+  "bugReports": true,
+  "defect": { "tool": "notes_write", "op": "upsert", "code": "internal", "message": "upsert refused while the server stored the second revision of a note" },
+  "features": [
+    { "key": "A", "items": [{ "note": "clean" }, { "note": "defect" }, { "note": "clean" }], "runs": 1 },
+    { "key": "B", "late": true, "items": [{ "note": "clean" }, { "note": "defect" }, { "note": "clean" }], "runs": 1 }
+  ],
+  "stages": [
+    { "id": "2-L2a", "kind": "live", "features": ["A"], "prompt": "directive", "expectGh": true, "checks": ["D1", "D2", "D3"] },
+    { "id": "2-age", "kind": "age-state", "days": 8, "seedFeatures": ["B"] },
+    { "id": "2-L2b", "kind": "live", "features": ["B"], "prompt": "directive", "expectGh": true, "checks": ["D4", "D5"] }
+  ]
+}

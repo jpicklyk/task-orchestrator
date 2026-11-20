@@ -70,12 +70,12 @@ work_item_schemas:
         role: queue
         required: true
         description: "Trends, proposals, and extension promotions."
-        guidance: "List patterns seen in 2+ sessions. Reference prior retrospective item IDs. For each trend at threshold: propose a concrete change placed in the layer that owns it: exact YAML for a schema, trait or run-profile change, or a rule for process guidance; a new hook with event/matcher; skill or plugin text only for mechanics or generic engineering practice, as file+section. Classify each proposal's scope: **global** (server floor config, plugin skills/hooks, process containers) vs **project-specific** (one project's workflow or per-root config) — name the target rootId for project-specific proposals."
+        guidance: "List patterns seen in 2+ sessions. Reference prior retrospective item IDs. For each trend at threshold: propose a concrete change placed in the layer that owns it: exact YAML for a schema, trait or run-profile change, or a rule for process guidance; a new hook with event/matcher; skill or plugin text only for mechanics or generic engineering practice, as file+section. Classify each proposal's scope: **global** (server floor config, plugin skills/hooks, process containers) vs **project-specific** (one project's workflow or per-root config) — name the target rootId for project-specific proposals. Also one line per finding: `F<n> kind=<defect|process|agent-discipline|positive> scope=<product|global-process|project> dim=<dimension> route=<trend <key>|bug|memory|none>: <finding>`, so the proposal step reads each finding's kind and scope."
       - key: actions-taken
         role: work
         required: true
         description: "Closure record — which improvement-proposal items were created or updated from this retrospective's signals."
-        guidance: "List each materialized action: improvement-proposal item UUID + one-line summary + scope (global | project:<rootId>). If a signal was intentionally not acted on, say why. 'No actions — <rationale>' is a valid body. This makes the retrospective-to-proposal edge queryable so future retrospectives can trace whether prior signals went anywhere."
+        guidance: "List each materialized action: improvement-proposal item UUID + one-line summary + scope (global | project:<rootId>). Also list each bug item filed or given evidence (short id, created|evidence) and each memory line returned for an agent-discipline slip. If a signal was intentionally not acted on, say why. 'No actions — <rationale>' is a valid body. This makes the retrospective-to-proposal edge queryable so future retrospectives can trace whether prior signals went anywhere."
 
   container:
     lifecycle: manual

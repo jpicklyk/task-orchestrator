@@ -1,494 +1,146 @@
 ---
 name: session-retrospective
-description: "Analyzes the current implementation run - evaluates schema effectiveness, delegation alignment, note quality, and plan-to-execution fit. Captures cross-session trends and proposes improvements when patterns repeat. Use after implementation runs, or when user says 'retrospective', 'session review', 'what did we learn', 'analyze this run', 'how did that go', 'evaluate our process', 'wrap up', 'end of session review'. Also use after a run closes, when the retrospective nudge fires."
-argument-hint: "[optional: root item UUID] [--run <runId>]... (repeatable) [--session-dir <dir>] [--dry-run to preview without creating items] [--deep: workflow-backed matching, main session only]"
+description: "Analyzes a closed implementation run (schema, delegation, notes, plan-to-execution), routes defects to items, records cross-run trends and proposes improvements when patterns repeat. Use when a run closes (the hook dispatch directive) or when explicitly asked for a 'retrospective', 'session review' or 'analyze this run'."
+argument-hint: "[optional: root item UUID] [--run <runId>]... (repeatable) [--session-dir <dir>] [--dry-run to preview without creating items]"
+context: fork
+agent: general-purpose
+model: sonnet
+effort: medium
 ---
 
 # Session Retrospective
 
-Structured post-implementation analysis. Evaluates the run across five dimensions, persists findings in MCP, and keeps cross-session trend memory to surface improvement proposals.
+Post-run analysis of five dimensions; findings persist in MCP, defects are routed to items, and trend memory turns repeated findings into improvement proposals. It runs unattended: it asks nobody anything; where an input is missing it states the assumption in the report and carries on.
 
-Calls are 4.0 tool calls; shapes live in [`../_generated/call-shapes.md`](../_generated/call-shapes.md). Every answer is the response envelope (`ok`, `data` or `error`). A write is `{ops: [...]}` of flat elements (one per `to-call` block here). Results come back as `data.results[i]` in request order with `data.summary {ok, failed}`; read ops of an ops tool (`config` `get`, `validate`, `effective`) answer there too. These calls are non-atomic: if any element fails, even in a one-element call, the answer is `ok: false` with top-level `error.code: partial_failure` (no detail, no fix) beside the full `data`, and the cause is that element's `data.results[i].error` (`code`, `message`, `detail`, `fix`). Any other top-level `error.code` is a call-level rejection (envelope, unknown field, access).
+Call shapes: [`../_generated/call-shapes.md`](../_generated/call-shapes.md); read each write's `data.results[i]` (`ok`, `error.code`). Trigger mechanics: hooks README, "Retrospective firing"; the grammar and thresholds behind the numbers: [`references/metrics.md`](references/metrics.md).
 
----
+- [ ] 0 Mode check, 1 Gather scope and run `retro-metrics`
+- [ ] 2 Aggregate, 3 Evaluate (3a-3f), 4 Trend memory
+- [ ] 5 Persist (5a-5d), 6 Update trends, 7 Proposals
+- [ ] 5e Run bug-report (always; the command decides)
+- [ ] 8 Meta-evaluation, 8a Verify adopted proposals, 8b Close, 9 Report
 
-## How the trigger works
-
-A retrospective is owed per **closed** run that is not marked `retro`, and only to the session that opened or closed it through `runs_write` (its main thread or one of its subagents, which carry its session id). Any other session, a director included, stays silent about that run and leaves it unmarked; a coordinator running in a session of its own handles its own run. Two hooks watch for it:
-
-- `retro-trigger` (PostToolUse on `runs_write`) records every successful `op: open` and `op: close` in the session's state, and evaluates only on a successful `op: close`.
-- `retro-backstop` (Stop) re-checks at the end of every turn, so a run this session opened but that closed elsewhere (a subagent, a tool the trigger never saw) is still found. A closed run is a confirmed boundary, so the backstop may dispatch as well as nudge.
-
-Both ask REST `runs_read` `list` with `unmarked: retro` and `endedSince = now - 24h`, and read each run's terminal count from `runs_read` `frontier` (`data.counts.terminal`), for at most 5 runs per pass. In mode `dispatch` with a terminal count at or above `dispatchThreshold` (default 3) they call `runs_write` `mark {runId, key: retro}` (REST only; first write wins, which is the cross-session dedupe; `marked: false` means another session won, so they stay silent) and emit the dispatch directive. A fix-cycle run (label `<runId>-a<n>`, the run a post-run fix cycle opens after the base run closed) always owes a retrospective in mode `dispatch`, whatever its terminal count: it often has one item, and the threshold would skip the only retrospective that sees the failure loop. Its directive names the base run, and that retrospective reports the base run's whole loop (Step 2, Fix-cycle cost). Below the threshold, in `nudge` mode (the default), or when the mark fails, they nudge once per run per session and never mark. There is no cross-session marker file (the server mark is the dedupe); per-session state (recorded opens and closes, runs already nudged) lives in `os.tmpdir()/task-orchestrator/<session>/retro.json`. A run whose frontier read fails is skipped that pass, and a close made by a subagent is recorded for the main session's backstop, not acted on. Without an API URL or a project rootId the backstop only nudges once per session, from the closes the trigger recorded.
-
-`retro-ack.mjs` is the manual acknowledgement: `node retro-ack.mjs --run <id> [--run <id>]...` sends the same `runs_write` `mark {runId, key: retro}` over REST for each run (Step 8b calls it). It prints one line per id (`marked <id>`, `already marked <id>`, `mark failed <id>: <code>`, or `not marked <id>: no REST API configured`) and always exits 0.
-
-**Director sessions.** A director never runs a retrospective in its own context, so for it both hooks always dispatch (mode `dispatch`, threshold 0, whatever the config says; `off` stays off): every closed unmarked run it opened or closed (its in-session coordinators' runs included) is marked first and then dispatched, so a later session does not dispatch it again. Without REST, `director-watch` dispatches once per run per session, only for a run this session opened or closed and closed within the last 24 h. The dispatch is ONE background agent that invokes this skill with a repeated `--run`.
-
-**Label and session folder.** The dispatched agent is labelled `retrospective:<run8>` (`<run8>` is the first 8 characters of the first run id; `retrospective:unknown` with no run id) and its invocation gains `--session-dir "<dir>"` when the hook saw a transcript path ending in `.jsonl` (the folder is that path without the extension, backslashes turned into `/`). The label rule is in the run-wave `references/post-run.md`.
-
-The settings (`mode`: `nudge` | `dispatch` | `off`, and `dispatchThreshold`) are read ONLY from `extensions.claude-code.retrospective`; a top-level `retrospective:` block is ignored and `cooldownMinutes` is gone. Headless iterations, `to_mod_retro` and `mode: off` make both hooks inert.
-
-**Honest limit.** The mark is REST-only. Without a resolvable REST API URL (Step 8b prints `not marked ...: no REST API configured`), a manually run retrospective leaves its run unmarked, so it can nudge or dispatch again in a later session inside the 24 h window; Step 5b's `run:<runId>` search keeps that repeat from creating a second retrospective item.
-
----
+Gate loop, before every `advance`: read the gate (`items_read` `context`), fill what `gateStatus.missing` names, `advance`. On `gate_blocked` re-read the context, fill the rest, retry once, then report the missing notes and stop.
 
 ## Step 0 - Mode Check
 
-- `--dry-run` sets **DRY_RUN = true**: perform steps 1-4 and render the report (step 9); skip steps 5-8 (no item creation, no memory updates). Announce: `**Dry run** - no items created, no memory updated.`
-- `--run <runId>` scopes the analysis to a run (step 1a). It repeats (`--run A --run B`): the scope is the union of the runs' members, and one retrospective covers them all. It wins over a root UUID.
-- `--session-dir <dir>` is a Claude Code session folder (the main transcript is `<dir>.jsonl` beside it). Step 1b's session sweep reads it; the dispatch directive passes it when the hook saw a transcript path ending in `.jsonl`. Without it the sweep is skipped.
-- `--deep` is handled in 4.3.
+- `--dry-run` sets **DRY_RUN**: do steps 1-4 and 9, skip 5-8, and announce `**Dry run** - no items created, no memory updated.`
+- `--run <runId>` scopes the analysis to a run and repeats (`--run A --run B`): the union of the runs' members, one retrospective. It wins over a root UUID.
+- `--session-dir <dir>` is a Claude Code session folder (main transcript `<dir>.jsonl`); without it the session sweep is unmeasured.
 
----
+## Step 1 - Gather Scope and Numbers
 
-## Step 1 - Gather Scope
+**Items.** Per `--run`: `runs_read` `get` (`rootId`, `scopeId`, `marks`), `seats` (`ended: true`) and `frontier`. Members are the distinct seat `itemId`s plus the frontier's `waiting` and `inFlight` ids, deduplicated on 8 hex characters; with none, the `scopeId` overview. A root UUID is the whole scope (`items_read` `list`, `ancestorId`, `limit: 200`). With neither, list `role: terminal` items modified in the last 24h under the project root (`## Project Scope` or `project.rootId`), else unscoped.
 
-Collect the distributed `session-tracking` notes of the items in scope.
+**Run marks.** `Run marks: <run8> <keys>` goes in `session-metrics`; `retro-retry` or `retro-failed` is a friction finding, `retro-skipped` reads "triaged low-signal". A run is **stale** only when the dispatch directive says its scope never completed or, for a manual run, when its `scopeId` item is not terminal, `runs_read` `list` (`rootId`) shows no open or paused run with that `scopeId` and its newest run closed over 7 days ago; a scope merely not terminal yet is not stale. A stale run's title is `[stale] Retrospective - ...`, its header `Stale: scope <8hex> never completed - not a delivery review`; 3d reads its unfinished items as abandoned.
 
-### 1a. Identify items in scope
-**`--run <runId>`** (once per run when repeated; union the members). The run view gives `rootId` and `scopeId`:
+**Notes.** Per item (at most 20) `get` `session-tracking` only (delegation figures come from `delegations[]`). Defect-bearing inputs:
+
+- **Observations:** `list` `type: agent-observation`, `createdAfter` the earliest run `openedAt` (no `--run`: earliest in-scope `createdAt`, else now minus 24h); skip `retro-reported`; `get` `observation-detail` (at most 20).
+- **Review record:** only items with a fix cycle (`after A<n>`) or Deviations or Friction not `none` (at most 10): `get` `orchestrator-confirmation`; for its `follow-up` and `accepted:` lines read the findings register once (`review-checklist`, else the first review note).
+
+**Numbers.** Run the metrics command once (helper resolved as in the run-wave SKILL.md, Step 0) and read every figure from its JSON:
+
+```
+node "<helper>" retro-metrics --root <rootId> --run <runId> [--run <runId>]... [--session-dir "<dir>"]
+```
+
+A `measured: false` document or section is a gap: say so and carry on. No items in scope, or no `session-tracking` note: exit with `No implementation run data found. Nothing to retrospect.`
+
+## Step 2 - Aggregate
+
+Outcome distribution and the first-review fail rate (a `Review: pending - verdict in <key>` or `Review: <verdict> after A<n> ...` note counts by the named review note's final verdict), the friction and observations, and from the document `fixCycle`, `noteVolume` against its `baselines` and `defects` by `fingerprint`.
+
+## Step 3 - Evaluate
+
+Score five dimensions, rules in [`references/evaluation.md`](references/evaluation.md): **3a** schema effectiveness, **3b** delegation alignment (`delegations[]` against the class's model in `task-orchestrator:model-effort`), **3c** note effectiveness (spec gaps; the sample of the longest `implementation-notes`, each sentence derivable or not), **3d** plan-to-execution, **3e** friction themes, **3f** kind (`defect`, `process`, `agent-discipline`, `positive`) and scope (`product`, `global-process`, `project`) of every finding: rubric and F-line format in [`references/routing.md`](references/routing.md).
+
+## Step 4 - Trend Memory
+
+Global trends sit under the process-global `Retrospective Trends` container, a depth-0 root item (found, like the other two containers, by unscoped `items_read` `search` for the exact title, keeping only the hit with no parent); a project's under its own `Retrospective Trends` container, tagged `project-<root8>`. No container and `memory/retrospectives.md` holds `- <kebab-key>: ...` lines: run [`references/legacy-trend-migration.md`](references/legacy-trend-migration.md) first; neither: every finding is a new baseline. Otherwise list the global trends and, with a project root, the project trends (`Sessions: N` in each summary): a `project` finding matches only the project list, any other only the global list. Lists and matching: [`references/routing.md`](references/routing.md).
+
+## Step 5 - Persist
+
+**5a** Find the `Session Retrospectives` root item by exact title, else create it (`type: "container"`, `tags: ["container"]`).
+
+**5b** For each `--run` search `run:<runId>` (`tags: ["session-retrospective"]`, `matchMode: "substring"`) and drop a run with a hit. None left: say `already retrospected <runId>`, run Step 8b's `retro-ack.mjs` and stop. Create the item (`type: "session-retrospective"`, `tags: ["session-retrospective"]`, `parentId` the container) titled `Retrospective - <project-name> - <root-item-title> - <YYYY-MM-DD> run:<runId>` (one `run:` per remaining run; a stale scope prefixes `[stale] `), summary one sentence.
+
+**5c** One `notes_write` of three `upsert` elements, role `queue`: `session-metrics` (contents: `references/evaluation.md`, "Session metrics note"), `workflow-evaluation` (Step 3 scores and findings) and `improvement-signals` (the F-lines, trends, each candidate's scope, defects by fingerprint).
+
+**5d** `advance` `start` on the retrospective; completion is Step 8b.
+
+**5e** Route defects, no session threshold: each `defect` finding and `defects[]` entry becomes evidence on an open item, a regression item or a new `[bug]` observation tagged `retro-reported` (a project defect: a declared `bug-fix`); one an input observation records creates nothing. Procedure: [`references/routing.md`](references/routing.md). ALWAYS run `node "<helper>" bug-report --root <root> --run <run>...` once per retrospective, gate open or closed, with or without defects, plus one `--product <fingerprint>:<observation>` per product defect routed here (none: nothing filed); it answers `gate: disabled` when closed; never check the gate or skip the step: [`../_shared/github-feedback.md#bug-reports-product-defects`](../_shared/github-feedback.md#bug-reports-product-defects). An `agent-discipline` finding creates no item and no trend, only a `memory:` line (Step 9).
+
+## Step 6 - Update Trends
+
+Recurrence: upsert `evidence-<YYYY-MM-DD>-<retro-short-id>` (role `work`), update the trend `summary` (`Sessions: N+1`). New: create `trend: <kebab-key> - <one-line claim>` (`type: "retrospective-trend"`, `tags: ["retrospective-trend", "<dimension>"]`, `priority: "low"`) under its scope's container, with a first evidence note. `<dimension>` is one of `schema-effectiveness | delegation | note-quality | plan-to-execution | friction | extension-candidate`; add `positive` for a positive pattern and `project-<root8>` for a project trend. Standing trends, defect evidence, retire and graduation: [`references/routing.md`](references/routing.md).
+
+## Step 7 - Proposals
+
+For each trend touched in Step 6 with **Sessions >= 2** (a standing trend only when this run raised a finding and an earlier evidence note recorded one):
+
+**7a** Find or create the `Improvement Proposals` root item (unscoped, as 5a).
+
+### 7b. Create proposal items
+Scope is its trend's: a `project-*` tag is project scope (`project-specific`); any other trend is `product` when every F-line routed to it this run is `scope=product`, else `global-process`. Create the item (`type: "improvement-proposal"`, `tags: ["improvement-proposal"]`, `priority: "low"`, title `Proposal: <concrete change>`) under the 7a container (project scope: the per-project container, [`references/routing.md`](references/routing.md)). Fill its `proposal` note straight after the create, or `review-proposals` is gate-blocked:
 
 ```to-call
-{"tool": "runs_read", "select": "get", "args": {"runId": "<runId>"}}
+{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<proposal-uuid>", "key": "proposal", "role": "queue", "body": "Problem and evidence: <pattern, retrospective ids, sessions>.\nChange: <exact YAML or rule text, skill file and section, or hook event, matcher and purpose>.\nExpected effect: <measurable effect and how later runs measure it>.\nBlast radius: <schemas, skills or agents touched>.\nScope: <product | global-process | project-specific; target rootId when project-specific>."}}
 ```
 
-Members are the distinct `itemId`s of the run's seat assignments, ended ones included (coordinator rows carry no `itemId`), plus the ids in the frontier's `waiting` and `inFlight` lists. A closed run's frontier lists no terminal members, so the seats read is the source for finished work. Seat `itemId`s are full UUIDs and frontier ids are 8-hex short ids: dedupe on the first 8 hex characters.
-
-```to-call
-{"tool": "runs_read", "select": "seats", "args": {"runId": "<runId>", "ended": true}}
-```
-
-```to-call
-{"tool": "runs_read", "select": "frontier", "args": {"runId": "<runId>"}}
-```
-
-When that member set is empty and the run has a `scopeId`, fall back to the scope root:
-
-```to-call
-{"tool": "items_read", "select": "overview", "args": {"itemId": "<scopeId>"}}
-```
-
-**A root UUID** is the authoritative scope (also the dispatched background-agent case). List its subtree; run no fallback scan:
-
-```to-call
-{"tool": "items_read", "select": "list", "args": {"ancestorId": "<root-uuid>", "limit": 200}}
-```
-
-**Neither argument.** Check for a project root: the `## Project Scope` section of the SessionStart context, or `project.rootId` in the project's `.taskorchestrator/config.yaml`. A personal root is not a project root and takes the unscoped branch. With a rootId, scope both fallback calls to that subtree so other projects sharing the DB are not conflated; without one, omit `ancestorId`.
-
-```to-call
-{"tool": "items_read", "select": "context", "args": {"ancestorId": "<rootId>"}}
-```
-
-```to-call
-{"tool": "items_read", "select": "list", "args": {"role": "terminal", "sort": "modifiedAt", "order": "desc", "limit": 20, "modifiedAfter": "<ISO now minus 24h>", "ancestorId": "<rootId>"}}
-```
-
-The 24-hour window is the `modifiedAfter` filter: list results carry no timestamps unless asked for, so staleness cannot be judged afterwards.
-
-### 1b. Collect distributed notes
-For each item in scope (up to 20), list its notes by key. A list carries no bodies, so `get` each note that exists.
-
-```to-call
-{"tool": "notes_read", "select": "list", "args": {"itemId": "<uuid>", "keys": ["session-tracking", "delegation-metadata"]}}
-```
-
-```to-call
-{"tool": "notes_read", "select": "get", "args": {"itemId": "<uuid>", "key": "session-tracking"}}
-```
-
-`session-tracking` holds per-item outcome, commits, verified line, deviations, friction and observations; `delegation-metadata` (optional) holds the orchestrator-recorded model and isolation (structured provenance line or legacy prose).
-
-**Session sweep.** With `--session-dir <dir>`, run `node "<helper>" session-meters --session-dir "<dir>"` (the helper resolved as in the run-wave SKILL.md, Step 0) and keep its JSON (`agents`, `main`, `byClass`, `lines`). It reports token volume by meter and model for every agent transcript of the session, not only the run's seats. Also read the red-proof record the project's rules name on the wave parent, when one exists, for its `agent-meters=` lines. A missing folder or a failed sweep leaves the sweep unmeasured; say so in 5c and carry on.
-
-### 1c. Early exit
-If no items are in scope, or no item has a `session-tracking` note, exit with: `No implementation run data found. Nothing to retrospect - finish an implementation run first, then try again.`
-
----
-
-## Step 2 - Aggregate Note Data
-
-Across the collected `session-tracking` notes: total item count and outcome distribution (success, partial, failed, skipped, plus `implemented, review pending`, counted only when the named review note is absent); when a note ends with the `Review: pending - verdict in <key>` line, take the outcome and deviation count from that review note (final verdict, first-review blocking count) and its amendment sections instead of the frozen pre-review text; a fix-cycled item instead ends with `Review: <verdict> after A<n> (mechanical|ruling) - <key>` and the Outcome `implemented, review <verdict> after A<n>` (post-run Step 5 Fallback, step 5), so count it by that final verdict and read the first-review blocking count from the named note. Report first-review fail rate (items whose first verdict was Fail / items reviewed); combined friction list; combined observations. Run the health read of 1a (`context`) for the current state snapshot when not already done.
-
-From `delegation-metadata` notes extract model per delegation (haiku, sonnet, opus) and isolation (inline, worktree); they feed 3b.
-
-**Note volume (only with the director tools).** Skip silently without them. Make two director-profile reads over one window: `since` is the `createdAt` of the newest `session-retrospective` item for this project, else 7 days ago, and the window is capped at 31 days.
-
-```to-call
-{"tool": "report", "select": "notes", "args": {"rootId": "<rootId>", "groupBy": "role", "since": "<window start>"}, "profile": "director"}
-```
-
-```to-call
-{"tool": "report", "select": "notes", "args": {"rootId": "<rootId>", "groupBy": "noteKey", "since": "<window start>"}, "profile": "director"}
-```
-
-Compute three figures: the review role's share of total bytes, the `review-checklist` `avgBytes`, and the largest `maxBytes` of any note key. Compare them with the 2026-11-02 baseline (review share 31%, review-checklist average 6.5 KB, largest note 37 KB) and record the three figures in the `session-metrics` note (5c). Also compute two note-volume figures: the work role's `avgBytes` from the same `groupBy` role call (baseline 1127 bytes on 2026-11-07, target under 800) and the overrun count, the number of note keys whose `maxBytes` (from the `groupBy` noteKey call) exceeds that key's `maxLength` in the resolved schema; record both in `session-metrics` (5c). The `maxLength` cap is advisory under the default `warn` mode (`reject` refuses the write). Basis caveat:
-`report` `notes` counts every `note.upserted` write (a rewrite counts again, `avgBytes` is per write),
-while the baseline measured final note bodies once, so a run with many rewrites reads higher; say so
-beside the figures when `rewrites` is not small.
-
-**Structured form.** A note whose first line matches `^adapter=\S+( [a-z-]+=\S+)+$` is a structured provenance line, not legacy prose: split on spaces, then each token on `key=value`. Each `seat:model` pair inside `seats=` is one delegation, typed by seat rather than guessed from prose - planner: architecture/opus; implementer, test-author: sonnet; declarations-extractor: code reading/sonnet; reviewer: opus; any other seat is recorded but not scored. Isolation comes from `isolation=`. `model=` is ignored whenever `seats=` is present. Field order is fixed: `adapter= run= seats= model= isolation= agents= tokens= duration= deferred= in-run-edges= orchestrator-turns=`. Example:
-
-```
-adapter=claude-workflow run=r-20260928-b2d seats=planner:opus,implementer:sonnet,declarations-extractor:sonnet,test-author:sonnet,reviewer:opus model=sonnet isolation=worktree:.claude/worktrees/feat-b2-front-door agents=5 tokens=384010 duration=unknown deferred=0 in-run-edges=1 orchestrator-turns=3 meters=10/280000/3500000/104000 seat-meters=planner:2/30000/200000/9000,implementer:3/90000/1500000/40000,declarations-extractor:1/20000/100000/5000,test-author:2/80000/900000/30000,reviewer:2/60000/800000/20000
-```
-
-Optional effort tails: `efforts=<seat>:<effort>,...` (`low`/`medium`/`high`/`xhigh`/`max`; a seat absent from it had none recorded), `effort-source=transcript|assigned|mixed` (`transcript`: read from the seat's own transcript, the effort it actually ran at; `assigned`: the plan's dispatch effort only, which proves nothing about the run), and `effort-substituted=<seat>:<requested>,...` (seats whose observed effort differs from the assigned one). `tokens=` is the non-cached transcript total of the line's seats (input + cache write + output, cache read excluded) and is `unknown` when any seat lacks meters; `duration=` reads `unknown` (no per-seat source). The tails `meters=<input>/<cacheWrite>/<cacheRead>/<output>` (the item's sum, or `unknown`) and `seat-meters=<seat>:<i>/<cw>/<cr>/<o>,...` (in `seats=` order; a seat with no meters is `<seat>:unknown`) carry the four transcript meters, so cache read is reported on its own and never added to `tokens`. A pre-4.0.1 note may read `tokens=` / `duration=` as `see:<short>`: the run total lives on that item, so count it once and never sum it per item (in the per-run table show the run's first-item value, never a `see:` reference); from 4.0.1 on `see:` is never written. An optional second line `extra-seats=<seat>:<model>:<tokens>:<effort>:<cause>:<input>/<cacheWrite>/<cacheRead>/<output>,...` lists seats dispatched outside the run (a six-field row carries its four meters; an older five-field row has none and a three-field `<seat>:<model>:<tokens>` row has no effort or cause); score each like a `seats=` pair, typing the seat after stripping a trailing fix-cycle suffix `-a<n>` (`reviewer-a1` scores as reviewer). `cause` is `review`, `test`, `carry-in` or `breach`; `tokens` is the non-cached sum of the seat transcript's meters (never the Agent-reported figure), and `unknown` is a gap, never zero. **Legacy form:** free-form prose naming model and isolation, parsed as before; a run mixing both forms scores both.
-
-**Layer meters.** A line `layer-meters=<layer>:<i>/<cw>/<cr>/<o>,... run=<runId>[ session-window=run|whole-session]` (on the run's target parent's `delegation-metadata`, one per run id, or in the run report) is the cost of the two layers above the seats: `coordinator` (the tier-2 or tier-2b coordinator's own transcript) and `session` (the launching session's transcript; `session-window=run` when limited to the run window, `whole-session` when no window flag was given, or when one was given but no usage line carried a timestamp, which also printed a no-timestamps warning). It is layer cost, not a delegation and not legacy prose: it is not scored in 3b and not counted in the Step 9 delegations count. `<layer>:unknown` is a gap, never zero. A retrospective with no such line skips the per-layer table.
-
-An `extra-seats` row's six-field form carries meters that belong to the item's seats layer (3b). A row with five or three fields has none: flag it `legacy basis` and keep it out of the sums.
-
-**Fix-cycle cost.** A failed review or test sends the fix to a fresh seat at a raised effort (post-run, Fix cycle: base effort plus a step of 1 plus the seat's earlier review or test cycles, capped at the ceiling), so the failure loop's cost is measured here. The loop is every seat of a cycle `A<n>`: the amending planner, the implementer, the test author and the re-review (the `-a<n>` rows with cause `review` or `test`, plus the re-review and amendment-planner rows of the same cycle). Carry-in and breach rows are reported separately and are not part of the loop. For a fix-cycle run (`<runId>-a<n>`), report the base run's whole loop: every cycle so far, read from the item's `delegation-metadata`. Write these figures into `session-metrics` (5c):
-
-| Figure | Source |
-|---|---|
-| Per cycle: item, cause, seats, model, effort, tokens, verdict | `extra-seats` rows; verdict from the re-review note or the `Review: <verdict> after A<n> (mechanical|ruling)` line |
-| Loop tokens and their share of the run's tokens | sum of loop rows over the run's `tokens=` plus every `extra-seats` row |
-| Pass rate by effort level and by class | cycles whose re-review passed, grouped by the cycle's effort and by the seat's class |
-| Items that reached the ceiling or the decision path | a cycle at the policy's `escalation.ceiling`, or a raised decision after one |
-| Seats with unknown tokens | `extra-seats` rows reading `unknown` |
-
-State how far to trust the figures: unknown-token seats are gaps, and runs from before effort and cause were recorded have three-field rows. Raise a finding (5b) when any of these holds; they are starting thresholds, to revisit after a few runs, and the lever is `escalation.ceiling` in the plugin's dispatch policy (setting it one level lower cuts the most expensive step):
-
-- Loop tokens exceed 25% of the run's tokens.
-- The loop's share rose across the last three retrospectives (from the `fix-cycle-cost` trend's evidence notes).
-- Cycles at the escalation ceiling pass no more often than cycles one level below it.
-
-**First baseline.** The `fix-cycle-cost` trend has no history when this feature ships. Its first evidence note is a one-time baseline, written by the orchestrator after the feature merges (not by a retrospective run and not by the implementer): from the recent runs' `delegation-metadata` notes (the structured provenance line plus the `extra-seats` row), sum the `-a<n>` rows with cause `review` or `test` and divide by each run's total tokens, giving the loop-token share per run and across them, and record those figures as the trend's first evidence note. Rows without effort and cause (three-field) count toward tokens but not toward the by-effort pass rates; say so in the note.
-
----
-
-## Step 3 - Evaluate Across Dimensions
-
-### 3a. Schema Effectiveness
-For each item, examine its notes (1b): which schema-required notes exist with non-empty content (queue and review notes; work-role notes are not scored by size, 3c scores them on content), and which items are missing required notes. **Score:** fraction of expected notes that exist with non-empty content.
-
-### 3b. Delegation Alignment
-If `delegation-metadata` notes exist, cross-reference the expected model: the model of the work's class in `task-orchestrator:model-effort` (a seat's resolved dispatch profile, when it set one, is the expectation instead).
-
-- Flag misalignments (a delegation run on a model other than its class's or its profile's), scored per seat delegation for a structured note (one score per `seat:model` pair).
-- A `substituted=` field is an allowlist substitution, not a misalignment. A `model-source=self-report` field is noted separately and not folded into the misalignment count.
-- Report effort beside model: list each `seat:model/effort` (from `efforts=`; `-` when unset) in the per-run table with its `effort-source`, and the distribution of efforts per seat type across runs. Effort is not scored against an expected value; flag it as a finding for 5b when a pattern stands out (a seat type always at `max`, a review seat below `medium`, an effort set on a seat whose model was substituted) so a trend can form over sessions. Every `effort-substituted=` entry is a dispatch-versus-runtime mismatch and is always a finding; a run whose lines all read `effort-source=assigned` is noted as "effort not observed" (the post-run `dispatch-meta` step was skipped).
-- **Score:** fraction of delegations matching the expected model. With no `delegation-metadata`, note "delegation metadata not recorded" and skip scoring.
-
-With at least one structured line, show a per-run table before 3c: `| adapter | run | agents | tokens | cacheRead | duration | orchestrator-turns |` (`cacheRead` is the sum of the item `meters=` cacheRead values; an item reading `unknown` is shown as `+<n> unknown` beside the known sum, `n` counting the items that read `unknown`).
-
-With at least one `layer-meters=` line, show a separate per-layer table after it: `| run | layer | input | cacheWrite | cacheRead | output | tokens |`, three rows per run: `seats` (the sum of that run's item `meters=` tails plus the meters of the six-field `extra-seats` rows of those items; an item or row reading `unknown` is shown as `+<n> unknown` beside the known sum and never blanks the row; five- and three-field rows are flagged `legacy basis` and kept out of the sums), `coordinator` and `session` (from the line; a layer the line omits is left out, `unknown` stays `unknown`). `tokens` = input + cacheWrite + output; cacheRead stays its own column.
-
-### 3c. Note Effectiveness
-For items with both queue-phase notes (specs) and work-phase notes: compare themes; "deviated from spec", "unexpected" or "assumption was wrong" flags a spec gap, and so does a fix-cycle amendment (an `Amendment A<n>` section or amendments note raised after a failed first review); then take the derivability sample: the longest `implementation-notes` of the run, each sentence marked derivable (it states what the diff, git log or CI show) or not, and report the non-derivable share (a sanctioned empty-form body scores fully non-derivable). **Score:** effective at >= 70% non-derivable / mixed / ineffective.
-
-### 3d. Plan-to-Execution Alignment
-Creation times come from one `items_read` `list` with `fields: ["createdAt", "modifiedAt", "summary"]`, scoped by `ancestorId` (the root, or the run's `scopeId`); with neither, `get` each in-scope item with `fields: ["createdAt"]` (at most 20).
-
-- Items created more than 1 hour after the root (or the earliest item) are ad-hoc additions (necessary, or scope creep); items still in queue under the root were planned but skipped. **Score:** fraction of planned items that reached terminal.
-
-### 3e. Friction Synthesis
-Group friction entries by type: `tool-error`, `excessive-roundtrips`, `workaround`, `api-confusion`. Name themes across entries ("3 entries about gate failures on items without schemas").
-
----
-
-## Step 4 - Check Trend Memory
-
-Trend memory is items under a `Retrospective Trends` container, not a file. Reads are targeted queries.
-
-### 4.1 Discover the Trends container
-The three containers (Trends, Session Retrospectives, Improvement Proposals) are process-global by design, the shared cross-project learning layer: they are root items (no `parentId`) whose types resolve from the server config (process-global types), and every search for them stays unscoped even when a project rootId is known.
-
-```to-call
-{"tool": "items_read", "select": "search", "args": {"query": "Retrospective Trends", "kinds": ["item"], "limit": 5}}
-```
-
-Cross-check with a list (`{"type": "container", "depth": 0, "limit": 100}`, filter by title) when the hit is ambiguous or empty.
-
-If the container is absent or empty AND `memory/retrospectives.md` has at least one `- <kebab-key>: ...` entry line, run [`references/legacy-trend-migration.md`](references/legacy-trend-migration.md) FIRST. If both are absent, this is the first retrospective on this database: skip the rest of Step 4, all findings are new baselines.
-
-### 4.2 Read the active trends and recent retrospectives
-The listing carries each trend's `summary` (with `Sessions: N`) and timestamps, so no per-trend `get` is needed. The kebab key in the title is the stable identity.
-
-```to-call
-{"tool": "items_read", "select": "list", "args": {"tags": ["retrospective-trend"], "role": "queue", "limit": 100, "fields": ["summary", "createdAt", "modifiedAt"]}}
-```
-
-Recent retrospectives (the `--deep` input; the check in Step 8 reads its own page):
-
-```to-call
-{"tool": "items_read", "select": "list", "args": {"tags": ["session-retrospective"], "sort": "createdAt", "order": "desc", "limit": 10}}
-```
-
-### 4.3 Match findings
-Match each Step 3 finding against the listing by title and summary. A finding that matches an existing trend (same schema note, delegation pattern or friction type) increments that trend's `Sessions: N` in Step 6 (N from the listing summary); a new one is a candidate for a new trend. For an uncertain match run a per-finding search:
-
-```to-call
-{"tool": "items_read", "select": "search", "args": {"query": "<finding keywords>", "kinds": ["item"], "tags": ["retrospective-trend"]}}
-```
-
-#### Deep mode (`--deep`, opt-in)
-
-Only when `$ARGUMENTS` contains `--deep`, the user invoked this skill in the main session (never a hook-dispatched or background run), and the Workflow tool is callable; otherwise ignore the flag and match inline. The workflow replaces the inline matching, is read-only, and Step 6 still does every write.
-
-1. Build `retro-analysis/args-v1`: `contract`, `runId: "ra-<YYYYMMDD>-<HHMM>"`, `date`, `mode: "deep"`, `rootId` (when a project root is known), `findings` (each Step 3 finding as `{fid: "f<n>", dimension, text, keywords}`; `dimension` maps 3a `schema-effectiveness`, 3b `delegation`, 3c `note-quality`, 3d `plan-to-execution`, 3e `friction`), `trends` (the 4.2 listing as `{id, short, title}`), `observations` (one unscoped `items_read` `list` with `tags: ["agent-observation"]`, `limit: 100`, terminal ones dropped), `retros` (the second 4.2 block), and `models` and `efforts` keyed `match`, `cluster` and `adjudicate`, each the `research` class's model and effort from `task-orchestrator:model-effort`. Only ids and titles go in; the agents read summaries and notes themselves.
-2. Unless dry-run, and only with a known `rootId`, stash `{findings, retroScope}` (retroScope = the Step 1 root and item ids) as a plan document and add `planDocSlug: "retro/<runId>"` to the args:
-
-```to-call
-{"tool": "docs_write", "op": "upsert", "args": {"rootId": "<rootId>", "kind": "plan", "slug": "retro/<runId>", "body": "<JSON of findings and retroScope>"}}
-```
-
-3. Launch `Workflow({name: "task-orchestrator:retro-analysis", args})` with args as a real object, then end the turn.
-4. On the task notification: if `started: false`, report its `reason` and match inline. Otherwise the result echoes `findings` (after compaction re-read the stash with `docs_read` `get {rootId, kind: "plan", slug: "retro/<runId>"}`); resume at Step 5:
-   - `matched` entries are 4.3 recurrences: Step 6 increments `Sessions: N` from `sessionsBefore`, or from the listing summary when it is null;
-   - `stats.unmatchedShards` (`[{label, kind, targetIds}]`) are shards whose Match agent returned nothing: match the findings against those `targetIds` inline per 4.3 before calling any finding new, and report `stats.missing`;
-   - `newTrends` and `unresolved` fids are new-pattern candidates; `staleTrends` are retire candidates; `observationLinks` feed the report.
-5. Skip 4.4 for matched trends whose `evidence` the result already carries.
-
-### 4.4 Fetch full evidence (only when it matters)
-When per-session history changes the assessment (worsening, stabilizing, flagged as environmental), list the trend's notes and `get` the evidence bodies:
-
-```to-call
-{"tool": "notes_read", "select": "list", "args": {"itemId": "<trend-uuid>"}}
-```
-
----
-
-## Step 5 - Persist the Retrospective
-
-**Skip entirely in dry-run mode.**
-
-### 5a. Find or create the container
-```to-call
-{"tool": "items_read", "select": "search", "args": {"query": "Session Retrospectives", "kinds": ["item"], "limit": 5}}
-```
-
-If no root item (no `parentId`) has that exact title, create it; a search hit carries no depth, parent or type, so confirm with the 4.1 list cross-check or `items_read` `get` on the hit. An undeclared `type` fails the element with `data.results[0].error.code: schema_violation`, and `data.results[0].error.detail.availableTypes` lists the declared types: use the declared container type.
-
-```to-call
-{"tool": "items_write", "op": "create", "args": {"title": "Session Retrospectives", "summary": "Container for structured post-implementation analyses.", "type": "container", "tags": ["container"], "priority": "low"}}
-```
-
-Check `ok` and `data.results[0].ok`; the new `id` is `data.results[0].id`.
-
-### 5b. Create the retrospective item
-**First, drop runs already retrospected.** For each `--run <runId>` search for an existing retrospective that carries it (the title below holds `run:<runId>`):
-
-```to-call
-{"tool": "items_read", "select": "search", "args": {"query": "run:<runId>", "kinds": ["item"], "tags": ["session-retrospective"], "matchMode": "substring", "limit": 5}}
-```
-
-Drop every run that has a hit. If no run remains, create nothing: say `already retrospected <runId>` for each, run Step 8b's `retro-ack.mjs` call for them (the mark may still be missing) and stop.
-
-Include the project name (or rootId) in the title when known, so a shared container stays attributable; otherwise omit that segment. When the scope came from `--run`, end the title with `run:<runId>` once per remaining run (space separated).
-
-```to-call
-{"tool": "items_write", "op": "create", "args": {"title": "Retrospective - <project-name> - <root-item-title> - <YYYY-MM-DD> run:<runId>", "summary": "<one-sentence summary of key findings>", "type": "session-retrospective", "tags": ["session-retrospective"], "parentId": "<container-uuid>"}}
-```
-
-Check `ok` and `data.results[0].ok`; on a failure read `data.results[0].error.code`. (Use `[i]` for multi-element calls.)
-
-### 5c. Fill the queue-phase notes
-The `session-retrospective` schema has four required notes: queue-phase `session-metrics`, `workflow-evaluation`, `improvement-signals`, and work-phase `actions-taken` (filled at 8b). Fill the three queue notes now as one `notes_write` call with three `upsert` elements (one shown):
-
-```to-call
-{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<retro-uuid>", "key": "session-metrics", "role": "queue", "body": "<Step 3 quantitative data: item counts, outcomes, schema usage, token estimates, note-volume figures (work-role avgBytes, maxLength overruns), fix-cycle cost figures (Step 2), session coverage (below)>"}}
-```
-
-`session-metrics` also carries **Session coverage** from the 1b sweep: `| class | agents | input | cacheWrite | cacheRead | output | tokens |`, one row each for `seat`, `lane`, `red-proofs`, `retrospective`, `coordinator`, `research` and `unlabelled` from `byClass` (a class absent from it reads 0), then a `main` row from `main` (`null` reads unknown). Then one line `Recorded share: <r> of <t> tokens (<p>%)`: `r` is the summed `tokens` of the `agents` rows whose label appears in a `delegation-metadata` note of a run item, `t` the summed `tokens` of all `agents` rows (the `main` row is in neither), and `n/a` when `t` is 0. A label `<name>:<short>` is recorded when `<short>` is a run member (the target parent for `reviewer:`) whose `delegation-metadata` names `<name>` in `seats=` or as an `extra-seats` row seat. List the unlabelled agents by label (`(no description)` for a null label) with their tokens. List the red-proof `agent-meters=` lines beside the table; they are not in the recorded set. Figures are token volume by meter and model. With no session folder or a failed sweep write `Session coverage: not measured (<reason>)`.
-
-`workflow-evaluation` holds the Step 3 per-dimension scores and findings; `improvement-signals` the Step 4 trend analysis (new, reinforced, proposals, and the scope classification of Step 7b). Check `data.results[i].ok` for all three.
-
-### 5d. Advance to work
-```to-call
-{"tool": "advance", "op": "transition", "args": {"itemId": "<retro-uuid>", "trigger": "start"}}
-```
-
-Read `ok` and `data.results[0].newRole`. Do not complete yet: `actions-taken` depends on Step 7. Completion is at 8b.
-
----
-
-## Step 6 - Update Trend Memory
-
-**Skip entirely in dry-run mode.** Write trend items from the findings, batched: one `notes_write` call for this run's evidence notes, one `items_write` call for its creates and summary updates.
-
-- **Recurrence:** upsert an evidence note `evidence-<YYYY-MM-DD>-<retro-short-id>` (role `work`; body = what happened, the retro item id, cost or impact) AND update the trend's `summary`: increment `Sessions: N` (from the 4.2 listing), set `Last seen: YYYY-MM-DD`, condense if drift warrants.
-- **New pattern:** create a trend item (below) with `Sessions: 1`, plus its first evidence note.
-- **Standing `fix-cycle-cost` trend:** every retrospective, whether or not the run had a fix cycle, adds one evidence note to the trend titled `trend: fix-cycle-cost - ...` (tag `delegation`; create it on first use) with the Step 2 fix-cycle figures (loop tokens, loop share, cycles by effort with pass rate, ceiling items, unknown-token seats; `no fix cycles` when there were none), and increments its `Sessions: N`. Its evidence notes are what the "share rose across three retrospectives" check reads. It graduates to a proposal only through a raised finding, not by its session count alone.
-- **Retire** (addressed, obsolete, superseded or accepted-environmental): `advance` `transition` with `trigger: "cancel"` and `summary: "archived: <reason>"`. `cancel` is gate-free; `statusLabel: cancelled` here means "retired from active watching". A cancelled trend leaves the 4.2 listing, which filters `role: "queue"`.
-- **Graduation** (Step 7 creates a proposal from this trend): record `GRADUATED -> proposal <short-id>` in the trend's `summary`; the role does not change.
-
-**Only `create`, `update`, note upserts and `cancel` touch a trend item**, never `start` or `complete`. That keeps the lifecycle gate-free under any schema config.
-
-```to-call
-{"tool": "items_write", "op": "update", "args": {"id": "<trend-uuid>", "summary": "<distilled observation>. Sessions: <N+1>. Last seen: <YYYY-MM-DD>."}}
-```
-
-Check `ok` and `data.results[0].ok`; on a failure read `data.results[0].error.code`. (Use `[i]` for multi-element calls.)
-
-### New trend item shape
-```to-call
-{"tool": "items_write", "op": "create", "args": {"title": "trend: <kebab-key> - <one-line claim>", "summary": "<distilled observation>. Sessions: 1. Last seen: <YYYY-MM-DD>.", "type": "retrospective-trend", "tags": ["retrospective-trend", "<dimension>"], "parentId": "<trends-container-uuid>", "priority": "low"}}
-```
-
-`<dimension>` is one of `schema-effectiveness | delegation | note-quality | plan-to-execution | friction | extension-candidate`; add `positive` as a further tag for a positive pattern. The kebab key in the title is the stable identity to match on. Batch up to ~10 creates per call; read `data.results[i].ok` per element; a failed one carries its cause in `data.results[i].error` (the top-level `partial_failure` names no element).
-
-**Trend memory unavailable.** The `retrospective-trend` type comes from the server floor config. If a create's `data.results[i].error.code` is `schema_violation` for that type, record "trend memory unavailable" in `improvement-signals`, skip the trend writes of this step and the graduation checks of Step 7, and continue: the retrospective itself never fails on it.
-
-Then the first evidence note:
-
-```to-call
-{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<new-trend-uuid>", "key": "evidence-<YYYY-MM-DD>-<retro-short-id>", "role": "work", "body": "<this session's specific evidence: what happened, retro item id, cost or impact>"}}
-```
-
-Check `ok` and `data.results[0].ok`.
-
-**Condense, don't accumulate.** The trend `summary` is the single distilled current truth: rewrite it on every update; per-session detail lives in the evidence notes (one per recurrence), and `Sessions: N` is updated in the same call that adds the note. Proposal status, priority and dates live on the proposal item, never mirrored into a trend beyond the one-line `GRADUATED -> proposal <short-id>` pointer.
-
-**Audit sweep.** The `retro-analysis` workflow's audit mode (a standalone sweep, no findings) returns the same `newTrends`, `staleTrends` and `observationLinks` shapes. Present that result to the user first; only after they confirm, apply this step's create and retire shapes to it.
-
----
-
-## Step 7 - Create Improvement Proposals
-
-**Skip entirely in dry-run mode.** For each trend created or updated in Step 6 with **Sessions >= 2** (the standing `fix-cycle-cost` trend counts only when this retrospective raised a fix-cycle finding and an earlier evidence note recorded one too):
-
-### 7a. Find or create the proposals container
-Process-global like 5a: search `Improvement Proposals` unscoped (`items_read` `search`, `kinds: ["item"]`, as in 5a) and create it if missing (`type: "container"`, `tags: ["container"]`).
-
-### 7b. Create proposal items - scope-based anchoring
-Read the **scope** classification captured in `improvement-signals`: **global** (plugin skills and hooks, the orchestration context, server floor config) or **project-specific** (one project's schemas, traits, config). If it cannot be parsed, treat it as **global**: never auto-anchor under a project on ambiguous evidence.
-
-**Global** - anchor under the 7a container:
-
-```to-call
-{"tool": "items_write", "op": "create", "args": {"title": "Proposal: <concrete change description>", "summary": "<what to change and why - reference the retrospective item ids that surfaced the trend>", "type": "improvement-proposal", "tags": ["improvement-proposal"], "parentId": "<7a-proposals-container-uuid>", "priority": "low"}}
-```
-
-**Project-specific** - find or create a per-project container under the project's rootId (the 5a search with `ancestorId: "<rootId>"`; if none, create `{"title": "Improvement Proposals", "type": "container", "tags": ["container"], "parentId": "<rootId>", "priority": "low"}` as in 5a), then create the proposal with that `parentId`. Check `ok` and `data.results[0].ok`. The `improvement-proposal` tag stays on the item so 3.x proposals and 4.0 ones are found by the same tag query.
-
-The proposal must carry a **concrete suggestion**: schema, trait, rule or run-profile edits with the exact YAML or rule text; skill text only for mechanics (Task Orchestrator mechanics in the plugin, a project's own mechanics in its project skills) or generic engineering practice (the plugin's engineering skills), naming file and section; hook additions naming event, matcher and purpose.
-
-**Fill the `proposal` note right after each create** (the floor schema requires it in the queue phase; without it `/review-proposals` is gate-blocked at `start`). One upsert per proposal, the new proposal's id as `itemId`:
-
-```to-call
-{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<proposal-uuid>", "key": "proposal", "role": "queue", "body": "Problem and evidence: <the pattern, with the retrospective item ids and session counts that surfaced it>.\nChange: <the exact YAML or rule text, or, for a mechanics change, the skill file and section or the hook event, matcher and purpose>.\nExpected effect: <the measurable effect and how later sessions will measure it>.\nBlast radius: <schemas, skills or agents touched>.\nScope: <global | project-specific; target rootId when project-specific>."}}
-```
-
-Check `data.results[0].ok`. A global proposal later gets a final `github-issue: <url>` line from 7c.
-
-### 7c. File GitHub issues (global proposals only)
-For each **global** proposal created this run, never project-scoped ones, attempt to file or link a GitHub issue. Conventions, template and dedup live in [`references/github-feedback.md`](references/github-feedback.md); this step is the sequence. Every sub-step is best-effort: a failure is caught, recorded as a one-line reason, and the retrospective continues.
-
-1. **Config gate:** read `extensions.claude-code.retrospective.github_feedback` from `.taskorchestrator/config.yaml` (a file read). Not `enabled: true` skips all of 7c; record `github filing: disabled`.
-2. **gh guard:** `gh auth status` via Bash; a non-zero exit skips filing and records the reason.
-3. **Dedup (cheapest first):** sibling proposals' `github-issue:` lines (cap 10 note reads), then `gh issue list --repo <repo> --state all --search "<3-5 keywords>" --json number,title,url --limit 10`. Reuse a match.
-4. **File** only if nothing matched: `gh issue create --repo <repo> --title "[proposal] <...>" --body-file <scratchpad-tmp-path> --label enhancement` (retry once without `--label` if the label is missing).
-5. **Record back:** re-upsert the proposal note with a final `github-issue: <url>` line (references C2).
-
----
+### 7c. GitHub issues (product-scope proposals only)
+Files only a proposal whose `Scope:` is `product`. Best-effort: a failure is a one-line reason, the retrospective continues. Gate, guard, dedup, template, record-back: [`../_shared/github-feedback.md`](../_shared/github-feedback.md).
 
 ## Step 8 - Meta-Evaluation
 
-**Skip entirely in dry-run mode.** Query prior retrospectives:
-
-```to-call
-{"tool": "items_read", "select": "list", "args": {"tags": ["session-retrospective"], "limit": 20}}
-```
-
-With 3 or more, evaluate. Read proposal state from the container (anchored overview; `includeChildren` is not allowed with `anchorId`, and each child entry already carries its `role`):
-
-```to-call
-{"tool": "items_read", "select": "overview", "args": {"anchorId": "<proposals-container-uuid>"}}
-```
-
-With a project rootId also pull project-scoped proposals, which anchor outside the global container:
-
-```to-call
-{"tool": "items_read", "select": "list", "args": {"tags": ["improvement-proposal"], "ancestorId": "<rootId>", "limit": 50}}
-```
-
-1. **Trend durability:** find trends whose summary carries `GRADUATED -> proposal <id>` (`items_read` `search` with `query: "GRADUATED"`, `kinds: ["item"]`, `tags: ["retrospective-trend"]`) and check whether each proposal is terminal.
-2. **Proposal staleness:** proposals created 3+ retrospectives ago and still in queue, or stuck in `work` (usually a stalled adoption). When stale queue proposals exist, the report suggests `/task-orchestrator:review-proposals`. A `cancelled` proposal is **resolved-rejected**, not stale: read its `adoption-decision` note before proposing anything similar again.
-3. **Self-quality:** are notes converging on useful patterns or repeating observations; too verbose (>800 tokens) or too shallow (<100)?
-
-If meta-findings warrant it, re-upsert the current retrospective's `improvement-signals` note with the meta-evaluation appended (same `notes_write` `upsert` shape as 5c).
+**Skip in dry-run.** List prior retrospectives (`items_read` `list`, `tags: ["session-retrospective"]`, `limit: 20`). With 3 or more, evaluate as [`references/evaluation.md`](references/evaluation.md) says and append meta-findings to `improvement-signals`.
 
 ### 8a. Verify Adopted Proposals
 
-Accepted proposals dwell in `review` with `outcome-verification` unfilled; this retrospective fills it. List them (global ones: the container's children from the overview above with role `review`; project ones: this list with the project rootId):
+Every non-dry run, outside the 3-or-more gate. List accepted ones (role `review`) under the global `Improvement Proposals` container and, with a project root, under `<rootId>`; follow `page.next`, sort the union by `roleChangedAt` (oldest first) and verify at most 10 per run (a skip does not count):
 
 ```to-call
-{"tool": "items_read", "select": "list", "args": {"type": "improvement-proposal", "role": "review", "ancestorId": "<rootId>", "limit": 50}}
+{"tool": "items_read", "select": "list", "args": {"type": "improvement-proposal", "role": "review", "ancestorId": "<container-or-root-id>", "limit": 200, "fields": ["roleChangedAt"]}}
 ```
 
-For each one, take the date in its `adoption-decision` note as the adoption date and count the retrospectives created after it (the Step 8 list above; for a project-scoped proposal count only that project's). **With fewer than 2 later retrospectives, skip it and write nothing**: the change has not had time to show an effect. Otherwise compare the later retrospectives and their items (only items created after the adoption date: schema pins mean older items still follow the old config) with the `proposal` note's expected effect, and upsert the verdict, then complete the proposal:
+The adoption date is in the `adoption-decision` note; count the retrospectives created after it (a project proposal: that project's only). **Fewer than 2: skip and write nothing.** Otherwise compare the later retrospectives and items with the `proposal` note's expected effect, write the verdict, then complete the proposal, checking each result:
 
 ```to-call
-{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<proposal-uuid>", "key": "outcome-verification", "role": "review", "body": "Verdict: <effective|ineffective|inconclusive>. <evidence: later retrospective ids and what they showed against the expected effect; what to try instead when ineffective>."}}
+{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<proposal-uuid>", "key": "outcome-verification", "role": "review", "body": "Verdict: <effective|ineffective|inconclusive>. <evidence: later retrospective ids and what they showed; what to try instead when ineffective>."}}
 ```
 
 ```to-call
 {"tool": "advance", "op": "transition", "args": {"itemId": "<proposal-uuid>", "trigger": "complete"}}
 ```
 
-Then the source-trend write-back: `effective` retires the trend (`advance` `transition`, `trigger: "cancel"`, `summary: "archived: verified effective via proposal <short-id>"`); `ineffective` or `inconclusive` appends `proposal <short-id> <verdict> <YYYY-MM-DD>` to the trend's `summary` (`items_write` `update`) and keeps the trend active. A proposal delegated upstream is already terminal and is not listed.
+Then update the source trend: `effective` `cancel`s it (`summary: "archived: verified effective via proposal <short-id>"`) unless terminal; otherwise `reopen` a terminal trend and append `proposal <short-id> <verdict> <date>` to its `summary`.
 
----
+## Step 8b - Close
 
-## Step 8b - Fill the Closure Note and Complete
+**Skip in dry-run.** Re-upsert `session-metrics` with `Retrospective cost: <self.tokens> tokens, <self.wallMs> ms, <self.analysedShare> of the run (partial)`, or `Retrospective cost: unknown (<reason>)`:
 
-**Skip entirely in dry-run mode.** Fill the work-phase `actions-taken` note (the closure record), then complete.
-
-```to-call
-{"tool": "notes_write", "op": "upsert", "args": {"itemId": "<retro-uuid>", "key": "actions-taken", "role": "work", "body": "<proposals created or updated in Step 7 (title and short id each); per global proposal its GitHub outcome: filed <url>, linked existing <url>, or github filing skipped: <reason>; per project proposal: anchored under project <rootId>; or none graduated this run; plus trend items created, updated or retired (short ids); plus a legacy migration count if one ran>"}}
+```
+node "<helper>" retro-metrics --root <rootId> --run <runId> --session-dir "<dir>" --self-only
 ```
 
-Check `ok` and `data.results[0].ok`, then complete:
+Upsert the work note `actions-taken`: proposals (title, short id), bug items (short id, `created` or `evidence`), memory lines, the `bug-report` result `line`s, else its `gate` value (not complete without it), its `gaps` and a non-`complete` `input`, each product-scope proposal's GitHub outcome (`filed <url>`, `linked existing <url>`, `github filing skipped: <reason>`), each project proposal's anchor, trends created, updated or retired, adopted proposals verified. Then the gate loop:
+
+```to-call
+{"tool": "items_read", "select": "context", "args": {"itemId": "<retro-uuid>"}}
+```
 
 ```to-call
 {"tool": "advance", "op": "transition", "args": {"itemId": "<retro-uuid>", "trigger": "complete"}}
 ```
 
-Read `ok` and `data.results[0].newRole`; on a failure `data.results[0].error.code` (`gate_blocked`, whose `error.detail.missing` names the unfilled notes).
-
-Then mark the runs (a `--run` scope only; skip with no `--run`). Run it once for all of them through Bash, repeating `--run`:
+Then mark the runs (`--run` scope only), one call:
 
 ```
 node "${CLAUDE_PLUGIN_ROOT}/hooks/retro-ack.mjs" --run <runId> [--run <runId>]...
 ```
 
-Report its lines. If `${CLAUDE_PLUGIN_ROOT}` reaches the shell unexpanded (the literal survives in the command), skip the step and record `retro mark skipped: plugin root unresolved` in the report. A `not marked ...: no REST API configured` or `mark failed` line is not an error: say so in the report and continue.
-
----
+Report its lines. An unexpanded `${CLAUDE_PLUGIN_ROOT}` skips the step; `not marked ...` and `mark failed` lines are not errors.
 
 ## Step 9 - Report
 
-Render a dashboard (symbols: `✓` terminal, `◉` work or review, `⊘` blocked, `○` queue, `—` cancelled):
-
-```
-## Session Retrospective — <root-item-title or run label>
-**<YYYY-MM-DD> · <N> items · <N> schemas used**
-
-### Dimension Scores
-| Dimension | Score | Key Finding |
-|-----------|-------|-------------|
-| Schema effectiveness / Delegation alignment / Note effectiveness / Plan-to-execution / Friction | <fraction, qualitative, or "not recorded"> | <one line> |
-
-### Trends                       | Pattern | Sessions | Status (new / reinforced / addressed) |
-### Improvement Proposals Created | ID | Proposal | Trigger (graduated trend) | Issue (url or —) |
-```
-
-One dimension row each in the real table. Dry-run prefix: `**Dry run** - no items created, no memory updated.` Omit sections with no data. With `delegation-metadata` notes present, put a delegations count in the header line: sum of seats (structured) + extra-seats entries + notes (legacy).
-
----
-
-## Troubleshooting
-
-**No session-tracking notes found.** Implementing agents did not fill them, usually because the items have no matching schema. Check that the type's schema (or a default trait) requires `session-tracking`.
-
-**Container not found.** First retrospective on this database. Containers are created lazily: `Session Retrospectives` at 5a, `Retrospective Trends` at 4.1 or the first trend write, `Improvement Proposals` at 7a.
-
-**Legacy trend file detected.** `memory/retrospectives.md` has `- <key>: ...` lines and the Trends container is absent or empty: see [`references/legacy-trend-migration.md`](references/legacy-trend-migration.md). A count mismatch stops it without stubbing the file; re-run to retry.
-
-**Run keeps being dispatched.** Its `retro` mark is missing: the mark is REST-only, so check that a REST API URL resolves (Step 8b prints it) and run `node "${CLAUDE_PLUGIN_ROOT}/hooks/retro-ack.mjs" --run <runId>` by hand.
-
-**Retrospective pulled in another project's items.** No project scope was configured, so the fallback scan covered the whole database. Set `project.rootId` in `.taskorchestrator/config.yaml`, pass the root UUID, or pass `--run <runId>`.
+Header `<YYYY-MM-DD> - <N> items`, a `Dimension | Score | Key Finding` table, Trends (`Pattern | Sessions | new, reinforced or addressed`) and Proposals Created (`ID | Proposal | Trigger | Issue`); omit a section with no data. A dry run starts with the dry-run line, a stale scope with the `Stale:` header. End with one `memory: <pattern> -> <correct behaviour> (<reason>)` line per `agent-discipline` finding.

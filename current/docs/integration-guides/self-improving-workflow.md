@@ -60,7 +60,7 @@ work_item_schemas:
           `Commits: <sha or range>` (one line; never a file list, the commits name their files);
           `Verified: <command> green at <sha> | not run (<why>)` (one line; never test counts, CI holds them);
           `Deviations: <what differed from the plan and why> | none`;
-          `Friction: <type: description>, ... | none` (tool errors, round-trips, workarounds, API confusion);
+          `Friction: <type: description>, ... | none` (tool errors, round-trips, workarounds, API confusion; a server or plugin defect as `defect: <tool>, <op>, <code>, <message>`);
           `Observations: <process signal worth a trend>` (omit when none);
           `Follow-ups: see orchestrator-confirmation` (never per-finding dispositions here).
           Lines the run tooling adds (`run-wave:` pointer fallback, `**Live-owed**:`) stay as they are.
@@ -275,16 +275,16 @@ Loops 1 and 2 fire continuously during work. Loop 3 fires at session boundaries,
 
 ### When It Runs
 
-A retrospective is owed **per closed run** that has no `retro` mark. Two trigger paths:
+A retrospective is owed **per completed scope** (boundary `scope`, the default) or **per closed run** without a `retro` mark (boundary `run`). Two trigger paths:
 
 1. **Manual** — user invokes `/session-retrospective`, optionally with a root item UUID or `--run <runId>`. `--run` takes the run's members from its ended seats and frontier, and wins over a root UUID.
-2. **Hook-driven** — closing a run (`runs_write` `close`) fires `retro-trigger`; `retro-backstop` runs the same check at `Stop` through `runs_read` with `unmarked: "retro"`, so a run this session opened that a subagent closed is still found; only the session that opened or closed a run is told about it. The first `runs_write` `mark` wins, so two sessions never both dispatch. In the default `nudge` mode the orchestrator is told to suggest it:
+2. **Hook-driven** — closing a run (`runs_write` `close`) fires `retro-trigger`; `retro-backstop` runs the same check at `Stop`, so a run this session opened that a subagent closed is still found; only the session that opened or closed a run is told about it (exceptions at the scope boundary: a dead claim is taken over by any dispatching session after 20 minutes; in a dispatch-configured project any session takes a completed scope 60 minutes after it finished and an abandoned scope at once; in nudge mode an abandoned scope is nudged only to the session that owns it). At the default boundary `scope` one retrospective fires per completed scope (covering every run of it, fix-cycle runs included) and a low-signal scope is skipped by the hook at zero model tokens; at boundary `run` one fires per closed run still unmarked `retro`. The first `runs_write` `mark` wins, so two sessions never both dispatch. In the default `nudge` mode the orchestrator is told to suggest it:
 
 ```
-Retrospective suggested — a run closed (run(s): <runId>). Consider running `/session-retrospective --run <runId>` to capture learnings before the session ends.
+Retrospective suggested — a run closed (run(s): <runId>, <runId>). Consider running `/session-retrospective --run <runId> --run <runId> --session-dir "<folder>"` to capture learnings before the session ends.
 ```
 
-In `nudge` mode the suggestion names each closed, unmarked run and the user opts in. With `retrospective.mode: dispatch`, the hook instead wins the `retro` mark and directs the orchestrator to launch the retrospective as a background agent at the next run boundary, once the run has at least `dispatchThreshold` terminal members (below that it nudges) — see option 6b under [Setup](#setup) for the modes. Work that ran outside a run (an item advanced by hand) has no close to trigger on: run `/session-retrospective` yourself.
+In `nudge` mode the suggestion names each closed, unmarked run and the user opts in. With `retrospective.mode: dispatch`, the hook instead wins the claim mark (`retro-claim` at the scope boundary, `retro` at the run boundary) and directs the orchestrator to launch the retrospective as a background agent at the next run boundary (at boundary `run`, once the run has at least `minItems` terminal members; below that it nudges) — see option 6b under [Setup](#setup) for the modes. Work that ran outside a run (an item advanced by hand) has no close to trigger on: run `/session-retrospective` yourself.
 
 ### What It Evaluates
 
@@ -300,7 +300,7 @@ The skill scores the run across **five dimensions**:
 
 ### Trend Memory
 
-Trend memory lives in MCP, not in a file: each recurring pattern is a work item tagged `retrospective-trend` under a process-global `Retrospective Trends` container (created lazily, outside any project root — the same model as the `Session Retrospectives` and `Improvement Proposals` containers). The item's title carries a stable kebab-case key, its `summary` carries the distilled observation plus a session counter, and each recurrence adds one evidence note:
+Trend memory lives in MCP, not in a file: each recurring pattern is a work item tagged `retrospective-trend` under a process-global `Retrospective Trends` container (created lazily, outside any project root — the same model as the `Session Retrospectives` and `Improvement Proposals` containers). A pattern specific to one project is kept apart: it sits under a per-project `Retrospective Trends` container beneath the project root, tagged `project-<root8>` (the first 8 hex characters of the root id), and matches only that project's trends, so one project's pattern never counts toward another's. Each finding is classified by kind (defect, process, agent-discipline, positive) and scope (product, global-process, project) before it is matched. The item's title carries a stable kebab-case key, its `summary` carries the distilled observation plus a session counter, and each recurrence adds one evidence note:
 
 ```
 title:   trend: model-param-omitted — bulk MCP work dispatched without model param
@@ -310,7 +310,7 @@ tags:    retrospective-trend,delegation
 notes:   evidence-2026-04-29-<retro-short-id>  (role: work — one per recurrence)
 ```
 
-The dimension tag is one of `schema-effectiveness`, `delegation`, `note-quality`, `plan-to-execution`, `friction`, or `extension-candidate` (plus `positive` for a positive pattern). Findings that match an existing trend increment `Sessions: N` and add an evidence note; new findings create a trend item of type `retrospective-trend` at `Sessions: 1` (the server's global config must declare that type; the shipped global floor does). A trend that is addressed or obsolete is retired with `advance` `transition` `cancel`, which drops it out of the active listing. `--deep` hands the matching to the `retro-analysis` workflow in the main session, and stashes the findings as the plan document `retro/<runId>` while it runs.
+The dimension tag is one of `schema-effectiveness`, `delegation`, `note-quality`, `plan-to-execution`, `friction`, or `extension-candidate` (plus `positive` for a positive pattern). Findings that match an existing trend increment `Sessions: N` and add an evidence note; new findings create a trend item of type `retrospective-trend` at `Sessions: 1` (the server's global config must declare that type; the shipped global floor does). A trend that is addressed or obsolete is retired with `advance` `transition` `cancel`, which drops it out of the active listing. `/task-orchestrator:review-retrospectives --deep` hands the matching to the `retro-analysis` workflow in the main session, and stashes the findings as the plan document `retro/<runId>` while it runs.
 
 > **Legacy layout.** Earlier plugin versions kept trends in `memory/retrospectives.md` in the auto-memory directory. If that file still holds trend entries and the Trends container is absent or empty, the skill follows `skills/session-retrospective/references/legacy-trend-migration.md` to move them into MCP items once.
 
@@ -340,9 +340,10 @@ Meta-findings append to the current retrospective's `improvement-signals` note.
 A retrospective run produces:
 
 1. One `session-retrospective` MCP item under a `Session Retrospectives` container (with three queue-phase notes filled)
-2. New or updated `retrospective-trend` MCP items under the `Retrospective Trends` container (new trends, incremented counters, evidence notes)
+2. New or updated `retrospective-trend` MCP items under the global or per-project `Retrospective Trends` container (new trends, incremented counters, evidence notes)
 3. Zero or more `improvement-proposal` MCP items under an `Improvement Proposals` container (one per graduated trend)
-4. A dashboard rendered to the user with dimension scores, trends, and any proposals created
+4. Bug observations for defects found (an `agent-observation` tagged `bug` and `retro-reported`, or evidence on an open one), created on first sighting with no session threshold; an agent-discipline slip creates no item and returns as a `memory:` line to the session that dispatched the retrospective
+5. A dashboard rendered to the user with dimension scores, trends, and any proposals created
 
 ### Settings
 
@@ -353,7 +354,8 @@ extensions:
   claude-code:
     retrospective:
       mode: nudge            # nudge (default) | dispatch | off
-      dispatchThreshold: 3   # terminal members a closed run needs before dispatch mode dispatches
+      minItems: 3            # triage size signal (scope) / terminal members a closed run needs (run)
+      boundary: scope        # scope (default, one per completed scope) | run (one per closed run)
       github_feedback:
         enabled: false
         repo: jpicklyk/task-orchestrator
@@ -540,11 +542,12 @@ Place the file in `~/.claude/output-styles/` (a personal style is still a valid 
 ## Retrospective Nudge
 
 When a run closes, or a retrospective nudge or dispatch directive arrives from the plugin's
-hooks, suggest `/session-retrospective --run <runId>` once per run:
+hooks, suggest one `/session-retrospective --run <runId> --run <runId> --session-dir "<folder>"`
+invocation naming every run of the scope, once per scope:
 
-  ↳ Run closed. Consider running `/session-retrospective --run <runId>` to capture learnings.
+  ↳ Run closed. Consider running `/session-retrospective --run <runId> --run <runId> --session-dir "<folder>"` to capture learnings.
 
-Do not auto-invoke. Show at most once per run.
+Do not auto-invoke. Show at most once per scope.
 ```
 
 This relies on the agent noticing the run close and remembering to nudge. Soft signal, no infrastructure.
@@ -553,10 +556,11 @@ This relies on the agent noticing the run close and remembering to nudge. Soft s
 
 | Hook | Fires on | Role |
 |------|----------|------|
-| `retro-trigger.mjs` | PostToolUse on `runs_write` | On a successful `close`, nudges or (in `dispatch` mode) wins the run's `retro` mark and directs a background retrospective |
-| `retro-backstop.mjs` | Stop | End-of-turn backstop: finds closed, unmarked runs (`runs_read` `unmarked: "retro"`) so a close is never silently missed |
+| `retro-trigger.mjs` | PostToolUse on `runs_write` | On a successful `close`, records it and nudges or (in `dispatch` mode) wins the claim mark and directs a background retrospective |
+| `retro-backstop.mjs` | Stop | End-of-turn backstop: finds completed scopes (or closed, unmarked runs) so a close is never silently missed; retries a failed dispatch |
+| `retro-subagent-stop.mjs` | SubagentStop | Marks a dispatched retrospective that stopped without the `retro` mark as failed, so the next Stop retries it |
 
-Both are registered automatically via the plugin's `hooks-config.json` — there is nothing to copy into `.claude/hooks/` and no `.claude/settings.json` wiring to add. Enabling the plugin (see [Claude Code Plugin Discovery](../../../CLAUDE.md#claude-code-plugin-discovery) in the repo root `CLAUDE.md`) is enough.
+All three are registered automatically via the plugin's `hooks-config.json` — there is nothing to copy into `.claude/hooks/` and no `.claude/settings.json` wiring to add. Enabling the plugin (see [Claude Code Plugin Discovery](../../../CLAUDE.md#claude-code-plugin-discovery) in the repo root `CLAUDE.md`) is enough.
 
 Behavior is configured per workspace via `retrospective.mode` under `extensions.claude-code` in `.taskorchestrator/config.yaml`: `nudge` (default, prints the suggestion) | `dispatch` (directs a background `/session-retrospective` automatically) | `off` (disabled). See [config-format.md → Retrospective](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#retrospective) for the full field reference; edits to `retrospective.mode` take effect on the next hook trigger, no `/mcp` reconnect needed.
 
@@ -673,7 +677,7 @@ The agent's discipline corrections. Reviewable and editable; entries that are no
 
 ### Accepting proposals
 
-`/task-orchestrator:review-proposals` walks the pending `improvement-proposal` items and records an accept, reject or defer for each. A project-scoped acceptance has its exact YAML applied to `.taskorchestrator/config.yaml` and pushed to the project's root with the `config` tool: `validate` first, then `get` for the head version, then `push` with that version as `expectedVersion` (a concurrent edit comes back as `version_conflict` instead of being overwritten). An accepted item then dwells in `review` by design, until a later `/session-retrospective` run fills its `outcome-verification` note. A global acceptance is tracked as a GitHub issue when `retrospective.github_feedback.enabled` is on and `gh` is available; otherwise the maintainer path applies (`skills/review-proposals/SKILL.md`).
+`/task-orchestrator:review-retrospectives` is the front door: it summarises the retrospective record, suggests ranked actions and offers to triage pending proposals. `/task-orchestrator:review-proposals` (user-invoked only) walks the pending `improvement-proposal` items and records an accept, reject or defer for each. A project-scoped acceptance has its exact YAML applied to `.taskorchestrator/config.yaml` and pushed to the project's root with the `config` tool: `validate` first, then `get` for the head version, then `push` with that version as `expectedVersion` (a concurrent edit comes back as `version_conflict` instead of being overwritten). An accepted item then dwells in `review` by design, until a later `/session-retrospective` run fills its `outcome-verification` note. A global acceptance is tracked as a GitHub issue when `retrospective.github_feedback.enabled` is on and `gh` is available; otherwise the maintainer path applies (`skills/review-proposals/SKILL.md`).
 
 ### Triage Cadence
 

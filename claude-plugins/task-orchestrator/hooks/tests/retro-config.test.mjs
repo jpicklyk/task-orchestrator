@@ -25,13 +25,13 @@ after(() => {
 const { parseRetrospectiveConfig, parseRetrospectiveMode, dispatchAncestorId, restRootId, buildNudge, buildDispatch } = lib;
 
 const NL = String.fromCharCode(10);
-const DEFAULTS = { mode: 'nudge', dispatchThreshold: 3 };
+const DEFAULTS = { mode: 'nudge', minItems: 3, boundary: 'scope' };
 const nested = (...retroLines) =>
   ['extensions:', '  claude-code:', '    retrospective:', ...retroLines.map((l) => `      ${l}`), ''].join(NL);
 
 // ---- S12 defaults and shape -----------------------------------------------------------------
 
-test('S12: absent or empty config -> exactly {mode: nudge, dispatchThreshold: 3} (no cooldownMinutes key)', () => {
+test('S12: absent or empty config -> exactly {mode: nudge, minItems: 3, boundary: scope} (no cooldownMinutes key)', () => {
   assert.deepEqual(parseRetrospectiveConfig(null), DEFAULTS);
   assert.deepEqual(parseRetrospectiveConfig(undefined), DEFAULTS);
   assert.deepEqual(parseRetrospectiveConfig(''), DEFAULTS);
@@ -43,15 +43,15 @@ test('S12: a config without the extensions block, or without retrospective insid
   assert.deepEqual(parseRetrospectiveConfig('extensions:\n  claude-code: {}\n'), DEFAULTS);
 });
 
-test('S12: reads mode and dispatchThreshold from extensions.claude-code.retrospective', () => {
-  assert.deepEqual(parseRetrospectiveConfig(nested('mode: dispatch', 'dispatchThreshold: 5')), { mode: 'dispatch', dispatchThreshold: 5 });
-  assert.deepEqual(parseRetrospectiveConfig(nested('mode: off')), { mode: 'off', dispatchThreshold: 3 });
-  assert.deepEqual(parseRetrospectiveConfig(nested('dispatchThreshold: 7')), { mode: 'nudge', dispatchThreshold: 7 });
+test('S12: reads mode and minItems (dispatchThreshold compat) from extensions.claude-code.retrospective', () => {
+  assert.deepEqual(parseRetrospectiveConfig(nested('mode: dispatch', 'dispatchThreshold: 5')), { mode: 'dispatch', minItems: 5, boundary: 'scope' });
+  assert.deepEqual(parseRetrospectiveConfig(nested('mode: off')), { mode: 'off', minItems: 3, boundary: 'scope' });
+  assert.deepEqual(parseRetrospectiveConfig(nested('dispatchThreshold: 7')), { mode: 'nudge', minItems: 7, boundary: 'scope' });
 });
 
 test('S12: a sibling key before retrospective under claude-code does not hide it', () => {
   const text = ['extensions:', '  claude-code:', '    other: x', '    retrospective:', '      mode: dispatch', '      dispatchThreshold: 4', ''].join(NL);
-  assert.deepEqual(parseRetrospectiveConfig(text), { mode: 'dispatch', dispatchThreshold: 4 });
+  assert.deepEqual(parseRetrospectiveConfig(text), { mode: 'dispatch', minItems: 4, boundary: 'scope' });
 });
 
 test('S12: a column-0 comment inside the block does not break it', () => {
@@ -68,7 +68,7 @@ test('S12: a top-level retrospective: block is ignored -> defaults', () => {
 
 test('S12: with both blocks present only the extensions one counts', () => {
   const text = 'retrospective:\n  mode: dispatch\n  dispatchThreshold: 9\n' + nested('mode: nudge', 'dispatchThreshold: 2');
-  assert.deepEqual(parseRetrospectiveConfig(text), { mode: 'nudge', dispatchThreshold: 2 });
+  assert.deepEqual(parseRetrospectiveConfig(text), { mode: 'nudge', minItems: 2, boundary: 'scope' });
 });
 
 test('S12 probe: a retrospective block under another extension namespace is not this plugin\'s', () => {
@@ -78,7 +78,7 @@ test('S12 probe: a retrospective block under another extension namespace is not 
 
 test('S12: cooldownMinutes is dropped: configured or not, it never appears in the result', () => {
   const r = parseRetrospectiveConfig(nested('mode: dispatch', 'cooldownMinutes: 10'));
-  assert.deepEqual(r, { mode: 'dispatch', dispatchThreshold: 3 });
+  assert.deepEqual(r, { mode: 'dispatch', minItems: 3, boundary: 'scope' });
   assert.ok(!('cooldownMinutes' in r));
 });
 
@@ -91,13 +91,13 @@ test('S12: unrecognised mode -> nudge; off stays off; dispatch stays dispatch', 
   assert.equal(parseRetrospectiveConfig(nested('mode: dispatch')).mode, 'dispatch');
 });
 
-test('S12: dispatchThreshold must be an integer >= 0, else 3; 0 is honoured', () => {
+test('S12: the older dispatchThreshold key is read as minItems: integer >= 0, else 3; 0 is honoured', () => {
   for (const bad of ['not-a-number', '-1', '2.5', '""', '']) {
-    assert.equal(parseRetrospectiveConfig(nested(`dispatchThreshold: ${bad}`)).dispatchThreshold, 3, `value ${JSON.stringify(bad)}`);
+    assert.equal(parseRetrospectiveConfig(nested(`dispatchThreshold: ${bad}`)).minItems, 3, `value ${JSON.stringify(bad)}`);
   }
-  assert.equal(parseRetrospectiveConfig(nested('dispatchThreshold: 0')).dispatchThreshold, 0);
-  assert.equal(parseRetrospectiveConfig(nested('dispatchThreshold: 1')).dispatchThreshold, 1);
-  assert.equal(parseRetrospectiveConfig(nested('dispatchThreshold: 12')).dispatchThreshold, 12);
+  assert.equal(parseRetrospectiveConfig(nested('dispatchThreshold: 0')).minItems, 0);
+  assert.equal(parseRetrospectiveConfig(nested('dispatchThreshold: 1')).minItems, 1);
+  assert.equal(parseRetrospectiveConfig(nested('dispatchThreshold: 12')).minItems, 12);
 });
 
 test('S12: parseRetrospectiveMode is the mode of parseRetrospectiveConfig', () => {
@@ -170,11 +170,55 @@ test('Invariants: the exports other modules import are still there', () => {
 
 // ---- S15 directive text (AC9) --------------------------------------------------------------------
 
-test('S15: buildNudge names every runId as /session-retrospective --run <runId>', () => {
+test('S15: buildNudge names every runId in ONE /session-retrospective invocation with repeated --run (W1 AC7)', () => {
   const text = buildNudge(['run-aaa', 'run-bbb']);
   assert.ok(text.includes('Retrospective suggested'), text);
-  assert.ok(text.includes('/session-retrospective --run run-aaa'), text);
-  assert.ok(text.includes('/session-retrospective --run run-bbb'), text);
+  assert.ok(text.includes('/session-retrospective --run run-aaa --run run-bbb'), text);
+  assert.equal((text.match(/\/session-retrospective/g) ?? []).length, 1, text);
+});
+
+test('S15 (W1 AC7): buildNudge with a transcript path carries one invocation, the repeated --run and --session-dir', () => {
+  const text = buildNudge(['a', 'b'], { transcriptPath: 'C:/p/x.jsonl' });
+  assert.equal((text.match(/\/session-retrospective/g) ?? []).length, 1, text);
+  assert.ok(text.includes('--run a --run b'), text);
+  assert.ok(text.includes('--session-dir "C:/p/x"'), text);
+  assert.ok(text.includes('Retrospective suggested'), text);
+});
+
+test('S15 (W1 AC7): buildDispatch never says "skip entirely" or "active items", with or without a fix-cycle map or transcript', () => {
+  const variants = [
+    buildDispatch(['run-aaa', 'run-bbb'], 'root-1'),
+    buildDispatch(['run-aaa'], null),
+    buildDispatch([], 'root-1'),
+    buildDispatch(['run-aaa'], 'root-1', { 'run-aaa': 'r-base' }, { transcriptPath: 'C:/p/x.jsonl' }),
+  ];
+  for (const text of variants) {
+    assert.ok(!text.includes('skip entirely'), text);
+    assert.ok(!text.includes('active items'), text);
+    assert.ok(text.includes('durable'), text);
+  }
+});
+
+// ---- S6 (W1) minItems and boundary ----------------------------------------------------------------
+
+test('S6 (W1): minItems 0 is honoured and parses as an integer', () => {
+  assert.deepEqual(parseRetrospectiveConfig(nested('minItems: 0')), { mode: 'nudge', minItems: 0, boundary: 'scope' });
+  assert.equal(parseRetrospectiveConfig(nested('minItems: 5')).minItems, 5);
+});
+
+test('S6 (W1): dispatchThreshold alone is read as minItems; with both, minItems wins whatever the order', () => {
+  assert.equal(parseRetrospectiveConfig(nested('dispatchThreshold: 5')).minItems, 5);
+  assert.equal(parseRetrospectiveConfig(nested('dispatchThreshold: 5', 'minItems: 2')).minItems, 2);
+  assert.equal(parseRetrospectiveConfig(nested('minItems: 2', 'dispatchThreshold: 5')).minItems, 2);
+  assert.ok(!('dispatchThreshold' in parseRetrospectiveConfig(nested('dispatchThreshold: 5'))));
+});
+
+test('S6 (W1): boundary scope and run are read; any other value falls back to scope', () => {
+  assert.equal(parseRetrospectiveConfig(nested('boundary: run')).boundary, 'run');
+  assert.equal(parseRetrospectiveConfig(nested('boundary: scope')).boundary, 'scope');
+  for (const bad of ['bogus', '""', '', '3']) {
+    assert.equal(parseRetrospectiveConfig(nested(`boundary: ${bad}`)).boundary, 'scope', `value ${JSON.stringify(bad)}`);
+  }
 });
 
 test('S15: buildNudge with an empty list renders the bare command and no --run', () => {
