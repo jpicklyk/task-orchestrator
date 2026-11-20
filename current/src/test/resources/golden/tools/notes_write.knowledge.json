@@ -18,7 +18,7 @@
             },
             "itemId": {
               "type": "string",
-              "description": "Id of the work item that owns the note: a full UUID or 8 to 32 hex characters of one."
+              "description": "Id of the work item that owns the note: UUID or 8-32 hex."
             },
             "key": {
               "type": "string",

@@ -7,8 +7,9 @@ user-invocable: true
 # Implement
 
 End-to-end workflow for taking MCP work items from queue to PR: repo mechanics and routing live
-here; planning and review follow each note's `skillPointer`, and process rules are served rules
-(`docs_read` `get`, `kind` `rule`) that each section names by key.
+here; planning and review follow each note's `skillPointer` (a pointer that is a served rule key is
+fetched as a rule, any other pointer is invoked as a skill; mechanics in `schema-workflow`), and
+process rules are served rules (`docs_read` `get`, `kind` `rule`) that each section names by key.
 
 **Usage:**
 - `/implement <item-id>` — work on a specific item
@@ -169,7 +170,8 @@ Before the work-exit `advance`, apply rule `live-checks` "The Live-owed hold".
 ### Planning rules
 
 **Plans are spec inputs.** Plan mode skips note guidance, so verify every path and contract a plan
-names in source, as the planning note's `skillPointer` requires.
+names in source, as the planning note's `skillPointer` requires (a served rule key is fetched as a
+rule, any other pointer is invoked as a skill; see `schema-workflow`).
 
 **Plans carry the State matrix.** Each plan carries or points at the item's State matrix, or one
 `State matrix: n/a - <reason>` line, per rule `live-checks`.

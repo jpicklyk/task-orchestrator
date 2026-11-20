@@ -51,7 +51,13 @@ Compare every skill name declared in the file with the skills available to the a
 4. Every other skill name is a finding when it is not among the skills available to you.
 5. Every binding shown names its source: `schema` (declared in the file), `plugin default` (the plugin's seat defaults), or `none`.
    - Seat skills: a declared `skills` list is `schema`; no list is the plugin default, read from `../../hooks/lib/seat-skill-defaults.json` relative to this skill folder (report "unknown" when it cannot be read); a seat with neither is `none`.
-   - Seat rules: a declared `rules` list is `schema`; with none declared the plugin defaults apply (see config-format.md, seat-entry fields, `rules`). Rules are shown with their source and are not compared with skills; lint reports a declared key the root does not serve.
+   - Seat rules: a declared `rules` list is `schema`; with none declared the plugin defaults apply, read from `../../hooks/lib/seat-rules.json` relative to this skill folder (the seat role's `defaults`; report "unknown" when it cannot be read; see config-format.md, seat-entry fields, `rules`). Rules are shown with their source and are not compared with skills; lint reports a declared key the root does not serve.
+6. Served bundled rules: compare each served key from step 3 that the plugin ships with the plugin's hashes. Read the manifest yourself, `../../bundled-rules/manifest.json` relative to this skill folder (a key to its shipped hashes, oldest first, the last one current), and the seat rule table `../../hooks/lib/seat-rules.json` (a key that is some role's `protocol` is a protocol rule). Report "manifest unreadable: bundled rules not compared" in one line when either cannot be read. For each served key the manifest lists, by its `rulesVersion`:
+   - the last hash: current, nothing to report.
+   - an earlier hash: a stale copy. The fix: start a new session with a REST API URL configured (the session-start rule sync replaces a copy whose hash the manifest lists), or re-upsert `bundled-rules/<key>.md` as the `rule` document of that key.
+   - a hash the manifest does not list: project-authored; the sync never touches it. When the key is a protocol rule, flag it "protocol rule": the copy no longer receives plugin updates to the tool's own protocol, and conduct for a seat is better added as a project rule on the seat's `rules` list.
+
+   Each is a finding, never an error.
 
 ## Stage 3 - Content (guidance declared in the file)
 

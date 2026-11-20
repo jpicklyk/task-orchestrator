@@ -68,7 +68,8 @@ plan mode:
    materialization). **Autonomous:** read and follow the `pre-plan-workflow` skill yourself
    (existing MCP state, schema requirements, the definition floor), then research the codebase.
 2. Fill every queue-phase note following its guidance text (`items_read` `schema`,
-   `fields: ["guidance"]`) and its `skillPointer`, in either mode.
+   `fields: ["guidance"]`) and its `skillPointer`, in either mode: a pointer that is a served rule
+   key is fetched as a rule, any other pointer is invoked as a skill (`schema-workflow`).
    Front door "Planning rules" applies in full.
 3. After plan approval, materialize child items if the plan calls for them (`post-plan-workflow`:
    the exit hook in collaborative mode, by hand in autonomous mode).
@@ -242,9 +243,17 @@ Read ALL files from that directory. Do NOT read from the main working directory.
 
 Tests have already been verified green by the orchestrator after the most recent
 commit batch. Run no gradle — the contract's Compile self-check slot states who runs
-it, and the Review scoping slot records the build state you rely on. For each
-review-phase note the item's schema requires, read its `skillPointer`
-(`items_read` `schema`, `itemId`) and follow that framework, then fill those notes.
+it, and the Review scoping slot records the build state you rely on.
+
+Before your first review-note write, load the reviewer seat's skills as `items_read`
+`schema` gives them (`seats[]`), or, when it declares none, the plugin defaults its hook
+names on your first `items_read` `context` read of the item.
+Fetch rule `protocol.read-only-agent`, plus the reviewer seat's `rules` from `items_read`
+`schema` (`seats[]`), or `review-scoping` and `review-cited-claims` when it has no `rules`
+field, with `config` op `rules`, and follow them. For each
+review-phase note the item's schema requires, read its `skillPointer` (`items_read`
+`schema`, `itemId`): a pointer that is a served rule key is fetched as a rule (`config`
+op `rules`), any other pointer is invoked as a skill. Follow it, then fill those notes.
 
 Report every finding at every severity — do not self-filter to a high-severity-only
 bar. Mark each finding blocking or observation and state your confidence; the
@@ -296,8 +305,8 @@ from. Automatically retrying hides these signals.
 
 **For each child task** (after its review passes, if it has one):
 
-1. For children whose schema/trait declares a review phase (e.g. `needs-task-review`),
-   confirm `review-checklist` is filled. Children without one advance work→terminal
+1. For children whose schema/trait declares a review phase (the schema requires a
+   `review-checklist` note), confirm `review-checklist` is filled. Children without one advance work→terminal
    directly — there is nothing to confirm.
 2. Advance the child to terminal only if it is not already terminal (Step 4c item 5 already
    advanced each child out of work; a review-less child is terminal by now, so skip it). A child

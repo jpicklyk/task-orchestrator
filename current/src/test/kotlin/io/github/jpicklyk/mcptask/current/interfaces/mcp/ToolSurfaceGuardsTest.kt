@@ -60,7 +60,8 @@ class ToolSurfaceGuardsTest {
     private fun padded(
         name: String,
         targetChars: Int,
-        profile: ToolProfile = ToolProfile.KNOWLEDGE
+        profile: ToolProfile = ToolProfile.KNOWLEDGE,
+        visibleIn: Set<ToolProfile>? = null
     ): OpsToolSpec<String> {
         fun build(descriptionLength: Int) =
             OpsToolSpec<String>(
@@ -73,11 +74,12 @@ class ToolSurfaceGuardsTest {
                             doc = "Make.",
                             // R5 mechanical migration: the pre-R5 single-profile declaration as its profile set.
                             profiles =
-                                when (profile) {
-                                    ToolProfile.KNOWLEDGE -> knowledge()
-                                    ToolProfile.ORCHESTRATION -> orchestration()
-                                    ToolProfile.DIRECTOR -> director()
-                                },
+                                visibleIn
+                                    ?: when (profile) {
+                                        ToolProfile.KNOWLEDGE -> knowledge()
+                                        ToolProfile.ORCHESTRATION -> orchestration()
+                                        ToolProfile.DIRECTOR -> director()
+                                    },
                             capability = ApiCapability.WRITE_ITEMS,
                             request = serializer<FixtureTools.CreateReq>(),
                             execute = { _, _, _ -> Outcome.Ok("x") }
@@ -99,8 +101,20 @@ class ToolSurfaceGuardsTest {
 
     @Test
     fun `S15 a tool of exactly 8000 characters and one of 7999 pass`() {
-        assertEquals(emptyList(), ToolSurfaceChecks.budgetViolations(registryOf(padded("pad_tool", 8_000))))
-        assertEquals(emptyList(), ToolSurfaceChecks.budgetViolations(registryOf(padded("pad_tool", 7_999))))
+        // Each profile's boundary is proved with a fixture padded on that profile's own rendering: the orchestration
+        // rendering is larger than the knowledge one (it adds the top-level seatToken property), so one fixture visible
+        // in both profiles cannot measure exactly 8000 on both.
+        for (size in listOf(8_000, 7_999)) {
+            val bothProfiles = registryOf(padded("pad_tool", size, ToolProfile.ORCHESTRATION, visibleIn = knowledge()))
+            assertEquals(size, ToolSurfaceChecks.sizes(bothProfiles, ToolProfile.ORCHESTRATION).getValue("pad_tool"))
+            assertTrue(ToolSurfaceChecks.sizes(bothProfiles, ToolProfile.KNOWLEDGE).getValue("pad_tool") <= size)
+            assertEquals(emptyList(), ToolSurfaceChecks.budgetViolations(bothProfiles), "orchestration-measured $size")
+
+            val knowledgeOnly = registryOf(padded("pad_tool", size, ToolProfile.KNOWLEDGE, visibleIn = setOf(ToolProfile.KNOWLEDGE)))
+            assertEquals(size, ToolSurfaceChecks.sizes(knowledgeOnly, ToolProfile.KNOWLEDGE).getValue("pad_tool"))
+            assertEquals(emptyMap(), ToolSurfaceChecks.sizes(knowledgeOnly, ToolProfile.ORCHESTRATION))
+            assertEquals(emptyList(), ToolSurfaceChecks.budgetViolations(knowledgeOnly), "knowledge-measured $size")
+        }
     }
 
     @Test

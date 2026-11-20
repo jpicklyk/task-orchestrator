@@ -39,9 +39,9 @@ private const val BUDGET_DOC =
     "Run budget: attemptsPerSeat, maxActiveSeats; absent means no cap. On open it may not exceed a " +
         "configured ceiling; on update a field can only be lowered or newly set."
 private const val HINTS_DOC = "Short structured coordinator hints, string to string. On update they replace the stored hints."
-private const val ITEM_DOC = "Item id: a UUID or a hex prefix of 8 to 32 characters."
+private const val ITEM_DOC = "Item id: UUID or 8-32 hex."
 private const val LINKS_DOC = "Up to 10 {kind, ref} pointers; kind is item, note, doc, commit or url."
-private const val ROOT_DOC = "The root item the run belongs to. Item id: a UUID or a hex prefix of 8 to 32 characters."
+private const val ROOT_DOC = "The root item the run belongs to. Item id: UUID or 8-32 hex."
 
 /** How the calling seat ended: the outcomes a seat reports itself (`superseded` and `run_closed` are server-only). */
 @Serializable

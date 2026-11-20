@@ -35,7 +35,7 @@ data class ConfigRulesRequest(
     @Doc(ConfigDocs.ROOT_ID) val rootId: IdRef? = null,
     @Doc("Rule key: lowercase letters, digits, dot, underscore or hyphen, starting alphanumeric, at most 100 characters.")
     val key: String? = null,
-    @Doc("Item whose effective schema holds noteKey: a UUID or a hex prefix of 8 to 32 characters. A root item is its own root.")
+    @Doc("Item whose effective schema holds noteKey: UUID or 8-32 hex. A root item is its own root.")
     val itemId: IdRef? = null,
     @Doc("Note key looked up in itemId's effective schema; its first skill names the rule key.")
     val noteKey: String? = null

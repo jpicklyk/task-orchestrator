@@ -57,7 +57,8 @@ function ctxOf(out) {
   return out.hookSpecificOutput.additionalContext
 }
 function opts(over = {}) {
-  return { director: true, statePath: join(tmp('to-watch-'), 'state.json'), rest: null, retroMode: 'dispatch', ...over }
+  // retroState: the session owns the run ids these tests use (retro-lib ownsRun).
+  return { director: true, statePath: join(tmp('to-watch-'), 'state.json'), rest: null, retroMode: 'dispatch', retroState: { closes: ['run-1', 'run-2', 'run-77'] }, ...over }
 }
 const stateOf = (o) => JSON.parse(readFileSync(o.statePath, 'utf8'))
 

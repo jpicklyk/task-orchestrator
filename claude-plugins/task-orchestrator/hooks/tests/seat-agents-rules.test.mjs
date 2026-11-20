@@ -271,11 +271,13 @@ test('S8: in-phase-seat claude section names items_read, notes_write, runs_write
   assert.ok(!toolsInBlocks(file).includes('advance'), 'a non-entry seat never calls advance');
 });
 
-test('S8: read-only-agent claude section names items_read and notes_write; no block calls advance or runs_write', () => {
+test('S8: read-only-agent claude section names items_read, notes_write and end_seat and forbids raise; no block calls advance or runs_write', () => {
   const file = rulePath('protocol.read-only-agent');
   const section = sectionOf(readText(file), 'claude:');
   assert.notEqual(section, null);
-  assert.deepEqual(missingTicked(section, ['items_read', 'notes_write']), []);
+  assert.deepEqual(missingTicked(section, ['items_read', 'notes_write', 'end_seat']), []);
+  assert.ok(section.includes('Never raise'), 'the no-raise statement stays');
+  assert.ok(section.includes('the only `runs_write` call a read-only agent makes is the `end_seat`'), 'end_seat is the one runs_write allowed');
   const tools = toolsInBlocks(file);
   assert.ok(!tools.includes('advance'), 'a read-only agent never transitions');
   assert.ok(!tools.includes('runs_write'), 'a read-only agent never raises');
@@ -375,8 +377,23 @@ test('S13: an unknown snake_case token would be caught by the S6 vocabulary', ()
   const tokens = claudeSnakeTokens('## claude:' + NL + NL + tick('items_read') + ' ' + tick('advance_item') + NL);
   assert.deepEqual(tokens.filter((t) => !VOCAB.has(t)), ['advance_item']);
 });
-test('closure notes: implementer.md names the closure-notes rule and the docs_read fetch', () => {
-  const text = readText(agentPath('implementer'));
-  assert.ok(text.includes('`closure-notes`'), 'implementer.md must name the closure-notes rule');
-  assert.ok(text.includes('`docs_read`'), 'implementer.md must name docs_read');
+const SEAT_RULES_TABLE = JSON.parse(readFileSync(join(PLUGIN, 'hooks', 'lib', 'seat-rules.json'), 'utf8'));
+const TABLE_KEYS = [...new Set(Object.values(SEAT_RULES_TABLE.roles).flatMap((r) => [r.protocol, ...r.pluginChosen, ...r.defaults]))];
+
+// S14 (AC1, D9): a seat agent file cites the one data file for its protocol and plugin-chosen keys and names no key the table holds.
+test('S14: every seat agent file cites hooks/lib/seat-rules.json', () => {
+  for (const name of SEAT_AGENTS) {
+    assert.ok(readText(agentPath(name)).includes('hooks/lib/seat-rules.json'), `agents/${name}.md cites hooks/lib/seat-rules.json`);
+  }
+});
+
+test('S14: no seat agent file names a key in play (a protocol, plugin-chosen or default key of the table)', () => {
+  assert.ok(TABLE_KEYS.length >= 9, 'fixture: the table yields its keys: ' + TABLE_KEYS.join(','));
+  for (const name of SEAT_AGENTS) {
+    const text = readText(agentPath(name));
+    for (const key of TABLE_KEYS) {
+      const re = new RegExp('(?<![A-Za-z0-9_.-])' + key.split('.').join(String.fromCharCode(92) + '.') + '(?![A-Za-z0-9_-])');
+      assert.equal(re.test(text), false, `agents/${name}.md names ${key}`);
+    }
+  }
 });

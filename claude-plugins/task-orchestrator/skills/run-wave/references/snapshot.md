@@ -1,13 +1,14 @@
 # `run-wave/snapshot-v1` — field reference
 
-The skill assembles this object once per run (Step 2) and writes it to
+The skill builds this object once per run (Step 2) with the `snapshot` helper subcommand when a REST API URL resolves, else by hand, and writes it to
 `<scratchpad>/run-wave/snapshot.json` — no `runId` exists yet at that point, so the path carries
 no `<runId>/` segment. Once `plan` (Step 3) returns a `runId`, the skill copies this same
 snapshot alongside the returned plan document to `<scratchpad>/run-wave/<runId>/snapshot.json`
 and `<scratchpad>/run-wave/<runId>/plan.json`; every later step reads from that `<runId>/` pair.
 
-This is a field list only — no guidance on HOW to fill each field. That prose lives in `SKILL.md`
-Step 0 (capability probe) and Step 2 (the snapshot calls table).
+This is the field list. The by-hand guidance on HOW to fill each field lives in `SKILL.md`
+Step 0 (capability probe) and Step 2 (the snapshot calls table); the `snapshot` subcommand fills every field below by the rules in
+[The snapshot subcommand](#the-snapshot-subcommand).
 
 ```
 {contract, rootId, ancestorId|null, capturedAt, features[], rulesServed:[{key, rulesVersion}],
@@ -41,11 +42,11 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
   `capabilities`/`sizeGuideline`. `mcpServerKey` is the registered orchestration entry key (null when
   none); `plan` copies a non-null one into `capabilities.mcpServerKey`, which names the tools on every
   seat prompt's TOOLS line (absent means `mcp-task-orchestrator`). `plan` copies `allow` into
-  `meta.allow`; the `planned` report names its false members on the `needs:` line. `serverCompat` is checked in Step 0 F2 (non-null stops the run);
+  `meta.allow`; the `planned` report names its false members on the `needs:` line (under Method B it leaves `workflow` out, since that method makes no Workflow call; `meta.allow` stays verbatim). `serverCompat` is checked in Step 0 F2 (non-null stops the run);
   `probe --no-server-check` skips that network check and `--api-url <url>` overrides the resolved URL.
 - `schemas[].seats[].skills` - optional, copy each seat's `skills` array verbatim from the `items_read` `schema` answer with the rest of `seats`. `plan` turns it into `seatSkills` on the seat's stage (and `reviewSeatSkills` on the plan item for review lanes) and honours it only when `features` lists `seatSkills`; otherwise, and when the seat declares none, the defaults table `hooks/lib/seat-skill-defaults.json` applies (`[]` declared means none). Both workflows' prompts then carry one SEAT SKILLS line. Resolver: `hooks/lib/seat-skills.mjs`.
 - `schemas[].notes[].maxLength` - optional, copied from the note's `maxLength` in the `items_read` `schema` answer when that is an integer of 1 or more, and left out otherwise. `plan` turns it into `noteLimits` on the stage that owns the note, and `reseat` then gives a fix seat a limit sentence for each note key its FIX CYCLE line names that the stage limits. Without it the plan carries no `noteLimits` and a fix seat gets no limit sentence.
-- `schemas[].seats[].rules` - copy each seat's `rules` array verbatim from the `items_read` `schema` answer with the rest of `seats`. Without it `run-planner-lib.mjs` (`seatRulesFor`, `reviewRulesOf`) silently falls back to the default rules for that seat.
+- `schemas[].seats[].rules` - copy each seat's `rules` array verbatim from the `items_read` `schema` answer with the rest of `seats`. Without it the run planner (`hooks/lib/seat-rules.mjs` `seatRulesFor`, called from `run-planner-lib.mjs` and its `reviewRulesOf`) silently falls back to the seat role's defaults in `hooks/lib/seat-rules.json`.
 - `schemas[].notes[].skills` and `schemas[].notes[].skillMode` - optional, copied from the note's `skills` array and `skillMode` in the `items_read` `schema` answer when present (the server emits `skills` only for two or more skills and `skillMode` only as `method-on-diff`), and left out otherwise. `review-wave` args turn them into a lane id `<seat>.<skill>--<skill>` and a stage `skillMode`; without them a multi-skill note gets its first skill only and a `method-on-diff` note loses its diff filter.
 - `schemas[].notes[].lane` - optional `{output, after?}`, copied from the note's `lane` in the `items_read` `schema` answer when declared (review-role notes only), and left out otherwise. `review-wave` args turn it into the lane's stage `output` (`findings-v1` for `findings`, else `review-v1`) and `after` (the ids of the lanes holding the named note keys); without it every lane is a verdict lane and unordered.
 - `profile.verify[].appliesTo` — optional, a non-empty array of repo-relative glob patterns (same
@@ -193,3 +194,31 @@ echoes `knownRed` at the top level and `appliesTo` on `redProof.commands` entrie
 An older cached `implement-wave.js` prints an `<ownedTests>` command verbatim and ignores `appliesTo`. This
 repo's profile carries `plugin-node-owned-tests` (`appliesTo` `claude-plugins/**`) beside the orchestrator's
 `plugin-node-tests`, since the plugin cache carries `<ownedTests>` support at 4.0.0.
+
+## The snapshot subcommand
+
+`node "<helper>" snapshot --root <rootId> (--ancestor <id> | --items <id,...>) --out <file> [--scopes <file>] [--cwd <dir>] [--api-url <url>] [--no-server-check] [--no-fetch] [--plugin-root <dir>] [--now <iso>]`
+
+It reads over the resolved REST API (`--api-url`, else the URL the other helpers resolve) with the read capability
+of `TASK_ORCHESTRATOR_API_TOKEN` (no token for an unauthenticated server), one request at a time, every list read following
+`page.next`. A failed read never leaves a partial file. The builder is `scripts/lib/snapshot-builder.mjs`.
+
+**Exit codes.** Nothing is written on 2 or 3.
+
+- 2: no `--root`; neither or both of `--ancestor` and `--items`; no `--out`; no REST URL (stderr `no REST API URL resolves: assemble the snapshot by hand`, so Step 2 is done by hand); `--root` not a depth 0 item; an ancestor or item of another root; `git rev-parse --show-toplevel` fails; `run-profile.json` present but not JSON; a `--scopes` file that is not a JSON object; a flag followed by another `--` flag instead of a value.
+- 3: a required read failed or answered without what it must carry (detail `{read, code}`, code `bad_answer` for an ok answer without a body); no `features` source; `validateSnapshot` refused the object (detail: its errors); the `--out` guard refused to overwrite a launched run's file.
+- 0: the snapshot is at `--out` and stdout holds one line, `{ok, out, candidates, needs:{scopes}, skipped, warnings}`.
+
+**Field sources.**
+
+- `candidates`: with `--ancestor`, the ancestor is read by `get` (its full id is `ancestorId`), then `next`, `list` with `role:"work"` and a fixpoint over `blocked`: a dependency entry that is not terminal and whose every unsatisfied blocker is a candidate joins, with `source:"ready"`. An ancestor with children is never a candidate; a leaf ancestor is its own single candidate. With `--items`, each id is read by `get` and `ancestorId` is `null`: a queue item is ready, a work item is work, any other role goes to the stdout `skipped` list as `{id, role}`. Each candidate takes one `get` (its full id, `complexity` only when a number, `traits` `[]` when absent) and one child probe for `hasChildren`. `source` is `work` for the `work` role, else `ready`.
+- `blocked`: as the field list says, with `reason`, `decisionId` and `resumable` when present. With `--items` the read is scoped to `rootId` and only the given ids' entries are kept.
+- `schemas`: the `schema` answer, without `description` or `guidance`. A `schemaFree` answer and a `not_found` error give `not-found`, any other failure `unavailable` (the one read that is not fatal).
+- `features`: the first schema answer that carries them, else the well-known document, else exit 3. `rulesServed` is the `config` `rules` list for `rootId`.
+- `parents`: one `context` read per distinct candidate `parentId`; a failure is exit 3.
+- `noteOwners`: work candidates only, one list read keyed by the schema's note keys.
+- `carryIns`: per candidate, the carry-in keys of its full note list; `dispositions` is the `carry-in-dispositions` note body, else the `## Carry-in dispositions` section (up to the next `#` or `##` heading) of the first existing planner or unseated queue note, else `null`. These bodies are read in memory and only the record or section text enters the file.
+- `scopes`: not derived, since extracting file paths from note prose is the model's work. The stdout `needs.scopes` lists the full ids at both ends of every unsatisfied dependency edge between two candidates with one parent, minus the ids the `--scopes` file covers. Build those entries by the `scopes` rule above, save `{<id>: {files, dependsOn?}}` and run the same command again with `--scopes <file>`; its entries are copied into `scopes` as given.
+- `git`: `repoRoot` forward-slashed without a trailing slash; `git fetch origin` unless `--no-fetch` (a failure is the warning `git fetch origin failed`); `originMain` from `rev-parse origin/main`, else `null` with the warning `origin/main not resolvable`; `worktrees` from `git worktree list --porcelain` (`{}` with the warning `git worktree list failed` when the command fails), `branch` `null` when detached.
+- `profile`: the parsed `<repoRoot>/.taskorchestrator/run-profile.json`, `{}` when absent. `probe`: the object the `probe` subcommand prints (the same code runs; `--plugin-root`, `--api-url` and `--no-server-check` apply to it too).
+- `contract` is `run-wave/snapshot-v1`, `rootId` the root's full id, `capturedAt` is `--now` else the clock.

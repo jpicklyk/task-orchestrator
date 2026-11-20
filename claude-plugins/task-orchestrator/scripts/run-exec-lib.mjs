@@ -20,16 +20,16 @@ import { extractLastBalancedJson } from './ralph-lib.mjs'
 import { formatProvenance, formatExtraSeats, parseExtraSeats, FIX_CYCLE_SEAT_RE } from './provenance-lib.mjs'
 import { sumUsage, transcriptMeters } from './lib/meters.mjs'
 import { formatCoordinatorReport, REPORT_EVENTS } from './lib/coordinator-report.mjs'
-// The dispatch policy is the one file read outside io: reseat escalates a fix cycle's effort with it.
+// The dispatch policy and the seat rule table are the files read outside io: reseat escalates a fix cycle's
+// effort with the policy; the review prompt and review-wave args take the reviewer's keys from the table.
 import { escalate, ceilingReached, forClass, loadPolicy } from './lib/dispatch-policy.mjs'
 import { policyClassFor, selectPostRunSteps } from './run-planner-lib.mjs'
+import { loadSeatRules, promptKeysFor } from '../hooks/lib/seat-rules.mjs'
 
 export const STATE_CONTRACT = 'run-wave/state-v1'
 
 /** Same behaviour-word list as implement-wave.js's scanDeclarations (kept in sync by hand). */
 export const SCAN_WORDS = ['returns', 'throws', 'falls back', 'catches', 'calls', 'if', 'when', 'otherwise', 'instead']
-
-export const REVIEW_RULES = ['protocol.read-only-agent', 'review-scoping']
 
 // ---------------------------------------------------------------------------------------
 // Path normalization (duplicated from implement-wave.js's normalizePath — verify(doc, result,
@@ -471,12 +471,40 @@ export function next(core, doc, state) {
   return { dispatch, waiting, settled, complete }
 }
 
-/** prompt(core, doc, state, idOrShort, seat) -> core.seatPrompt(plan, item, stage, outsBySeat(item, state)). */
+/** Planner-v1 outputs of the other items whose planner stage is done in state: the SHARED WITH siblings. */
+function siblingsFromState(plan, item, state) {
+  const out = []
+  for (const other of plan.items) {
+    if (other.id === item.id) continue
+    const plannerStage = other.stages.find((s) => s.output === 'planner-v1')
+    if (!plannerStage || stageStateStatus(state, other, plannerStage) !== 'done') continue
+    const output = outsBySeat(other, state)[plannerStage.seat]
+    if (output) out.push({ short: other.short, output, roots: itemRootsOf(plan, other) })
+  }
+  return out
+}
+
+/** The same siblings from a run result (reseat): other items whose planner stage record is done with an output. */
+function siblingsFromResult(plan, item, result) {
+  const out = []
+  for (const other of plan.items) {
+    if (other.id === item.id) continue
+    const plannerStage = other.stages.find((s) => s.output === 'planner-v1')
+    const resOther = plannerStage && result.items.find((r) => r.id === other.id)
+    if (!resOther) continue
+    const rec = (resOther.stages || []).find((s) => s.seat === plannerStage.seat)
+    const output = resOther.outputs && resOther.outputs[plannerStage.seat]
+    if (rec && rec.status === 'done' && output) out.push({ short: other.short, output, roots: itemRootsOf(plan, other) })
+  }
+  return out
+}
+
+/** prompt(core, doc, state, idOrShort, seat) -> core.seatPrompt(plan, item, stage, outsBySeat(item, state), siblings). */
 export function prompt(core, doc, state, idOrShort, seat) {
   const { plan } = resolvePlan(core, doc)
   const item = findItem(plan, idOrShort)
   const stage = findStage(item, seat)
-  const base = core.seatPrompt(plan, item, stage, outsBySeat(item, state))
+  const base = core.seatPrompt(plan, item, stage, outsBySeat(item, state), siblingsFromState(plan, item, state))
   return isMethodB(doc) ? `${base}\n${methodBReturn(core, plan, stage)}` : base
 }
 
@@ -652,7 +680,7 @@ export function reseat(core, doc, result, idOrShort, seat, opts = {}) {
   // The server knows only the base seat: the fix cycle reads the base seat's token file.
   const tokenFile = core.seatTokenFile(plan, item, baseStage)
   const promptPlan = tokenFile ? Object.assign({}, plan, { serverRunId: null }) : plan
-  let text = core.seatPrompt(promptPlan, item, stage, outs)
+  let text = core.seatPrompt(promptPlan, item, stage, outs, siblingsFromResult(plan, item, result))
   if (tokenFile) text = withRunsWriteTool(text, plan) + `\n${reseatTokenPart(plan, baseStage, tokenFile)}`
   const hasAmendmentsNote = (item.stages || []).some((st) => Array.isArray(st.notes) && st.notes.includes('amendments'))
   const rewriteSentence = noteRewriteSentence(baseStage)
@@ -1741,7 +1769,8 @@ export function provenance({ core, doc, result, method, turns, meta, journal, ex
  * 'src/./a.js' and 'src//a.js' give one ':(literal)src/a.js'), plus an 'UNROOTED (not in
  * pathspec): ...' part naming each distinct non-empty unrooted entry (still absolute, or
  * containing '..'); else a bare diff noting 'owned files: planner output'), a line to fill the
- * review-phase notes and REVIEW_RULES by key (no rule text).
+ * review-phase notes and the reviewer's rule keys (seat rule table, promptKeysFor over the union of
+ * item.reviewRules) by key (no rule text).
  * Whole tree (D5): when any owned entry relativizes to '' ('.', './', the worktree or repo root
  * itself), the diff line is the bare `git -C <worktree> diff <base>..HEAD` with no ' -- '
  * pathspec at all; non-empty unrooted entries are still named on the UNROOTED line.
@@ -1802,7 +1831,7 @@ export function reviewPrompt(core, doc, idOrShort, result) {
 
   parts.push(
     `RULES: fetch each key below via config(ops:[{op:"rules", rootId:"${plan.rootId}", key:<key>}]) ` +
-    `and follow the returned body. Keys: ${[...new Set([...REVIEW_RULES, ...Object.values(item.reviewRules || {}).flat()])].join(', ')}.`
+    `and follow the returned body. Keys: ${promptKeysFor(loadSeatRules(), { phase: 'review', rules: [...new Set(Object.values(item.reviewRules || {}).flat())] }).join(', ')}.`
   )
 
   const seatSkillUnion = []
@@ -2190,9 +2219,10 @@ export function reportFields(doc, opts = {}) {
     const admitted = (args.items || []).length
     fields.headline = `${admitted} item${admitted === 1 ? '' : 's'} planned, ${deferredPlan.length} deferred`
     fields.counts.deferred = deferredPlan.length
-    // A member exactly false in meta.allow (the probe's allow rules) is a missing allow rule.
+    // A member exactly false in meta.allow (the probe's allow rules) is a missing allow rule. Method B makes no
+    // Workflow call, so a missing `workflow` rule is not named for it (meta.allow itself stays the probe verbatim).
     const allow = meta.allow && typeof meta.allow === 'object' && !Array.isArray(meta.allow) ? meta.allow : {}
-    const missingAllow = ['workflow', 'mcp', 'bashGit', 'bashNode'].filter((k) => allow[k] === false)
+    const missingAllow = ['workflow', 'mcp', 'bashGit', 'bashNode'].filter((k) => allow[k] === false && !(k === 'workflow' && meta.method === 'B'))
     if (!fields.needs && missingAllow.length > 0) {
       fields.needs = `approve launch; allow rules missing: ${missingAllow.length} (${missingAllow.join(', ')})`
     } else if (!fields.needs && ((meta.excluded || []).length > 0 || (meta.degradations || []).length > 0)) {
@@ -2238,6 +2268,8 @@ export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
     items: [],
   }
   if (plan.serverRunId) out.serverRunId = plan.serverRunId
+  // The reviewer row of the seat rule table names the lanes' protocol key.
+  const reviewerProtocol = (loadSeatRules().roles.reviewer || {}).protocol || null
   // Served rule keys: a note skill that names one is delivered to its lane as a rule, not a skill.
   const served = new Set(
     snapshot && Array.isArray(snapshot.rulesServed)
@@ -2300,7 +2332,7 @@ export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
         phase: 'review',
         notes: g.notes,
         writes: false,
-        protocol: 'protocol.read-only-agent',
+        protocol: reviewerProtocol,
         dispatch,
         output: g.output,
       }
@@ -2310,7 +2342,9 @@ export function reviewWaveArgs(core, doc, snapshot, result, shorts) {
       if (laneSkills.length > 0) stage.skills = laneSkills
       if (g.mode === 'method-on-diff') stage.skillMode = 'method-on-diff'
       const seatRules = item.reviewRules && item.reviewRules[g.seat]
+      // Another role's protocol key (from a note skill or the seat's rules) is dropped silently; the run planner reports it.
       const laneRules = [...new Set([...noteRules, ...(Array.isArray(seatRules) ? seatRules : [])])]
+        .filter((k) => typeof k === 'string' && !(k.startsWith('protocol.') && k !== reviewerProtocol))
       if (laneRules.length > 0) stage.rules = laneRules
       const laneSeatSkills = item.reviewSeatSkills && item.reviewSeatSkills[g.seat]
       if (Array.isArray(laneSeatSkills) && laneSeatSkills.length > 0) stage.seatSkills = laneSeatSkills.slice()

@@ -351,7 +351,7 @@ test('S14: HOST_SKILLS is the frozen, sorted host skill list', () => {
   assert.ok(Object.isFrozen(HOST_SKILLS));
   assert.deepEqual([...HOST_SKILLS], [...HOST_SKILLS].sort());
   assert.deepEqual([...HOST_SKILLS], [
-    'agents', 'claude-api', 'clear', 'code-review', 'compact', 'init', 'loop', 'review', 'schedule',
+    'agents', 'claude-api', 'clear', 'code-review', 'compact', 'init', 'loop', 'reload-skills', 'review', 'schedule',
     'security-review', 'simplify', 'skill-creator', 'workflows',
   ]);
   for (const n of ['simplify', 'code-review', 'security-review', 'loop']) assert.ok(HOST_SKILLS.includes(n));

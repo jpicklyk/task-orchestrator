@@ -262,7 +262,7 @@ run report instead.
    `modelReported` and the assigned effort. `--meta-dir <dir>` still accepts hand-made `*.meta.json`
    files of the same `{label, model, effort?, usage?}` shape. A bound plan appends `server-run=<uuid>` after the fixed
    fields. This line is what the session-retrospective skill's structured-provenance parser reads —
-   do not hand-write it, and do not reorder its fields.
+   do not hand-write it, and do not reorder its fields. An item whose resolved schema declares no `delegation-metadata` key gets its line only in the Step 7 report, never in an undeclared key. A coordinator whose report is the report helper's block (which never carries a provenance line) leaves that line in `<scratchpad>/run-wave/<runId>/provenance.json`; the session retrospective then records the delegation metadata as not recorded. The block format is unchanged.
 
    **Layer meters (once per run).** The same `provenance` call also meters the two layers above the
    seats when you pass their flags: `--coordinator <label>` (tier 2 only: the exact dispatch label the
@@ -285,8 +285,8 @@ run report instead.
    `--item`, or a window flag without `--session-transcript`, exits 2. Do not put this line on a member
    item: append it to the run's target parent's `delegation-metadata` (one line per run id; a re-run for
    the same run id replaces its own line), a token-less write like the parent pointer line. With no
-   non-member target parent (the Parent check wrote `parent=skipped`) the line goes only in the Step 7
-   report.
+   non-member target parent (the Parent check wrote `parent=skipped`), or a target parent whose resolved
+   schema declares no `delegation-metadata` key, the line goes only in the Step 7 report.
 
 ---
 
@@ -670,7 +670,7 @@ following it; a step in `skipped` did not apply and is reported with its reason.
 `{op: "close", runId, reason}` — `completed` when the result says `started: true`, `failed` when it
 says `started: false` or the launch threw (no result); pass `--reason cancelled` for an explicit user
 stop or `--reason abandoned` for a Resume re-plan of an unrecoverable run (any other `--reason` exits
-2). Send it under the coordinator token. `invalid_run_state` on a `completed` close means a seat is
+2). Send it under the coordinator token. Close through the `runs_write` tool, not REST: the retrospective trigger watches the tool call. `invalid_run_state` on a `completed` close means a seat is
 still active: run Step 0b's sweep, then close again. The answer's `snapshot` carries `openDecisions`,
 the number of decisions still open (a close withdraws none): save the close answer as `close.json`, then send the `closed` report
 (`report --event closed --result <result.json> --close <close.json>`).

@@ -9,7 +9,7 @@ import kotlinx.serialization.Serializable
  * `notes_write`: the same field name must generate the same schema in every select/op of a tool.
  */
 object NoteDocs {
-    const val ITEM_ID = "Id of the work item that owns the note: a full UUID or 8 to 32 hex characters of one."
+    const val ITEM_ID = "Id of the work item that owns the note: UUID or 8-32 hex."
     const val KEY = "Note key, unique per item (1 to 200 characters, case-sensitive)."
     const val ROLE = "Note role: queue, work or review (case-insensitive)."
     const val LIMIT = "Page size, 1 to 200 (default 50)."

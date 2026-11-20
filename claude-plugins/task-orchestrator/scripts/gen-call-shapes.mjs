@@ -319,6 +319,8 @@ const JS_RESERVED = new Set([
 ]);
 
 const isTopLevel = (field) => !field.includes('.') && !field.includes('[]');
+// One level under a top-level field: `children[].ref` or `docRef.slug`, not `a[].b.c`.
+const isOneLevel = (field) => /^[^.[\]]+(\[\]\.|\.)[^.[\]]+$/.test(field);
 const shorthand = (field) => (JS_RESERVED.has(field) ? `${field}: ${field}Value` : field);
 
 function jsLine(prefix, tool, kind, name, entry) {
@@ -336,7 +338,7 @@ function renderCallShapesJs(catalog) {
   out.push('# Call shapes (Code Mode scripts)');
   out.push('');
   out.push(
-    "In a Code Mode REPL script each MCP tool is the async global `tools['mcp__<entry key>__<tool>']`, taking the same object as the MCP call. A seat adds a top-level `seatToken`; a write accepts a top-level `atomic`. A call the server answers `ok: true` resolves to the response envelope as a JSON string (`JSON.parse` it); any other answer throws, and the thrown message ends with the compact error envelope as one JSON line after its last newline. Each line below shows the required top-level fields as shorthand (a field named like a JavaScript reserved word is written `name: nameValue`); optional fields are listed after it. Types and nested fields are in [call-shapes.md](call-shapes.md).",
+    "In a Code Mode REPL script each MCP tool is the async global `tools['mcp__<entry key>__<tool>']`, taking the same object as the MCP call. A seat adds a top-level `seatToken`; a write accepts a top-level `atomic`. A call the server answers `ok: true` resolves to the response envelope as a JSON string (`JSON.parse` it); any other answer throws, and the thrown message ends with the compact error envelope as one JSON line after its last newline. Each line below shows the required top-level fields as shorthand (a field named like a JavaScript reserved word is written `name: nameValue`); optional fields are listed after it, then a `Required nested:` line names the required fields exactly one level under a top-level field (`children[].ref` is a required `ref` on each `children` element; deeper paths are in call-shapes.md). Types and nested fields are in [call-shapes.md](call-shapes.md).",
   );
   for (const tool of Object.keys(catalog.tools)) {
     const def = catalog.tools[tool];
@@ -368,6 +370,11 @@ function renderCallShapesJs(catalog) {
       if (def.kind === 'ops') optional.push('idempotencyKey');
       out.push('');
       out.push(optional.length ? `Optional: ${optional.map((f) => `\`${f}\``).join(', ')}.` : 'Optional: none.');
+      const nested = Object.keys(entry.fields).filter((f) => isOneLevel(f) && entry.fields[f].required);
+      if (nested.length) {
+        out.push('');
+        out.push(`Required nested: ${nested.map((f) => `\`${f}\``).join(', ')}.`);
+      }
       out.push('');
       out.push(`Types and nested fields: [call-shapes.md](call-shapes.md#${entry.anchor}).`);
     }

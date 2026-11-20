@@ -14,7 +14,7 @@
       },
       "rootId": {
         "type": "string",
-        "description": "Id of the depth-0 project root that owns the document: a full UUID or 8 to 32 hex characters."
+        "description": "Id of the depth-0 project root that owns the document: UUID or 8-32 hex."
       },
       "kind": {
         "type": "string",
@@ -61,6 +61,10 @@
       "describe": {
         "type": "boolean",
         "description": "true: return each operation's parameters and errors; nothing runs."
+      },
+      "seatToken": {
+        "type": "string",
+        "description": "Run seat token; omit when not seated."
       }
     },
     "type": "object"

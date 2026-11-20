@@ -38,6 +38,7 @@ import {
   readRetroState,
   writeRetroState,
   writeTranscript,
+  ownRuns,
 } from './retro-fake-runs.mjs';
 import { buildDispatch, buildNudge } from '../retro-lib.mjs';
 import { run as watchRun } from '../director-watch.mjs';
@@ -116,8 +117,10 @@ test('S2 probe: retro-trigger with a non-string transcript_path (42) still dispa
 // ---- S3: retro-backstop.mjs, REST path and the no-REST director path ------------------------------
 
 test('S3: retro-backstop REST path carries the label and --session-dir from the Stop input', async () => {
-  await withFixture({ config: cfg('dispatch', 3), runs: [runFixture(1, { terminal: 3 })] }, async ({ stop }) => {
-    const res = await stop(stopPayload(sid('s3r'), { transcript_path: 'C:/p/899f5f7e.jsonl' }));
+  await withFixture({ config: cfg('dispatch', 3), runs: [runFixture(1, { terminal: 3 })] }, async ({ sbx, stop }) => {
+    const session = sid('s3r');
+    ownRuns(sbx, session, [rid(1)]);
+    const res = await stop(stopPayload(session, { transcript_path: 'C:/p/899f5f7e.jsonl' }));
     assert.equal(res.status, 0, res.stderr);
     assert.equal(res.json?.decision, 'block', res.stdout);
     assert.ok(res.json.reason.includes(DISPATCH), res.json.reason);
@@ -165,7 +168,8 @@ function watchOpts() {
   mkdirSync(dir, { recursive: true });
   const statePath = join(dir, 'state.json');
   writeFileSync(statePath, JSON.stringify({ pushed: [], retro: [] }));
-  return { director: true, statePath, rest: null, retroMode: 'dispatch' };
+  // retroState: this session owns the run these tests use (retro-lib ownsRun).
+  return { director: true, statePath, rest: null, retroMode: 'dispatch', retroState: { closes: [ID1] } };
 }
 function getInput(session, runId, extra = {}) {
   const env = { ok: true, data: { runId, status: 'closed', marks: {} }, meta: { reqId: 'k7f3q9ab' } };

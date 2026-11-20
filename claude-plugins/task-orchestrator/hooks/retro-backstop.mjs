@@ -2,11 +2,12 @@
 // Stop hook — backstop for retro-trigger.mjs. Fires at the end of every turn.
 //
 // With REST (an API URL and a project rootId): runs the same evaluation as the trigger (the scope or the
-// run boundary, per config), so a run closed elsewhere (another session, a subagent, a tool the trigger
-// never saw) still gets its retrospective; a closed run is a confirmed boundary, so this may dispatch
-// (after winning the server-side claim or `retro` mark) as well as nudge. At the scope boundary the Stop
-// pass is also where a failed or dead dispatch is retried and an abandoned scope is picked up
-// (hooks/README.md, "Retrospective firing"). Output is a `block` decision.
+// run boundary, per config), so a run this session opened that closed elsewhere (a subagent, a tool the
+// trigger never saw) still gets its retrospective; only runs this session opened or closed count (retro-lib
+// ownsRun), apart from the scope boundary's claimed-not-done, orphaned and abandoned groups. A closed run is
+// a confirmed boundary, so this may dispatch (after winning the server-side claim or `retro` mark) as well
+// as nudge. At the scope boundary the Stop pass is also where a failed or dead dispatch is retried and an
+// abandoned scope is picked up (hooks/README.md, "Retrospective firing"). Output is a `block` decision.
 //
 // Without REST: if this session recorded a successful run close (retro-trigger.mjs) and has not been
 // nudged this way yet, block once with a nudge naming the recorded runs. Never marks, never dispatches,

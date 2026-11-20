@@ -130,9 +130,11 @@ export function dispatchAncestorId(located) {
 // ---- per-session state -------------------------------------------------------------------------
 
 /**
- * Per-session retro state: { closes: runId[], sawClose, nudged: runId[], backstopNudged,
- * claims: [{anchor, runs, key, at, failed}], lastDispatchAt }. `claims` are the dispatches this session
- * won (key retro-claim or retro-retry on the anchor run); `at` and `lastDispatchAt` are ISO instants.
+ * Per-session retro state: { opened: runId[], closes: runId[], sawClose, nudged: runId[], backstopNudged,
+ * claims: [{anchor, runs, key, at, failed}], lastDispatchAt }. `opened` and `closes` are the runs this
+ * session (its main thread or one of its subagents) opened or closed through runs_write; only those runs
+ * owe this session a retrospective (ownsRun). `claims` are the dispatches this session won (key
+ * retro-claim or retro-retry on the anchor run); `at` and `lastDispatchAt` are ISO instants.
  */
 export function readSessionState(sessionId) {
   const raw = readMarker(sessionMarkerPath(sessionId, 'retro'), {});
@@ -148,6 +150,7 @@ export function readSessionState(sessionId) {
         }))
     : [];
   return {
+    opened: Array.isArray(raw.opened) ? raw.opened.filter((v) => typeof v === 'string') : [],
     closes: Array.isArray(raw.closes) ? raw.closes.filter((v) => typeof v === 'string') : [],
     sawClose: raw.sawClose === true,
     nudged: Array.isArray(raw.nudged) ? raw.nudged.filter((v) => typeof v === 'string') : [],
@@ -159,6 +162,17 @@ export function readSessionState(sessionId) {
 
 export function writeSessionState(sessionId, state) {
   writeMarker(sessionMarkerPath(sessionId, 'retro'), state);
+}
+
+/**
+ * True when this session opened or closed `runId`. A run another session drove owes that session its
+ * retrospective, not this one; a director session is no exception, since a coordinator running in its
+ * own session handles its own run.
+ */
+export function ownsRun(state, runId) {
+  return Boolean(state) && typeof runId === 'string' && (
+    (Array.isArray(state.opened) && state.opened.includes(runId)) ||
+    (Array.isArray(state.closes) && state.closes.includes(runId)));
 }
 
 // ---- REST path ---------------------------------------------------------------------------------
@@ -183,8 +197,10 @@ export function fixCycleBaseRun(label) {
 }
 
 /**
- * The run-boundary evaluation (trigger and backstop, boundary `run`). Lists the root's closed runs not yet marked
- * `retro` (closed in the last 24 h), reads the terminal count of at most 5 of them, and for each:
+ * The run-boundary evaluation (trigger and backstop, boundary `run`). Lists the root's closed runs not
+ * yet marked `retro` (closed in the last 24 h), keeps the ones this session opened or closed (ownsRun;
+ * any other run is left unmarked for the session that drove it), reads the terminal count of at most 5
+ * of them, and for each:
  * dispatch mode and terminal >= threshold -> try to mark (first write wins); a run whose mark this call
  * wrote is won and dispatched; a lost race (marked false) is silent; a failed mark is nudged, never
  * dispatched unmarked. Everything else is nudged. A fix-cycle run (label '<runId>-a<n>') is marked in
@@ -206,6 +222,7 @@ export async function evaluateRuns({ rootId, config, state }) {
     for (const view of list.data.items) {
       if (!isPlain(view) || typeof view.runId !== 'string' || view.runId === '') continue;
       if (isPlain(view.marks) && Object.prototype.hasOwnProperty.call(view.marks, 'retro')) continue;
+      if (!ownsRun(state, view.runId)) continue; // another session's run: that session owes it
       if (state.nudged.includes(view.runId)) continue;
       if (candidates.includes(view.runId)) continue;
       candidates.push(view.runId);
@@ -437,7 +454,8 @@ export async function evaluateScopes({ rootId, config, state, now = Date.now() }
     // Claims to retry or give up first, then the newest groups; at most 5 actionable groups a pass.
     pending.sort((a, b) => Number(b.dead) - Number(a.dead) || b.newestClosedMs - a.newestClosedMs);
     const claimOf = (g, key) => state.claims.find((c) => c.anchor === g.anchor.runId && c.key === key);
-    const ownedByThisSession = (g) => g.runs.some((r) => state.closes.includes(r.runId));
+    // A group this session opened or closed a run of (ownsRun): main thread or subagent, open or close.
+    const ownedByThisSession = (g) => g.runs.some((r) => ownsRun(state, r.runId));
     const lastDispatchMs = instantMs(state.lastDispatchAt);
     const hourlyOk = Number.isNaN(lastDispatchMs) || now - lastDispatchMs >= DISPATCH_GAP_MS;
 

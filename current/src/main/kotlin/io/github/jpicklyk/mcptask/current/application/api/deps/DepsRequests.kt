@@ -58,7 +58,7 @@ enum class DepDirection {
     ALL
 }
 
-private const val ITEM_DOC = "Item id: a UUID or a hex prefix of 8 to 32 characters."
+private const val ITEM_DOC = "Item id: UUID or 8-32 hex."
 private const val LIMIT_DOC = "Page size, 1 to 200 (default 50)."
 private const val CURSOR_DOC = "The page.next value of the previous page."
 
@@ -81,8 +81,8 @@ data class DepsGraphRequest(
     @Doc(CURSOR_DOC) val cursor: String? = null
 )
 
-private const val FROM_DOC = "Source item of the edge (the blocker for blocks): a UUID or a hex prefix of 8 to 32 characters."
-private const val TO_DOC = "Target item of the edge (the blocked item for blocks): a UUID or a hex prefix of 8 to 32 characters."
+private const val FROM_DOC = "Source item of the edge (the blocker for blocks): UUID or 8-32 hex."
+private const val TO_DOC = "Target item of the edge (the blocked item for blocks): UUID or 8-32 hex."
 private const val TYPE_DOC = "Edge type: blocks or relates_to. Create applies blocks when absent; delete matches either type when absent."
 private const val UNBLOCK_DOC =
     "Role the blocker must reach to unblock the target: queue, work, review or terminal (default terminal). Not allowed with relates_to."
@@ -103,7 +103,7 @@ data class DepsDeleteRequest(
     @Doc(FROM_DOC) val from: IdRef? = null,
     @Doc(TO_DOC) val to: IdRef? = null,
     @Doc(TYPE_DOC) val type: DepType? = null,
-    @Doc("Delete every edge touching this item (either end). Item id: a UUID or a hex prefix of 8 to 32 characters.")
+    @Doc("Delete every edge touching this item (either end). Item id: UUID or 8-32 hex.")
     val item: IdRef? = null
 )
 

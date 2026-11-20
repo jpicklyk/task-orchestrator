@@ -154,7 +154,10 @@ sealed class SelectSpec<R : Any, T>(
     }
 
     companion object {
-        /** Top-level keys a select request never decodes: the dispatcher reads them itself (`seatToken`: R22). */
+        /**
+         * Top-level keys a select request never decodes: the dispatcher reads them itself (`seatToken`: R22; the renderer
+         * declares it on the orchestration schemas).
+         */
         val SELECT_RESERVED: Set<String> = setOf("describe", "select", "seatToken")
     }
 }

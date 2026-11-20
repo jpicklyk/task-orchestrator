@@ -3,7 +3,7 @@
 
 # Call shapes (Code Mode scripts)
 
-In a Code Mode REPL script each MCP tool is the async global `tools['mcp__<entry key>__<tool>']`, taking the same object as the MCP call. A seat adds a top-level `seatToken`; a write accepts a top-level `atomic`. A call the server answers `ok: true` resolves to the response envelope as a JSON string (`JSON.parse` it); any other answer throws, and the thrown message ends with the compact error envelope as one JSON line after its last newline. Each line below shows the required top-level fields as shorthand (a field named like a JavaScript reserved word is written `name: nameValue`); optional fields are listed after it. Types and nested fields are in [call-shapes.md](call-shapes.md).
+In a Code Mode REPL script each MCP tool is the async global `tools['mcp__<entry key>__<tool>']`, taking the same object as the MCP call. A seat adds a top-level `seatToken`; a write accepts a top-level `atomic`. A call the server answers `ok: true` resolves to the response envelope as a JSON string (`JSON.parse` it); any other answer throws, and the thrown message ends with the compact error envelope as one JSON line after its last newline. Each line below shows the required top-level fields as shorthand (a field named like a JavaScript reserved word is written `name: nameValue`); optional fields are listed after it, then a `Required nested:` line names the required fields exactly one level under a top-level field (`children[].ref` is a required `ref` on each `children` element; deeper paths are in call-shapes.md). Types and nested fields are in [call-shapes.md](call-shapes.md).
 
 <a id="advance-transition"></a>
 ### `advance` op `transition`
@@ -567,6 +567,8 @@ await tools['mcp__mcp-task-orchestrator__items_write']({ops: [{op: 'create_tree'
 ```
 
 Optional: `parentId`, `children`, `deps`, `notes`, `createNotes`, `docRef`, `idempotencyKey`.
+
+Required nested: `children[].ref`, `children[].title`, `children[].type`, `deps[].from`, `deps[].to`, `notes[].itemRef`, `notes[].key`, `notes[].role`, `docRef.slug`.
 
 Types and nested fields: [call-shapes.md](call-shapes.md#items_write-create_tree).
 

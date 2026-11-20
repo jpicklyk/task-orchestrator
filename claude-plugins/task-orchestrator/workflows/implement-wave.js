@@ -22,6 +22,173 @@ const TOOL_NAMES = Object.freeze({
   RUNS_WRITE: 'runs_write',
 })
 // @generated:tool-names-end
+// @generated:seat-rules-begin (scripts/gen-seat-rules.mjs; do not edit, run it to refresh)
+const SEAT_RULES = Object.freeze({
+  "roles": {
+    "planner": {
+      "protocol": "protocol.in-phase-seat",
+      "pluginChosen": [],
+      "defaults": [
+        "planning-sweeps",
+        "review-cited-claims"
+      ]
+    },
+    "implementer": {
+      "protocol": "protocol.entry-seat",
+      "pluginChosen": [
+        "commit-discipline"
+      ],
+      "defaults": [
+        "closure-notes"
+      ]
+    },
+    "test-author": {
+      "protocol": "protocol.in-phase-seat",
+      "pluginChosen": [
+        "commit-discipline"
+      ],
+      "defaults": []
+    },
+    "reviewer": {
+      "protocol": "protocol.read-only-agent",
+      "pluginChosen": [],
+      "defaults": [
+        "review-scoping",
+        "review-cited-claims"
+      ]
+    },
+    "declarations-extractor": {
+      "protocol": "protocol.read-only-agent",
+      "pluginChosen": [],
+      "defaults": [
+        "declarations-extractor"
+      ]
+    },
+    "work-seat": {
+      "protocol": "protocol.in-phase-seat",
+      "pluginChosen": [
+        "commit-discipline"
+      ],
+      "defaults": []
+    },
+    "queue-seat": {
+      "protocol": "protocol.in-phase-seat",
+      "pluginChosen": [],
+      "defaults": []
+    },
+    "read-only": {
+      "protocol": "protocol.read-only-agent",
+      "pluginChosen": [],
+      "defaults": []
+    }
+  }
+})
+/**
+ * seatRoleOf(stage) -> role | null. stage = {seat, phase, output, enters, writes, notes}.
+ * orchestrator: null; review phase: reviewer; a known output, else a known seat name (an `-a<n>` fix-cycle
+ * suffix read as its base): that role; writes false with no notes: read-only; work phase: implementer when it
+ * enters, else work-seat; otherwise queue-seat.
+ */
+function seatRoleOf(stage) {
+  const s = stage && typeof stage === 'object' ? stage : {};
+  const seat = typeof s.seat === 'string' ? s.seat : '';
+  if (seat === 'orchestrator') return null;
+  if (s.phase === 'review') return 'reviewer';
+  const byOutput = {
+    'planner-v1': 'planner',
+    'implementer-v1': 'implementer',
+    'test-author-v1': 'test-author',
+    'declarations-v1': 'declarations-extractor',
+  };
+  if (typeof s.output === 'string' && Object.prototype.hasOwnProperty.call(byOutput, s.output)) return byOutput[s.output];
+  const base = seat.replace(/-a[1-9][0-9]*$/, '');
+  if (base === 'planner' || base === 'implementer' || base === 'test-author') return base;
+  if (!s.writes && (!Array.isArray(s.notes) || s.notes.length === 0)) return 'read-only';
+  if (s.phase === 'work') return s.enters ? 'implementer' : 'work-seat';
+  return 'queue-seat';
+}
+
+/**
+ * The role's own protocol key: its row's protocol, except that a stage that does not enter (enters === false)
+ * on a row whose protocol is the implementer row's takes the work-seat row's protocol. null without a row.
+ */
+function seatRulesOwnProtocol(table, role, enters) {
+  const roles = (table && table.roles) || {};
+  const row = role ? roles[role] : null;
+  if (!row) return null;
+  const entryKey = roles.implementer ? roles.implementer.protocol : null;
+  if (enters === false && entryKey && row.protocol === entryKey) {
+    return roles['work-seat'] ? roles['work-seat'].protocol : null;
+  }
+  return row.protocol || null;
+}
+
+function seatRulesIsProtocol(k) {
+  return typeof k === 'string' && k.indexOf('protocol.') === 0;
+}
+
+/**
+ * seatRulesFor(table, {role, seat, enters, declared, noteRules, served}) -> {rules, degradations}
+ * The note-derived rules first, then the seat's declared list (an array, `[]` is none) or else the role's
+ * defaults, deduped with order kept. A protocol key other than the role's own is dropped and reported as
+ * `seat rule <k> dropped: protocol rule of another role (<seat>)`. served (a Set) filters: an unserved
+ * declared key is reported as `seat rule <k> not served (<seat>)`, an unserved default is dropped silently;
+ * served null filters nothing.
+ */
+function seatRulesFor(table, opts) {
+  const o = opts && typeof opts === 'object' ? opts : {};
+  const roles = (table && table.roles) || {};
+  const row = o.role ? roles[o.role] : null;
+  const own = seatRulesOwnProtocol(table, o.role, o.enters);
+  const isDeclared = Array.isArray(o.declared);
+  const served = o.served instanceof Set ? o.served : null;
+  const seat = o.seat || o.role || 'seat';
+  const wanted = [];
+  for (const k of Array.isArray(o.noteRules) ? o.noteRules : []) wanted.push({ k, from: 'note' });
+  for (const k of isDeclared ? o.declared : (row ? row.defaults : [])) wanted.push({ k, from: isDeclared ? 'declared' : 'default' });
+  const rules = [];
+  const degradations = [];
+  const seen = [];
+  for (const w of wanted) {
+    const k = w.k;
+    if (typeof k !== 'string' || k === '' || seen.includes(k)) continue;
+    seen.push(k);
+    if (seatRulesIsProtocol(k) && k !== own) {
+      degradations.push(`seat rule ${k} dropped: protocol rule of another role (${seat})`);
+      continue;
+    }
+    if (served && !served.has(k)) {
+      if (w.from === 'declared') degradations.push(`seat rule ${k} not served (${seat})`);
+      continue;
+    }
+    rules.push(k);
+  }
+  return { rules, degradations };
+}
+
+/**
+ * promptKeysFor(table, stage) -> string[]: the stage's own protocol key, the role's plugin-chosen keys, then
+ * stage.rules without any other role's protocol key, deduped with order kept.
+ */
+function promptKeysFor(table, stage) {
+  const s = stage && typeof stage === 'object' ? stage : {};
+  const role = seatRoleOf(s);
+  const roles = (table && table.roles) || {};
+  const row = role ? roles[role] : null;
+  const own = seatRulesOwnProtocol(table, role, s.enters);
+  const keys = [];
+  const add = (k) => {
+    if (typeof k === 'string' && k !== '' && !keys.includes(k)) keys.push(k);
+  };
+  add(own);
+  for (const k of row ? row.pluginChosen : []) add(k);
+  for (const k of Array.isArray(s.rules) ? s.rules : []) {
+    if (seatRulesIsProtocol(k) && k !== own) continue;
+    add(k);
+  }
+  return keys;
+}
+// @generated:seat-rules-end
 // Default MCP entry key; plan.capabilities.mcpServerKey (from run-planner probe) overrides it.
 const DEFAULT_MCP_SERVER_KEY = 'mcp-task-orchestrator'
 const ENVELOPE_VERSION = 'envelope-v1'
@@ -466,7 +633,7 @@ function preflight(plan) {
 }
 
 /**
- * makeMilestones(items) -> {get(itemId, seat), settle(itemId, seat, v), releaseFrom(item, i)}
+ * makeMilestones(items) -> {get(itemId, seat), peek(itemId, seat), settle(itemId, seat, v), releaseFrom(item, i)}
  * A settle-once promise per (itemId, seat), created lazily on first get/settle.
  */
 function makeMilestones(items) {
@@ -491,10 +658,16 @@ function makeMilestones(items) {
     get(itemId, seat) {
       return ensure(itemId, seat).promise
     },
+    /** peek(itemId, seat) -> the settled value, or undefined while unsettled; never creates a promise. */
+    peek(itemId, seat) {
+      const entry = store.get(keyFor(itemId, seat))
+      return entry && entry.settled ? entry.value : undefined
+    },
     settle(itemId, seat, v) {
       const entry = ensure(itemId, seat)
       if (entry.settled) return
       entry.settled = true
+      entry.value = v
       entry.resolve(v)
     },
     releaseFrom(item, i) {
@@ -502,6 +675,7 @@ function makeMilestones(items) {
         const entry = ensure(item.id, item.stages[idx].seat)
         if (!entry.settled) {
           entry.settled = true
+          entry.value = null
           entry.resolve(null)
         }
       }
@@ -1135,20 +1309,14 @@ function promptSmokeRoot(plan, item, stage) {
   return "Smoke-run plugin helpers only against a throwaway run root (a fresh mkdtemp directory passed as the run dir), never against the session's run-wave directory."
 }
 
-/** Part 6: rule fetch by key. */
-function protocolKeyFor(stage) {
-  if (stage.enters) return 'protocol.entry-seat'
-  if (isReadOnlyStage(stage)) return 'protocol.read-only-agent'
-  return 'protocol.in-phase-seat'
-}
-
+/**
+ * Part 6: rule fetch by key. The keys come from the seat rule table (generated region SEAT_RULES):
+ * the role's protocol key first, its plugin-chosen keys, then the stage's own rules. A stage without
+ * enters does not enter its phase.
+ */
 function promptRules(plan, stage) {
-  const protocolKey = protocolKeyFor(stage)
-  const keys = [protocolKey]
-  if (stage.writes) keys.push('commit-discipline')
-  for (const k of stage.rules || []) {
-    if (!keys.includes(k)) keys.push(k)
-  }
+  const keys = promptKeysFor(SEAT_RULES, Object.assign({}, stage, { enters: Boolean(stage.enters) }))
+  const protocolKey = keys[0]
   const skillKeys = Array.isArray(stage.skills) ? stage.skills : []
   const seatSkills = Array.isArray(stage.seatSkills) ? stage.seatSkills.filter((x) => typeof x === 'string' && x !== '') : []
   const lines = [
@@ -1221,11 +1389,14 @@ function promptInlineBodies() {
   )
 }
 
-/** Part 10: commit form, writers only. */
+/** Part 10: commit form, writers only. The rule named is the seat role's plugin-chosen key (SEAT_RULES). */
 function promptCommitForm(item, stage) {
   if (!stage.writes) return ''
+  const row = SEAT_RULES.roles[seatRoleOf(stage)]
+  const ruleKey = row && row.pluginChosen.length ? row.pluginChosen[0] : null
   return [
-    'COMMIT: per rule `commit-discipline`, keeping the `[short]` subject tag and the `Seat:` paragraph that verify reads:',
+    (ruleKey ? `COMMIT: per rule \`${ruleKey}\`, keeping` : 'COMMIT: keeping') +
+      ' the `[short]` subject tag and the `Seat:` paragraph that verify reads:',
     `git -C ${item.worktree} commit --only -m "<type>(<scope>): <title> [${item.short}]" -m "<why>" -m "Seat: ${stage.seat}" -m "Co-Authored-By: <your model attribution line>" -- <paths>`,
   ].join('\n')
 }
@@ -1493,6 +1664,39 @@ function promptRerunAndEntry(plan, item, stage) {
   return lines.join('\n')
 }
 
+/**
+ * Part 15b: SHARED WITH, writing seats of a shared worktree only. siblings = [{short, output, roots}]
+ * (planner-v1 output of other plan items whose planner stage settled done). One line per sibling,
+ * in plan.items order, naming this seat's locked file: paths a sibling's declared claims also cover
+ * (equal, or a directory/glob containing it; appendOnlyFiles matches are not exempt), then one
+ * instruction sentence. '' when no sibling overlaps.
+ */
+function promptSharedWith(plan, item, stage, outs, siblings) {
+  if (plan.worktreeMode !== 'shared' || !stage.writes) return ''
+  const list = Array.isArray(siblings) ? siblings : []
+  if (list.length === 0) return ''
+  const mine = lockKeysFor(item, stage, outs || {}, plan)
+    .filter((k) => k.startsWith('file:'))
+    .map((k) => k.slice('file:'.length))
+  if (mine.length === 0) return ''
+  const lines = []
+  for (const p of plan.items) {
+    if (p.id === item.id) continue
+    const sib = list.find((s) => s && s.short === p.short)
+    if (!sib || !sib.output) continue
+    const claims = collectFiles(sib.output, sib.roots || []).filter((c) => c !== '**')
+    const hit = mine.filter((m) => claims.some((c) => lockKeysConflict(`file:${m}`, `file:${c}`)))
+    if (hit.length) lines.push(`SHARED WITH ${sib.short}: ${hit.join(', ')}.`)
+  }
+  if (lines.length === 0) return ''
+  lines.push(
+    'These files are shared with the sibling item(s) named above in this worktree. Never change an assertion, claim or rule a ' +
+      'sibling wrote in them; when your change needs one changed, leave it as it is and record it as a deviation (DEVIATION ' +
+      'below), so the orchestrator routes it.'
+  )
+  return lines.join('\n')
+}
+
 /** Part 16: deviation protocol, writing seats only. */
 function promptDeviation(plan, item, stage) {
   if (!stage.writes) return ''
@@ -1594,12 +1798,13 @@ function reKeyOutsByOutputId(item, outsBySeat) {
 }
 
 /**
- * seatPrompt(plan, item, stage, outs) -> string
+ * seatPrompt(plan, item, stage, outs, siblings = []) -> string
+ * siblings = [{short, output, roots}], the planner-v1 outputs of other items whose planner is done (SHARED WITH part).
  * Joins the non-empty prompt parts (§5.3) with "\n\n"; each part is a pure function of
- * plan/item/stage/outs. No rule text lives here — rules are fetched by key at runtime via the
+ * plan/item/stage/outs/siblings. No rule text lives here — rules are fetched by key at runtime via the
  * config tool's rules op (part 6). No seat token is ever inlined: part 4 names its file.
  */
-function seatPrompt(plan, item, stage, outs) {
+function seatPrompt(plan, item, stage, outs, siblings = []) {
   const outsByOutput = reKeyOutsByOutputId(item, outs || {})
   if (
     stage.output === 'test-author-v1' &&
@@ -1629,6 +1834,7 @@ function seatPrompt(plan, item, stage, outs) {
     promptSmokeRoot(plan, item, stage),
     handoff(stage, outsByOutput, itemRoots(plan, item), item),
     promptRerunAndEntry(plan, item, stage),
+    promptSharedWith(plan, item, stage, outs, siblings),
     promptDeviation(plan, item, stage),
     promptEndSeat(plan, item, stage),
     promptReturn(stage, item, plan),
@@ -1667,8 +1873,22 @@ function dispatchTag(d) {
   return d && d.effort ? `[${model}/${d.effort}]` : `[${model}]`
 }
 
+/** siblingPlanners(plan, item, milestones) -> [{short, output, roots}] of other items whose planner settled done (non-blocking). */
+function siblingPlanners(plan, item, milestones) {
+  const out = []
+  if (!milestones || typeof milestones.peek !== 'function') return out
+  for (const other of plan.items) {
+    if (other.id === item.id) continue
+    const plannerStage = other.stages.find((s) => s.output === 'planner-v1')
+    if (!plannerStage) continue
+    const v = milestones.peek(other.id, plannerStage.seat)
+    if (v && v.status === 'done' && v.output) out.push({ short: other.short, output: v.output, roots: itemRoots(plan, other) })
+  }
+  return out
+}
+
 async function callSeat(plan, item, stage, outs, deps) {
-  const prompt = seatPrompt(plan, item, stage, outs)
+  const prompt = seatPrompt(plan, item, stage, outs, siblingPlanners(plan, item, deps.milestones))
   const schema = envelopeSchema(stage.output, plan.outputSchemas, { enters: stage.enters })
   const opts = {
     label: `${stage.seat}:${item.short} ${dispatchTag(stage.dispatch)}`,

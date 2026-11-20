@@ -18,6 +18,7 @@ import {
   runHook,
   makeSandbox,
   markDirector,
+  ownRuns,
 } from './retro-fake-runs.mjs';
 
 const sid = (p) => `${p}-${randomUUID()}`;
@@ -62,18 +63,22 @@ test('AC4: stop_hook_active wins over a recorded close too (no-REST path)', asyn
 // ---- S9 REST path ----------------------------------------------------------------------------
 
 test('S9: REST path, run with 3 terminal members: block with the dispatch, one mark; the next Stop is {}', async () => {
-  await withFixture({ config: cfg(), runs: [runFixture(1, { terminal: 3 })] }, async ({ stop, fake }) => {
-    const first = await stop(stopPayload(sid('s9a')));
+  await withFixture({ config: cfg(), runs: [runFixture(1, { terminal: 3 })] }, async ({ sbx, stop, fake }) => {
+    const owner = sid('s9a');
+    const other = sid('s9b');
+    ownRuns(sbx, owner, [rid(1)]);
+    ownRuns(sbx, other, [rid(1)]);
+    const first = await stop(stopPayload(owner));
     assertBlock(first, [DISPATCH, `--run ${rid(1)}`, ROOT]);
     assert.equal(fake.marks.length, 1);
     assert.deepEqual(fake.marks[0].body.ops[0], { op: 'mark', runId: rid(1), key: 'retro' });
     assert.equal(fake.isMarked(rid(1)), true);
-    // another session, same root: the server mark removes the run from the unmarked list
-    const second = await stop(stopPayload(sid('s9b')));
+    // another session that also owns the run: the server mark removes it from the unmarked list
+    const second = await stop(stopPayload(other));
     assert.deepEqual(second.json, {});
     assert.equal(fake.marks.length, 1, 'no second mark');
     // the same session again
-    const third = await stop(stopPayload(sid('s9c')));
+    const third = await stop(stopPayload(owner));
     assert.deepEqual(third.json, {});
   });
 });
@@ -89,8 +94,10 @@ test('S9: the list request is scoped to the project root and unmarked retro', as
 });
 
 test('S9: mode nudge on the REST path blocks with a nudge and never marks', async () => {
-  await withFixture({ config: cfg('nudge', 3), runs: [runFixture(1, { terminal: 5 })] }, async ({ stop, fake }) => {
-    assertBlock(await stop(stopPayload(sid('s9nudge'))), [NUDGE, `--run ${rid(1)}`], [DISPATCH]);
+  await withFixture({ config: cfg('nudge', 3), runs: [runFixture(1, { terminal: 5 })] }, async ({ sbx, stop, fake }) => {
+    const session = sid('s9nudge');
+    ownRuns(sbx, session, [rid(1)]);
+    assertBlock(await stop(stopPayload(session)), [NUDGE, `--run ${rid(1)}`], [DISPATCH]);
     assert.equal(fake.marks.length, 0);
   });
 });
@@ -105,16 +112,19 @@ test('S9: nothing unmarked -> {} after one list read', async () => {
 
 // ---- S10 below threshold: nudged once per session, never marked -----------------------------------
 
-test('S10: terminal 1 of threshold 3: nudge, then {} in the same session, a nudge again in a new session, never a mark', async () => {
-  await withFixture({ config: cfg(), runs: [runFixture(1, { terminal: 1 })] }, async ({ stop, fake }) => {
+test('S10: terminal 1 of threshold 3: nudge, then {} in the same session, a nudge again in another owning session, never a mark', async () => {
+  await withFixture({ config: cfg(), runs: [runFixture(1, { terminal: 1 })] }, async ({ sbx, stop, fake }) => {
     const session = sid('s10');
+    const next = sid('s10new');
+    ownRuns(sbx, session, [rid(1)]);
+    ownRuns(sbx, next, [rid(1)]);
     assertBlock(await stop(stopPayload(session)), [NUDGE, `--run ${rid(1)}`], [DISPATCH]);
     const frontiersAfterFirst = fake.frontiers.length;
     assert.equal(frontiersAfterFirst, 1);
     const again = await stop(stopPayload(session));
     assert.deepEqual(again.json, {});
     assert.equal(fake.frontiers.length, frontiersAfterFirst, 'a run already nudged this session is skipped before its frontier read');
-    assertBlock(await stop(stopPayload(sid('s10new'))), [NUDGE, `--run ${rid(1)}`]);
+    assertBlock(await stop(stopPayload(next)), [NUDGE, `--run ${rid(1)}`]);
     assert.equal(fake.marks.length, 0);
     assert.equal(fake.isMarked(rid(1)), false);
   });
@@ -130,8 +140,9 @@ test('S10: a run nudged by the trigger is not nudged again by the Stop in the sa
 });
 
 test('S10: a failed mark nudges once; the Stop in the same session does not repeat it', async () => {
-  await withFixture({ config: cfg(), runs: [runFixture(1, { terminal: 3 })], behavior: { mark: 'http500' } }, async ({ stop, fake }) => {
+  await withFixture({ config: cfg(), runs: [runFixture(1, { terminal: 3 })], behavior: { mark: 'http500' } }, async ({ sbx, stop, fake }) => {
     const session = sid('s10fail');
+    ownRuns(sbx, session, [rid(1)]);
     assertBlock(await stop(stopPayload(session)), [NUDGE, `--run ${rid(1)}`], [DISPATCH]);
     assert.deepEqual((await stop(stopPayload(session))).json, {});
     assert.equal(fake.marks.length, 1);
@@ -311,6 +322,7 @@ test('director: REST path, a below-threshold run blocks with the dispatch direct
   await withFixture({ config: cfg('dispatch', 3), runs: [runFixture(1, { terminal: 1 })] }, async ({ sbx, stop }) => {
     const session = sid('dir-rest');
     markDirector(sbx, session);
+    ownRuns(sbx, session, [rid(1)]);
     assertBlock(await stop(stopPayload(session)), [DISPATCH, `--run ${rid(1)}`], [NUDGE]);
   });
 });

@@ -32,13 +32,12 @@ the phase's total, not your assignment.
 and pass it as the top-level `seatToken` on every task-orchestrator call, reads included. Never print, quote or commit it, and never copy it into a note, a file, a prompt you write or your final message. A call refused with `unauthenticated` means the seat
 was superseded or ended: stop and write nothing more.
 
-Fetch rule text by key rather than guessing at it: read `protocol.in-phase-seat` plus every key
-your dispatch prompt names (outside a run dispatch, also the keys in your seat's served `rules`,
-`items_read` `schema` `seats[]`), and follow what comes back instead of restating it from memory or
-copying it into your own note.
+Fetch rule text by key rather than guessing at it: read every key your dispatch prompt names, and
+follow what comes back instead of restating it from memory or copying it into your own note.
+Your keys come from the plugin's seat rule table (`hooks/lib/seat-rules.json`): your role's protocol rule first, then the rules the plugin adds for the role, then your seat's own rules (its served `rules` in `items_read` `schema` `seats[]`, else the role's defaults). A run dispatch names them on its RULES line; outside a run, the `SEAT RULES:` hint names them.
 
 ```to-call
-{"tool": "docs_read", "select": "get", "args": {"rootId": "<root-uuid>", "kind": "rule", "slug": "protocol.in-phase-seat"}}
+{"tool": "docs_read", "select": "get", "args": {"rootId": "<root-uuid>", "kind": "rule", "slug": "<rule-key>"}}
 ```
 
 **Carry-ins.** When your dispatch has a CARRY-INS block, it lists the carry-in note keys on the

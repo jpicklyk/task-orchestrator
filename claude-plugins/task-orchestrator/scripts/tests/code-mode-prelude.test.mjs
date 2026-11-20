@@ -81,7 +81,7 @@ test('every js block in code-mode.md parses as an async function body', () => {
 
 test('code-mode.md has a section per recipe and names the rules; SKILL.md routes to it', () => {
   const text = doc();
-  for (const n of [1, 2, 3, 4, 5, 6, 7]) assert.ok(new RegExp(`^## R${n}: `, 'm').test(text), `R${n} section missing`);
+  for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]) assert.ok(new RegExp(`^## R${n}: `, 'm').test(text), `R${n} section missing`);
   for (const needle of ['stage-result', 'atomic: true', 'parseErrorTail', 'refusal', 'call-shapes-js.md']) {
     assert.ok(text.includes(needle), `missing ${needle}`);
   }
@@ -90,4 +90,21 @@ test('code-mode.md has a section per recipe and names the rules; SKILL.md routes
   assert.ok(!/[^\x00-\x7f]/.test(text), 'non-ASCII character');
   const skill = readFileSync(join(PLUGIN_ROOT, 'skills', 'run-wave', 'SKILL.md'), 'utf8');
   assert.ok(skill.includes('references/code-mode.md') && skill.includes('Code Mode'));
+});
+
+test('code-mode.md says the prelude and kit are defined once per REPL context and redefined after a reset', () => {
+  const text = doc().replace(/\s+/g, ' ');
+  assert.ok(text.includes('The REPL refuses `eval` and `Function`, so the prelude and the kit are defined once per REPL context as persistent globals'), 'once-per-context sentence missing');
+  assert.ok(text.includes('After a REPL context reset (a recipe fails with `<name> is not defined`, for example `readJson`) define them again and run that recipe again'), 'reset sentence missing');
+  assert.ok(text.includes('Defining the kit again puts `RUN_DIR`, `HELPER` and `REPORT_TO` back to their placeholder text, so set all three again before that recipe runs'), 'reset does not say to set the run globals again');
+  assert.ok(!text.includes('is the prelude block and the kit block below pasted verbatim'), 'the paste-into-every-script sentence is still there');
+});
+
+test('code-mode.md makes the kit run globals reassignable and says when each is set', () => {
+  const text = doc().replace(/\s+/g, ' ');
+  assert.ok(text.includes("`RUN_DIR`, `HELPER` and `REPORT_TO` are `let`, not `const`"), 'let sentence missing');
+  assert.ok(text.includes("`HELPER = '<helper>';` once, right after the probe resolves the helper path (`SKILL.md` Step 0 F0), before R1 runs"), 'HELPER timing missing');
+  assert.ok(text.includes("`RUN_DIR = '<scratchpad>/run-wave/<runId>';` once R1 returns the plan's `runId`, before R2 copies the plan into it, and again for each new run of the Step 9 loop"), 'RUN_DIR timing missing');
+  assert.ok(text.includes("`REPORT_TO = 'main';` (or `null`) from the brief, before the first report"), 'REPORT_TO timing missing');
+  assert.ok(text.includes("The kit's `RUN_DIR`, `HELPER` and `REPORT_TO` are the exception to \"once\""), 'exception to the once rule missing');
 });

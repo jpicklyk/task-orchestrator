@@ -31,12 +31,12 @@ The layer table says where text lives; the concept table below says what kind of
 |---------|-------|-------------|
 | Mechanics skill (tool usage) | How Task Orchestrator works: tools, phases, gates, runs, seats, dispatch; how to read a schema and act on what it says | What a project's workflow should be; engineering craft |
 | Engineering skill | How to do one seat's work well: knowledge, criteria, method; it may order the work inside its own craft | Tool mechanics (phases, gates, seats, hand-offs, hooks); when it is loaded or who checks it |
-| Rule | A short binding protocol for a seat | Engineering depth; workflow |
+| Rule | A short must-do for a seat's conduct | Engineering depth; workflow |
 | Schema | The workflow: which types, phases, notes and seats exist, their order, and which skill or rule is bound to which seat or note | How to do the work; enforcement |
 | Hook | Timing and enforcement in the client: hint, record, refuse; it reads what the schema says | Engineering content; workflow decisions |
 | Server | State and gates: a note exists, a seat owns it, a transition is allowed; the tool contract: what each tool and parameter does and when to call it | Engineering craft; a project's workflow decisions |
 
-Binding is a schema concept with two sources: the project's schema and, where the schema is silent, the plugin's defaults table, which is data only (a seat to names), never prose in a skill or a hook; a declared list always replaces that table. The protocol rules a seat needs to operate the tool are tool mechanics, outside binding: the plugin chooses them by the seat's role, and no schema or declared list can remove or replace the ones it chooses. Note guidance says what a note must record and in what shape; how to do the work belongs in the skill bound to the note or seat.
+Binding is a schema concept with two sources: the project's schema and, where the schema is silent, the plugin's defaults table, which is data only (a seat to names), never prose in a skill or a hook; a declared list always replaces that table. A seat's rule keys come in three classes, from one plugin table (`claude-plugins/task-orchestrator/hooks/lib/seat-rules.json`): a protocol rule, which the tool's own machinery breaks without, is tool mechanics outside binding, chosen by the plugin by the seat's role; a plugin-chosen rule is one the plugin adds for a role whatever the schema says (`commit-discipline` for a writing seat: one shared index, and verify reads its commit form); a seat default applies only where the seat declares no `rules` list, which replaces it (`review-scoping` is one). No schema or declared list removes a protocol or plugin-chosen rule, and a declared protocol key of another role is dropped and reported. A project may replace a protocol rule's text, and its copy then stops receiving plugin updates; conduct for a seat is added with a project rule on the seat's `rules` list. Note guidance says what a note must record and in what shape; how to do the work belongs in the skill bound to the note or seat.
 
 Test for a sentence: it says what good work is or how a seat goes about its craft (engineering skill); it explains how to use the tools to run the work (mechanics skill); it says what one tool or parameter does or when to call it (server, in the tool contract); it says which phases, notes or seats exist, their order, or what is bound to what (schema); it is a short must-do on any project using the seat (rule); it says when something is hinted, checked or blocked (hook, in code).
 
@@ -100,6 +100,8 @@ docker run --rm -i \
   -e AGENT_CONFIG_DIR=/project \
   task-orchestrator:dev
 ```
+
+Name Node test commands by file path or glob (`node --test path/to/*.test.mjs`), never by directory: Node 22 on Windows reads a directory argument as a module and fails.
 
 Never pipe `./gradlew` output to `tail`; run it directly and read the full output. Tests use JUnit 5, MockK and a real file-backed SQLite fixture (`SqliteTestDatabase`).
 

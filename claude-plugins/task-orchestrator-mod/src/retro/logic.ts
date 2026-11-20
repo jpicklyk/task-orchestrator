@@ -2,7 +2,8 @@
 // retro-backstop.mjs with no `$` and no fs, so it runs under test as plain functions. retro-lib.mjs itself
 // cannot be imported (it pulls in fs/os/path). Keep the two in step when either changes.
 //
-// A retrospective is owed per closed run on the project root that is not marked `retro`. The server-side
+// A retrospective is owed per closed run on the project root that is not marked `retro`, and only to the
+// session that opened or closed it (ownsRun; a subagent's calls count for its session). The server-side
 // mark (runs_write `mark`, first write wins) is the cross-session dedupe: only the session whose mark
 // lands dispatches, so no state here is keyed by root or kept across sessions.
 import type { RetroState } from '../../types'
@@ -94,11 +95,12 @@ export function parseRetrospectiveConfig(text: string | null | undefined): Retro
 }
 
 /**
- * Source: retro-trigger.mjs `successfulCloses`. The run ids of a `runs_write` call's `close` ops whose
- * result at the same index is `ok: true` (runId from the op, else from the result). Null when no close
- * succeeded (or the result has no envelope). A partly failed batch still counts its successful closes.
+ * Source: retro-trigger.mjs `successfulOps`. The run ids of a `runs_write` call's `kind` ops (`open` or
+ * `close`) whose result at the same index is `ok: true` (runId from the op, else from the result: an open
+ * op carries none). Null when no such op succeeded (or the result has no envelope). A partly failed batch
+ * still counts its successful ops.
  */
-export function successfulCloses(toolInput: unknown, result: unknown): string[] | null {
+export function successfulOps(toolInput: unknown, result: unknown, kind: 'open' | 'close'): string[] | null {
   const env = envelopeOf(result)
   if (env === null) return null
   const results = isObj(env.data) && Array.isArray(env.data.results) ? env.data.results : []
@@ -106,7 +108,7 @@ export function successfulCloses(toolInput: unknown, result: unknown): string[] 
   const ids: string[] = []
   let any = false
   ops.forEach((op, i) => {
-    if (!isObj(op) || op.op !== 'close') return
+    if (!isObj(op) || op.op !== kind) return
     const r = results[i]
     if (!isObj(r) || r.ok !== true) return
     any = true
@@ -115,6 +117,11 @@ export function successfulCloses(toolInput: unknown, result: unknown): string[] 
   })
 
   return any ? ids : null
+}
+
+/** successfulOps for `close` ops. */
+export function successfulCloses(toolInput: unknown, result: unknown): string[] | null {
+  return successfulOps(toolInput, result, 'close')
 }
 
 function runCommands(runIds: readonly string[]): string[] {
@@ -190,6 +197,7 @@ export function normalizeState(raw: unknown): RetroState {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return {}
   const r = raw as Record<string, unknown>
   const out: RetroState = {}
+  if (Array.isArray(r.opened)) out.opened = strings(r.opened)
   if (Array.isArray(r.closes)) out.closes = strings(r.closes)
   if (typeof r.sawClose === 'boolean') out.sawClose = r.sawClose
   if (Array.isArray(r.nudged)) out.nudged = strings(r.nudged)
@@ -225,11 +233,33 @@ export function markRequest(base: string, runId: string, token: string | undefin
   return { argv: [...argv, '-K', '-', url], input: `header = "${quoted}"\n` }
 }
 
+const capped = (all: string[]): string[] => (all.length > MAX_RECORDED ? all.slice(all.length - MAX_RECORDED) : all)
+
 /** Records closes this session saw but did not evaluate (a subagent, or no project rootId): the backstop reads them. */
 export function recordCloses(state: RetroState, closes: readonly string[]): RetroState {
-  const all = union(state.closes, closes)
+  return { ...state, sawClose: true, closes: capped(union(state.closes, closes)) }
+}
 
-  return { ...state, sawClose: true, closes: all.length > MAX_RECORDED ? all.slice(all.length - MAX_RECORDED) : all }
+/**
+ * Records the runs this session opened and closed (its main thread or a subagent), without setting sawClose:
+ * the runs ownsRun accepts. Returns `state` itself when both lists are empty.
+ */
+export function recordOwned(state: RetroState, opens: readonly string[], closes: readonly string[]): RetroState {
+  if (opens.length === 0 && closes.length === 0) return state
+
+  return {
+    ...state,
+    ...(opens.length > 0 && { opened: capped(union(state.opened, opens)) }),
+    ...(closes.length > 0 && { closes: capped(union(state.closes, closes)) }),
+  }
+}
+
+/**
+ * Source: retro-lib.mjs `ownsRun`. True when this session opened or closed `runId`. A run another session
+ * drove owes that session its retrospective, not this one.
+ */
+export function ownsRun(state: RetroState, runId: string): boolean {
+  return (state.opened ?? []).includes(runId) || (state.closes ?? []).includes(runId)
 }
 
 /** True while any background task is running or pending. */
@@ -253,7 +283,8 @@ export interface Evaluation {
 
 /**
  * Source: retro-lib.mjs `evaluateRuns`, over `call`. Lists the root's closed runs not yet marked `retro`
- * (closed in the last 24 h), skips runs already marked or nudged this session, reads the terminal count
+ * (closed in the last 24 h), keeps only runs this session opened or closed (ownsRun; any other run is left
+ * unmarked for the session that drove it), skips runs already marked or nudged this session, reads the terminal count
  * of at most MAX_FRONTIER_RUNS of them, and for each: dispatch mode and terminal >= threshold -> try to
  * mark (first write wins); `marked: true` is won, `marked: false` (another session marked first) is silent,
  * a failed mark is nudged (never dispatched unmarked). Everything else is nudged. A failed frontier read
@@ -270,6 +301,7 @@ export async function evaluateRuns(call: RetroCall, rootId: string, cfg: RetroCo
     for (const view of views) {
       if (!isObj(view) || typeof view.runId !== 'string' || view.runId === '') continue
       if (isObj(view.marks) && Object.prototype.hasOwnProperty.call(view.marks, 'retro')) continue
+      if (!ownsRun(state, view.runId)) continue
       if (nudged.includes(view.runId) || candidates.includes(view.runId)) continue
       candidates.push(view.runId)
       if (candidates.length >= MAX_FRONTIER_RUNS) break

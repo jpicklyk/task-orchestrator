@@ -1,12 +1,15 @@
 #!/usr/bin/env node
-// PostToolUse hook for runs_write. On a successful `close` op it records the close in the per-session
-// state (a subagent's close too: it never acts, the main session's backstop does) and, in the main
-// session with REST configured and a project rootId, evaluates what is owed:
+// PostToolUse hook for runs_write. Every successful `open` and `close` op is recorded in the per-session
+// state (a subagent's calls carry the parent's session_id; a subagent never acts, the main session's
+// backstop does): a retrospective is owed only to the session that opened or closed the run (retro-lib
+// ownsRun). On a successful `close`, in the main session with REST configured and a project rootId, it
+// evaluates what is owed:
 //   boundary scope (default): one retrospective per completed scope; evaluateScopes groups the runs, and
 //     a group not yet due (its scope still open) yields nothing (hooks/README.md, "Retrospective firing").
-//   boundary run: one per closed run not marked `retro`; lists the root's recently closed, unmarked runs,
-//     reads each run's terminal member count, and either dispatches (mode: dispatch and terminal >=
-//     minItems, after winning the server-side `retro` mark: first write wins) or nudges.
+//   boundary run: one per closed run this session owns and not marked `retro`; lists the root's recently
+//     closed, unmarked runs, reads each run's terminal member count, and either dispatches (mode: dispatch
+//     and terminal >= minItems, after winning the server-side `retro` mark: first write wins, so two
+//     sessions never both dispatch) or nudges.
 //
 // Without REST (no API URL, or no project rootId) the hook only records the close; the Stop backstop
 // (retro-backstop.mjs) nudges once from it.
@@ -44,15 +47,16 @@ function emitContext(text) {
   process.exit(0);
 }
 
-// Run ids of the `close` ops whose result at the same index is ok === true. Null when there is none.
-function successfulCloses(toolInput, toolResponse) {
+// Run ids of the `kind` ops ('open' or 'close') whose result at the same index is ok === true; an open
+// op carries no runId, so its id comes from the result. Null when there is no such op.
+function successfulOps(toolInput, toolResponse, kind) {
   const parsed = parseToolResult(toolResponse?.structuredContent ?? toolResponse);
   if (!parsed) return null;
   const ops = opsOf(toolInput);
   const ids = [];
   let any = false;
   ops.forEach((op, i) => {
-    if (op.op !== 'close') return;
+    if (op.op !== kind) return;
     const r = parsed.results[i];
     if (!r || r.ok !== true) return;
     any = true;
@@ -61,6 +65,8 @@ function successfulCloses(toolInput, toolResponse) {
   });
   return any ? ids : null;
 }
+
+const merge = (prev, ids) => [...new Set([...prev, ...ids])].slice(-MAX_RECORDED);
 
 try {
   const hookInput = readHookInput();
@@ -82,22 +88,30 @@ try {
   const config = director ? directorConfig(parsedConfig) : parsedConfig;
   if (config.mode === 'off') emitEmpty();
 
-  const closes = successfulCloses(hookInput.tool_input, hookInput.tool_response);
-  if (closes === null) emitEmpty();
+  const opens = successfulOps(hookInput.tool_input, hookInput.tool_response, 'open');
+  const closes = successfulOps(hookInput.tool_input, hookInput.tool_response, 'close');
+  if (opens === null && closes === null) emitEmpty();
 
   const sessionId = hookInput.session_id;
   const state = readSessionState(sessionId);
   const rootId = restRootId(located);
 
-  // Record every close (the scope boundary's ownership rule reads it). A subagent never acts, and
-  // without REST there is nothing to evaluate: the main session's backstop surfaces the close.
+  // Record what this session (its main thread or a subagent: both carry its session_id) opened and
+  // closed: only those runs owe this session a retrospective (retro-lib ownsRun). An open alone has
+  // nothing to evaluate.
+  if (opens) state.opened = merge(state.opened, opens);
+  if (closes) state.closes = merge(state.closes, closes);
+  if (closes === null) {
+    writeSessionState(sessionId, state);
+    emitEmpty();
+  }
+
+  // A subagent never acts, and without REST there is nothing to evaluate: the main session's backstop
+  // surfaces the close.
   const scope = config.boundary === 'scope';
   const acts = !isSubagentInvocation(hookInput) && rootId;
-  if (scope || !acts) {
-    state.sawClose = true;
-    state.closes = [...new Set([...state.closes, ...closes])].slice(-MAX_RECORDED);
-    writeSessionState(sessionId, state);
-  }
+  if (scope || !acts) state.sawClose = true;
+  writeSessionState(sessionId, state);
   if (!acts) emitEmpty();
 
   const result = scope ? await evaluateScopes({ rootId, config, state }) : await evaluateRuns({ rootId, config, state });

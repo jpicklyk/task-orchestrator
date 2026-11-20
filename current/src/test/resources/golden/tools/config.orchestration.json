@@ -24,7 +24,7 @@
             },
             "rootId": {
               "type": "string",
-              "description": "Project root item (depth 0): a UUID or a hex prefix of 8 to 32 characters."
+              "description": "Project root item (depth 0): UUID or 8-32 hex."
             },
             "version": {
               "type": "integer",
@@ -60,7 +60,7 @@
             },
             "itemId": {
               "type": "string",
-              "description": "Item whose effective schema holds noteKey: a UUID or a hex prefix of 8 to 32 characters. A root item is its own root. [ops: rules]"
+              "description": "Item whose effective schema holds noteKey: UUID or 8-32 hex. A root item is its own root. [ops: rules]"
             },
             "noteKey": {
               "type": "string",
@@ -83,6 +83,10 @@
       "describe": {
         "type": "boolean",
         "description": "true: return each operation's parameters and errors; nothing runs."
+      },
+      "seatToken": {
+        "type": "string",
+        "description": "Run seat token; omit when not seated."
       }
     },
     "type": "object"

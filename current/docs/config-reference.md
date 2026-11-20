@@ -141,9 +141,17 @@ name as a whole, so a per-root trait that omits them serves neither.
 ### Seat rules
 
 A seat entry may declare `rules`, a list of rule keys. It is absent when not declared (the plugin's defaults for that
-seat apply) and `[]` declares no rule. Duplicates collapse in first order; a non-string element or a key that does not
+seat's role apply) and `[]` declares no rule. Duplicates collapse in first order; a non-string element or a key that does not
 match the rule key grammar is a parser finding and is dropped. Existence is not checked, because rules are pushed
 separately: the server only serves the list, and only on a seat that declares it. Nothing in the server enforces it.
+
+The plugin gives each seat three classes of rule key, from one table (`claude-plugins/task-orchestrator/hooks/lib/seat-rules.json`):
+the seat role's protocol rule (`protocol.entry-seat`, `protocol.in-phase-seat` or `protocol.read-only-agent`), tool
+mechanics the plugin chooses; the rules the plugin adds for the role (`commit-discipline` for a writing seat); and the
+role's defaults, which a declared `rules` list replaces. No declared list removes the first two classes, and a declared
+`protocol.*` key that is not the role's own is dropped and reported. A project may still replace a protocol rule's text
+by serving its own copy under the same key: that copy stops receiving plugin updates, and the manage-schemas audit
+reports it as project-authored. Conduct for a seat is added with a project rule on the seat's `rules` list.
 
 ### Seat skills
 
