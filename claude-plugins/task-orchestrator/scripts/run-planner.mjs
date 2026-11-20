@@ -16,7 +16,7 @@
 // --projects-dir), --session-transcript <path>, --session-since <t> and --session-until <t>, which add
 // the 'layer-meters' member to its output.
 
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { resolve, dirname, join } from 'node:path';
@@ -98,6 +98,7 @@ function emit(text) {
     force: OUT.force
   });
   if (!guard.ok) return fail(3, 'refused', `${resolve(OUT.path)} ${guard.error.replace(/^target /, "")}`);
+  mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, doc);
 }
 

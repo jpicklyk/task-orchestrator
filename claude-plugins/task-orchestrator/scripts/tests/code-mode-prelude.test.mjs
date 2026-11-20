@@ -91,3 +91,10 @@ test('code-mode.md has a section per recipe and names the rules; SKILL.md routes
   const skill = readFileSync(join(PLUGIN_ROOT, 'skills', 'run-wave', 'SKILL.md'), 'utf8');
   assert.ok(skill.includes('references/code-mode.md') && skill.includes('Code Mode'));
 });
+
+test('code-mode.md says the prelude and kit are defined once per REPL context and redefined after a reset', () => {
+  const text = doc().replace(/\s+/g, ' ');
+  assert.ok(text.includes('The REPL refuses `eval` and `Function`, so the prelude and the kit are defined once per REPL context as persistent globals'), 'once-per-context sentence missing');
+  assert.ok(text.includes('After a REPL context reset (a recipe fails with `<name> is not defined`, for example `readJson`) define them again and run that recipe again'), 'reset sentence missing');
+  assert.ok(!text.includes('is the prelude block and the kit block below pasted verbatim'), 'the paste-into-every-script sentence is still there');
+});

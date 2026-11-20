@@ -825,6 +825,18 @@ test('S14 (AC4): R11 sends the close through the runs_write tool under the coord
   assert.ok(/ closed: /.test(s.sent[0].message) && /open decisions 2/.test(s.sent[0].message), s.sent[0].message);
 });
 
+test('R11 deletes the tokens directory after a successful close and leaves it when the close is refused', async () => {
+  const ok = r11Setup();
+  writeFileSync(ok.runDir + '/tokens/other.token', 'X'+String.fromCharCode(10));
+  const out = await run(11, { runDir: ok.runDir, scratch: ok.scratch, tools: ok.tools, sendMessage: ok.sendMessage });
+  assert.equal(out.closed, true, JSON.stringify(out));
+  assert.equal(existsSync(ok.runDir + '/tokens'), false, 'tokens/ survived a successful close');
+  const bad = r11Setup({ closeFails: 2 });
+  const failed = await run(11, { runDir: bad.runDir, scratch: bad.scratch, tools: bad.tools, sendMessage: bad.sendMessage });
+  assert.equal(failed.failed, true);
+  assert.equal(existsSync(bad.runDir + '/tokens/coordinator.token'), true, 'tokens/ was deleted though the close failed');
+});
+
 test('S14 (AC4): invalid_run_state runs the seat sweep and closes once more', async () => {
   const s = r11Setup({ closeFails: 1 });
   const out = await run(11, { runDir: s.runDir, scratch: s.scratch, tools: s.tools, sendMessage: s.sendMessage });
