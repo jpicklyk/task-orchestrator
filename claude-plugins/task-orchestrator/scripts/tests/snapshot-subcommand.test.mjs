@@ -658,3 +658,34 @@ test('S10 (CLI): a server that fails a read gives exit 3 and writes no file', as
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test('S10 (CLI): --out under a missing nested directory creates it, exits 0 and writes the file', async () => {
+  const w = parentWorld();
+  const call = fakeCall(w);
+  const server = createServer((req, res) => {
+    let data = '';
+    req.on('data', (c) => (data += c));
+    req.on('end', async () => {
+      res.setHeader('Content-Type', 'application/json');
+      if (req.method === 'GET') {
+        res.end(JSON.stringify(w.wellKnown));
+        return;
+      }
+      const tool = req.url.split('/').pop();
+      const r = await call(tool, JSON.parse(data || '{}'));
+      res.end(JSON.stringify(r.ok ? { ok: true, data: r.data } : { ok: false, error: { code: r.error.code, kind: 'permanent', message: r.error.code } }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const url = `http://127.0.0.1:${server.address().port}`;
+    const repo = mkdtempSync(path.join(tmpdir(), 'snap-mkdir-'));
+    assert.equal(spawnSync('git', ['init', '-q', repo]).status, 0);
+    const out = path.join(repo, 'missing', 'nested', 'snapshot.json');
+    const res = await cliRunAsync(['snapshot', '--root', ROOT, '--ancestor', P, '--out', out, '--api-url', url, '--no-server-check', '--no-fetch', '--cwd', repo, '--now', NOW], { cwd: repo });
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(JSON.parse(readFileSync(out, 'utf8')).contract, 'run-wave/snapshot-v1');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

@@ -15,7 +15,7 @@ Tool call shapes are in [call-shapes-js.md](../../_generated/call-shapes-js.md):
 - A script's result is the value of its last expression, and `return` at the top level, `eval` and `Function` are refused. So each recipe is one `async function r<n>()` and a last line `await r<n>()`; the `return` statements are inside the function.
 - One round per script. No recipe waits for a seat, so each finishes far under the limit of about 600 seconds that stops a REPL script whatever its `$` timeout. Seats finish while no script runs; their notifications arrive through `Poll`.
 - The run closes through the MCP `runs_write` tool global (R11), never over REST: the retrospective trigger is a hook on that tool call and does not see a REST close. No recipe calls `fetch`.
-- Every recipe script is the prelude block and the kit block below pasted verbatim, then the recipe's function and its last line. Placeholders such as `<scratchpad>` are string literals you replace before running.
+- The REPL refuses `eval` and `Function`, so the prelude and the kit are defined once per REPL context as persistent globals, not pasted into each recipe script. A recipe script is then only its function and its last line. Placeholders such as `<scratchpad>` are string literals you replace before running. After a REPL context reset (a recipe fails with `<name> is not defined`, for example `readJson`) define them again and run that recipe again. Defining the kit again puts `RUN_DIR`, `HELPER` and `REPORT_TO` back to their placeholder text, so set all three again before that recipe runs: `HELPER` to the resolved helper path, `RUN_DIR` to the current run's folder (its `runId` is the plan id R1 returned; the folder is under `<scratchpad>/run-wave/`), `REPORT_TO` from the brief. The kit's `RUN_DIR`, `HELPER` and `REPORT_TO` are the exception to "once": each is reassigned when its value becomes known, as the Kit section says.
 
 ## Script globals
 
@@ -124,12 +124,12 @@ function tokenLine(token) {
 
 ## Kit
 
-Hand-written glue the recipes share. Paste it after the prelude. `adoptNotes`, `sendReport`, `endSeats` and `setPhase` are the steps more than one recipe runs (R3 and R5; R10 and R11; R7 and R11; R2, R5, R7, R8 and R9).
+Hand-written glue the recipes share. Define it after the prelude, once per REPL context. `adoptNotes`, `sendReport`, `endSeats` and `setPhase` are the steps more than one recipe runs (R3 and R5; R10 and R11; R7 and R11; R2, R5, R7, R8 and R9). `RUN_DIR`, `HELPER` and `REPORT_TO` are `let`, not `const`, so each is set by a one-line assignment in its own `REPL` script without defining the kit again: `HELPER = '<helper>';` once, right after the probe resolves the helper path (`SKILL.md` Step 0 F0), before R1 runs; `RUN_DIR = '<scratchpad>/run-wave/<runId>';` once R1 returns the plan's `runId`, before R2 copies the plan into it, and again for each new run of the Step 9 loop (a new `runId`, a new folder); `REPORT_TO = 'main';` (or `null`) from the brief, before the first report. Until they are set they hold the placeholder text, so a recipe that reads `RUN_DIR` before R1 returns has nothing to read.
 
 ```js
-const RUN_DIR = '<scratchpad>/run-wave/<runId>';
-const HELPER = '<helper>';
-const REPORT_TO = 'main'; // the session SendMessage reports to; null returns the report block for the user instead
+let RUN_DIR = '<scratchpad>/run-wave/<runId>'; // reassigned once R1 returns the runId, and for each new run
+let HELPER = '<helper>'; // reassigned once, when the helper path resolves
+let REPORT_TO = 'main'; // the session SendMessage reports to; null returns the report block for the user instead
 const q = (s) => JSON.stringify(String(s));
 const readJson = async (p) => JSON.parse(await file(p).text());
 const writeJson = (p, v) => Write({ file_path: p, content: JSON.stringify(v, null, 1) + '\n' });
@@ -1145,14 +1145,16 @@ async function r11() {
   const code = elementCode(closed);
   if (code !== null) return code === 'run_paused' ? await stop(closed) : { failed: true, step: 'close', code };
   await writeJson(RUN_DIR + '/close.json', closed.data);
+  const del = await sh('node -e ' + q("require('fs').rmSync(process.argv[1],{recursive:true,force:true})") + ' ' + q(RUN_DIR + '/tokens'));
+  const tokensLeft = del.ref !== null || del.code !== 0; // a failed delete is reported, never a failed close: the run is closed and its tokens are dead
   const snap = (closed.data.results && closed.data.results[0] && closed.data.results[0].snapshot) || {};
   const rep = await sendReport('closed', {});
-  return { closed: true, reason: cl.json.ops[0].reason, openDecisions: Number.isInteger(snap.openDecisions) ? snap.openDecisions : null, reported: rep.sent === true };
+  return { closed: true, reason: cl.json.ops[0].reason, openDecisions: Number.isInteger(snap.openDecisions) ? snap.openDecisions : null, reported: rep.sent === true, ...(tokensLeft ? { tokensLeft: true } : {}) };
 }
 await r11()
 ```
 
-Delete `<scratchpad>/run-wave/<runId>/tokens/` after the close, and run the rest of Step 7 (the run report, deferred and stopped items, cleanup of `refs/wip/<short>`) by hand as `post-run.md` says.
+After a successful close the script deletes `<scratchpad>/run-wave/<runId>/tokens/` itself (a refused close leaves it). When the delete fails the return carries `tokensLeft: true` and the close still stands: delete that folder by hand. Run the rest of Step 7 (the run report, deferred and stopped items, cleanup of `refs/wip/<short>`) by hand as `post-run.md` says.
 
 ## Coverage
 

@@ -825,6 +825,53 @@ test('S14 (AC4): R11 sends the close through the runs_write tool under the coord
   assert.ok(/ closed: /.test(s.sent[0].message) && /open decisions 2/.test(s.sent[0].message), s.sent[0].message);
 });
 
+test('R11 deletes the tokens directory after a successful close and leaves it when the close is refused', async () => {
+  const ok = r11Setup();
+  writeFileSync(ok.runDir + '/tokens/other.token', 'X'+String.fromCharCode(10));
+  const out = await run(11, { runDir: ok.runDir, scratch: ok.scratch, tools: ok.tools, sendMessage: ok.sendMessage });
+  assert.equal(out.closed, true, JSON.stringify(out));
+  assert.equal(existsSync(ok.runDir + '/tokens'), false, 'tokens/ survived a successful close');
+  const bad = r11Setup({ closeFails: 2 });
+  const failed = await run(11, { runDir: bad.runDir, scratch: bad.scratch, tools: bad.tools, sendMessage: bad.sendMessage });
+  assert.equal(failed.failed, true);
+  assert.equal(failed.step, 'close', JSON.stringify(failed));
+  assert.equal(failed.code, 'invalid_run_state', JSON.stringify(failed));
+  assert.equal(existsSync(bad.runDir + '/tokens/coordinator.token'), true, 'tokens/ was deleted though the close failed');
+});
+
+test('R11 reports a failed token delete as tokensLeft and still closes; a clean delete carries no tokensLeft', async () => {
+  const s = r11Setup();
+  const real = (command) => shell(command, { cwd: undefined, home: s.scratch });
+  const shellFn = (command) => (command.includes('rmSync') ? shell('node -e "process.exit(3)"', { cwd: undefined, home: s.scratch }) : real(command));
+  const out = await run(11, { runDir: s.runDir, scratch: s.scratch, tools: s.tools, sendMessage: s.sendMessage, shellFn });
+  assert.equal(out.closed, true, JSON.stringify(out));
+  assert.equal(out.tokensLeft, true, JSON.stringify(out));
+  assert.equal(out.reported, true, 'the closed report was not sent after a failed delete');
+  assert.equal(existsSync(s.runDir + '/tokens/coordinator.token'), true, 'the stubbed delete removed the tokens');
+  const refusedDelete = (command) => (command.includes('rmSync') ? (() => { throw new Error('Permission denied for Bash: rmSync'); })() : real(command));
+  const s2 = r11Setup();
+  const out2 = await run(11, { runDir: s2.runDir, scratch: s2.scratch, tools: s2.tools, sendMessage: s2.sendMessage, shellFn: (c) => (c.includes('rmSync') ? refusedDelete(c) : shell(c, { cwd: undefined, home: s2.scratch })) });
+  assert.equal(out2.closed, true, JSON.stringify(out2));
+  assert.equal(out2.tokensLeft, true, JSON.stringify(out2));
+  const clean = r11Setup();
+  const out3 = await run(11, { runDir: clean.runDir, scratch: clean.scratch, tools: clean.tools, sendMessage: clean.sendMessage });
+  assert.equal('tokensLeft' in out3, false, JSON.stringify(out3));
+});
+
+test('the R11 delete command is one readable node -e line with no fromCharCode', () => {
+  const r11 = recipe(11);
+  assert.ok(!r11.includes('fromCharCode'), 'R11 builds the one-liner with fromCharCode');
+  assert.ok(r11.includes("rmSync(process.argv[1],{recursive:true,force:true})"), 'rmSync one-liner missing');
+});
+
+test('the kit RUN_DIR, HELPER and REPORT_TO are reassignable in one REPL context', async () => {
+  assert.ok(/^let RUN_DIR = /m.test(KIT) && /^let HELPER = /m.test(KIT) && /^let REPORT_TO = /m.test(KIT), 'a run global is not a let');
+  for (const n of ['RUN_DIR', 'HELPER', 'REPORT_TO']) assert.ok(!KIT.includes('const ' + n + ' = '), n + ' is still const');
+  const body = [PRELUDE, KIT, "RUN_DIR = '/run/a'; HELPER = '/h'; REPORT_TO = null; const first = [RUN_DIR, HELPER, REPORT_TO]; RUN_DIR = '/run/b'; return [first, RUN_DIR];"].join(String.fromCharCode(10));
+  const got = await new AsyncFunction('file', '$', 'Write', 'tools', body)(null, null, null, {});
+  assert.deepEqual(got, [['/run/a', '/h', null], '/run/b']);
+});
+
 test('S14 (AC4): invalid_run_state runs the seat sweep and closes once more', async () => {
   const s = r11Setup({ closeFails: 1 });
   const out = await run(11, { runDir: s.runDir, scratch: s.scratch, tools: s.tools, sendMessage: s.sendMessage });
@@ -886,7 +933,7 @@ test('S15 (AC5): R10 returns only event, sent, needs and wait, and SendMessage r
 test('S15 (AC5): with REPORT_TO null R10 returns the block for the user and sends nothing', async () => {
   const s = boundSetup();
   const sent = [];
-  const out = await run(10, { runDir: s.runDir, scratch: s.scratch, tools: {}, sendMessage: async (m) => { sent.push(m); return {}; }, subst: { "const REPORT_TO = 'main';": 'const REPORT_TO = null;' } });
+  const out = await run(10, { runDir: s.runDir, scratch: s.scratch, tools: {}, sendMessage: async (m) => { sent.push(m); return {}; }, subst: { "let REPORT_TO = 'main';": 'let REPORT_TO = null;' } });
   assert.equal(out.sent, false);
   assert.ok(out.block.startsWith('TO report: run '));
   assert.equal(sent.length, 0);
