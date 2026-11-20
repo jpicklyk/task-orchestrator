@@ -1,22 +1,24 @@
 // bug-report.test.mjs -- scripts/lib/bug-report.mjs (runBugReport with injected deps, scrubFindings,
-// fingerprintOf, typeShape), the run-planner `bug-report` subcommand (S23) and the docs the item edits.
+// fingerprintOf, typeShape), the run-planner `bug-report` subcommand (S23-S26, S30) and the docs the item edits.
 //
-// Scenario ids S1-S23 match the item's frozen `test-plan` note and its `amendments` note (A1 adds S18-S23).
+// Scenario ids S1-S30 match the item's frozen `test-plan` note and its `amendments` note (A1 adds S18-S23).
 // Oracles: task-scope decisions D2-D17, acceptance criteria AC1-AC14, amendment ruling A1 and the A2 user
 // rulings B4 'enforce allowlists' (a server code must be in its catalog entry's errors list; a plugin tool
-// must be an own key of the injected closed vocabulary, with op and code on its list; the posted call shape is top-level catalog field names with type
+// must be an own key of the injected closed vocabulary, with op and code on its list (the shipped vocabulary file is
+// the oracle of S27-S28, the env-var gate the oracle of S5 and S23-S26); the posted call shape is top-level catalog field names with type
 // names only, never a nested or map key) and N1 'never retry' (one create attempt; a failed or timed-out
 // create posts nothing more that run and is recorded create-unconfirmed) and the A3 rulings B5 'no labels on
 // create' (the gh issue create args carry no --label at all; a report is identified by the '[bug]' title
 // prefix, the Fingerprint: line and the footer) and N3 (a call shape recorded as the whole {ops:[...]} call of
 // an ops tool posts the top-level catalog fields of the element whose op equals the defect's op, else of the
-// first object element) -- named in the comment above each test. This file never opens bug-report.mjs,
-// retro-metrics.mjs or run-planner.mjs: only their declared exports are imported.
+// first object element) -- named in the comment above each test. The library tests import only the declared
+// exports of bug-report.mjs and retro-metrics.mjs; S26 (source absence checks) and S28 (vocabulary against the hook
+// registry and the run-planner subcommands) read run-planner.mjs, bug-report.mjs and hooks-config.json as text.
 //
 // SAFETY: the real gh is never run. Every library test injects a fake gh through `deps`; nothing there
-// touches the network, the state file or GitHub. The only test that spawns the run-planner `bug-report`
-// subcommand is S23, and it runs it ONLY with PATH set to an empty temporary directory and the API URL
-// pointed at a local fake server; before each spawn it asserts that no gh executable exists in that PATH
+// touches the network, the state file or GitHub. The tests that spawn the run-planner `bug-report`
+// subcommand (S23, S25, S26, S30, through the cli() helper) run it ONLY with PATH set to an empty temporary directory (the fake-gh shim, where a
+// test sets it, is the only gh) and the API URL pointed at a local fake server; before each spawn it asserts that no gh executable exists in that PATH
 // directory or in the child's working directory, and that PATH is that empty directory. A machine on which
 // gh would still be reachable fails the test before the subcommand starts.
 //
@@ -403,13 +405,13 @@ test('S6 gh auth status failing: gh-unavailable after one gh call', async () => 
 })
 
 // -- S7 ---------------------------------------------------------------------------------------------
-// Oracle: AC3, D4; A1 R2 (a server tool needs its op among the catalog entries, absent catalog fails op; a
-// plugin tool matches ^[a-z0-9][a-z0-9-]*\.mjs$, its op ^[A-Za-z][A-Za-z0-9_-]{0,63}$; code
-// ^(exit:\d{1,3}|[A-Za-z][A-Za-z0-9_]{0,63})$; else not-qualifying:<field>); A2 B4 (a server code must be in
-// its catalog entry's errors list; a plugin tool must be a key of the injected vocabulary). A row that spreads
-// PLUGIN_BASE runs with its tool added to the vocabulary, so only the name pattern can reject it; the op and code
-// rows are off-list values and the environment-code rows use a plugin script defect for the same reason (a server code outside the
-// entry's errors list would reject them anyway). Rows on the server fixture isolate the B4 membership check.
+// Oracle: AC3, D4; A1 R2 (a server tool needs its op among the catalog entries, absent catalog fails op); A2 B4
+// (a server code must be in its catalog entry's errors list); the closed plugin vocabulary (a plugin tool must be a
+// key of the injected vocabulary, its op and code on that tool's lists; else not-qualifying:<field>). A row that
+// spreads PLUGIN_BASE runs with its own tool (and the PLUGIN_BASE op and code) added to the vocabulary, so the tool is
+// on the list and the op or code that differs is off it; the environment-code rows use a plugin script defect for
+// the same reason (a server code outside the entry's errors list would reject them anyway). Rows on the server
+// fixture isolate the B4 membership check.
 const PLUGIN_BASE = { signal: 'script-failure', tool: 'run-planner.mjs', op: 'bug-report', code: 'exit:2' }
 const ENV_CODES = ['network', 'unauthenticated', 'timeout', 'no_api', 'ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'EAI_AGAIN']
 const NOT_QUALIFYING = [
@@ -490,9 +492,9 @@ test('S7 control: every listed signal qualifies, and a code merely resembling an
 })
 
 // -- S19 --------------------------------------------------------------------------------------------
-// Oracle: A1 R2 (qualification by catalog and patterns, call shape limited to the catalog fields); A2 B4
-// (server code in the entry's errors list; plugin tool one of pluginTools; call shape top-level catalog field
-// names with type names only, never a nested or map key).
+// Oracle: A1 R2 (qualification by the catalog and the closed vocabulary, call shape limited to the catalog fields); A2 B4
+// (server code in the entry's errors list; plugin tool a key of the injected vocabulary; call shape top-level catalog
+// field names with type names only, never a nested or map key).
 for (const [name, over] of [
   ['plugin script with an exit code', {}],
   ['plugin script single character name', { tool: 'a.mjs' }],
@@ -1199,7 +1201,8 @@ test('S16 an unreadable state (null) reads as empty and an empty object does not
 })
 
 // -- S17 --------------------------------------------------------------------------------------------
-// Oracle: AC11-AC14, D16 (as ruled by A1: user-level consent), D17, Files, A1 B1/B2/O10.
+// Oracle: AC5 and AC6 (no user-facing doc names bug_reports, a bug-report consent or the gate variable; the
+// SKILL.md byte cap), D17, Files, A1 B1/B2/O10.
 const read = (...p) => readFileSync(join(...p), 'utf8')
 const section = (text, startRe, endRe) => {
   const m = text.match(startRe)
@@ -1606,8 +1609,7 @@ test('S25 a failing REST read is a gap and the input is partial', async () => {
   assert.equal(r.status, 0, r.stderr)
   assert.equal(r.json.gate, 'ran')
   assert.equal(r.json.input, 'partial')
-  assert.deepEqual(r.json.gaps.filter((g) => g.section === 'members'), [{ section: 'members', reason: 'internal' }, { section: 'members', reason: 'internal' }])
-  assert.ok(r.json.gaps.every((g) => g.section === 'members' || g.section === 'product'), JSON.stringify(r.json.gaps))
+  assert.deepEqual(r.json.gaps, [{ section: 'members', reason: 'internal' }, { section: 'members', reason: 'internal' }])
 })
 test('S25 no API URL: gate ran, input unavailable with the gap, nothing filed, exit 0', async () => {
   const r = await cli({ gate: '1', args: rootArgs('--product', TRACKED_FP), extraEnv: (sbx) => ({ ...shimEnv(sbx), TASK_ORCHESTRATOR_API_URL: '' }) })
@@ -1669,7 +1671,7 @@ test('S25 a --root value that is not an item id exits 2 with a reason', async ()
 // Oracle: AC1, AC2. The library gate rows are S5; here the CLI reads the variable itself, and a config key is ignored.
 // SAFETY: PATH is the empty directory; no gh is reachable.
 for (const gate of ['', '0', 'true', 'TRUE', 'yes', ' 1', '1 ', '01']) {
-  test(`S26 CLI gate value ${JSON.stringify(gate)} stays disabled: no request, no state read`, async () => {
+  test(`S26 CLI gate value ${JSON.stringify(gate)} stays disabled: no request`, async () => {
     const r = await cli({ gate })
     assert.equal(r.status, 0, r.stderr)
     assert.equal(r.json.gate, 'disabled')
@@ -1812,8 +1814,10 @@ test('S30 the same fingerprint gathered from two members: one filed, one duplica
   assert.ok(r.json.results.some((x) => x.reason === 'duplicate'), JSON.stringify(r.json.results))
 })
 test('S30 the variable 1 with gh unreachable under --root: gh-unavailable, no create, exit 0', async () => {
-  const r = await cli({ gate: '1', args: rootArgs('--product', TRACKED_FP), handler: restHandler })
+  // FAKE_GH_DIR is set without the shim, so creates(r) reads a real log path: any gh call that reached it would show.
+  const r = await cli({ gate: '1', args: rootArgs('--product', TRACKED_FP), handler: restHandler, extraEnv: (sbx) => ({ FAKE_GH_DIR: join(sbx.base, 'ghlog') }) })
   assert.equal(r.status, 0, r.stderr)
   assert.equal(r.json.gate, 'gh-unavailable')
+  assert.deepEqual(r.json.results, [])
   assert.equal(creates(r).length, 0)
 })
