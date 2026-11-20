@@ -958,6 +958,21 @@ test('O6c: a director in a nudge-mode project does not take over an orphaned sco
   });
 });
 
+test('N1: a director in a nudge-mode project does not take an abandoned scope it does not own; a dispatch-mode project does', async () => {
+  const sf = scopeFixture({ runs: 2, scopeRole: 'work', closedMs: 8 * DAY, impl: [{ note: null }, { note: null }, { note: null }] });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG({ mode: 'nudge' })), async ({ sbx, stop, fake }) => {
+    const s = sid('n1-nudge');
+    markDirector(sbx, s);
+    assertSilentRun(await stop(stopPayload(s)));
+    assertNoMarks(fake);
+  });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG({ mode: 'dispatch' })), async ({ sbx, stop }) => {
+    const s = sid('n1-dispatch');
+    markDirector(sbx, s);
+    assertDispatchBlock(await stop(stopPayload(s)), sf.runIds);
+  });
+});
+
 function assertNudge(res) {
   assert.equal(res.status, 0, res.stderr);
   const text = res.json?.reason ?? contextOf(res);

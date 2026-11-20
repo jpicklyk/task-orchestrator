@@ -533,12 +533,11 @@ export async function evaluateScopes({ rootId, config, state, now = Date.now(), 
         const due = await dueOf(g);
         if (!due.due) return null;
         if (!ownedByThisSession(g)) {
-          // Not this session's scope. An abandoned scope has no owner clock: only dispatch mode takes it
-          // (the claim mark makes it fire once); nudge mode leaves it to its owner. A completed scope is
-          // taken after 60 minutes only when the project's CONFIGURED mode is dispatch (a director's forced
-          // dispatch does not count).
+          // Not this session's scope. Another session takes it only when the project's CONFIGURED mode is
+          // dispatch (a director's forced dispatch does not count): an abandoned scope at once (the claim mark
+          // makes it fire once), a completed scope after 60 minutes. Nudge mode leaves both to their owner.
           if (due.stale) {
-            if (!dispatch) return null;
+            if (!dispatch || configuredMode !== 'dispatch') return null;
           } else if (!dispatch || configuredMode !== 'dispatch' || now - due.since <= OWNER_HOLD_MS) return null;
         }
         return { g, due };
