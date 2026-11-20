@@ -16,7 +16,8 @@ Call shapes: [`../_generated/call-shapes.md`](../_generated/call-shapes.md); rea
 
 - [ ] 0 Mode check, 1 Gather scope and run `retro-metrics`
 - [ ] 2 Aggregate, 3 Evaluate (3a-3f), 4 Trend memory
-- [ ] 5 Persist (5a-5e), 6 Update trends, 7 Proposals
+- [ ] 5 Persist (5a-5d), 6 Update trends, 7 Proposals
+- [ ] 5e Run bug-report (always; the command decides)
 - [ ] 8 Meta-evaluation, 8a Verify adopted proposals, 8b Close, 9 Report
 
 Gate loop, before every `advance`: read the gate (`items_read` `context`), fill what `gateStatus.missing` names, `advance`. On `gate_blocked` re-read the context, fill the rest, retry once, then report the missing notes and stop.
@@ -68,7 +69,7 @@ Global trends sit under the process-global `Retrospective Trends` container, a d
 
 **5d** `advance` `start` on the retrospective; completion is Step 8b.
 
-**5e** Route defects, no session threshold: each `defect` finding and `defects[]` entry becomes evidence on an open item, a regression item or a new `[bug]` observation tagged `retro-reported` (a project defect: a declared `bug-fix`); one an input observation records creates nothing. Procedure: [`references/routing.md`](references/routing.md). When the user-level `bug_reports` gate is open, run `bug-report --root <root> --run <run>...` for every qualifying product defect (a closed gate files nothing: say so in `actions-taken`): [`../_shared/github-feedback.md#bug-reports-product-defects`](../_shared/github-feedback.md#bug-reports-product-defects). An `agent-discipline` finding creates no item and no trend, only a `memory:` line (Step 9).
+**5e** Route defects, no session threshold: each `defect` finding and `defects[]` entry becomes evidence on an open item, a regression item or a new `[bug]` observation tagged `retro-reported` (a project defect: a declared `bug-fix`); one an input observation records creates nothing. Procedure: [`references/routing.md`](references/routing.md). ALWAYS run `node "<helper>" bug-report --root <root> --run <run>...` once per retrospective, gate open or closed, with or without defects: the command reads the gate and the qualification itself and prints `gate: disabled` when the gate is closed; never check the gate yourself, never skip the step: [`../_shared/github-feedback.md#bug-reports-product-defects`](../_shared/github-feedback.md#bug-reports-product-defects). An `agent-discipline` finding creates no item and no trend, only a `memory:` line (Step 9).
 
 ## Step 6 - Update Trends
 
@@ -122,7 +123,7 @@ Then update the source trend: `effective` `cancel`s it (`summary: "archived: ver
 node "<helper>" retro-metrics --root <rootId> --run <runId> --session-dir "<dir>" --self-only
 ```
 
-Upsert the work note `actions-taken`: proposals (title, short id), bug items (short id, `created` or `evidence`), memory lines, each `bug-report` result `line`, each global proposal's GitHub outcome (`filed <url>`, `linked existing <url>`, `github filing skipped: <reason>`), each project proposal's anchor, trends created, updated or retired, adopted proposals verified. Then the gate loop:
+Upsert the work note `actions-taken`: proposals (title, short id), bug items (short id, `created` or `evidence`), memory lines, the `bug-report` document's result `line`s or its `gate: disabled` line (the closure is not complete without it), each global proposal's GitHub outcome (`filed <url>`, `linked existing <url>`, `github filing skipped: <reason>`), each project proposal's anchor, trends created, updated or retired, adopted proposals verified. Then the gate loop:
 
 ```to-call
 {"tool": "items_read", "select": "context", "args": {"itemId": "<retro-uuid>"}}

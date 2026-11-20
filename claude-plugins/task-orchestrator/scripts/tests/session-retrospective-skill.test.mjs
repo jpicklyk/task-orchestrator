@@ -363,3 +363,23 @@ test('W2-O5: a director session is told to relay memory lines, a non-director to
   assert.ok(directiveFor(result, null, { director: true }).includes('relay each memory: line'))
   assert.ok(directiveFor(result, null, {}).includes('save each memory: line'))
 })
+
+// -- A3: the bug-report step is unconditional -------------------------------------------------------
+
+test('A3: the checklist carries its own 5e bug-report line and Step 5e and 8b make the run unconditional', () => {
+  const step1 = SKILL.search(/^## Step 1\b/m)
+  const line = SKILL.indexOf('- [ ] 5e Run bug-report (always; the command decides)')
+  assert.ok(line !== -1 && line < step1, 'checklist line before Step 1')
+  const i5e = SKILL.indexOf('**5e**')
+  const s5e = SKILL.slice(i5e, SKILL.search(/^## Step 6\b/m))
+  assert.match(s5e, /ALWAYS run `node "<helper>" bug-report --root <root> --run <run>\.\.\.`/)
+  assert.match(s5e, /gate open or closed, with or without defects/)
+  assert.match(s5e, /prints `gate: disabled`/)
+  assert.match(s5e, /never check the gate yourself/)
+  assert.doesNotMatch(s5e, /When the user-level `bug_reports` gate is open, run/)
+  const s8b = section(SKILL, /^## Step 8b\b[^\n]*$/m)
+  assert.match(s8b, /`gate: disabled` line \(the closure is not complete without it\)/)
+  const GH = lf(readFileSync(resolve(HERE, '../../skills/_shared/github-feedback.md'), 'utf8'))
+  assert.match(GH, /always run; |Always run, once per retrospective/)
+  assert.match(ROUTING, /always run; the command decides/)
+})
