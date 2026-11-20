@@ -124,7 +124,7 @@ export const CHECKS = {
   async D2(ctx) {
     const creates = callsOf(ctx, 'issue', 'create');
     if (creates.length !== 1) {
-      const ran = (ctx.live && ctx.live.transcripts ? ctx.live.transcripts : []).some((t) => /bug-report --in/.test(t) && t.includes('"name":"Bash"'));
+      const ran = (ctx.live && ctx.live.transcripts ? ctx.live.transcripts : []).some((t) => /bug-report --(in|root)/.test(t) && t.includes('"name":"Bash"'));
       return fail(`${creates.length} issue create calls, expected 1 (the session ${ran ? 'ran' : 'never ran'} the bug-report command)`);
     }
     const c = creates[0];

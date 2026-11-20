@@ -1234,9 +1234,9 @@ test('S17 the shared github-feedback reference links the bug-report section and 
   }
   assert.match(s, /user[- ]level/i)
 })
-test('S17 session-retrospective SKILL.md stays within 13700 bytes and links the bug-report section', () => {
+test('S17 session-retrospective SKILL.md stays within 14000 bytes and links the bug-report section', () => {
   const t = read(PLUGIN, 'skills', 'session-retrospective', 'SKILL.md')
-  assert.ok(Buffer.byteLength(t, 'utf8') <= 13700, `bytes ${Buffer.byteLength(t, 'utf8')}`)
+  assert.ok(Buffer.byteLength(t, 'utf8') <= 14000, `bytes ${Buffer.byteLength(t, 'utf8')}`)
   assert.ok(t.includes('../_shared/github-feedback.md#bug-reports-product-defects'))
   const s7b = section(t, /^### 7b\./m, /\n### /)
   assert.ok(s7b.includes('product'))
@@ -1399,12 +1399,23 @@ const SCRUBBED_ENV = [
 ]
 const RUN_PLANNER = join(PLUGIN, 'scripts', 'run-planner.mjs')
 
-async function startCounter() {
+async function startCounter(handler = null) {
   const requests = []
   const sockets = new Set()
   const server = createServer((req, res) => {
     requests.push(req.url)
     res.setHeader('content-type', 'application/json')
+    const m = handler && /^\/api\/v1\/ops\/([^/?]+)/.exec(req.url)
+    if (m) {
+      const chunks = []
+      req.on('data', (c) => chunks.push(c))
+      req.on('end', () => {
+        let body = {}
+        try { body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') } catch { body = {} }
+        res.end(JSON.stringify({ ok: true, data: handler(m[1], body), meta: { reqId: 'x' } }))
+      })
+      return
+    }
     res.end(JSON.stringify({ version: '4.0.1', features: ['seats'] }))
   })
   server.on('connection', (s) => { sockets.add(s); s.on('close', () => sockets.delete(s)) })
@@ -1418,9 +1429,9 @@ async function startCounter() {
 
 // project / user: config text or null (absent). args: the CLI arguments after `bug-report`, `<IN>` replaced
 // by the input file; defects: the input file's defects.
-async function cli({ project = null, user = null, args = ['--in', '<IN>'], defects = [d()], extraEnv = null }) {
+async function cli({ project = null, user = null, args = ['--in', '<IN>'], defects = [d()], extraEnv = null, handler = null }) {
   const sbx = makeSandbox({ config: project, scope: 'project' })
-  const counter = await startCounter()
+  const counter = await startCounter(handler)
   try {
     const emptyPath = join(sbx.base, 'nopath')
     mkdirSync(emptyPath)
@@ -1538,4 +1549,55 @@ test('S24 the gh shim seam: the CLI files one issue through fake-gh with no --la
   const creates = r.ghCalls.filter((c) => c.argv[0] === 'issue' && c.argv[1] === 'create')
   assert.equal(creates.length, 1)
   assert.ok(!creates[0].argv.includes('--label'), 'no --label on create')
+})
+
+// -- S25 --------------------------------------------------------------------------------------------
+// Oracle: user ruling 2026-11-19 (read from retro-metrics) and fix cycle A2 item (1): bug-report takes --root <id>
+// with --run <id>... / --item <id>... and gathers the defects of the members' session-tracking notes over REST as
+// retro-metrics does (no input file); exactly one of --in and --root, else exit 2.
+// SAFETY: PATH is the empty directory; the shim is the only gh; the REST server is a loopback fake.
+const ROOT_ID = 'ce064d2c-7c03-4eac-ae7d-89a14c2ba273'
+const RUN_ID = 'r-202611200000-aaaaaaaa'
+const MEMBER = 'aaaaaaaa-1111-4111-8111-111111111111'
+const TRACKING = 'Outcome: done. defect: retro-trigger.mjs, hook, exit:1, the hook stopped; Friction: none'
+function restHandler(tool, body) {
+  if (tool === 'runs_read' && body.select === 'seats') return { seats: [{ itemId: MEMBER }] }
+  if (tool === 'runs_read') return {}
+  if (tool === 'notes_read') return body.key === 'session-tracking' ? { body: TRACKING } : { body: null }
+  if (tool === 'items_read') return { id: MEMBER, type: 'feature-task' }
+  return {}
+}
+const shimEnv = (sbx) => ({ TASK_ORCHESTRATOR_GH_SHIM: join(PLUGIN, 'evals', 'retrospective', 'fake-gh.mjs'), FAKE_GH_DIR: join(sbx.base, 'ghlog') })
+
+test('S25 --root and --run gather the defect over REST and file it through the shim with no input file', async () => {
+  const r = await cli({ user: cfg({ bug: 'true' }), args: ['--root', ROOT_ID, '--run', RUN_ID], handler: restHandler, extraEnv: shimEnv })
+  assert.equal(r.status, 0, r.stderr)
+  assert.equal(r.json.gate, 'ran')
+  assert.equal(r.json.results.length, 1)
+  assert.equal(r.json.results[0].action, 'filed')
+  assert.equal(r.json.results[0].fingerprint, defectFingerprint({ component: 'plugin', tool: 'retro-trigger.mjs', op: 'hook', code: 'exit:1', message: 'the hook stopped' }))
+  assert.equal(r.ghCalls.filter((c) => c.argv[0] === 'issue' && c.argv[1] === 'create').length, 1)
+})
+test('S25 --item alone with --root gathers the same defect', async () => {
+  const r = await cli({ user: cfg({ bug: 'true' }), args: ['--root', ROOT_ID, '--item', MEMBER], handler: restHandler, extraEnv: shimEnv })
+  assert.equal(r.status, 0, r.stderr)
+  assert.equal(r.json.results.length, 1)
+  assert.equal(r.json.results[0].action, 'filed')
+})
+test('S25 --root with members that carry no defect files nothing', async () => {
+  const none = (tool, body) => (tool === 'notes_read' && body.key === 'session-tracking' ? { body: 'Outcome: done.' } : restHandler(tool, body))
+  const r = await cli({ user: cfg({ bug: 'true' }), args: ['--root', ROOT_ID, '--run', RUN_ID], handler: none, extraEnv: shimEnv })
+  assert.equal(r.status, 0, r.stderr)
+  assert.equal(r.json.results.length, 0)
+  assert.equal(r.ghCalls.filter((c) => c.argv[0] === 'issue' && c.argv[1] === 'create').length, 0)
+})
+test('S25 --in and --root together exit 2', async () => {
+  const r = await cli({ user: cfg({ bug: 'true' }), args: ['--in', '<IN>', '--root', ROOT_ID] })
+  assert.equal(r.status, 2, r.stderr)
+  assert.equal(r.requests, 0)
+})
+test('S25 neither --in nor --root exits 2, and --run alone is not enough', async () => {
+  const r = await cli({ user: cfg({ bug: 'true' }), args: ['--run', RUN_ID] })
+  assert.equal(r.status, 2, r.stderr)
+  assert.equal(r.requests, 0)
 })

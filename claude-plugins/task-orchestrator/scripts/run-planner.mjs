@@ -440,6 +440,38 @@ function retroWallMs(sessionDir, label) {
   return lo !== Infinity && hi > lo ? hi - lo : null;
 }
 
+// gatherRetroItems(a, gaps) -> [{id, type, delegationMetadata, sessionTracking}]: --item ids plus every seat and frontier
+// member of each --run, read over REST (shared by retro-metrics and bug-report --root).
+async function gatherRetroItems(a, gaps) {
+  // Members: --item ids plus every seat and frontier member of each --run.
+  const ids = [...a.items];
+  for (const runId of a.runs) {
+    const seats = await readRetro('runs_read', { select: 'seats', runId, ended: true }, gaps, 'members');
+    ids.push(...retroIdsOf(seats && (seats.seats || seats.items)));
+    const frontier = await readRetro('runs_read', { select: 'frontier', runId }, gaps, 'members');
+    if (frontier) ids.push(...retroIdsOf(frontier.waiting), ...retroIdsOf(frontier.inFlight));
+  }
+  const byShort = new Map();
+  for (const id of ids) if (!byShort.has(id.slice(0, 8))) byShort.set(id.slice(0, 8), id);
+  const members = [...byShort.values()].slice(0, RETRO_MAX_ITEMS);
+
+  return Promise.all(
+    members.map(async (id) => {
+      const note = async (key) => {
+        const data = await readRetro('notes_read', { select: 'get', itemId: id, key }, gaps, 'notes', ['not_found']);
+        return data && typeof data.body === 'string' ? data.body : null;
+      };
+      const [delegationMetadata, sessionTracking, item] = await Promise.all([
+        note('delegation-metadata'),
+        note('session-tracking'),
+        readRetro('items_read', { select: 'get', itemId: id }, gaps, 'items', ['not_found'])
+      ]);
+      // items_read get answers the item itself in data (type at the top level).
+      return { id, type: item && typeof item.type === 'string' ? item.type : null, delegationMetadata, sessionTracking };
+    })
+  );
+}
+
 async function runRetroMetrics(args) {
   const a = parseRetroArgs(args);
   const cwd = process.cwd();
@@ -472,33 +504,7 @@ async function runRetroMetrics(args) {
     process.exit(0);
   }
 
-  // Members: --item ids plus every seat and frontier member of each --run.
-  const ids = [...a.items];
-  for (const runId of a.runs) {
-    const seats = await readRetro('runs_read', { select: 'seats', runId, ended: true }, gaps, 'members');
-    ids.push(...retroIdsOf(seats && (seats.seats || seats.items)));
-    const frontier = await readRetro('runs_read', { select: 'frontier', runId }, gaps, 'members');
-    if (frontier) ids.push(...retroIdsOf(frontier.waiting), ...retroIdsOf(frontier.inFlight));
-  }
-  const byShort = new Map();
-  for (const id of ids) if (!byShort.has(id.slice(0, 8))) byShort.set(id.slice(0, 8), id);
-  const members = [...byShort.values()].slice(0, RETRO_MAX_ITEMS);
-
-  const items = await Promise.all(
-    members.map(async (id) => {
-      const note = async (key) => {
-        const data = await readRetro('notes_read', { select: 'get', itemId: id, key }, gaps, 'notes', ['not_found']);
-        return data && typeof data.body === 'string' ? data.body : null;
-      };
-      const [delegationMetadata, sessionTracking, item] = await Promise.all([
-        note('delegation-metadata'),
-        note('session-tracking'),
-        readRetro('items_read', { select: 'get', itemId: id }, gaps, 'items', ['not_found'])
-      ]);
-      // items_read get answers the item itself in data (type at the top level).
-      return { id, type: item && typeof item.type === 'string' ? item.type : null, delegationMetadata, sessionTracking };
-    })
-  );
+  const items = await gatherRetroItems(a, gaps);
 
   let noteVolume = { measured: false, reason: 'not measured' };
   if (!a.selfOnly) {
@@ -548,23 +554,52 @@ async function runRetroMetrics(args) {
 // ---------------------------------------------------------------------------------------
 // bug-report: opt-in GitHub bug reports for product defects (lib/bug-report.mjs holds the logic; this
 // handler supplies gh, the clock, the per-install state file and the versions).
-// bug-report --in <file> [--deny <name>]...
+// bug-report (--in <file> | --root <id> [--run <id>]... [--item <id>]...) [--deny <name>]...
+// Exactly one of --in and --root; --root gathers the defects over REST as retro-metrics does.
 // The consent gate is read only from the user-level config (userConfigPath()); there is no --config.
 // Exit 0 with a 'run-wave/bug-report-v1' document; exit 2 only for bad arguments.
 // ---------------------------------------------------------------------------------------
 function parseBugReportArgs(args) {
-  const out = { in: null, deny: [] };
+  const out = { in: null, root: null, runs: [], items: [], deny: [] };
   for (let i = 0; i < args.length; i += 1) {
     const a = args[i];
-    if (!['--in', '--deny'].includes(a)) throw new Error(`invalid args: unknown argument ${a}`);
+    if (!['--in', '--root', '--run', '--item', '--deny'].includes(a)) throw new Error(`invalid args: unknown argument ${a}`);
     const v = args[i + 1];
     if (v === undefined || v.startsWith('--')) throw new Error(`invalid args: ${a} needs a value`);
     i += 1;
     if (a === '--in') out.in = v;
-    else out.deny.push(v);
+    else if (a === '--root') out.root = v;
+    else if (a === '--run') {
+      if (!out.runs.includes(v)) out.runs.push(v);
+    } else if (a === '--item') {
+      if (!out.items.includes(v)) out.items.push(v);
+    } else out.deny.push(v);
   }
-  if (!out.in) throw new Error('invalid args: --in <file> is required');
+  if (out.in && out.root) throw new Error('invalid args: --in and --root are mutually exclusive');
+  if (!out.in && !out.root) throw new Error('invalid args: --in <file> or --root <id> is required');
+  if (out.in && (out.runs.length > 0 || out.items.length > 0)) throw new Error('invalid args: --run and --item go with --root, not --in');
   return out;
+}
+
+// The --root input: the defects of the members' session-tracking notes, gathered and parsed exactly as
+// retro-metrics does (gatherRetroItems, then retroMetrics().defects). Each becomes a bug-report defect; the
+// code's own qualification (catalog op and error code, or the plugin's own file names) decides what is filed.
+// `observation` stays null: retro-metrics knows the carrying item, not the routed observation, so the agent maps
+// a result back to its observation by fingerprint.
+async function retroDefectsInput(a) {
+  const gaps = [];
+  const items = apiBaseUrl({ cwd: process.cwd() }) ? await gatherRetroItems(a, gaps) : [];
+  return retroMetrics({ items }).defects.map((d) => ({
+    kind: 'defect',
+    scope: 'product',
+    signal: d.component === 'server' ? 'tool-error' : 'script-failure',
+    tool: d.tool,
+    op: d.op,
+    code: d.code,
+    message: d.message,
+    quote: d.message,
+    observation: null
+  }));
 }
 
 // The plugin's own hook and script file names (.mjs under hooks/ and scripts/, test directories excluded):
@@ -596,12 +631,15 @@ function pluginToolNames() {
 async function runBugReportCmd(args) {
   const a = parseBugReportArgs(args);
   let input;
-  try {
-    input = JSON.parse(readFileSync(a.in, 'utf8'));
-  } catch (e) {
-    throw new Error(`invalid args: --in is not readable JSON (${(e && e.code) || 'parse'})`);
+  if (a.root) input = { defects: await retroDefectsInput(a) };
+  else {
+    try {
+      input = JSON.parse(readFileSync(a.in, 'utf8'));
+    } catch (e) {
+      throw new Error(`invalid args: --in is not readable JSON (${(e && e.code) || 'parse'})`);
+    }
+    if (!input || typeof input !== 'object' || !Array.isArray(input.defects)) throw new Error('invalid args: input needs a defects array');
   }
-  if (!input || typeof input !== 'object' || !Array.isArray(input.defects)) throw new Error('invalid args: input needs a defects array');
   const cwd = process.cwd();
   // Consent is a user-level setting: a project config never opens the gate. The project config is
   // read only for its project.name, which joins the deny names.
