@@ -4,7 +4,7 @@
 // Subcommands: probe | plan | explain | validate | bind-run | snapshot. Input via --in <file> or stdin; JSON on
 // stdout; {error, detail} on stderr. Exit 0 ok, 2 invalid input, 3 refused (stdout still
 // carries the doc or {ok:false, errors}). A global `--out <path> [--force]` (any subcommand) writes the
-// document to <path> instead of stdout; it refuses (exit 3) to overwrite a launched run's existing file
+// document to <path> instead of stdout, creating any missing parent folders; it refuses (exit 3) to overwrite a launched run's existing file
 // (a sibling state.json past 'planned', or a bound plan.json) unless --force. A shell redirect
 // (`> plan.json`, as the run-wave SKILL.md save still does) bypasses the guard. This file is the ONLY place that reads the clock,
 // the filesystem, the network (probe's server check) or environment variables —
@@ -81,7 +81,7 @@ function parseJson(text) {
 
 // emit: the one writer of a subcommand's stdout document. Without --out it is stdout, as ever.
 // With --out it consults lib.artifactWriteGuard (target + sibling state.json) before writing the
-// file, and prints nothing on stdout.
+// file (creating any missing parent folders once the guard passes), and prints nothing on stdout.
 function emit(text) {
   const doc = text.endsWith('\n') ? text : `${text}\n`;
   if (!OUT) {

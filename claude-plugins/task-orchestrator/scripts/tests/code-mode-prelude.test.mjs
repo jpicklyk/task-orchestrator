@@ -98,3 +98,12 @@ test('code-mode.md says the prelude and kit are defined once per REPL context an
   assert.ok(text.includes('After a REPL context reset (a recipe fails with `<name> is not defined`, for example `readJson`) define them again and run that recipe again'), 'reset sentence missing');
   assert.ok(!text.includes('is the prelude block and the kit block below pasted verbatim'), 'the paste-into-every-script sentence is still there');
 });
+
+test('code-mode.md makes the kit run globals reassignable and says when each is set', () => {
+  const text = doc().replace(/\s+/g, ' ');
+  assert.ok(text.includes("`RUN_DIR`, `HELPER` and `REPORT_TO` are `let`, not `const`"), 'let sentence missing');
+  assert.ok(text.includes("`HELPER = '<helper>';` once, right after the probe resolves the helper path (`SKILL.md` Step 0 F0), before R1 runs"), 'HELPER timing missing');
+  assert.ok(text.includes("`RUN_DIR = '<scratchpad>/run-wave/<runId>';` once R1 returns the plan's `runId`, before R2 copies the plan into it, and again for each new run of the Step 9 loop"), 'RUN_DIR timing missing');
+  assert.ok(text.includes("`REPORT_TO = 'main';` (or `null`) from the brief, before the first report"), 'REPORT_TO timing missing');
+  assert.ok(text.includes("The kit's `RUN_DIR`, `HELPER` and `REPORT_TO` are the exception to \"once\""), 'exception to the once rule missing');
+});
