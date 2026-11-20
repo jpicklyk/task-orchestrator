@@ -113,7 +113,7 @@ When the item has **no `proposal` note** (a legacy item), do not write a note th
 
 ## Bug reports (product defects)
 
-A product defect the retrospective routed in Step 5e can reach the upstream repo as a scrubbed `[bug]` issue, or as a rate-limited `seen again` comment on an existing one. Opt-in, off by default: the consent is asked once, by `init --user`. The logic lives in code (`scripts/lib/bug-report.mjs`); the agent writes the input, runs one command and records the result back.
+A product defect the retrospective routed in Step 5e is reported upstream as a scrubbed `[bug]` issue, or as a rate-limited `seen again` comment on an existing one, whenever the gate below is open. The gate is off by default (the consent is asked once, by `init --user`); with it open, filing is an obligation for every qualifying defect, not a choice, and with it closed nothing is filed. The logic lives in code (`scripts/lib/bug-report.mjs`); the agent writes the input, runs one command and records the result back.
 
 **Gate.** The user-level config (`userConfigPath()`) must hold exactly one `extensions.claude-code.retrospective.github_feedback.bug_reports` line, and it must be `true`; it is independent of `enabled`. A project config's `bug_reports` is never read, and the target is always `jpicklyk/task-orchestrator` (`repo` is for proposals only). Anything else is gate `disabled`: no `gh` call, nothing written.
 

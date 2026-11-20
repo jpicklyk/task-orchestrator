@@ -88,7 +88,7 @@ Step 5e runs after 5d and before Step 6, with no session threshold: a defect is 
 {"tool": "items_write", "op": "create_tree", "args": {"root": {"title": "[bug] <tool> <op>: <code> - <message, at most 80 chars>", "type": "agent-observation", "priority": "low", "tags": ["agent-observation", "bug", "retro-reported"], "description": "Fingerprint: <fp>\n[Regression of <short>\n]<what the retrospective saw: items, run, count>"}, "notes": [{"itemRef": "root", "key": "observation-detail", "role": "queue", "body": "<tool, op, code, message; the items that hit it; the run; what a fix must change; [the earlier item]>"}]}}
 ```
 
-- **Bug report upstream:** a `product` defect that meets the qualification in [`../../_shared/github-feedback.md`](../../_shared/github-feedback.md#bug-reports-product-defects) joins the input of Step 5e's one `bug-report` run; its `github-issue:` URL is recorded back on the observation, so a later retrospective finds it by the fingerprint.
+- **Bug report upstream:** a `product` defect that meets the qualification in [`../../_shared/github-feedback.md`](../../_shared/github-feedback.md#bug-reports-product-defects) always joins the input of Step 5e's one `bug-report` run (when the gate is open); its `github-issue:` URL is recorded back on the observation, so a later retrospective finds it by the fingerprint.
 - **Scope `project`:** check whether the root declares `bug-fix`:
 
 ```to-call

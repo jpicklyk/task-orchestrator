@@ -68,7 +68,7 @@ Global trends sit under the process-global `Retrospective Trends` container, a d
 
 **5d** `advance` `start` on the retrospective; completion is Step 8b.
 
-**5e** Route defects, no session threshold: each `defect` finding and `defects[]` entry becomes evidence on an open item, a regression item or a new `[bug]` observation tagged `retro-reported` (a project defect: a declared `bug-fix`); one an input observation records creates nothing. Procedure: [`references/routing.md`](references/routing.md). A qualifying product defect can also be filed upstream (opt-in): [`../_shared/github-feedback.md#bug-reports-product-defects`](../_shared/github-feedback.md#bug-reports-product-defects). An `agent-discipline` finding creates no item and no trend, only a `memory:` line (Step 9).
+**5e** Route defects, no session threshold: each `defect` finding and `defects[]` entry becomes evidence on an open item, a regression item or a new `[bug]` observation tagged `retro-reported` (a project defect: a declared `bug-fix`); one an input observation records creates nothing. Procedure: [`references/routing.md`](references/routing.md). When the user-level `bug_reports` gate is open, run the `bug-report` command for every qualifying product defect (a closed gate files nothing: say so in `actions-taken`): [`../_shared/github-feedback.md#bug-reports-product-defects`](../_shared/github-feedback.md#bug-reports-product-defects). An `agent-discipline` finding creates no item and no trend, only a `memory:` line (Step 9).
 
 ## Step 6 - Update Trends
 
