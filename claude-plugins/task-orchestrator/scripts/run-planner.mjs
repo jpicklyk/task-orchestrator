@@ -17,7 +17,7 @@
 // the 'layer-meters' member to its output.
 //
 // bug-report spawns gh. The env var TASK_ORCHESTRATOR_GH_SHIM, when non-empty, names a script node runs instead
-// (argv = the gh arguments); it exists for the retrospective evals (evals/retrospective/fake-gh.mjs) and one test.
+// (argv = the gh arguments); it exists for the retrospective evals (evals/retrospective/fake-gh.mjs) and the bug-report tests.
 
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { homedir, tmpdir, userInfo, hostname } from 'node:os';
@@ -30,7 +30,7 @@ import { loadWaveCore } from './lib/wave-core.mjs';
 import { checkServer } from '../hooks/lib/server-compat.mjs';
 import { apiBaseUrl, callOp, wellKnown } from '../hooks/lib/api-client.mjs';
 import { locateConfig, userHome, userConfigPath } from '../hooks/config-locator.mjs';
-import { runBugReport } from './lib/bug-report.mjs';
+import { runBugReport, readGate, fingerprintOf } from './lib/bug-report.mjs';
 import { resolveOrchestratorEntryKey } from '../hooks/lib/mcp-registrations.mjs';
 import { readSection, scalar } from '../hooks/yaml-lite.mjs';
 import { retroMetrics, parseBaselines, CONTRACT as RETRO_METRICS_CONTRACT } from './lib/retro-metrics.mjs';
@@ -466,8 +466,14 @@ async function gatherRetroItems(a, gaps) {
         note('session-tracking'),
         readRetro('items_read', { select: 'get', itemId: id }, gaps, 'items', ['not_found'])
       ]);
-      // items_read get answers the item itself in data (type at the top level).
-      return { id, type: item && typeof item.type === 'string' ? item.type : null, delegationMetadata, sessionTracking };
+      // items_read get answers the item itself in data (type and rootId at the top level).
+      return {
+        id,
+        type: item && typeof item.type === 'string' ? item.type : null,
+        rootId: item && typeof item.rootId === 'string' ? item.rootId : null,
+        delegationMetadata,
+        sessionTracking
+      };
     })
   );
 }
@@ -554,16 +560,22 @@ async function runRetroMetrics(args) {
 // ---------------------------------------------------------------------------------------
 // bug-report: opt-in GitHub bug reports for product defects (lib/bug-report.mjs holds the logic; this
 // handler supplies gh, the clock, the per-install state file and the versions).
-// bug-report (--in <file> | --root <id> [--run <id>]... [--item <id>]...) [--deny <name>]...
-// Exactly one of --in and --root; --root gathers the defects over REST as retro-metrics does.
+// bug-report (--in <file> | --root <id> [--run <id>]... [--item <id>]... --product <fingerprint>[:<observation>]...) [--deny <name>]...
+// Exactly one of --in and --root. --root gathers the defects over REST as retro-metrics does, and only the members whose
+// item rootId matches the --root value count. Nothing gathered is filed unless a --product flag names its fingerprint
+// (the agent's product-scope classification); every other gathered defect is skipped with reason 'not-product'.
 // The consent gate is read only from the user-level config (userConfigPath()); there is no --config.
 // Exit 0 with a 'run-wave/bug-report-v1' document; exit 2 only for bad arguments.
 // ---------------------------------------------------------------------------------------
+const PRODUCT_FP_RE = /^to-bug-[0-9a-f]{8}$/;
+const PRODUCT_OBS_RE = /^[0-9a-f]{8,}$/;
+const ROOT_ID_RE = /^[0-9a-f]{8}(?:-?[0-9a-f]+)*$/i;
+
 function parseBugReportArgs(args) {
-  const out = { in: null, root: null, runs: [], items: [], deny: [] };
+  const out = { in: null, root: null, runs: [], items: [], deny: [], product: new Map() };
   for (let i = 0; i < args.length; i += 1) {
     const a = args[i];
-    if (!['--in', '--root', '--run', '--item', '--deny'].includes(a)) throw new Error(`invalid args: unknown argument ${a}`);
+    if (!['--in', '--root', '--run', '--item', '--deny', '--product'].includes(a)) throw new Error(`invalid args: unknown argument ${a}`);
     const v = args[i + 1];
     if (v === undefined || v.startsWith('--')) throw new Error(`invalid args: ${a} needs a value`);
     i += 1;
@@ -573,25 +585,34 @@ function parseBugReportArgs(args) {
       if (!out.runs.includes(v)) out.runs.push(v);
     } else if (a === '--item') {
       if (!out.items.includes(v)) out.items.push(v);
+    } else if (a === '--product') {
+      const [fp, obs, ...extra] = v.split(':');
+      if (!PRODUCT_FP_RE.test(fp)) throw new Error(`invalid args: --product fingerprint must be to-bug- plus 8 hex characters (got ${fp})`);
+      if (extra.length > 0 || (obs !== undefined && !PRODUCT_OBS_RE.test(obs))) throw new Error('invalid args: --product observation must be 8 or more hex characters');
+      if (!out.product.has(fp) || obs !== undefined) out.product.set(fp, obs === undefined ? out.product.get(fp) || null : obs);
     } else out.deny.push(v);
   }
   if (out.in && out.root) throw new Error('invalid args: --in and --root are mutually exclusive');
   if (!out.in && !out.root) throw new Error('invalid args: --in <file> or --root <id> is required');
-  if (out.in && (out.runs.length > 0 || out.items.length > 0)) throw new Error('invalid args: --run and --item go with --root, not --in');
+  if (out.root && !ROOT_ID_RE.test(out.root)) throw new Error('invalid args: --root needs an item id (8 or more hex characters, or a UUID)');
+  if (out.in && (out.runs.length > 0 || out.items.length > 0 || out.product.size > 0)) throw new Error('invalid args: --run, --item and --product go with --root, not --in');
   return out;
 }
 
 // The --root input: the defects of the members' session-tracking notes, gathered and parsed exactly as
-// retro-metrics does (gatherRetroItems, then retroMetrics().defects). Each becomes a bug-report defect; the
-// code's own qualification (catalog op and error code, or the plugin's own file names) decides what is filed.
-// `observation` stays null: retro-metrics knows the carrying item, not the routed observation, so the agent maps
-// a result back to its observation by fingerprint.
-async function retroDefectsInput(a) {
-  const gaps = [];
-  const items = apiBaseUrl({ cwd: process.cwd() }) ? await gatherRetroItems(a, gaps) : [];
+// retro-metrics does (gatherRetroItems, then retroMetrics().defects), restricted to members of the --root project.
+// Returns null when no API URL resolves (a gap says so). Whether a defect is a product defect is the agent's call,
+// passed as --product, so a gathered defect carries scope 'unclassified' until runBugReportCmd marks the named ones.
+async function retroDefectsInput(a, gaps) {
+  if (!apiBaseUrl({ cwd: process.cwd() })) {
+    gaps.push({ section: 'api', reason: 'no_api_url' });
+    return null;
+  }
+  const root = a.root.toLowerCase().replace(/-/g, '');
+  const items = (await gatherRetroItems(a, gaps)).filter((it) => it.rootId !== null && it.rootId.toLowerCase().replace(/-/g, '').startsWith(root));
   return retroMetrics({ items }).defects.map((d) => ({
     kind: 'defect',
-    scope: 'product',
+    scope: 'unclassified',
     signal: d.component === 'server' ? 'tool-error' : 'script-failure',
     tool: d.tool,
     op: d.op,
@@ -630,9 +651,8 @@ function pluginToolNames() {
 
 async function runBugReportCmd(args) {
   const a = parseBugReportArgs(args);
-  let input;
-  if (a.root) input = { defects: await retroDefectsInput(a) };
-  else {
+  let input = { defects: [] };
+  if (a.in) {
     try {
       input = JSON.parse(readFileSync(a.in, 'utf8'));
     } catch (e) {
@@ -672,6 +692,28 @@ async function runBugReportCmd(args) {
     catalog = JSON.parse(readFileSync(resolve(HERE, '..', 'hooks', 'lib', 'tool-catalog.json'), 'utf8'));
   } catch {
     // no catalog: a server tool then fails qualification
+  }
+  // The gate is read before anything is gathered: a closed gate does no REST read and no gh call.
+  const gaps = [];
+  const rootInput = { state: null, notProduct: [] };
+  if (a.root && readGate(configText).open) {
+    const gathered = await retroDefectsInput(a, gaps);
+    if (gathered === null) rootInput.state = 'unavailable';
+    else {
+      const seen = new Set();
+      for (const d of gathered) {
+        const fp = fingerprintOf(d);
+        if (a.product.has(fp)) {
+          input.defects.push({ ...d, scope: 'product', observation: a.product.get(fp) });
+        } else if (!seen.has(fp)) {
+          seen.add(fp);
+          rootInput.notProduct.push({ fingerprint: fp, observation: null, action: 'skipped', url: null, reason: 'not-product', line: `bug-report ${fp}: skipped not-product` });
+        }
+      }
+      const gatheredFps = new Set(gathered.map((d) => fingerprintOf(d)));
+      for (const fp of a.product.keys()) if (!gatheredFps.has(fp)) gaps.push({ section: 'product', reason: 'not_gathered', fingerprint: fp });
+      rootInput.state = gaps.length > 0 ? 'partial' : 'complete';
+    }
   }
   const doc = await (async () => {
     const gateProbe = runBugReport({ defects: [], configText, deps: { gh: () => ({ status: 1 }), now: () => 0, readState: () => null, writeState: () => false, writeTemp: () => '', removeTemp: () => {} } });
@@ -717,6 +759,11 @@ async function runBugReportCmd(args) {
       }
     });
   })();
+  doc.gaps = gaps;
+  if (rootInput.state !== null) {
+    doc.input = rootInput.state;
+    doc.results.push(...rootInput.notProduct);
+  }
   emit(JSON.stringify(doc));
   process.exit(0);
 }

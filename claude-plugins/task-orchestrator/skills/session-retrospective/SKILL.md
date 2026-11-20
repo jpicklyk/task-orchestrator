@@ -69,7 +69,7 @@ Global trends sit under the process-global `Retrospective Trends` container, a d
 
 **5d** `advance` `start` on the retrospective; completion is Step 8b.
 
-**5e** Route defects, no session threshold: each `defect` finding and `defects[]` entry becomes evidence on an open item, a regression item or a new `[bug]` observation tagged `retro-reported` (a project defect: a declared `bug-fix`); one an input observation records creates nothing. Procedure: [`references/routing.md`](references/routing.md). ALWAYS run `node "<helper>" bug-report --root <root> --run <run>...` once per retrospective, gate open or closed, with or without defects: the command reads the gate and the qualification itself and prints `gate: disabled` when the gate is closed; never check the gate yourself, never skip the step: [`../_shared/github-feedback.md#bug-reports-product-defects`](../_shared/github-feedback.md#bug-reports-product-defects). An `agent-discipline` finding creates no item and no trend, only a `memory:` line (Step 9).
+**5e** Route defects, no session threshold: each `defect` finding and `defects[]` entry becomes evidence on an open item, a regression item or a new `[bug]` observation tagged `retro-reported` (a project defect: a declared `bug-fix`); one an input observation records creates nothing. Procedure: [`references/routing.md`](references/routing.md). ALWAYS run `node "<helper>" bug-report --root <root> --run <run>...` once per retrospective, gate open or closed, with or without defects, plus one `--product <fingerprint>:<observation>` per product defect routed here (none: nothing filed); the command reads the gate itself and answers `gate: disabled` when closed; never check the gate or skip the step: [`../_shared/github-feedback.md#bug-reports-product-defects`](../_shared/github-feedback.md#bug-reports-product-defects). An `agent-discipline` finding creates no item and no trend, only a `memory:` line (Step 9).
 
 ## Step 6 - Update Trends
 
@@ -123,7 +123,7 @@ Then update the source trend: `effective` `cancel`s it (`summary: "archived: ver
 node "<helper>" retro-metrics --root <rootId> --run <runId> --session-dir "<dir>" --self-only
 ```
 
-Upsert the work note `actions-taken`: proposals (title, short id), bug items (short id, `created` or `evidence`), memory lines, the `bug-report` document's result `line`s or its `gate: disabled` line (the closure is not complete without it), each global proposal's GitHub outcome (`filed <url>`, `linked existing <url>`, `github filing skipped: <reason>`), each project proposal's anchor, trends created, updated or retired, adopted proposals verified. Then the gate loop:
+Upsert the work note `actions-taken`: proposals (title, short id), bug items (short id, `created` or `evidence`), memory lines, the `bug-report` result `line`s, else its `gate` value (not complete without it), each global proposal's GitHub outcome (`filed <url>`, `linked existing <url>`, `github filing skipped: <reason>`), each project proposal's anchor, trends created, updated or retired, adopted proposals verified. Then the gate loop:
 
 ```to-call
 {"tool": "items_read", "select": "context", "args": {"itemId": "<retro-uuid>"}}

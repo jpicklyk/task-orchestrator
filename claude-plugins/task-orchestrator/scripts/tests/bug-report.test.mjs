@@ -1412,7 +1412,9 @@ async function startCounter(handler = null) {
       req.on('end', () => {
         let body = {}
         try { body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') } catch { body = {} }
-        res.end(JSON.stringify({ ok: true, data: handler(m[1], body), meta: { reqId: 'x' } }))
+        const out = handler(m[1], body)
+        // A handler answering {__error: <code>} makes the op fail with that error code.
+        res.end(JSON.stringify(out && out.__error ? { ok: false, error: { code: out.__error, kind: 'permanent', message: 'x' }, meta: { reqId: 'x' } } : { ok: true, data: out, meta: { reqId: 'x' } }))
       })
       return
     }
@@ -1522,11 +1524,13 @@ test('S23 a user config with the key twice stays closed', async () => {
 test('S23 --config is not an argument: exit 2 and no request', async () => {
   const r = await cli({ user: cfg({ bug: 'true' }), args: ['--in', '<IN>', '--config', 'whatever.yaml'] })
   assert.equal(r.status, 2, r.stderr)
+  assert.match(r.stderr, /unknown argument --config/)
   assert.equal(r.requests, 0)
 })
 test('S23 a missing --in is a bad argument: exit 2', async () => {
   const r = await cli({ user: cfg({ bug: 'true' }), args: [] })
   assert.equal(r.status, 2, r.stderr)
+  assert.match(r.stderr, /--in <file> or --root <id> is required/)
   assert.equal(r.requests, 0)
 })
 
@@ -1555,49 +1559,142 @@ test('S24 the gh shim seam: the CLI files one issue through fake-gh with no --la
 // Oracle: user ruling 2026-11-19 (read from retro-metrics) and fix cycle A2 item (1): bug-report takes --root <id>
 // with --run <id>... / --item <id>... and gathers the defects of the members' session-tracking notes over REST as
 // retro-metrics does (no input file); exactly one of --in and --root, else exit 2.
+// Fix cycle A4 rulings: B2 only a gathered defect named by --product <fingerprint>[:<observation>] is a candidate (scope
+// product, observation from the flag); every other gathered defect is skipped with reason not-product; no --product
+// files nothing; a malformed --product exits 2 with a reason. B1 gaps and a missing API URL are visible (gaps, and
+// input 'unavailable'). O1 the gate is read first: a closed gate does no REST read. O15 --root is the project root's
+// item id: only members whose item rootId matches count.
 // SAFETY: PATH is the empty directory; the shim is the only gh; the REST server is a loopback fake.
 const ROOT_ID = 'ce064d2c-7c03-4eac-ae7d-89a14c2ba273'
 const RUN_ID = 'r-202611200000-aaaaaaaa'
 const MEMBER = 'aaaaaaaa-1111-4111-8111-111111111111'
+const OBS = 'bbbbbbbb'
 const TRACKING = 'Outcome: done. defect: retro-trigger.mjs, hook, exit:1, the hook stopped; Friction: none'
+const TRACKED_FP = defectFingerprint({ component: 'plugin', tool: 'retro-trigger.mjs', op: 'hook', code: 'exit:1', message: 'the hook stopped' })
 function restHandler(tool, body) {
   if (tool === 'runs_read' && body.select === 'seats') return { seats: [{ itemId: MEMBER }] }
   if (tool === 'runs_read') return {}
   if (tool === 'notes_read') return body.key === 'session-tracking' ? { body: TRACKING } : { body: null }
-  if (tool === 'items_read') return { id: MEMBER, type: 'feature-task' }
+  if (tool === 'items_read') return { id: MEMBER, type: 'feature-task', rootId: ROOT_ID }
   return {}
 }
 const shimEnv = (sbx) => ({ TASK_ORCHESTRATOR_GH_SHIM: join(PLUGIN, 'evals', 'retrospective', 'fake-gh.mjs'), FAKE_GH_DIR: join(sbx.base, 'ghlog') })
+const rootArgs = (...more) => ['--root', ROOT_ID, '--run', RUN_ID, ...more]
+const creates = (r) => r.ghCalls.filter((c) => c.argv[0] === 'issue' && c.argv[1] === 'create')
 
-test('S25 --root and --run gather the defect over REST and file it through the shim with no input file', async () => {
-  const r = await cli({ user: cfg({ bug: 'true' }), args: ['--root', ROOT_ID, '--run', RUN_ID], handler: restHandler, extraEnv: shimEnv })
+test('S25 --root with --product gathers the named defect over REST and files it through the shim with no input file', async () => {
+  const r = await cli({ user: cfg({ bug: 'true' }), args: rootArgs('--product', `${TRACKED_FP}:${OBS}`), handler: restHandler, extraEnv: shimEnv })
+  assert.equal(r.status, 0, r.stderr)
+  assert.equal(r.json.gate, 'ran')
+  assert.equal(r.json.input, 'complete')
+  assert.deepEqual(r.json.gaps, [])
+  assert.equal(r.json.results.length, 1)
+  assert.equal(r.json.results[0].action, 'filed')
+  assert.equal(r.json.results[0].fingerprint, TRACKED_FP)
+  assert.equal(r.json.results[0].observation, OBS)
+  assert.equal(creates(r).length, 1)
+})
+test('S25 --product without an observation files the defect with a null observation', async () => {
+  const r = await cli({ user: cfg({ bug: 'true' }), args: ['--root', ROOT_ID, '--item', MEMBER, '--product', TRACKED_FP], handler: restHandler, extraEnv: shimEnv })
+  assert.equal(r.status, 0, r.stderr)
+  assert.equal(r.json.results.length, 1)
+  assert.equal(r.json.results[0].action, 'filed')
+  assert.equal(r.json.results[0].observation, null)
+})
+test('S25 --root without --product files nothing: the gathered defect is skipped not-product', async () => {
+  const r = await cli({ user: cfg({ bug: 'true' }), args: rootArgs(), handler: restHandler, extraEnv: shimEnv })
   assert.equal(r.status, 0, r.stderr)
   assert.equal(r.json.gate, 'ran')
   assert.equal(r.json.results.length, 1)
-  assert.equal(r.json.results[0].action, 'filed')
-  assert.equal(r.json.results[0].fingerprint, defectFingerprint({ component: 'plugin', tool: 'retro-trigger.mjs', op: 'hook', code: 'exit:1', message: 'the hook stopped' }))
-  assert.equal(r.ghCalls.filter((c) => c.argv[0] === 'issue' && c.argv[1] === 'create').length, 1)
+  assert.equal(r.json.results[0].fingerprint, TRACKED_FP)
+  assert.equal(r.json.results[0].action, 'skipped')
+  assert.equal(r.json.results[0].reason, 'not-product')
+  assert.equal(creates(r).length, 0)
 })
-test('S25 --item alone with --root gathers the same defect', async () => {
-  const r = await cli({ user: cfg({ bug: 'true' }), args: ['--root', ROOT_ID, '--item', MEMBER], handler: restHandler, extraEnv: shimEnv })
+test('S25 a --product naming another fingerprint leaves the gathered defect skipped not-product and reports the missing one as a gap', async () => {
+  const other = 'to-bug-0badc0de'
+  const r = await cli({ user: cfg({ bug: 'true' }), args: rootArgs('--product', other), handler: restHandler, extraEnv: shimEnv })
   assert.equal(r.status, 0, r.stderr)
-  assert.equal(r.json.results.length, 1)
-  assert.equal(r.json.results[0].action, 'filed')
+  assert.equal(creates(r).length, 0)
+  assert.deepEqual(r.json.results.map((x) => [x.fingerprint, x.action, x.reason]), [[TRACKED_FP, 'skipped', 'not-product']])
+  assert.deepEqual(r.json.gaps, [{ section: 'product', reason: 'not_gathered', fingerprint: other }])
+  assert.equal(r.json.input, 'partial')
 })
 test('S25 --root with members that carry no defect files nothing', async () => {
   const none = (tool, body) => (tool === 'notes_read' && body.key === 'session-tracking' ? { body: 'Outcome: done.' } : restHandler(tool, body))
-  const r = await cli({ user: cfg({ bug: 'true' }), args: ['--root', ROOT_ID, '--run', RUN_ID], handler: none, extraEnv: shimEnv })
+  const r = await cli({ user: cfg({ bug: 'true' }), args: rootArgs('--product', TRACKED_FP), handler: none, extraEnv: shimEnv })
   assert.equal(r.status, 0, r.stderr)
   assert.equal(r.json.results.length, 0)
-  assert.equal(r.ghCalls.filter((c) => c.argv[0] === 'issue' && c.argv[1] === 'create').length, 0)
+  assert.equal(creates(r).length, 0)
+})
+test('S25 a member of another root is not gathered', async () => {
+  const foreign = (tool, body) => (tool === 'items_read' ? { id: MEMBER, type: 'feature-task', rootId: '11111111-2222-4333-8444-555555555555' } : restHandler(tool, body))
+  const r = await cli({ user: cfg({ bug: 'true' }), args: rootArgs('--product', TRACKED_FP), handler: foreign, extraEnv: shimEnv })
+  assert.equal(r.status, 0, r.stderr)
+  assert.equal(creates(r).length, 0)
+  assert.deepEqual(r.json.results, [])
+})
+test('S25 a failing REST read is a gap and the input is partial', async () => {
+  const failing = (tool, body) => (tool === 'runs_read' ? { __error: 'internal' } : restHandler(tool, body))
+  const r = await cli({ user: cfg({ bug: 'true' }), args: ['--root', ROOT_ID, '--run', RUN_ID, '--item', MEMBER, '--product', TRACKED_FP], handler: failing, extraEnv: shimEnv })
+  assert.equal(r.status, 0, r.stderr)
+  assert.equal(r.json.gate, 'ran')
+  assert.equal(r.json.input, 'partial')
+  assert.ok(r.json.gaps.length > 0)
+  assert.ok(r.json.gaps.every((g) => typeof g.section === 'string' && g.reason === 'internal'), JSON.stringify(r.json.gaps))
+})
+test('S25 no API URL: gate ran, input unavailable with the gap, nothing filed, exit 0', async () => {
+  const r = await cli({ user: cfg({ bug: 'true' }), args: rootArgs('--product', TRACKED_FP), extraEnv: (sbx) => ({ ...shimEnv(sbx), TASK_ORCHESTRATOR_API_URL: '' }) })
+  assert.equal(r.status, 0, r.stderr)
+  assert.equal(r.json.gate, 'ran')
+  assert.equal(r.json.input, 'unavailable')
+  assert.deepEqual(r.json.gaps, [{ section: 'api', reason: 'no_api_url' }])
+  assert.deepEqual(r.json.results, [])
+  assert.equal(r.requests, 0)
+  assert.equal(creates(r).length, 0)
+})
+test('S25 --root with the gate closed reads nothing: no request, no gh call, gate disabled', async () => {
+  const r = await cli({ user: cfg({ bug: 'false' }), args: rootArgs('--product', TRACKED_FP), handler: restHandler, extraEnv: shimEnv })
+  assert.equal(r.status, 0, r.stderr)
+  assert.equal(r.json.gate, 'disabled')
+  assert.deepEqual(r.json.results, [])
+  assert.deepEqual(r.json.gaps, [])
+  assert.equal(r.json.input, undefined)
+  assert.equal(r.requests, 0)
+  assert.equal(r.ghCalls.length, 0)
 })
 test('S25 --in and --root together exit 2', async () => {
   const r = await cli({ user: cfg({ bug: 'true' }), args: ['--in', '<IN>', '--root', ROOT_ID] })
   assert.equal(r.status, 2, r.stderr)
+  assert.match(r.stderr, /--in and --root are mutually exclusive/)
   assert.equal(r.requests, 0)
 })
 test('S25 neither --in nor --root exits 2, and --run alone is not enough', async () => {
   const r = await cli({ user: cfg({ bug: 'true' }), args: ['--run', RUN_ID] })
   assert.equal(r.status, 2, r.stderr)
+  assert.match(r.stderr, /--in <file> or --root <id> is required/)
+  assert.equal(r.requests, 0)
+})
+test('S25 a malformed --product exits 2 with a reason: fingerprint, observation, and --product with --in', async () => {
+  const cases = [
+    [rootArgs('--product', 'to-bug-xyz'), /--product fingerprint must be to-bug- plus 8 hex/],
+    [rootArgs('--product', 'abcdef12'), /--product fingerprint must be to-bug- plus 8 hex/],
+    [rootArgs('--product', `${TRACKED_FP}:short`), /--product observation must be 8 or more hex/],
+    [rootArgs('--product', `${TRACKED_FP}:zzzzzzzzzz`), /--product observation must be 8 or more hex/],
+    [rootArgs('--product', `${TRACKED_FP}:${OBS}:more`), /--product observation must be 8 or more hex/],
+    [rootArgs('--product'), /--product needs a value/],
+    [['--in', '<IN>', '--product', TRACKED_FP], /go with --root, not --in/],
+  ]
+  for (const [args, reason] of cases) {
+    const r = await cli({ user: cfg({ bug: 'true' }), args })
+    assert.equal(r.status, 2, `${args.join(' ')}: ${r.stderr}`)
+    assert.match(r.stderr, reason)
+    assert.equal(r.requests, 0)
+  }
+})
+test('S25 a --root value that is not an item id exits 2 with a reason', async () => {
+  const r = await cli({ user: cfg({ bug: 'true' }), args: ['--root', 'not-an-id', '--run', RUN_ID] })
+  assert.equal(r.status, 2, r.stderr)
+  assert.match(r.stderr, /--root needs an item id/)
   assert.equal(r.requests, 0)
 })
