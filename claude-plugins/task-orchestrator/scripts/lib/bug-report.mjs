@@ -1,4 +1,4 @@
-// bug-report.mjs - opt-in automatic GitHub bug reports for product defects found by a retrospective.
+// bug-report.mjs - maintainer-only automatic GitHub bug reports for product defects found by a retrospective.
 // Output contract 'run-wave/bug-report-v1'. All effects (gh, state file, clock, temp files) are
 // injected through `deps`; run-planner.mjs's `bug-report` subcommand supplies the real ones. This
 // module never reads the filesystem, the network, the clock or the environment itself.
@@ -9,7 +9,6 @@
 // and is recorded as create-unconfirmed in the state, so the next run's search finds the issue or files it.
 
 import { defectFingerprint, defectComponent } from './retro-metrics.mjs';
-import { readSection, childBlock } from '../../hooks/yaml-lite.mjs';
 
 export const CONTRACT = 'run-wave/bug-report-v1';
 export const DEFAULT_REPO = 'jpicklyk/task-orchestrator';
@@ -21,8 +20,6 @@ const SIGNALS = ['tool-error', 'hook-failure', 'script-failure', 'shape-mismatch
 const ENV_CODES = ['network', 'unauthenticated', 'timeout', 'no_api', 'econnrefused', 'enotfound', 'etimedout', 'eai_again'];
 const FOOTER = 'Reported automatically by task-orchestrator session-retrospective';
 const PLUGIN_TOOL_RE = /^[a-z0-9][a-z0-9-]*\.mjs$/;
-const OP_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
-const CODE_RE = /^(exit:\d{1,3}|[A-Za-z][A-Za-z0-9_]{0,63})$/;
 const KEY_RE = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
 const URL_RE = /^https:\/\/github\.com\/.+\/issues\/\d+$/;
 
@@ -31,32 +28,15 @@ const str = (v) => (typeof v === 'string' ? v : '');
 const nonEmpty = (v) => typeof v === 'string' && v.trim() !== '';
 
 // ---------------------------------------------------------------------------------------------
-// Config gate
-
-function githubFeedbackLines(configText) {
-  const ext = readSection(String(configText || ''), 'extensions', { blockOnly: true });
-  if (!ext) return null;
-  let node = ext;
-  for (const key of ['claude-code', 'retrospective', 'github_feedback']) {
-    node = childBlock(node.lines, key);
-    if (!node) return null;
-  }
-  return node.lines;
-}
+// Gate
 
 /**
- * readGate(configText) -> {open, repo}. open only when the block's first level holds exactly one
- * `bug_reports` line and it is the unquoted scalar `true`; independent of `enabled`. repo is always
- * DEFAULT_REPO: a config value never redirects a bug report.
+ * readGate(value) -> {open, repo}. open only when value is exactly the string '1' (no trim, no other
+ * spelling). The caller reads the environment once and passes the value in; no config is read. repo is
+ * always DEFAULT_REPO: nothing redirects a bug report.
  */
-export function readGate(configText) {
-  const lines = githubFeedbackLines(configText);
-  if (!lines) return { open: false, repo: DEFAULT_REPO };
-  const content = lines.filter((l) => l.trim() !== '' && !l.trim().startsWith('#'));
-  const level = Math.min(...content.map((l) => l.length - l.trimStart().length));
-  const atLevel = content.filter((l) => l.length - l.trimStart().length === level && /^bug_reports\s*:/.test(l.trim()));
-  const open = atLevel.length === 1 && /^bug_reports\s*:\s*true\s*(#.*)?$/.test(atLevel[0].trim().replace(/\r$/, ''));
-  return { open, repo: DEFAULT_REPO };
+export function readGate(value) {
+  return { open: value === '1', repo: DEFAULT_REPO };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -69,14 +49,14 @@ function catalogEntry(catalog, tool, op) {
 }
 
 /**
- * qualifies(defect, catalog, pluginTools) -> null when it qualifies, else the first failing field name.
- * Signature change: the third parameter pluginTools is new. A server tool needs its op among the catalog's
- * entries and its code among that entry's `errors` list (catalog absent: fails op). A plugin tool must be one
- * of pluginTools, the plugin's own hook and script file names that the CLI lists and injects (absent or empty:
- * fails tool), and also match PLUGIN_TOOL_RE; its op and code must match fixed identifier patterns. So a
- * posted tool, op and code is a catalog name, a shipped file name or a short identifier, never a path or URL.
+ * qualifies(defect, catalog, vocabulary) -> null when it qualifies, else the first failing field name.
+ * A server tool needs its op among the catalog's entries and its code among that entry's `errors` list
+ * (catalog absent: fails op). A plugin tool must match PLUGIN_TOOL_RE and be an own key of
+ * vocabulary.tools (the plugin's closed list, bug-report-vocabulary.json); its op must be in that entry's
+ * `ops` and its code in its `codes`. Vocabulary absent, null or empty: fails tool. So every posted tool,
+ * op and code is a catalog name or a string that exists in the public plugin, never free text.
  */
-export function qualifies(d, catalog, pluginTools) {
+export function qualifies(d, catalog, vocabulary) {
   if (!isObj(d)) return 'kind';
   if (d.kind !== 'defect') return 'kind';
   if (d.scope !== 'product') return 'scope';
@@ -89,9 +69,11 @@ export function qualifies(d, catalog, pluginTools) {
     if (!Array.isArray(entry.errors) || !entry.errors.includes(d.code)) return 'code';
     return null;
   }
-  if (!PLUGIN_TOOL_RE.test(d.tool) || !Array.isArray(pluginTools) || !pluginTools.includes(d.tool)) return 'tool';
-  if (!OP_RE.test(d.op)) return 'op';
-  if (!CODE_RE.test(d.code)) return 'code';
+  const tools = isObj(vocabulary) && isObj(vocabulary.tools) ? vocabulary.tools : null;
+  const entry = tools && PLUGIN_TOOL_RE.test(d.tool) && Object.prototype.hasOwnProperty.call(tools, d.tool) && isObj(tools[d.tool]) ? tools[d.tool] : null;
+  if (!entry) return 'tool';
+  if (!Array.isArray(entry.ops) || !entry.ops.includes(d.op)) return 'op';
+  if (!Array.isArray(entry.codes) || !entry.codes.includes(d.code)) return 'code';
   return null;
 }
 
@@ -252,9 +234,9 @@ function pickHit(list, fp) {
 }
 
 /**
- * runBugReport({defects, configText, denyNames, versions, catalog, pluginTools, deps}) -> the
- * 'run-wave/bug-report-v1' document. Signature change: pluginTools is new, the plugin's own hook and script
- * file names (null or empty: no plugin defect qualifies); see qualifies.
+ * runBugReport({defects, gateEnv, denyNames, versions, catalog, vocabulary, deps}) -> the
+ * 'run-wave/bug-report-v1' document. gateEnv is the raw value of the gate environment variable (see
+ * readGate); vocabulary is the plugin's closed list (null: no plugin defect qualifies); see qualifies.
  * deps: {gh(args)->{status, stdout}, now()->ms, readState()->object|null, writeState(obj)->bool,
  *        writeTemp(text)->path, removeTemp(path)}
  * State: {seen: {<fingerprint>: {at, url}}}. A create that fails, times out or returns no issue URL is attempted
@@ -262,8 +244,8 @@ function pickHit(list, fp) {
  * {at, url: null, status: 'create-unconfirmed'}, so the next run's fingerprint search finds the issue or files it.
  * A create that never reached gh (writeTemp threw) leaves no entry.
  */
-export function runBugReport({ defects, configText, denyNames = [], versions = {}, catalog = null, pluginTools = null, deps }) {
-  const gate = readGate(configText);
+export function runBugReport({ defects, gateEnv, denyNames = [], versions = {}, catalog = null, vocabulary = null, deps }) {
+  const gate = readGate(gateEnv);
   const doc = { contract: CONTRACT, gate: 'disabled', repo: gate.repo, results: [] };
   if (!gate.open) return doc;
   const gh = (args) => {
@@ -323,7 +305,7 @@ export function runBugReport({ defects, configText, denyNames = [], versions = {
   try {
     for (const d of Array.isArray(defects) ? defects : []) {
       const fp = isObj(d) ? fingerprintOf(d) : fingerprintOf({});
-      const bad = qualifies(d, catalog, pluginTools);
+      const bad = qualifies(d, catalog, vocabulary);
       if (bad) {
         push(fp, d, 'skipped', null, `not-qualifying:${bad}`);
         continue;

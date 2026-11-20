@@ -219,7 +219,7 @@ One match: reuse it. Several: ask which. None (use `$ARGUMENTS` for the title wh
 
 ### U3 - Write, validate and push the user-level config
 
-Write the `project:` block (same surgical rule as P4) into `userConfigPath()`, run the Bug-report consent below against it, then validate and push it exactly as in P5.
+Write the `project:` block (same surgical rule as P4) into `userConfigPath()`, then validate and push it exactly as in P5.
 
 ### U3b - Orchestration scope for the personal root
 
@@ -266,36 +266,6 @@ Write the key before the validate-and-push of U3 so one push covers it; when U3 
 5. If `TASK_ORCHESTRATOR_API_URL` is set in the environment, note that the environment value wins over the file.
 
 Then run Rule seeding.
-
----
-
-## Bug-report consent (--user mode)
-
-Asked only in `--user` mode, in U3, against `userConfigPath()`; project mode never asks, and a `bug_reports` key in a project config is never read. Ask only when `userConfigPath()` has no `extensions.claude-code.retrospective.github_feedback.bug_reports` key; a present key, true or false, is kept and not asked again. One question:
-
-```
-AskUserQuestion(questions: [{
-  question: "Let the session retrospective file GitHub bug reports for Task Orchestrator product defects it finds? Reports are public issues on github.com/jpicklyk/task-orchestrator, filed under your own gh account. A report holds only the component, the tool, op and error code (names from the tool catalog, or for a plugin script its own file name and a short identifier), the plugin and server versions, the call shape (type names of the top-level catalog fields only) and a fingerprint; no message, note text, title, id, path, URL or other free text is sent. Off by default.",
-  header: "Bug reports",
-  multiSelect: false,
-  options: [
-    { label: "No (default)", description: "Write bug_reports false. No bug reports are filed; proposal issues still follow github_feedback.enabled." },
-    { label: "Yes, file bug reports", description: "Write bug_reports true. Needs gh installed and authenticated; qualifying product defects are filed or commented on, within per-run caps." }
-  ]
-}])
-```
-
-The repo is always `jpicklyk/task-orchestrator`. Write the answer in block form under `extensions:`, `claude-code:`, `retrospective:` and `github_feedback:`, surgically (preserve all other content byte for byte; add only the missing levels, and the key beside an existing `enabled` or `repo`):
-
-```yaml
-extensions:
-  claude-code:
-    retrospective:
-      github_feedback:
-        bug_reports: false   # or true
-```
-
-Write it before the validate-and-push of U3, so one push covers it.
 
 ---
 

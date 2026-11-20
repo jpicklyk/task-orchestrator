@@ -1,0 +1,472 @@
+{
+  "tools": {
+    "config-sync.mjs": {
+      "ops": [
+        "SessionStart",
+        "FileChanged"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "coordinator-tiers.mjs": {
+      "ops": [
+        "run"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "exit:2",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "decision-guard.mjs": {
+      "ops": [
+        "PreToolUse"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "director-context.mjs": {
+      "ops": [
+        "SessionStart"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "director-guard.mjs": {
+      "ops": [
+        "PreToolUse"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "director-watch.mjs": {
+      "ops": [
+        "PostToolUse"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "dispatch-hint.mjs": {
+      "ops": [
+        "PostToolUse"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "dispatch-model-guard.mjs": {
+      "ops": [
+        "PreToolUse"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "gen-call-shapes.mjs": {
+      "ops": [
+        "run"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "exit:2",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "gen-code-mode-prelude.mjs": {
+      "ops": [
+        "run"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "exit:2",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "orchestration-context.mjs": {
+      "ops": [
+        "SessionStart"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "phase-guard-record.mjs": {
+      "ops": [
+        "PostToolUse"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "phase-guard.mjs": {
+      "ops": [
+        "SubagentStop"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "plan-capture.mjs": {
+      "ops": [
+        "PostToolUse"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "post-plan.mjs": {
+      "ops": [
+        "PostToolUse"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "pre-plan.mjs": {
+      "ops": [
+        "PreToolUse"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "ralph-loop.mjs": {
+      "ops": [
+        "run"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "exit:2",
+        "exit:64",
+        "exit:70",
+        "exit:130",
+        "exit:143",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "render-ralph-prompts.mjs": {
+      "ops": [
+        "run"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "resolve-changelog.mjs": {
+      "ops": [
+        "run"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "exit:2",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "retro-ack.mjs": {
+      "ops": [
+        "run"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "retro-backstop.mjs": {
+      "ops": [
+        "Stop"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "retro-subagent-stop.mjs": {
+      "ops": [
+        "SubagentStop"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "retro-trigger.mjs": {
+      "ops": [
+        "PostToolUse"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "run-planner.mjs": {
+      "ops": [
+        "probe",
+        "plan",
+        "explain",
+        "validate",
+        "bind-run",
+        "retro-metrics",
+        "bug-report",
+        "next",
+        "prompt",
+        "stage-result",
+        "scan-declarations",
+        "verify",
+        "notes-audit",
+        "dispatch-meta",
+        "provenance",
+        "session-meters",
+        "review-prompt",
+        "reseat",
+        "run-ops",
+        "follow-ups",
+        "report",
+        "review-args",
+        "post-run-steps"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "exit:2",
+        "exit:3",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "seat-skill-gate.mjs": {
+      "ops": [
+        "PreToolUse"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "seat-skill-hint.mjs": {
+      "ops": [
+        "PostToolUse"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "session-start.mjs": {
+      "ops": [
+        "SessionStart"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "skill-enforcement.mjs": {
+      "ops": [
+        "PreToolUse"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "skill-record.mjs": {
+      "ops": [
+        "PostToolUse"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "subagent-start.mjs": {
+      "ops": [
+        "SubagentStart"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "tier-policy.mjs": {
+      "ops": [
+        "run"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    }
+  }
+}

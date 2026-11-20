@@ -29,7 +29,7 @@ import * as exec from './run-exec-lib.mjs';
 import { loadWaveCore } from './lib/wave-core.mjs';
 import { checkServer } from '../hooks/lib/server-compat.mjs';
 import { apiBaseUrl, callOp, wellKnown } from '../hooks/lib/api-client.mjs';
-import { locateConfig, userHome, userConfigPath } from '../hooks/config-locator.mjs';
+import { locateConfig, userHome } from '../hooks/config-locator.mjs';
 import { runBugReport, readGate, fingerprintOf } from './lib/bug-report.mjs';
 import { resolveOrchestratorEntryKey } from '../hooks/lib/mcp-registrations.mjs';
 import { readSection, scalar } from '../hooks/yaml-lite.mjs';
@@ -558,13 +558,13 @@ async function runRetroMetrics(args) {
 }
 
 // ---------------------------------------------------------------------------------------
-// bug-report: opt-in GitHub bug reports for product defects (lib/bug-report.mjs holds the logic; this
+// bug-report: maintainer-only GitHub bug reports for product defects (lib/bug-report.mjs holds the logic; this
 // handler supplies gh, the clock, the per-install state file and the versions).
 // bug-report (--in <file> | --root <id> [--run <id>]... [--item <id>]... --product <fingerprint>[:<observation>]...) [--deny <name>]...
 // Exactly one of --in and --root. --root gathers the defects over REST as retro-metrics does, and only the members whose
 // item rootId matches the --root value count. Nothing gathered is filed unless a --product flag names its fingerprint
 // (the agent's product-scope classification); every other gathered defect is skipped with reason 'not-product'.
-// The consent gate is read only from the user-level config (userConfigPath()); there is no --config.
+// The gate is one environment variable, read once in runBugReportCmd; no config opens it and there is no --config.
 // Exit 0 with a 'run-wave/bug-report-v1' document; exit 2 only for bad arguments.
 // ---------------------------------------------------------------------------------------
 const PRODUCT_FP_RE = /^to-bug-[0-9a-f]{8}$/;
@@ -609,7 +609,10 @@ async function retroDefectsInput(a, gaps) {
     return null;
   }
   const root = a.root.toLowerCase().replace(/-/g, '');
+  const before = gaps.length;
   const items = (await gatherRetroItems(a, gaps)).filter((it) => it.rootId !== null && it.rootId.toLowerCase().replace(/-/g, '').startsWith(root));
+  // A --root matching no member would read as a clean complete input; say so (a failed read already has its own gap).
+  if (items.length === 0 && gaps.length === before) gaps.push({ section: 'root', reason: 'no_member' });
   return retroMetrics({ items }).defects.map((d) => ({
     kind: 'defect',
     scope: 'unclassified',
@@ -621,32 +624,6 @@ async function retroDefectsInput(a, gaps) {
     quote: d.message,
     observation: null
   }));
-}
-
-// The plugin's own hook and script file names (.mjs under hooks/ and scripts/, test directories excluded):
-// the only plugin tools a bug report may name. Listed here and injected, as the catalog is; the library
-// reads no filesystem.
-function pluginToolNames() {
-  const root = resolve(HERE, '..');
-  const names = new Set();
-  const walk = (dir, depth) => {
-    let entries;
-    try {
-      entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const e of entries) {
-      if (e.isDirectory()) {
-        if (depth < 3 && e.name !== 'tests' && e.name !== 'node_modules') walk(join(dir, e.name), depth + 1);
-      } else if (e.isFile() && e.name.endsWith('.mjs')) {
-        names.add(e.name);
-      }
-    }
-  };
-  walk(join(root, 'hooks'), 0);
-  walk(join(root, 'scripts'), 0);
-  return [...names].sort();
 }
 
 async function runBugReportCmd(args) {
@@ -661,9 +638,10 @@ async function runBugReportCmd(args) {
     if (!input || typeof input !== 'object' || !Array.isArray(input.defects)) throw new Error('invalid args: input needs a defects array');
   }
   const cwd = process.cwd();
-  // Consent is a user-level setting: a project config never opens the gate. The project config is
-  // read only for its project.name, which joins the deny names.
-  const configText = safeRead(userConfigPath());
+  // Maintainer-only gate (internal, for dogfooding; never document it for users): the bug-report gate opens
+  // only when TASK_ORCHESTRATOR_BUG_REPORTS is exactly the string 1. Read once here; no config key opens it.
+  // The project config is read only for its project.name, which joins the deny names.
+  const gateEnv = process.env.TASK_ORCHESTRATOR_BUG_REPORTS;
   const located = locateConfig({ cwd });
   const projectText = located && typeof located.text === 'string' ? located.text : '';
   const statePath = join(userHome(), '.taskorchestrator', 'github-feedback-state.json');
@@ -693,10 +671,16 @@ async function runBugReportCmd(args) {
   } catch {
     // no catalog: a server tool then fails qualification
   }
+  let vocabulary = null;
+  try {
+    vocabulary = JSON.parse(readFileSync(resolve(HERE, 'lib', 'bug-report-vocabulary.json'), 'utf8'));
+  } catch {
+    // no vocabulary: a plugin tool then fails qualification
+  }
   // The gate is read before anything is gathered: a closed gate does no REST read and no gh call.
   const gaps = [];
   const rootInput = { state: null, notProduct: [] };
-  if (a.root && readGate(configText).open) {
+  if (a.root && readGate(gateEnv).open) {
     const gathered = await retroDefectsInput(a, gaps);
     if (gathered === null) rootInput.state = 'unavailable';
     else {
@@ -716,18 +700,18 @@ async function runBugReportCmd(args) {
     }
   }
   const doc = await (async () => {
-    const gateProbe = runBugReport({ defects: [], configText, deps: { gh: () => ({ status: 1 }), now: () => 0, readState: () => null, writeState: () => false, writeTemp: () => '', removeTemp: () => {} } });
+    const gateProbe = runBugReport({ defects: [], gateEnv, deps: { gh: () => ({ status: 1 }), now: () => 0, readState: () => null, writeState: () => false, writeTemp: () => '', removeTemp: () => {} } });
     if (gateProbe.gate === 'disabled') return gateProbe;
     const base = apiBaseUrl({ cwd });
     const wk = base ? await wellKnown({ baseUrl: base, timeoutMs: RETRO_TIMEOUT_MS }) : null;
     if (wk && typeof wk.version === 'string' && wk.version) versions.server = wk.version;
     return runBugReport({
       defects: input.defects,
-      configText,
+      gateEnv,
       denyNames,
       versions,
       catalog,
-      pluginTools: pluginToolNames(),
+      vocabulary,
       deps: {
         gh: (ghArgs) => {
           // TASK_ORCHESTRATOR_GH_SHIM (test seam, same power as PATH): a script node runs in place of gh, because a

@@ -778,7 +778,6 @@ extensions:
       github_feedback:
         enabled: true
         repo: jpicklyk/task-orchestrator
-        bug_reports: false
 ```
 
 | Key | Values | Default | Read by |
@@ -788,8 +787,7 @@ extensions:
 | `retrospective.minItems` | integer >= 0: terminal items that make a group worth a retrospective (`dispatchThreshold` is the older name, read when `minItems` is absent) | `3` | the retrospective hooks |
 | `retrospective.boundary` | `scope`, `run` | `scope` | the retrospective hooks |
 | `retrospective.github_feedback.enabled` | boolean | `false` | the `session-retrospective` and `review-proposals` skills |
-| `retrospective.github_feedback.repo` | `owner/repo` | `jpicklyk/task-orchestrator` | the same skills, for proposal issues only; bug reports always go to `jpicklyk/task-orchestrator` |
-| `retrospective.github_feedback.bug_reports` | boolean; read from the user-level config only; opens only when the block holds exactly one `bug_reports` line and it is `true`, independent of `enabled` | `false` (`init --user` asks once) | the `session-retrospective` skill, through `run-planner bug-report` |
+| `retrospective.github_feedback.repo` | `owner/repo` | `jpicklyk/task-orchestrator` | the same skills, for proposal issues only |
 | `retrospective.baselines.<name>` | a map of dated figures the project measured, such as `note-volume: { measured: 2026-11-02, review-share-pct: 31 }` | absent | `run-planner retro-metrics`, which echoes them in `noteVolume.baselines` (null when absent) |
 
 A retrospective is owed per completed scope (boundary `scope`) or per closed run not yet marked `retro` (boundary `run`);
@@ -814,7 +812,6 @@ extensions:
       github_feedback:                     # optional
         enabled: true                      # default false - opt-in
         repo: jpicklyk/task-orchestrator   # optional; this is the default
-        bug_reports: false                 # default false - opt-in, user-level config only, asked once by init --user
 ```
 
 Default: `nudge` - applied when the block or `mode` key is absent, or the value is unrecognized.
@@ -826,9 +823,8 @@ Default: `nudge` - applied when the block or `mode` key is absent, or the value 
 | `mode` | no | string | `nudge`, `dispatch` or `off`. Defaults to `nudge` |
 | `minItems` | no | integer >= 0 | At boundary `scope` it is one of the triage's signals: a completed scope with at least this many terminal items always gets a retrospective; a smaller, clean one is skipped by the hook. At boundary `run`, in `mode: dispatch`, it is the count of items terminal in the closed run required before a background dispatch fires; below it the run gets a nudge. `dispatchThreshold` is the older name, read when `minItems` is absent; `minItems` wins when both are set. Defaults to `3`; a non-integer or negative value falls back to the default. |
 | `boundary` | no | string | `scope` or `run`. `scope` (default) fires one retrospective per completed scope, covering every run of it; `run` fires one per closed run. An unrecognized value reads as `scope`. |
-| `github_feedback.enabled` | no | boolean | Opt-in. When `true`, the session-retrospective skill files a GitHub enhancement issue for **product-scope** improvement proposals via the `gh` CLI. Defaults to `false`. Requires `gh` installed and authenticated; filing is skipped gracefully otherwise. |
-| `github_feedback.repo` | no | string | `owner/repo` target for filed proposal issues (bug reports always go to the upstream). Defaults to `jpicklyk/task-orchestrator` (the plugin's upstream). |
-| `github_feedback.bug_reports` | no | boolean | Opt-in, independent of `enabled`; read from the user-level config only (a project config's value is never read), and only a single `bug_reports: true` line opens it. When `true`, a qualifying product defect found by a retrospective is filed as a public `[bug]` issue on `jpicklyk/task-orchestrator`, or noted with a rate-limited `seen again` comment on an existing one, under the user's own `gh` account. Only the component, tool, op and error code (names from the tool catalog, or for a plugin script its own file name and a short identifier), the plugin and server versions, the call shape (type names of the top-level catalog fields) and a fingerprint are sent; no message, note text, id, path, URL or other free text. Together with `enabled`, these are the only paths to GitHub: product-scope proposals and qualifying product defects; nothing project-scoped is ever sent. Defaults to `false`; `/task-orchestrator:init --user` asks once. |
+| `github_feedback.enabled` | no | boolean | Opt-in. When `true`, the session-retrospective skill files a GitHub enhancement issue for **product-scope** improvement proposals via the `gh` CLI. Defaults to `false`. Requires `gh` installed and authenticated; filing is skipped gracefully otherwise. Product-scope proposals are the only thing a config sends to GitHub; nothing project-scoped is ever sent. |
+| `github_feedback.repo` | no | string | `owner/repo` target for filed proposal issues. Defaults to `jpicklyk/task-orchestrator` (the plugin's upstream). |
 
 ### Modes
 

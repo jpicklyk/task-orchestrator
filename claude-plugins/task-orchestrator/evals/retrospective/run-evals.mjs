@@ -44,7 +44,6 @@ const DAY = 24 * 60 * 60 * 1000;
 const { callOp } = await import(pathToFileURL(join(PLUGIN, 'hooks', 'lib', 'api-client.mjs')).href);
 const { defectFingerprint, defectComponent } = await import(pathToFileURL(join(PLUGIN, 'scripts', 'lib', 'retro-metrics.mjs')).href);
 const { buildDispatch } = await import(pathToFileURL(join(PLUGIN, 'hooks', 'retro-lib.mjs')).href);
-const { userConfigPath } = await import(pathToFileURL(join(PLUGIN, 'hooks', 'config-locator.mjs')).href);
 
 // ---- arguments ----------------------------------------------------------------------------------------------
 
@@ -140,7 +139,7 @@ export function buildChildEnv(sandbox, parentEnv = PARENT_ENV) {
   const kept = entries.filter((dir) => !GH_NAMES.some((n) => existsSync(join(dir, n))));
   for (const k of Object.keys(env)) if (k.toLowerCase() === 'path') delete env[k];
   env[key] = kept.join(delimiter);
-  for (const k of ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN', 'CLAUDE_CODE_PLUGIN_DIRS']) delete env[k];
+  for (const k of ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN', 'CLAUDE_CODE_PLUGIN_DIRS', 'TASK_ORCHESTRATOR_BUG_REPORTS']) delete env[k];
   Object.assign(env, {
     GH_CONFIG_DIR: join(sandbox.dir, 'gh-config'),
     TASK_ORCHESTRATOR_HOME: sandbox.home,
@@ -337,7 +336,7 @@ async function seedScenario(api, sc, sandbox) {
   const configYaml = projectConfigYaml(rootId, projectName, sc.taskScopeMaxLength || 12000);
   const cfg = await api.write('config', [{ op: 'push', rootId, configYaml }]);
   void cfg;
-  const st = { rootId, root8: rootId.slice(0, 8), projectName, configYaml, seeded: {}, features: {}, defect: sc.defect || null, memory: {} };
+  const st = { rootId, root8: rootId.slice(0, 8), projectName, configYaml, seeded: {}, features: {}, defect: sc.defect || null, bugReports: Boolean(sc.bugReports), memory: {} };
   if (sc.defect) {
     st.seeded.defectMessage = sc.defect.message;
     st.seeded.fingerprint = defectFingerprint({ component: defectComponent(sc.defect.tool), tool: sc.defect.tool, op: sc.defect.op, code: sc.defect.code, message: sc.defect.message });
@@ -356,10 +355,6 @@ async function seedScenario(api, sc, sandbox) {
     const g = await api.write('items_write', [{ op: 'create', type: 'container', title: 'Improvement Proposals', tags: ['container'] }]);
     st.seeded.globalProposalsRootId = g.id;
   }
-  // user-level config: the consent gate of bug reports is read only here
-  const userCfg = userConfigPath({ ...PARENT_ENV, TASK_ORCHESTRATOR_HOME: sandbox.home });
-  mkdirSync(dirname(userCfg), { recursive: true });
-  writeFileSync(userCfg, ['extensions:', '  claude-code:', '    retrospective:', '      github_feedback:', `        bug_reports: ${sc.bugReports ? 'true' : 'false'}`, ''].join('\n'));
   for (const f of sc.features) if (!f.late) st.features[f.key] = await seedFeature(api, st, f);
   return st;
 }
@@ -478,6 +473,8 @@ async function runLiveStage(st, stage, base, sandbox, runIds, pluginDir) {
   const { env } = buildChildEnv(sandbox);
   Object.assign(env, { TASK_ORCHESTRATOR_API_URL: base, AGENT_CONFIG_DIR: work, TASK_ORCHESTRATOR_CEILING: work });
   delete env.TASK_ORCHESTRATOR_API_TOKEN;
+  // The bug-report gate opens in the child env of a bugReports scenario only (the maintainer-only variable).
+  if (st.bugReports) env.TASK_ORCHESTRATOR_BUG_REPORTS = '1';
   const sessionId = randomUUID();
   const claude = resolveOn('claude', PARENT_ENV[pathKey(PARENT_ENV)]);
   if (!claude) throw new Error('claude is not on PATH');

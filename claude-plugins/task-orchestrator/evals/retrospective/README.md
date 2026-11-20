@@ -53,7 +53,7 @@ Exit codes: 0 all checks passed, 1 a check failed or a stage errored, 2 bad argu
 - `bug-report` runs `fake-gh.mjs` through the `TASK_ORCHESTRATOR_GH_SHIM` seam of `scripts/run-planner.mjs` (a script
   node runs in place of gh, because a Windows spawn cannot start a scripted gh). The fake logs every call and body to
   `FAKE_GH_DIR` and answers `auth status`, `api user`, `issue list`, `issue create` (issue 990001, 990002, ...) and
-  `issue comment`; anything else exits 1. The bug-report consent comes from the sandbox user-level config only.
+  `issue comment`; anything else exits 1. The runner opens the bug-report gate in the child env of a `bugReports` scenario only.
 - If `gh` sits in a directory that `node`, `git` or `bash` also needs (for example `/usr/bin`), preflight exits 3 by
   design: run from a `PATH` that keeps them apart.
 - Seeding uses the server's own REST ops with server-set timestamps; nothing is backdated and no SQLite file is edited.
@@ -62,9 +62,9 @@ Exit codes: 0 all checks passed, 1 a check failed or a stage errored, 2 bad argu
 
 ## Cost
 
-A live stage spends model tokens (the skill runs as a `sonnet` fork). Each stage runs once, and a failed stage is
-recorded with its observed model, never retried. The research class and the skill's own model are both `sonnet`, so a
-stage records the model id observed in the fork transcript and no second same-model run is made. The deterministic
+A live stage spends model tokens (the skill's frontmatter names `sonnet`). Each stage runs once, and a failed stage is
+recorded with its observed model, never retried. The rows in `results.md` record the model ids the transcripts show,
+which is what counts: the main session and the fork include `claude-opus-5-5`. The deterministic
 layers belong to `node --test`, which this tool does not replace.
 
 ## Reading a failure

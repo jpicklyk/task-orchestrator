@@ -4,7 +4,7 @@
 // Scenario ids S1-S23 match the item's frozen `test-plan` note and its `amendments` note (A1 adds S18-S23).
 // Oracles: task-scope decisions D2-D17, acceptance criteria AC1-AC14, amendment ruling A1 and the A2 user
 // rulings B4 'enforce allowlists' (a server code must be in its catalog entry's errors list; a plugin tool
-// must be one of the injected pluginTools; the posted call shape is top-level catalog field names with type
+// must be an own key of the injected closed vocabulary, with op and code on its list; the posted call shape is top-level catalog field names with type
 // names only, never a nested or map key) and N1 'never retry' (one create attempt; a failed or timed-out
 // create posts nothing more that run and is recorded create-unconfirmed) and the A3 rulings B5 'no labels on
 // create' (the gh issue create args carry no --label at all; a report is identified by the '[bug]' title
@@ -21,12 +21,12 @@
 // gh would still be reachable fails the test before the subcommand starts.
 //
 // The test-plan's helper names (fileBugReports, gate, state, writeBody) are not exports; the same oracles
-// are exercised through runBugReport (gate = configText, which is the USER-level config text, state =
+// are exercised through runBugReport (gate = gateEnv, the raw value of TASK_ORCHESTRATOR_BUG_REPORTS, state =
 // readState/writeState, writeBody = writeTemp captured by body-file path).
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, mkdirSync, writeFileSync, existsSync, rmSync, mkdtempSync } from 'node:fs'
+import { readFileSync, mkdirSync, writeFileSync, existsSync, rmSync, mkdtempSync, readdirSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { spawn } from 'node:child_process'
 import { dirname, join } from 'node:path'
@@ -71,9 +71,18 @@ function cfg({ bug = 'true', repo = null, enabled = null, extra = [] } = {}) {
   return lines.join('\n') + '\n'
 }
 
-// The plugin's own hook and script file names, as the CLI would inject them (pluginTools). Every plugin
-// script name a qualifying test uses is listed here; a test about the allowlist passes its own list.
-const PLUGIN_TOOLS = ['run-planner.mjs', 'a.mjs', '0x-y.mjs', 'retro-hook.mjs']
+// The closed plugin vocabulary as the CLI would inject it (bug-report-vocabulary.json): per tool its ops and codes.
+// Every plugin defect a qualifying test uses is listed here; a test about the list passes its own vocabulary.
+const entryOf = (ops, codes) => ({ ops, codes })
+const VOCAB = {
+  tools: {
+    'run-planner.mjs': entryOf(['bug-report', 'plan', 'probe'], ['exit:0', 'exit:2', 'exit:127', 'network_error', 'E_BAD_9', `A${'z'.repeat(63)}`]),
+    'a.mjs': entryOf(['bug-report', 'run', `A${'z'.repeat(63)}`, 'Pre_Tool-Use'], ['exit:2']),
+    '0x-y.mjs': entryOf(['bug-report'], ['exit:2']),
+    'retro-hook.mjs': entryOf(['bug-report', 'PostToolUse'], ['exit:2']),
+  },
+}
+const vocabWith = (tool, op, code) => ({ tools: { ...VOCAB.tools, [tool]: entryOf([op], [code]) } })
 
 // A qualifying defect by construction (A2 B4): kind defect, scope product, a listed signal, a server tool that
 // is in the catalog with an op among its entries, a code that is in THAT entry's errors list (items_write
@@ -87,7 +96,7 @@ const d = (o = {}) => ({
 const WORDS = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf', 'hotel', 'india', 'juliet', 'kilo', 'lima',
   'mike', 'november', 'oscar']
 const dn = (i, o = {}) => d({ message: `Item title is required ${WORDS[i]}`, ...o })
-// A qualifying plugin-script defect (no catalog involved; its tool is one of PLUGIN_TOOLS).
+// A qualifying plugin-script defect (no catalog involved; its tool, op and code are on VOCAB).
 const script = (o = {}) => d({ signal: 'script-failure', tool: 'run-planner.mjs', op: 'bug-report', code: 'exit:2', ...o })
 // Fingerprint oracle: defectFingerprint of the inputs with the component from defectComponent(tool).
 const fpOf = (x) => defectFingerprint({ component: defectComponent(x.tool), tool: x.tool, op: x.op, code: x.code, message: x.message })
@@ -141,14 +150,15 @@ function makeEnv(o = {}) {
   return { calls, temps, writes, deps, stateReads: () => stateReads, bodyOf: (args) => temps.get(flag(args, '--body-file')[0]) }
 }
 
-// o.catalog and o.pluginTools may be given explicitly (null and undefined included); absent they default to
-// the real catalog and PLUGIN_TOOLS.
+// o.catalog, o.vocabulary and o.gateEnv may be given explicitly (null and undefined included); absent they
+// default to the real catalog, VOCAB and the open gate value '1'.
 async function run(defects, o = {}) {
   const env = makeEnv(o)
   const catalog = 'catalog' in o ? o.catalog : CATALOG
-  const pluginTools = 'pluginTools' in o ? o.pluginTools : PLUGIN_TOOLS
+  const vocabulary = 'vocabulary' in o ? o.vocabulary : VOCAB
+  const gateEnv = 'gateEnv' in o ? o.gateEnv : '1'
   const doc = await runBugReport({
-    defects, configText: o.configText ?? cfg(), denyNames: o.denyNames ?? [], versions: o.versions ?? VERSIONS, catalog, pluginTools,
+    defects, gateEnv, denyNames: o.denyNames ?? [], versions: o.versions ?? VERSIONS, catalog, vocabulary,
     deps: env.deps,
   })
   return { doc, ...env }
@@ -350,20 +360,22 @@ test('S4b the fingerprint is stable across ids, paths and digits in the message'
 })
 
 // -- S5 ---------------------------------------------------------------------------------------------
-// Oracle: AC1, D2, D15 (gate off: no gh call, no state access); A1 B1 (consent text is the user-level config).
-for (const [name, configText] of [
-  ['bug_reports absent', cfg({ bug: null })],
-  ['bug_reports false', cfg({ bug: 'false' })],
-  ['bug_reports quoted "true"', cfg({ bug: '"true"' })],
-  ['bug_reports yes', cfg({ bug: 'yes' })],
-  ['bug_reports 1', cfg({ bug: '1' })],
-  ['bug_reports True', cfg({ bug: 'True' })],
-  ['bug_reports TRUE', cfg({ bug: 'TRUE' })],
-  ['enabled true alone', cfg({ bug: null, enabled: 'true' })],
-  ['empty config text', ''],
+// Oracle: AC1, D1, D15 (gate off: no gh call, no state access); the gate is exactly the string '1'.
+for (const [name, gateEnv] of [
+  ['unset', undefined],
+  ['empty', ''],
+  ['0', '0'],
+  ['true', 'true'],
+  ['TRUE', 'TRUE'],
+  ['yes', 'yes'],
+  ['leading space', ' 1'],
+  ['trailing space', '1 '],
+  ['01', '01'],
+  ['trailing newline', '1\n'],
+  ['number 1', 1],
 ]) {
-  test(`S5 gate disabled: ${name}`, async () => {
-    const r = await run([d()], { configText })
+  test(`S5 gate disabled: value ${name}`, async () => {
+    const r = await run([d()], { gateEnv })
     assert.equal(r.doc.gate, 'disabled')
     assert.equal(r.calls.length, 0)
     assert.equal(r.stateReads(), 0)
@@ -372,11 +384,8 @@ for (const [name, configText] of [
   })
 }
 
-test('S5 control: the bare scalar true opens the gate, with or without enabled; the repo is the upstream default', async () => {
-  const a = await run([d()], { configText: cfg({ bug: 'true', enabled: 'false' }) })
-  assert.equal(a.doc.gate, 'ran')
-  assert.equal(a.doc.repo, 'jpicklyk/task-orchestrator')
-  const b = await run([d()], { configText: cfg({ bug: 'true' }) })
+test('S5 control: exactly 1 opens the gate; the repo is the upstream default', async () => {
+  const b = await run([d()], { gateEnv: '1' })
   assert.equal(b.doc.gate, 'ran')
   assert.equal(b.doc.repo, 'jpicklyk/task-orchestrator')
   assert.equal(DEFAULT_REPO, 'jpicklyk/task-orchestrator')
@@ -397,9 +406,9 @@ test('S6 gh auth status failing: gh-unavailable after one gh call', async () => 
 // Oracle: AC3, D4; A1 R2 (a server tool needs its op among the catalog entries, absent catalog fails op; a
 // plugin tool matches ^[a-z0-9][a-z0-9-]*\.mjs$, its op ^[A-Za-z][A-Za-z0-9_-]{0,63}$; code
 // ^(exit:\d{1,3}|[A-Za-z][A-Za-z0-9_]{0,63})$; else not-qualifying:<field>); A2 B4 (a server code must be in
-// its catalog entry's errors list; a plugin tool must be one of the injected pluginTools). A row that spreads
-// PLUGIN_BASE runs with its tool added to pluginTools, so only the name pattern can reject it; the code
-// pattern and environment-code rows use a plugin script defect for the same reason (a server code outside the
+// its catalog entry's errors list; a plugin tool must be a key of the injected vocabulary). A row that spreads
+// PLUGIN_BASE runs with its tool added to the vocabulary, so only the name pattern can reject it; the op and code
+// rows are off-list values and the environment-code rows use a plugin script defect for the same reason (a server code outside the
 // entry's errors list would reject them anyway). Rows on the server fixture isolate the B4 membership check.
 const PLUGIN_BASE = { signal: 'script-failure', tool: 'run-planner.mjs', op: 'bug-report', code: 'exit:2' }
 const ENV_CODES = ['network', 'unauthenticated', 'timeout', 'no_api', 'ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'EAI_AGAIN']
@@ -462,7 +471,7 @@ const NOT_QUALIFYING = [
 for (const [name, over, field] of NOT_QUALIFYING) {
   test(`S7 not qualifying: ${name}`, async () => {
     const pluginRow = over.signal === 'script-failure' && typeof over.tool === 'string'
-    const r = await run([d(over)], { pluginTools: pluginRow ? [...PLUGIN_TOOLS, over.tool] : PLUGIN_TOOLS })
+    const r = await run([d(over)], { vocabulary: pluginRow ? vocabWith(over.tool, PLUGIN_BASE.op, PLUGIN_BASE.code) : VOCAB })
     assert.equal(r.doc.results[0].action, 'skipped')
     assert.equal(r.doc.results[0].reason, `not-qualifying:${field}`)
     assert.equal(callsOf(r.calls, 'issue', 'list').length, 0)
@@ -488,13 +497,13 @@ for (const [name, over] of [
   ['plugin script with an exit code', {}],
   ['plugin script single character name', { tool: 'a.mjs' }],
   ['plugin script digit-led name', { tool: '0x-y.mjs' }],
-  ['plugin op of 64 characters', { op: `A${'z'.repeat(63)}` }],
-  ['plugin op with underscore and hyphen', { op: 'Pre_Tool-Use' }],
+  ['plugin op of 64 characters', { tool: 'a.mjs', op: `A${'z'.repeat(63)}` }],
+  ['plugin op with underscore and hyphen', { tool: 'a.mjs', op: 'Pre_Tool-Use' }],
   ['code exit with three digits', { code: 'exit:127' }],
   ['code exit zero', { code: 'exit:0' }],
   ['code of 64 characters', { code: `A${'z'.repeat(63)}` }],
   ['code with an underscore and digits', { code: 'E_BAD_9' }],
-  ['hook failure signal', { signal: 'hook-failure', tool: 'retro-hook.mjs' }],
+  ['hook failure signal', { signal: 'hook-failure', tool: 'retro-hook.mjs', op: 'PostToolUse' }],
 ]) {
   test(`S19 qualifies: ${name}`, async () => {
     const x = script(over)
@@ -570,21 +579,22 @@ test('S19 qualification follows the supplied catalog: an op missing from it does
   assert.equal(b.doc.results[0].reason, 'not-qualifying:op')
 })
 
-// B4 plugin allowlist.
-test('S19 a plugin tool qualifies only when it is one of pluginTools', async () => {
+// B4 plugin allowlist: the closed vocabulary.
+test('S19 a plugin tool qualifies only when it is a key of the vocabulary', async () => {
   const x = script()
-  const listed = await run([x], { pluginTools: ['run-planner.mjs'] })
+  const e = entryOf(['bug-report'], ['exit:2'])
+  const listed = await run([x], { vocabulary: { tools: { 'run-planner.mjs': e } } })
   assert.equal(listed.doc.results[0].action, 'filed')
-  for (const list of [['other.mjs'], ['run-planner.mjs.bak', 'planner.mjs', 'run-planner-2.mjs'], ['RUN-PLANNER.MJS', 'Run-Planner.mjs']]) {
-    const r = await run([x], { pluginTools: list })
-    assert.equal(r.doc.results[0].action, 'skipped', JSON.stringify(list))
-    assert.equal(r.doc.results[0].reason, 'not-qualifying:tool', JSON.stringify(list))
+  for (const tools of [{ 'other.mjs': e }, { 'run-planner.mjs.bak': e, 'planner.mjs': e }, { 'RUN-PLANNER.MJS': e }]) {
+    const r = await run([x], { vocabulary: { tools } })
+    assert.equal(r.doc.results[0].action, 'skipped', JSON.stringify(tools))
+    assert.equal(r.doc.results[0].reason, 'not-qualifying:tool', JSON.stringify(tools))
     assert.equal(callsOf(r.calls, 'issue', 'list').length, 0)
     assert.equal(callsOf(r.calls, 'issue', 'create').length, 0)
   }
 })
 
-test('S19 a name shaped like a plugin file but not injected does not qualify, whatever its op and code', async () => {
+test('S19 a name shaped like a plugin file but not on the vocabulary does not qualify, whatever its op and code', async () => {
   for (const over of [{ tool: 'contoso-payroll.mjs' }, { tool: 'contoso-payroll.mjs', op: 'jeffsecret', code: 'exit:1' }, { tool: 'zz.mjs', signal: 'hook-failure' }]) {
     const r = await run([script(over)])
     assert.equal(r.doc.results[0].reason, 'not-qualifying:tool', JSON.stringify(over))
@@ -592,22 +602,22 @@ test('S19 a name shaped like a plugin file but not injected does not qualify, wh
   }
 })
 
-test('S19 an empty, null, undefined or absent pluginTools admits no plugin defect', async () => {
-  for (const pluginTools of [[], null, undefined]) {
-    const r = await run([script()], { pluginTools })
-    assert.equal(r.doc.results[0].reason, 'not-qualifying:tool', String(pluginTools))
+test('S19 an empty, null, undefined or absent vocabulary admits no plugin defect', async () => {
+  for (const vocabulary of [{}, { tools: {} }, { tools: null }, null, undefined]) {
+    const r = await run([script()], { vocabulary })
+    assert.equal(r.doc.results[0].reason, 'not-qualifying:tool', JSON.stringify(vocabulary))
     assert.equal(callsOf(r.calls, 'issue', 'list').length, 0)
   }
   const env = makeEnv()
-  const doc = await runBugReport({ defects: [script()], configText: cfg(), versions: VERSIONS, catalog: CATALOG, deps: env.deps })
+  const doc = await runBugReport({ defects: [script()], gateEnv: '1', versions: VERSIONS, catalog: CATALOG, deps: env.deps })
   assert.equal(doc.results[0].reason, 'not-qualifying:tool', 'key absent')
   assert.equal(callsOf(env.calls, 'issue', 'list').length, 0)
 })
 
-test('S19 pluginTools does not gate a server tool: a catalog defect qualifies with pluginTools empty, null or undefined', async () => {
-  for (const pluginTools of [[], null, undefined]) {
-    const r = await run([d()], { pluginTools })
-    assert.equal(r.doc.results[0].action, 'filed', String(pluginTools))
+test('S19 the vocabulary does not gate a server tool: a catalog defect qualifies with no vocabulary', async () => {
+  for (const vocabulary of [{}, null, undefined]) {
+    const r = await run([d()], { vocabulary })
+    assert.equal(r.doc.results[0].action, 'filed', String(vocabulary))
   }
 })
 
@@ -1199,28 +1209,18 @@ const section = (text, startRe, endRe) => {
   return e < 0 ? rest : rest.slice(0, e)
 }
 
-test('S17 init SKILL.md has one Bug-report consent section, --user mode, listing the posted fields', () => {
+test('S17 no user-facing doc mentions bug_reports or a bug-report consent, and none names the gate variable', () => {
   const init = read(PLUGIN, 'skills', 'init', 'SKILL.md')
-  assert.equal((init.match(/^## Bug-report consent/gm) ?? []).length, 1)
-  assert.ok(!/^## Bug-report consent \(both modes\)/m.test(init), 'the both-modes heading is gone')
-  const s = section(init, /^## Bug-report consent \(--user mode\)\s*$/m, /\n## /)
-  assert.ok(s.includes('bug_reports'))
-  assert.match(s, /public/i)
-  assert.match(s, /gh account/i)
-  assert.ok(s.includes('AskUserQuestion'))
-  assert.ok(s.indexOf('No (default)') >= 0 && s.indexOf('No (default)') < s.indexOf('Yes, file bug reports'))
-  for (const field of ['component', 'tool', 'error code', 'version', 'call shape', 'fingerprint']) {
-    assert.ok(s.toLowerCase().includes(field), `posted-field list names ${field}`)
+  const cf = read(PLUGIN, 'skills', 'manage-schemas', 'references', 'config-format.md')
+  const gf = read(PLUGIN, 'skills', '_shared', 'github-feedback.md')
+  const sk = read(PLUGIN, 'skills', 'session-retrospective', 'SKILL.md')
+  const rt = read(PLUGIN, 'skills', 'session-retrospective', 'references', 'routing.md')
+  const guide = read(REPO_ROOT, 'current', 'docs', 'integration-guides', 'self-improving-workflow.md')
+  for (const [name, t] of [['init SKILL.md', init], ['config-format.md', cf], ['github-feedback.md', gf], ['session-retrospective SKILL.md', sk], ['routing.md', rt], ['self-improving-workflow.md', guide]]) {
+    assert.ok(!t.includes('bug_reports'), `${name} names bug_reports`)
+    assert.ok(!t.includes('Bug-report consent'), `${name} names the consent section`)
+    assert.ok(!t.includes('TASK_ORCHESTRATOR_BUG_REPORTS'), `${name} names the gate variable`)
   }
-  assert.ok(s.includes('No bug reports are filed; proposal issues still follow github_feedback.enabled.'))
-  assert.ok(!/scrubbed of note text/i.test(init))
-  assert.ok(!/Nothing is ever filed/i.test(init))
-})
-test('S17 config-format.md documents bug_reports as user-level and no longer says global-scoped', () => {
-  const t = read(PLUGIN, 'skills', 'manage-schemas', 'references', 'config-format.md')
-  assert.ok(t.includes('bug_reports'))
-  assert.ok(!t.includes('global-scoped'))
-  assert.match(t, /user[- ]level/i)
 })
 test('S17 the shared github-feedback reference links the bug-report section and states its posted fields', () => {
   const t = read(PLUGIN, 'skills', '_shared', 'github-feedback.md')
@@ -1232,7 +1232,6 @@ test('S17 the shared github-feedback reference links the bug-report section and 
   for (const field of ['component', 'error code', 'version', 'call shape', 'fingerprint']) {
     assert.ok(s.toLowerCase().includes(field), `bug-report section names ${field}`)
   }
-  assert.match(s, /user[- ]level/i)
 })
 test('S17 session-retrospective SKILL.md stays within 14000 bytes and links the bug-report section', () => {
   const t = read(PLUGIN, 'skills', 'session-retrospective', 'SKILL.md')
@@ -1248,29 +1247,21 @@ test('S17 routing.md and review-proposals read the product and global-process sc
   const rp = read(PLUGIN, 'skills', 'review-proposals', 'SKILL.md')
   assert.ok(rp.includes('global-process') && rp.includes('product'))
 })
-test('S17 the self-improving-workflow guide lists bug_reports: false as user-level', () => {
-  const t = read(REPO_ROOT, 'current', 'docs', 'integration-guides', 'self-improving-workflow.md')
-  assert.ok(t.includes('bug_reports: false'))
-  assert.match(t, /user[- ]level/i)
-})
-
 // -- S18 --------------------------------------------------------------------------------------------
-// Oracle: A1 B1/R1 (readGate ignores `repo`; every repo is DEFAULT_REPO).
-test('S18 a repo in the consent config is ignored: every gh call and the document name the default repo', async () => {
-  for (const repoText of ['evil/x', '"evil/x"']) {
-    const r = await run([d()], { configText: cfg({ bug: 'true', repo: repoText }) })
+// Oracle: A1 B1/R1 (every repo is DEFAULT_REPO; nothing redirects a report).
+test('S18 every gh call and the document name the default repo', async () => {
+  for (const gateEnv of ['1']) {
+    const r = await run([d()], { gateEnv })
     assert.equal(r.doc.gate, 'ran')
     assert.equal(r.doc.repo, DEFAULT_REPO)
     const repos = r.calls.flatMap((c) => flag(c, '--repo'))
     assert.ok(repos.length >= 2, 'list and create carry --repo')
     assert.ok(repos.every((x) => x === DEFAULT_REPO), JSON.stringify(repos))
-    assert.ok(!JSON.stringify(r.calls).includes('evil/x'))
   }
 })
 test('S18 the closed-hit path (release list, comment) also uses the default repo', async () => {
   const x = d()
   const r = await run([x], {
-    configText: cfg({ bug: 'true', repo: 'evil/x' }),
     versions: { plugin: '4.0.2' },
     'issue list': ok(JSON.stringify([hit({ state: 'CLOSED', stateReason: 'COMPLETED', closedAt: CLOSED_AT, body: `Fingerprint: ${fpOf(x)}` })])),
     'release list': ok(JSON.stringify([{ tagName: 'v4.0.1', publishedAt: BEFORE }])),
@@ -1278,29 +1269,6 @@ test('S18 the closed-hit path (release list, comment) also uses the default repo
   assert.equal(r.doc.results[0].action, 'commented')
   const repos = r.calls.flatMap((c) => flag(c, '--repo'))
   assert.ok(repos.length >= 3 && repos.every((v) => v === DEFAULT_REPO), JSON.stringify(repos))
-})
-
-// -- S20 --------------------------------------------------------------------------------------------
-// Oracle: A1 O8 (the gate opens only for exactly one block-level bug_reports line, `true`).
-for (const [name, configText] of [
-  ['true twice', cfg({ bug: 'true', extra: ['bug_reports: true'] })],
-  ['true then false', cfg({ bug: 'true', extra: ['bug_reports: false'] })],
-  ['false then true', cfg({ bug: 'false', extra: ['bug_reports: true'] })],
-  ['true three times', cfg({ bug: 'true', extra: ['bug_reports: true', 'bug_reports: true'] })],
-  ['only a commented line', cfg({ bug: null, extra: ['# bug_reports: true'] })],
-  ['a top-level line outside the block', 'bug_reports: true\n'],
-]) {
-  test(`S20 gate disabled: ${name}`, async () => {
-    const r = await run([d()], { configText })
-    assert.equal(r.doc.gate, 'disabled')
-    assert.equal(r.calls.length, 0)
-    assert.equal(r.stateReads(), 0)
-    assert.equal(r.writes.length, 0)
-  })
-}
-test('S20 control: exactly one true line among other keys opens the gate', async () => {
-  const r = await run([d()], { configText: cfg({ bug: 'true', enabled: 'false', extra: ['other: 1'] }) })
-  assert.equal(r.doc.gate, 'ran')
 })
 
 // -- S21 --------------------------------------------------------------------------------------------
@@ -1389,13 +1357,13 @@ test('S22 a writeTemp that throws for the only defect still returns a document, 
 })
 
 // -- S23 --------------------------------------------------------------------------------------------
-// Oracle: A1 O5, B1/R1 (the consent gate is read only from the user-level config; there is no --config),
+// Oracle: D1 (the gate is the environment variable TASK_ORCHESTRATOR_BUG_REPORTS, exactly '1'; no config opens it; there is no --config),
 // run-planner header comment (exit 0 with a 'run-wave/bug-report-v1' document, exit 2 only for bad
 // arguments), D12/D15 (gh-unavailable when gh cannot run).
 // SAFETY: see the file header. PATH is an empty directory; gh is never reachable.
 const SCRUBBED_ENV = [
   'AGENT_CONFIG_DIR', 'TASK_ORCHESTRATOR_API_URL', 'TASK_ORCHESTRATOR_API_TOKEN', 'TASK_ORCHESTRATOR_MODE',
-  'TASK_ORCHESTRATOR_HOME', 'TASK_ORCHESTRATOR_CEILING', 'RETRO_HOOK_DEBUG', 'TASK_ORCHESTRATOR_GH_SHIM', 'FAKE_GH_DIR',
+  'TASK_ORCHESTRATOR_HOME', 'TASK_ORCHESTRATOR_CEILING', 'RETRO_HOOK_DEBUG', 'TASK_ORCHESTRATOR_GH_SHIM', 'FAKE_GH_DIR', 'TASK_ORCHESTRATOR_BUG_REPORTS',
 ]
 const RUN_PLANNER = join(PLUGIN, 'scripts', 'run-planner.mjs')
 
@@ -1429,9 +1397,10 @@ async function startCounter(handler = null) {
   }
 }
 
-// project / user: config text or null (absent). args: the CLI arguments after `bug-report`, `<IN>` replaced
-// by the input file; defects: the input file's defects.
-async function cli({ project = null, user = null, args = ['--in', '<IN>'], defects = [d()], extraEnv = null, handler = null }) {
+// project / user: config text or null (absent; neither opens the gate). gate: the value of the gate variable
+// (null leaves it unset). args: the CLI arguments after `bug-report`, `<IN>` replaced by the input file;
+// defects: the input file's defects.
+async function cli({ project = null, user = null, gate = null, args = ['--in', '<IN>'], defects = [d()], extraEnv = null, handler = null }) {
   const sbx = makeSandbox({ config: project, scope: 'project' })
   const counter = await startCounter(handler)
   try {
@@ -1453,6 +1422,7 @@ async function cli({ project = null, user = null, args = ['--in', '<IN>'], defec
       AGENT_CONFIG_DIR: sbx.cfg,
       TASK_ORCHESTRATOR_API_URL: counter.url,
     })
+    if (gate !== null) env.TASK_ORCHESTRATOR_BUG_REPORTS = gate
     if (extraEnv) Object.assign(env, extraEnv(sbx))
     assert.equal(env.PATH, emptyPath, 'SAFETY: PATH is the empty directory')
     assert.equal(Object.keys(env).filter((k) => k.toLowerCase() === 'path').length, 1, 'SAFETY: a single PATH variable')
@@ -1490,45 +1460,39 @@ async function cli({ project = null, user = null, args = ['--in', '<IN>'], defec
   }
 }
 
-test('S23 a project config with bug_reports true and no user config: disabled and no request', async () => {
+test('S23 a project config with bug_reports true and the variable unset: disabled and no request', async () => {
   const r = await cli({ project: cfg({ bug: 'true' }) })
   assert.equal(r.status, 0, r.stderr)
   assert.equal(r.json.contract, CONTRACT)
   assert.equal(r.json.gate, 'disabled')
   assert.equal(r.requests, 0)
 })
-test('S23 a project config with true and a user config with false: disabled and no request', async () => {
-  const r = await cli({ project: cfg({ bug: 'true' }), user: cfg({ bug: 'false' }) })
+test('S23 a user config with bug_reports true and the variable unset: disabled and no request', async () => {
+  const r = await cli({ project: cfg({ bug: 'true' }), user: cfg({ bug: 'true' }) })
   assert.equal(r.status, 0, r.stderr)
   assert.equal(r.json.gate, 'disabled')
   assert.equal(r.requests, 0)
 })
-test('S23 a user config with bug_reports true and gh unreachable: gh-unavailable after one request', async () => {
-  const r = await cli({ user: cfg({ bug: 'true' }) })
+test('S23 the variable 1 and gh unreachable: gh-unavailable after one request', async () => {
+  const r = await cli({ gate: '1' })
   assert.equal(r.status, 0, r.stderr)
   assert.equal(r.json.contract, CONTRACT)
   assert.equal(r.json.gate, 'gh-unavailable')
   assert.equal(r.requests, 1)
 })
-test('S23 a project false does not close a user true', async () => {
-  const r = await cli({ project: cfg({ bug: 'false' }), user: cfg({ bug: 'true' }) })
+test('S23 a user config with bug_reports false does not close the variable 1', async () => {
+  const r = await cli({ project: cfg({ bug: 'false' }), user: cfg({ bug: 'false' }), gate: '1' })
   assert.equal(r.json.gate, 'gh-unavailable')
   assert.equal(r.requests, 1)
 })
-test('S23 a user config with the key twice stays closed', async () => {
-  const r = await cli({ user: cfg({ bug: 'true', extra: ['bug_reports: true'] }) })
-  assert.equal(r.status, 0, r.stderr)
-  assert.equal(r.json.gate, 'disabled')
-  assert.equal(r.requests, 0)
-})
 test('S23 --config is not an argument: exit 2 and no request', async () => {
-  const r = await cli({ user: cfg({ bug: 'true' }), args: ['--in', '<IN>', '--config', 'whatever.yaml'] })
+  const r = await cli({ gate: '1', args: ['--in', '<IN>', '--config', 'whatever.yaml'] })
   assert.equal(r.status, 2, r.stderr)
   assert.match(r.stderr, /unknown argument --config/)
   assert.equal(r.requests, 0)
 })
 test('S23 a missing --in is a bad argument: exit 2', async () => {
-  const r = await cli({ user: cfg({ bug: 'true' }), args: [] })
+  const r = await cli({ gate: '1', args: [] })
   assert.equal(r.status, 2, r.stderr)
   assert.match(r.stderr, /--in <file> or --root <id> is required/)
   assert.equal(r.requests, 0)
@@ -1542,7 +1506,7 @@ test('S24 the gh shim seam: the CLI files one issue through fake-gh with no --la
   const shim = join(PLUGIN, 'evals', 'retrospective', 'fake-gh.mjs')
   let ghDir = null
   const r = await cli({
-    user: cfg({ bug: 'true' }),
+    gate: '1',
     extraEnv: (sbx) => { ghDir = join(sbx.base, 'ghlog'); return { TASK_ORCHESTRATOR_GH_SHIM: shim, FAKE_GH_DIR: ghDir } },
   })
   assert.equal(r.status, 0, r.stderr)
@@ -1569,8 +1533,8 @@ const ROOT_ID = 'ce064d2c-7c03-4eac-ae7d-89a14c2ba273'
 const RUN_ID = 'r-202611200000-aaaaaaaa'
 const MEMBER = 'aaaaaaaa-1111-4111-8111-111111111111'
 const OBS = 'bbbbbbbb'
-const TRACKING = 'Outcome: done. defect: retro-trigger.mjs, hook, exit:1, the hook stopped; Friction: none'
-const TRACKED_FP = defectFingerprint({ component: 'plugin', tool: 'retro-trigger.mjs', op: 'hook', code: 'exit:1', message: 'the hook stopped' })
+const TRACKING = 'Outcome: done. defect: retro-trigger.mjs, PostToolUse, exit:1, the hook stopped; Friction: none'
+const TRACKED_FP = defectFingerprint({ component: 'plugin', tool: 'retro-trigger.mjs', op: 'PostToolUse', code: 'exit:1', message: 'the hook stopped' })
 function restHandler(tool, body) {
   if (tool === 'runs_read' && body.select === 'seats') return { seats: [{ itemId: MEMBER }] }
   if (tool === 'runs_read') return {}
@@ -1583,7 +1547,7 @@ const rootArgs = (...more) => ['--root', ROOT_ID, '--run', RUN_ID, ...more]
 const creates = (r) => r.ghCalls.filter((c) => c.argv[0] === 'issue' && c.argv[1] === 'create')
 
 test('S25 --root with --product gathers the named defect over REST and files it through the shim with no input file', async () => {
-  const r = await cli({ user: cfg({ bug: 'true' }), args: rootArgs('--product', `${TRACKED_FP}:${OBS}`), handler: restHandler, extraEnv: shimEnv })
+  const r = await cli({ gate: '1', args: rootArgs('--product', `${TRACKED_FP}:${OBS}`), handler: restHandler, extraEnv: shimEnv })
   assert.equal(r.status, 0, r.stderr)
   assert.equal(r.json.gate, 'ran')
   assert.equal(r.json.input, 'complete')
@@ -1595,14 +1559,14 @@ test('S25 --root with --product gathers the named defect over REST and files it 
   assert.equal(creates(r).length, 1)
 })
 test('S25 --product without an observation files the defect with a null observation', async () => {
-  const r = await cli({ user: cfg({ bug: 'true' }), args: ['--root', ROOT_ID, '--item', MEMBER, '--product', TRACKED_FP], handler: restHandler, extraEnv: shimEnv })
+  const r = await cli({ gate: '1', args: ['--root', ROOT_ID, '--item', MEMBER, '--product', TRACKED_FP], handler: restHandler, extraEnv: shimEnv })
   assert.equal(r.status, 0, r.stderr)
   assert.equal(r.json.results.length, 1)
   assert.equal(r.json.results[0].action, 'filed')
   assert.equal(r.json.results[0].observation, null)
 })
 test('S25 --root without --product files nothing: the gathered defect is skipped not-product', async () => {
-  const r = await cli({ user: cfg({ bug: 'true' }), args: rootArgs(), handler: restHandler, extraEnv: shimEnv })
+  const r = await cli({ gate: '1', args: rootArgs(), handler: restHandler, extraEnv: shimEnv })
   assert.equal(r.status, 0, r.stderr)
   assert.equal(r.json.gate, 'ran')
   assert.equal(r.json.results.length, 1)
@@ -1613,7 +1577,7 @@ test('S25 --root without --product files nothing: the gathered defect is skipped
 })
 test('S25 a --product naming another fingerprint leaves the gathered defect skipped not-product and reports the missing one as a gap', async () => {
   const other = 'to-bug-0badc0de'
-  const r = await cli({ user: cfg({ bug: 'true' }), args: rootArgs('--product', other), handler: restHandler, extraEnv: shimEnv })
+  const r = await cli({ gate: '1', args: rootArgs('--product', other), handler: restHandler, extraEnv: shimEnv })
   assert.equal(r.status, 0, r.stderr)
   assert.equal(creates(r).length, 0)
   assert.deepEqual(r.json.results.map((x) => [x.fingerprint, x.action, x.reason]), [[TRACKED_FP, 'skipped', 'not-product']])
@@ -1622,29 +1586,31 @@ test('S25 a --product naming another fingerprint leaves the gathered defect skip
 })
 test('S25 --root with members that carry no defect files nothing', async () => {
   const none = (tool, body) => (tool === 'notes_read' && body.key === 'session-tracking' ? { body: 'Outcome: done.' } : restHandler(tool, body))
-  const r = await cli({ user: cfg({ bug: 'true' }), args: rootArgs('--product', TRACKED_FP), handler: none, extraEnv: shimEnv })
+  const r = await cli({ gate: '1', args: rootArgs('--product', TRACKED_FP), handler: none, extraEnv: shimEnv })
   assert.equal(r.status, 0, r.stderr)
   assert.equal(r.json.results.length, 0)
   assert.equal(creates(r).length, 0)
 })
 test('S25 a member of another root is not gathered', async () => {
   const foreign = (tool, body) => (tool === 'items_read' ? { id: MEMBER, type: 'feature-task', rootId: '11111111-2222-4333-8444-555555555555' } : restHandler(tool, body))
-  const r = await cli({ user: cfg({ bug: 'true' }), args: rootArgs('--product', TRACKED_FP), handler: foreign, extraEnv: shimEnv })
+  const r = await cli({ gate: '1', args: rootArgs('--product', TRACKED_FP), handler: foreign, extraEnv: shimEnv })
   assert.equal(r.status, 0, r.stderr)
   assert.equal(creates(r).length, 0)
   assert.deepEqual(r.json.results, [])
+  assert.deepEqual(r.json.gaps, [{ section: 'root', reason: 'no_member' }, { section: 'product', reason: 'not_gathered', fingerprint: TRACKED_FP }])
+  assert.equal(r.json.input, 'partial')
 })
 test('S25 a failing REST read is a gap and the input is partial', async () => {
   const failing = (tool, body) => (tool === 'runs_read' ? { __error: 'internal' } : restHandler(tool, body))
-  const r = await cli({ user: cfg({ bug: 'true' }), args: ['--root', ROOT_ID, '--run', RUN_ID, '--item', MEMBER, '--product', TRACKED_FP], handler: failing, extraEnv: shimEnv })
+  const r = await cli({ gate: '1', args: ['--root', ROOT_ID, '--run', RUN_ID, '--item', MEMBER, '--product', TRACKED_FP], handler: failing, extraEnv: shimEnv })
   assert.equal(r.status, 0, r.stderr)
   assert.equal(r.json.gate, 'ran')
   assert.equal(r.json.input, 'partial')
-  assert.ok(r.json.gaps.length > 0)
-  assert.ok(r.json.gaps.every((g) => typeof g.section === 'string' && g.reason === 'internal'), JSON.stringify(r.json.gaps))
+  assert.deepEqual(r.json.gaps.filter((g) => g.section === 'members'), [{ section: 'members', reason: 'internal' }, { section: 'members', reason: 'internal' }])
+  assert.ok(r.json.gaps.every((g) => g.section === 'members' || g.section === 'product'), JSON.stringify(r.json.gaps))
 })
 test('S25 no API URL: gate ran, input unavailable with the gap, nothing filed, exit 0', async () => {
-  const r = await cli({ user: cfg({ bug: 'true' }), args: rootArgs('--product', TRACKED_FP), extraEnv: (sbx) => ({ ...shimEnv(sbx), TASK_ORCHESTRATOR_API_URL: '' }) })
+  const r = await cli({ gate: '1', args: rootArgs('--product', TRACKED_FP), extraEnv: (sbx) => ({ ...shimEnv(sbx), TASK_ORCHESTRATOR_API_URL: '' }) })
   assert.equal(r.status, 0, r.stderr)
   assert.equal(r.json.gate, 'ran')
   assert.equal(r.json.input, 'unavailable')
@@ -1653,8 +1619,8 @@ test('S25 no API URL: gate ran, input unavailable with the gap, nothing filed, e
   assert.equal(r.requests, 0)
   assert.equal(creates(r).length, 0)
 })
-test('S25 --root with the gate closed reads nothing: no request, no gh call, gate disabled', async () => {
-  const r = await cli({ user: cfg({ bug: 'false' }), args: rootArgs('--product', TRACKED_FP), handler: restHandler, extraEnv: shimEnv })
+test('S25 --root with the gate closed (a user config true, the variable unset) reads nothing: no request, no gh call, gate disabled', async () => {
+  const r = await cli({ user: cfg({ bug: 'true' }), args: rootArgs('--product', TRACKED_FP), handler: restHandler, extraEnv: shimEnv })
   assert.equal(r.status, 0, r.stderr)
   assert.equal(r.json.gate, 'disabled')
   assert.deepEqual(r.json.results, [])
@@ -1664,13 +1630,13 @@ test('S25 --root with the gate closed reads nothing: no request, no gh call, gat
   assert.equal(r.ghCalls.length, 0)
 })
 test('S25 --in and --root together exit 2', async () => {
-  const r = await cli({ user: cfg({ bug: 'true' }), args: ['--in', '<IN>', '--root', ROOT_ID] })
+  const r = await cli({ gate: '1', args: ['--in', '<IN>', '--root', ROOT_ID] })
   assert.equal(r.status, 2, r.stderr)
   assert.match(r.stderr, /--in and --root are mutually exclusive/)
   assert.equal(r.requests, 0)
 })
 test('S25 neither --in nor --root exits 2, and --run alone is not enough', async () => {
-  const r = await cli({ user: cfg({ bug: 'true' }), args: ['--run', RUN_ID] })
+  const r = await cli({ gate: '1', args: ['--run', RUN_ID] })
   assert.equal(r.status, 2, r.stderr)
   assert.match(r.stderr, /--in <file> or --root <id> is required/)
   assert.equal(r.requests, 0)
@@ -1693,8 +1659,161 @@ test('S25 a malformed --product exits 2 with a reason: fingerprint, observation,
   }
 })
 test('S25 a --root value that is not an item id exits 2 with a reason', async () => {
-  const r = await cli({ user: cfg({ bug: 'true' }), args: ['--root', 'not-an-id', '--run', RUN_ID] })
+  const r = await cli({ gate: '1', args: ['--root', 'not-an-id', '--run', RUN_ID] })
   assert.equal(r.status, 2, r.stderr)
   assert.match(r.stderr, /--root needs an item id/)
   assert.equal(r.requests, 0)
+})
+
+// -- S26 --------------------------------------------------------------------------------------------
+// Oracle: AC1, AC2. The library gate rows are S5; here the CLI reads the variable itself, and a config key is ignored.
+// SAFETY: PATH is the empty directory; no gh is reachable.
+for (const gate of ['', '0', 'true', 'TRUE', 'yes', ' 1', '1 ', '01']) {
+  test(`S26 CLI gate value ${JSON.stringify(gate)} stays disabled: no request, no state read`, async () => {
+    const r = await cli({ gate })
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(r.json.gate, 'disabled')
+    assert.equal(r.requests, 0)
+    assert.deepEqual(r.json.results, [])
+  })
+}
+test('S26 a user config bug_reports true with the variable unset stays disabled; false with 1 opens', async () => {
+  const a = await cli({ user: cfg({ bug: 'true' }), project: cfg({ bug: 'true' }) })
+  assert.equal(a.json.gate, 'disabled')
+  assert.equal(a.requests, 0)
+  const b = await cli({ user: cfg({ bug: 'false' }), gate: '1' })
+  assert.notEqual(b.json.gate, 'disabled')
+})
+test('S26 the library and the CLI source name no bug_reports key, config reader or user config path', () => {
+  const lib = read(PLUGIN, 'scripts', 'lib', 'bug-report.mjs')
+  assert.ok(!/bug_reports|userConfigPath|readSection/.test(lib))
+  const rp = read(PLUGIN, 'scripts', 'run-planner.mjs')
+  assert.ok(!rp.includes('bug_reports'))
+  assert.ok(!/OP_RE|CODE_RE|pluginToolNames/.test(lib + rp))
+})
+
+// -- S27 --------------------------------------------------------------------------------------------
+// Oracle: AC3 (the closed vocabulary): an off-list op reads op, an off-list code reads code, a tool that is not a key
+// reads tool; a value on the list files.
+test('S27 an off-list plugin op and an off-list code are refused, a listed pair files', async () => {
+  const cases = [
+    [script({ op: 'jeffsecret' }), 'not-qualifying:op'],
+    [script({ op: 'Bug-Report' }), 'not-qualifying:op'],
+    [script({ code: 'ContosoPayrollError' }), 'not-qualifying:code'],
+    [script({ code: 'exit:3' }), 'not-qualifying:code'],
+    [script({ tool: 'contoso.mjs' }), 'not-qualifying:tool'],
+    [script({ tool: 'constructor' }), 'not-qualifying:tool'],
+  ]
+  for (const [x, reason] of cases) {
+    const r = await run([x])
+    assert.equal(r.doc.results[0].reason, reason, JSON.stringify(x))
+    assert.equal(callsOf(r.calls, 'issue', 'create').length, 0)
+  }
+  const ok1 = await run([script({ op: 'plan', code: 'exit:0' })])
+  assert.equal(ok1.doc.results[0].action, 'filed')
+})
+test('S27 an op listed for one tool is not accepted for another', async () => {
+  const r = await run([script({ tool: '0x-y.mjs', op: 'plan' })])
+  assert.equal(r.doc.results[0].reason, 'not-qualifying:op')
+  const c = await run([script({ tool: 'a.mjs', code: 'exit:0' })])
+  assert.equal(c.doc.results[0].reason, 'not-qualifying:code')
+})
+
+// -- S28 --------------------------------------------------------------------------------------------
+// Oracle: AC4 (the shipped vocabulary file matches the plugin tree).
+const VOCAB_FILE = JSON.parse(readFileSync(join(PLUGIN, 'scripts', 'lib', 'bug-report-vocabulary.json'), 'utf8'))
+test('S28 every vocabulary key is an existing hook or script file and a plugin tool name', () => {
+  const keys = Object.keys(VOCAB_FILE.tools)
+  assert.ok(keys.length > 0)
+  for (const k of keys) {
+    assert.match(k, /^[a-z0-9][a-z0-9-]*\.mjs$/, k)
+    assert.ok(existsSync(join(PLUGIN, 'hooks', k)) || existsSync(join(PLUGIN, 'scripts', k)), `${k} exists under hooks or scripts`)
+  }
+})
+test('S28 each registered hook has an entry whose ops are exactly its registered events', () => {
+  const hooks = JSON.parse(readFileSync(join(PLUGIN, 'hooks', 'hooks-config.json'), 'utf8')).hooks
+  const events = {}
+  for (const [event, groups] of Object.entries(hooks)) {
+    for (const g of groups) for (const h of g.hooks) {
+      const file = /hooks\/([\w.-]+\.mjs)/.exec(h.command)[1]
+      ;(events[file] ??= new Set()).add(event)
+    }
+  }
+  assert.ok(Object.keys(events).length > 0)
+  for (const [file, set] of Object.entries(events)) {
+    assert.ok(VOCAB_FILE.tools[file], `${file} has an entry`)
+    assert.deepEqual([...VOCAB_FILE.tools[file].ops].sort(), [...set].sort(), file)
+  }
+})
+test('S28 run-planner ops equal its SUBCOMMANDS keys', () => {
+  const src = read(PLUGIN, 'scripts', 'run-planner.mjs')
+  const start = src.indexOf('const SUBCOMMANDS = {')
+  const block = src.slice(start, src.indexOf('\n};', start))
+  const keys = [...block.matchAll(/^ {2}(?:'([\w-]+)'|(\w+)):/gm)].map((m) => m[1] || m[2])
+  assert.ok(keys.length > 10)
+  assert.deepEqual([...VOCAB_FILE.tools['run-planner.mjs'].ops].sort(), [...keys].sort())
+})
+test('S28 ops and codes have the closed shape and name no environment code', () => {
+  const classes = ['Error', 'TypeError', 'RangeError', 'SyntaxError', 'ReferenceError']
+  for (const [k, e] of Object.entries(VOCAB_FILE.tools)) {
+    assert.ok(e.ops.length > 0 && e.codes.length > 0, k)
+    for (const op of e.ops) assert.match(op, /^[A-Za-z][A-Za-z0-9_-]{0,63}$/, `${k} op ${op}`)
+    for (const c of e.codes) {
+      assert.ok(/^exit:\d{1,3}$/.test(c) || classes.includes(c), `${k} code ${c}`)
+      assert.ok(!['network', 'unauthenticated', 'timeout', 'no_api', 'econnrefused', 'enotfound', 'etimedout', 'eai_again'].includes(c.toLowerCase()), `${k} code ${c}`)
+    }
+  }
+})
+
+// -- S29 --------------------------------------------------------------------------------------------
+// Oracle: AC5 (no user-facing surface). S17 holds the per-file absence checks for bug_reports and the consent
+// section; here the gate variable and the init consent hook are absent from every markdown the plugin ships.
+test('S29 the gate variable is in no markdown under the plugin skills, the docs or the evals', () => {
+  const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? (e.name === 'node_modules' ? [] : walk(join(dir, e.name))) : e.name.endsWith('.md') ? [join(dir, e.name)] : []))
+  const files = [...walk(join(PLUGIN, 'skills')), ...walk(join(REPO_ROOT, 'current', 'docs')), ...walk(join(PLUGIN, 'evals'))]
+  assert.ok(files.length > 10)
+  for (const f of files) assert.ok(!readFileSync(f, 'utf8').includes('TASK_ORCHESTRATOR_BUG_REPORTS'), f)
+})
+test('S29 init SKILL.md has no bug-report section or question', () => {
+  const init = read(PLUGIN, 'skills', 'init', 'SKILL.md')
+  assert.ok(!/^## Bug-report/m.test(init))
+  assert.ok(!/bug[- ]report/i.test(init))
+})
+
+// -- S30 --------------------------------------------------------------------------------------------
+// Oracle: AC7 and AC8 (the --root gap and the fingerprint rows), through the CLI with the shim as the only gh.
+test('S30 a valid --root matching no member, no --product: input partial with the root gap, results empty', async () => {
+  const foreign = (tool, body) => (tool === 'items_read' ? { id: MEMBER, type: 'feature-task', rootId: '11111111-2222-4333-8444-555555555555' } : restHandler(tool, body))
+  const r = await cli({ gate: '1', args: rootArgs(), handler: foreign, extraEnv: shimEnv })
+  assert.equal(r.status, 0, r.stderr)
+  assert.equal(r.json.gate, 'ran')
+  assert.equal(r.json.input, 'partial')
+  assert.deepEqual(r.json.gaps, [{ section: 'root', reason: 'no_member' }])
+  assert.deepEqual(r.json.results, [])
+})
+test('S30 a fingerprint named twice yields one result with the last observation and one create', async () => {
+  const r = await cli({ gate: '1', args: rootArgs('--product', `${TRACKED_FP}:aaaaaaaa`, '--product', `${TRACKED_FP}:${OBS}`), handler: restHandler, extraEnv: shimEnv })
+  assert.equal(r.status, 0, r.stderr)
+  assert.equal(r.json.results.length, 1)
+  assert.equal(r.json.results[0].observation, OBS)
+  assert.equal(creates(r).length, 1)
+})
+test('S30 the same fingerprint gathered from two members: one filed, one duplicate, one create', async () => {
+  const MEMBER2 = 'cccccccc-3333-4333-8333-333333333333'
+  const two = (tool, body) => {
+    if (tool === 'runs_read' && body.select === 'seats') return { seats: [{ itemId: MEMBER }, { itemId: MEMBER2 }] }
+    if (tool === 'items_read') return { id: body.itemId || MEMBER, type: 'feature-task', rootId: ROOT_ID }
+    return restHandler(tool, body)
+  }
+  const r = await cli({ gate: '1', args: rootArgs('--product', TRACKED_FP), handler: two, extraEnv: shimEnv })
+  assert.equal(r.status, 0, r.stderr)
+  assert.equal(creates(r).length, 1)
+  assert.deepEqual(r.json.results.map((x) => x.action).sort(), ['filed', 'skipped'])
+  assert.ok(r.json.results.some((x) => x.reason === 'duplicate'), JSON.stringify(r.json.results))
+})
+test('S30 the variable 1 with gh unreachable under --root: gh-unavailable, no create, exit 0', async () => {
+  const r = await cli({ gate: '1', args: rootArgs('--product', TRACKED_FP), handler: restHandler })
+  assert.equal(r.status, 0, r.stderr)
+  assert.equal(r.json.gate, 'gh-unavailable')
+  assert.equal(creates(r).length, 0)
 })
