@@ -328,7 +328,7 @@ class Skip extends Error {}
  *   - a claim from a dead session or a failed retrospective is retried (retro-retry), then given up
  *     (retro-failed, one nudge); a session holding the claim takes it over only on its own failure
  *     report, any other session after 20 minutes;
- *   - an unclaimed group that is due, owned by this session (or orphaned for 60 minutes) and not
+ *   - an unclaimed group that is due, owned by this session (or orphaned for 60 minutes in a project configured for dispatch) and not
  *     low-signal is claimed (retro-claim, first write wins on the anchor run) and dispatched; a
  *     low-signal group is marked retro-skipped + retro with no output.
  * First dispatch claims are limited to one per hour per session; retries are exempt. Returns
@@ -336,7 +336,7 @@ class Skip extends Error {}
  * and updates `state` (claims, lastDispatchAt, nudged) for the caller to persist. Fail-open: a read
  * error skips the group or the pass and writes nothing for it. No call starts 3500 ms after the pass began.
  */
-export async function evaluateScopes({ rootId, config, state, now = Date.now() }) {
+export async function evaluateScopes({ rootId, config, state, now = Date.now(), configuredMode = config.mode }) {
   const out = { won: [], nudge: [], failed: [], stale: [], fixCycle: {} };
   const t0 = Date.now();
   const dispatch = config.mode === 'dispatch';
@@ -532,9 +532,14 @@ export async function evaluateScopes({ rootId, config, state, now = Date.now() }
         if (g.dead) return deadStep(g) ? { g } : null;
         const due = await dueOf(g);
         if (!due.due) return null;
-        if (!due.stale && !ownedByThisSession(g)) {
-          const orphaned = now - due.since > OWNER_HOLD_MS;
-          if (!dispatch || !orphaned) return null;
+        if (!ownedByThisSession(g)) {
+          // Not this session's scope. An abandoned scope has no owner clock: only dispatch mode takes it
+          // (the claim mark makes it fire once); nudge mode leaves it to its owner. A completed scope is
+          // taken after 60 minutes only when the project's CONFIGURED mode is dispatch (a director's forced
+          // dispatch does not count).
+          if (due.stale) {
+            if (!dispatch) return null;
+          } else if (!dispatch || configuredMode !== 'dispatch' || now - due.since <= OWNER_HOLD_MS) return null;
         }
         return { g, due };
       } catch (e) {
@@ -702,8 +707,8 @@ export function buildNudge(runIds, opts = {}) {
   const sessionDir = sessionDirOf(isPlain(opts) ? opts.transcriptPath : undefined);
   const failed = isPlain(opts) && opts.failed === true;
   const tail =
-    `Skip if the feature still has items in progress, if background tasks or subagents are still ` +
-    `running (revisit once they finish), or if this was minor housekeeping.`;
+    `Skip if background tasks or subagents are still running (revisit once they finish), ` +
+    `or if this was minor housekeeping.`;
   if (list.length === 0) {
     const invoke = sessionDir ? `\`/session-retrospective --session-dir "${sessionDir}"\`` : '`/session-retrospective`';
     return `Retrospective suggested — an implementation run closed. ` +

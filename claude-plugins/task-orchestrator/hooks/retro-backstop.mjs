@@ -67,7 +67,7 @@ try {
 
   if (rootId) {
     const scope = config.boundary === 'scope';
-    const result = scope ? await evaluateScopes({ rootId, config, state }) : await evaluateRuns({ rootId, config, state });
+    const result = scope ? await evaluateScopes({ rootId, config, state, configuredMode: parsedConfig.mode }) : await evaluateRuns({ rootId, config, state });
     const text = directiveFor(result, located, { director, transcriptPath: hookInput.transcript_path });
     if (scope || result.nudge.length > 0) writeSessionState(sessionId, state);
     if (text) emitBlock(text);

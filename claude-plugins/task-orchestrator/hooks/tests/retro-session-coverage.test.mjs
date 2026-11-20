@@ -904,6 +904,7 @@ test('S13: a director session with REST skips the clean 2-item group: retro-skip
   await withFixture(fixtureOpts(sf, SCOPE_CFG({ mode: 'nudge' })), async ({ sbx, stop, fake }) => {
     const s = sid('s13a');
     markDirector(sbx, s);
+    ownRuns(sbx, s, [rid(1)]);
     assertSilentRun(await stop(stopPayload(s)));
     assertSkipped(fake, sf.runIds);
   });
@@ -914,10 +915,56 @@ test('S13: a director session is forced to dispatch even when the configured mod
   await withFixture(fixtureOpts(sf, SCOPE_CFG({ mode: 'nudge' })), async ({ sbx, stop }) => {
     const s = sid('s13b');
     markDirector(sbx, s);
+    ownRuns(sbx, s, [rid(1)]);
     const reason = assertDispatchBlock(await stop(stopPayload(s)), sf.runIds);
     assert.ok(!reason.includes('Retrospective suggested'), reason);
   });
 });
+
+// ---- ownership at the scope boundary (review fixes B1, O1, O6) -------------------------------------------
+
+test('O6a: a session that only OPENED a run of the scope owns the group at once (nudge mode, scope delivered 30 min ago)', async () => {
+  const sf = scopeFixture({ runs: 2, scopeChangedMs: 30 * MIN });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG({ mode: 'nudge' })), async ({ sbx, stop }) => {
+    const s = sid('o6a');
+    ownRuns(sbx, s, [rid(1)], 'opened');
+    const text = assertNudge(await stop(stopPayload(s)));
+    for (const id of sf.runIds) assert.ok(text.includes(`--run ${id}`), text);
+  });
+});
+
+test('O6b: nudge mode, abandoned scope: the owning session is nudged, a bystander is not', async () => {
+  const sf = scopeFixture({ runs: 2, scopeRole: 'work', closedMs: 8 * DAY, impl: [{ note: null }, { note: null }, { note: null }] });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG({ mode: 'nudge' })), async ({ sbx, stop }) => {
+    assertSilentRun(await stop(stopPayload(sid('o6b-bystander'))));
+    const owner = sid('o6b-owner');
+    ownRuns(sbx, owner, [rid(1)], 'opened');
+    assertNudge(await stop(stopPayload(owner)));
+  });
+});
+
+test('O6c: a director in a nudge-mode project does not take over an orphaned scope after 60 minutes; a dispatch-mode project does', async () => {
+  const sf = scopeFixture({ runs: 2, scopeChangedMs: 61 * MIN });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG({ mode: 'nudge' })), async ({ sbx, stop, fake }) => {
+    const s = sid('o6c-nudge');
+    markDirector(sbx, s);
+    assertSilentRun(await stop(stopPayload(s)));
+    assertNoMarks(fake);
+  });
+  await withFixture(fixtureOpts(sf, SCOPE_CFG({ mode: 'dispatch' })), async ({ sbx, stop }) => {
+    const s = sid('o6c-dispatch');
+    markDirector(sbx, s);
+    assertDispatchBlock(await stop(stopPayload(s)), sf.runIds);
+  });
+});
+
+function assertNudge(res) {
+  assert.equal(res.status, 0, res.stderr);
+  const text = res.json?.reason ?? contextOf(res);
+  assert.ok(text?.includes(NUDGE), res.stdout);
+  assert.ok(!text.includes(DISPATCH), text);
+  return text;
+}
 
 // ---- S16 (AC10): every REST failure fails open --------------------------------------------------------
 

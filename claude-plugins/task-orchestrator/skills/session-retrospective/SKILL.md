@@ -12,7 +12,7 @@ effort: medium
 
 Post-run analysis of five dimensions; findings persist in MCP, defects are routed to items, and trend memory turns repeated findings into improvement proposals. It runs unattended: it asks nobody anything; where an input is missing it states the assumption in the report and carries on.
 
-Call shapes: [`../_generated/call-shapes.md`](../_generated/call-shapes.md); read each write's `data.results[i]` (`ok`, `error.code`). Trigger mechanics: hooks README, "Retrospective trigger"; the grammar and thresholds behind the numbers: [`references/metrics.md`](references/metrics.md).
+Call shapes: [`../_generated/call-shapes.md`](../_generated/call-shapes.md); read each write's `data.results[i]` (`ok`, `error.code`). Trigger mechanics: hooks README, "Retrospective firing"; the grammar and thresholds behind the numbers: [`references/metrics.md`](references/metrics.md).
 
 - [ ] 0 Mode check, 1 Gather scope and run `retro-metrics`
 - [ ] 2 Aggregate, 3 Evaluate (3a-3f), 4 Trend memory
@@ -123,7 +123,7 @@ Then update the source trend: `effective` `cancel`s it (`summary: "archived: ver
 node "<helper>" retro-metrics --root <rootId> --run <runId> --session-dir "<dir>" --self-only
 ```
 
-Upsert the work note `actions-taken`: proposals (title, short id), bug items (short id, `created` or `evidence`), memory lines, the `bug-report` result `line`s, else its `gate` value (not complete without it), its `gaps` and a non-`complete` `input`, each global proposal's GitHub outcome (`filed <url>`, `linked existing <url>`, `github filing skipped: <reason>`), each project proposal's anchor, trends created, updated or retired, adopted proposals verified. Then the gate loop:
+Upsert the work note `actions-taken`: proposals (title, short id), bug items (short id, `created` or `evidence`), memory lines, the `bug-report` result `line`s, else its `gate` value (not complete without it), its `gaps` and a non-`complete` `input`, each product-scope proposal's GitHub outcome (`filed <url>`, `linked existing <url>`, `github filing skipped: <reason>`), each project proposal's anchor, trends created, updated or retired, adopted proposals verified. Then the gate loop:
 
 ```to-call
 {"tool": "items_read", "select": "context", "args": {"itemId": "<retro-uuid>"}}
