@@ -339,6 +339,7 @@
         "explain",
         "validate",
         "bind-run",
+        "snapshot",
         "retro-metrics",
         "bug-report",
         "next",
