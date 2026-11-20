@@ -1,0 +1,15 @@
+{
+  "id": "1-clean",
+  "title": "Clean feature: triage skips a small clean group, one directive for a bigger one, a clean retrospective files nothing",
+  "taskScopeMaxLength": 12000,
+  "bugReports": false,
+  "features": [
+    { "key": "A", "items": [{ "note": "clean" }, { "note": "clean" }], "runs": 2 },
+    { "key": "B", "items": [{ "note": "clean" }, { "note": "clean" }], "runs": 2 }
+  ],
+  "stages": [
+    { "id": "1-H1", "kind": "hook", "feature": "A", "minItems": 3, "checks": ["H1"] },
+    { "id": "1-H2", "kind": "hook", "feature": "B", "minItems": 1, "other": ["A"], "checks": ["H2"] },
+    { "id": "1-L1", "kind": "live", "features": ["B"], "prompt": "directive", "checks": ["L1"] }
+  ]
+}
