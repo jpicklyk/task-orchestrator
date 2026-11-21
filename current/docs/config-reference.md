@@ -300,9 +300,10 @@ does not compute or store it. Only content declared in the per-root document is 
 resolution and comparison only. The checks: a seat that owns no note of its phase (for `orchestrator`, a note labelled for it in any phase counts); an optional note with no seat on a
 schema or trait that declares seats (a required unseated note keeps its parser warning); the same guidance on several
 notes; a per-root type or trait that shadows a server one (with what differs); a trait with no `applies_when`; a seat
-`rules` entry the root does not serve; a seat `skills` entry or note `skill` that names a served rule; an optional note
-(or a required trait note no schema here lists) whose `seat` no seat owns; an `independent_of` or seat `after` name no seat
-declares; a trait `dispatch` seat override no seat declares for its phase. Every finding is
+`rules` entry the root does not serve; a seat `skills` entry or note `skill` that names a served rule; on a schema or trait that declares seats, an optional
+note (or a required trait note no schema here lists) whose `seat` no seat of its phase owns (`orchestrator` in any phase),
+and an `independent_of` or seat `after` name no seat declares; a trait `dispatch` seat override no seat declares for its
+phase. Every finding is
 a point to consider, not a defect.
 
 ## Parse modes
