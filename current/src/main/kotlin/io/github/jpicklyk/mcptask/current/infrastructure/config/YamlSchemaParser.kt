@@ -17,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.LaneOutput
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.OwningSeat
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
@@ -693,7 +694,8 @@ internal object YamlSchemaParser {
      * default traits' notes, base-key-wins — the same-document counterpart of resolve-time trait
      * merging) whose `seat` is null, or does not name a seat of the SAME phase as the note's `role`
      * — such a note is served under the `unowned` bucket in `missingBySeat` (see
-     * `io.github.jpicklyk.mcptask.current.application.service.SeatOwnership`). A no-op when
+     * `io.github.jpicklyk.mcptask.current.application.service.SeatOwnership`; the rule is
+     * [io.github.jpicklyk.mcptask.current.domain.model.OwningSeat]). A no-op when
      * [effectiveSeats] is empty (the schema isn't seat-aware).
      */
     private fun warnUnownedRequiredNotes(
@@ -721,8 +723,7 @@ internal object YamlSchemaParser {
 
         for (note in combinedNotes) {
             if (!note.required) continue
-            val owned = effectiveSeats.any { it.name == note.seat && it.phase == note.role }
-            if (!owned) {
+            if (OwningSeat.of(note, effectiveSeats) == null) {
                 warnings.advisory(
                     schemaPath,
                     "Schema '$schemaName': required note '${note.key}' (role '${note.role.name.lowercase()}') is " +

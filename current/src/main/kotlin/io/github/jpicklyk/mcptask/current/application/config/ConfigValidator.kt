@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.config
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.OwningSeat
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
@@ -178,7 +179,7 @@ class ConfigValidator(
         fun owns(
             seat: SeatDefinition,
             notes: List<NoteSchemaEntry>,
-        ): Boolean = notes.any { it.seat == seat.name && it.role == seat.phase }
+        ): Boolean = OwningSeat.keysOf(seat.name, notes, listOf(seat)).isNotEmpty()
 
         fun seatChecks(
             seats: List<SeatDefinition>,

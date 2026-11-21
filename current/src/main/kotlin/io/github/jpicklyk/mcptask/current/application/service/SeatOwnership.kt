@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.domain.model.OwningSeat
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 
 /**
@@ -20,10 +21,9 @@ const val UNOWNED_SEAT_BUCKET = "unowned"
  * a seat-less schema never serves a `missingBySeat` key (byte-identity with pre-A1 responses).
  * Returns an empty map (never `null`) when [schema] is seat-aware but [missingKeys] is empty.
  *
- * A key's owner is the [io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry] (looked up
- * by key in [WorkItemSchema.notes]) whose `seat` names a [WorkItemSchema.seats] entry of the SAME
- * `phase` as the note's own `role`; any other case — no declared seat, an unknown seat name, or a
- * phase mismatch — buckets the key under [UNOWNED_SEAT_BUCKET].
+ * A key's owner is its [OwningSeat] (the entry is looked up by key in [WorkItemSchema.notes]); a key
+ * with no owning seat — no declared seat, an unknown seat name, or a phase mismatch — buckets under
+ * [UNOWNED_SEAT_BUCKET].
  *
  * Buckets are non-empty only, ordered by [WorkItemSchema.seats]' merged order with
  * [UNOWNED_SEAT_BUCKET] always last; keys within a bucket keep [missingKeys]' own order.
@@ -36,7 +36,6 @@ fun computeMissingBySeat(
     if (missingKeys.isEmpty()) return emptyMap()
 
     val notesByKey = schema.notes.associateBy { it.key }
-    val seatsByName = schema.seats.associateBy { it.name }
 
     // Seed buckets in merged-seat order so non-empty ones surface in that order once filtered below.
     val buckets = LinkedHashMap<String, MutableList<String>>()
@@ -44,10 +43,9 @@ fun computeMissingBySeat(
     val unowned = mutableListOf<String>()
 
     for (key in missingKeys) {
-        val entry = notesByKey[key]
-        val seatDef = entry?.seat?.let { seatsByName[it] }
-        if (entry != null && seatDef != null && seatDef.phase == entry.role) {
-            buckets.getOrPut(seatDef.name) { mutableListOf() }.add(key)
+        val owner = OwningSeat.of(notesByKey[key], schema.seats)
+        if (owner != null) {
+            buckets.getOrPut(owner) { mutableListOf() }.add(key)
         } else {
             unowned.add(key)
         }

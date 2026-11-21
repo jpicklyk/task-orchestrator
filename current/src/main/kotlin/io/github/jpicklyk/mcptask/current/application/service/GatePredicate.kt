@@ -194,18 +194,17 @@ object GatePredicate {
         return result
     }
 
-    /** Every FILLED note owned (by resolved schema entry) by [seat], excluding the note keyed [excludeKey]. */
+    /**
+     * Every FILLED note owned by [seat] ([io.github.jpicklyk.mcptask.current.domain.model.OwningSeat]), excluding the
+     * note keyed [excludeKey].
+     */
     private fun filledNotesForSeat(
         schema: WorkItemSchema,
         notes: List<Note>,
         seat: String,
         excludeKey: String
     ): List<Note> {
-        val keysForSeat =
-            schema.notes
-                .filter { it.seat == seat && (schema.seats.isEmpty() || schema.seats.any { s -> s.name == seat && s.phase == it.role }) }
-                .map { it.key }
-                .toSet()
+        val keysForSeat = schema.noteKeysOwnedBy(seat)
         if (keysForSeat.isEmpty()) return emptyList()
         return notes.filter { it.key in keysForSeat && it.key != excludeKey && it.body.isNotBlank() }
     }

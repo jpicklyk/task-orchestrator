@@ -43,6 +43,12 @@ data class WorkItemSchema(
     /** True when this (already trait-merged, if applicable) schema declares any seats at all. */
     fun isSeatAware(): Boolean = seats.isNotEmpty()
 
+    /** The seat owning the note keyed [key] in this schema (see [OwningSeat]), or null (unowned, or no such note). */
+    fun owningSeatOf(key: String): String? = OwningSeat.of(notes.firstOrNull { it.key == key }, seats)
+
+    /** Keys of the notes owned by [seat] in this schema (see [OwningSeat.keysOf]). */
+    fun noteKeysOwnedBy(seat: String): Set<String> = OwningSeat.keysOf(seat, notes, seats)
+
     /** [seats] filtered to the given [role], in declared/merged order. */
     fun seatsForRole(role: Role): List<SeatDefinition> = seats.filter { it.phase == role }
 }
