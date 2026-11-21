@@ -229,6 +229,15 @@ test('S11: a mention glued to a letter or digit does not name the id; a trailing
   assert.equal(named('see ' + RUN_A8.slice(0, 7), [RUN_A]), false);
 });
 
+test('S17: a mention names the id after a dashed fragment (hex or date) or after a dashed prefix of a UUID; letters adjacent still do not', () => {
+  assert.equal(named('bad-' + RUN_A8, [RUN_A]), true);
+  assert.equal(named('2026-11-21-' + RUN_A8, [RUN_A]), true);
+  assert.equal(named('ab-' + RUN_A, [RUN_A]), true);
+  assert.equal(named('xa' + RUN_A8.slice(1), [RUN_A]), false);
+  assert.equal(named('x' + RUN_A8, [RUN_A]), false);
+  assert.equal(named(RUN_A8 + 'x', [RUN_A]), false);
+});
+
 test('S12: another id, a null observation, no text and an empty or blank id list name nothing', () => {
   assert.equal(named('see deadbeef', [RUN_A]), false);
   assert.equal(observationNamesGroup(null, [RUN_A], [LABEL]), false);
