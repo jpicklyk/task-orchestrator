@@ -250,7 +250,9 @@ export function contextOf(res) {
  * instants (a server mark is stamped with the time of the write). scopeId '' is written as ''. status is
  * 'closed' (default), 'open' or 'paused'; closedAt / terminalReason are written for a closed run only.
  * seats: [{ itemId, seat? }] answered by runs_read seats (ended seats; ended:true is honoured).
- * init.items: [{ id, type, role, parent?, roleChangedAt?, createdAt? }] answered by items_read get / list.
+ * init.items: [{ id, type, role, parent?, roleChangedAt?, createdAt?, title?, summary? }] answered by items_read get /
+ * list. title (a string) is the view's title (default `item <last 4 of id>`); summary (a string) is answered only by an
+ * items_read list whose body names 'summary' in its `fields` array, never by get or by a list without it.
  * init.notes: { [itemId]: { [key]: body } } answered by notes_read get; an absent note is 404 not_found.
  * init.behavior: {
  *   list: 'ok' | 'http500' | 'badjson' | 'hang',
@@ -317,8 +319,10 @@ export async function startFakeRuns(init = {}) {
   const findRun = (id) => runs.find((x) => typeof id === 'string' && (x.runId === id || x.runId.startsWith(id)));
   const findItem = (id) => items.find((x) => typeof id === 'string' && (x.id === id || x.id.startsWith(id)));
   const sameItemId = (full, given) => typeof given === 'string' && given.length > 0 && full.startsWith(given);
-  const itemView = (i, short = false) => {
-    const v = { id: short ? i.id.slice(0, 8) : i.id, type: i.type, role: i.role, title: `item ${i.id.slice(-4)}`, version: 1 };
+  const itemView = (i, short = false, withSummary = false) => {
+    const title = typeof i.title === 'string' ? i.title : `item ${i.id.slice(-4)}`;
+    const v = { id: short ? i.id.slice(0, 8) : i.id, type: i.type, role: i.role, title, version: 1 };
+    if (withSummary && typeof i.summary === 'string') v.summary = i.summary;
     if (i.parent) v.parentId = short ? i.parent.slice(0, 8) : i.parent;
     if (i.createdAt) v.createdAt = i.createdAt;
     if (i.roleChangedAt) v.roleChangedAt = i.roleChangedAt;
@@ -434,7 +438,8 @@ export async function startFakeRuns(init = {}) {
       if (typeof b.createdAfter === 'string') rows = rows.filter((i) => i.createdAt && Date.parse(i.createdAt) >= Date.parse(b.createdAfter));
       const total = rows.length;
       if (Number.isInteger(b.limit)) rows = rows.slice(0, b.limit);
-      const out = rows.map((i) => itemView(i, true));
+      const withSummary = Array.isArray(b.fields) && b.fields.includes('summary');
+      const out = rows.map((i) => itemView(i, true, withSummary));
       return send(res, 200, okEnvelope({ items: out, page: { total, truncated: out.length < total } }));
     }
 

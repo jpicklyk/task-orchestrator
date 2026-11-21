@@ -292,6 +292,51 @@ const sameId = (a, b) => {
   return x !== '' && y !== '' && (x.startsWith(y) || y.startsWith(x));
 };
 
+// A hex mention is a UUID (8-4-4-4-12) or else a maximal run of hex characters; a dash beside a run is
+// punctuation, so "bad-a1c0d3bf" and "a1c0d3bf-a1" both hold the mention a1c0d3bf.
+const HEX_MENTION = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]+/g;
+const isWordCh = (c) => c !== undefined && /[A-Za-z0-9]/.test(c);
+
+/**
+ * True when an observation's title or summary names the group: a mention of one of groupIds (8-32 hex
+ * characters or a UUID, no letter or digit glued on either side, compared by the sameId prefix rule) or a
+ * whole-token, case-insensitive literal mention of a groupLabels entry of 8 or more characters.
+ */
+export function observationNamesGroup(observation, groupIds = [], groupLabels = []) {
+  if (!isPlain(observation)) return false;
+  const parts = [];
+  if (typeof observation.title === 'string') parts.push(observation.title);
+  if (typeof observation.summary === 'string') parts.push(observation.summary);
+  const text = parts.join('\n');
+  if (text === '') return false;
+  const ids = (Array.isArray(groupIds) ? groupIds : []).filter((v) => typeof v === 'string' && idKey(v) !== '');
+  if (ids.length > 0) {
+    for (const m of text.matchAll(HEX_MENTION)) {
+      const tok = m[0];
+      const key = idKey(tok);
+      if (key.length < 8 || key.length > 32) continue;
+      if (isWordCh(text[m.index - 1]) || isWordCh(text[m.index + tok.length])) continue;
+      if (ids.some((id) => sameId(id, key))) return true;
+    }
+  }
+  const lower = text.toLowerCase();
+  for (const label of Array.isArray(groupLabels) ? groupLabels : []) {
+    if (typeof label !== 'string' || label.length < 8) continue;
+    const needle = label.toLowerCase();
+    let from = 0;
+    for (;;) {
+      const at = lower.indexOf(needle, from);
+      if (at < 0) break;
+      const before = lower[at - 1];
+      const after = lower[at + needle.length];
+      const bad = (c) => c !== undefined && /[a-z0-9_-]/.test(c);
+      if (!bad(before) && !bad(after)) return true;
+      from = at + 1;
+    }
+  }
+  return false;
+}
+
 /** The anchor ordering of runs: earliest openedAt first, ties by runId ascending. */
 function byOpened(a, b) {
   const d = (instantMs(a.openedAt) || 0) - (instantMs(b.openedAt) || 0);
@@ -522,14 +567,18 @@ export async function evaluateScopes({ rootId, config, state, now = Date.now(), 
         if (seen.size > TRIAGE_ITEM_CAP) return false;
         items = await Promise.all([...seen].map((id) => getItem(id)));
       }
+      const groupIds = [...g.runs.map((r) => r.runId), g.scopeId, ...items.map((it) => (isPlain(it) ? it.id : undefined))].filter((v) => typeof v === 'string');
+      const groupLabels = g.runs.map((r) => r.label).filter((v) => typeof v === 'string');
       items = items.filter((it) => isPlain(it) && !NON_IMPL_TYPES.has(it.type));
       if (items.filter((it) => it.role === 'terminal').length >= config.minItems) return false;
       const openedMs = Math.min(...g.runs.map((r) => instantMs(r.openedAt)).filter((n) => !Number.isNaN(n)));
       if (Number.isFinite(openedMs)) {
-        // One row is the signal: a page that says more rows exist (truncated) is a signal too.
-        const obs = await read('items_read', { select: 'list', type: 'agent-observation', createdAfter: new Date(openedMs).toISOString(), limit: 1 });
+        // A row naming the group (a run, its scope or one of its items, by title or summary) is the signal;
+        // a full page that says more rows exist (truncated) is a signal too.
+        const obs = await read('items_read', { select: 'list', type: 'agent-observation', createdAfter: new Date(openedMs).toISOString(), limit: SCOPE_LIST_LIMIT, fields: ['summary'], sort: 'createdAt', order: 'asc' });
         if (!Array.isArray(obs.items)) throw new Skip('page');
-        if (obs.items.length > 0) return false;
+        if (obs.items.some((o) => observationNamesGroup(o, groupIds, groupLabels))) return false;
+        if (obs.page && obs.page.truncated === true) return false;
       }
       if (items.length > TRIAGE_ITEM_CAP) return false;
       const clean = await Promise.all(
