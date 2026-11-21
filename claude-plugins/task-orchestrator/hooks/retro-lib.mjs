@@ -292,7 +292,9 @@ const sameId = (a, b) => {
   return x !== '' && y !== '' && (x.startsWith(y) || y.startsWith(x));
 };
 
-const HEX_RUN = /[0-9a-fA-F-]{8,36}/g;
+// A hex mention is a UUID (8-4-4-4-12) or else a maximal run of hex characters; a dash beside a run is
+// punctuation, so "bad-a1c0d3bf" and "a1c0d3bf-a1" both hold the mention a1c0d3bf.
+const HEX_MENTION = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]+/g;
 const isWordCh = (c) => c !== undefined && /[A-Za-z0-9]/.test(c);
 
 /**
@@ -309,22 +311,11 @@ export function observationNamesGroup(observation, groupIds = [], groupLabels = 
   if (text === '') return false;
   const ids = (Array.isArray(groupIds) ? groupIds : []).filter((v) => typeof v === 'string' && idKey(v) !== '');
   if (ids.length > 0) {
-    for (const m of text.matchAll(HEX_RUN)) {
-      let tok = m[0];
-      const start = m.index;
-      // Trim dashes at the edges (a "-a1" suffix or a leading dash is punctuation, not part of the id).
-      let lead = 0;
-      while (tok.startsWith('-')) { tok = tok.slice(1); lead++; }
-      while (tok.endsWith('-')) tok = tok.slice(0, -1);
-      // A trailing dashed fragment that is not a UUID shape: keep the longest leading hex run.
-      if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(tok)) {
-        const h = tok.match(/^[0-9a-fA-F]+/);
-        tok = h ? h[0] : '';
-      }
+    for (const m of text.matchAll(HEX_MENTION)) {
+      const tok = m[0];
       const key = idKey(tok);
       if (key.length < 8 || key.length > 32) continue;
-      const s = start + lead;
-      if (isWordCh(text[s - 1]) || isWordCh(text[s + tok.length])) continue;
+      if (isWordCh(text[m.index - 1]) || isWordCh(text[m.index + tok.length])) continue;
       if (ids.some((id) => sameId(id, key))) return true;
     }
   }

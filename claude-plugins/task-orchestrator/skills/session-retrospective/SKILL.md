@@ -10,7 +10,7 @@ effort: medium
 
 # Session Retrospective
 
-Post-run analysis of five dimensions; findings persist in MCP, defects are routed to items, and trend memory turns repeated findings into proposals. It runs unattended: it asks nobody; a missing input becomes a stated assumption in the report.
+Post-run analysis of five dimensions; findings persist in MCP, defects are routed to items, and trend memory turns repeated findings into proposals. It runs unattended: it asks nobody and carries on, stating a missing input as an assumption in the report.
 
 Call shapes: [`../_generated/call-shapes.md`](../_generated/call-shapes.md); read each write's `data.results[i]` (`ok`, `error.code`). Trigger mechanics: hooks README, "Retrospective firing"; the grammar and thresholds: [`references/metrics.md`](references/metrics.md).
 
@@ -36,7 +36,7 @@ Gate loop, before every `advance`: read the gate (`items_read` `context`), fill 
 
 **Notes.** Per item (20 at most) `get` `session-tracking` only (delegation figures: `delegations[]`). Defect inputs:
 
-- **Observations:** `list` `type: agent-observation`, `createdAfter` the earliest run `openedAt` (no `--run`: earliest in-scope `createdAt`, else now minus 24h), `fields: ["summary"]`, `limit: 200` (follow `page.next`); keep only a row whose title or summary names an in-scope id (a run id, a run label of 8 or more characters, the `scopeId` or a member; 8 hex characters compared); skip `retro-reported`; `get` `observation-detail` (20 at most).
+- **Observations:** `list` `type: agent-observation`, `createdAfter` the earliest run `openedAt` (no `--run`: earliest in-scope `createdAt`, else now minus 24h), `fields: ["summary"]`, `limit: 200`; keep only rows whose title or summary names an in-scope id (8 hex compared; run labels of 8 or more characters count); skip `retro-reported`; `get` `observation-detail` (20 at most).
 - **Review record:** only items with a fix cycle (`after A<n>`) or Deviations or Friction not `none` (at most 10): `get` `orchestrator-confirmation`; for its `follow-up` and `accepted:` lines read the findings register once (`review-checklist`, else the first review note).
 
 **Numbers.** Run the metrics command once (helper resolved as in the run-wave SKILL.md, Step 0) and read every figure from its JSON:
@@ -45,7 +45,7 @@ Gate loop, before every `advance`: read the gate (`items_read` `context`), fill 
 node "<helper>" retro-metrics --root <rootId> --run <runId> [--run <runId>]... [--session-dir "<dir>"]
 ```
 
-A `measured: false` document or section is a gap: say so. No items in scope, or no `session-tracking` note: exit with `No implementation run data found. Nothing to retrospect.`
+A `measured: false` document or section is a gap: say so and carry on. No items in scope, or no `session-tracking` note: exit with `No implementation run data found. Nothing to retrospect.`
 
 ## Step 2 - Aggregate
 
@@ -57,7 +57,7 @@ Score five dimensions, rules in [`references/evaluation.md`](references/evaluati
 
 ## Step 4 - Trend Memory
 
-Global trends sit under the process-global `Retrospective Trends` container, a depth-0 root item (found, like the other two containers, by unscoped `items_read` `search` for the exact title, keeping the hit with no parent); a project's under its own `Retrospective Trends` container, tagged `project-<root8>`. No container and `memory/retrospectives.md` holds `- <kebab-key>: ...` lines: run [`references/legacy-trend-migration.md`](references/legacy-trend-migration.md) first; neither: every finding is a new baseline. Otherwise list the global trends and, with a project root, the project trends (`Sessions: N` in each summary): a `project` finding matches only the project list, any other only the global list. Matching: [`references/routing.md`](references/routing.md).
+Global trends sit under the process-global `Retrospective Trends` container, a depth-0 root item (found, like the other two containers, by unscoped `items_read` `search` for the exact title, keeping only the hit with no parent); a project's under its own `Retrospective Trends` container, tagged `project-<root8>`. No container and `memory/retrospectives.md` holds `- <kebab-key>: ...` lines: run [`references/legacy-trend-migration.md`](references/legacy-trend-migration.md) first; neither: every finding is a new baseline. Otherwise list the global trends and, with a project root, the project trends (`Sessions: N` in each summary): a `project` finding matches only the project list, any other only the global list. Matching: [`references/routing.md`](references/routing.md).
 
 ## Step 5 - Persist
 
@@ -89,7 +89,7 @@ Scope is its trend's: a `project-*` tag is project scope (`project-specific`); a
 ```
 
 ### 7c. GitHub issues (product-scope proposals only)
-Files only a proposal whose `Scope:` is `product`. Best-effort: a failure is a one-line reason. Gate, guard, dedup, template, record-back: [`../_shared/github-feedback.md`](../_shared/github-feedback.md).
+Files only a proposal whose `Scope:` is `product`. Best-effort: a failure is a one-line reason, the retrospective continues. Gate, guard, dedup, template, record-back: [`../_shared/github-feedback.md`](../_shared/github-feedback.md).
 
 ## Step 8 - Meta-Evaluation
 
@@ -123,7 +123,7 @@ Then the source trend: `effective` `cancel`s it (`summary: "archived: verified e
 node "<helper>" retro-metrics --root <rootId> --run <runId> --session-dir "<dir>" --self-only
 ```
 
-Upsert the work note `actions-taken`: proposals (title, short id), bug items (short id, `created` or `evidence`), memory lines, the `bug-report` result `line`s, else its `gate` value (not complete without it), its `gaps` and a non-`complete` `input`, each product-scope proposal's GitHub outcome (`filed <url>`, `linked existing <url>`, `github filing skipped: <reason>`), each project proposal's anchor, trends created, updated or retired, proposals verified. Then the gate loop:
+Upsert the work note `actions-taken`: proposals (title, short id), bug items (short id, `created` or `evidence`), memory lines, the `bug-report` result `line`s, else its `gate` value (not complete without it), its `gaps` and a non-`complete` `input`, each product-scope proposal's GitHub outcome (`filed <url>`, `linked existing <url>`, `github filing skipped: <reason>`), each project proposal's anchor, trends created, updated or retired, adopted proposals verified. Then the gate loop:
 
 ```to-call
 {"tool": "items_read", "select": "context", "args": {"itemId": "<retro-uuid>"}}
@@ -139,7 +139,7 @@ Mark the runs (`--run` scope only):
 node "${CLAUDE_PLUGIN_ROOT}/hooks/retro-ack.mjs" --run <runId> [--run <runId>]...
 ```
 
-Report its lines. An unexpanded `${CLAUDE_PLUGIN_ROOT}` skips the step; `not marked ...` and `mark failed` lines are no errors.
+Report its lines. An unexpanded `${CLAUDE_PLUGIN_ROOT}` skips the step; `not marked ...` and `mark failed` lines are not errors.
 
 ## Step 9 - Report
 
