@@ -692,7 +692,7 @@ internal object YamlSchemaParser {
      * DEC-11 (A1a W5): in a schema whose effective seats (its own + its SAME-DOCUMENT default
      * traits' seats) are non-empty, warns for every REQUIRED note (the schema's own notes + its
      * default traits' notes, base-key-wins — the same-document counterpart of resolve-time trait
-     * merging) whose `seat` is null, or does not name a seat of the SAME phase as the note's `role`
+     * merging) whose `seat` is null, or does not name a seat of the SAME phase as the note's `role` (the orchestrator seat matches in any phase)
      * — such a note is served under the `unowned` bucket in `missingBySeat` (see
      * `io.github.jpicklyk.mcptask.current.application.service.SeatOwnership`; the rule is
      * [io.github.jpicklyk.mcptask.current.domain.model.OwningSeat]). A no-op when

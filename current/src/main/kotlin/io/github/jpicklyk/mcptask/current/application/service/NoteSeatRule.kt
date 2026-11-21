@@ -15,7 +15,7 @@ import java.util.UUID
  * one is [SeatVerdict.Refuse], and a write outside the rule's scope is [SeatVerdict.Defer] (rule 3 decides).
  *
  * A key's owner seat is its [OwningSeat] (as in [computeMissingBySeat]); any other key (no seat, an undeclared or
- * other-phase seat, an off-schema key) is unowned and defers here (rule 3 decides).
+ * other-phase non-orchestrator seat, an off-schema key) is unowned and defers here (rule 3 decides).
  */
 object NoteSeatRule {
     /**

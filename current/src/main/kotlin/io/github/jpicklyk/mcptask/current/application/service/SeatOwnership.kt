@@ -6,7 +6,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 /**
  * Reserved seat-bucket name for a required note with no owning seat (DEC-11): a note whose
  * [io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry.seat] is null, names a seat the
- * schema does not declare, or names a seat declared for a DIFFERENT phase than the note's own
+ * schema does not declare, or names a non-orchestrator seat declared for a DIFFERENT phase than the note's own
  * [io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry.role]. A seat may never be named
  * this (a load-time structural error — `YamlSchemaParser.parseRoot`'s F3 check).
  */
@@ -22,7 +22,7 @@ const val UNOWNED_SEAT_BUCKET = "unowned"
  * Returns an empty map (never `null`) when [schema] is seat-aware but [missingKeys] is empty.
  *
  * A key's owner is its [OwningSeat] (the entry is looked up by key in [WorkItemSchema.notes]); a key
- * with no owning seat — no declared seat, an unknown seat name, or a phase mismatch — buckets under
+ * with no owning seat — no declared seat, an unknown seat name, or a phase mismatch (the orchestrator seat matches in any phase) — buckets under
  * [UNOWNED_SEAT_BUCKET].
  *
  * Buckets are non-empty only, ordered by [WorkItemSchema.seats]' merged order with

@@ -26,7 +26,8 @@ package io.github.jpicklyk.mcptask.current.domain.model
  * Seat names are opaque to the server, with two exceptions: the reserved bucket name `unowned` (see
  * [io.github.jpicklyk.mcptask.current.application.service.UNOWNED_SEAT_BUCKET]), which a seat may never be named (a
  * load-time structural error), and [COORDINATOR_WRITABLE_SEAT] (`orchestrator`), the one seat whose note keys a run's
- * coordinator token may write.
+ * coordinator token may write, and whose labelled notes it owns in any phase it is declared (see
+ * [OwningSeat]); every other seat owns only notes of its own phase.
  *
  * @property name Seat identifier, unique within its declaring scope (a load-time structural error
  *   otherwise — see `YamlSchemaParser.parseRoot`'s F1-F5 checks).

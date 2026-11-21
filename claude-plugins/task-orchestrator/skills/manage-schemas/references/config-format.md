@@ -541,7 +541,7 @@ A per-root trait entry replaces the server's entry of the same name as a whole, 
 
 | Field | Required | Type | Notes |
 |-------|----------|------|-------|
-| `seat` | no | string | The seat (by name) that owns this note. Determines which bucket a missing required note lands in under `missingBySeat` - see "The `unowned` bucket". A note with no `seat`, a `seat` naming an undeclared seat, or a `seat` declared for a *different* phase than the note's own `role`, is `unowned`. |
+| `seat` | no | string | The seat (by name) that owns this note. Determines which bucket a missing required note lands in under `missingBySeat` - see "The `unowned` bucket". A note with no `seat`, a `seat` naming an undeclared seat, or a `seat` (other than `orchestrator`) declared for a *different* phase than the note's own `role`, is `unowned`; the `orchestrator` seat owns its labelled notes in any phase. |
 | `independent_of` | no | list of strings | Seat names this note's authoring must stay independent of (e.g. a test-author's `test-manifest` staying independent of the `implementer` seat). Enforced by the attestation gate - see "Independence (A2)". |
 
 ### Seat transitions
@@ -649,13 +649,13 @@ malformed seat entries - a missing or blank `name`, an invalid or missing `phase
 (see [Strict validation](../../../../../current/docs/config-reference.md#strict-validation)).
 
 An advisory warning, which never rejects a push, covers a schema whose effective seats are non-empty
-and which has a **required** note whose `seat` is null or names no seat of the same phase: the note is
+and which has a **required** note whose `seat` is null or names no seat of the same phase (the `orchestrator` seat matches in any phase): the note is
 served under `unowned` in `missingBySeat`.
 
 ### The `unowned` bucket
 
 A required note that has no seat owning it - no `seat` declared, an unknown seat name, or a `seat`
-declared for a different phase than the note's own `role` - is served under the reserved
+declared for a different phase than the note's own `role` (the `orchestrator` seat is exempt: it owns its labelled notes in any phase) - is served under the reserved
 `"unowned"` key in `missingBySeat` (see `api-reference.md` and `api-rest.md` for the response shape).
 This is deliberate, not an error: it lets an orchestrator see at a glance which missing notes have no
 seat routing at all, so a schema can be seat-aware for *some* notes while others stay unowned.

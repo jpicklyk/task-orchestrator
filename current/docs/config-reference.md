@@ -85,7 +85,7 @@ A seat in `work_item_schemas.<type>.seats` (or a trait's `seats`) may list `tran
   paused) and whose pinned schema declares seats. Outside a run they stay an orchestration signal. A refusal is
   `seat_forbidden` (see [`advance`](api-reference.md#advance)).
 - **The `orchestrator` seat.** A seat named `orchestrator` is the one seat whose note keys a run's coordinator token may
-  write; every other seat-owned key needs that seat's own token (a human credential is exempt).
+  write; every other seat-owned key needs that seat's own token (a human credential is exempt). It owns the notes labelled for it in any phase it is declared, not only its own phase.
 
 ```yaml
 work_item_schemas:
@@ -297,7 +297,7 @@ or a different lifecycle mode); guidance and description edits do not. `sample` 
 `validate` also returns `lint`, a list of `{path, reason}` findings about schema quality. It is separate from `errors`
 and `warnings`, never changes `valid`, and is `[]` for an invalid document, a parse failure and a rootId mismatch. `push`
 does not compute or store it. Only content declared in the per-root document is reported; the server layer is read for
-resolution and comparison only. The checks: a seat that owns no note of its phase; an optional note with no seat on a
+resolution and comparison only. The checks: a seat that owns no note of its phase (for `orchestrator`, a note labelled for it in any phase counts); an optional note with no seat on a
 schema or trait that declares seats (a required unseated note keeps its parser warning); the same guidance on several
 notes; a per-root type or trait that shadows a server one (with what differs); a trait with no `applies_when`; a seat
 `rules` entry the root does not serve; a seat `skills` entry or note `skill` that names a served rule. Every finding is
