@@ -73,7 +73,7 @@ Global trends sit under the process-global `Retrospective Trends` container, a d
 
 ## Step 6 - Update Trends
 
-Recurrence: upsert `evidence-<YYYY-MM-DD>-<retro-short-id>` (role `work`), update the trend `summary` (`Sessions: N+1`). New: create `trend: <kebab-key> - <one-line claim>` (`type: "retrospective-trend"`, `tags: ["retrospective-trend", "<dimension>"]`, `priority: "low"`) under its scope's container, with a first evidence note. `<dimension>` is `schema-effectiveness | delegation | note-quality | plan-to-execution | friction | extension-candidate`; add `positive` for a positive pattern and `project-<root8>` for a project trend. Standing trends, defect evidence, retire, graduation: [`references/routing.md`](references/routing.md).
+Recurrence: upsert `evidence-<YYYY-MM-DD>-<retro-short-id>` (role `work`), update the trend `summary` (`Sessions: N+1`). New: create `trend: <kebab-key> - <one-line claim>` (`type: "retrospective-trend"`, `tags: ["retrospective-trend", "<dimension>"]`, `priority: "low"`) under its scope's container, with a first evidence note. `<dimension>` is one of `schema-effectiveness | delegation | note-quality | plan-to-execution | friction | extension-candidate`; add `positive` for a positive pattern and `project-<root8>` for a project trend. Standing trends, defect evidence, retire, graduation: [`references/routing.md`](references/routing.md).
 
 ## Step 7 - Proposals
 
