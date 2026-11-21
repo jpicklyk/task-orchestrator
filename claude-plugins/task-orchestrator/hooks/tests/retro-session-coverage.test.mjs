@@ -537,8 +537,8 @@ const signals = {
     sf.runs[0].label = 'wave';
     sf.runs[1].label = 'wave-a1';
   },
-  'an agent-observation created after the first openedAt': (sf) =>
-    sf.items.push({ id: iid(700), type: 'agent-observation', role: 'queue', parent: ROOT, createdAt: ago(HOUR) }),
+  'an agent-observation naming a group item': (sf) =>
+    sf.items.push({ id: iid(700), type: 'agent-observation', role: 'queue', parent: ROOT, createdAt: ago(HOUR), summary: `Friction seen in ${sf.implIds[0].slice(0, 8)}` }),
   'a third implementation item (minItems 3)': (sf) => {
     sf.items.push({ id: iid(701), type: 'feature-task', role: 'terminal', parent: SCOPE, createdAt: ago(10 * DAY), roleChangedAt: ago(3 * HOUR) });
     sf.notes[iid(701)] = { 'session-tracking': CLEAN_NOTE };
@@ -1164,7 +1164,7 @@ function unscopedClean2() {
 
 test('B1 control: an unscoped clean 2-item group with ONE agent-observation after the first openedAt dispatches', async () => {
   const sf = unscopedClean2();
-  sf.items.push({ id: iid(720), type: 'agent-observation', role: 'queue', parent: ROOT, createdAt: ago(HOUR) });
+  sf.items.push({ id: iid(720), type: 'agent-observation', role: 'queue', parent: ROOT, createdAt: ago(HOUR), summary: `Friction seen in ${sf.implIds[0].slice(0, 8)}` });
   await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ sbx, stop, fake }) => {
     const s = sid('b1c');
     writeRetroState(sbx, s, { closes: sf.runIds });
@@ -1173,9 +1173,9 @@ test('B1 control: an unscoped clean 2-item group with ONE agent-observation afte
   });
 });
 
-test('B1: an unscoped clean 2-item group with TWO agent-observations after the first openedAt dispatches (the list answers one item, truncated: that is a signal)', async () => {
+test('B1: an unscoped clean 2-item group with 201 unlinked agent-observations after the first openedAt dispatches (truncated page with no naming row is a signal)', async () => {
   const sf = unscopedClean2();
-  for (const n of [720, 721]) sf.items.push({ id: iid(n), type: 'agent-observation', role: 'queue', parent: ROOT, createdAt: ago(HOUR) });
+  for (let n = 0; n < 201; n++) sf.items.push({ id: iid(1000 + n), type: 'agent-observation', role: 'queue', parent: ROOT, createdAt: ago(HOUR) });
   await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ sbx, stop, fake }) => {
     const s = sid('b1u');
     writeRetroState(sbx, s, { closes: sf.runIds });
@@ -1186,9 +1186,9 @@ test('B1: an unscoped clean 2-item group with TWO agent-observations after the f
   });
 });
 
-test('B1: a scope group of 2 clean items with TWO agent-observations after the first openedAt dispatches', async () => {
+test('B1: a scope group of 2 clean items with TWO agent-observations after the first openedAt, one naming the scope, dispatches', async () => {
   const sf = CLEAN2();
-  for (const n of [720, 721]) sf.items.push({ id: iid(n), type: 'agent-observation', role: 'queue', parent: ROOT, createdAt: ago(HOUR) });
+  for (const n of [720, 721]) sf.items.push({ id: iid(n), type: 'agent-observation', role: 'queue', parent: ROOT, createdAt: ago(HOUR), ...(n === 720 ? { summary: `Follow-up on ${SCOPE}` } : {}) });
   await withFixture(fixtureOpts(sf, SCOPE_CFG()), async ({ sbx, stop, fake }) => {
     const s = sid('b1');
     writeRetroState(sbx, s, { closes: sf.runIds });
