@@ -10,7 +10,7 @@
 // this session won) lives in lib/markers.mjs session markers. No side effects at import time, no
 // top-level I/O. The state machine is described in hooks/README.md, "Retrospective firing".
 
-import { writeFileSync, mkdirSync } from 'fs';
+import { writeFileSync, mkdirSync, openSync, readSync, closeSync } from 'fs';
 import { join } from 'path';
 import os from 'os';
 import { readSection, scalar, inlineScalar } from './yaml-lite.mjs';
@@ -318,6 +318,50 @@ export function sessionTrackingClean(body) {
 
 class Skip extends Error {}
 
+const SESSION_START_READ_BYTES = 65536;
+
+/**
+ * The start of the session a transcript belongs to: the first timestamp, in epoch ms, that parses on a
+ * complete line within the first 65536 bytes of the file. NaN when the path is not a string, the file
+ * cannot be read or no such line carries a timestamp; NaN means "unknown", and an unknown start makes an
+ * unowned group ineligible in evaluateScopes.
+ */
+export function sessionStartMs(transcriptPath) {
+  if (typeof transcriptPath !== 'string' || transcriptPath === '') return NaN;
+  let fd;
+  try {
+    fd = openSync(transcriptPath, 'r');
+    const buf = Buffer.alloc(SESSION_START_READ_BYTES);
+    const n = readSync(fd, buf, 0, SESSION_START_READ_BYTES, 0);
+    const lines = buf.toString('utf8', 0, n).split('\n');
+    // The last piece is a complete line only when the file ended inside the window.
+    if (n === SESSION_START_READ_BYTES) lines.pop();
+    for (const line of lines) {
+      if (line.trim() === '') continue;
+      let rec;
+      try {
+        rec = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (!isPlain(rec)) continue;
+      const ms = instantMs(rec.timestamp);
+      if (Number.isFinite(ms)) return ms;
+    }
+    return NaN;
+  } catch {
+    return NaN;
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+        // swallow
+      }
+    }
+  }
+}
+
 /**
  * The scope-boundary evaluation (trigger and backstop, boundary `scope`): one retrospective per
  * completed scope. Groups the root's runs (closed unmarked `retro` in the last 30 days, plus open and
@@ -328,15 +372,19 @@ class Skip extends Error {}
  *   - a claim from a dead session or a failed retrospective is retried (retro-retry), then given up
  *     (retro-failed, one nudge); a session holding the claim takes it over only on its own failure
  *     report, any other session after 20 minutes;
- *   - an unclaimed group that is due, owned by this session (or orphaned for 60 minutes in a project configured for dispatch) and not
- *     low-signal is claimed (retro-claim, first write wins on the anchor run) and dispatched; a
+ *   - an unclaimed group that is due, owned by this session (or, in a project configured for dispatch, a
+ *     bystander's group that became due after this session started and has been due for 60 minutes) and
+ *     not low-signal is claimed (retro-claim, first write wins on the anchor run) and dispatched; a
  *     low-signal group is marked retro-skipped + retro with no output.
+ * A group this session does not own acts only when it is due, not stale, and its due moment is at or after
+ * `sessionStartMs` (NaN, an unknown start, is never eligible): a fresh session never inherits a group that
+ * was due before it began. An abandoned (stale) group belongs to its owner alone.
  * First dispatch claims are limited to one per hour per session; retries are exempt. Returns
  * { won: runId[], nudge: runId[], failed: runId[], stale: scopeId[], fixCycle: {[runId]: baseRunLabel} }
  * and updates `state` (claims, lastDispatchAt, nudged) for the caller to persist. Fail-open: a read
  * error skips the group or the pass and writes nothing for it. No call starts 3500 ms after the pass began.
  */
-export async function evaluateScopes({ rootId, config, state, now = Date.now(), configuredMode = config.mode }) {
+export async function evaluateScopes({ rootId, config, state, now = Date.now(), configuredMode = config.mode, sessionStartMs = NaN }) {
   const out = { won: [], nudge: [], failed: [], stale: [], fixCycle: {} };
   const t0 = Date.now();
   const dispatch = config.mode === 'dispatch';
@@ -523,23 +571,33 @@ export async function evaluateScopes({ rootId, config, state, now = Date.now(), 
       return retried ? { kind: 'failed', mark: 'retro-failed' } : { kind: 'retry', mark: 'retro-retry' };
     };
 
-    // 2 / 3. A group that can act: a claim to retry or give up, or a due group this session owns (or that
-    // was orphaned for 60 minutes). null otherwise, which takes no slot of the 5. Outside dispatch mode a
-    // group this session already nudged stays unmarked and can act no more, so it takes no slot either.
+    // 2 / 3. A group that can act: a claim to retry or give up, or a due group this session owns (or a
+    // bystander's that became due after this session started). null otherwise, which takes no slot of the 5.
+    // Outside dispatch mode a group this session already nudged stays unmarked and can act no more, so it
+    // takes no slot either.
+    // A group this session does not own may act only in a project configured for dispatch, and only when it
+    // is due, not stale, and its due moment is at or after the session start (both finite). A first claim
+    // also waits out the owner hold; a retry or give-up does not (the claim already exists).
+    const bystanderEligible = (due, firstClaim) => {
+      if (!dispatch || configuredMode !== 'dispatch') return false;
+      if (!due.due || due.stale) return false;
+      if (!Number.isFinite(due.since) || !Number.isFinite(sessionStartMs) || due.since < sessionStartMs) return false;
+      return !firstClaim || now - due.since > OWNER_HOLD_MS;
+    };
     const qualify = async (g) => {
       try {
         if (!dispatch && g.runs.every((r) => state.nudged.includes(r.runId))) return null;
-        if (g.dead) return deadStep(g) ? { g } : null;
+        const owned = ownedByThisSession(g);
+        if (g.dead) {
+          if (!deadStep(g)) return null;
+          if (!owned && !bystanderEligible(await dueOf(g), false)) return null;
+          return { g };
+        }
         const due = await dueOf(g);
         if (!due.due) return null;
-        if (!ownedByThisSession(g)) {
-          // Not this session's scope. Another session takes it only when the project's CONFIGURED mode is
-          // dispatch (a director's forced dispatch does not count): an abandoned scope at once (the claim mark
-          // makes it fire once), a completed scope after 60 minutes. Nudge mode leaves both to their owner.
-          if (due.stale) {
-            if (!dispatch || configuredMode !== 'dispatch') return null;
-          } else if (!dispatch || configuredMode !== 'dispatch' || now - due.since <= OWNER_HOLD_MS) return null;
-        }
+        // Not this session's scope: the CONFIGURED mode must be dispatch (a director's forced dispatch does
+        // not count), and the group must have become due after this session started.
+        if (!owned && !bystanderEligible(due, true)) return null;
         return { g, due };
       } catch (e) {
         if (e instanceof Skip) return null;
