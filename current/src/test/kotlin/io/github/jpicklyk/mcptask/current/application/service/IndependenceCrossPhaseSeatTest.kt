@@ -235,4 +235,28 @@ class IndependenceCrossPhaseSeatTest {
         val filled = complete(schemaF(xReviewRole = Role.WORK), manifest(), xReview(role = "work"))
         assertEquals(sameActorOnManifest, filled)
     }
+
+    private fun againstSeat(
+        vs: List<IndependenceViolation>,
+        seat: String
+    ) = vs.filter { it.conflictingSeat == seat }
+
+    @Test
+    fun `S18 an undeclared independent_of seat on a seat-aware schema owns no notes - a note labelled with it raises nothing`() {
+        val schema = schemaF(independentOf = listOf("ghost"), xReviewSeat = "ghost")
+        val vs = complete(schema, manifest(), xReview())
+        assertEquals(emptyList(), againstSeat(vs, "ghost"))
+        assertFalse(GatePredicate.blocksAdvance(vs, reject), "REJECT must not block on an undeclared seat's label")
+    }
+
+    @Test
+    fun `S18b control - with no seats declared the same ghost label stands as ownership and is same_actor`() {
+        val schema = schemaF(seatList = emptyList(), independentOf = listOf("ghost"), xReviewSeat = "ghost")
+        val vs = complete(schema, manifest(), xReview())
+        val against = againstSeat(vs, "ghost")
+        assertEquals(1, against.size, vs.toString())
+        assertEquals(MANIFEST, against.single().key)
+        assertEquals(IndependenceConstraint.SAME_ACTOR, against.single().constraint)
+        assertTrue(GatePredicate.blocksAdvance(vs, reject))
+    }
 }
