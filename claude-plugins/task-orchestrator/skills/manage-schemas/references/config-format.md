@@ -791,8 +791,8 @@ extensions:
 | `retrospective.baselines.<name>` | a map of dated figures the project measured, such as `note-volume: { measured: 2026-11-02, review-share-pct: 31 }` | absent | `run-planner retro-metrics`, which echoes them in `noteVolume.baselines` (null when absent) |
 
 A retrospective is owed per completed scope (boundary `scope`) or per closed run not yet marked `retro` (boundary `run`),
-and only to the session that opened or closed one of its runs (the scope boundary's claimed-not-done, orphaned and abandoned
-groups excepted); the hooks decide by run marks, not by a cooldown. The hooks README describes the run-mark
+and only to the session that opened or closed one of its runs (a bystander's group at the scope boundary excepted, and only when it became due after the session started; an abandoned
+group is its owner's alone); the hooks decide by run marks, not by a cooldown. The hooks README describes the run-mark
 trigger and the scope state machine in full (the "Retrospective trigger" and "Retrospective firing" sections of [hooks/README.md](../../../hooks/README.md)). There is no
 `cooldownMinutes`, no `headless` mode and no `actor_attribution` setting. The user-level config's
 `extensions.claude-code` applies in every directory that has no project config.
@@ -835,7 +835,7 @@ Default: `nudge` - applied when the block or `mode` key is absent, or the value 
 | `dispatch` | Hooks inject a directive that launches exactly one background retrospective agent per completed scope (boundary `scope`; the hook first writes a `retro-claim` mark, the first write wins, so two sessions never both dispatch, and a low-signal scope is skipped with no output) or per closed run (boundary `run`, once the run clears `minItems`; the hook first writes the run's `retro` mark, and below the threshold it injects the `nudge` suggestion instead of staying silent). The directive is **durable, not immediate**: it instructs the orchestrator to dispatch at the next run boundary - holding it while background tasks or subagents are still in flight, and merging any directives that accumulate while holding into a single dispatch covering the union of their roots. |
 | `off` | Hooks stay silent - no retrospective suggestion or dispatch directive is injected. |
 
-**The Stop backstop.** The `Stop` hook (`retro-backstop.mjs`) runs the same evaluation as the trigger (it also retries a failed or dead dispatch and picks up an abandoned scope at the scope boundary), so a run this session opened that closed elsewhere (a subagent, a tool the trigger never saw) still gets its retrospective. A run another session opened and closed is that session's, never nudged here. With a REST API it may dispatch (after winning the `retro` mark) as well as nudge, per the configured mode. Without REST it can only nudge, once per session, about runs this session saw close, and never marks or dispatches.
+**The Stop backstop.** The `Stop` hook (`retro-backstop.mjs`) runs the same evaluation as the trigger (it also retries a failed or dead dispatch and dispatches an abandoned scope to its owner at the scope boundary), so a run this session opened that closed elsewhere (a subagent, a tool the trigger never saw) still gets its retrospective. A run another session opened and closed is that session's, never nudged here. With a REST API it may dispatch (after winning the `retro` mark) as well as nudge, per the configured mode. Without REST it can only nudge, once per session, about runs this session saw close, and never marks or dispatches.
 
 ### Behavior
 

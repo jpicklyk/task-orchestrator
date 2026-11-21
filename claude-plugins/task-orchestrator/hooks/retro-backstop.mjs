@@ -4,7 +4,9 @@
 // With REST (an API URL and a project rootId): runs the same evaluation as the trigger (the scope or the
 // run boundary, per config), so a run this session opened that closed elsewhere (a subagent, a tool the
 // trigger never saw) still gets its retrospective; only runs this session opened or closed count (retro-lib
-// ownsRun), apart from the scope boundary's claimed-not-done, orphaned and abandoned groups. A closed run is
+// ownsRun), apart from a bystander's group at the scope boundary that became due after this session started
+// (its start is the first timestamp of the hook input's transcript_path; unreadable means none), and the
+// claimed-not-done retries of such a group; an abandoned group is its owner's alone. A closed run is
 // a confirmed boundary, so this may dispatch (after winning the server-side claim or `retro` mark) as well
 // as nudge. At the scope boundary the Stop pass is also where a failed or dead dispatch is retried and an
 // abandoned scope is picked up (hooks/README.md, "Retrospective firing"). Output is a `block` decision.
@@ -25,6 +27,7 @@ import {
   writeSessionState,
   evaluateRuns,
   evaluateScopes,
+  sessionStartMs,
   directiveFor,
   directorConfig,
   dispatchAncestorId,
@@ -67,7 +70,7 @@ try {
 
   if (rootId) {
     const scope = config.boundary === 'scope';
-    const result = scope ? await evaluateScopes({ rootId, config, state, configuredMode: parsedConfig.mode }) : await evaluateRuns({ rootId, config, state });
+    const result = scope ? await evaluateScopes({ rootId, config, state, configuredMode: parsedConfig.mode, sessionStartMs: sessionStartMs(hookInput.transcript_path) }) : await evaluateRuns({ rootId, config, state });
     const text = directiveFor(result, located, { director, transcriptPath: hookInput.transcript_path });
     if (scope || result.nudge.length > 0) writeSessionState(sessionId, state);
     if (text) emitBlock(text);

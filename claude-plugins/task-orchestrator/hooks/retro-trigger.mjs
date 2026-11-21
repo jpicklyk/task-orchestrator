@@ -28,6 +28,7 @@ import {
   writeSessionState,
   evaluateRuns,
   evaluateScopes,
+  sessionStartMs,
   directiveFor,
   directorConfig,
   debugCapture,
@@ -114,7 +115,7 @@ try {
   writeSessionState(sessionId, state);
   if (!acts) emitEmpty();
 
-  const result = scope ? await evaluateScopes({ rootId, config, state, configuredMode: parsedConfig.mode }) : await evaluateRuns({ rootId, config, state });
+  const result = scope ? await evaluateScopes({ rootId, config, state, configuredMode: parsedConfig.mode, sessionStartMs: sessionStartMs(hookInput.transcript_path) }) : await evaluateRuns({ rootId, config, state });
   const text = directiveFor(result, located, { director, transcriptPath: hookInput.transcript_path });
   if (scope || result.nudge.length > 0) writeSessionState(sessionId, state);
   if (text) emitContext(text);
