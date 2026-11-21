@@ -37,7 +37,8 @@ package io.github.jpicklyk.mcptask.current.domain.model
  * @property seat Name of the [io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition] that
  *   owns filling this note (an orchestration signal only, A1a). Null means the note has no declared
  *   owner; in a seat-aware schema (see [WorkItemSchema.isSeatAware]) that surfaces as "unowned" —
- *   see `io.github.jpicklyk.mcptask.current.application.service.SeatOwnership`.
+ *   see [io.github.jpicklyk.mcptask.current.domain.model.OwningSeat] for the rule and
+ *   `io.github.jpicklyk.mcptask.current.application.service.SeatOwnership` for the gate buckets.
  * @property independentOf Seat names this note's authorship must be independent of (an
  *   orchestration signal only; A1a parses and serves it, A2 enforces it).
  * @property shared When true the key is exempt from note ownership: any caller may upsert or delete it (last writer

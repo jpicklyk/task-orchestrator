@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.OwningSeat
 import io.github.jpicklyk.mcptask.current.domain.model.RunSeat
 import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
 import java.util.UUID
@@ -13,9 +14,8 @@ import java.util.UUID
  * an admitted write is decisive ([SeatVerdict.Allow], rule 3 is skipped and the note's owner never moves), a refused
  * one is [SeatVerdict.Refuse], and a write outside the rule's scope is [SeatVerdict.Defer] (rule 3 decides).
  *
- * A key's owner seat follows [computeMissingBySeat]: the schema entry's `seat` when a seat of that name is declared in
- * the SAME phase as the entry's role; any other key (no seat, an undeclared or other-phase seat, an off-schema key) is
- * unowned and defers here (rule 3 decides).
+ * A key's owner seat is its [OwningSeat] (as in [computeMissingBySeat]); any other key (no seat, an undeclared or
+ * other-phase seat, an off-schema key) is unowned and defers here (rule 3 decides).
  */
 object NoteSeatRule {
     /**
@@ -41,13 +41,13 @@ object NoteSeatRule {
         return SeatVerdict.Refuse(NoteOwnership.ownedByOther(itemId, key, owner))
     }
 
-    /** The seat owning [entry]'s key under [seats] (declared in the same phase as the entry's role), or null (unowned). */
+    /** The [OwningSeat] of [entry] under [seats]; null (unowned) when [seats] is empty, since this rule never applies then. */
     fun ownerSeatOf(
         entry: NoteSchemaEntry?,
         seats: List<SeatDefinition>
     ): String? {
-        val name = entry?.seat ?: return null
-        return name.takeIf { seats.any { it.name == name && it.phase == entry.role } }
+        if (seats.isEmpty()) return null
+        return OwningSeat.of(entry, seats)
     }
 
     private fun mayWrite(
