@@ -36,7 +36,7 @@ Gate loop, before every `advance`: read the gate (`items_read` `context`), fill 
 
 **Notes.** Per item (at most 20) `get` `session-tracking` only (delegation figures come from `delegations[]`). Defect-bearing inputs:
 
-- **Observations:** `list` `type: agent-observation`, `createdAfter` the earliest run `openedAt` (no `--run`: earliest in-scope `createdAt`, else now minus 24h); skip `retro-reported`; `get` `observation-detail` (at most 20).
+- **Observations:** `list` `type: agent-observation`, `createdAfter` the earliest run `openedAt` (no `--run`: earliest in-scope `createdAt`, else now minus 24h), `fields: ["summary"]`, `limit: 200` (follow `page.next`); keep only a row whose title or summary names an in-scope id (a run id, a run label of 8 or more characters, the `scopeId` or a member, compared on 8 hex characters); skip `retro-reported`; `get` `observation-detail` (at most 20).
 - **Review record:** only items with a fix cycle (`after A<n>`) or Deviations or Friction not `none` (at most 10): `get` `orchestrator-confirmation`; for its `follow-up` and `accepted:` lines read the findings register once (`review-checklist`, else the first review note).
 
 **Numbers.** Run the metrics command once (helper resolved as in the run-wave SKILL.md, Step 0) and read every figure from its JSON:
