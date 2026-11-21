@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`config` `validate` returns lint findings.** The result gains a `lint` list of warning-only schema quality findings (a seat that owns no note, an unseated optional note, repeated guidance, a per-root type or trait that shadows a server one, a trait with no `applies_when`, an unserved seat rule, a skill that is a served rule); it is empty for an invalid document, never changes `valid`, and `push` neither computes nor stores it.
+- **`config` `validate` returns lint findings.** The result gains a `lint` list of warning-only schema quality findings (a seat that owns no note, an unseated optional note, repeated guidance, a per-root type or trait that shadows a server one, a trait with no `applies_when`, an unserved seat rule, a skill that is a served rule, a seat name no seat declares on a schema or trait that declares seats (an optional note's `seat` that no seat of the note's phase owns, `orchestrator` counting in any phase, or an `independent_of` or seat `after` entry), and a trait dispatch `seats:` override for a phase that has no seat of that name); it is empty for an invalid document, never changes `valid`, and `push` neither computes nor stores it.
 
 ### Changed
 
