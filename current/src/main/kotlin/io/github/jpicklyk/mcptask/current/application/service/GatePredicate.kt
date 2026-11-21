@@ -124,7 +124,8 @@ object GatePredicate {
      * [roleFilter] when non-null) whose note is filled -- (1) N actor-less -> missing_actor;
      * (2) requireVerified and N not VERIFIED -> unverified; then for each seat S in N's
      * independentOf (duplicates collapsed, first wins) with at least one FILLED note owned by S
-     * (excluding N itself) -- (3) any S-note actor-less -> missing_actor (conflictingSeat=S);
+     * ([io.github.jpicklyk.mcptask.current.domain.model.OwningSeat]; excluding N itself) --
+     * (3) any S-note actor-less -> missing_actor (conflictingSeat=S);
      * (4) N has an actor and any S-note's identity equals N's identity -> same_actor
      * (conflictingSeat=S, waiver applied here); (5) requireVerified and any S-note not VERIFIED ->
      * unverified (conflictingSeat=S). At most one entry per (key, constraint, conflictingSeat).
