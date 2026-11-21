@@ -245,8 +245,27 @@ class ConfigValidatorSeatLabelLintTest {
             )
 
         assertEquals(emptyList(), lint(seatless).filter { it.reason.contains("ghost") }, "no seats declared: not seat-aware")
-        assertTrue(lint(seatAware).paths(namesSeat("ghost")).isNotEmpty(), "twin with seats declared flags the label")
-        assertTrue(lint(seatAware).paths(indepSeat("ghost")).isNotEmpty(), "twin with seats declared flags independent_of")
+        val seatAwareFindings = lint(seatAware)
+        assertEquals(
+            listOf(
+                ConfigViolation(
+                    "/work_item_schemas/x/notes/0",
+                    "note 'scope' (queue) names seat 'ghost', which schema 'x' does not declare for the queue phase; no seat owns it",
+                ),
+            ),
+            seatAwareFindings.filter { it.reason.contains(namesSeat("ghost")) },
+            "twin with seats declared flags the label",
+        )
+        assertEquals(
+            listOf(
+                ConfigViolation(
+                    "/work_item_schemas/x/notes/0/independent_of/0",
+                    "note 'scope' is independent_of seat 'ghost', which schema 'x' does not declare; the independence check skips it",
+                ),
+            ),
+            seatAwareFindings.filter { it.reason.contains(indepSeat("ghost")) },
+            "twin with seats declared flags independent_of",
+        )
     }
 
     // ------------------------------------------------------------------ S6 (required own note stays the parser advisory)
@@ -418,6 +437,7 @@ class ConfigValidatorSeatLabelLintTest {
                         note("scope", "queue", true, seat = "planner"),
                         note("extra", "work", false, seat = "reviewer"),
                         note("early", "queue", false, seat = "implementer", independentOf = "[ghost, ghost]"),
+                        note("impl", "work", true, seat = "implementer"),
                     ),
                 ),
             )
@@ -427,7 +447,24 @@ class ConfigValidatorSeatLabelLintTest {
         val lintTexts = listOf("names seat", "independent_of seat", underAfter, overridesDispatch)
 
         assertTrue(result.isValid)
-        assertTrue(findings.size >= 3, "fixture yields at least the two label findings and the independent_of finding: $findings")
+        assertEquals(
+            listOf(
+                ConfigViolation(
+                    "/work_item_schemas/x/notes/1",
+                    "note 'extra' (work) names seat 'reviewer', which schema 'x' does not declare for the work phase; no seat owns it",
+                ),
+                ConfigViolation(
+                    "/work_item_schemas/x/notes/2",
+                    "note 'early' (queue) names seat 'implementer', which schema 'x' does not declare for the queue phase; no seat owns it",
+                ),
+                ConfigViolation(
+                    "/work_item_schemas/x/notes/2/independent_of/0",
+                    "note 'early' is independent_of seat 'ghost', which schema 'x' does not declare; the independence check skips it",
+                ),
+            ),
+            findings,
+            "the two label findings and the one independent_of finding (duplicate ghost reported once), in path order",
+        )
         assertFalse(result.warnings.any { w -> lintTexts.any { w.reason.contains(it) } }, "validate never carries a lint reason")
         assertEquals(findings.distinct(), findings)
         assertEquals(findings.sortedWith(compareBy({ it.path }, { it.reason })), findings)
