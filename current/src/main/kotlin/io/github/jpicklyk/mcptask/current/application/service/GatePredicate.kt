@@ -203,7 +203,7 @@ object GatePredicate {
     ): List<Note> {
         val keysForSeat =
             schema.notes
-                .filter { it.seat == seat }
+                .filter { it.seat == seat && (schema.seats.isEmpty() || schema.seats.any { s -> s.name == seat && s.phase == it.role }) }
                 .map { it.key }
                 .toSet()
         if (keysForSeat.isEmpty()) return emptyList()
