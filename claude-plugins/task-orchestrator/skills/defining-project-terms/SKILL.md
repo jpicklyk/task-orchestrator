@@ -25,6 +25,7 @@ When a project's first glossary is created, the same change adds these lines to 
 
 Domain terms are defined in [GLOSSARY.md](GLOSSARY.md).
 - Use the glossary's term for a concept; never use a word an entry lists under Don't call it.
+- Existing code that still carries such a word is named in the report and left alone, unless the change already touches that code.
 - When a concept has no entry, propose one; do not coin a name silently.
 - Update the glossary in the same commit as the code that adds or renames a concept.
 ```

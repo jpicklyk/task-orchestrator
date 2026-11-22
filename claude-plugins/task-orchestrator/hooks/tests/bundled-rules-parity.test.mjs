@@ -76,22 +76,24 @@ for (const key of KEYS) {
   });
 }
 
-// The guard protects the hashes of rules that have shipped, so it walks only commits reachable from
-// main (origin/main when present). A key that exists only on an unmerged branch may still be removed.
-function releasedRef() {
+// The guard protects the hashes of rules that have shipped: it walks only commits reachable from
+// main (origin/main when present), and starts at the merge-base of HEAD and that ref, so a branch
+// that is behind main, or a release branch, is checked against history it actually contains. A key
+// that exists only on an unmerged branch may still be removed.
+function releasedBase() {
   for (const ref of ['origin/main', 'main']) {
     try {
       execFileSync('git', ['rev-parse', '--verify', '--quiet', ref], { cwd: REPO_ROOT, stdio: 'ignore' });
-      return ref;
     } catch {
-      // try the next ref
+      continue; // try the next ref
     }
+    return execFileSync('git', ['merge-base', 'HEAD', ref], { cwd: REPO_ROOT, encoding: 'utf-8' }).trim();
   }
   assert.fail('neither origin/main nor main is available: check out with full history (fetch-depth 0)');
 }
 
 test('75f0e354 S17: manifest.json is append-only across released history (commits reachable from main) — every historical hash list is a prefix of the current one', () => {
-  const commits = execFileSync('git', ['log', '--format=%H', releasedRef(), '--', MANIFEST_REL], { cwd: REPO_ROOT, encoding: 'utf-8' })
+  const commits = execFileSync('git', ['log', '--format=%H', releasedBase(), '--', MANIFEST_REL], { cwd: REPO_ROOT, encoding: 'utf-8' })
     .split('\n')
     .map((s) => s.trim())
     .filter(Boolean);
