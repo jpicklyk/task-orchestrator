@@ -45,6 +45,7 @@ const CORE_NAMES = [
   'reviewerPreamble', 'buildReviewerPrompt', 'buildLensPrompt', 'buildGapPrompt',
   'normalizeObsPath', 'isObservation', 'buildProposal', 'runAudit',
   'SEVERITY_RANK', 'LENS_KEYS', 'PRESETS', 'CATEGORIES', 'DEFAULT_CLASS_MAP', 'TYPE_MAP_KEY', 'DEFAULT_METHOD_SKILL',
+  'DOCS_METHOD_SKILL', 'FOCUS_VALUES', 'sliceKind', 'inFocus', 'methodSkillOf',
 ]
 const CORE = loadCoreNamed(SCRIPT_PATH, CORE_NAMES)
 
@@ -1625,4 +1626,216 @@ test('Method skill: the script names the default skill once, as data, never in p
   const text = scriptText(SCRIPT_PATH)
   assert.equal(text.split(METHOD_DEFAULT).length - 1, 1, 'the default skill name appears exactly once (the data constant)')
   assert.equal(text.split('auditing-codebase').length - 1, 1, 'no other spelling of the skill name appears in the script')
+})
+
+// ── Method per slice, focus and docs categories (item 41102af3) ──────────────
+// Implementer-written; oracle = that item's task-scope (T1-T10), not the script.
+
+const DOCS_SKILL = 'task-orchestrator:auditing-documentation'
+const CODE_SIDE = 'Document files in your scope belong to the documentation slices; comments inside source files stay yours.'
+const DOCS_SIDE = 'DOCUMENTATION SLICE: audit only the document files in your scope; comments inside source files belong to the code slices.'
+
+function kindResponder(plan, { scope, critic } = {}) {
+  return async (label) => {
+    if (label === 'scope') return scope
+    if (label === 'critic') return critic
+    if (label.startsWith('review:') || label.startsWith('gap:')) return findingsResult({ findings: [makeFinding()] })
+    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('verify:')) return verdictResult({ refuted: false })
+    if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
+    throw new Error('kind: unexpected label ' + label)
+  }
+}
+
+function plannerSlice(key, kind) {
+  return { key, label: 'Slice ' + key, focus: 'f', kind, paths: ['p/' + key] }
+}
+
+function noReviewers(overrides = {}) {
+  const a = baseArgs(overrides)
+  a.scope = { paths: ['p'], reviewers: null, lenses: [] }
+  return a
+}
+
+test('T1 focus: absent or null is all; code, docs, all accepted; anything else rejected', () => {
+  assert.equal(buildPlan().focus, 'all')
+  assert.equal(buildPlan({ focus: null }).focus, 'all')
+  for (const f of ['code', 'docs', 'all']) {
+    const { ok, plan } = CORE.normalizeArgs(noReviewers({ focus: f }))
+    assert.equal(ok, true)
+    assert.equal(plan.focus, f)
+  }
+  for (const bad of ['both', '', 'CODE', 3]) {
+    const { ok, reason } = CORE.normalizeArgs(baseArgs({ focus: bad }))
+    assert.equal(ok, false, `focus ${JSON.stringify(bad)} must be rejected`)
+    assert.equal(reason, 'invalid args: focus must be code, docs or all')
+  }
+})
+
+test('T2 caller slices: kind, methodSkill and focus reasons for a reviewer and for a lens', () => {
+  const withSlice = (where, s, extra = {}) => {
+    const a = baseArgs(extra)
+    a.scope = { paths: ['p'], reviewers: [], lenses: [] }
+    if (where === 'reviewer') a.scope.reviewers = [s]
+    else a.scope.lenses = [s]
+    return CORE.normalizeArgs(a)
+  }
+  for (const where of ['reviewer', 'lens']) {
+    let r = withSlice(where, reviewerSpec('x', { kind: 'both' }))
+    assert.equal(r.reason, 'invalid args: slice x kind must be code or docs')
+    for (const bad of ['', '  ', 3]) {
+      r = withSlice(where, reviewerSpec('x', { methodSkill: bad }))
+      assert.equal(r.reason, 'invalid args: slice x methodSkill must be a non-empty string')
+    }
+    r = withSlice(where, reviewerSpec('x', { kind: 'docs' }), { focus: 'code' })
+    assert.equal(r.reason, 'invalid args: slice x is kind docs, outside focus code')
+    r = withSlice(where, reviewerSpec('x'), { focus: 'docs' })
+    assert.equal(r.reason, 'invalid args: slice x is kind code, outside focus docs')
+    r = withSlice(where, reviewerSpec('x', { kind: 'docs', methodSkill: 'p:m' }), { focus: 'docs' })
+    assert.equal(r.ok, true)
+  }
+})
+
+test('T3 resolution order of the method skill', async () => {
+  const plan = buildPlan({
+    methodSkill: 'proj:run',
+    gaps: { enabled: true, max: 2 },
+    scope: {
+      paths: ['p'],
+      reviewers: [
+        reviewerSpec('r1', { methodSkill: ' proj:own ' }),
+        reviewerSpec('r2', { kind: 'docs' }),
+        reviewerSpec('r3'),
+      ],
+      lenses: [{ key: 'ld', label: 'ld', focus: 'f', kind: 'docs', methodSkill: 'proj:lens' }],
+    },
+  })
+  const critic = criticResult({ gaps: [{ label: 'gd', kind: 'docs', prompt: 'p' }, { label: 'gc', prompt: 'p' }] })
+  const { agent, calls } = autoAgent(kindResponder(plan, { critic }))
+  await CORE.runAudit(plan, makeDeps({ agent }))
+  const prompt = (label) => calls.find((c) => c.label.startsWith(label)).prompt
+  const names = (p) => ['proj:own', DOCS_SKILL, 'proj:run', 'proj:lens', METHOD_DEFAULT].filter((n) => p.includes(n))
+  assert.deepEqual(names(prompt('review:r1')), ['proj:own'])
+  assert.deepEqual(names(prompt('review:r2')), [DOCS_SKILL])
+  assert.deepEqual(names(prompt('review:r3')), ['proj:run'])
+  assert.deepEqual(names(prompt('review:ld')), ['proj:lens'])
+  assert.deepEqual(names(prompt('gap:1')), [DOCS_SKILL])
+  assert.deepEqual(names(prompt('gap:2')), ['proj:run'])
+  const bare = buildPlan()
+  assert.ok(CORE.reviewerPreamble(bare, reviewerSpec('r3')).includes(METHOD_DEFAULT))
+  assert.equal(CORE.methodSkillOf(bare, { kind: 'docs' }), DOCS_SKILL)
+})
+
+test('T4 planner slices are filtered by focus before the reviewerCount cap', async () => {
+  const scope = scopeResult({
+    reviewers: [plannerSlice('c1', 'code'), plannerSlice('d1', 'docs')],
+    lenses: [{ key: 'lc', label: 'lc', focus: 'f', kind: 'code' }, { key: 'ld', label: 'ld', focus: 'f', kind: 'docs' }],
+  })
+  const reviewLabels = async (focus) => {
+    const plan = CORE.normalizeArgs(noReviewers({ focus })).plan
+    const { agent, calls } = autoAgent(kindResponder(plan, { scope }))
+    await CORE.runAudit(plan, makeDeps({ agent }))
+    return calls.filter((c) => c.label.startsWith('review:')).map((c) => c.label).sort()
+  }
+  assert.deepEqual(await reviewLabels('all'), ['review:c1', 'review:d1', 'review:lc', 'review:ld'])
+  assert.deepEqual(await reviewLabels('code'), ['review:c1', 'review:lc'])
+  assert.deepEqual(await reviewLabels('docs'), ['review:d1', 'review:ld'])
+
+  const plan = CORE.normalizeArgs(noReviewers({ focus: 'docs' })).plan
+  assert.equal(plan.scope.reviewerCount, 4)
+  const many = scopeResult({
+    reviewers: [1, 2, 3, 4, 5].map((i) => plannerSlice('c' + i, 'code')).concat([plannerSlice('d1', 'docs')]),
+  })
+  const { agent, calls } = autoAgent(kindResponder(plan, { scope: many }))
+  await CORE.runAudit(plan, makeDeps({ agent }))
+  assert.deepEqual(calls.filter((c) => c.label.startsWith('review:')).map((c) => c.label), ['review:d1'])
+})
+
+test('T5 scope and critic prompts ask for a kind and state the focus', async () => {
+  const scope = scopeResult({ reviewers: [plannerSlice('c1', 'code')] })
+  const critic = criticResult({ gaps: [] })
+  const run = async (focus) => {
+    const a = noReviewers({ focus, gaps: { enabled: true, max: 1 } })
+    const plan = CORE.normalizeArgs(a).plan
+    const { agent, calls } = autoAgent(kindResponder(plan, { scope, critic }))
+    await CORE.runAudit(plan, makeDeps({ agent }))
+    return [calls.find((c) => c.label === 'scope').prompt, calls.find((c) => c.label === 'critic').prompt]
+  }
+  for (const [focus, has, lacks] of [['code', 'only kind code', 'only kind docs'], ['docs', 'only kind docs', 'only kind code'], ['all', null, null]]) {
+    for (const p of await run(focus)) {
+      assert.match(p, /kind/)
+      if (has) { assert.ok(p.includes(has)); assert.equal(p.includes(lacks), false) }
+      else { assert.equal(p.includes('only kind'), false) }
+    }
+  }
+})
+
+test('T6 critic gaps are filtered by focus before the gaps.max cap', async () => {
+  const plan = CORE.normalizeArgs(noReviewers({ focus: 'docs', gaps: { enabled: true, max: 1 } })).plan
+  const scope = scopeResult({ reviewers: [plannerSlice('d1', 'docs')] })
+  const critic = criticResult({ gaps: [{ label: 'gc', kind: 'code', prompt: 'p' }, { label: 'gd', kind: 'docs', prompt: 'p' }] })
+  const logLines = []
+  const { agent, calls } = autoAgent(kindResponder(plan, { scope, critic }))
+  const res = await CORE.runAudit(plan, makeDeps({ agent, logLines }))
+  const gapCalls = calls.filter((c) => c.label.startsWith('gap:'))
+  assert.equal(gapCalls.length, 1)
+  assert.ok(gapCalls[0].prompt.includes(DOCS_SKILL))
+  assert.deepEqual(res.stats.droppedGaps, [])
+  assert.ok(logLines.some((l) => l.includes('outside focus docs') && l.includes('gc')))
+})
+
+test('T7 path-disjointness sentences follow kind; the code side only when the run has docs', async () => {
+  const plan = buildPlan({
+    scope: { paths: ['p'], reviewers: [reviewerSpec('c1'), reviewerSpec('d1', { kind: 'docs' })], lenses: [] },
+  })
+  const { agent, calls } = autoAgent(kindResponder(plan, {}))
+  await CORE.runAudit(plan, makeDeps({ agent }))
+  const c1 = calls.find((c) => c.label.startsWith('review:c1')).prompt
+  const d1 = calls.find((c) => c.label.startsWith('review:d1')).prompt
+  assert.ok(d1.includes(DOCS_SIDE))
+  assert.equal(d1.includes(CODE_SIDE), false)
+  assert.ok(c1.includes(CODE_SIDE))
+  assert.equal(c1.includes(DOCS_SIDE), false)
+  assert.ok(CORE.reviewerPreamble(plan, { kind: 'docs' }, false).includes(DOCS_SIDE))
+  assert.equal(CORE.reviewerPreamble(plan, {}, false).includes(CODE_SIDE), false)
+})
+
+test('T8 a default run carries neither sentence and names the default skill', async () => {
+  const plan = methodRunPlan()
+  const { agent, calls } = autoAgent(methodRunResponder(plan))
+  await CORE.runAudit(plan, makeDeps({ agent }))
+  const reviewerCalls = calls.filter((c) => c.label.startsWith('review:') || c.label.startsWith('gap:'))
+  assert.equal(reviewerCalls.length, 3)
+  for (const c of reviewerCalls) {
+    assert.equal(c.prompt.includes(CODE_SIDE), false)
+    assert.equal(c.prompt.includes(DOCS_SIDE), false)
+    assert.ok(c.prompt.includes(METHOD_DEFAULT))
+  }
+  assert.equal(CORE.reviewerPreamble(plan), CORE.reviewerPreamble(plan, reviewerSpec('r1'), false))
+})
+
+test('T9 documentation-scope category sits before documentation-drift and is tech-debt', () => {
+  const i = CORE.CATEGORIES.indexOf('documentation-scope')
+  assert.ok(i >= 0)
+  assert.equal(CORE.CATEGORIES[i + 1], 'documentation-drift')
+  assert.equal(CORE.DEFAULT_CLASS_MAP['documentation-scope'], 'tech-debt')
+  assert.equal(CORE.DEFAULT_CLASS_MAP['documentation-drift'], 'tech-debt')
+  for (const c of CORE.CATEGORIES) assert.ok(CORE.DEFAULT_CLASS_MAP[c], `class map entry for ${c}`)
+  const plan = buildPlan()
+  assert.ok(CORE.schemas(plan).FINDINGS.properties.findings.items.properties.category.enum.includes('documentation-scope'))
+})
+
+test('T10 the docs skill name appears once, as data, and in no non-reviewer prompt', async () => {
+  const text = scriptText(SCRIPT_PATH)
+  assert.equal(text.split(DOCS_SKILL).length - 1, 1)
+  assert.equal(CORE.DOCS_METHOD_SKILL, DOCS_SKILL)
+  assert.deepEqual(CORE.FOCUS_VALUES, ['code', 'docs', 'all'])
+  const plan = CORE.normalizeArgs(noReviewers({ focus: 'docs', gaps: { enabled: true, max: 1 } })).plan
+  const scope = scopeResult({ reviewers: [plannerSlice('d1', 'docs')] })
+  const critic = criticResult({ gaps: [{ label: 'gd', kind: 'docs', prompt: 'p' }] })
+  const { agent, calls } = autoAgent(kindResponder(plan, { scope, critic }))
+  await CORE.runAudit(plan, makeDeps({ agent }))
+  for (const c of calls.filter((c) => !c.label.startsWith('review:') && !c.label.startsWith('gap:'))) {
+    assert.equal(c.prompt.includes(DOCS_SKILL), false, `${c.label} prompt must not name the docs skill`)
+  }
 })
