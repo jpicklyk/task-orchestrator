@@ -126,7 +126,7 @@ Add `  Created new container: <name> under <parent>` when a category was created
 
 ## From a workflow findings proposal
 
-An alternate entry for materializing findings from a `task-orchestrator:audit` run. The audit script never writes items; it returns an `audit/result-v1` result with a `proposal` (candidate rows in `proposal.items[]`) and `kept[]` (surviving findings). Use this path instead of Steps 1-3 when the input is a proposal.
+An alternate entry for materializing findings from a `task-orchestrator:deep-codebase-audit` run. The workflow never writes items; it returns an `audit/result-v1` result with a `proposal` (candidate rows in `proposal.items[]`) and `kept[]` (surviving findings). Use this path instead of Steps 1-3 when the input is a proposal.
 
 1. **Table.** Show one table: id, severity, class, type, materialize and reason, candidates.
 2. **Dedup.** Row `candidates` come from the unscoped Step 5 search the audit already ran; cite them. Re-search only rows with `likelyDuplicate: unknown` or rows the user added or retitled. Candidates are FYI only.

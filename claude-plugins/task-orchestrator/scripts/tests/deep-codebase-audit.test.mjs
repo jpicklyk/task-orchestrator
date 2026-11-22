@@ -1,4 +1,4 @@
-// ESM tests for workflows/audit.js (item c039bb77). Blind test-author: this file, and its
+// ESM tests for workflows/deep-codebase-audit.js (item c039bb77). Blind test-author: this file, and its
 // sibling workflow-harness-ext.mjs, are the ONLY files the author touches. The script itself
 // is never opened directly (Read/Grep/sed/cat/git diff/etc.) — every fact about it used below
 // comes from the frozen declarations block and reaches the script only through loadScript /
@@ -31,7 +31,7 @@ import {
 } from './workflow-harness-ext.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const SCRIPT_PATH = join(HERE, '..', '..', 'workflows', 'audit.js')
+const SCRIPT_PATH = join(HERE, '..', '..', 'workflows', 'deep-codebase-audit.js')
 const PLUGIN = resolve(HERE, '..', '..')
 const REPO = resolve(PLUGIN, '..', '..')
 const RULES_DIR = join(REPO, '.taskorchestrator', 'rules')
@@ -41,7 +41,7 @@ const CORE_NAMES = [
   'verifyPlan', 'decideVerdict', 'capVerification', 'reportIds', 'schemas',
   'reviewerPreamble', 'buildReviewerPrompt', 'buildLensPrompt', 'buildGapPrompt',
   'normalizeObsPath', 'isObservation', 'buildProposal', 'runAudit',
-  'SEVERITY_RANK', 'LENS_KEYS', 'PRESETS', 'CATEGORIES', 'DEFAULT_CLASS_MAP', 'TYPE_MAP_KEY',
+  'SEVERITY_RANK', 'LENS_KEYS', 'PRESETS', 'CATEGORIES', 'DEFAULT_CLASS_MAP', 'TYPE_MAP_KEY', 'DEFAULT_METHOD_SKILL',
 ]
 const CORE = loadCoreNamed(SCRIPT_PATH, CORE_NAMES)
 
@@ -152,7 +152,7 @@ test('S10 / T-meta: meta is a pure literal; name and phases are exact per Append
   // as "same structure but not reference-equal" against a same-realm plain object. Round-trip
   // through JSON (the literal is plain strings/arrays/objects only) to compare by value.
   const meta = JSON.parse(JSON.stringify(loadMeta(SCRIPT_PATH)))
-  assert.equal(meta.name, 'audit')
+  assert.equal(meta.name, 'deep-codebase-audit')
   assert.deepEqual(meta.phases, [
     { title: 'Scope' }, { title: 'Review' }, { title: 'Gaps' }, { title: 'Merge' },
     { title: 'Verify' }, { title: 'Synthesize' }, { title: 'Triage' },
@@ -1511,4 +1511,82 @@ test('Follow-up O8: first-group-wins — winner memberIds are exact, the losing 
   assert.deepEqual(d.sources, ['s4'])
   assert.deepEqual(e.memberIds, ['e'])
   assert.equal(e.title, 'Finding e')
+})
+
+// ── Method skill (item e7887059, implementer-written) ────────────────────────
+// Oracle: the item's task-scope: every reviewer agent (subsystem slice, cross-cutting lens and
+// gap follow-up) is told to load the skill named by the data field `methodSkill`, default
+// 'task-orchestrator:auditing-codebase'; the name never appears in prompt prose.
+
+const METHOD_DEFAULT = 'task-orchestrator:auditing-codebase'
+
+function methodRunResponder(plan) {
+  return async (label) => {
+    if (label.startsWith('review:')) return findingsResult({ findings: [makeFinding()] })
+    if (label === 'critic') return criticResult({ gaps: [{ label: 'g', prompt: 'p' }] })
+    if (label.startsWith('gap:')) return findingsResult({ findings: [makeFinding()] })
+    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('verify:')) return verdictResult({ refuted: false })
+    if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
+    throw new Error('method skill: unexpected label ' + label)
+  }
+}
+
+function methodRunPlan(overrides = {}) {
+  return buildPlan({
+    gaps: { enabled: true, max: 1 },
+    scope: {
+      paths: ['claude-plugins/task-orchestrator/hooks'],
+      reviewers: [reviewerSpec('r1')],
+      lenses: [{ key: 'l1', label: 'Lens l1', focus: 'lens focus' }],
+    },
+    ...overrides,
+  })
+}
+
+test('Method skill: the default is task-orchestrator:auditing-codebase', () => {
+  assert.equal(CORE.DEFAULT_METHOD_SKILL, METHOD_DEFAULT)
+  assert.equal(buildPlan().methodSkill, METHOD_DEFAULT)
+})
+
+test('Method skill: every reviewer, lens and gap prompt names the default skill and the Skill tool; no other prompt does', async () => {
+  const plan = methodRunPlan()
+  const { agent, calls } = autoAgent(methodRunResponder(plan))
+  await CORE.runAudit(plan, makeDeps({ agent }))
+  const reviewerCalls = calls.filter((c) => c.label.startsWith('review:') || c.label.startsWith('gap:'))
+  assert.deepEqual(reviewerCalls.map((c) => c.label).sort(), ['gap:1', 'review:l1', 'review:r1'])
+  for (const c of reviewerCalls) {
+    assert.ok(c.prompt.includes(METHOD_DEFAULT), `${c.label} prompt must name the method skill`)
+    assert.match(c.prompt, /Skill tool/, `${c.label} prompt must say how to load it`)
+  }
+  for (const c of calls.filter((c) => !reviewerCalls.includes(c))) {
+    assert.equal(c.prompt.includes(METHOD_DEFAULT), false, `${c.label} prompt must not name the method skill`)
+  }
+})
+
+test('Method skill: a configured methodSkill replaces the default in every reviewer prompt', async () => {
+  const plan = methodRunPlan({ methodSkill: 'proj:area-audit' })
+  assert.equal(plan.methodSkill, 'proj:area-audit')
+  const { agent, calls } = autoAgent(methodRunResponder(plan))
+  await CORE.runAudit(plan, makeDeps({ agent }))
+  const reviewerCalls = calls.filter((c) => c.label.startsWith('review:') || c.label.startsWith('gap:'))
+  assert.equal(reviewerCalls.length, 3)
+  for (const c of reviewerCalls) {
+    assert.ok(c.prompt.includes('proj:area-audit'), `${c.label} prompt must name the configured skill`)
+    assert.equal(c.prompt.includes(METHOD_DEFAULT), false, `${c.label} prompt must not name the default`)
+  }
+})
+
+test('Method skill: a methodSkill that is not a non-empty string is rejected', () => {
+  for (const bad of ['', '   ', 3, true, {}]) {
+    const { ok, reason } = CORE.normalizeArgs(baseArgs({ methodSkill: bad }))
+    assert.equal(ok, false, `methodSkill ${JSON.stringify(bad)} must be rejected`)
+    assert.equal(reason, 'invalid args: methodSkill must be a non-empty string')
+  }
+})
+
+test('Method skill: the script names the default skill once, as data, never in prompt prose', () => {
+  const text = scriptText(SCRIPT_PATH)
+  assert.equal(text.split(METHOD_DEFAULT).length - 1, 1, 'the default skill name appears exactly once (the data constant)')
+  assert.equal(text.split('auditing-codebase').length - 1, 1, 'no other spelling of the skill name appears in the script')
 })

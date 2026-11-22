@@ -22,7 +22,7 @@ import { coreSlice, baseLabel } from './workflow-harness.mjs'
  * Function` body (so every core-region function/const is defined and can call its siblings),
  * and only the requested names are returned. Unlike B1's loadCore (hard-coded to
  * implement-wave's own core export list), this lets any script's core be reached by name —
- * needed because audit.js's core exports are not in B1's CORE_EXPORT_NAMES list.
+ * needed because deep-codebase-audit.js's core exports are not in B1's CORE_EXPORT_NAMES list.
  */
 export function loadCoreNamed(path, names) {
   const slice = coreSlice(path)
