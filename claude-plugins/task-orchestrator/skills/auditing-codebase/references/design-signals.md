@@ -1,20 +1,20 @@
 # Design signals for existing code
 
-What is visible, in the code or its history, when the shape of existing code costs something. The check numbers refer to the seven checks of the designing-modules skill, which holds the reasoning, the legitimate exceptions and the finding format. Apply the signals to the hot spots only.
+A design signal is something visible in existing code, or in its history, that makes the next change dearer than it needs to be. Each row below gives what to look for, the evidence that turns it into a cost, and the move that usually removes it. Apply the signals to the hot spots only.
 
-A signal is a candidate until it is tied to a cost: a change that was, or will be, expensive because of it. Without that tie, drop it.
+A signal is a candidate only once it is tied to a cost: a change that was, or will be, expensive because of it. Without that tie, drop it.
 
-| Signal | How to see it | Check |
+| Signal | Evidence of cost | Usual move |
 |---|---|---|
-| One decision known in several files | the same key, format, table or status value built or parsed in more than one place | 1 |
-| Files that move together | history shows the same files in most commits, across a module boundary | 1 |
-| A layer that only forwards | a wrapper whose body is one call with the same arguments; a surface as large as what it hides | 2 |
-| One idea in many tiny pieces | following a behaviour opens five files of a few lines each | 2 |
-| Structure with no named reason | an interface with one implementation, a factory with one case, an option nobody sets, and no dependency rule or test fake that needs it | 3 |
-| Dependencies pointing outward | core logic importing transport, storage or framework types; import cycles between packages | 4 |
-| State with several writers | one field written from many modules; the same invariant checked at each layer | 5 |
-| Errors passed along or hidden | log-and-continue, a default that masks failure, the same error re-wrapped at every layer | 6 |
-| A surface bent for each caller | flags and mode parameters added one caller at a time; old and new versions side by side | 7 |
+| Knowledge copied | One fact (a format, a key layout, a list of states) spelled out in several files, and commits that edit those files together for one reason | Give the fact one home and have the other files ask it |
+| Coupling across a boundary | Two files in different modules changing in most of the same commits, with or without an import between them | Move what both of them know to one side, or merge them |
+| Layers that only hand on | Following one behaviour means stepping through wrappers that pass the same arguments along, and fixes land in the wrapper and the wrapped code alike | Remove the layer, or give it a job of its own |
+| Scattered behaviour | One behaviour spread over many small files that always change together | Bring the pieces into one module |
+| Flexibility that never paid | An interface, factory or option whose second case never arrived, so every change edits the indirection as well as the one real case | Collapse it to the one case, unless a dependency rule or a test fake needs the seam |
+| Infrastructure reaching the centre | Domain code importing storage, transport or framework types, so a change at the edge reaches the core, and tests of the core need the edge running | Turn the dependency around behind an interface the core owns |
+| Contested state | One value written from several places, and fixes to the same rule about it landing in more than one of them | Give the value one owner that enforces its rules |
+| Errors carried by hand | The same failure checked, translated or logged at every layer, and error-handling edits spread across those layers | Handle it where something can be done about it; elsewhere let it pass |
+| A shared surface bent per caller | A widely used function or type gaining a flag or mode for each new caller, so each new caller edits the shared code | Split the behaviours, or add a new surface beside the old one, move the callers, then remove the old |
 
 ## Reading for cost
 

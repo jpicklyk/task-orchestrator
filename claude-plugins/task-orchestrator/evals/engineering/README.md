@@ -22,6 +22,10 @@ variant would be a separate scenario id.
 
 Scenario ids start with the skill name, so `--scenario spotting-code-slop` runs all of that skill's scenarios.
 
+Two scenario families have no skill directory of their own: the slop catalog that `spotting-code-slop` probes now sits
+under `skills/auditing-codebase`, and `organizing-codebases` was cancelled. Their scenarios stay as baselines;
+`--with-skill` accepts only a family whose `skills/<name>/SKILL.md` exists.
+
 ### Realistic tier
 
 The fixture scenarios are tiny, so the agent reads every file. Each skill therefore also has one scenario (id
@@ -170,7 +174,7 @@ the baseline, and it is how results.md is filled.
 To rerun WITH a skill, load that skill alone:
 
 ```
-node claude-plugins/task-orchestrator/evals/engineering/run-evals.mjs --scenario spotting-code-slop --with-skill spotting-code-slop --label "with spotting-code-slop" --run-id with-slop-1 --record
+node claude-plugins/task-orchestrator/evals/engineering/run-evals.mjs --scenario auditing-codebase --with-skill auditing-codebase --label "with auditing-codebase" --run-id with-audit-1 --record
 ```
 
 `--with-skill` copies `skills/<name>` of this plugin into a throwaway plugin of its own (a `plugin.json` that points at

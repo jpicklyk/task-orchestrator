@@ -46,7 +46,11 @@ const RUN_TIMEOUT_MS = 15 * 60 * 1000;
 const MAX_TURNS = 40;
 const SNAPSHOT_TIMEOUT_MS = 20 * 60 * 1000;
 const SNAPSHOT_MAX_TURNS = 60;
+// Scenario families: the `skill` field of a scenario and the prefix of its id. Two families have no skill directory of
+// their own: spotting-code-slop's catalog lives under skills/auditing-codebase, and organizing-codebases was cancelled.
+// Their scenarios stay as baselines; --with-skill takes only a family whose skills/<name>/SKILL.md exists.
 const SKILLS = ['spotting-code-slop', 'designing-modules', 'organizing-codebases', 'defining-project-terms', 'auditing-codebase'];
+const hasSkillDir = (name, pluginRoot = PLUGIN) => existsSync(join(pluginRoot, 'skills', name, 'SKILL.md'));
 const KINDS = ['build', 'review', 'audit'];
 
 // ---- arguments --------------------------------------------------------------------------------------------------
@@ -73,7 +77,9 @@ export function parseArgs(argv) {
     } else throw new Error(`unknown argument ${f}`);
   }
   if (a.pluginDir && a.withSkill) throw new Error('--plugin-dir and --with-skill are exclusive');
-  if (a.withSkill && !SKILLS.includes(a.withSkill)) throw new Error(`--with-skill must be one of ${SKILLS.join(', ')}`);
+  if (a.withSkill && !(SKILLS.includes(a.withSkill) && hasSkillDir(a.withSkill))) {
+    throw new Error(`--with-skill must be one of ${SKILLS.filter((n) => hasSkillDir(n)).join(', ')}`);
+  }
   if (a.runId && !/^[\w.-]+$/.test(a.runId)) throw new Error('--run-id may hold letters, digits, dot, underscore and hyphen only');
   if (a.collect && !/^[\w.-]+$/.test(a.collect)) throw new Error('--collect needs a run id of letters, digits, dot, underscore and hyphen');
   return a;
