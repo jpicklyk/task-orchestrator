@@ -17,7 +17,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.LaneOutput
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
-import io.github.jpicklyk.mcptask.current.domain.model.OwningSeat
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
@@ -116,7 +115,7 @@ internal object ConfigKeyCatalog {
  * Collects what the parser finds wrong in a document, each with a JSON Pointer path. A finding is one of:
  * - [Kind.SOFT]: something the 3.x parser skipped with a warning (an error in [ParseMode.STRICT], a warning in
  *   [ParseMode.MIGRATION]);
- * - [Kind.ADVISORY]: worth saying but never an error (resource fan-out, a required note no seat owns);
+ * - [Kind.ADVISORY]: worth saying but never an error (resource fan-out);
  * - [Kind.DEFERRED]: a check the validator redoes against the server layer (an undeclared resource), so only the
  *   migration parse reports it.
  */
@@ -351,7 +350,7 @@ internal object YamlSchemaParser {
 
         val base =
             when {
-                root.containsKey("work_item_schemas") -> parseWorkItemSchemas(root, traitSeatsMap, parsedTraits, warnings)
+                root.containsKey("work_item_schemas") -> parseWorkItemSchemas(root, traitSeatsMap, warnings)
                 root.containsKey("note_schemas") -> parseLegacyNoteSchemas(root, warnings)
                 else -> {
                     if (warnOnMissingSchemas) {
@@ -400,7 +399,6 @@ internal object YamlSchemaParser {
     private fun parseWorkItemSchemas(
         root: Map<String, Any>,
         traitSeatsMap: Map<String, List<SeatDefinition>>,
-        traitNotesMap: Map<String, List<NoteSchemaEntry>>,
         warnings: ParseFindings
     ): ConfigDocument {
         val rawSchemas =
@@ -468,8 +466,6 @@ internal object YamlSchemaParser {
             if (effectiveSeats.size != seats.size) {
                 validateSeatScope("Schema '$schemaName'", effectiveSeats, "$schemaPath/seats")
             }
-
-            warnUnownedRequiredNotes(schemaName, schemaPath, entries, defaultTraits, traitNotesMap, effectiveSeats, warnings)
 
             workItemSchemasMap[schemaName] =
                 WorkItemSchema(
@@ -686,51 +682,6 @@ internal object YamlSchemaParser {
             )
         }
         return result
-    }
-
-    /**
-     * DEC-11 (A1a W5): in a schema whose effective seats (its own + its SAME-DOCUMENT default
-     * traits' seats) are non-empty, warns for every REQUIRED note (the schema's own notes + its
-     * default traits' notes, base-key-wins — the same-document counterpart of resolve-time trait
-     * merging) whose `seat` is null, or does not name a seat of the SAME phase as the note's `role` (the orchestrator seat matches in any phase)
-     * — such a note is served under the `unowned` bucket in `missingBySeat` (see
-     * `io.github.jpicklyk.mcptask.current.application.service.SeatOwnership`; the rule is
-     * [io.github.jpicklyk.mcptask.current.domain.model.OwningSeat]). A no-op when
-     * [effectiveSeats] is empty (the schema isn't seat-aware).
-     */
-    private fun warnUnownedRequiredNotes(
-        schemaName: String,
-        schemaPath: String,
-        baseNotes: List<NoteSchemaEntry>,
-        defaultTraits: List<String>,
-        traitNotesMap: Map<String, List<NoteSchemaEntry>>,
-        effectiveSeats: List<SeatDefinition>,
-        warnings: ParseFindings
-    ) {
-        if (effectiveSeats.isEmpty()) return
-
-        val combinedNotes = mutableListOf<NoteSchemaEntry>()
-        val seenKeys = mutableSetOf<String>()
-        for (note in baseNotes) {
-            if (seenKeys.add(note.key)) combinedNotes.add(note)
-        }
-        for (trait in defaultTraits) {
-            val traitNotes = traitNotesMap[trait] ?: continue
-            for (note in traitNotes) {
-                if (seenKeys.add(note.key)) combinedNotes.add(note)
-            }
-        }
-
-        for (note in combinedNotes) {
-            if (!note.required) continue
-            if (OwningSeat.of(note, effectiveSeats) == null) {
-                warnings.advisory(
-                    schemaPath,
-                    "Schema '$schemaName': required note '${note.key}' (role '${note.role.name.lowercase()}') is " +
-                        "not owned by any declared seat; listed under 'unowned' in missingBySeat"
-                )
-            }
-        }
     }
 
     /**

@@ -6,7 +6,7 @@ package io.github.jpicklyk.mcptask.current.application.config
  *
  * Extraction is identical in both modes: the same [ConfigDocument] comes out of the same input. The mode only decides
  * whether a former soft skip is reported as an error ([STRICT]) or as a warning ([MIGRATION]). Advisory findings
- * (resource fan-out, a required note no seat owns) are warnings in both modes, and a structural seat error (F1-F4) is
+ * (resource fan-out; the unowned-note advisory is validation's) are warnings in both modes, and a structural seat error (F1-F4) is
  * fatal in both.
  */
 enum class ParseMode {

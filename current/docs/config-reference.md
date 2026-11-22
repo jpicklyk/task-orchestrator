@@ -298,7 +298,7 @@ or a different lifecycle mode); guidance and description edits do not. `sample` 
 and `warnings`, never changes `valid`, and is `[]` for an invalid document, a parse failure and a rootId mismatch. `push`
 does not compute or store it. Only content declared in the per-root document is reported; the server layer is read for
 resolution and comparison only. The checks: a seat that owns no note of its phase (for `orchestrator`, a note labelled for it in any phase counts); an optional note with no seat on a
-schema or trait that declares seats (a required unseated note keeps its parser warning); the same guidance on several
+schema or trait that declares seats (a required unseated note is reported in `warnings`); the same guidance on several
 notes; a per-root type or trait that shadows a server one (with what differs); a trait with no `applies_when`; a seat
 `rules` entry the root does not serve; a seat `skills` entry or note `skill` that names a served rule; on a schema or trait that declares seats, an optional
 note (or a required trait note no schema here lists) whose `seat` no seat of its phase owns (`orchestrator` in any phase),
@@ -318,7 +318,7 @@ extraction is identical: the same document comes out of the same input.
 | `MIGRATION` | a warning | reading config that already exists: stored versions, canonicalizing the rows copied from 3.x, restoring a version on rollback |
 
 Reading a stored version is never an admission point, so a root whose 3.x config carries the old top-level plugin
-sections keeps working. Only a new push has to be clean. Advisory findings are warnings in both modes.
+sections keeps working. Only a new push has to be clean. Advisory findings are warnings in both modes. The required-note-no-seat-owns advisory is not a parse finding: `validate` and `push` report it in `warnings`, computed over the merged schema, and a stored version read in `MIGRATION` mode never draws it.
 
 **The server file is an admission point once per boot.** The `server-config-import` data step parses the file in
 `STRICT` mode, the same rules a push is held to, with one allowance: an error at exactly the top-level key
