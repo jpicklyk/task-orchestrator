@@ -90,7 +90,9 @@ implementation?
 
 Find the project's stated layering and dependency rules, place the change in the module it
 belongs in, and look for an existing helper or pattern before proposing a new one. Detail in
-[architecture fit](references/architecture-fit.md).
+[architecture fit](references/architecture-fit.md). For each new seam, say what it hides, whether a second
+implementation or test fake exists, and which way its dependencies point; when the change is
+awkward in the current structure, plan the restructuring first.
 
 Self-check: for every new type or helper, can you name the existing one you looked at and why it
 did not serve?

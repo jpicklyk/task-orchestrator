@@ -42,3 +42,16 @@ plan.
 
 Self-check: does the plan list every construction and registration site, with the search that
 found them (see [claims and sweeps](claims-and-sweeps.md))?
+
+## Seams
+
+Each new seam a plan introduces (an interface, a port, a module boundary) answers three questions
+in the plan: what it hides, whether a second real implementation or a test fake exists today, and
+which way its dependencies point. A seam that hides nothing, has no second user and points against
+the stated layering is removed from the plan.
+
+## Make the change easy first
+
+When the requested change is awkward in the current structure, plan the restructuring as its own
+step ahead of the change: make the change easy, then make the easy change (Kent Beck). The
+restructuring step keeps behaviour unchanged and ships separately from the behaviour change.
