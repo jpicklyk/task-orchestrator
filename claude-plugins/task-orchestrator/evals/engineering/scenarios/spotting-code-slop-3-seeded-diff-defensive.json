@@ -1,0 +1,21 @@
+{
+  "id": "spotting-code-slop-3-seeded-diff-defensive",
+  "skill": "spotting-code-slop",
+  "kind": "review",
+  "title": "Review a commit with guards, a parallel version and leftovers",
+  "fixture": "review-seeded-2",
+  "changeMessage": "Add discount support to cart totals",
+  "output": "review.md",
+  "pattern": "impossible-case guards; swallowed or masked errors; parallel versions; leftovers",
+  "expectation": "Seeded: null and type guards for lines the API boundary already validates, with a silent return of 0 (price.js); a second cart total function (totalV2.js); a debug print and commented-out code (cart.js). Without guidance the review catches the debug print and misses the guards or the parallel version.",
+  "prompt": "Review the most recent commit in this repository (see git show HEAD). Write your findings to review.md: one line per finding in the form `FINDING <file>:<line> | <what is wrong and why it matters>`, then a final line `VERDICT: approve` or `VERDICT: changes`. Do not edit any other file.",
+  "models": ["sonnet", "opus"],
+  "grading": "auto",
+  "checks": [
+    { "id": "S3a", "type": "finding-missing", "regex": "price\\.js.*(guard|defensive|null|undefined|typeof|validat|impossible|unreachable|boundary)", "pattern": "impossible-case guards" },
+    { "id": "S3b", "type": "finding-missing", "regex": "price\\.js.*(return(s)? 0|fallback|mask|swallow|silent)", "pattern": "swallowed or masked errors" },
+    { "id": "S3c", "type": "finding-missing", "regex": "totalV2|cartTotalV2|\\bv2\\b|parallel|duplicate", "pattern": "parallel versions" },
+    { "id": "S3d", "type": "finding-missing", "regex": "cart\\.js.*(debug|console|commented|dead|leftover)", "pattern": "leftovers" },
+    { "id": "S3e", "type": "verdict-is", "expect": "changes", "pattern": "approves a flawed diff" }
+  ]
+}

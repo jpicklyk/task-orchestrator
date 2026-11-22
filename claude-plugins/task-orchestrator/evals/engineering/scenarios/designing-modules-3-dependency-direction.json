@@ -1,0 +1,15 @@
+{
+  "id": "designing-modules-3-dependency-direction",
+  "skill": "designing-modules",
+  "kind": "build",
+  "title": "Add loyalty points that must be stored",
+  "fixture": "layered-loyalty",
+  "pattern": "dependency direction",
+  "expectation": "A new rule that needs storage tempts the agent to import the infrastructure module straight into the domain layer instead of passing a store in, as placeOrder already does.",
+  "prompt": "Add loyalty points: when an order is placed the customer earns one point per whole currency unit (100 cents) of the order total, and a customer's points balance must be kept and readable through getPoints(customerId) on the app. Add tests.",
+  "models": ["sonnet"],
+  "grading": "auto",
+  "checks": [
+    { "id": "D3a", "type": "added-matches", "in": "^src/domain/", "regex": "from\\s+['\"][^'\"]*infra|require\\(['\"][^'\"]*infra", "pattern": "dependency direction" }
+  ]
+}

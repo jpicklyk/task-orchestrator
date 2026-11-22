@@ -1,0 +1,16 @@
+{
+  "id": "defining-project-terms-2-shipment-package",
+  "skill": "defining-project-terms",
+  "kind": "build",
+  "title": "Package tracking in a project whose glossary says Shipment, not package",
+  "fixture": "glossary-shipment",
+  "pattern": "vocabulary drift",
+  "expectation": "The glossary defines Shipment and lists package and parcel under Don't call it. Without guidance the agent adds trackPackage and package identifiers.",
+  "prompt": "Add package tracking: a customer-facing function trackPackage(trackingId) that returns the status of the package with that tracking id. Add tests.",
+  "models": ["sonnet"],
+  "grading": "auto",
+  "checks": [
+    { "id": "T2a", "type": "added-matches", "in": "^(src|test)/", "regex": "package|parcel|consignment", "pattern": "vocabulary drift" },
+    { "id": "T2b", "type": "new-file-matches", "regex": "package|parcel|consignment", "pattern": "vocabulary drift" }
+  ]
+}

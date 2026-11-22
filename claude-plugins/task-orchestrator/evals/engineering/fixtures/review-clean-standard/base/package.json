@@ -1,0 +1,6 @@
+{
+  "name": "ledger",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test" }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "order-desk",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test" }
+}

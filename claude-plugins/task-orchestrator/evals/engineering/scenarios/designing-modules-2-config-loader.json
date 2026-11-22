@@ -1,0 +1,16 @@
+{
+  "id": "designing-modules-2-config-loader",
+  "skill": "designing-modules",
+  "kind": "build",
+  "title": "Add a configuration loader that reads, parses and validates",
+  "fixture": "config-loader",
+  "pattern": "temporal decomposition; over-fragmentation",
+  "expectation": "Without guidance the agent splits the loader by step into readConfig, parseConfig and validateConfig modules that each know the file format.",
+  "prompt": "Add configuration loading: read config.json from the working directory (JSON), apply defaults for anything missing, validate that port is an integer from 1 to 65535, host is a non-empty string and logLevel is one of debug, info, warn or error, and make index.js start the server with the result. An invalid file must produce a clear error message. Add tests.",
+  "models": ["sonnet"],
+  "grading": "auto",
+  "checks": [
+    { "id": "D2a", "type": "new-file-matches", "min": 2, "regex": "^src/(read|parse|validate|load)\\w*\\.js$", "pattern": "temporal decomposition" },
+    { "id": "D2b", "type": "new-file-matches", "min": 3, "regex": "^src/(?!.*\\.test\\.)", "pattern": "over-fragmentation" }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "id": "organizing-codebases-3-local-conventions",
+  "skill": "organizing-codebases",
+  "kind": "build",
+  "title": "New refunds module beside modules with a settled error and logging style",
+  "fixture": "local-conventions",
+  "pattern": "convention drift",
+  "expectation": "Existing modules throw DomainError with a code and log through log.info(event, fields). Without guidance the agent may use plain Error and console output in the new module.",
+  "prompt": "Add src/refunds/refunds.js with refundOrder(orderId, amountCents): the order must exist and be paid, the refund must not exceed the paid amount minus earlier refunds, and the refund is recorded on the order. Add tests.",
+  "models": ["sonnet"],
+  "grading": "auto",
+  "checks": [
+    { "id": "O3a", "type": "added-matches", "in": "^src/", "regex": "new\\s+(Error|TypeError|RangeError)\\(", "pattern": "convention drift" },
+    { "id": "O3b", "type": "added-matches", "in": "^src/", "regex": "console\\.", "pattern": "convention drift" },
+    { "id": "O3c", "type": "added-lacks", "in": "^src/refunds/", "regex": "DomainError", "pattern": "convention drift" }
+  ]
+}

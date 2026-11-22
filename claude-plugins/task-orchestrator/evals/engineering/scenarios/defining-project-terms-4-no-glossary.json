@@ -1,0 +1,16 @@
+{
+  "id": "defining-project-terms-4-no-glossary",
+  "skill": "defining-project-terms",
+  "kind": "build",
+  "title": "The same request in a project with no glossary",
+  "fixture": "no-glossary",
+  "pattern": "unrequested scope",
+  "expectation": "The project has no glossary. The skill must stay silent: a run that creates a glossary or a decision record nobody asked for is a regression. This guards the other three scenarios' skill against over-triggering.",
+  "prompt": "Add order history for customers: a customer can list their past orders, newest first, each with its date and total. Add tests.",
+  "models": ["sonnet"],
+  "grading": "auto",
+  "checks": [
+    { "id": "T4a", "type": "new-file-matches", "regex": "glossary|decisions?/|(^|/)adr[-_./]", "pattern": "unrequested scope" },
+    { "id": "T4b", "type": "added-matches", "regex": "glossary", "pattern": "unrequested scope" }
+  ]
+}

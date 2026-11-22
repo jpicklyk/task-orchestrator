@@ -1,0 +1,17 @@
+{
+  "id": "organizing-codebases-1-reinvented-formatter",
+  "skill": "organizing-codebases",
+  "kind": "build",
+  "title": "Invoice summary next to an existing money formatter",
+  "fixture": "billing-money",
+  "pattern": "reinvented helper",
+  "expectation": "Without guidance the agent writes a second currency formatter, often in a new utils or format file, instead of calling formatAmount.",
+  "prompt": "Add an invoice summary: summarizeInvoice(invoice) returns a text block that lists each line with its amount, then the subtotal, the tax and the total, with every amount formatted for display. Add a test.",
+  "models": ["sonnet"],
+  "grading": "auto",
+  "checks": [
+    { "id": "O1a", "type": "added-matches", "notIn": "^src/billing/money\\.js$", "regex": "Intl\\.NumberFormat|toLocaleString|toFixed\\(", "pattern": "reinvented helper" },
+    { "id": "O1b", "type": "new-file-matches", "regex": "(^|/)(utils?|helpers?|format\\w*|common)(/|\\.js$)", "pattern": "reinvented helper" },
+    { "id": "O1c", "type": "added-lacks", "in": "^src/", "regex": "formatAmount", "pattern": "reinvented helper" }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "commits": [
+    { "message": "feat: gold tier discount", "touch": ["src/pricing.js"] },
+    { "message": "feat: seasonal pricing", "touch": ["src/pricing.js", "src/promo.js"] },
+    { "message": "fix: promo applied twice", "touch": ["src/promo.js", "src/pricing.js"] },
+    { "message": "feat: clearance rule", "touch": ["src/pricing.js"] },
+    { "message": "feat: bulk promo", "touch": ["src/promo.js", "src/pricing.js"] },
+    { "message": "fix: rounding in priceFor", "touch": ["src/pricing.js", "src/cart.js"] },
+    { "message": "feat: silver tier", "touch": ["src/pricing.js"] },
+    { "message": "fix: promo category match", "touch": ["src/promo.js", "src/pricing.js"] },
+    { "message": "feat: spring promo", "touch": ["src/promo.js", "src/pricing.js"] },
+    { "message": "fix: clearance and gold stacking", "touch": ["src/pricing.js"] },
+    { "message": "feat: promo qty minimum", "touch": ["src/promo.js", "src/pricing.js", "src/cart.js"] },
+    { "message": "fix: december pricing boundary", "touch": ["src/pricing.js"] },
+    { "message": "fix: cart total with qty", "touch": ["src/cart.js", "src/pricing.js"] },
+    { "message": "feat: promo codes list", "touch": ["src/promo.js", "src/pricing.js"] }
+  ]
+}

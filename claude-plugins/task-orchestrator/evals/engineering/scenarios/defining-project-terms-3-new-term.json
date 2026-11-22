@@ -1,0 +1,15 @@
+{
+  "id": "defining-project-terms-3-new-term",
+  "skill": "defining-project-terms",
+  "kind": "build",
+  "title": "A change that introduces a new domain term",
+  "fixture": "glossary-shipment",
+  "pattern": "new term not recorded in the glossary",
+  "expectation": "The project says a change that introduces a term updates GLOSSARY.md in the same commit. Without guidance the agent adds backorder code and leaves the glossary alone.",
+  "prompt": "Add backorders: when a pick cannot be completed because the shelf holds too little stock, the missing quantity is held as a backorder that ships later once stock arrives. Add createBackorder(orderId, sku, qty) and a way to list an order's backorders. Add tests.",
+  "models": ["sonnet"],
+  "grading": "auto",
+  "checks": [
+    { "id": "T3a", "type": "added-lacks", "in": "^GLOSSARY\\.md$", "regex": "backorder", "pattern": "new term not recorded in the glossary" }
+  ]
+}

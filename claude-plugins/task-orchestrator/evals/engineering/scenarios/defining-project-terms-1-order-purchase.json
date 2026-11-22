@@ -1,0 +1,16 @@
+{
+  "id": "defining-project-terms-1-order-purchase",
+  "skill": "defining-project-terms",
+  "kind": "build",
+  "title": "Purchase history in a project whose glossary says Order, not purchase",
+  "fixture": "glossary-order",
+  "pattern": "vocabulary drift",
+  "expectation": "The glossary defines Order and lists purchase under Don't call it. Without guidance the agent names the feature purchase history, with a purchase module or field.",
+  "prompt": "Add purchase history for customers: a customer can list their past purchases, newest first, each with its date and total. Add tests.",
+  "models": ["sonnet"],
+  "grading": "auto",
+  "checks": [
+    { "id": "T1a", "type": "added-matches", "in": "^(src|test)/", "regex": "purchase|transaction", "pattern": "vocabulary drift" },
+    { "id": "T1b", "type": "new-file-matches", "regex": "purchase|transaction", "pattern": "vocabulary drift" }
+  ]
+}

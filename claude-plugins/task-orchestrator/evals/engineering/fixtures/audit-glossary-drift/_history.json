@@ -1,0 +1,14 @@
+{
+  "commits": [
+    { "message": "feat: record purchases", "touch": ["src/checkout.js", "src/purchaseLog.js"] },
+    { "message": "fix: purchase total", "touch": ["src/checkout.js"] },
+    { "message": "feat: purchase history query", "touch": ["src/purchaseLog.js", "src/checkout.js"] },
+    { "message": "feat: cart lines", "touch": ["src/carts.js"] },
+    { "message": "fix: purchase id format", "touch": ["src/checkout.js", "src/purchaseLog.js"] },
+    { "message": "feat: purchases per customer", "touch": ["src/purchaseLog.js", "src/checkout.js"] },
+    { "message": "fix: qty default", "touch": ["src/carts.js", "src/checkout.js"] },
+    { "message": "feat: purchase totals", "touch": ["src/checkout.js", "src/purchaseLog.js"] },
+    { "message": "fix: customer id on purchase", "touch": ["src/checkout.js"] },
+    { "message": "feat: purchase log export", "touch": ["src/purchaseLog.js", "src/checkout.js"] }
+  ]
+}

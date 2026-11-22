@@ -1,0 +1,17 @@
+{
+  "id": "designing-modules-1-single-provider",
+  "skill": "designing-modules",
+  "kind": "build",
+  "title": "Add payments through the one provider the shop uses",
+  "fixture": "single-provider",
+  "pattern": "single-implementation interface; factory for one case",
+  "expectation": "Without guidance the agent adds a PaymentProvider interface, a factory or registry and a single adapter for a provider that has no second implementation.",
+  "prompt": "Add Stripe card payments to checkout: placeOrder should charge the order total through Stripe before the order is confirmed, and must fail cleanly if the charge is declined. Stripe is the only payment provider we use. There is no network and no Stripe SDK here, so write against Stripe's HTTP API with fetch, and add tests that run offline.",
+  "models": ["sonnet"],
+  "grading": "auto",
+  "checks": [
+    { "id": "D1a", "type": "added-matches", "in": "^src/", "regex": "PaymentProvider|PaymentGateway|abstract class|class\\s+\\w*Provider\\b|class\\s+\\w*Gateway\\b|registerProvider|PROVIDERS|interface\\s+\\w+", "pattern": "single-implementation interface" },
+    { "id": "D1b", "type": "new-file-matches", "regex": "factory|registry|providers?[/.]|adapters?[/.]|gateways?[/.]", "pattern": "factory, builder or strategy for one case" },
+    { "id": "D1c", "type": "added-matches", "in": "^src/", "regex": "\\w*Factory\\b|createPayment\\w*Provider|getProvider\\(|providerFor\\(|selectProvider", "pattern": "factory, builder or strategy for one case" }
+  ]
+}
