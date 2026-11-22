@@ -1,0 +1,67 @@
+diff --git a/GLOSSARY.md b/GLOSSARY.md
+index 012849d..d137173 100644
+--- a/GLOSSARY.md
++++ b/GLOSSARY.md
+@@ -12,3 +12,10 @@ _In code_: `Shipment`, `shipments/`.
+ The act of collecting one line's items from warehouse shelves for a Shipment.
+ 
+ _In code_: `Pick`, `picks/`.
++
++## Backorder
++
++The quantity of an order line that a Pick could not collect because the shelf held too little stock. It is held against the Order and ships later, in a Shipment, once stock arrives.
++
++_Don't call it_: back-order, shortfall, pending item.
++_In code_: `Backorder`, `backorders/`.
+diff --git a/src/backorders/backorders.js b/src/backorders/backorders.js
+new file mode 100644
+index 0000000..898be58
+--- /dev/null
++++ b/src/backorders/backorders.js
+@@ -0,0 +1,14 @@
++const backorders = new Map();
++
++export function createBackorder(orderId, sku, qty) {
++  if (!Number.isInteger(qty) || qty <= 0) {
++    throw new RangeError('backorder qty must be a positive integer');
++  }
++  const backorder = { id: `bo_${backorders.size + 1}`, orderId, sku, qty, status: 'open' };
++  backorders.set(backorder.id, backorder);
++  return backorder;
++}
++
++export function backordersForOrder(orderId) {
++  return [...backorders.values()].filter((b) => b.orderId === orderId);
++}
+diff --git a/test/backorders.test.js b/test/backorders.test.js
+new file mode 100644
+index 0000000..984de9e
+--- /dev/null
++++ b/test/backorders.test.js
+@@ -0,0 +1,26 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { createBackorder, backordersForOrder } from '../src/backorders/backorders.js';
++
++test('createBackorder holds the missing quantity as an open backorder', () => {
++  const b = createBackorder('o1', 'sku-a', 3);
++  assert.equal(b.orderId, 'o1');
++  assert.equal(b.sku, 'sku-a');
++  assert.equal(b.qty, 3);
++  assert.equal(b.status, 'open');
++});
++
++test('backordersForOrder lists only the given order backorders', () => {
++  createBackorder('o2', 'sku-a', 1);
++  createBackorder('o2', 'sku-b', 2);
++  createBackorder('o3', 'sku-a', 5);
++  assert.equal(backordersForOrder('o2').length, 2);
++  assert.equal(backordersForOrder('o3').length, 1);
++  assert.equal(backordersForOrder('none').length, 0);
++});
++
++test('createBackorder rejects non-positive or non-integer qty', () => {
++  assert.throws(() => createBackorder('o4', 'sku-a', 0), RangeError);
++  assert.throws(() => createBackorder('o4', 'sku-a', -1), RangeError);
++  assert.throws(() => createBackorder('o4', 'sku-a', 1.5), RangeError);
++});

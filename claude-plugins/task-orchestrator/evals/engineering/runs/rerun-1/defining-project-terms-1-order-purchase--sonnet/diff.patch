@@ -1,0 +1,57 @@
+diff --git a/src/orders/orders.js b/src/orders/orders.js
+index d0c4ae0..d7f72c4 100644
+--- a/src/orders/orders.js
++++ b/src/orders/orders.js
+@@ -9,3 +9,16 @@ export function createOrder(customerId, lines) {
+ export function ordersForCustomer(customerId) {
+   return orders.filter((o) => o.customerId === customerId);
+ }
++
++// Lines are assumed to look like { unitPrice, quantity }.
++export function orderTotal(order) {
++  return order.lines.reduce((sum, l) => sum + l.unitPrice * l.quantity, 0);
++}
++
++// Newest first; ties (same timestamp) resolve to most recently created first.
++export function orderHistory(customerId) {
++  return ordersForCustomer(customerId)
++    .map((o, i) => ({ o, i }))
++    .sort((a, b) => b.o.createdAt.localeCompare(a.o.createdAt) || b.i - a.i)
++    .map(({ o }) => ({ id: o.id, date: o.createdAt, total: orderTotal(o) }));
++}
+diff --git a/test/orders.test.js b/test/orders.test.js
+index 6848e9e..4f434a2 100644
+--- a/test/orders.test.js
++++ b/test/orders.test.js
+@@ -1,9 +1,30 @@
+ import { test } from 'node:test';
+ import assert from 'node:assert/strict';
+-import { createOrder, ordersForCustomer } from '../src/orders/orders.js';
++import { createOrder, ordersForCustomer, orderHistory, orderTotal } from '../src/orders/orders.js';
+ 
+ test('ordersForCustomer returns only that customer', () => {
+   createOrder('c1', []);
+   createOrder('c2', []);
+   assert.equal(ordersForCustomer('c1').length, 1);
+ });
++
++test('orderTotal sums unitPrice * quantity', () => {
++  const o = createOrder('t1', [{ unitPrice: 10, quantity: 2 }, { unitPrice: 5, quantity: 1 }]);
++  assert.equal(orderTotal(o), 25);
++});
++
++test('orderHistory lists newest first with date and total, only for that customer', () => {
++  const a = createOrder('h1', [{ unitPrice: 10, quantity: 1 }]);
++  const b = createOrder('h1', [{ unitPrice: 3, quantity: 3 }]);
++  createOrder('h2', [{ unitPrice: 99, quantity: 1 }]);
++  a.createdAt = '2026-01-01T00:00:00.000Z';
++  b.createdAt = '2026-02-01T00:00:00.000Z';
++  assert.deepEqual(orderHistory('h1'), [
++    { id: b.id, date: '2026-02-01T00:00:00.000Z', total: 9 },
++    { id: a.id, date: '2026-01-01T00:00:00.000Z', total: 10 },
++  ]);
++});
++
++test('orderHistory is empty for a customer with no orders', () => {
++  assert.deepEqual(orderHistory('nobody'), []);
++});

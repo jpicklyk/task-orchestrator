@@ -1,0 +1,13 @@
+ok   D1a single-implementation interface
+ok   D1d single-implementation interface: 0 match(es)
+ok   D1b factory, builder or strategy for one case
+ok   D1c factory, builder or strategy for one case
+ok   D1e factory, builder or strategy for one case: 0 match(es)
+ok   G1 narrating or change-log comments
+ok   G2 empty, log-only or default-returning catch
+ok   G3 defensive guards on guaranteed values: 1 guard(s)
+ok   G4 new dependency: 0 match(es)
+ok   G5 scope creep: unrelated existing files changed
+ok   G6 unused new export
+ok   G7 TODO or FIXME left behind: 0 match(es)
+ok   G8 broad try/catch around new code

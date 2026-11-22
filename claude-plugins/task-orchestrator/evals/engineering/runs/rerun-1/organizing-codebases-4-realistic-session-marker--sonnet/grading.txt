@@ -1,0 +1,13 @@
+ok   R1 hand-rolled marker state: 0 match(es)
+ok   R2 does not reuse the marker helpers
+ok   R3 hand-rolled stdin reader: 0 match(es)
+ok   R4 hand-rolled hook output: 0 match(es)
+ok   R5 parallel helper under hooks/lib
+ok   G1 narrating or change-log comments
+ok   G2 empty, log-only or default-returning catch
+ok   G3 defensive guards on guaranteed values: 0 guard(s)
+ok   G4 new dependency: 0 match(es)
+ok   G5 scope creep: unrelated existing files changed
+ok   G6 unused new export
+ok   G7 TODO or FIXME left behind: 0 match(es)
+ok   G8 broad try/catch around new code

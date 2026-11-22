@@ -1,0 +1,4 @@
+ src/orders/checkout.js | 20 ++++++++++++---
+ src/orders/stripe.js   | 58 ++++++++++++++++++++++++++++++++++++++++++
+ test/checkout.test.js  | 69 ++++++++++++++++++++++++++++++++++++++++++++++++--
+ 3 files changed, 142 insertions(+), 5 deletions(-)

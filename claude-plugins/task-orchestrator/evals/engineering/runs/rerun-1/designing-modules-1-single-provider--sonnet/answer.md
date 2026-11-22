@@ -1,0 +1,9 @@
+`placeOrder` now charges the order total through Stripe before it confirms the order. A declined card makes it reject with a `PaymentError`, and no confirmed order is returned. All 6 offline tests pass with `node --test`, but nothing has been run against the real Stripe API, since there's no network here.
+
+- **Stripe call:** the new `src/orders/stripe.js` has `chargeCard`, which POSTs to Stripe's `/v1/payment_intents` endpoint with `fetch`. It sends a bearer key, form-encoded fields, `confirm=true` and no redirect-based payment methods. It reads the key from `STRIPE_SECRET_KEY` by default.
+- **Failures:** a declined card (HTTP 402), a payment that needs further action, a network error, a missing key, a missing payment method and a bad amount each throw a `PaymentError`. It carries `code` and, for declines, `declineCode`. The checks for key, payment method and amount run before any request is made.
+- **Checkout:** `src/orders/checkout.js` now has an async `placeOrder(cart, stripe = {})`. The cart needs a `paymentMethod` (a Stripe `pm_...` id) and can take an optional `currency`, which defaults to `usd`. The confirmed order includes `paymentIntentId`. `stripe` takes `apiKey`, `fetchImpl` and `baseUrl` overrides, which is how the tests inject a fake `fetch`.
+- **Tests:** `test/checkout.test.js` covers the success request shape, a decline, a requires-action response, a network error, a missing payment method or key, and an empty cart. The last two confirm nothing is charged.
+
+- **Breaking change:** `placeOrder` now returns a promise, so any existing caller needs `await`.
+- **Idempotency key:** I used `order.id` as the key. `order.id` is built from `Date.now()`, and a retry creates a new order with a new id. So it won't deduplicate retries of the same cart. If you want that, give carts a stable id and use it as the key.

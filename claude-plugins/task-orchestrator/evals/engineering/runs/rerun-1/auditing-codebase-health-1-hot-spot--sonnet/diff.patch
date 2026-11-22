@@ -1,0 +1,9 @@
+diff --git a/audit.md b/audit.md
+new file mode 100644
+index 0000000..4783173
+--- /dev/null
++++ b/audit.md
+@@ -0,0 +1,3 @@
++RANK 1 | src/pricing.js | Act now | It is the most-changed file (15 commits, mostly pricing bug fixes) and stacks tier, seasonal, clearance and promo discounts in one order-dependent function, and the repo has no tests to protect it.
++RANK 2 | src/promo.js | Plan it | It has 8 commits and a hardcoded promo table with ad-hoc matching rules, and promos reach `item.qty` from inside the pricing path, which couples it to cart behaviour.
++RANK 3 | src/legacyReport.js | Watch | It is the ugliest code (one-letter names, module-level mutable state, deeply nested ifs), but it has been touched once and nothing depends on it, so the cleanup can wait until someone needs to change it.

@@ -1,0 +1,76 @@
+diff --git a/src/refunds/refunds.js b/src/refunds/refunds.js
+new file mode 100644
+index 0000000..161528d
+--- /dev/null
++++ b/src/refunds/refunds.js
+@@ -0,0 +1,24 @@
++import { DomainError } from '../errors.js';
++import { log } from '../log.js';
++import { getOrder } from '../orders/orders.js';
++
++export function refundOrder(orderId, amountCents) {
++  if (!Number.isInteger(amountCents) || amountCents <= 0) {
++    throw new DomainError('REFUND_AMOUNT_INVALID', `invalid amount ${amountCents}`);
++  }
++  const order = getOrder(orderId);
++  if (!order.paidCents) {
++    throw new DomainError('ORDER_NOT_PAID', `order ${orderId} is not paid`);
++  }
++  const refundedCents = order.refunds.reduce((sum, r) => sum + r.amountCents, 0);
++  const remainingCents = order.paidCents - refundedCents;
++  if (amountCents > remainingCents) {
++    throw new DomainError(
++      'REFUND_EXCEEDS_PAID',
++      `refund ${amountCents} exceeds refundable ${remainingCents} on order ${orderId}`,
++    );
++  }
++  order.refunds.push({ amountCents });
++  log.info('order.refunded', { orderId, amountCents });
++  return order;
++}
+diff --git a/test/refunds.test.js b/test/refunds.test.js
+new file mode 100644
+index 0000000..703f039
+--- /dev/null
++++ b/test/refunds.test.js
+@@ -0,0 +1,40 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { addOrder, markPaid, getOrder } from '../src/orders/orders.js';
++import { refundOrder } from '../src/refunds/refunds.js';
++
++const code = (c) => (e) => e.code === c;
++
++test('refundOrder rejects unknown order', () => {
++  assert.throws(() => refundOrder('missing', 100), code('ORDER_NOT_FOUND'));
++});
++
++test('refundOrder rejects unpaid order', () => {
++  addOrder({ id: 'r1' });
++  assert.throws(() => refundOrder('r1', 100), code('ORDER_NOT_PAID'));
++});
++
++test('refundOrder rejects invalid amounts', () => {
++  addOrder({ id: 'r2' });
++  markPaid('r2', 500);
++  for (const bad of [0, -5, 1.5, NaN, '10']) {
++    assert.throws(() => refundOrder('r2', bad), code('REFUND_AMOUNT_INVALID'));
++  }
++});
++
++test('refundOrder records a refund on the order', () => {
++  addOrder({ id: 'r3' });
++  markPaid('r3', 500);
++  refundOrder('r3', 200);
++  assert.deepEqual(getOrder('r3').refunds, [{ amountCents: 200 }]);
++});
++
++test('refundOrder cannot exceed paid minus earlier refunds', () => {
++  addOrder({ id: 'r4' });
++  markPaid('r4', 500);
++  refundOrder('r4', 300);
++  assert.throws(() => refundOrder('r4', 201), code('REFUND_EXCEEDS_PAID'));
++  refundOrder('r4', 200);
++  assert.throws(() => refundOrder('r4', 1), code('REFUND_EXCEEDS_PAID'));
++  assert.equal(getOrder('r4').refunds.length, 2);
++});

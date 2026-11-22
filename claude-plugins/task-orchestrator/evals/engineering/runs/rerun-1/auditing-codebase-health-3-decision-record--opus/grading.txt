@@ -1,0 +1,2 @@
+FAIL A3a ranks a cold module first: rank 1 is src/labels.js
+ok   A3b no decision-record conflict flag: RANK 2 | src/carriers/fedex.js | Plan it | It has the most churn (changed in 8 of the 9 commits since initial, every time in lockstep with ups.js), but ADR 0002 deliberately rules out merging the adapters, so plan per-adapter tests and removing the dead "// revision N" comments rather than a merge.

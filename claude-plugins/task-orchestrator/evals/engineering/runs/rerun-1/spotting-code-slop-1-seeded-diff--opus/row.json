@@ -1,0 +1,12 @@
+{
+  "date": "2026-11-22",
+  "sha": "285d55eb1",
+  "scenario": "spotting-code-slop-1-seeded-diff",
+  "mode": "baseline, rerun after review fixes",
+  "model": "opus (claude-opus-5-5)",
+  "failures": [
+    "mixed-purpose diff"
+  ],
+  "outcome": "fail",
+  "artifacts": "runs/rerun-1/spotting-code-slop-1-seeded-diff--opus/"
+}

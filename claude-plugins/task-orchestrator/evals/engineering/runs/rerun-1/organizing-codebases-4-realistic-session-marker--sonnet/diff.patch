@@ -1,0 +1,104 @@
+diff --git a/claude-plugins/task-orchestrator/hooks/plan-reminder.mjs b/claude-plugins/task-orchestrator/hooks/plan-reminder.mjs
+new file mode 100644
+index 0000000..cccc731
+--- /dev/null
++++ b/claude-plugins/task-orchestrator/hooks/plan-reminder.mjs
+@@ -0,0 +1,25 @@
++#!/usr/bin/env node
++// UserPromptSubmit — adds a one-line planning reminder the first time it runs in a session.
++// Each invocation is a new process, so "first" is an exclusive-create marker under the session's
++// temp directory. Later invocations, and any input without a session id, emit `{}`.
++import { emit, contextOutput } from "./lib/emit.mjs";
++import { readHookInput } from "./lib/stdin.mjs";
++import { createMarkerOnce, sessionMarkerPath } from "./lib/markers.mjs";
++
++const REMINDER = "Check items_read next before you plan.";
++
++function main() {
++  const input = readHookInput();
++  const sessionId = input && typeof input.session_id === "string" ? input.session_id : "";
++  if (!sessionId) return {};
++  if (!createMarkerOnce(sessionMarkerPath(sessionId, "plan-reminder"))) return {};
++  return contextOutput("UserPromptSubmit", REMINDER);
++}
++
++let out = {};
++try {
++  out = main();
++} catch {
++  out = {};
++}
++emit(out);
+diff --git a/claude-plugins/task-orchestrator/hooks/tests/plan-reminder.test.mjs b/claude-plugins/task-orchestrator/hooks/tests/plan-reminder.test.mjs
+new file mode 100644
+index 0000000..fb813ad
+--- /dev/null
++++ b/claude-plugins/task-orchestrator/hooks/tests/plan-reminder.test.mjs
+@@ -0,0 +1,67 @@
++// Tests for hooks/plan-reminder.mjs: a UserPromptSubmit hook that adds a one-line reminder to the
++// context on its first run in a session and stays silent afterwards. Each run is a child process,
++// with the temp dir pinned so the session marker lives in a scratch directory.
++
++import './hermetic-claude-config.mjs';
++import { test, after } from 'node:test';
++import assert from 'node:assert/strict';
++import { spawnSync } from 'node:child_process';
++import { fileURLToPath } from 'node:url';
++import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++
++const SCRIPT = fileURLToPath(new URL('../plan-reminder.mjs', import.meta.url));
++const HOOKS_CONFIG = fileURLToPath(new URL('../hooks-config.json', import.meta.url));
++const REMINDER = 'Check items_read next before you plan.';
++
++const scratch = mkdtempSync(join(tmpdir(), 'to-plan-reminder-'));
++after(() => rmSync(scratch, { recursive: true, force: true }));
++
++function run(stdin, tmpRoot) {
++  const res = spawnSync(process.execPath, [SCRIPT], {
++    env: { ...process.env, TMPDIR: tmpRoot, TEMP: tmpRoot, TMP: tmpRoot },
++    input: typeof stdin === 'string' ? stdin : JSON.stringify(stdin),
++    encoding: 'utf-8',
++    timeout: 15000,
++  });
++  assert.equal(res.status, 0, res.stderr);
++  return JSON.parse(res.stdout);
++}
++
++const prompt = (session_id) => ({ hook_event_name: 'UserPromptSubmit', session_id, prompt: 'hello' });
++
++test('first run in a session adds the reminder as UserPromptSubmit context', () => {
++  const root = mkdtempSync(join(scratch, 'a-'));
++  assert.deepEqual(run(prompt('s1'), root), {
++    hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: REMINDER },
++  });
++});
++
++test('every later run in the same session emits {}', () => {
++  const root = mkdtempSync(join(scratch, 'b-'));
++  run(prompt('s1'), root);
++  assert.deepEqual(run(prompt('s1'), root), {});
++  assert.deepEqual(run(prompt('s1'), root), {});
++});
++
++test('a different session gets its own first-run reminder', () => {
++  const root = mkdtempSync(join(scratch, 'c-'));
++  run(prompt('s1'), root);
++  const other = run(prompt('s2'), root);
++  assert.equal(other.hookSpecificOutput.additionalContext, REMINDER);
++  assert.deepEqual(run(prompt('s2'), root), {});
++});
++
++test('empty, invalid or session-less input emits {} and creates no marker', () => {
++  const root = mkdtempSync(join(scratch, 'd-'));
++  assert.deepEqual(run('', root), {});
++  assert.deepEqual(run('not json', root), {});
++  assert.deepEqual(run({ prompt: 'x' }, root), {});
++  // still the first real run for a session afterwards
++  assert.equal(run(prompt('s1'), root).hookSpecificOutput.additionalContext, REMINDER);
++});
++
++test('the hook is not registered in hooks-config.json', () => {
++  assert.ok(!readFileSync(HOOKS_CONFIG, 'utf8').includes('plan-reminder'));
++});

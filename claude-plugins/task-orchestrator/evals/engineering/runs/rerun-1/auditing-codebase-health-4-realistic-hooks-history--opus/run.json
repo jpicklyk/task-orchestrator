@@ -1,0 +1,7 @@
+{
+  "models": [
+    "claude-opus-5-5"
+  ],
+  "skills": [],
+  "result": "{\"subtype\":\"success\",\"is_error\":false,\"turns\":11}"
+}

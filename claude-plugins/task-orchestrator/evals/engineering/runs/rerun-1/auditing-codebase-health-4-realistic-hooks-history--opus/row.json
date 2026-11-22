@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-22",
+  "sha": "285d55eb1",
+  "scenario": "auditing-codebase-health-4-realistic-hooks-history",
+  "mode": "baseline, rerun after review fixes",
+  "model": "opus (claude-opus-5-5)",
+  "failures": [],
+  "outcome": "no failure",
+  "artifacts": "runs/rerun-1/auditing-codebase-health-4-realistic-hooks-history--opus/"
+}

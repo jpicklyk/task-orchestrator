@@ -1,0 +1,174 @@
+diff --git a/src/orders/checkout.js b/src/orders/checkout.js
+index bf69efd..d377939 100644
+--- a/src/orders/checkout.js
++++ b/src/orders/checkout.js
+@@ -1,7 +1,21 @@
+ import { createOrder, confirm } from './order.js';
++import { chargeCard } from './stripe.js';
+ 
+-// Places an order for a cart and returns the confirmed order.
+-export function placeOrder(cart) {
++// Places an order for a cart: charges the total through Stripe, then returns the confirmed order.
++// cart.paymentMethod is a Stripe PaymentMethod id (e.g. "pm_..."). If the charge fails, a
++// PaymentError is thrown and no confirmed order is produced.
++// `stripe` options ({ apiKey, fetchImpl, baseUrl }) are injectable for tests.
++export async function placeOrder(cart, stripe = {}) {
+   const order = createOrder(cart.customerId, cart.lines);
+-  return confirm(order);
++  const payment = await chargeCard(
++    {
++      amountCents: order.totalCents,
++      currency: cart.currency,
++      paymentMethod: cart.paymentMethod,
++      idempotencyKey: order.id,
++      description: `Order ${order.id}`,
++    },
++    stripe,
++  );
++  return { ...confirm(order), paymentIntentId: payment.id };
+ }
+diff --git a/src/orders/stripe.js b/src/orders/stripe.js
+new file mode 100644
+index 0000000..8f9ed06
+--- /dev/null
++++ b/src/orders/stripe.js
+@@ -0,0 +1,58 @@
++export class PaymentError extends Error {
++  constructor(message, { code, declineCode, cause } = {}) {
++    super(message, { cause });
++    this.name = 'PaymentError';
++    this.code = code;
++    this.declineCode = declineCode;
++  }
++}
++
++// Charges a card via Stripe's PaymentIntents HTTP API (confirmed immediately, no redirects).
++// Resolves with { id, status } on success; throws PaymentError on decline or any failure.
++export async function chargeCard(
++  { amountCents, currency = 'usd', paymentMethod, idempotencyKey, description },
++  { apiKey = process.env.STRIPE_SECRET_KEY, fetchImpl = fetch, baseUrl = 'https://api.stripe.com' } = {},
++) {
++  if (!apiKey) throw new PaymentError('Stripe API key is not configured', { code: 'no_api_key' });
++  if (!paymentMethod) throw new PaymentError('a payment method is required', { code: 'no_payment_method' });
++  if (!Number.isInteger(amountCents) || amountCents <= 0) {
++    throw new PaymentError('charge amount must be a positive integer number of cents', { code: 'invalid_amount' });
++  }
++
++  const body = new URLSearchParams({
++    amount: String(amountCents),
++    currency,
++    payment_method: paymentMethod,
++    confirm: 'true',
++    'automatic_payment_methods[enabled]': 'true',
++    'automatic_payment_methods[allow_redirects]': 'never',
++  });
++  if (description) body.set('description', description);
++
++  const headers = {
++    Authorization: `Bearer ${apiKey}`,
++    'Content-Type': 'application/x-www-form-urlencoded',
++  };
++  if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
++
++  let res;
++  let json;
++  try {
++    res = await fetchImpl(`${baseUrl}/v1/payment_intents`, { method: 'POST', headers, body: body.toString() });
++    json = await res.json();
++  } catch (err) {
++    throw new PaymentError('could not reach Stripe', { code: 'network_error', cause: err });
++  }
++
++  if (!res.ok) {
++    const e = json?.error ?? {};
++    throw new PaymentError(e.message ?? `Stripe request failed (${res.status})`, {
++      code: e.code ?? e.type ?? 'stripe_error',
++      declineCode: e.decline_code,
++    });
++  }
++  if (json.status !== 'succeeded') {
++    throw new PaymentError(`payment not completed (status: ${json.status})`, { code: json.status });
++  }
++  return { id: json.id, status: json.status };
++}
+diff --git a/test/checkout.test.js b/test/checkout.test.js
+index 37ec5a9..071d68c 100644
+--- a/test/checkout.test.js
++++ b/test/checkout.test.js
+@@ -1,9 +1,74 @@
+ import { test } from 'node:test';
+ import assert from 'node:assert/strict';
+ import { placeOrder } from '../src/orders/checkout.js';
++import { PaymentError } from '../src/orders/stripe.js';
+ 
+-test('placeOrder confirms an order with the summed total', () => {
+-  const order = placeOrder({ customerId: 'c1', lines: [{ sku: 'a', unitCents: 250, qty: 2 }, { sku: 'b', unitCents: 100, qty: 1 }] });
++const cart = {
++  customerId: 'c1',
++  paymentMethod: 'pm_card_visa',
++  lines: [{ sku: 'a', unitCents: 250, qty: 2 }, { sku: 'b', unitCents: 100, qty: 1 }],
++};
++
++function fakeStripe(status, json) {
++  const calls = [];
++  const fetchImpl = async (url, init) => {
++    calls.push({ url, init });
++    return { ok: status >= 200 && status < 300, status, json: async () => json };
++  };
++  return { stripe: { apiKey: 'sk_test_x', fetchImpl }, calls };
++}
++
++test('placeOrder charges the total and confirms the order', async () => {
++  const { stripe, calls } = fakeStripe(200, { id: 'pi_1', status: 'succeeded' });
++  const order = await placeOrder(cart, stripe);
+   assert.equal(order.status, 'confirmed');
+   assert.equal(order.totalCents, 600);
++  assert.equal(order.paymentIntentId, 'pi_1');
++
++  assert.equal(calls.length, 1);
++  const { url, init } = calls[0];
++  assert.equal(url, 'https://api.stripe.com/v1/payment_intents');
++  assert.equal(init.method, 'POST');
++  assert.equal(init.headers.Authorization, 'Bearer sk_test_x');
++  assert.equal(init.headers['Idempotency-Key'], order.id);
++  const form = new URLSearchParams(init.body);
++  assert.equal(form.get('amount'), '600');
++  assert.equal(form.get('currency'), 'usd');
++  assert.equal(form.get('payment_method'), 'pm_card_visa');
++  assert.equal(form.get('confirm'), 'true');
++});
++
++test('placeOrder rejects with PaymentError when the card is declined', async () => {
++  const { stripe } = fakeStripe(402, {
++    error: { type: 'card_error', code: 'card_declined', decline_code: 'insufficient_funds', message: 'Your card was declined.' },
++  });
++  await assert.rejects(placeOrder(cart, stripe), (err) => {
++    assert.ok(err instanceof PaymentError);
++    assert.equal(err.code, 'card_declined');
++    assert.equal(err.declineCode, 'insufficient_funds');
++    return true;
++  });
++});
++
++test('placeOrder fails when Stripe needs further action', async () => {
++  const { stripe } = fakeStripe(200, { id: 'pi_2', status: 'requires_action' });
++  await assert.rejects(placeOrder(cart, stripe), { name: 'PaymentError', code: 'requires_action' });
++});
++
++test('placeOrder fails cleanly on network errors', async () => {
++  const stripe = { apiKey: 'sk_test_x', fetchImpl: async () => { throw new Error('offline'); } };
++  await assert.rejects(placeOrder(cart, stripe), { name: 'PaymentError', code: 'network_error' });
++});
++
++test('placeOrder does not call Stripe without a payment method or key', async () => {
++  const { stripe, calls } = fakeStripe(200, { id: 'pi_3', status: 'succeeded' });
++  await assert.rejects(placeOrder({ ...cart, paymentMethod: undefined }, stripe), { code: 'no_payment_method' });
++  await assert.rejects(placeOrder(cart, { ...stripe, apiKey: '' }), { code: 'no_api_key' });
++  assert.equal(calls.length, 0);
++});
++
++test('placeOrder still rejects an empty cart without charging', async () => {
++  const { stripe, calls } = fakeStripe(200, { id: 'pi_4', status: 'succeeded' });
++  await assert.rejects(placeOrder({ ...cart, lines: [] }, stripe), /at least one line/);
++  assert.equal(calls.length, 0);
+ });

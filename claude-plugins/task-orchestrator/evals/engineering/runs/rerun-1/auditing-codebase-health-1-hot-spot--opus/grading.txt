@@ -1,0 +1,2 @@
+ok   A1a ranks the stable ugly module first: rank 1 is src/pricing.js
+ok   A1b rates the stable ugly module Act now: RANK 3 | src/legacyReport.js | Watch | It is the worst code to read (single-letter names, deeply nested ifs, module-level mutable state), but nothing has touched it since the initial commit and nothing in src imports it, so a rewrite buys little until someone needs to change it.

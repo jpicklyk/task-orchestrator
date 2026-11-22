@@ -1,0 +1,76 @@
+diff --git a/claude-plugins/task-orchestrator/hooks/lib/unowned-notes.mjs b/claude-plugins/task-orchestrator/hooks/lib/unowned-notes.mjs
+new file mode 100644
+index 0000000..a3e86c9
+--- /dev/null
++++ b/claude-plugins/task-orchestrator/hooks/lib/unowned-notes.mjs
+@@ -0,0 +1,33 @@
++// Unowned notes: which note entries of a schema have no seat ownership.
++// Pure and fail-open: non-array input or malformed entries are ignored, never thrown on.
++//
++// A note is unowned when its `seat` is missing, blank, or names a seat the schema does not declare.
++// A `shared: true` note is exempt from the ownership check by design, so it is never reported.
++
++function seatNames(seats) {
++  const names = new Set();
++  if (!Array.isArray(seats)) return names;
++  for (const s of seats) {
++    const name = typeof s === 'string' ? s : s && typeof s === 'object' ? s.name : null;
++    if (typeof name === 'string' && name.trim() !== '') names.add(name);
++  }
++  return names;
++}
++
++/**
++ * unownedNoteKeys(notes, seats) -> string[]
++ * `notes`: the schema's note entries ({key, seat?, shared?}); `seats`: the schema's declared seats
++ * (objects with a `name`, or plain names). Returns the keys, in order, deduplicated.
++ */
++export function unownedNoteKeys(notes, seats) {
++  if (!Array.isArray(notes)) return [];
++  const declared = seatNames(seats);
++  const out = [];
++  for (const n of notes) {
++    if (!n || typeof n !== 'object') continue;
++    if (typeof n.key !== 'string' || n.key === '' || n.shared === true) continue;
++    const owned = typeof n.seat === 'string' && declared.has(n.seat);
++    if (!owned && !out.includes(n.key)) out.push(n.key);
++  }
++  return out;
++}
+diff --git a/claude-plugins/task-orchestrator/hooks/tests/lib-unowned-notes.test.mjs b/claude-plugins/task-orchestrator/hooks/tests/lib-unowned-notes.test.mjs
+new file mode 100644
+index 0000000..d4f0f1f
+--- /dev/null
++++ b/claude-plugins/task-orchestrator/hooks/tests/lib-unowned-notes.test.mjs
+@@ -0,0 +1,31 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { unownedNoteKeys } from '../lib/unowned-notes.mjs';
++
++const seats = [{ name: 'planner', phase: 'queue' }, { name: 'implementer', phase: 'work' }];
++
++test('reports notes with no seat', () => {
++  const notes = [{ key: 'a', seat: 'planner' }, { key: 'b' }, { key: 'c', seat: '' }];
++  assert.deepEqual(unownedNoteKeys(notes, seats), ['b', 'c']);
++});
++
++test('reports notes whose seat is not declared', () => {
++  assert.deepEqual(unownedNoteKeys([{ key: 'a', seat: 'ghost' }], seats), ['a']);
++});
++
++test('no declared seats leaves every note unowned', () => {
++  assert.deepEqual(unownedNoteKeys([{ key: 'a', seat: 'planner' }], undefined), ['a']);
++});
++
++test('accepts plain seat names', () => {
++  assert.deepEqual(unownedNoteKeys([{ key: 'a', seat: 'planner' }], ['planner']), []);
++});
++
++test('shared notes are exempt', () => {
++  assert.deepEqual(unownedNoteKeys([{ key: 'a', shared: true }], seats), []);
++});
++
++test('fails open on malformed input', () => {
++  assert.deepEqual(unownedNoteKeys(null, seats), []);
++  assert.deepEqual(unownedNoteKeys([null, 3, { seat: 'planner' }, { key: 'x' }, { key: 'x' }], seats), ['x']);
++});

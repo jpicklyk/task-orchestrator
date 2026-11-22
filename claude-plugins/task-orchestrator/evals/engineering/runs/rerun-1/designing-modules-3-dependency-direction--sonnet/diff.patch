@@ -1,0 +1,99 @@
+diff --git a/src/app.js b/src/app.js
+index fb0279d..ed48698 100644
+--- a/src/app.js
++++ b/src/app.js
+@@ -1,10 +1,15 @@
+ import { createMemoryOrderStore } from './infra/memoryOrderStore.js';
++import { createMemoryPointsStore } from './infra/memoryPointsStore.js';
+ import { placeOrder } from './domain/placeOrder.js';
+ 
+ export function createApp() {
+-  const deps = { orderStore: createMemoryOrderStore() };
++  const deps = {
++    orderStore: createMemoryOrderStore(),
++    pointsStore: createMemoryPointsStore(),
++  };
+   return {
+     placeOrder: (customerId, lines) => placeOrder(deps, customerId, lines),
+     getOrder: (id) => deps.orderStore.get(id),
++    getPoints: (customerId) => deps.pointsStore.get(customerId),
+   };
+ }
+diff --git a/src/domain/loyalty.js b/src/domain/loyalty.js
+new file mode 100644
+index 0000000..1f65671
+--- /dev/null
++++ b/src/domain/loyalty.js
+@@ -0,0 +1,4 @@
++// One point per whole currency unit (100 cents); remainders earn nothing.
++export function pointsFor(totalCents) {
++  return Math.floor(totalCents / 100);
++}
+diff --git a/src/domain/placeOrder.js b/src/domain/placeOrder.js
+index 57eca8a..6380837 100644
+--- a/src/domain/placeOrder.js
++++ b/src/domain/placeOrder.js
+@@ -1,7 +1,10 @@
+-// The order store is passed in: see src/infra/memoryOrderStore.js for the implementation.
+-export function placeOrder({ orderStore }, customerId, lines) {
++import { pointsFor } from './loyalty.js';
++
++// Stores are passed in: see src/infra/ for the implementations.
++export function placeOrder({ orderStore, pointsStore }, customerId, lines) {
+   const totalCents = lines.reduce((sum, l) => sum + l.unitCents * l.qty, 0);
+   const order = { id: `ord_${orderStore.count() + 1}`, customerId, lines, totalCents };
+   orderStore.save(order);
++  pointsStore.add(customerId, pointsFor(totalCents));
+   return order;
+ }
+diff --git a/src/infra/memoryPointsStore.js b/src/infra/memoryPointsStore.js
+new file mode 100644
+index 0000000..e6361be
+--- /dev/null
++++ b/src/infra/memoryPointsStore.js
+@@ -0,0 +1,9 @@
++export function createMemoryPointsStore() {
++  const balances = new Map();
++  return {
++    add(customerId, points) {
++      balances.set(customerId, (balances.get(customerId) ?? 0) + points);
++    },
++    get(customerId) { return balances.get(customerId) ?? 0; },
++  };
++}
+diff --git a/test/loyalty.test.js b/test/loyalty.test.js
+new file mode 100644
+index 0000000..1dcc0c2
+--- /dev/null
++++ b/test/loyalty.test.js
+@@ -0,0 +1,30 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { createApp } from '../src/app.js';
++import { pointsFor } from '../src/domain/loyalty.js';
++
++test('pointsFor floors to whole currency units', () => {
++  assert.equal(pointsFor(0), 0);
++  assert.equal(pointsFor(99), 0);
++  assert.equal(pointsFor(100), 1);
++  assert.equal(pointsFor(250), 2);
++});
++
++test('unknown customer has zero points', () => {
++  assert.equal(createApp().getPoints('nobody'), 0);
++});
++
++test('placing an order earns points', () => {
++  const app = createApp();
++  app.placeOrder('c1', [{ sku: 'a', unitCents: 300, qty: 2 }]);
++  assert.equal(app.getPoints('c1'), 6);
++});
++
++test('points accumulate across orders and stay per customer', () => {
++  const app = createApp();
++  app.placeOrder('c1', [{ sku: 'a', unitCents: 150, qty: 1 }]);
++  app.placeOrder('c1', [{ sku: 'a', unitCents: 250, qty: 1 }]);
++  app.placeOrder('c2', [{ sku: 'a', unitCents: 99, qty: 1 }]);
++  assert.equal(app.getPoints('c1'), 3);
++  assert.equal(app.getPoints('c2'), 0);
++});

@@ -1,0 +1,12 @@
+{
+  "date": "2026-11-22",
+  "sha": "285d55eb1",
+  "scenario": "defining-project-terms-2-shipment-package",
+  "mode": "baseline, rerun after review fixes",
+  "model": "sonnet (claude-sonnet-5-5)",
+  "failures": [
+    "vocabulary drift"
+  ],
+  "outcome": "fail",
+  "artifacts": "runs/rerun-1/defining-project-terms-2-shipment-package--sonnet/"
+}

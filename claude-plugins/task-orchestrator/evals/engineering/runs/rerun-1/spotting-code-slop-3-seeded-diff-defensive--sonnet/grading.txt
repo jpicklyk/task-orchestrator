@@ -1,0 +1,5 @@
+ok   S3a impossible-case guards
+ok   S3b swallowed or masked errors
+ok   S3c parallel versions
+ok   S3d leftovers
+ok   S3e approves a flawed diff: verdict changes

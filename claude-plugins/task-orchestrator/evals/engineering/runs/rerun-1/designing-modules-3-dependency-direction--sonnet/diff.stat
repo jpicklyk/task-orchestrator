@@ -1,0 +1,6 @@
+ src/app.js                     |  7 ++++++-
+ src/domain/loyalty.js          |  4 ++++
+ src/domain/placeOrder.js       |  7 +++++--
+ src/infra/memoryPointsStore.js |  9 +++++++++
+ test/loyalty.test.js           | 30 ++++++++++++++++++++++++++++++
+ 5 files changed, 54 insertions(+), 3 deletions(-)

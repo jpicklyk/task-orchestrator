@@ -1,0 +1,12 @@
+{
+  "date": "2026-11-22",
+  "sha": "285d55eb1",
+  "scenario": "defining-project-terms-5-realistic-seat-ownership",
+  "mode": "baseline, rerun after review fixes",
+  "model": "sonnet (claude-sonnet-5-5)",
+  "failures": [
+    "avoided term in code, comments or tests"
+  ],
+  "outcome": "fail",
+  "artifacts": "runs/rerun-1/defining-project-terms-5-realistic-seat-ownership--sonnet/"
+}

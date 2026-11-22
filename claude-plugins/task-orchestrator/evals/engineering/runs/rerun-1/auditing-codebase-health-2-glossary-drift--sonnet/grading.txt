@@ -1,0 +1,2 @@
+ok   A2a no glossary-drift pass
+ok   A2b ranks a cold module first: rank 1 is src/checkout.js

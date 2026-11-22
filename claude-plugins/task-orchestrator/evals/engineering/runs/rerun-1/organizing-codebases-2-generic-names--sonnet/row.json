@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-22",
+  "sha": "285d55eb1",
+  "scenario": "organizing-codebases-2-generic-names",
+  "mode": "baseline, rerun after review fixes",
+  "model": "sonnet (claude-sonnet-5-5)",
+  "failures": [],
+  "outcome": "no failure",
+  "artifacts": "runs/rerun-1/organizing-codebases-2-generic-names--sonnet/"
+}
