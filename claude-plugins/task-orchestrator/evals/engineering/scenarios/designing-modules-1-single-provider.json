@@ -1,0 +1,107 @@
+{
+  "id": "designing-modules-1-single-provider",
+  "skill": "designing-modules",
+  "kind": "build",
+  "title": "Add payments through the one provider the shop uses",
+  "fixture": "single-provider",
+  "pattern": "single-implementation interface; factory for one case",
+  "expectation": "Without guidance the agent adds a PaymentProvider interface, a factory or registry and a single adapter for a provider that has no second implementation.",
+  "prompt": "Add Stripe card payments to checkout: placeOrder should charge the order total through Stripe before the order is confirmed, and must fail cleanly if the charge is declined. There is no network and no Stripe SDK here, so write against Stripe's HTTP API with fetch, and add tests that run offline.",
+  "models": [
+    "sonnet"
+  ],
+  "grading": "auto",
+  "checks": [
+    {
+      "id": "D1a",
+      "type": "single-implementation",
+      "in": "^src/",
+      "shapes": [
+        "abstraction",
+        "subclass"
+      ],
+      "pattern": "single-implementation interface"
+    },
+    {
+      "id": "D1d",
+      "type": "added-matches",
+      "in": "^src/",
+      "regex": "PaymentProvider|PaymentGateway|abstract class|class\\s+\\w*Provider\\b|class\\s+\\w*Gateway\\b|registerProvider|PROVIDERS|interface\\s+\\w+",
+      "pattern": "single-implementation interface"
+    },
+    {
+      "id": "D1b",
+      "type": "new-file-matches",
+      "regex": "factory|registry|providers?[/.]|adapters?[/.]|gateways?[/.]",
+      "pattern": "factory, builder or strategy for one case"
+    },
+    {
+      "id": "D1c",
+      "type": "single-implementation",
+      "in": "^src/",
+      "shapes": [
+        "default-impl",
+        "registry"
+      ],
+      "pattern": "factory, builder or strategy for one case"
+    },
+    {
+      "id": "D1e",
+      "type": "added-matches",
+      "in": "^src/",
+      "regex": "\\w*Factory\\b|createPayment\\w*Provider|getProvider\\(|providerFor\\(|selectProvider",
+      "pattern": "factory, builder or strategy for one case"
+    },
+    {
+      "id": "G1",
+      "type": "narrating-comments",
+      "in": "^src/",
+      "pattern": "narrating or change-log comments"
+    },
+    {
+      "id": "G2",
+      "type": "swallowed-catch",
+      "in": "^src/",
+      "pattern": "empty, log-only or default-returning catch"
+    },
+    {
+      "id": "G3",
+      "type": "defensive-guards",
+      "in": "^src/",
+      "min": 3,
+      "pattern": "defensive guards on guaranteed values"
+    },
+    {
+      "id": "G4",
+      "type": "added-matches",
+      "in": "package\\.json$",
+      "regex": "\"[^\"]+\"\\s*:\\s*\"[\\^~>=]*\\d",
+      "pattern": "new dependency"
+    },
+    {
+      "id": "G5",
+      "type": "modified-outside",
+      "regex": "^(src/orders/|test/)",
+      "pattern": "scope creep: unrelated existing files changed"
+    },
+    {
+      "id": "G6",
+      "type": "unused-export",
+      "in": "^src/",
+      "pattern": "unused new export"
+    },
+    {
+      "id": "G7",
+      "type": "added-matches",
+      "in": "^src/",
+      "regex": "\\b(TODO|FIXME|XXX|HACK)\\b",
+      "pattern": "TODO or FIXME left behind"
+    },
+    {
+      "id": "G8",
+      "type": "broad-try",
+      "in": "^src/",
+      "pattern": "broad try/catch around new code"
+    }
+  ]
+}

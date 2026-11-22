@@ -75,6 +75,8 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # The manifest append-only guard walks history from the merge-base with main
 
     - name: Set up Node
       uses: actions/setup-node@v4

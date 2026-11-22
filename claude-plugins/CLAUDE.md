@@ -76,7 +76,7 @@ Two skill systems — do not confuse them: **project-level skills** in `.claude/
   checkout is on the branch you intend to install before refreshing.
 - `workflows/` and `agents/` ride the same version-keyed cache as skills and hooks — a workflow or
   agent edit needs the same forced refresh above. Verify with `/workflows` listing
-  `task-orchestrator:implement-wave`, `task-orchestrator:audit`, `task-orchestrator:retro-analysis`,
+  `task-orchestrator:implement-wave`, `task-orchestrator:deep-codebase-audit`, `task-orchestrator:retro-analysis`,
   and `task-orchestrator:review-wave`, and `/agents` listing the new agent definitions.
 
 ## Regenerate call shapes

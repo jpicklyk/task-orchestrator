@@ -1,0 +1,90 @@
+{
+  "id": "designing-modules-4-realistic-cache-share",
+  "skill": "designing-modules",
+  "kind": "build",
+  "tier": "realistic",
+  "title": "A transcript measure next to the module that owns transcript measures",
+  "snapshot": {
+    "ref": "7998dc957"
+  },
+  "pattern": "parallel module instead of extending the existing one",
+  "expectation": "Chosen because scripts/lib/meters.mjs states that it is \"the one transcript-meter measure\" (sumUsage, transcriptMeters: one count per message.id, the last line of an id wins, cacheRead kept apart from tokens) and run-exec-lib.mjs plus three tests already depend on it. A cache-share figure needs exactly those per-message sums. Without guidance the agent writes a new scripts/lib module (or a new top-level script) that parses the JSONL itself and adds usage fields line by line, which double-counts the repeated per-content-block usage lines that transcriptMeters exists to collapse.",
+  "prompt": "Add a function cacheShare(transcriptText) to the plugin scripts. It takes the JSONL text of a subagent transcript and returns the share, a number from 0 to 1, of the transcript's input-side tokens (fresh input, cache writes and cache reads) that were served from the prompt cache, or undefined when the transcript carries no usage. Add a test.",
+  "models": [
+    "sonnet"
+  ],
+  "grading": "auto",
+  "checks": [
+    {
+      "id": "M1",
+      "type": "new-file-matches",
+      "regex": "^claude-plugins/task-orchestrator/(scripts|hooks)/(lib/)?[^/]+\\.m?js$",
+      "pattern": "new module beside the existing transcript measure"
+    },
+    {
+      "id": "M2",
+      "type": "added-matches",
+      "in": "^claude-plugins/task-orchestrator/(hooks|scripts)/(?!tests/)",
+      "regex": "JSON\\.parse|cache_read_input_tokens|cache_creation_input_tokens",
+      "pattern": "re-parses the transcript instead of reusing transcriptMeters"
+    },
+    {
+      "id": "M3",
+      "type": "added-lacks",
+      "in": "^claude-plugins/task-orchestrator/(hooks|scripts)/(?!tests/)",
+      "regex": "transcriptMeters|sumUsage",
+      "pattern": "does not reuse the transcript measure"
+    },
+    {
+      "id": "G1",
+      "type": "narrating-comments",
+      "in": "^claude-plugins/task-orchestrator/(hooks|scripts)/(?!tests/)",
+      "pattern": "narrating or change-log comments"
+    },
+    {
+      "id": "G2",
+      "type": "swallowed-catch",
+      "in": "^claude-plugins/task-orchestrator/(hooks|scripts)/(?!tests/)",
+      "pattern": "empty, log-only or default-returning catch"
+    },
+    {
+      "id": "G3",
+      "type": "defensive-guards",
+      "in": "^claude-plugins/task-orchestrator/(hooks|scripts)/(?!tests/)",
+      "min": 3,
+      "pattern": "defensive guards on guaranteed values"
+    },
+    {
+      "id": "G4",
+      "type": "added-matches",
+      "in": "package\\.json$",
+      "regex": "\"[^\"]+\"\\s*:\\s*\"[\\^~>=]*\\d",
+      "pattern": "new dependency"
+    },
+    {
+      "id": "G5",
+      "type": "modified-outside",
+      "regex": "^claude-plugins/task-orchestrator/scripts/(lib/meters\\.mjs$|tests/)",
+      "pattern": "scope creep: unrelated existing files changed"
+    },
+    {
+      "id": "G6",
+      "type": "unused-export",
+      "in": "^claude-plugins/task-orchestrator/(hooks|scripts)/(?!tests/)",
+      "pattern": "unused new export"
+    },
+    {
+      "id": "G7",
+      "type": "added-matches",
+      "in": "^claude-plugins/task-orchestrator/(hooks|scripts)/(?!tests/)",
+      "regex": "\\b(TODO|FIXME|XXX|HACK)\\b",
+      "pattern": "TODO or FIXME left behind"
+    },
+    {
+      "id": "G8",
+      "type": "broad-try",
+      "in": "^claude-plugins/task-orchestrator/(hooks|scripts)/(?!tests/)",
+      "pattern": "broad try/catch around new code"
+    }
+  ]
+}

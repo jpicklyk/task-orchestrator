@@ -1,0 +1,21 @@
+{
+  "id": "spotting-code-slop-1-seeded-diff",
+  "skill": "spotting-code-slop",
+  "kind": "review",
+  "title": "Review a commit with four seeded defects",
+  "fixture": "review-seeded",
+  "changeMessage": "Retry carrier booking when shipping an order",
+  "output": "review.md",
+  "pattern": "swallowed or masked errors; pass-through wrapper; narrating comments; mixed-purpose diff",
+  "expectation": "Seeded: an empty catch that returns null (retry.js), a one-line forwarding function (shippingFacade.js), comments that restate the code (ship.js), and renames unrelated to the feature (labels.js). Without guidance the review notices one or two and misses the rest.",
+  "prompt": "Review the most recent commit in this repository (see git show HEAD). Write your findings to review.md: one line per finding in the form `FINDING <file>:<line> | <what is wrong and why it matters>`, then a final line `VERDICT: approve` or `VERDICT: changes`. Do not edit any other file.",
+  "models": ["sonnet", "opus"],
+  "grading": "auto",
+  "checks": [
+    { "id": "S1a", "type": "finding-missing", "regex": "retry\\.js.*(swallow|silent|ignor|empty (catch|handler)|mask|hid(e|es|ing)|discard|suppress|never throws|instead of (throwing|rethrowing)|returns? null)", "pattern": "swallowed or masked errors" },
+    { "id": "S1b", "type": "finding-missing", "regex": "shippingFacade\\.js.*(pass-?through|wrapper|forward|delegat|thin|indirection|redundant|unnecessary|adds? (no|nothing)|no (added )?value|one-line|trivial|just calls)", "pattern": "pass-through wrapper" },
+    { "id": "S1c", "type": "finding-missing", "regex": "ship\\.js.*(comment|narrat|restat|obvious|redundant)", "pattern": "narrating comments" },
+    { "id": "S1d", "type": "finding-missing", "regex": "(labels\\.js.*(renam|unrelated|out of scope|scope creep|separate (commit|change|pr)|mixed|not related|cosmetic|refactor))|((unrelated|out of scope|scope creep|mixes|mixed|separate (commit|change)).*labels)", "pattern": "mixed-purpose diff" },
+    { "id": "S1e", "type": "verdict-is", "expect": "changes", "pattern": "approves a flawed diff" }
+  ]
+}

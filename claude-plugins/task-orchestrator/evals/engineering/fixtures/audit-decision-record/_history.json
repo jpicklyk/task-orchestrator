@@ -1,0 +1,13 @@
+{
+  "commits": [
+    { "message": "feat: ups surcharge field", "touch": ["src/carriers/ups.js", "src/carriers/fedex.js"] },
+    { "message": "fix: ups timeout handling", "touch": ["src/carriers/ups.js", "src/carriers/fedex.js"] },
+    { "message": "feat: fedex api v1 headers", "touch": ["src/carriers/fedex.js", "src/carriers/ups.js"] },
+    { "message": "fix: label city casing", "touch": ["src/labels.js"] },
+    { "message": "feat: ups weight unit", "touch": ["src/carriers/ups.js", "src/carriers/fedex.js"] },
+    { "message": "fix: fedex tracking field", "touch": ["src/carriers/fedex.js", "src/carriers/ups.js"] },
+    { "message": "feat: carrier retry on 503", "touch": ["src/carriers/ups.js", "src/carriers/fedex.js"] },
+    { "message": "fix: ups error message", "touch": ["src/carriers/ups.js", "src/carriers/fedex.js"] },
+    { "message": "feat: fedex address line2", "touch": ["src/carriers/fedex.js", "src/carriers/ups.js", "src/labels.js"] }
+  ]
+}

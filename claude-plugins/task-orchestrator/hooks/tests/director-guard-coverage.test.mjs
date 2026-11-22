@@ -126,7 +126,7 @@ test('S6: Workflow without the flag, with a non-true flag, with non-object args 
     { name: IMPLEMENT_WAVE, args: '{"altitudeSafe":true}' },
     { name: IMPLEMENT_WAVE, args: null },
     { name: 'task-orchestrator:retro-analysis', args: { altitudeSafe: true } },
-    { name: 'task-orchestrator:audit', args: { altitudeSafe: true } },
+    { name: 'task-orchestrator:deep-codebase-audit', args: { altitudeSafe: true } },
     { scriptPath: 'x.js', resumeFromRunId: 'r-1' },
   ];
   for (const c of cases) denies(call('Workflow', c), JSON.stringify(c));

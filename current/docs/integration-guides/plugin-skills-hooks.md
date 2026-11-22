@@ -384,6 +384,7 @@ Skills are invoked as slash commands in any Claude Code session:
 | `/task-orchestrator:review-proposals` | Triage pending improvement proposals — accept, reject, or defer each and carry out the disposition (user-invoked only) |
 | `/task-orchestrator:adopt-project-scope` | Migrate an already-populated, unscoped database in place to the project-scoping convention |
 | `/task-orchestrator:director` | Director mode: a board of open runs, frontier, decisions and rollups; answer decisions; delegate every read; `off` leaves |
+| `/task-orchestrator:auditing-codebase` | One broad pass over existing code: picks where to look from version-control history, applies design signals, the slop catalog and a glossary-drift check there, and ranks refactoring candidates Act now, Plan it or Watch. Files no items |
 | `/task-orchestrator:configure-server` | Configure how the server runs and is reached — transport, REST API, port publishing, config mounts, config-sync |
 
 ---
@@ -395,6 +396,8 @@ These are not invoked directly by users. They are triggered by hooks and the orc
 | Skill | Triggered by | Purpose |
 |-------|-------------|---------|
 | `planning-standards` | The planner seat's default skills, or a seat's `skills:` / a note's `skill:` | Engineering practice for writing a plan |
+| `designing-modules` | The planner seat's default skills, or a seat's `skills:` / a note's `skill:` | Engineering practice for deciding and judging the shape of code: module boundaries, what a module hides, dependency direction, state ownership, error design |
+| `defining-project-terms` | Its description, when a request or review turns on what a project word means, or when editing a GLOSSARY.md; or a seat's `skills:` / a note's `skill:` | Keeping a project glossary agreed and current: whether a word earns an entry, the entry format, and the lines a project adds to its agent instructions file |
 | `implementation-standards` | The implementer seat's default skills, or a seat's `skills:` / a note's `skill:` | Engineering practice for writing the change |
 | `review-method` | The reviewer seat's default skills, or a seat's `skills:` / a note's `skill:` | Engineering practice for reviewing a change: a spec axis, a standards axis and a defect search, with one verdict per axis |
 | `test-authoring` | The test-author seat's default skills, or a seat's `skills:` / a note's `skill:` | Engineering practice for writing tests independently of the implementation |
@@ -431,7 +434,7 @@ test-authoring seat, respectively.
 
 The shipped workflows, each launched on its own terms:
 
-- `audit` — read-only report + proposal; materializing its findings goes through [create-item](../../../claude-plugins/task-orchestrator/skills/create-item/SKILL.md#from-a-workflow-findings-proposal). Cost scales with the preset: `quick`, `standard` or `full`; `full` runs roughly 90 minutes and about 30M tokens.
+- `deep-codebase-audit` — read-only report + proposal; every reviewer follows the `auditing-codebase` skill by default (the `methodSkill` argument names another) inside its own slice; materializing its findings goes through [create-item](../../../claude-plugins/task-orchestrator/skills/create-item/SKILL.md#from-a-workflow-findings-proposal). Cost scales with the preset: `quick`, `standard` or `full`; `full` runs roughly 90 minutes and about 30M tokens.
 - `retro-analysis` — two modes. `deep` and `audit` are invoked via `/task-orchestrator:review-retrospectives --deep` and `--audit`; the consumer is that skill's Step 3 (present the result, then apply its create and retire shapes after the user confirms).
 - `review-wave` — independent review lanes over an item's owned-file diff, aggregated into one verdict in args order. Verdict lanes (the default) decide the verdict; a lane whose review notes declare `lane.output: findings` reports findings only and never sets it, though its stopped status still stops the item; `lane.after` orders lanes and never halts or skips one. Shipped; the `run-wave` front door builds the lanes from the review notes' `lane` declarations.
 

@@ -1,7 +1,7 @@
 export const meta = {
-  name: 'audit',
-  description: 'Barrier-per-phase audit: reviewers, gap critic, adversarial verify, synthesis report, and a triage-derived findings proposal.',
-  whenToUse: 'Presets quick|standard|full trade reviewer/verifier fan-out for cost; runId, date, and reportPath are required args. quick fits the default maxAgents (60); standard and full project well past 60 agents and need allowLarge:true or a raised maxAgents. full runs roughly 90 minutes and about 30M tokens — prefer quick or standard for routine sweeps.',
+  name: 'deep-codebase-audit',
+  description: 'Barrier-per-phase codebase audit: reviewers that each follow the method skill named by the methodSkill arg within their slice, gap critic, adversarial verify, synthesis report, and a triage-derived findings proposal.',
+  whenToUse: 'Rare and expensive: a broad multi-agent pass over existing code. Presets quick|standard|full trade reviewer/verifier fan-out for cost; runId, date, and reportPath are required args; methodSkill (optional) replaces the reviewers\' method skill. quick fits the default maxAgents (60); standard and full project well past 60 agents and need allowLarge:true or a raised maxAgents. full runs roughly 90 minutes and about 30M tokens — prefer quick or standard for routine sweeps.',
   phases: [
     { title: 'Scope' }, { title: 'Review' }, { title: 'Gaps' }, { title: 'Merge' },
     { title: 'Verify' }, { title: 'Synthesize' }, { title: 'Triage' },
@@ -11,6 +11,7 @@ export const meta = {
 // @core-begin
 
 const SEVERITY_RANK = { critical: 4, high: 3, medium: 2, low: 1 }
+const DEFAULT_METHOD_SKILL = 'task-orchestrator:auditing-codebase'
 const LENS_KEYS = ['evidence', 'significance', 'consequence', 'combined']
 
 const PRESETS = {
@@ -99,6 +100,10 @@ function normalizeArgs(raw) {
     return { ok: false, reason: 'invalid args: items.materializeMin must be high or medium' }
   }
 
+  if (A.methodSkill != null && (typeof A.methodSkill !== 'string' || !A.methodSkill.trim())) {
+    return { ok: false, reason: 'invalid args: methodSkill must be a non-empty string' }
+  }
+
   const gaps = Object.assign({}, preset.gaps, A.gaps || {})
   const plan = {
     contract: 'audit/args-v1', runId: A.runId, date: A.date, repo: A.repo, preset: presetName,
@@ -107,6 +112,7 @@ function normalizeArgs(raw) {
     models: A.models || {}, efforts: A.efforts || {}, reportPath: A.reportPath, items,
     maxAgents: A.maxAgents != null ? A.maxAgents : 60, allowLarge: !!A.allowLarge, title: A.title || A.runId,
     classMap: Object.assign({}, DEFAULT_CLASS_MAP, A.classMap || {}), observationPaths: A.observationPaths || [],
+    methodSkill: A.methodSkill != null ? A.methodSkill.trim() : DEFAULT_METHOD_SKILL,
   }
   return { ok: true, plan }
 }
@@ -303,13 +309,28 @@ function schemas(plan) {
   return { SCOPE, FINDINGS, CRITIC, DEDUP, VERDICT, SYNTH, TRIAGE }
 }
 
-/** reviewerPreamble(plan) -> string (shared READ-ONLY preamble; all repo facts come from plan.repo/plan.rubric/plan.backlog) */
+/**
+ * reviewerPreamble(plan) -> string (shared READ-ONLY preamble for reviewer, lens and gap prompts; all repo facts
+ * come from plan.repo/plan.rubric/plan.backlog). The METHOD paragraph names plan.methodSkill, the one place the
+ * method skill's name enters a prompt: the reviewer applies that skill's method inside its slice, and the slice
+ * (paths and focus), the HARD RULES and the FINDINGS shape take precedence over it. The slice bounds coverage:
+ * a hot-spot ranking never narrows it, and the categories plan.classMap maps to 'bug' stay in scope.
+ */
 function reviewerPreamble(plan) {
   const backlog = (plan.backlog || []).map((b) => '- ' + b.id + ' — ' + b.title).join('\n')
   const rubric = plan.rubric ? JSON.stringify(plan.rubric) : 'critical/high/medium/low, standard severity practice'
+  const bugCategories = (plan.categories || []).filter((c) => plan.classMap && plan.classMap[c] === 'bug')
   let out = 'You are performing ONE slice of an audit of the repository at ' + plan.repo.root
   if (plan.repo.description) out += ' (' + plan.repo.description + ')'
   out += '.\n\nHARD RULES: READ-ONLY. Do not create, edit, or delete any file. Do not run any command that mutates repository or environment state. Do not call any write tool. Do not prefix bash commands with cd.\n\n'
+  out += 'METHOD: before reading any code, invoke the skill ' + plan.methodSkill + ' with the Skill tool and audit by its method, confined to YOUR SLICE below. ' +
+    'The slice is your scope (its paths; for a cross-cutting lens, every scoped path) and its focus is the lens you apply the method through. ' +
+    'Together they set what you cover: any ranking of hot spots the method makes only orders your attention inside the slice and never drops cold code from it' +
+    (bugCategories.length
+      ? ', and defects in the categories ' + bugCategories.join(', ') + ' stay in scope for a slice whose focus carries them, whatever the method says about bug hunts or security reviews, so report them as findings, not as asides. '
+      : '. ') +
+    'Where the method and this prompt disagree, this prompt wins: the HARD RULES, the slice, and the structured findings you return in place of the method\'s own report. ' +
+    'Write each candidate as one finding: its move as recommendation, its evidence and any decision record it touches in evidence, its confidence as confidence, its severity per the rubric below, and as category the one from the output schema\'s list that fits it best.\n\n'
   out += 'Severity rubric: ' + rubric + '\n\n'
   if (backlog) out += 'ALREADY-TRACKED BACKLOG (do not re-report these as-is):\n' + backlog + '\n\n'
   return out + 'YOUR SLICE:\n'

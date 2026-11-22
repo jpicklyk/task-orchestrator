@@ -1,0 +1,87 @@
+{
+  "id": "organizing-codebases-1-reinvented-formatter",
+  "skill": "organizing-codebases",
+  "kind": "build",
+  "title": "Invoice summary next to an existing money formatter",
+  "fixture": "billing-money",
+  "pattern": "reinvented helper",
+  "expectation": "Without guidance the agent writes a second currency formatter, often in a new utils or format file, instead of calling formatAmount.",
+  "prompt": "Add an invoice summary: summarizeInvoice(invoice) returns a text block that lists each line with its amount, then the subtotal, the tax and the total, with amounts shown as prices. Add a test.",
+  "models": [
+    "sonnet"
+  ],
+  "grading": "auto",
+  "checks": [
+    {
+      "id": "O1a",
+      "type": "added-matches",
+      "notIn": "^src/billing/money\\.js$",
+      "regex": "Intl\\.NumberFormat|toLocaleString|toFixed\\(",
+      "pattern": "reinvented helper"
+    },
+    {
+      "id": "O1b",
+      "type": "new-file-matches",
+      "regex": "(^|/)(utils?|helpers?|format\\w*|common)(/|\\.js$)",
+      "pattern": "reinvented helper"
+    },
+    {
+      "id": "O1c",
+      "type": "added-lacks",
+      "in": "^src/",
+      "regex": "formatAmount",
+      "pattern": "reinvented helper"
+    },
+    {
+      "id": "G1",
+      "type": "narrating-comments",
+      "in": "^src/",
+      "pattern": "narrating or change-log comments"
+    },
+    {
+      "id": "G2",
+      "type": "swallowed-catch",
+      "in": "^src/",
+      "pattern": "empty, log-only or default-returning catch"
+    },
+    {
+      "id": "G3",
+      "type": "defensive-guards",
+      "in": "^src/",
+      "min": 3,
+      "pattern": "defensive guards on guaranteed values"
+    },
+    {
+      "id": "G4",
+      "type": "added-matches",
+      "in": "package\\.json$",
+      "regex": "\"[^\"]+\"\\s*:\\s*\"[\\^~>=]*\\d",
+      "pattern": "new dependency"
+    },
+    {
+      "id": "G5",
+      "type": "modified-outside",
+      "regex": "^(src/billing/|test/)",
+      "pattern": "scope creep: unrelated existing files changed"
+    },
+    {
+      "id": "G6",
+      "type": "unused-export",
+      "in": "^src/",
+      "pattern": "unused new export"
+    },
+    {
+      "id": "G7",
+      "type": "added-matches",
+      "in": "^src/",
+      "regex": "\\b(TODO|FIXME|XXX|HACK)\\b",
+      "pattern": "TODO or FIXME left behind"
+    },
+    {
+      "id": "G8",
+      "type": "broad-try",
+      "in": "^src/",
+      "pattern": "broad try/catch around new code"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "id": "auditing-codebase-2-glossary-drift",
+  "skill": "auditing-codebase",
+  "kind": "audit",
+  "title": "A hot spot whose names drift from the project glossary",
+  "fixture": "audit-glossary-drift",
+  "output": "audit.md",
+  "pattern": "no glossary-drift pass",
+  "expectation": "checkout.js and purchaseLog.js are the hot spot and call an Order a purchase, which the glossary forbids. Without guidance the audit ranks the hot spot but never mentions the glossary.",
+  "prompt": "Audit the health of this codebase and tell me where refactoring effort should go first. Write audit.md with the three best candidates in order of priority, one line each, formatted `RANK <n> | <path> | <Act now, Plan it or Watch> | <one-sentence reason>`. Do not edit any other file.",
+  "models": ["sonnet", "opus"],
+  "grading": "auto",
+  "checks": [
+    { "id": "A2a", "type": "output-lacks", "regex": "glossary|vocabulary|don.t call it", "pattern": "no glossary-drift pass" },
+    { "id": "A2b", "type": "rank-first-matches", "regex": "checkout|purchaseLog", "pattern": "ranks a cold module first" }
+  ]
+}

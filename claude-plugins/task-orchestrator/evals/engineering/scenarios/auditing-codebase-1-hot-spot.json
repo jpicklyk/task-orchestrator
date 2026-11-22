@@ -1,0 +1,17 @@
+{
+  "id": "auditing-codebase-1-hot-spot",
+  "skill": "auditing-codebase",
+  "kind": "audit",
+  "title": "A hot spot against a stable ugly module",
+  "fixture": "audit-hot-spot",
+  "output": "audit.md",
+  "pattern": "ranks the stable ugly module first",
+  "expectation": "pricing.js and promo.js change together in almost every commit; legacyReport.js looks worst but has not changed since the first commit. Without guidance the audit ranks legacyReport.js first because it looks worst.",
+  "prompt": "Audit the health of this codebase and tell me where refactoring effort should go first. Write audit.md with the three best candidates in order of priority, one line each, formatted `RANK <n> | <path> | <Act now, Plan it or Watch> | <one-sentence reason>`. Do not edit any other file.",
+  "models": ["sonnet", "opus"],
+  "grading": "auto",
+  "checks": [
+    { "id": "A1a", "type": "rank-first-matches", "regex": "pricing|promo", "pattern": "ranks the stable ugly module first" },
+    { "id": "A1b", "type": "rank-rating-not", "path": "legacyReport", "rating": "act now", "pattern": "rates the stable ugly module Act now" }
+  ]
+}

@@ -1,0 +1,80 @@
+{
+  "id": "defining-project-terms-2-shipment-package",
+  "skill": "defining-project-terms",
+  "kind": "build",
+  "title": "Package tracking in a project whose glossary says Shipment, not package",
+  "fixture": "glossary-shipment",
+  "pattern": "vocabulary drift",
+  "expectation": "The glossary defines Shipment and lists package, parcel and consignment under Don't call it. The prompt supplies none of those words and no function name, so the agent picks the vocabulary; the failure is a name, comment or file that uses one of them.",
+  "prompt": "Customers want to follow their delivery. Add a customer-facing function that takes a tracking id and returns the current status of the delivery with that tracking id. Add tests.",
+  "models": [
+    "sonnet"
+  ],
+  "grading": "auto",
+  "checks": [
+    {
+      "id": "T2a",
+      "type": "added-matches",
+      "in": "^(src|test)/",
+      "regex": "package|parcel|consignment",
+      "pattern": "vocabulary drift"
+    },
+    {
+      "id": "T2b",
+      "type": "new-file-matches",
+      "regex": "package|parcel|consignment",
+      "pattern": "vocabulary drift"
+    },
+    {
+      "id": "G1",
+      "type": "narrating-comments",
+      "in": "^src/",
+      "pattern": "narrating or change-log comments"
+    },
+    {
+      "id": "G2",
+      "type": "swallowed-catch",
+      "in": "^src/",
+      "pattern": "empty, log-only or default-returning catch"
+    },
+    {
+      "id": "G3",
+      "type": "defensive-guards",
+      "in": "^src/",
+      "min": 3,
+      "pattern": "defensive guards on guaranteed values"
+    },
+    {
+      "id": "G4",
+      "type": "added-matches",
+      "in": "package\\.json$",
+      "regex": "\"[^\"]+\"\\s*:\\s*\"[\\^~>=]*\\d",
+      "pattern": "new dependency"
+    },
+    {
+      "id": "G5",
+      "type": "modified-outside",
+      "regex": "^(src/(picks|shipments)/|test/|GLOSSARY\\.md$)",
+      "pattern": "scope creep: unrelated existing files changed"
+    },
+    {
+      "id": "G6",
+      "type": "unused-export",
+      "in": "^src/",
+      "pattern": "unused new export"
+    },
+    {
+      "id": "G7",
+      "type": "added-matches",
+      "in": "^src/",
+      "regex": "\\b(TODO|FIXME|XXX|HACK)\\b",
+      "pattern": "TODO or FIXME left behind"
+    },
+    {
+      "id": "G8",
+      "type": "broad-try",
+      "in": "^src/",
+      "pattern": "broad try/catch around new code"
+    }
+  ]
+}

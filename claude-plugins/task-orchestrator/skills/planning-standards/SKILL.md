@@ -89,7 +89,8 @@ implementation?
 ## Architecture fit
 
 Find the project's stated layering and dependency rules, place the change in the module it
-belongs in, and look for an existing helper or pattern before proposing a new one. Detail in
+belongs in, and look for an existing helper or pattern before proposing a new one. Justify each
+new module boundary, and plan awkward restructuring as its own first step. Detail in
 [architecture fit](references/architecture-fit.md).
 
 Self-check: for every new type or helper, can you name the existing one you looked at and why it
@@ -124,4 +125,4 @@ that found it?
 
 - [Claims and sweeps](references/claims-and-sweeps.md): citing contracts, proving claims, sweeping for siblings, proving verify commands
 - [Test strategy](references/test-strategy.md): scenario derivation, ids, oracles, tests a change breaks
-- [Architecture fit](references/architecture-fit.md): layering, reuse before build, wiring sites
+- [Architecture fit](references/architecture-fit.md): layering, reuse before build, new boundaries, wiring sites, making the change easy first

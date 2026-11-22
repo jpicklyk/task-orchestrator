@@ -155,7 +155,7 @@ test('S7: a declared empty list on the seat entry means none even with defaults'
 // ---- S8: the defaults table ----------------------------------------------------------------------
 
 const SHIPPED_DEFAULTS = {
-  planner: ['task-orchestrator:planning-standards'],
+  planner: ['task-orchestrator:planning-standards', 'task-orchestrator:designing-modules'],
   implementer: ['task-orchestrator:implementation-standards'],
   reviewer: ['task-orchestrator:review-method'],
   'test-author': ['task-orchestrator:test-authoring'],
@@ -561,6 +561,6 @@ test('S19 probe: undefined options behave like null, and a declared list still w
   // Twin fixture: the same call with a non-null options object resolves a seat, so the null result above is not a constant.
   assert.equal(seatNameFor({ callerSeat: 'planner' }), 'planner')
   assert.deepEqual(seatSkillsFor(['a'], 'planner', undefined), ['a'])
-  assert.deepEqual(seatSkillsFor(undefined, 'planner', null), ['task-orchestrator:planning-standards'])
+  assert.deepEqual(seatSkillsFor(undefined, 'planner', null), ['task-orchestrator:planning-standards', 'task-orchestrator:designing-modules'])
   assert.equal(seatNameFor(undefined), null)
 })

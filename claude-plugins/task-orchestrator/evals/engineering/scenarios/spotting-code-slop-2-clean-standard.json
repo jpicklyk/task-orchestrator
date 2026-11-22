@@ -1,0 +1,18 @@
+{
+  "id": "spotting-code-slop-2-clean-standard",
+  "skill": "spotting-code-slop",
+  "kind": "review",
+  "title": "Review a clean commit that follows a documented project standard",
+  "fixture": "review-clean-standard",
+  "changeMessage": "Mark an invoice as paid",
+  "output": "review.md",
+  "pattern": "false positive on project standard",
+  "expectation": "The project documents that repositories are deliberate thin pass-throughs. The commit follows that and is otherwise clean. A review that flags invoiceRepo.js as a pass-through, or does not approve, is a false positive.",
+  "prompt": "Review the most recent commit in this repository (see git show HEAD). Write your findings to review.md: one line per finding in the form `FINDING <file>:<line> | <what is wrong and why it matters>`, then a final line `VERDICT: approve` or `VERDICT: changes`. Do not edit any other file.",
+  "models": ["sonnet", "opus"],
+  "grading": "auto",
+  "checks": [
+    { "id": "S2a", "type": "finding-present", "regex": "invoiceRepo\\.js|pass-?through|indirection|middle.?man|thin wrapper|inline", "pattern": "false positive on project standard" },
+    { "id": "S2b", "type": "verdict-is", "expect": "approve", "pattern": "false positive on project standard" }
+  ]
+}
