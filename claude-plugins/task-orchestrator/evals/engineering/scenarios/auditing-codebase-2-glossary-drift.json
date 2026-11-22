@@ -1,6 +1,6 @@
 {
-  "id": "auditing-codebase-health-2-glossary-drift",
-  "skill": "auditing-codebase-health",
+  "id": "auditing-codebase-2-glossary-drift",
+  "skill": "auditing-codebase",
   "kind": "audit",
   "title": "A hot spot whose names drift from the project glossary",
   "fixture": "audit-glossary-drift",

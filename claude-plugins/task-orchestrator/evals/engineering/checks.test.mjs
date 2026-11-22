@@ -103,7 +103,7 @@ test('buildRepo and observe: layered fixture commits base then change; history f
     assert.equal(obs.output, 'VERDICT: changes\n');
     assert.equal(obs.added['review.md'], undefined);
 
-    const audit = all.find((s) => s.id === 'auditing-codebase-health-1-hot-spot');
+    const audit = all.find((s) => s.id === 'auditing-codebase-1-hot-spot');
     const w2 = join(dir, 'r2');
     buildRepo(audit, w2);
     const log = readFileSync(join(w2, 'src/pricing.js'), 'utf8');
@@ -341,7 +341,7 @@ test('every realistic scenario can fail: a hand-made bad run fails it and a good
   assert.equal(grade(review, { output: 'FINDING hooks/retro-lib.mjs:300 | naming\nVERDICT: approve' }).outcome, 'fail');
   assert.equal(grade(review, { output: `FINDING ${P}skills/session-retrospective/SKILL.md:39 | drops paging and sort, so older rows go unread\nVERDICT: changes` }).outcome, 'no failure');
 
-  const audit = by('auditing-codebase-health-4');
+  const audit = by('auditing-codebase-4');
   assert.equal(grade(audit, { output: `RANK 1 | ${P}hooks/lib/tool-names.mjs | Act now | long\nRANK 2 | ${P}hooks/session-start.mjs | Plan it | x` }).outcome, 'fail');
   assert.equal(grade(audit, { output: `RANK 1 | ${P}hooks/subagent-start.mjs | Act now | 23 commits\nRANK 2 | ${P}hooks/retro-lib.mjs | Plan it | x\nRANK 3 | ${P}hooks/phase-guard.mjs | Watch | y` }).outcome, 'no failure');
 });
@@ -376,7 +376,7 @@ test('realistic scenarios validate, and a snapshot overlay builds the parent plu
 test('a history snapshot holds no ref or commit past its base sha and registers no MCP server', () => {
   const dir = mkdtempSync(join(tmpdir(), 'eng-eval-hist-'));
   try {
-    const audit = loadScenarios().find((s) => s.id === 'auditing-codebase-health-4-realistic-hooks-history');
+    const audit = loadScenarios().find((s) => s.id === 'auditing-codebase-4-realistic-hooks-history');
     const base = audit.snapshot.ref;
     const w = join(dir, 'r');
     buildRepo(audit, w);

@@ -1,6 +1,6 @@
 {
-  "id": "auditing-codebase-health-1-hot-spot",
-  "skill": "auditing-codebase-health",
+  "id": "auditing-codebase-1-hot-spot",
+  "skill": "auditing-codebase",
   "kind": "audit",
   "title": "A hot spot against a stable ugly module",
   "fixture": "audit-hot-spot",

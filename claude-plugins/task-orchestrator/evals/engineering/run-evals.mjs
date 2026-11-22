@@ -46,7 +46,7 @@ const RUN_TIMEOUT_MS = 15 * 60 * 1000;
 const MAX_TURNS = 40;
 const SNAPSHOT_TIMEOUT_MS = 20 * 60 * 1000;
 const SNAPSHOT_MAX_TURNS = 60;
-const SKILLS = ['spotting-code-slop', 'designing-modules', 'organizing-codebases', 'defining-project-terms', 'auditing-codebase-health'];
+const SKILLS = ['spotting-code-slop', 'designing-modules', 'organizing-codebases', 'defining-project-terms', 'auditing-codebase'];
 const KINDS = ['build', 'review', 'audit'];
 
 // ---- arguments --------------------------------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 {
-  "id": "auditing-codebase-health-3-decision-record",
-  "skill": "auditing-codebase-health",
+  "id": "auditing-codebase-3-decision-record",
+  "skill": "auditing-codebase",
   "kind": "audit",
   "title": "A hot spot that a decision record says to leave duplicated",
   "fixture": "audit-decision-record",

@@ -1,6 +1,6 @@
 {
-  "id": "auditing-codebase-health-4-realistic-hooks-history",
-  "skill": "auditing-codebase-health",
+  "id": "auditing-codebase-4-realistic-hooks-history",
+  "skill": "auditing-codebase",
   "kind": "audit",
   "tier": "realistic",
   "title": "Audit the real hooks folder using its git history",

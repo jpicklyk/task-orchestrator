@@ -15,7 +15,7 @@ design and legibility check it exercises). Fixtures are in `fixtures/`; scenario
 | `organizing-codebases` | `1-reinvented-formatter`, `2-generic-names`, `3-local-conventions` | reinvented helper; generic names and a function outside its domain folder; convention drift in error and logging style |
 | `spotting-code-slop` | `1-seeded-diff`, `2-clean-standard`, `3-seeded-diff-defensive` | review catches four seeded defects; review leaves a documented project standard alone; guards, parallel version, leftovers |
 | `defining-project-terms` | `1-order-purchase`, `2-shipment-package`, `3-new-term`, `4-no-glossary` | vocabulary drift against a glossary; a new term recorded; silence when there is no glossary |
-| `auditing-codebase-health` | `1-hot-spot`, `2-glossary-drift`, `3-decision-record` | a hot spot outranks a stable ugly module; a glossary-drift pass; a decision-record conflict is flagged |
+| `auditing-codebase` | `1-hot-spot`, `2-glossary-drift`, `3-decision-record` | a hot spot outranks a stable ugly module; a glossary-drift pass; a decision-record conflict is flagged |
 
 Prompts carry no hint of the answer (no "Stripe is the only provider we use", no "formatted for display"): a hinted
 variant would be a separate scenario id.
@@ -34,7 +34,7 @@ right answer needs discovery in a large tree. Each scenario's `expectation` says
 | `designing-modules-4-realistic-cache-share` | a cache-share figure over a transcript; `scripts/lib/meters.mjs` is the one transcript measure | no new module, no re-parsing of the usage fields, `transcriptMeters` or `sumUsage` reused |
 | `defining-project-terms-5-realistic-seat-ownership` | a request that says "seat ownership"; `GLOSSARY.md` lists it as a term to avoid for owning seat | the avoided term in no file name, code, comment or test; the glossary term used |
 | `spotting-code-slop-4-realistic-historical-commit` | commit `c506096c5` (#743), whose review recorded finding N1 (the skill step dropped the sort and paging the code relies on) | a FINDING on `SKILL.md` about paging, sort order or the limit |
-| `auditing-codebase-health-4-realistic-hooks-history` | `hooks/`, about 125 commits at the base sha; the prompt does not mention the git history | every ranked path, and the first, among the most-changed source files; documentation does not count, so `hooks/README.md` (27 commits, the most of any path) is graded as outside the set |
+| `auditing-codebase-4-realistic-hooks-history` | `hooks/`, about 125 commits at the base sha; the prompt does not mention the git history | every ranked path, and the first, among the most-changed source files; documentation does not count, so `hooks/README.md` (27 commits, the most of any path) is graded as outside the set |
 
 A scenario with a `snapshot` field (`ref`, and optionally `overlay` or `history`) builds its repository from this
 checkout instead of a fixture folder, outside the repository, in a fresh temp directory per run:
