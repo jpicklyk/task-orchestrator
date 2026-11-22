@@ -344,6 +344,19 @@ test('every realistic scenario can fail: a hand-made bad run fails it and a good
   const audit = by('auditing-codebase-4');
   assert.equal(grade(audit, { output: `RANK 1 | ${P}hooks/lib/tool-names.mjs | Act now | long\nRANK 2 | ${P}hooks/session-start.mjs | Plan it | x` }).outcome, 'fail');
   assert.equal(grade(audit, { output: `RANK 1 | ${P}hooks/subagent-start.mjs | Act now | 23 commits\nRANK 2 | ${P}hooks/retro-lib.mjs | Plan it | x\nRANK 3 | ${P}hooks/phase-guard.mjs | Watch | y` }).outcome, 'no failure');
+
+  const lib = `${P}hooks/lib/README.md`;
+  const writeLib = by('writing-documentation-4');
+  const inventory = [...Array.from({ length: 8 }, (_, i) => `- \`helper-${i}.mjs\` does a thing\n`), ...Array.from({ length: 10 }, (_, i) => `fn${i}(a)\n`)].join('');
+  const badLib = { added: { [lib]: `# hooks/lib\n\nThe folder holds 16 files.\n\n${inventory}` }, newFiles: [lib] };
+  assert.deepEqual(grade(writeLib, badLib).failures.sort(), ['copied count', 'file-by-file inventory', 'function inventory']);
+  const goodLib = { added: { [lib]: '# hooks/lib\n\nShared helpers for the hook scripts: read stdin, emit output, keep per-session markers. A hook script imports from here; nothing here imports a hook script.\n' }, newFiles: [lib] };
+  assert.equal(grade(writeLib, goodLib).outcome, 'no failure');
+  assert.ok(grade(writeLib, { added: {}, newFiles: [] }).failures.includes('no README written'));
+
+  const auditDocs = by('auditing-documentation-4');
+  assert.equal(grade(auditDocs, { output: 'FINDING current/docs/api-rest.md:1 | typo | fix it' }).outcome, 'fail');
+  assert.equal(grade(auditDocs, { output: 'FINDING current/docs/api-rest.md:672 | page limit default 50 is copied at three places | state it in one place and link to it\nFINDING current/docs/Home.md:1 | the page repeats the guide | delete the page' }).outcome, 'no failure');
 });
 
 test('realistic scenarios validate, and a snapshot overlay builds the parent plus the real change', () => {
@@ -392,4 +405,103 @@ test('a history snapshot holds no ref or commit past its base sha and registers 
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
   }
+});
+
+test('removed-lacks fails with too few removed matches, honours min and ignores files outside `in`', () => {
+  const s = scn([{ id: 'r', type: 'removed-lacks', regex: 'csv', in: '^README\\.md$', min: 2, pattern: 'p' }]);
+  assert.equal(grade(s, { removed: { 'README.md': 'a\nb\n' } }).outcome, 'fail', 'no match');
+  assert.equal(grade(s, { removed: { 'README.md': 'CSV once\n' } }).outcome, 'fail', 'one match, min 2');
+  assert.equal(grade(s, { removed: { 'README.md': 'CSV once\nexportCsv\n' } }).outcome, 'no failure');
+  assert.equal(grade(s, { removed: { 'CHANGELOG.md': 'CSV\nCSV\nCSV\n' } }).outcome, 'fail', 'another file does not count');
+  assert.equal(grade(s, {}).outcome, 'fail', 'an observation without removed reads as nothing removed');
+});
+
+test('observe keeps removed lines, keyed by the old path, so a deleted file counts', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'eng-eval-removed-'));
+  try {
+    const scenario = loadScenarios().find((s) => s.id === 'writing-documentation-3-stale-section');
+    const w = join(dir, 'r');
+    buildRepo(scenario, w);
+    const readme = readFileSync(join(w, 'README.md'), 'utf8');
+    const cut = readme.slice(0, readme.indexOf('## Exporting to CSV')) + readme.slice(readme.indexOf('## Configuration'));
+    writeFileSync(join(w, 'README.md'), cut.replace(/exportJson/g, 'writeJson'));
+    rmSync(join(w, 'CHANGELOG.md'));
+    const obs = observe(scenario, w, 'done');
+    assert.match(obs.removed['README.md'], /## Exporting to CSV/);
+    assert.match(obs.removed['README.md'], /UTF-8 with a byte order mark/);
+    assert.match(obs.removed['CHANGELOG.md'], /Removed CSV export/, 'a deleted file is keyed by its --- a/ header');
+    assert.match(obs.added['README.md'], /writeJson/);
+    assert.doesNotMatch(obs.added['README.md'], /CSV/, 'added holds only added lines');
+    assert.equal(obs.added['CHANGELOG.md'], undefined, 'a deleted file adds nothing');
+    assert.deepEqual(obs.newFiles, []);
+    assert.equal(grade(scenario, obs).failures.join(';'), 'scope creep: unrelated existing files changed', 'only the CHANGELOG deletion is graded, as scope creep');
+    const w2 = join(dir, 'r2');
+    buildRepo(scenario, w2);
+    writeFileSync(join(w2, 'README.md'), cut.replace(/exportJson/g, 'writeJson'));
+    assert.equal(grade(scenario, observe(scenario, w2, 'done')).outcome, 'no failure');
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+  }
+});
+
+test('documentation scenarios: a hand-made bad run fails with the listed patterns and a good run passes', () => {
+  const all = loadScenarios();
+  const by = (id) => all.find((s) => s.id.startsWith(id));
+  const failures = (s, obs) => grade(s, obs).failures.sort();
+
+  // writing-documentation-1
+  const w1 = by('writing-documentation-1');
+  const badW1 = { added: { 'src/ratelimit/README.md': '# ratelimit\n\n## bucket.js\nthe bucket\n## store.js\nthe store\n## index.js\nthe limiter\n\nDefaults: capacity 120, idle ttl 900.\n\ncreateBucket(now)\nrefill(bucket)\ntake(bucket)\nsweep(store)\n' }, newFiles: ['src/ratelimit/README.md'] };
+  assert.deepEqual(failures(w1, badW1), ['copied default values', 'file-by-file tour', 'function inventory', 'omits the invariant and its reason']);
+  const goodW1 = { added: { 'src/ratelimit/README.md': '# ratelimit\n\nOne token bucket per client. Tokens come from the elapsed time at each take, never from a timer: a timer per key would keep idle keys alive. The entry point is in src/ratelimit/index.js.\n' }, newFiles: ['src/ratelimit/README.md'] };
+  assert.equal(grade(w1, goodW1).outcome, 'no failure');
+  assert.deepEqual(failures(w1, { added: {}, newFiles: [] }), ['no README written', 'omits the invariant and its reason']);
+  assert.ok(failures(w1, { added: { ...goodW1.added, 'src/server.js': 'x\n' }, newFiles: goodW1.newFiles }).includes('scope creep: unrelated existing files changed'));
+
+  // writing-documentation-2
+  const w2 = by('writing-documentation-2');
+  const filler = Array.from({ length: 60 }, (_, i) => `line ${i}\n`).join('');
+  const badW2 = { added: { 'CLAUDE.md': `# ledger-import\n\n## Overview\n\n- \`src/parse.js\` parsing\n- \`scripts/lint.js\` lint\n- \`test/parse.test.js\` tests\n\n${filler}` }, newFiles: ['CLAUDE.md'] };
+  assert.deepEqual(failures(w2, badW2), ['agent file longer than the project needs', 'drops a fact the code cannot hold', 'file tour in an agent file', 'omits the verify command', 'repository overview in an agent file']);
+  const goodW2 = { added: { 'CLAUDE.md': '# ledger-import\n\nRun `npm run check` before you finish.\n\nReleases: push a tag v<version>; never edit the version by hand.\n\nDo not regenerate test/fixtures: they are copied from production exports.\n' }, newFiles: ['CLAUDE.md'] };
+  assert.equal(grade(w2, goodW2).outcome, 'no failure');
+  assert.ok(failures(w2, { added: {}, newFiles: [] }).includes('no agent file written'));
+  assert.equal(grade(w2, { added: { 'AGENTS.md': goodW2.added['CLAUDE.md'] }, newFiles: ['AGENTS.md'] }).outcome, 'no failure', 'AGENTS.md is an agent file too');
+
+  // writing-documentation-3
+  const w3 = by('writing-documentation-3');
+  assert.deepEqual(failures(w3, { added: {}, removed: {} }), ['keeps a section whose subject is gone', 'leaves a stale name']);
+  assert.ok(failures(w3, { added: { 'README.md': 'CSV export was removed in 2.0.0.\nwriteJson\n' }, removed: { 'README.md': 'csv\ncsv\ncsv\ncsv\n' } }).includes('rewrites a section whose subject is gone'));
+  assert.equal(grade(w3, { added: { 'README.md': 'import { writeJson } from "report-export";\n`writeJson` returns the rows.\n' }, removed: { 'README.md': '## Exporting to CSV\nexportCsv\nCSV text\nCSV output\n' } }).outcome, 'no failure');
+  assert.ok(failures(w3, { added: { 'README.md': 'writeJson\n', 'CHANGELOG.md': 'x\n' }, removed: { 'README.md': 'csv csv csv csv\n' } }).includes('scope creep: unrelated existing files changed'));
+
+  // auditing-documentation-1
+  const a1 = by('auditing-documentation-1');
+  const goodA1 = 'FINDING docs/guide.md:3 | endpoint count copied from code | cut it\nFINDING docs/guide.md:8 | the 30 second timeout default is copied from code | point at DEFAULT_TIMEOUT_MS instead\nFINDING docs/guide.md:9 | retryWithBackoff does not exist | rename it to retry\nFINDING docs/guide.md:19 | the Files list is an inventory of src | delete it\n';
+  assert.equal(grade(a1, { output: goodA1 }).outcome, 'no failure');
+  const badA1 = 'FINDING docs/guide.md:3 | endpoint count is right | leave\nFINDING docs/guide.md:9 | the retry helper is named retry | rename it\nFINDING docs/guide.md:12 | deleting archives the order and the paragraph is not needed | remove it\n';
+  assert.deepEqual(failures(a1, { output: badA1 }), ['cuts the why', 'keeps a copied default', 'keeps a file inventory', 'keeps an accurate count', 'misses a dangling code name']);
+  assert.ok(failures(a1, { output: 'FINDING docs/guide.md:3 | endpoint count is right | leave\n' }).includes('keeps an accurate count'));
+
+  // auditing-documentation-2
+  const a2 = by('auditing-documentation-2');
+  const goodA2 = 'FINDING CLAUDE.md:3 | the overview retells the file tree | cut it\nFINDING CLAUDE.md:11 | npm test is allowed on line 9 and forbidden on line 17, the two instructions contradict each other | keep one\nFINDING CLAUDE.md:13 | scripts/release-notes.sh does not exist | remove the pointer\n';
+  assert.equal(grade(a2, { output: goodA2 }).outcome, 'no failure');
+  assert.deepEqual(failures(a2, { output: 'FINDING CLAUDE.md:3 | overview is accurate | leave\n' }), ['keeps an overview in an agent file', 'misses a contradiction', 'misses a dead path']);
+
+  // auditing-documentation-3
+  const a3 = by('auditing-documentation-3');
+  const badA3 = 'FINDING CHANGELOG.md:7 | still says basket | rename it to cart\nFINDING docs/decisions/0001-store-money-as-integer-cents.md:9 | basket totals should say cart | update the ADR\n';
+  assert.deepEqual(failures(a3, { output: badA3 }), ['drift finding on a changelog', 'drift finding on a decision record', 'misses code that contradicts an accepted decision', 'proposes editing an accepted record'].sort(), 'a term in the file name alone (integer-cents) is not a content match');
+  const goodA3 = 'FINDING src/price.js:2 | total sums float prices, which contradicts accepted decision 0001 (integer cents) | fix the code or supersede 0001\n';
+  assert.equal(grade(a3, { output: goodA3 }).outcome, 'no failure', 'the move "fix the code or supersede 0001" is not an edit of the record');
+  for (const move of ['update decision 0001', 'edit the record', 'rewrite the ADR', 'amend 0001', 'revise the decision']) {
+    assert.ok(failures(a3, { output: `${goodA3}FINDING docs/decisions/0001-store-money-as-integer-cents.md:9 | the text is outdated | ${move}\n` }).includes('proposes editing an accepted record'), move);
+  }
+
+  // auditing-documentation-4
+  const a4 = by('auditing-documentation-4');
+  assert.deepEqual(failures(a4, { output: 'FINDING current/docs/api-rest.md:672 | typo | fix it\n' }), ['keeps copied defaults', 'no document-level cut proposed']);
+  const goodA4 = 'FINDING current/docs/workflow-guide.md:1098 | claim TTL default 900 copied into three pages | state it once in config-reference and point at it\nFINDING current/docs/quick-start.md:1 | the page repeats the guide | merge the page into the guide\n';
+  assert.equal(grade(a4, { output: goodA4 }).outcome, 'no failure');
 });

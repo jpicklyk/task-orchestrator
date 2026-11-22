@@ -49,7 +49,7 @@ const SNAPSHOT_MAX_TURNS = 60;
 // Scenario families: the `skill` field of a scenario and the prefix of its id. Two families have no skill directory of
 // their own: spotting-code-slop's catalog lives under skills/auditing-codebase, and organizing-codebases was cancelled.
 // Their scenarios stay as baselines; --with-skill takes only a family whose skills/<name>/SKILL.md exists.
-const SKILLS = ['spotting-code-slop', 'designing-modules', 'organizing-codebases', 'defining-project-terms', 'auditing-codebase'];
+const SKILLS = ['spotting-code-slop', 'designing-modules', 'organizing-codebases', 'defining-project-terms', 'auditing-codebase', 'writing-documentation', 'auditing-documentation'];
 const hasSkillDir = (name, pluginRoot = PLUGIN) => existsSync(join(pluginRoot, 'skills', name, 'SKILL.md'));
 const KINDS = ['build', 'review', 'audit'];
 
@@ -283,22 +283,36 @@ function buildSnapshot(scenario, work) {
   return git(work, ['rev-parse', 'HEAD']).trim();
 }
 
-/** Added lines per file, new files and the output file, read from the working tree against the fixture's last commit. */
+/**
+ * Added and removed lines per file, new files and the output file, read from the working tree against the fixture's
+ * last commit. `removed` is keyed by the `--- a/<path>` header, so a deleted file's lines are in it.
+ */
 export function observe(scenario, work, answer) {
   git(work, ['add', '-A', '--', '.', ':(exclude).claude']);
   const status = git(work, ['diff', '--cached', '--no-renames', '--name-status', 'HEAD']).split(/\r?\n/).filter(Boolean);
   const newFiles = status.filter((l) => l.startsWith('A')).map((l) => l.split('\t')[1]);
   const added = {};
+  const removed = {};
   let cur = null;
+  let old = null;
+  let header = false;
   for (const line of git(work, ['diff', '--cached', '--no-renames', '-U0', 'HEAD']).split(/\r?\n/)) {
-    const h = line.match(/^\+\+\+ b\/(.+)$/);
-    if (h) { cur = h[1]; added[cur] = ''; continue; }
-    if (cur && line.startsWith('+') && !line.startsWith('+++')) added[cur] += `${line.slice(1)}\n`;
+    if (line.startsWith('diff --git ')) { header = true; cur = null; old = null; continue; }
+    if (header) {
+      const o = line.match(/^--- a\/(.+)$/);
+      if (o) { old = o[1]; removed[old] = ''; continue; }
+      const h = line.match(/^\+\+\+ b\/(.+)$/);
+      if (h) { cur = h[1]; added[cur] = ''; continue; }
+      if (line.startsWith('@@')) header = false;
+      continue;
+    }
+    if (cur && line.startsWith('+')) added[cur] += `${line.slice(1)}\n`;
+    else if (old && line.startsWith('-')) removed[old] += `${line.slice(1)}\n`;
   }
   const outPath = scenario.output ? join(work, scenario.output) : null;
   const output = outPath && existsSync(outPath) ? readFileSync(outPath, 'utf8') : null;
-  if (scenario.output) delete added[scenario.output];
-  return { added, newFiles: newFiles.filter((p) => p !== scenario.output), output, answer };
+  if (scenario.output) { delete added[scenario.output]; delete removed[scenario.output]; }
+  return { added, removed, newFiles: newFiles.filter((p) => p !== scenario.output), output, answer };
 }
 
 // ---- running claude ---------------------------------------------------------------------------------------------

@@ -1,0 +1,10 @@
+{
+  "name": "ledger-import",
+  "version": "3.4.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "check": "node scripts/lint-fixtures.js && node --test"
+  }
+}

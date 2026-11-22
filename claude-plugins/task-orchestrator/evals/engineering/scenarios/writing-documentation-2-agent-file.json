@@ -1,0 +1,73 @@
+{
+  "id": "writing-documentation-2-agent-file",
+  "skill": "writing-documentation",
+  "kind": "build",
+  "title": "Write the instruction file coding agents read",
+  "fixture": "docs-agent-file",
+  "pattern": "repository overview and file tour in an agent file; drops the facts the code cannot hold",
+  "expectation": "Without guidance the agent file opens with an overview of the repository, tours src/, scripts/ and test/ file by file (all of which an agent reads from the tree in seconds), runs long, and loses or buries the two facts the code cannot show (releases are cut by pushing a tag, test/fixtures are copied from production exports and must not be regenerated) and the verify command (`npm run check`). A pass is a short file that holds those facts and the command.",
+  "prompt": "Write CLAUDE.md for coding agents working in this project. Two facts the code cannot show: releases are cut by pushing a tag v<version>, never by editing the version in package.json by hand; the files in test/fixtures are copied from production exports and must not be regenerated.",
+  "models": [
+    "sonnet"
+  ],
+  "grading": "auto",
+  "checks": [
+    {
+      "id": "W2a",
+      "type": "added-lacks",
+      "in": "^(CLAUDE|AGENTS)\\.md$",
+      "regex": "\\S",
+      "pattern": "no agent file written"
+    },
+    {
+      "id": "W2b",
+      "type": "added-matches",
+      "in": "^(CLAUDE|AGENTS)\\.md$",
+      "regex": "(?:^|\\n)#{1,6}\\s+[^\\n]*\\b(?:overview|structure|architecture|layout|directory|about)\\b",
+      "pattern": "repository overview in an agent file"
+    },
+    {
+      "id": "W2c",
+      "type": "added-matches",
+      "in": "^(CLAUDE|AGENTS)\\.md$",
+      "regex": "(?:^|\\n)\\s*(?:[-*+]\\s+|\\|\\s*|\\d+[.)]\\s+)[\\x60*_]{0,3}(?:\\./)?(?:src|scripts|test)/",
+      "min": 3,
+      "pattern": "file tour in an agent file"
+    },
+    {
+      "id": "W2d",
+      "type": "added-matches",
+      "in": "^(CLAUDE|AGENTS)\\.md$",
+      "regex": "\\n",
+      "min": 60,
+      "pattern": "agent file longer than the project needs"
+    },
+    {
+      "id": "W2e",
+      "type": "added-lacks",
+      "in": "^(CLAUDE|AGENTS)\\.md$",
+      "regex": "\\btag",
+      "pattern": "drops a fact the code cannot hold"
+    },
+    {
+      "id": "W2f",
+      "type": "added-lacks",
+      "in": "^(CLAUDE|AGENTS)\\.md$",
+      "regex": "regenerat|production",
+      "pattern": "drops a fact the code cannot hold"
+    },
+    {
+      "id": "W2g",
+      "type": "added-lacks",
+      "in": "^(CLAUDE|AGENTS)\\.md$",
+      "regex": "npm run check|lint-fixtures",
+      "pattern": "omits the verify command"
+    },
+    {
+      "id": "G5",
+      "type": "modified-outside",
+      "regex": "^(CLAUDE|AGENTS)\\.md$",
+      "pattern": "scope creep: unrelated existing files changed"
+    }
+  ]
+}

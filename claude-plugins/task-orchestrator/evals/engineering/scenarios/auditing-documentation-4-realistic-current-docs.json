@@ -1,0 +1,33 @@
+{
+  "id": "auditing-documentation-4-realistic-current-docs",
+  "skill": "auditing-documentation",
+  "kind": "audit",
+  "tier": "realistic",
+  "title": "Audit the real current/docs folder",
+  "snapshot": {
+    "ref": "848db0fa0"
+  },
+  "output": "audit.md",
+  "pattern": "keeps copied defaults; proposes no cut at the level of a section or document",
+  "expectation": "Chosen because current/docs holds long reference pages that copy values the code already states. The claim TTL default 900 (ClaimService.kt:409, AdvanceRequests.kt:154) is copied into workflow-guide.md at about line 1098 and 1122 and fleet-deployment.md at about line 1569, and the page-limit default 50 into api-rest.md at about lines 672, 743 and 815, so a code change leaves every copy stale. Without guidance the audit lists typos and stale details to correct line by line, and proposes no cut at the level of a section or a whole document. A pass reports the copied defaults with a move to state each in one place and point at it, and proposes at least one document-level cut, split or merge. A finding is `FINDING <file>:<line> | <what is wrong> | <what to do>`; content terms are matched after the location. The snapshot is the archive of the base sha, one commit, no history.",
+  "prompt": "Audit current/docs/ against the code and tell me the ten most important problems, in order of importance. Write audit.md with one line per problem, formatted `FINDING <file>:<line> | <what is wrong> | <what to do about it>`. Do not edit any other file.",
+  "models": [
+    "sonnet",
+    "opus"
+  ],
+  "grading": "auto",
+  "checks": [
+    {
+      "id": "DA4a",
+      "type": "finding-missing",
+      "regex": "^FINDING\\b[^|]*\\|[^|]*(?:default|ttl|900|limit)[^|]*\\|.*(?:\\b(?:cut|delete|remove|drop|point|link|generat|refer|source)|single|one place|canonical)",
+      "pattern": "keeps copied defaults"
+    },
+    {
+      "id": "DA4b",
+      "type": "finding-missing",
+      "regex": "^FINDING\\b[^|]*\\|[^|]*\\|(?=[^|]*\\b(?:cut|retire|merge|split|consolidat|delete))(?=[^|]*\\b(?:section|document|page|guide|chapter))[^|]*$",
+      "pattern": "no document-level cut proposed"
+    }
+  ]
+}
