@@ -1,7 +1,0 @@
-{
-  "models": [
-    "claude-sonnet-5-5"
-  ],
-  "skills": [],
-  "result": "{\"subtype\":\"success\",\"is_error\":false,\"turns\":8}"
-}

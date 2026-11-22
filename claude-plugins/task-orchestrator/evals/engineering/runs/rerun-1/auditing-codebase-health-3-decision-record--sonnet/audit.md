@@ -1,3 +1,0 @@
-RANK 1 | src/labels.js | Plan it | It is the one module both carriers depend on, it has no tests (the repo has none), and it hard-codes a single-line address, so a change here breaks both adapters at once.
-RANK 2 | src/carriers/ups.js | Watch | It changes in nearly every commit and shares lines with fedex.js, but ADR 0002 deliberately keeps the adapters separate, so don't merge them; add tests and leave the duplication alone.
-RANK 3 | src/carriers/fedex.js | Watch | It has the same high churn and accepted duplication as ups.js (ADR 0002), so it needs tests rather than a merge into a shared adapter.

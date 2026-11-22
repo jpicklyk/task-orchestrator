@@ -1,2 +1,0 @@
-ok   A1a ranks the stable ugly module first: rank 1 is src/pricing.js
-ok   A1b rates the stable ugly module Act now: RANK 3 | src/legacyReport.js | Watch | It is the ugliest code (one-letter names, module-level mutable state, deeply nested ifs), but it has been touched once and nothing depends on it, so the cleanup can wait until someone needs to change it.

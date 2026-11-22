@@ -1,2 +1,0 @@
-ok   S2a false positive on project standard
-ok   S2b false positive on project standard: verdict approve

@@ -1,9 +1,0 @@
-diff --git a/audit.md b/audit.md
-new file mode 100644
-index 0000000..4772ecc
---- /dev/null
-+++ b/audit.md
-@@ -0,0 +1,3 @@
-+RANK 1 | src/checkout.js | Act now | It is the change hotspot (touched in all 10 commits since the initial one), has no tests, calls the core domain object a "purchase" when GLOSSARY.md says it is an `Order`, and mints ids from `Date.now()` that collide when two checkouts land in the same millisecond.
-+RANK 2 | src/purchaseLog.js | Plan it | It changes alongside checkout.js in 6 of 10 commits and keeps the same off-glossary "purchase" naming (it should be an `orders/` module), and it stores everything in a module-level array that never persists and can't be reset between tests, so replacing it with an injectable order store needs a planned migration.
-+RANK 3 | src/carts.js | Watch | It is small and has changed only twice, but `addLine` accepts any `qty`/`unitCents` without validation, so keep an eye on it as cart features grow.

@@ -1,9 +1,0 @@
-diff --git a/audit.md b/audit.md
-new file mode 100644
-index 00000000..a386ccb7
---- /dev/null
-+++ b/audit.md
-@@ -0,0 +1,3 @@
-+RANK 1 | claude-plugins/task-orchestrator/hooks/retro-lib.mjs | Act now | At 867 lines it is the largest hook source file and one of the most frequently changed (16 commits in 6 months), so it is a growing hotspot that should be split into focused modules.
-+RANK 2 | claude-plugins/task-orchestrator/hooks/config-sync.mjs | Plan it | At 686 lines with equally high churn (16 commits) and the largest test file (1923 lines), it carries a lot of mixed responsibility and its decomposition should be planned alongside its tests.
-+RANK 3 | claude-plugins/task-orchestrator/hooks/session-start.mjs | Watch | At 373 lines and 16 commits it is the third-largest hook and keeps changing, but it is not yet unwieldy, so monitor its growth before refactoring.

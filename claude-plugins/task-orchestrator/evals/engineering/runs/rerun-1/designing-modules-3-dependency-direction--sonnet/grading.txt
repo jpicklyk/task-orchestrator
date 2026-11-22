@@ -1,9 +1,0 @@
-ok   D3a dependency direction: 0 match(es)
-ok   G1 narrating or change-log comments
-ok   G2 empty, log-only or default-returning catch
-ok   G3 defensive guards on guaranteed values: 0 guard(s)
-ok   G4 new dependency: 0 match(es)
-ok   G5 scope creep: unrelated existing files changed
-ok   G6 unused new export
-ok   G7 TODO or FIXME left behind: 0 match(es)
-ok   G8 broad try/catch around new code

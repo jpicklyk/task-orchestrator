@@ -1,9 +1,0 @@
-diff --git a/audit.md b/audit.md
-new file mode 100644
-index 00000000..bdd0f6eb
---- /dev/null
-+++ b/audit.md
-@@ -0,0 +1,3 @@
-+RANK 1 | claude-plugins/task-orchestrator/hooks/retro-lib.mjs | Act now | The largest hook module (867 lines) is also among the most-changed since June, and it packs a ~290-line `evaluateScopes` built from nested closures together with its own YAML walker (`childBlock`/`indentOf`) that duplicates `yaml-lite.mjs`, so every retro change goes through one fragile function.
-+RANK 2 | claude-plugins/task-orchestrator/hooks/config-sync.mjs | Plan it | At 686 lines with churn as high as retro-lib's, it mixes fingerprinting, legacy-closure guidance, rule and bundled-rule sync planning, rejection formatting and a ~145-line `main()`, so rule sync should be split out into its own module behind the 1,900-line test suite.
-+RANK 3 | claude-plugins/task-orchestrator/hooks/session-start.mjs | Watch | It changes as often as the top two, but its 373 lines are already broken into small `build*` sections, so for now only keep an eye on whether the plugin-freshness and registration checks keep growing inside it.

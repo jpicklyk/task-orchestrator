@@ -1,3 +1,0 @@
-RANK 1 | src/labels.js | Act now | It is the single input contract both carrier adapters consume, yet the repo has no tests at all and commit 912fd1e ("fedex address line2") touched it without the label ever gaining a line2 field.
-RANK 2 | src/carriers/fedex.js | Plan it | It has the most churn (changed in 8 of the 9 commits since initial, every time in lockstep with ups.js), but ADR 0002 deliberately rules out merging the adapters, so plan per-adapter tests and removing the dead "// revision N" comments rather than a merge.
-RANK 3 | src/carriers/ups.js | Watch | It has the same lockstep churn and the duplication ADR 0002 accepts, so keep it separate and watch whether UPS-only changes such as 8e176f9 keep forcing FedEx edits, which would undercut the ADR's reasoning.

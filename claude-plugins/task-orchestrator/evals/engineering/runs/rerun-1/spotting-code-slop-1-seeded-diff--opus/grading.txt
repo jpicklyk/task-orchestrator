@@ -1,5 +1,0 @@
-ok   S1a swallowed or masked errors
-ok   S1b pass-through wrapper
-ok   S1c narrating comments
-FAIL S1d mixed-purpose diff: no finding line matches
-ok   S1e approves a flawed diff: verdict changes

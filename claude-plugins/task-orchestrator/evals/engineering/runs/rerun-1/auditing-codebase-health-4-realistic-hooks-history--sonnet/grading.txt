@@ -1,2 +1,0 @@
-ok   A4a ranks a candidate outside the most-changed files
-ok   A4b ranks a candidate outside the five most-changed first: rank 1 is claude-plugins/task-orchestrator/hooks/retro-lib.mjs
