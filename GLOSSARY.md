@@ -34,7 +34,7 @@ In code: `SeatDefinition.COORDINATOR_WRITABLE_SEAT`.
 
 ## Coordinator
 
-Whoever presents a run's coordinator token: it assigns seats, advances members and reports for that one run, and is not a seat.
+The session or agent acting for one run by holding that run's coordinator token. On the run it is recorded as a run-scoped pseudo-seat, never as a seat a schema declares.
 
 Distinct from: orchestrator seat, and coordinator tier. The tier says where a coordinator runs, not who it is.
 In code: `RunSeat.COORDINATOR`.
@@ -44,24 +44,27 @@ In code: `RunSeat.COORDINATOR`.
 The server tool profile served at `/mcp/director`: the run board and decision inbox, with no read that returns a note or document body.
 
 Distinct from: director mode, which is a session state, not an endpoint.
+Don't call it: director, on its own; the bare word also names director mode, so say which.
 In code: `ToolProfile.DIRECTOR`.
 
 ## Director mode
 
-A session state in which the session runs the board and delegates every read or edit to background agents, entered with the director skill.
+A session state in which the session runs the board and delegates every read or edit to background agents, entered with the director skill or by running as the hardened director agent.
 
 Distinct from: director profile, which is a server endpoint.
+Don't call it: director, on its own; the bare word also names director profile, so say which.
 Example: a background agent dispatched by a director session is not in director mode.
 
 ## Sizing tier
 
-One of Direct, Delegated or Parallel: how much machinery a piece of work gets (inline, one seat, or a coordinated wave).
+One of Direct, Delegated or Parallel: how much machinery a piece of work gets (done inline by the orchestrator; one implementer subagent, with review by a separate agent; or parallel worktree agents run as a wave).
 
 Distinct from: coordinator tier, which is where a coordinator runs, and from the orchestrator, coordinator and director session layers, which are who is acting.
+In code: `TIER_NAMES`.
 
 ## Coordinator tier
 
 One of tiers 1, 2, 2b, 3 and 4: where a run's coordinator lives (a desktop session, a background agent plus Workflow, a headless process, and so on).
 
 Distinct from: sizing tier. Parallel work is run by a coordinator, and the coordinator tier says where that coordinator lives.
-In code: `claude-plugins/task-orchestrator/scripts/coordinator-tiers.mjs`.
+In code: `TIERS`.

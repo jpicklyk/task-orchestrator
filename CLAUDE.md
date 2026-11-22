@@ -7,7 +7,7 @@ A Kotlin MCP server for hierarchical work items with dependencies, note schemas 
 ## Where things live
 
 - Source root: `current/src/main/kotlin/io/github/jpicklyk/mcptask/current/` (paths below are relative to it unless they start at the repo root). Entry point `CurrentMain.kt`; composition root `bootstrap/` (`ServerComposition.kt` wires everything).
-- Domain vocabulary (seat, owning seat, director and the other terms code and schemas share): [GLOSSARY.md](GLOSSARY.md).
+- Domain vocabulary (seat, owning seat, director profile and the other terms code and schemas share): [GLOSSARY.md](GLOSSARY.md).
   - Use the glossary's term for a concept; never use a word an entry lists under Don't call it. Existing code that still carries such a word is named in the report and left alone, unless the change already touches that code.
   - When a concept has no entry, propose one; do not coin a name silently. Update the glossary in the same commit as the code that adds or renames a concept.
 - Migrations: `current/src/main/resources/db/migration/sqlite/` (the only Flyway location).
