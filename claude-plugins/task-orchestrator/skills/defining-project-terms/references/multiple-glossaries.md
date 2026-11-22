@@ -1,6 +1,6 @@
 # Multiple glossaries
 
-One glossary is the default. Split only when one word means different things in different parts of the project and both meanings are correct where they are used.
+One glossary is the default. Split only when one word means different things in different parts of the project and both meanings are correct where they are used. The underlying ideas are Eric Evans's bounded context (a part of the system inside which one model and one vocabulary hold) and context map (how those parts relate and translate), from *Domain-Driven Design* (2003); a glossary per area is the lightweight form of it.
 
 ## When to split
 

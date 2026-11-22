@@ -13,7 +13,7 @@ Where the project documents its own glossary conventions, they take precedence o
 ## When it applies
 
 - **A project with a glossary:** read it before naming anything in the domain (types, files, fields, notes, reports). Use its terms; never use a word an entry lists under Don't call it.
-- **A project without a glossary:** do nothing. Do not create the file, and do not suggest it unprompted. The file is created only when the owner and you have agreed a first term that passes the test below, and then in the same change as the code that needs it.
+- **A project without a glossary:** stay silent about glossaries; do not suggest one unprompted. Only when the owner agrees a first term that passes the test below is the file created, and that term creates it in the same change as the code that needs it.
 - **A concept the glossary lacks:** propose an entry; do not coin one silently. The owner approves it in review.
 
 ## Does it earn an entry
@@ -30,7 +30,7 @@ A word everyone reads the same way gets no entry. A glossary of obvious words bu
 
 One heading per term. The meaning is required; the other fields are optional and used only when they say something:
 
-- **Meaning** (required): what the term is, in one or two sentences, in terms a newcomer can apply.
+- **Meaning** (required): what the term is, in terms a newcomer can apply, in as few words as keep it exact. A meaning that needs a paragraph is usually two terms.
 - **Distinct from**: the nearest neighbour and the line between them.
 - **Don't call it**: words that must not be used for this thing. Old names go here after a rename.
 - **In code**: the symbol or folder name.
@@ -44,14 +44,14 @@ A worked entry and the wording rules: [entry shape](references/entry-shape.md).
 2. **When a word has two meanings.** Split it: name each meaning separately and give each its own entry, rather than one entry with "also means". Method in [testing a term](references/testing-a-term.md).
 3. **When code introduces or changes a concept.** The entry change belongs in the same commit as the code. A rename moves the old name to Don't call it.
 4. **When the project is large.** One glossary per area where a word genuinely differs, not one that tries to cover everything: [multiple glossaries](references/multiple-glossaries.md).
-5. **When a decision would otherwise be undone.** A reader who finds a choice odd will reverse it. Record the decision when the three conditions in [decision records](references/decision-records.md) hold.
+5. **When a decision would otherwise be undone.** A reader who finds a choice odd will reverse it. Record the decision when a reader without the reasoning would likely undo it: [decision records](references/decision-records.md).
 
 ## Checks before finishing
 
 - Every new name in the domain uses a glossary term, or the change proposes a new entry.
-- No word from a Don't call it field appears in names, comments, tests, notes or the report.
+- No word from a Don't call it field appears in the names, comments, tests, notes or report you write. Existing code that still carries one is named in the report and left alone, unless the change already touches that code.
 - Each entry added or changed passes the entry test and carries only the fields it needs.
-- If the project has no glossary, the change adds none and mentions none.
+- If the project has no glossary, the change adds none and mentions none, unless the owner has agreed a first term, which creates the file in that change.
 
 ## References
 
@@ -59,3 +59,7 @@ A worked entry and the wording rules: [entry shape](references/entry-shape.md).
 - [testing-a-term.md](references/testing-a-term.md): the entry test, separating a word with two meanings, the nearest-neighbour case
 - [multiple-glossaries.md](references/multiple-glossaries.md): when and how to split
 - [decision-records.md](references/decision-records.md): when a decision earns a record
+
+## Sources
+
+The idea of one shared vocabulary used in speech and code (ubiquitous language), the bounded context and the context map are Eric Evans, *Domain-Driven Design* (2003). Decision records are Michael Nygard, "Documenting Architecture Decisions" (2011). The entry test, the entry fields and the checks above are this skill's own design, not taken from either.

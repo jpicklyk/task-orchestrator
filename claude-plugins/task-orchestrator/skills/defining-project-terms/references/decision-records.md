@@ -1,23 +1,14 @@
 # Decision records
 
-A decision record is a short note that explains a choice so that a later reader does not undo it by mistake. It sits beside the glossary or the code it explains, one note per decision.
+A decision record is a short note that explains a choice so that a later reader does not undo it by mistake. It sits beside the glossary or the code it explains, one note per decision. The practice of keeping one small dated note per significant decision comes from Michael Nygard, "Documenting Architecture Decisions" (2011).
 
 ## When a decision earns a record
 
-Write one only when all three hold:
+Record a decision when a reader who does not have the reasoning would likely undo it. Picture the next person, or agent, meeting the choice cold: if they would tidy it away, "fix" it or replace it with the obvious alternative, and doing so would cost something they cannot see, write the record. If they would leave it alone or the code explains itself, a comment or nothing is enough; a record for a choice nobody would question is noise that hides the ones that matter.
 
-1. A reasonable reader would find the choice odd or would be tempted to change it.
-2. The reason is not visible in the code, the tests or the glossary.
-3. Changing it would be expensive or would break something that is not obvious.
+## What a record holds
 
-If any of the three fails, a comment or nothing is enough. A record for a choice nobody would question is noise that hides the ones that matter.
-
-## Contents
-
-- **Decision**: what was chosen, in one sentence.
-- **Why**: the force behind it (a constraint, a failure that was seen, a cost), not a defence of the choice.
-- **Instead of**: the alternative that was rejected and the reason.
-- **Revisit when**: the condition under which the decision should be reopened, if there is one.
+The choice in one sentence, the force that led to it (a constraint, a failure that was seen, a cost), the alternative that was rejected and why, and when to reopen it if there is a known trigger. Give the reason, not a defence of the choice.
 
 ## Handling
 
