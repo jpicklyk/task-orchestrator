@@ -20,6 +20,7 @@ const KEYS = [
   'review-cited-claims',
   'planning-sweeps',
   'orchestration-discipline',
+  'domain-language',
 ];
 const BUNDLED_DIR = fileURLToPath(new URL('../../bundled-rules/', import.meta.url));
 const REPO_ROOT = fileURLToPath(new URL('../../../../', import.meta.url));

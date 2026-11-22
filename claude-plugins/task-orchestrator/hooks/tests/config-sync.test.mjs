@@ -190,6 +190,7 @@ const BUNDLED_KEYS = [
   'review-cited-claims',
   'planning-sweeps',
   'orchestration-discipline',
+  'domain-language',
 ];
 const PROTOCOL_BUNDLED_KEYS = BUNDLED_KEYS.filter((k) => k.startsWith('protocol.'));
 function bundledNormalizedBytes(key) {
