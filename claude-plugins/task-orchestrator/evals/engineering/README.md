@@ -119,6 +119,13 @@ A grader that changed after a failing row is listed here with what it was, so a 
   before the change whose only A4a hit was the README (opus in `with-audit-3` and `with-audit-5`) would pass under the
   current sets; `with-audit-2` opus ranked `phase-guard-record.mjs`, which is outside both the old and the new set, and
   would still fail.
+- `W3a` (writing-documentation-3) counted the letters `csv` (`min` 4), so the two on the `exportCsv` line let a run that
+  kept one CSV line pass; it counts the word `\bcsv\b`. `W3c` checked only that `writeJson` was added, so a run that
+  renamed the code sample and left `exportJson` in the prose passed; `W3d` now needs all three `exportJson` lines in
+  the removed text. `DA3d` (auditing-documentation-3) matched `integer` or `cents` anywhere after the location, so the
+  decision record's own file name in the move satisfied it; it now needs the float point in the problem segment, and a
+  term inside a hyphenated path does not count. The `docs-baseline-1` rows were re-graded from their saved artifacts;
+  none changed.
 
 ### Fixture shapes
 

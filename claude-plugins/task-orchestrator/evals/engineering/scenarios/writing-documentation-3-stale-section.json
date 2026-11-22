@@ -16,7 +16,7 @@
       "id": "W3a",
       "type": "removed-lacks",
       "in": "^README\\.md$",
-      "regex": "csv",
+      "regex": "\\bcsv\\b",
       "min": 4,
       "pattern": "keeps a section whose subject is gone"
     },
@@ -32,6 +32,14 @@
       "type": "added-lacks",
       "in": "^README\\.md$",
       "regex": "writeJson",
+      "pattern": "leaves a stale name"
+    },
+    {
+      "id": "W3d",
+      "type": "removed-lacks",
+      "in": "^README\\.md$",
+      "regex": "exportJson",
+      "min": 3,
       "pattern": "leaves a stale name"
     },
     {

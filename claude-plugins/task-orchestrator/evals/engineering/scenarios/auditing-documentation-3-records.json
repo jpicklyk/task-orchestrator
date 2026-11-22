@@ -35,7 +35,7 @@
     {
       "id": "DA3d",
       "type": "finding-missing",
-      "regex": "^FINDING\\b[^|]*\\|.*(?:\\bcents?\\b|integer|float|decimal)",
+      "regex": "^FINDING\\b[^|]*\\|[^|]*(?<![\\w/-])(?:cents?|integer|float\\w*|decimal)\\b",
       "pattern": "misses code that contradicts an accepted decision"
     }
   ]

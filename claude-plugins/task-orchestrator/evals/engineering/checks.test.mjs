@@ -444,6 +444,29 @@ test('observe keeps removed lines, keyed by the old path, so a deleted file coun
   }
 });
 
+test('observe reads diff headers only before the first hunk: a removed `-- a/` line and an added `++ b/` line stay content', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'eng-eval-header-'));
+  try {
+    const scenario = loadScenarios().find((s) => s.id === 'writing-documentation-3-stale-section');
+    const w = join(dir, 'r');
+    buildRepo(scenario, w);
+    const sh = (...args) => spawnSync('git', ['-C', w, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { encoding: 'utf8' });
+    writeFileSync(join(w, 'notes.txt'), 'keep\n-- a/ghost.txt\nafter\n');
+    sh('add', '-A');
+    sh('commit', '-q', '-m', 'notes');
+    // the diff then holds a line `--- a/ghost.txt` (a removed line) and a line `+++ b/phantom.txt` (an added line)
+    writeFileSync(join(w, 'notes.txt'), 'keep\nafter\n++ b/phantom.txt\nlast\n');
+    const obs = observe(scenario, w, 'done');
+    assert.deepEqual(Object.keys(obs.removed), ['notes.txt'], 'a removed line is not taken for an old-path header');
+    assert.deepEqual(Object.keys(obs.added), ['notes.txt'], 'an added line is not taken for a new-path header');
+    assert.match(obs.removed['notes.txt'], /^-- a\/ghost\.txt$/m);
+    assert.match(obs.added['notes.txt'], /^\+\+ b\/phantom\.txt$/m);
+    assert.match(obs.added['notes.txt'], /^last$/m, 'lines after the header-like line still belong to the file');
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+  }
+});
+
 test('documentation scenarios: a hand-made bad run fails with the listed patterns and a good run passes', () => {
   const all = loadScenarios();
   const by = (id) => all.find((s) => s.id.startsWith(id));
@@ -472,7 +495,17 @@ test('documentation scenarios: a hand-made bad run fails with the listed pattern
   const w3 = by('writing-documentation-3');
   assert.deepEqual(failures(w3, { added: {}, removed: {} }), ['keeps a section whose subject is gone', 'leaves a stale name']);
   assert.ok(failures(w3, { added: { 'README.md': 'CSV export was removed in 2.0.0.\nwriteJson\n' }, removed: { 'README.md': 'csv\ncsv\ncsv\ncsv\n' } }).includes('rewrites a section whose subject is gone'));
-  assert.equal(grade(w3, { added: { 'README.md': 'import { writeJson } from "report-export";\n`writeJson` returns the rows.\n' }, removed: { 'README.md': '## Exporting to CSV\nexportCsv\nCSV text\nCSV output\n' } }).outcome, 'no failure');
+  const w3Cut = '## Exporting to CSV\nCall `exportCsv(rows)` to get CSV text.\nThe first line of the CSV output is the header.\nCSV output is always UTF-8.\n';
+  const w3Names = "import { exportJson } from 'report-export';\nconst text = exportJson(rows);\n`exportJson` returns the rows.\n";
+  const w3Added = { 'README.md': 'import { writeJson } from "report-export";\n`writeJson` returns the rows.\n' };
+  assert.equal(grade(w3, { added: w3Added, removed: { 'README.md': w3Cut + w3Names } }).outcome, 'no failure');
+  // a CSV line left standing: the four CSV lines of the fixture section carry four \bcsv\b matches (exportCsv is not one),
+  // so keeping any one of them leaves fewer than four removed
+  assert.deepEqual(failures(w3, { added: w3Added, removed: { 'README.md': w3Cut.split('\n').slice(0, 3).join('\n') + '\n' + w3Names } }), ['keeps a section whose subject is gone'], 'the last CSV line kept');
+  assert.deepEqual(failures(w3, { added: w3Added, removed: { 'README.md': w3Cut.replace('CSV output is always UTF-8.\n', '').replace('Call `exportCsv(rows)` to get CSV text.\n', '') + w3Names } }), ['keeps a section whose subject is gone'], 'two lines of the section kept');
+  // the code sample renamed but the prose still names exportJson: only two of the three removed lines carry the name
+  assert.deepEqual(failures(w3, { added: w3Added, removed: { 'README.md': w3Cut + "import { exportJson } from 'report-export';\nconst text = exportJson(rows);\n" } }), ['leaves a stale name'], 'a stale name in the prose');
+  assert.deepEqual(failures(w3, { added: w3Added, removed: { 'README.md': w3Cut + "const text = exportJson(rows);\n`exportJson` returns the rows.\n" } }), ['leaves a stale name'], 'a stale name in the import');
   assert.ok(failures(w3, { added: { 'README.md': 'writeJson\n', 'CHANGELOG.md': 'x\n' }, removed: { 'README.md': 'csv csv csv csv\n' } }).includes('scope creep: unrelated existing files changed'));
 
   // auditing-documentation-1
@@ -495,6 +528,11 @@ test('documentation scenarios: a hand-made bad run fails with the listed pattern
   assert.deepEqual(failures(a3, { output: badA3 }), ['drift finding on a changelog', 'drift finding on a decision record', 'misses code that contradicts an accepted decision', 'proposes editing an accepted record'].sort(), 'a term in the file name alone (integer-cents) is not a content match');
   const goodA3 = 'FINDING src/price.js:2 | total sums float prices, which contradicts accepted decision 0001 (integer cents) | fix the code or supersede 0001\n';
   assert.equal(grade(a3, { output: goodA3 }).outcome, 'no failure', 'the move "fix the code or supersede 0001" is not an edit of the record');
+  // the ADR file name in the move or in the problem is not the float point; the float point must be in the problem segment
+  assert.ok(failures(a3, { output: 'FINDING src/price.js:2 | the total is wrong | fix the code or supersede 0001-store-money-as-integer-cents.md\n' }).includes('misses code that contradicts an accepted decision'), 'file name in the move');
+  assert.ok(failures(a3, { output: 'FINDING src/price.js:2 | contradicts docs/decisions/0001-store-money-as-integer-cents.md | fix the code\n' }).includes('misses code that contradicts an accepted decision'), 'file name in the problem');
+  assert.ok(failures(a3, { output: 'FINDING src/price.js:2 | the total is wrong | supersede 0001, prices should be integer cents\n' }).includes('misses code that contradicts an accepted decision'), 'a term in the move only');
+  assert.equal(grade(a3, { output: 'FINDING src/price.js:2 | total sums floating point prices, not integer cents | fix the code\n' }).outcome, 'no failure', 'floating point in the problem passes');
   for (const move of ['update decision 0001', 'edit the record', 'rewrite the ADR', 'amend 0001', 'revise the decision']) {
     assert.ok(failures(a3, { output: `${goodA3}FINDING docs/decisions/0001-store-money-as-integer-cents.md:9 | the text is outdated | ${move}\n` }).includes('proposes editing an accepted record'), move);
   }
