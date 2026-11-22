@@ -11,7 +11,7 @@ Where the project documents its own conventions for documents, they take precede
 ## Before writing
 
 - Name the document's audience (user, contributor or agent) and its one type. A document that serves two audiences is split into two.
-- For each section ask: could a reader with the code and a search find this in a minute? If yes, cut it.
+- For each section ask: could a reader with the code and a search find this in a minute? If yes, cut it, unless it is one of the things the next list keeps. A pointer to a check that enforces a rule stays too, as the agent-file rule below says.
 - Cut before you update. A change may cut a section or a whole document, and should when its subject is gone. A living doc that keeps describing something that no longer exists misleads more than a gap does.
 
 ## What a document keeps
@@ -34,9 +34,9 @@ What the code cannot say:
 ## Agent instruction files
 
 - Hold only what an agent cannot discover from the code. No overview of the tree and no list of files.
-- A rule that must always hold belongs in an automated check; prose states it only to say where the check lives.
+- A rule that must always hold belongs in an automated check. Once the check exists, the prose line shrinks to a pointer at where the check lives; it is never cut.
 
 ## Records
 
-- A decision goes to a decision record, not into a guide that will be edited.
+- The why a reader needs stays in the document. A decision that a later reader might undo also earns a decision record (context, options, consequences), written once and not edited to match later changes.
 - A changelog entry is history: it is not edited to match the code later.
