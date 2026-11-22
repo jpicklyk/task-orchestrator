@@ -1,7 +1,7 @@
 export const meta = {
   name: 'deep-codebase-audit',
   description: 'Barrier-per-phase codebase audit: reviewers that each follow the method skill of their own slice, gap critic, adversarial verify, synthesis report, and a triage-derived findings proposal.',
-  whenToUse: 'Rare and expensive: a broad multi-agent pass over existing code. Presets quick|standard|full trade reviewer/verifier fan-out for cost; runId, date, and reportPath are required args; focus (optional: code, docs or all; default all) limits the audit to code slices, documentation slices or both; methodSkill (optional) replaces the method skill of code slices, and a slice or lens may carry its own methodSkill. quick fits the default maxAgents (60); standard and full project well past 60 agents and need allowLarge:true or a raised maxAgents. full runs roughly 90 minutes and about 30M tokens — prefer quick or standard for routine sweeps.',
+  whenToUse: 'Rare and expensive: a broad multi-agent pass over existing code and documentation, by slice (focus picks which). Presets quick|standard|full trade reviewer/verifier fan-out for cost; runId, date, and reportPath are required args; focus (optional: code, docs or all; default all) limits the audit to code slices, documentation slices or both; methodSkill (optional) replaces the method skill of code slices, and a slice or lens may carry its own methodSkill. quick fits the default maxAgents (60); standard and full project well past 60 agents and need allowLarge:true or a raised maxAgents. full runs roughly 90 minutes and about 30M tokens — prefer quick or standard for routine sweeps.',
   phases: [
     { title: 'Scope' }, { title: 'Review' }, { title: 'Gaps' }, { title: 'Merge' },
     { title: 'Verify' }, { title: 'Synthesize' }, { title: 'Triage' },
@@ -42,6 +42,16 @@ const VERIFY_LENS_INSTRUCTIONS = {
   significance: 'LENS = SIGNIFICANCE. Argue that this is NOT a real problem worth reporting: an intentional, documented design; severity overstated per the rubric; the recommended change not worth its cost; or already tracked. Set refuted=true only if it is not a genuine problem worth reporting. Otherwise set adjustedSeverity per the rubric and explain.',
   consequence: 'LENS = CONSEQUENCE. Try to demonstrate a concrete consequence: for correctness/concurrency/security findings, a realistic sequence of calls or configuration that produces an observable failure, traced through the code; for maintainability findings, concrete change-amplification evidence (history showing past changes or fixes that had to touch the duplicated places). Set refuted=true if no concrete consequence can be established and the claim is purely theoretical.',
   combined: 'LENS = COMBINED. (1) Open every cited location and verify the factual claims; search for counter-evidence (shared helpers, checks performed elsewhere, guards, tests). (2) Consider whether it is intentional documented design, overstated per the rubric, or already tracked. Set refuted=true if the core claim is false or it is not a genuine problem worth reporting; if partly wrong set evidenceAccurate=false with correctedEvidence.',
+}
+
+const DOCS_CATEGORIES = ['documentation-scope', 'documentation-drift']
+
+const DOCS_VERIFY_RULE = 'DOCUMENTATION FINDING: judge this finding by the documentation method, not by the code reading of the lens above. A document owes accuracy where it makes a claim and never owes coverage, and a cut needs no proof that the text is wrong. A passage that is accurate today but restates what the code or a search shows, copies a default, limit or other value that has one defining file, or does not serve the reader of its document is still a valid finding: do not refute it because the text is true, because no concrete consequence can be shown, or because the choice looks intentional. Refute it only when the cited text is not there, or when the document claims something the code cannot show (a reason, a rejected option, a trap, an invariant or an absence), so the passage is not a restatement. Check the cited facts as before.'
+
+/** verifyLensText(lensKey, category) -> the lens instruction, followed by the documentation rule when the finding is in a documentation category */
+function verifyLensText(lensKey, category) {
+  const lens = VERIFY_LENS_INSTRUCTIONS[lensKey]
+  return DOCS_CATEGORIES.indexOf(category) === -1 ? lens : lens + '\n\n' + DOCS_VERIFY_RULE
 }
 
 /** agentOpts(plan, phaseKey, base) -> base merged with model/effort from plan.models[phaseKey]/plan.efforts[phaseKey] when set */
@@ -563,7 +573,7 @@ async function runAudit(plan, deps) {
       const lensKeys = verifyPlan(f, plan.verify)
       const findingText = JSON.stringify({ id: f.id, title: f.title, severity: f.severity, category: f.category, locations: f.locations, evidence: f.evidence, impact: f.impact, recommendation: f.recommendation })
       const votes = await parallel(lensKeys.map((l) => () =>
-        agent(verifierPreamble(plan) + VERIFY_LENS_INSTRUCTIONS[l] + '\n\nFINDING:\n' + findingText,
+        agent(verifierPreamble(plan) + verifyLensText(l, f.category) + '\n\nFINDING:\n' + findingText,
           agentOpts(plan, 'verify', { label: 'verify:' + f.id + ':' + l, phase: 'Verify', schema: S.VERDICT }))))
       return Object.assign({}, f, decideVerdict(votes, lensKeys, f.severity))
     }))

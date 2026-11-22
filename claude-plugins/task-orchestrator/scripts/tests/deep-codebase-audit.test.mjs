@@ -45,7 +45,7 @@ const CORE_NAMES = [
   'reviewerPreamble', 'buildReviewerPrompt', 'buildLensPrompt', 'buildGapPrompt',
   'normalizeObsPath', 'isObservation', 'buildProposal', 'runAudit',
   'SEVERITY_RANK', 'LENS_KEYS', 'PRESETS', 'CATEGORIES', 'DEFAULT_CLASS_MAP', 'TYPE_MAP_KEY', 'DEFAULT_METHOD_SKILL',
-  'DOCS_METHOD_SKILL', 'FOCUS_VALUES', 'sliceKind', 'inFocus', 'methodSkillOf',
+  'DOCS_METHOD_SKILL', 'FOCUS_VALUES', 'sliceKind', 'inFocus', 'methodSkillOf', 'VERIFY_LENS_INSTRUCTIONS',
 ]
 const CORE = loadCoreNamed(SCRIPT_PATH, CORE_NAMES)
 
@@ -1862,5 +1862,46 @@ test('T10 the docs skill name appears once, as data, and in no non-reviewer prom
   await CORE.runAudit(plan, makeDeps({ agent }))
   for (const c of calls.filter((c) => !c.label.startsWith('review:') && !c.label.startsWith('gap:'))) {
     assert.equal(c.prompt.includes(DOCS_SKILL), false, `${c.label} prompt must not name the docs skill`)
+  }
+})
+
+// ── Verify lenses judge a documentation finding by the documentation method (parent 72b175d9, O1) ──
+// Implementer-written; oracle = the O1 ruling: a docs-category finding's verifier prompt carries the
+// docs rule, a code finding's prompt is the lens text unchanged.
+
+test('O1 verify: a documentation-category verifier prompt carries the docs rule; a code finding prompt is unchanged', async () => {
+  const plan = buildPlan({
+    verify: { highLenses: ['evidence', 'significance', 'consequence', 'combined'], defaultLenses: ['combined'], maxFindings: 40 },
+  })
+  const findings = [
+    makeFinding({ title: 'docs-scope finding', category: 'documentation-scope' }),
+    makeFinding({ title: 'docs-drift finding', category: 'documentation-drift' }),
+    makeFinding({ title: 'code finding', category: 'coupling' }),
+  ]
+  const responder = async (label) => {
+    if (label.startsWith('review:')) return label === 'review:r1' ? findingsResult({ findings }) : findingsResult({ findings: [] })
+    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('verify:')) return verdictResult({ refuted: false })
+    if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
+    throw new Error('O1 verify: unexpected label ' + label)
+  }
+  const { agent, calls } = autoAgent(responder)
+  await CORE.runAudit(plan, makeDeps({ agent }))
+  const verifyCalls = calls.filter((c) => c.label.startsWith('verify:'))
+  assert.equal(verifyCalls.length, 12, 'three findings, four lenses each')
+  for (const c of verifyCalls) {
+    const lens = c.label.split(':').pop()
+    const text = CORE.VERIFY_LENS_INSTRUCTIONS[lens]
+    const isDocs = c.prompt.includes('"category":"documentation-')
+    assert.ok(isDocs || c.prompt.includes('"category":"coupling"'), `${c.label} carries its finding`)
+    if (isDocs) {
+      assert.ok(c.prompt.includes(text + '\n\nDOCUMENTATION FINDING:'), `${c.label} docs prompt: the lens text, then the docs rule`)
+      assert.ok(c.prompt.includes('a cut needs no proof that the text is wrong'), `${c.label} docs rule says a cut needs no proof of error`)
+      assert.ok(c.prompt.includes('do not refute it because the text is true'), `${c.label} docs rule forbids refuting for accuracy`)
+      assert.ok(c.prompt.includes('Refute it only when the cited text is not there'), `${c.label} docs rule names the refute conditions`)
+    } else {
+      assert.ok(c.prompt.includes(text + '\n\nFINDING:\n'), `${c.label} code prompt: the lens text unchanged, straight into the finding`)
+      assert.equal(c.prompt.includes('DOCUMENTATION FINDING'), false, `${c.label} code prompt carries no docs rule`)
+    }
   }
 })
