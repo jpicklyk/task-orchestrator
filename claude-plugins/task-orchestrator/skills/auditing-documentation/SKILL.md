@@ -14,7 +14,7 @@ Three standing instructions come before any method. Keep them in force through t
 
 ## Scope first
 
-The scope is the path or set of documents you were given, or every document file in the project when none was. An auditor handed one set audits that set only, and says in the report what it did not look at. Document files are yours. Comments inside source files belong to the code audit, so leave them. A generated page is a document file: judge whether it serves its audience, not whether it is fresh. When a generated file has no freshness check, the finding is to add one. Never regenerate it or diff it to prove it fresh.
+The scope is the path or set of documents you were given, or every document file in the project when none was. An auditor handed one set audits that set only, and says in the report what it did not look at. Document files are yours. Comments inside source files belong to the code audit, so leave them. So does text the project ships to drive an agent: skill files and their references, agent definitions, rules and prompt strings. It reads like prose but behaves like code. A file that tells an agent about the project it works in, such as CLAUDE.md or AGENTS.md, is a document and stays yours. A generated page is a document file: judge whether it serves its audience, not whether it is fresh. When a generated file has no freshness check, the finding is to add one. Never regenerate it or diff it to prove it fresh.
 
 ## Method
 
@@ -48,6 +48,7 @@ A stated why stays even when it sits next to text that is cut.
 ## Findings on the cutting side
 
 - The document's subject (a module, a feature, a command) is gone: move is to cut the document.
+- A living doc that announces something no longer exists ("X was removed", "no longer supported"): move is to cut the note. A note about an absent thing is still a claim about it, and the changelog holds the history. A record keeps such a line.
 - Two documents cover one topic and neither is the canonical home: move is to consolidate into one and point the other at it.
 - No reader task or decision can be named for a long document: move is to cut it, or to split it by audience when two readers can be named.
 - An agent file that only grows: the cut list is the report.

@@ -46,12 +46,18 @@ const VERIFY_LENS_INSTRUCTIONS = {
 
 const DOCS_CATEGORIES = ['documentation-scope', 'documentation-drift']
 
-const DOCS_VERIFY_RULE = 'DOCUMENTATION FINDING: judge this finding by the documentation method, not by the code reading of the lens above. A document owes accuracy where it makes a claim and never owes coverage, and a cut needs no proof that the text is wrong. A passage that is accurate today but restates what the code or a search shows, copies a default, limit or other value that has one defining file, or does not serve the reader of its document is still a valid finding: do not refute it because the text is true, because no concrete consequence can be shown, or because the choice looks intentional. Refute it only when the cited text is not there, or when the document claims something the code cannot show (a reason, a rejected option, a trap, an invariant or an absence), so the passage is not a restatement. Check the cited facts as before.'
+const DOCS_VERIFY_RULE = 'DOCUMENTATION FINDING: judge this finding by the documentation method, not by the code reading of the lens above. A document owes accuracy where it makes a claim and never owes coverage, and a cut needs no proof that the text is wrong. A passage that is accurate today but restates what the code or a search shows, copies a default, limit or other value that has one defining file, or does not serve the reader of its document is still a valid finding: do not refute it because the text is true, because no concrete consequence can be shown, or because the choice looks intentional. Refute it only when the cited text is not there; when the document claims something the code cannot show (a reason, a rejected option, a trap, an invariant or an absence), so the passage is not a restatement; when the finding claims drift in a record (a changelog, release notes, an accepted decision record), where an old name or value is history; or when the passage is a block a tool generates from the code and a check keeps current. Check the cited facts as before.'
 
-/** verifyLensText(lensKey, category) -> the lens instruction, followed by the documentation rule when the finding is in a documentation category */
-function verifyLensText(lensKey, category) {
+/** fromDocsSlice(finding, docsKeys) -> true when any slice the finding came from (its sources, else its source) is a docs slice */
+function fromDocsSlice(f, docsKeys) {
+  const keys = f.sources || (f.source ? [f.source] : [])
+  return keys.some((k) => docsKeys.has(k))
+}
+
+/** verifyLensText(lensKey, category, fromDocs = false) -> the lens instruction, followed by the documentation rule when the finding came from a docs slice or is in a documentation category */
+function verifyLensText(lensKey, category, fromDocs = false) {
   const lens = VERIFY_LENS_INSTRUCTIONS[lensKey]
-  return DOCS_CATEGORIES.indexOf(category) === -1 ? lens : lens + '\n\n' + DOCS_VERIFY_RULE
+  return !fromDocs && DOCS_CATEGORIES.indexOf(category) === -1 ? lens : lens + '\n\n' + DOCS_VERIFY_RULE
 }
 
 /** agentOpts(plan, phaseKey, base) -> base merged with model/effort from plan.models[phaseKey]/plan.efforts[phaseKey] when set */
@@ -491,7 +497,7 @@ async function runAudit(plan, deps) {
   if (!reviewers || !reviewers.length) {
     const scopeResult = await agent(
       'READ-ONLY. Determine the review scope for an audit. Repository root: ' + plan.repo.root + '. Candidate paths: ' + plan.scope.paths.join(', ') +
-        '. Propose up to ' + plan.scope.reviewerCount + ' reviewer slices (key, label, focus, paths) and any cross-cutting lenses (key, label, focus) worth a dedicated pass. Give every slice and lens a kind: docs for document files (READMEs, guides, user docs, agent instruction files, generated reference pages), code for source files, their comments included; a docs slice and a code slice never share a path.' + focusSentence,
+        '. Propose up to ' + plan.scope.reviewerCount + ' reviewer slices (key, label, focus, paths) and any cross-cutting lenses (key, label, focus) worth a dedicated pass. Give every slice and lens a kind: docs for document files (READMEs, guides, user docs, agent instruction files about the project such as CLAUDE.md or AGENTS.md, generated reference pages), code for source files, their comments included, and for text shipped to drive an agent (skill files and their references, agent definitions, rules, prompt strings); a docs slice and a code slice never share a path.' + focusSentence,
       agentOpts(plan, 'review', { label: 'scope', phase: 'Scope', schema: S.SCOPE }),
     )
     if (!scopeResult) {
@@ -516,10 +522,10 @@ async function runAudit(plan, deps) {
 
   phase('Review')
   const docsInRun = reviewers.concat(lenses).some((x) => sliceKind(x) === 'docs')
-  const reviewItems = reviewers.map((r) => ({ key: r.key, label: r.label, prompt: buildReviewerPrompt(plan, r, docsInRun) }))
-    .concat(lenses.map((l) => ({ key: l.key, label: l.label, prompt: buildLensPrompt(plan, l, docsInRun) })))
+  const reviewItems = reviewers.map((r) => ({ key: r.key, label: r.label, kind: sliceKind(r), prompt: buildReviewerPrompt(plan, r, docsInRun) }))
+    .concat(lenses.map((l) => ({ key: l.key, label: l.label, kind: sliceKind(l), prompt: buildLensPrompt(plan, l, docsInRun) })))
   const reviewed = await parallel(reviewItems.map((it) => () =>
-    agent(it.prompt, agentOpts(plan, 'review', { label: 'review:' + it.key, phase: 'Review', schema: S.FINDINGS })).then((r) => (r ? Object.assign({}, r, { key: it.key, label: it.label }) : null))))
+    agent(it.prompt, agentOpts(plan, 'review', { label: 'review:' + it.key, phase: 'Review', schema: S.FINDINGS })).then((r) => (r ? Object.assign({}, r, { key: it.key, label: it.label, kind: it.kind }) : null))))
   const slices = reviewed.filter(Boolean)
   const missing = reviewItems.filter((it) => !slices.find((s) => s.key === it.key)).map((it) => it.key)
   if (missing.length) log('WARNING: reviewers with no result: ' + missing.join(', '))
@@ -534,7 +540,7 @@ async function runAudit(plan, deps) {
       s.findings.map((f) => '- [' + f.severity + '] ' + f.title + ' (' + (f.locations || []).slice(0, 3).join(', ') + ')').join('\n')).join('\n\n')
     critic = await agent(
       'READ-ONLY. You are the completeness critic for an audit of ' + plan.repo.root + '. Below is what the reviewers covered. Identify up to ' + plan.gaps.max +
-        ' MATERIAL gaps — subsystems or concerns not covered — each with a label, a kind (docs for document files, code for source files and their comments) and a prompt (paths and questions) for a focused follow-up reviewer.' + (plan.focus === 'all' ? '' : ' Propose only kind ' + plan.focus + ' gaps: only kind ' + plan.focus + ' belongs in this audit.') + ' Return an empty gaps array if coverage is adequate.\n\nCOVERAGE:\n' + coverage,
+        ' MATERIAL gaps — subsystems or concerns not covered — each with a label, a kind (docs for document files, code for source files and their comments and for text shipped to drive an agent) and a prompt (paths and questions) for a focused follow-up reviewer.' + (plan.focus === 'all' ? '' : ' Propose only kind ' + plan.focus + ' gaps: only kind ' + plan.focus + ' belongs in this audit.') + ' Return an empty gaps array if coverage is adequate.\n\nCOVERAGE:\n' + coverage,
       agentOpts(plan, 'critic', { label: 'critic', phase: 'Gaps', schema: S.CRITIC }),
     )
     const allGaps = (critic && critic.gaps) || []
@@ -544,11 +550,12 @@ async function runAudit(plan, deps) {
     droppedGaps = gapList.slice(plan.gaps.max).map((g) => g.label)
     if (droppedGaps.length) log('critic proposed ' + gapList.length + ' gaps; running first ' + plan.gaps.max + ', dropped: ' + droppedGaps.join('; '))
     const gapRun = await parallel(runGaps.map((g, i) => () =>
-      agent(buildGapPrompt(plan, g, docsInRun), agentOpts(plan, 'review', { label: 'gap:' + (i + 1), phase: 'Gaps', schema: S.FINDINGS })).then((r) => (r ? Object.assign({}, r, { key: 'gap' + (i + 1), label: 'Gap: ' + g.label }) : null))))
+      agent(buildGapPrompt(plan, g, docsInRun), agentOpts(plan, 'review', { label: 'gap:' + (i + 1), phase: 'Gaps', schema: S.FINDINGS })).then((r) => (r ? Object.assign({}, r, { key: 'gap' + (i + 1), label: 'Gap: ' + g.label, kind: sliceKind(g) }) : null))))
     gapResults = gapRun.filter(Boolean)
     log('gap reviews: ' + gapResults.length + ' run')
   }
   const allSlices = slices.concat(gapResults)
+  const docsKeys = new Set(allSlices.filter((s) => s.kind === 'docs').map((s) => s.key))
 
   phase('Merge')
   const all = flattenFindings(allSlices)
@@ -573,7 +580,7 @@ async function runAudit(plan, deps) {
       const lensKeys = verifyPlan(f, plan.verify)
       const findingText = JSON.stringify({ id: f.id, title: f.title, severity: f.severity, category: f.category, locations: f.locations, evidence: f.evidence, impact: f.impact, recommendation: f.recommendation })
       const votes = await parallel(lensKeys.map((l) => () =>
-        agent(verifierPreamble(plan) + verifyLensText(l, f.category) + '\n\nFINDING:\n' + findingText,
+        agent(verifierPreamble(plan) + verifyLensText(l, f.category, fromDocsSlice(f, docsKeys)) + '\n\nFINDING:\n' + findingText,
           agentOpts(plan, 'verify', { label: 'verify:' + f.id + ':' + l, phase: 'Verify', schema: S.VERDICT }))))
       return Object.assign({}, f, decideVerdict(votes, lensKeys, f.severity))
     }))

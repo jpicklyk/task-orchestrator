@@ -12,7 +12,7 @@ The audit reports candidates. It files no work items and edits no source: each c
 
 ## Scope first
 
-The scope is the path or area you were given, or the whole repository when none was. An auditor handed one area audits that area only, and says in the report what it did not look at. Document files are audited by auditing-documentation; comments inside source stay here. Do not widen the scope to look thorough, and do not shrink it because the tree is large: the next step is what makes a large tree tractable.
+The scope is the path or area you were given, or the whole repository when none was. An auditor handed one area audits that area only, and says in the report what it did not look at. Document files are audited by auditing-documentation; comments inside source stay here, and so does text the project ships to drive an agent (skill files and their references, agent definitions, rules, prompt strings), because it changes behaviour as code does. A file that tells an agent about the project it works in, such as CLAUDE.md or AGENTS.md, is a document. Do not widen the scope to look thorough, and do not shrink it because the tree is large: the next step is what makes a large tree tractable.
 
 ## Method
 

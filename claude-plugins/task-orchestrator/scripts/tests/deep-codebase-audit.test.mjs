@@ -1905,3 +1905,35 @@ test('O1 verify: a documentation-category verifier prompt carries the docs rule;
     }
   }
 })
+
+// ── The docs verify rule follows the finding's slice kind, and records and checked generated blocks are refutable (347bbfb3) ──
+// Implementer-written; oracle = the 347bbfb3 specification: every finding from a docs slice is verified
+// by the docs rule whatever its category, a code-slice finding outside the docs categories is not, and the
+// rule's refute grounds name records and generated blocks a check keeps current.
+
+test('347bbfb3 verify: a docs-slice or docs-gap finding filed under a code category gets the docs rule; a code-slice finding does not', async () => {
+  const plan = CORE.normalizeArgs(noReviewers({ gaps: { enabled: true, max: 1 } })).plan
+  const scope = scopeResult({ reviewers: [plannerSlice('d1', 'docs'), plannerSlice('c1', 'code')] })
+  const critic = criticResult({ gaps: [{ label: 'gd', kind: 'docs', prompt: 'p' }] })
+  const { agent, calls } = autoAgent(kindResponder(plan, { scope, critic }))
+  await CORE.runAudit(plan, makeDeps({ agent }))
+  const verifyCalls = calls.filter((c) => c.label.startsWith('verify:'))
+  const bySource = (prefix) => verifyCalls.filter((c) => c.label.startsWith('verify:' + prefix + '-'))
+  assert.ok(bySource('d1').length > 0 && bySource('c1').length > 0 && bySource('gap1').length > 0, 'each slice has verifier calls')
+  for (const c of bySource('d1').concat(bySource('gap1'))) {
+    assert.ok(c.prompt.includes('"category":"coupling"'), `${c.label} finding keeps its code category`)
+    assert.ok(c.prompt.includes('DOCUMENTATION FINDING:'), `${c.label} docs-slice finding carries the docs rule`)
+  }
+  for (const c of bySource('c1')) assert.equal(c.prompt.includes('DOCUMENTATION FINDING'), false, `${c.label} code-slice finding carries no docs rule`)
+})
+
+test('347bbfb3 verify: the docs rule may refute drift in a record and a generated block a check keeps current', async () => {
+  const plan = CORE.normalizeArgs(noReviewers({ focus: 'docs' })).plan
+  const scope = scopeResult({ reviewers: [plannerSlice('d1', 'docs')] })
+  const { agent, calls } = autoAgent(kindResponder(plan, { scope }))
+  await CORE.runAudit(plan, makeDeps({ agent }))
+  const c = calls.find((x) => x.label.startsWith('verify:'))
+  assert.ok(c, 'a verifier ran')
+  assert.ok(c.prompt.includes('when the finding claims drift in a record (a changelog, release notes, an accepted decision record)'), 'records are a refute ground')
+  assert.ok(c.prompt.includes('a block a tool generates from the code and a check keeps current'), 'checked generated blocks are a refute ground')
+})
