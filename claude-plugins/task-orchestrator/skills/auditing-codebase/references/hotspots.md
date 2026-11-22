@@ -18,7 +18,7 @@ Commit count counts changes, not size. A file edited in a hundred one-line commi
 
 ## Hot spot, partner or noise
 
-Configuration, registries, schemas, prompt or skill text and documents stay in the list: in some projects they are the product, and their churn costs as much as code's. For each busy file that is not plain source, decide which of three it is:
+Configuration, registries, schemas and prompt or skill text stay in the list: in some projects they are the product, and their churn costs as much as code's. A document file busy on its own is named and left to auditing-documentation; as a hot file's partner it still goes on that file's line. For each busy file that is not plain source, decide which of three it is:
 
 - **A hot spot of its own** when its edits carry a cost of their own: every new feature has to be registered in it, edits from unrelated changes collide in it, or it restates facts held elsewhere and the history shows commits that only bring it back in step. Rank it like code. The move is usually structural: split it by owner, or derive it from the place that holds the facts.
 - **A partner** when it changes because one hot file changed and the edit is the ordinary work of keeping it current: the test of that file, the section of a document that describes it. Name it on that file's line.
