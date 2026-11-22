@@ -33,7 +33,11 @@ const REPO = resolve(PLUGIN, '..', '..');
 const SCENARIOS = join(HERE, 'scenarios');
 const FIXTURES = join(HERE, 'fixtures');
 const RESULTS = join(HERE, 'results.md');
+// Caps per run. A realistic-tier run (scenario.snapshot) works in a whole repository, so it gets more of both.
 const RUN_TIMEOUT_MS = 15 * 60 * 1000;
+const MAX_TURNS = 40;
+const SNAPSHOT_TIMEOUT_MS = 20 * 60 * 1000;
+const SNAPSHOT_MAX_TURNS = 60;
 const SKILLS = ['spotting-code-slop', 'designing-modules', 'organizing-codebases', 'defining-project-terms', 'auditing-codebase-health'];
 const KINDS = ['build', 'review', 'audit'];
 
@@ -77,7 +81,13 @@ export function validateScenarios(list, fixturesDir = FIXTURES) {
     if (!SKILLS.includes(s.skill)) problems.push(`${at}: unknown skill ${s.skill}`);
     if (s.id && !String(s.id).startsWith(`${s.skill}-`)) problems.push(`${at}: id must start with the skill name`);
     if (!KINDS.includes(s.kind)) problems.push(`${at}: kind must be one of ${KINDS.join(', ')}`);
-    for (const k of ['title', 'prompt', 'pattern', 'fixture', 'expectation']) if (!s[k]) problems.push(`${at}: missing ${k}`);
+    for (const k of ['title', 'prompt', 'pattern', 'expectation']) if (!s[k]) problems.push(`${at}: missing ${k}`);
+    if (s.snapshot) {
+      if (!/^[0-9a-f]{7,40}$/i.test(String(s.snapshot.ref || ''))) problems.push(`${at}: snapshot.ref must be a commit sha`);
+      const o = s.snapshot.overlay;
+      if (o && (!/^[0-9a-f]{7,40}$/i.test(String(o.from || '')) || !Array.isArray(o.paths) || o.paths.length === 0)) problems.push(`${at}: snapshot.overlay needs a from sha and a non-empty paths list`);
+      if (o && s.snapshot.history) problems.push(`${at}: snapshot.overlay and snapshot.history are exclusive`);
+    } else if (!s.fixture) problems.push(`${at}: missing fixture (or a snapshot)`);
     if (!['auto', 'manual'].includes(s.grading)) problems.push(`${at}: grading must be auto or manual`);
     if (s.grading === 'manual' && !s.manual) problems.push(`${at}: manual grading needs a manual field`);
     if (s.kind !== 'build' && !s.output) problems.push(`${at}: a ${s.kind} scenario needs an output file name`);
@@ -141,6 +151,7 @@ const copyFixtureTree = (from, to) => cpSync(from, to, { recursive: true, filter
  * carry `_history.json`: { commits: [{ message, touch: [paths] }] }, each commit appending a comment line to its files.
  */
 export function buildRepo(scenario, work) {
+  if (scenario.snapshot) return buildSnapshot(scenario, work);
   const fx = join(FIXTURES, scenario.fixture);
   mkdirSync(work, { recursive: true });
   git(work, ['init', '-q', '-b', 'main']);
@@ -161,6 +172,54 @@ export function buildRepo(scenario, work) {
       git(work, ['add', '-A']);
       git(work, ['commit', '-q', '-m', c.message]);
     });
+  }
+  return git(work, ['rev-parse', 'HEAD']).trim();
+}
+
+// Files that would load the snapshot's own plugin or servers into the headless session; they never reach the agent.
+const SNAPSHOT_STRIP = ['.mcp.json', '.claude/settings.json', '.claude/settings.local.json'];
+
+/**
+ * The realistic tier: this repository at scenario.snapshot.ref, outside the repository, in a fresh git repository.
+ * - default: `git archive <ref>` extracted, one commit (the agent can diff, there is no history);
+ * - snapshot.overlay { from, paths, message }: the archive of `ref` as commit 1, then those paths as they are in
+ *   commit `from` as commit 2 (a review of a real historical change, without the tests and changelog the scenario leaves out);
+ * - snapshot.history: a clone of the repository checked out at `ref`, every other ref and unreachable object removed,
+ *   so `git log` shows the real history up to `ref` and nothing after it.
+ * The plugin is never loaded from the snapshot: its settings and MCP registrations are removed before the commit.
+ */
+function buildSnapshot(scenario, work) {
+  const { ref, overlay, history } = scenario.snapshot;
+  mkdirSync(work, { recursive: true });
+  if (history) {
+    git(dirname(work), ['clone', '-q', '--no-local', '--no-checkout', REPO, work]);
+    git(work, ['checkout', '-q', '-b', 'eval', ref]);
+    git(work, ['remote', 'remove', 'origin']);
+    const refs = git(work, ['for-each-ref', '--format=%(refname)']).split(/\r?\n/).filter((r) => r && r !== 'refs/heads/eval');
+    for (const r of refs) git(work, ['update-ref', '-d', r]);
+    git(work, ['reflog', 'expire', '--expire=now', '--all']);
+    git(work, ['gc', '-q', '--prune=now']);
+    for (const p of SNAPSHOT_STRIP) rmSync(join(work, p), { force: true });
+    git(work, ['add', '-A']);
+    git(work, ['commit', '-q', '-m', 'eval: remove plugin registrations from the snapshot']);
+    return git(work, ['rev-parse', 'HEAD']).trim();
+  }
+  const tar = spawnSync('git', ['-C', REPO, 'archive', '--format=tar', ref], { maxBuffer: 1024 * 1024 * 1024 });
+  if (tar.status !== 0) throw new Error(`git archive ${ref} failed: ${tar.stderr}`);
+  const x = spawnSync('tar', ['-x'], { cwd: work, input: tar.stdout, maxBuffer: 1024 * 1024 * 64 });
+  if (x.status !== 0) throw new Error(`tar failed: ${x.stderr}`);
+  for (const p of SNAPSHOT_STRIP) rmSync(join(work, p), { force: true });
+  git(work, ['init', '-q', '-b', 'main']);
+  git(work, ['add', '-A']);
+  git(work, ['commit', '-q', '-m', `snapshot of ${ref}`]);
+  if (overlay) {
+    for (const p of overlay.paths) {
+      const blob = spawnSync('git', ['-C', REPO, 'show', `${overlay.from}:${p}`], { maxBuffer: 1024 * 1024 * 64 });
+      if (blob.status !== 0) throw new Error(`git show ${overlay.from}:${p} failed: ${blob.stderr}`);
+      writeFileSync(join(work, p), blob.stdout);
+    }
+    git(work, ['add', '-A']);
+    git(work, ['commit', '-q', '-m', overlay.message || scenario.title]);
   }
   return git(work, ['rev-parse', 'HEAD']).trim();
 }
@@ -213,14 +272,14 @@ async function runClaude(scenario, model, work, pluginDir) {
   const claude = resolveOn('claude', PARENT_ENV[pathKey(PARENT_ENV)]);
   if (!claude) throw new Error('claude is not on PATH');
   const args = ['-p', scenario.prompt, '--model', model, '--setting-sources', 'project', '--permission-mode', 'acceptEdits',
-    '--max-turns', '40', '--allowedTools', ...ALLOWED, '--disallowedTools', 'Bash(gh:*)', '--output-format', 'stream-json', '--verbose'];
+    '--max-turns', String(scenario.snapshot ? SNAPSHOT_MAX_TURNS : MAX_TURNS), '--allowedTools', ...ALLOWED, ...(scenario.snapshot ? ['Bash(uniq:*)'] : []), '--disallowedTools', 'Bash(gh:*)', '--output-format', 'stream-json', '--verbose'];
   if (pluginDir) args.push('--plugin-dir', pluginDir);
   else args.push('--disable-slash-commands');
   return new Promise((done) => {
     const child = spawn(claude, args, { cwd: work, env: buildChildEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
-    const timer = setTimeout(() => child.kill(), RUN_TIMEOUT_MS);
+    const timer = setTimeout(() => child.kill(), scenario.snapshot ? SNAPSHOT_TIMEOUT_MS : RUN_TIMEOUT_MS);
     child.stdout.on('data', (c) => { stdout += c; });
     child.stderr.on('data', (c) => { stderr += c; });
     child.on('close', (code) => { clearTimeout(timer); done({ exitCode: code, stdout, stderr }); });
@@ -267,6 +326,8 @@ async function runOne(scenario, model, a, sha) {
       row.outcome = g.outcome;
       row.failures = g.failures;
       row.detail = g.results.filter((x) => x.failed).map((x) => `${x.id} ${x.pattern}: ${x.detail}`).join(' | ');
+      // A passing review or audit prints what it wrote, so a pass can be checked against the grader.
+      if (scenario.output && obs.output) row.seen = obs.output.split(/\r?\n/).filter((l) => /^\s*(FINDING|RANK|VERDICT)\b/i.test(l)).map((l) => l.trim().slice(0, 220));
     }
   } catch (e) {
     row.detail = String(e.message || e);
@@ -303,6 +364,7 @@ async function main() {
       const row = await runOne(s, model, a, sha);
       console.log(`${row.outcome}${row.failures.length ? `: ${row.failures.join('; ')}` : ''}`);
       if (row.detail) console.log(`    ${row.detail}`);
+      for (const l of row.seen || []) console.log(`    | ${l}`);
       if (row.outcome === 'error') errored = true;
       else rows.push(row);
     }

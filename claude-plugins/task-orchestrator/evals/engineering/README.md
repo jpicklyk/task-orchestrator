@@ -6,7 +6,7 @@ run is graded from the files written, the git diff and the final message. There 
 
 ## Scenarios
 
-At least three per skill. A scenario names the failure pattern it probes (the catalog names of the slop skill, or the
+At least three per skill, fixture scenarios first and the realistic tier after them. A scenario names the failure pattern it probes (the catalog names of the slop skill, or the
 design and legibility check it exercises). Fixtures are in `fixtures/`; scenario files in `scenarios/`.
 
 | Skill | Scenarios | What they probe |
@@ -17,7 +17,51 @@ design and legibility check it exercises). Fixtures are in `fixtures/`; scenario
 | `defining-project-terms` | `1-order-purchase`, `2-shipment-package`, `3-new-term`, `4-no-glossary` | vocabulary drift against a glossary; a new term recorded; silence when there is no glossary |
 | `auditing-codebase-health` | `1-hot-spot`, `2-glossary-drift`, `3-decision-record` | a hot spot outranks a stable ugly module; a glossary-drift pass; a decision-record conflict is flagged |
 
+Prompts carry no hint of the answer (no "Stripe is the only provider we use", no "formatted for display"): a hinted
+variant would be a separate scenario id.
+
 Scenario ids start with the skill name, so `--scenario spotting-code-slop` runs all of that skill's scenarios.
+
+### Realistic tier
+
+The fixture scenarios are tiny, so the agent reads every file. Each skill therefore also has one scenario (id
+`<skill>-4-realistic-...`, or `-5-` for `defining-project-terms`) that runs against this repository itself, where the
+right answer needs discovery in a large tree. Each scenario's `expectation` says why its target was chosen.
+
+| Scenario | Target in this repository | Graded on |
+|----------|---------------------------|-----------|
+| `organizing-codebases-4-realistic-session-marker` | a once-per-session hook; `hooks/lib/markers.mjs`, `stdin.mjs` and `emit.mjs` serve about ten hooks | no hand-rolled temp file, stdin reader or output, no parallel helper under `hooks/lib`, marker helpers imported |
+| `designing-modules-4-realistic-cache-share` | a cache-share figure over a transcript; `scripts/lib/meters.mjs` is the one transcript measure | no new module, no re-parsing of the usage fields, `transcriptMeters` or `sumUsage` reused |
+| `defining-project-terms-5-realistic-seat-ownership` | a request that says "seat ownership"; `GLOSSARY.md` lists it as a term to avoid for owning seat | the avoided term in no file name, code, comment or test; the glossary term used |
+| `spotting-code-slop-4-realistic-historical-commit` | commit `c506096c5` (#743), whose review recorded finding N1 (the skill step dropped the sort and paging the code relies on) | a FINDING on `SKILL.md` about paging, sort order or the limit |
+| `auditing-codebase-health-4-realistic-hooks-history` | `hooks/`, about 125 commits at the base sha | every ranked path, and the first, among the most-changed non-test files |
+
+A scenario with a `snapshot` field (`ref`, and optionally `overlay` or `history`) builds its repository from this
+checkout instead of a fixture folder, outside the repository, in a fresh temp directory per run:
+
+- default: `git archive <ref>` extracted, then `git init` and one commit, so the agent can diff. `ref` is `7998dc957`,
+  the base sha of the baseline.
+- `overlay { from, paths, message }`: the archive of `ref` as commit 1, then those paths as they are in commit `from`
+  as commit 2. The review scenario uses the parent of `c506096c5` as `ref` (the commit itself is in the base sha, so a
+  base-sha archive has nothing to review) and adds the commit's three non-test files; the tests and changelog are left out.
+- `history: true`: a clone checked out at `ref`, with every other ref, reflog entry and unreachable object removed, so
+  `git log` shows the real history up to `ref` and nothing after it. The audit scenario needs it.
+
+The snapshot's `.mcp.json` and `.claude/settings*.json` are removed before the first commit and the plugin is never
+passed with `--plugin-dir` for a baseline, so the snapshot's own plugin and servers never load; its `CLAUDE.md` and
+`GLOSSARY.md` stay, because an agent working in the repository normally sees them. Caps for a realistic run: at most
+60 turns (40 for a fixture run) and a 20 minute timeout (15 for a fixture run); a run that hits either is an error row
+and is not recorded.
+
+### Slop graders on build scenarios
+
+Every build scenario (fixture or realistic) also grades, on the lines the run added, the slop families models produce
+most: `narrating-comments` (a `//` comment that restates the code line below it, or a change-log comment; doc comments are skipped), `swallowed-catch`
+(a catch that is empty, log-only or returns a default), `defensive-guards` (three or more null, undefined,
+`Array.isArray` or `?.` guards; six for the config loader, which validates input on purpose), a new dependency in
+`package.json`, `modified-outside` (an existing file outside the paths the request needs: scope creep), `unused-export`
+(a new export no added line refers to a second time) and a TODO or FIXME left behind. They read production files only;
+the scenario's own request checks sit next to them.
 
 ### Fixture shapes
 
@@ -93,6 +137,6 @@ stay `no failure` (that is how a false positive or over-triggering shows up).
 
 ## Cost
 
-A run spends model tokens, with at most 40 turns. Run each scenario once per model and record what happened; do not
+A run spends model tokens, with at most 40 turns (60 for a realistic-tier run). Run each scenario once per model and record what happened; do not
 retry a run to get a better row. A model's answer varies between runs, so one row is a sample, not a rate: when a
 skill's rerun differs from its baseline in a way that matters, repeat that pair before concluding.

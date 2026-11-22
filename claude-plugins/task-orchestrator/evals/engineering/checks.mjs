@@ -21,6 +21,15 @@
 //   rank-rating-not   { path, rating }                fails when the RANK line for `path` carries a rating that matches
 //   rank-line-lacks   { path, regex }                 fails when the RANK line for `path` does not match `regex`
 //   output-lacks      { regex }                       fails when the output file never matches
+//   rank-each-matches { regex }                       fails when no RANK line exists or any ranked path does not match
+//
+// Slop checks (build scenarios; they read added lines only, `in` and `notIn` filter by path, min defaults to 1):
+//   narrating-comments { in, notIn, min }             a comment that restates the code line below it, or a change-log
+//                                                     comment ("added", "now returns", "previously")
+//   swallowed-catch    { in, notIn, min }             a catch body that is empty, log-only or returns a default
+//   defensive-guards   { in, notIn, min = 3 }         null/undefined, typeof-undefined, Array.isArray and ?. guards
+//   unused-export      { in, notIn, min }             a new export whose name appears nowhere else in the added lines
+//   modified-outside   { regex, min }                 existing files changed outside the allowed path regex (scope creep)
 
 const re = (s) => new RegExp(s, 'i');
 
@@ -61,6 +70,73 @@ function countMatches(text, regex) {
 
 const rowFor = (obs, pathRegex) => parseRanks(obs.output).find((r) => re(pathRegex).test(r.path));
 
+const isTestPath = (p) => /(^|\/)(tests?|__tests__)\/|\.test\.[cm]?[jt]s$/i.test(p);
+
+/** Added files that match `in`/`notIn`, as [path, addedText]; with no `in`, test files are left out (slop graders look at production code). */
+function addedEntries(obs, spec) {
+  const inRe = spec.in ? re(spec.in) : null;
+  const notRe = spec.notIn ? re(spec.notIn) : null;
+  return Object.entries(obs.added || {}).filter(([p]) => (inRe ? inRe.test(p) : !isTestPath(p)) && (!notRe || !notRe.test(p)));
+}
+
+const STOP = new Set(['the', 'a', 'an', 'of', 'to', 'for', 'and', 'or', 'in', 'on', 'is', 'are', 'it', 'this', 'that', 'we', 'if', 'then', 'with', 'by', 'as', 'be']);
+
+/** Lower-case word stems of a text, camelCase and snake_case split, stop words dropped. */
+export function stems(text) {
+  return String(text)
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 1 && !STOP.has(w))
+    .map((w) => w.replace(/(ing|ed|es|s)$/, ''));
+}
+
+const CHANGELOG_COMMENT = /^\s*(?:\/\/|\/\*+|\*)\s*(?:added|new:|updated|changed|removed|fixed|modified|refactored|previously|used to|now (?:uses|returns|calls|checks|handles))\b/i;
+const COMMENT_LINE = /^\s*(?:\/\/+|\/\*+|\*(?!\/))\s?(.*?)\s*(?:\*\/)?$/;
+
+/** Narrating or change-log comment lines in one file's added text; each hit is the comment line. */
+export function narratingComments(text) {
+  const lines = String(text).split(/\r?\n/);
+  const hits = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const c = lines[i].match(COMMENT_LINE);
+    if (!c) continue;
+    if (CHANGELOG_COMMENT.test(lines[i])) { hits.push(lines[i].trim()); continue; }
+    if (/^\s*(?:\/\*\*|\*)/.test(lines[i])) continue; // a doc comment documents an API, it does not narrate
+    const next = lines.slice(i + 1).find((l) => l.trim() !== '');
+    if (next === undefined || COMMENT_LINE.test(next)) continue;
+    const words = stems(c[1]);
+    if (words.length < 2) continue;
+    const code = new Set(stems(next));
+    if (words.filter((w) => code.has(w)).length / words.length >= 0.6) hits.push(lines[i].trim());
+  }
+  return hits;
+}
+
+/** Catch bodies (no nested braces) that are empty or comment-only, log-only, or only return a default. */
+export function swallowedCatches(text) {
+  const hits = [];
+  for (const m of String(text).matchAll(/catch\s*(?:\([^)]*\))?\s*\{([^{}]*)\}/g)) {
+    const body = m[1].replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, '').trim();
+    const stmts = body.split(';').map((s) => s.trim()).filter(Boolean);
+    const trivial = (s) => /^console\.\w+\(.*\)$/s.test(s) || /^return(\s+(null|undefined|false|true|0|''|""|\[\]))?$/.test(s);
+    if (stmts.length === 0 || stmts.every(trivial)) hits.push(m[0].replace(/\s+/g, ' ').slice(0, 80));
+  }
+  return hits;
+}
+
+const GUARD = /(?:[!=]==?\s*(?:null|undefined)\b|typeof\s+[\w.]+\s*[!=]==?\s*['"]undefined['"]|Array\.isArray\(|\?\.)/g;
+
+/** Names of new exports in added text that nothing in the added lines refers to a second time. */
+export function unusedExports(obs, spec) {
+  const all = Object.values(obs.added || {}).join('\n');
+  const names = [];
+  for (const [, text] of addedEntries(obs, spec)) {
+    for (const m of text.matchAll(/export\s+(?:async\s+)?(?:function\*?|const|let|class)\s+([A-Za-z_$][\w$]*)/g)) names.push(m[1]);
+  }
+  return names.filter((n) => (all.match(new RegExp(`(?<![\\w$])${n.replace(/\$/g, '\\$')}(?![\\w$])`, 'g')) || []).length <= 1);
+}
+
 export const CHECK_TYPES = {
   'new-file-matches': (obs, s) => {
     const hits = (obs.newFiles || []).filter((p) => re(s.regex).test(p));
@@ -99,6 +175,32 @@ export const CHECK_TYPES = {
     return { failed: !row || !re(s.regex).test(row.line), detail: row ? row.line : 'path not ranked' };
   },
   'output-lacks': (obs, s) => ({ failed: !re(s.regex).test(String(obs.output || '')), detail: '' }),
+  'rank-each-matches': (obs, s) => {
+    const ranks = parseRanks(obs.output);
+    const off = ranks.filter((r) => !re(s.regex).test(r.path));
+    return { failed: ranks.length === 0 || off.length > 0, detail: ranks.length === 0 ? 'no RANK line' : off.map((r) => r.path).join(', ') };
+  },
+  'narrating-comments': (obs, s) => {
+    const hits = addedEntries(obs, s).flatMap(([, t]) => narratingComments(t));
+    return { failed: hits.length >= (s.min ?? 1), detail: hits.slice(0, 3).join(' | ') };
+  },
+  'swallowed-catch': (obs, s) => {
+    const hits = addedEntries(obs, s).flatMap(([, t]) => swallowedCatches(t));
+    return { failed: hits.length >= (s.min ?? 1), detail: hits.slice(0, 3).join(' | ') };
+  },
+  'defensive-guards': (obs, s) => {
+    const n = addedEntries(obs, s).reduce((sum, [, t]) => sum + (t.match(GUARD) || []).length, 0);
+    return { failed: n >= (s.min ?? 3), detail: `${n} guard(s)` };
+  },
+  'unused-export': (obs, s) => {
+    const names = unusedExports(obs, s);
+    return { failed: names.length >= (s.min ?? 1), detail: names.join(', ') };
+  },
+  'modified-outside': (obs, s) => {
+    const fresh = new Set(obs.newFiles || []);
+    const off = Object.keys(obs.added || {}).filter((p) => !fresh.has(p) && !re(s.regex).test(p));
+    return { failed: off.length >= (s.min ?? 1), detail: off.join(', ') };
+  },
 };
 
 export const CHECK_IDS = Object.keys(CHECK_TYPES);

@@ -7,9 +7,62 @@
   "pattern": "new term not recorded in the glossary",
   "expectation": "The project says a change that introduces a term updates GLOSSARY.md in the same commit. Without guidance the agent adds backorder code and leaves the glossary alone.",
   "prompt": "Add backorders: when a pick cannot be completed because the shelf holds too little stock, the missing quantity is held as a backorder that ships later once stock arrives. Add createBackorder(orderId, sku, qty) and a way to list an order's backorders. Add tests.",
-  "models": ["sonnet"],
+  "models": [
+    "sonnet"
+  ],
   "grading": "auto",
   "checks": [
-    { "id": "T3a", "type": "added-lacks", "in": "^GLOSSARY\\.md$", "regex": "backorder", "pattern": "new term not recorded in the glossary" }
+    {
+      "id": "T3a",
+      "type": "added-lacks",
+      "in": "^GLOSSARY\\.md$",
+      "regex": "backorder",
+      "pattern": "new term not recorded in the glossary"
+    },
+    {
+      "id": "G1",
+      "type": "narrating-comments",
+      "in": "^src/",
+      "pattern": "narrating or change-log comments"
+    },
+    {
+      "id": "G2",
+      "type": "swallowed-catch",
+      "in": "^src/",
+      "pattern": "empty, log-only or default-returning catch"
+    },
+    {
+      "id": "G3",
+      "type": "defensive-guards",
+      "in": "^src/",
+      "min": 3,
+      "pattern": "defensive guards on guaranteed values"
+    },
+    {
+      "id": "G4",
+      "type": "added-matches",
+      "in": "package\\.json$",
+      "regex": "\"[^\"]+\"\\s*:\\s*\"[\\^~>=]*\\d",
+      "pattern": "new dependency"
+    },
+    {
+      "id": "G5",
+      "type": "modified-outside",
+      "regex": "^(src/|test/|GLOSSARY\\.md$)",
+      "pattern": "scope creep: unrelated existing files changed"
+    },
+    {
+      "id": "G6",
+      "type": "unused-export",
+      "in": "^src/",
+      "pattern": "unused new export"
+    },
+    {
+      "id": "G7",
+      "type": "added-matches",
+      "in": "^src/",
+      "regex": "\\b(TODO|FIXME|XXX|HACK)\\b",
+      "pattern": "TODO or FIXME left behind"
+    }
   ]
 }

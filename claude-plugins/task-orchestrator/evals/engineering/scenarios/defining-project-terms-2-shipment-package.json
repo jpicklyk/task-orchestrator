@@ -7,10 +7,68 @@
   "pattern": "vocabulary drift",
   "expectation": "The glossary defines Shipment and lists package and parcel under Don't call it. Without guidance the agent adds trackPackage and package identifiers.",
   "prompt": "Add package tracking: a customer-facing function trackPackage(trackingId) that returns the status of the package with that tracking id. Add tests.",
-  "models": ["sonnet"],
+  "models": [
+    "sonnet"
+  ],
   "grading": "auto",
   "checks": [
-    { "id": "T2a", "type": "added-matches", "in": "^(src|test)/", "regex": "package|parcel|consignment", "pattern": "vocabulary drift" },
-    { "id": "T2b", "type": "new-file-matches", "regex": "package|parcel|consignment", "pattern": "vocabulary drift" }
+    {
+      "id": "T2a",
+      "type": "added-matches",
+      "in": "^(src|test)/",
+      "regex": "package|parcel|consignment",
+      "pattern": "vocabulary drift"
+    },
+    {
+      "id": "T2b",
+      "type": "new-file-matches",
+      "regex": "package|parcel|consignment",
+      "pattern": "vocabulary drift"
+    },
+    {
+      "id": "G1",
+      "type": "narrating-comments",
+      "in": "^src/",
+      "pattern": "narrating or change-log comments"
+    },
+    {
+      "id": "G2",
+      "type": "swallowed-catch",
+      "in": "^src/",
+      "pattern": "empty, log-only or default-returning catch"
+    },
+    {
+      "id": "G3",
+      "type": "defensive-guards",
+      "in": "^src/",
+      "min": 3,
+      "pattern": "defensive guards on guaranteed values"
+    },
+    {
+      "id": "G4",
+      "type": "added-matches",
+      "in": "package\\.json$",
+      "regex": "\"[^\"]+\"\\s*:\\s*\"[\\^~>=]*\\d",
+      "pattern": "new dependency"
+    },
+    {
+      "id": "G5",
+      "type": "modified-outside",
+      "regex": "^(src/(picks|shipments)/|test/|GLOSSARY\\.md$)",
+      "pattern": "scope creep: unrelated existing files changed"
+    },
+    {
+      "id": "G6",
+      "type": "unused-export",
+      "in": "^src/",
+      "pattern": "unused new export"
+    },
+    {
+      "id": "G7",
+      "type": "added-matches",
+      "in": "^src/",
+      "regex": "\\b(TODO|FIXME|XXX|HACK)\\b",
+      "pattern": "TODO or FIXME left behind"
+    }
   ]
 }

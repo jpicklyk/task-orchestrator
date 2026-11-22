@@ -1,0 +1,98 @@
+{
+  "id": "organizing-codebases-4-realistic-session-marker",
+  "skill": "organizing-codebases",
+  "kind": "build",
+  "tier": "realistic",
+  "title": "A hook that fires once per session, in the real plugin tree",
+  "snapshot": {
+    "ref": "7998dc957"
+  },
+  "pattern": "reinvented helper in a large tree",
+  "expectation": "Chosen because hooks/lib/markers.mjs (sessionMarkerPath, createMarkerOnce, readMarker, writeMarker) is used by about ten hooks (seat-skill-hint.mjs, phase-guard.mjs, session-start.mjs, skill-enforcement.mjs and others), hooks/lib/stdin.mjs (readHookInput) by every hook, and hooks/lib/emit.mjs by the same set, yet the prompt names none of them. A once-per-session reminder is exactly their job. Without guidance the agent, having read a hook or two, writes its own temp file with node:fs, reads stdin by hand or prints JSON itself, or adds a parallel helper under hooks/lib.",
+  "prompt": "Add a new hook script claude-plugins/task-orchestrator/hooks/plan-reminder.mjs. It runs on UserPromptSubmit and reads the hook's JSON input from stdin. The first time it runs in a given session it adds the one-line reminder \"Check items_read next before you plan.\" to the model's context; every later invocation in the same session must stay silent (each invocation is a new process). Do not register it in hooks-config.json. Add a test next to the other hook tests.",
+  "models": [
+    "sonnet"
+  ],
+  "grading": "auto",
+  "checks": [
+    {
+      "id": "R1",
+      "type": "added-matches",
+      "in": "^claude-plugins/task-orchestrator/hooks/plan-reminder\\.mjs$",
+      "regex": "writeFileSync|mkdirSync|renameSync|openSync|appendFileSync|existsSync|tmpdir",
+      "pattern": "hand-rolled marker state"
+    },
+    {
+      "id": "R2",
+      "type": "added-lacks",
+      "in": "^claude-plugins/task-orchestrator/hooks/plan-reminder\\.mjs$",
+      "regex": "lib/markers\\.mjs",
+      "pattern": "does not reuse the marker helpers"
+    },
+    {
+      "id": "R3",
+      "type": "added-matches",
+      "in": "^claude-plugins/task-orchestrator/hooks/plan-reminder\\.mjs$",
+      "regex": "process\\.stdin|readFileSync\\(\\s*0|/dev/stdin",
+      "pattern": "hand-rolled stdin reader"
+    },
+    {
+      "id": "R4",
+      "type": "added-matches",
+      "in": "^claude-plugins/task-orchestrator/hooks/plan-reminder\\.mjs$",
+      "regex": "process\\.stdout\\.write|console\\.log",
+      "pattern": "hand-rolled hook output"
+    },
+    {
+      "id": "R5",
+      "type": "new-file-matches",
+      "regex": "^claude-plugins/task-orchestrator/hooks/lib/",
+      "pattern": "parallel helper under hooks/lib"
+    },
+    {
+      "id": "G1",
+      "type": "narrating-comments",
+      "in": "^claude-plugins/task-orchestrator/hooks/plan-reminder\\.mjs$",
+      "pattern": "narrating or change-log comments"
+    },
+    {
+      "id": "G2",
+      "type": "swallowed-catch",
+      "in": "^claude-plugins/task-orchestrator/hooks/plan-reminder\\.mjs$",
+      "pattern": "empty, log-only or default-returning catch"
+    },
+    {
+      "id": "G3",
+      "type": "defensive-guards",
+      "in": "^claude-plugins/task-orchestrator/hooks/plan-reminder\\.mjs$",
+      "min": 3,
+      "pattern": "defensive guards on guaranteed values"
+    },
+    {
+      "id": "G4",
+      "type": "added-matches",
+      "in": "package\\.json$",
+      "regex": "\"[^\"]+\"\\s*:\\s*\"[\\^~>=]*\\d",
+      "pattern": "new dependency"
+    },
+    {
+      "id": "G5",
+      "type": "modified-outside",
+      "regex": "^claude-plugins/task-orchestrator/hooks/(README\\.md$|tests/)",
+      "pattern": "scope creep: unrelated existing files changed"
+    },
+    {
+      "id": "G6",
+      "type": "unused-export",
+      "in": "^claude-plugins/task-orchestrator/hooks/plan-reminder\\.mjs$",
+      "pattern": "unused new export"
+    },
+    {
+      "id": "G7",
+      "type": "added-matches",
+      "in": "^claude-plugins/task-orchestrator/hooks/plan-reminder\\.mjs$",
+      "regex": "\\b(TODO|FIXME|XXX|HACK)\\b",
+      "pattern": "TODO or FIXME left behind"
+    }
+  ]
+}

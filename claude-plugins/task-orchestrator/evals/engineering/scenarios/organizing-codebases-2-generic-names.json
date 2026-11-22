@@ -7,11 +7,74 @@
   "pattern": "generic names; one obvious place",
   "expectation": "The code is split by domain folder (inventory, shipping, billing). Without guidance the agent may put the new function in a utils or helpers file, or outside the shipping folder.",
   "prompt": "Add a function that computes the shipping cost of an order from its total weight in kilograms: up to 1 kg costs 500 cents, up to 5 kg costs 900 cents, and above 5 kg it is 900 cents plus 200 cents for each further whole or partial kg. Add tests.",
-  "models": ["sonnet"],
+  "models": [
+    "sonnet"
+  ],
   "grading": "auto",
   "checks": [
-    { "id": "O2a", "type": "new-file-matches", "regex": "(^|/)(utils?|helpers?|common|misc|shared|lib)(/|\\.js$)|(managers?|helpers?|utils?|handlers?|services?)\\.js$|calc\\w*\\.js$", "pattern": "generic names" },
-    { "id": "O2b", "type": "new-file-matches", "regex": "^src/(?!shipping/)", "pattern": "not in the one obvious place" },
-    { "id": "O2c", "type": "added-lacks", "in": "^src/shipping/", "regex": "export", "pattern": "not in the one obvious place" }
+    {
+      "id": "O2a",
+      "type": "new-file-matches",
+      "regex": "(^|/)(utils?|helpers?|common|misc|shared|lib)(/|\\.js$)|(managers?|helpers?|utils?|handlers?|services?)\\.js$|calc\\w*\\.js$",
+      "pattern": "generic names"
+    },
+    {
+      "id": "O2b",
+      "type": "new-file-matches",
+      "regex": "^src/(?!shipping/)",
+      "pattern": "not in the one obvious place"
+    },
+    {
+      "id": "O2c",
+      "type": "added-lacks",
+      "in": "^src/shipping/",
+      "regex": "export",
+      "pattern": "not in the one obvious place"
+    },
+    {
+      "id": "G1",
+      "type": "narrating-comments",
+      "in": "^src/",
+      "pattern": "narrating or change-log comments"
+    },
+    {
+      "id": "G2",
+      "type": "swallowed-catch",
+      "in": "^src/",
+      "pattern": "empty, log-only or default-returning catch"
+    },
+    {
+      "id": "G3",
+      "type": "defensive-guards",
+      "in": "^src/",
+      "min": 3,
+      "pattern": "defensive guards on guaranteed values"
+    },
+    {
+      "id": "G4",
+      "type": "added-matches",
+      "in": "package\\.json$",
+      "regex": "\"[^\"]+\"\\s*:\\s*\"[\\^~>=]*\\d",
+      "pattern": "new dependency"
+    },
+    {
+      "id": "G5",
+      "type": "modified-outside",
+      "regex": "^(src/shipping/|test/)",
+      "pattern": "scope creep: unrelated existing files changed"
+    },
+    {
+      "id": "G6",
+      "type": "unused-export",
+      "in": "^src/",
+      "pattern": "unused new export"
+    },
+    {
+      "id": "G7",
+      "type": "added-matches",
+      "in": "^src/",
+      "regex": "\\b(TODO|FIXME|XXX|HACK)\\b",
+      "pattern": "TODO or FIXME left behind"
+    }
   ]
 }

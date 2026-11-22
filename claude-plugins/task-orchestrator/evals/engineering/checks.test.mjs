@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 import { grade, parseFindings, parseVerdict, parseRanks } from './checks.mjs';
 import { loadScenarios, validateScenarios, buildRepo, observe, parseArgs, resultRow } from './run-evals.mjs';
@@ -118,4 +119,105 @@ test('resultRow flags a run with no failure', () => {
   const row = resultRow({ date: 'd', sha: 's', model: 'm', scenario: 'x', mode: 'baseline', outcome: 'no failure', failures: [] });
   assert.match(row, /\| pass \| no failure \(write no skill text for it\) \|$/);
   assert.match(resultRow({ date: 'd', sha: 's', model: 'm', scenario: 'x', mode: 'baseline', outcome: 'fail', failures: ['a', 'b'] }), /\| fail \| a; b \|$/);
+});
+
+test('narrating-comments flags a comment that restates the next line and a change-log comment, not a why-comment', () => {
+  const s = scn([{ id: 'n', type: 'narrating-comments', in: '^src/', pattern: 'p' }]);
+  const narrate = '// calculate the total price\nconst totalPrice = calculate(items);\n';
+  assert.equal(grade(s, { added: { 'src/a.js': narrate } }).outcome, 'fail');
+  assert.equal(grade(s, { added: { 'src/a.js': '// added retry support\nretry();\n' } }).outcome, 'fail');
+  assert.equal(grade(s, { added: { 'src/a.js': '// Stripe rejects amounts under 50 cents, so round up first\nconst cents = Math.max(50, total);\n' } }).outcome, 'no failure');
+  assert.equal(grade(s, { added: { 'test/a.js': narrate } }).outcome, 'no failure');
+});
+
+test('swallowed-catch flags empty, log-only and default-returning catch bodies, not a rethrow or a wrapped result', () => {
+  const s = scn([{ id: 'c', type: 'swallowed-catch', in: '^src/', pattern: 'p' }]);
+  for (const body of ['try { x(); } catch (e) {}', 'try { x(); } catch (e) { console.error(e); }', 'try { x(); } catch { return null; }', 'try { x(); } catch (e) { /* ignore */ }']) {
+    assert.equal(grade(s, { added: { 'src/a.js': body } }).outcome, 'fail', body);
+  }
+  for (const body of ['try { x(); } catch (e) { throw new Error(`x failed: ${e.message}`); }', 'try { x(); } catch (e) { return { ok: false, error: e.message }; }']) {
+    assert.equal(grade(s, { added: { 'src/a.js': body } }).outcome, 'no failure', body);
+  }
+});
+
+test('defensive-guards counts guards against min', () => {
+  const s = scn([{ id: 'd', type: 'defensive-guards', in: '^src/', min: 3, pattern: 'p' }]);
+  assert.equal(grade(s, { added: { 'src/a.js': 'if (a == null) return;\nif (b === undefined) return;\nif (!Array.isArray(c)) return;\n' } }).outcome, 'fail');
+  assert.equal(grade(s, { added: { 'src/a.js': 'if (a == null) return;\nconst x = o?.y;\n' } }).outcome, 'no failure');
+});
+
+test('unused-export flags a new export nothing else in the added lines names', () => {
+  const s = scn([{ id: 'u', type: 'unused-export', in: '^src/', pattern: 'p' }]);
+  assert.equal(grade(s, { added: { 'src/a.js': 'export function helper() {}\nexport function main() { return 1; }\n', 'test/a.test.js': "import { main } from '../src/a.js';\nmain();\n" } }).outcome, 'fail');
+  assert.equal(grade(s, { added: { 'src/a.js': 'export function main() { return 1; }\n', 'test/a.test.js': "import { main } from '../src/a.js';\nmain();\n" } }).outcome, 'no failure');
+});
+
+test('modified-outside fails on an existing file outside the allowed paths, never on a new file', () => {
+  const s = scn([{ id: 'm', type: 'modified-outside', regex: '^(src/billing/|test/)', pattern: 'p' }]);
+  assert.equal(grade(s, { added: { 'src/other/x.js': 'x' }, newFiles: [] }).outcome, 'fail');
+  assert.equal(grade(s, { added: { 'src/other/x.js': 'x' }, newFiles: ['src/other/x.js'] }).outcome, 'no failure');
+  assert.equal(grade(s, { added: { 'src/billing/invoice.js': 'x' }, newFiles: [] }).outcome, 'no failure');
+});
+
+test('rank-each-matches fails when any ranked path is outside the set', () => {
+  const s = scn([{ id: 'r', type: 'rank-each-matches', regex: 'hooks/(a|b)\.mjs', pattern: 'p' }], { output: 'audit.md' });
+  assert.equal(grade(s, { output: 'RANK 1 | hooks/a.mjs | Act now | x\nRANK 2 | hooks/b.mjs | Watch | y' }).outcome, 'no failure');
+  assert.equal(grade(s, { output: 'RANK 1 | hooks/a.mjs | Act now | x\nRANK 2 | hooks/z.mjs | Watch | y' }).outcome, 'fail');
+  assert.equal(grade(s, { output: 'nothing' }).outcome, 'fail');
+});
+
+test('narrating-comments leaves a doc comment alone', () => {
+  const s = scn([{ id: 'n', type: 'narrating-comments', in: '^src/', pattern: 'p' }]);
+  assert.equal(grade(s, { added: { 'src/a.js': '/** unownedKeys(notes) -> string[]: keys of notes with no owning seat. */\nexport function unownedKeys(notes) {}\n' } }).outcome, 'no failure');
+});
+
+test('every realistic scenario can fail: a hand-made bad run fails it and a good run passes it', () => {
+  const all = loadScenarios();
+  const by = (prefix) => all.find((s) => s.id.startsWith(prefix));
+  const P = 'claude-plugins/task-orchestrator/';
+  const hook = by('organizing-codebases-4');
+  const badHook = { added: { [`${P}hooks/plan-reminder.mjs`]: "import { writeFileSync } from 'node:fs';\nprocess.stdout.write('{}');\n" }, newFiles: [`${P}hooks/plan-reminder.mjs`, `${P}hooks/lib/once.mjs`] };
+  assert.deepEqual(grade(hook, badHook).failures.sort(), ['does not reuse the marker helpers', 'hand-rolled hook output', 'hand-rolled marker state', 'parallel helper under hooks/lib']);
+  const goodHook = { added: { [`${P}hooks/plan-reminder.mjs`]: "import { sessionMarkerPath, createMarkerOnce } from './lib/markers.mjs';\nconst p = sessionMarkerPath('s', 'plan-reminder');\n" }, newFiles: [`${P}hooks/plan-reminder.mjs`] };
+  assert.equal(grade(hook, goodHook).outcome, 'no failure');
+
+  const meters = by('designing-modules-4');
+  const badMeters = { added: { [`${P}scripts/lib/cache-share.mjs`]: 'const u = JSON.parse(line).message.usage;\n' }, newFiles: [`${P}scripts/lib/cache-share.mjs`] };
+  assert.ok(grade(meters, badMeters).failures.includes('new module beside the existing transcript measure'));
+  assert.ok(grade(meters, badMeters).failures.includes('does not reuse the transcript measure'));
+  const goodMeters = { added: { [`${P}scripts/lib/meters.mjs`]: 'export function cacheShare(text) { const m = transcriptMeters(text); return m && m.cacheRead; }\n', [`${P}scripts/tests/cache-share.test.mjs`]: 'cacheShare(x)\n' }, newFiles: [`${P}scripts/tests/cache-share.test.mjs`] };
+  assert.equal(grade(meters, goodMeters).outcome, 'no failure');
+
+  const terms = by('defining-project-terms-5');
+  const badTerms = { added: { [`${P}hooks/lib/seat-ownership.mjs`]: '// find seat ownership gaps\n' }, newFiles: [`${P}hooks/lib/seat-ownership.mjs`] };
+  assert.ok(grade(terms, badTerms).failures.includes('avoided term in a file name'));
+  assert.ok(grade(terms, badTerms).failures.includes('never uses the glossary term'));
+  const goodTerms = { added: { [`${P}hooks/lib/unowned-notes.mjs`]: 'export function unownedNoteKeys(notes) { return []; }\n', [`${P}hooks/tests/unowned-notes.test.mjs`]: "import { unownedNoteKeys } from '../lib/unowned-notes.mjs';\nunownedNoteKeys([]);\n" }, newFiles: [`${P}hooks/lib/unowned-notes.mjs`] };
+  assert.equal(grade(terms, goodTerms).outcome, 'no failure');
+
+  const review = by('spotting-code-slop-4');
+  assert.equal(grade(review, { output: 'FINDING hooks/retro-lib.mjs:300 | naming\nVERDICT: approve' }).outcome, 'fail');
+  assert.equal(grade(review, { output: `FINDING ${P}skills/session-retrospective/SKILL.md:39 | drops paging and sort, so older rows go unread\nVERDICT: changes` }).outcome, 'no failure');
+
+  const audit = by('auditing-codebase-health-4');
+  assert.equal(grade(audit, { output: `RANK 1 | ${P}hooks/lib/tool-names.mjs | Act now | long\nRANK 2 | ${P}hooks/session-start.mjs | Plan it | x` }).outcome, 'fail');
+  assert.equal(grade(audit, { output: `RANK 1 | ${P}hooks/subagent-start.mjs | Act now | 23 commits\nRANK 2 | ${P}hooks/retro-lib.mjs | Plan it | x\nRANK 3 | ${P}hooks/phase-guard.mjs | Watch | y` }).outcome, 'no failure');
+});
+
+test('realistic scenarios validate, and a snapshot overlay builds the parent plus the real change', () => {
+  const all = loadScenarios();
+  assert.ok(all.filter((s) => s.snapshot).length >= 5);
+  const dir = mkdtempSync(join(tmpdir(), 'eng-eval-snap-'));
+  try {
+    const review = all.find((s) => s.id === 'spotting-code-slop-4-realistic-historical-commit');
+    const w = join(dir, 'r');
+    buildRepo(review, w);
+    assert.match(readFileSync(join(w, 'claude-plugins/task-orchestrator/hooks/retro-lib.mjs'), 'utf8'), /observationNamesGroup/);
+    assert.ok(!existsSync(join(w, '.mcp.json')), 'the snapshot registers no MCP server');
+    assert.ok(!existsSync(join(w, '.claude/settings.json')), 'the snapshot enables no plugin');
+    const files = spawnSync('git', ['-C', w, 'show', '--name-only', '--format=', 'HEAD'], { encoding: 'utf8' }).stdout.split(/\r?\n/).filter(Boolean);
+    assert.equal(files.length, 3);
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+  }
 });

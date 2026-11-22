@@ -1,0 +1,84 @@
+{
+  "id": "defining-project-terms-5-realistic-seat-ownership",
+  "skill": "defining-project-terms",
+  "kind": "build",
+  "tier": "realistic",
+  "title": "A request in a word the real GLOSSARY.md says to avoid",
+  "snapshot": {
+    "ref": "7998dc957"
+  },
+  "pattern": "vocabulary drift against a glossary in a large tree",
+  "expectation": "Chosen because GLOSSARY.md at the root lists \"seat ownership\" under Owning seat as a term to avoid (the canonical words are owning seat and unowned), CLAUDE.md points at the glossary, and the prompt uses the avoided phrase. Without guidance the agent adopts the user's phrase in file names, function names, comments and test titles (seat-ownership.mjs, findSeatOwnership) instead of the glossary's.",
+  "prompt": "Add a helper under claude-plugins/task-orchestrator/hooks/lib that reports which notes of a note schema have no seat ownership. It takes the schema's note entries and the seats the schema declares, and returns the note keys. Add a test.",
+  "models": [
+    "sonnet"
+  ],
+  "grading": "auto",
+  "checks": [
+    {
+      "id": "T1",
+      "type": "new-file-matches",
+      "regex": "ownership|note-?owner",
+      "pattern": "avoided term in a file name"
+    },
+    {
+      "id": "T2",
+      "type": "added-matches",
+      "in": "^claude-plugins/task-orchestrator/",
+      "regex": "seat[\\s_-]?ownership|note[\\s_-]?owner",
+      "pattern": "avoided term in code, comments or tests"
+    },
+    {
+      "id": "T3",
+      "type": "added-lacks",
+      "in": "^claude-plugins/task-orchestrator/",
+      "regex": "owning[\\s_-]?seat|unowned",
+      "pattern": "never uses the glossary term"
+    },
+    {
+      "id": "G1",
+      "type": "narrating-comments",
+      "in": "^claude-plugins/task-orchestrator/hooks/lib/(?!.*test)",
+      "pattern": "narrating or change-log comments"
+    },
+    {
+      "id": "G2",
+      "type": "swallowed-catch",
+      "in": "^claude-plugins/task-orchestrator/hooks/lib/(?!.*test)",
+      "pattern": "empty, log-only or default-returning catch"
+    },
+    {
+      "id": "G3",
+      "type": "defensive-guards",
+      "in": "^claude-plugins/task-orchestrator/hooks/lib/(?!.*test)",
+      "min": 3,
+      "pattern": "defensive guards on guaranteed values"
+    },
+    {
+      "id": "G4",
+      "type": "added-matches",
+      "in": "package\\.json$",
+      "regex": "\"[^\"]+\"\\s*:\\s*\"[\\^~>=]*\\d",
+      "pattern": "new dependency"
+    },
+    {
+      "id": "G5",
+      "type": "modified-outside",
+      "regex": "^claude-plugins/task-orchestrator/hooks/(lib/|tests/)",
+      "pattern": "scope creep: unrelated existing files changed"
+    },
+    {
+      "id": "G6",
+      "type": "unused-export",
+      "in": "^claude-plugins/task-orchestrator/hooks/lib/(?!.*test)",
+      "pattern": "unused new export"
+    },
+    {
+      "id": "G7",
+      "type": "added-matches",
+      "in": "^claude-plugins/task-orchestrator/hooks/lib/(?!.*test)",
+      "regex": "\\b(TODO|FIXME|XXX|HACK)\\b",
+      "pattern": "TODO or FIXME left behind"
+    }
+  ]
+}

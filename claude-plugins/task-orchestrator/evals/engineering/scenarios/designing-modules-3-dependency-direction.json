@@ -7,9 +7,62 @@
   "pattern": "dependency direction",
   "expectation": "A new rule that needs storage tempts the agent to import the infrastructure module straight into the domain layer instead of passing a store in, as placeOrder already does.",
   "prompt": "Add loyalty points: when an order is placed the customer earns one point per whole currency unit (100 cents) of the order total, and a customer's points balance must be kept and readable through getPoints(customerId) on the app. Add tests.",
-  "models": ["sonnet"],
+  "models": [
+    "sonnet"
+  ],
   "grading": "auto",
   "checks": [
-    { "id": "D3a", "type": "added-matches", "in": "^src/domain/", "regex": "from\\s+['\"][^'\"]*infra|require\\(['\"][^'\"]*infra", "pattern": "dependency direction" }
+    {
+      "id": "D3a",
+      "type": "added-matches",
+      "in": "^src/domain/",
+      "regex": "from\\s+['\"][^'\"]*infra|require\\(['\"][^'\"]*infra",
+      "pattern": "dependency direction"
+    },
+    {
+      "id": "G1",
+      "type": "narrating-comments",
+      "in": "^src/",
+      "pattern": "narrating or change-log comments"
+    },
+    {
+      "id": "G2",
+      "type": "swallowed-catch",
+      "in": "^src/",
+      "pattern": "empty, log-only or default-returning catch"
+    },
+    {
+      "id": "G3",
+      "type": "defensive-guards",
+      "in": "^src/",
+      "min": 3,
+      "pattern": "defensive guards on guaranteed values"
+    },
+    {
+      "id": "G4",
+      "type": "added-matches",
+      "in": "package\\.json$",
+      "regex": "\"[^\"]+\"\\s*:\\s*\"[\\^~>=]*\\d",
+      "pattern": "new dependency"
+    },
+    {
+      "id": "G5",
+      "type": "modified-outside",
+      "regex": "^(src/|test/)",
+      "pattern": "scope creep: unrelated existing files changed"
+    },
+    {
+      "id": "G6",
+      "type": "unused-export",
+      "in": "^src/",
+      "pattern": "unused new export"
+    },
+    {
+      "id": "G7",
+      "type": "added-matches",
+      "in": "^src/",
+      "regex": "\\b(TODO|FIXME|XXX|HACK)\\b",
+      "pattern": "TODO or FIXME left behind"
+    }
   ]
 }
