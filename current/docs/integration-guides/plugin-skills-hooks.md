@@ -395,6 +395,7 @@ These are not invoked directly by users. They are triggered by hooks and the orc
 | Skill | Triggered by | Purpose |
 |-------|-------------|---------|
 | `planning-standards` | The planner seat's default skills, or a seat's `skills:` / a note's `skill:` | Engineering practice for writing a plan |
+| `designing-modules` | The planner seat's default skills, or a seat's `skills:` / a note's `skill:` | Engineering practice for deciding and judging the shape of code: module boundaries, what a module hides, dependency direction, state ownership, error design |
 | `implementation-standards` | The implementer seat's default skills, or a seat's `skills:` / a note's `skill:` | Engineering practice for writing the change |
 | `review-method` | The reviewer seat's default skills, or a seat's `skills:` / a note's `skill:` | Engineering practice for reviewing a change: a spec axis, a standards axis and a defect search, with one verdict per axis |
 | `test-authoring` | The test-author seat's default skills, or a seat's `skills:` / a note's `skill:` | Engineering practice for writing tests independently of the implementation |

@@ -23,14 +23,20 @@ it does not serve?
 
 ## No speculative abstraction
 
-Build for the cases the plan names. An abstraction (an interface, a base type, an extra parameter,
-a layer) is justified by one of two things: a second real user that exists today, or a stated
-boundary reason, such as a dependency rule that keeps one side from knowing the other, or a seam
-a test needs. With neither, it is speculative: do not add it for a second use that may arrive
-later.
+Build for the cases the plan names. An abstraction (an interface, a port, a base type, an extra
+parameter, a layer, a module boundary) is justified by one of two things: a second real
+implementation or user that exists today (a test fake counts as one), or a dependency rule that
+needs it, such as core logic that must not import storage or transport types. A port with one
+implementation is therefore legitimate when such a rule or a test fake requires it. With neither,
+it is speculative: do not add it for a second use that may arrive later.
 
-Self-check: for each new abstraction, name the second user that exists today or the boundary
-reason. If there is neither, remove it.
+For each new seam the plan introduces, write down what it hides, which of the two justifies it,
+and which way its dependencies point. A seam whose dependencies point against the stated layering
+is a fit problem in its own right: change its direction in the plan, whatever justifies it.
+
+Self-check: for each new abstraction, name what it hides, the second implementation, test fake or
+dependency rule that justifies it, and the direction of its dependencies. If nothing justifies
+it, remove it from the plan.
 
 ## Wiring sites
 
@@ -42,13 +48,6 @@ plan.
 
 Self-check: does the plan list every construction and registration site, with the search that
 found them (see [claims and sweeps](claims-and-sweeps.md))?
-
-## Seams
-
-Each new seam a plan introduces (an interface, a port, a module boundary) answers three questions
-in the plan: what it hides, whether a second real implementation or a test fake exists today, and
-which way its dependencies point. A seam that hides nothing, has no second user and points against
-the stated layering is removed from the plan.
 
 ## Make the change easy first
 
