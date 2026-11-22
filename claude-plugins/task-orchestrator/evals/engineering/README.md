@@ -38,7 +38,7 @@ right answer needs discovery in a large tree. Each scenario's `expectation` says
 | `designing-modules-4-realistic-cache-share` | a cache-share figure over a transcript; `scripts/lib/meters.mjs` is the one transcript measure | no new module, no re-parsing of the usage fields, `transcriptMeters` or `sumUsage` reused |
 | `defining-project-terms-5-realistic-seat-ownership` | a request that says "seat ownership"; `GLOSSARY.md` lists it as a term to avoid for owning seat | the avoided term in no file name, code, comment or test; the glossary term used |
 | `spotting-code-slop-4-realistic-historical-commit` | commit `c506096c5` (#743), whose review recorded finding N1 (the skill step dropped the sort and paging the code relies on) | a FINDING on `SKILL.md` about paging, sort order or the limit |
-| `auditing-codebase-4-realistic-hooks-history` | `hooks/`, about 125 commits at the base sha; the prompt does not mention the git history | every ranked path, and the first, among the most-changed source files; documentation does not count, so `hooks/README.md` (27 commits, the most of any path) is graded as outside the set |
+| `auditing-codebase-4-realistic-hooks-history` | `hooks/`, about 125 commits at the base sha; the prompt does not mention the git history | every ranked path, and the first, among the most-changed files, `hooks/README.md` (27 commits, the most of any path) included |
 
 A scenario with a `snapshot` field (`ref`, and optionally `overlay` or `history`) builds its repository from this
 checkout instead of a fixture folder, outside the repository, in a fresh temp directory per run:
@@ -99,6 +99,13 @@ A grader that changed after a failing row is listed here with what it was, so a 
   protects. It now passes when the adapters are not ranked, or are ranked with a line that mentions the record
   (`rank-line-lacks` with `absentOk`); ranking `labels.js` first is a legitimate answer. Earlier rows are superseded.
 - The review-4 change was the real commit with its tests cut; it is the real commit in full now.
+- `A4a` and `A4b` (audit-4) left `hooks/README.md` out of their accepted sets on the ground that a document is not a
+  refactoring candidate. The failure they probe is ranking by look instead of by history, and the README is the
+  most-changed path, so ranking it is a history-based answer; the owner's 2026-11-22 ruling also lets a document or
+  configuration file be a hot spot when its history shows a cost of its own. Both sets now include it. The audit-4 rows
+  before the change whose only A4a hit was the README (opus in `with-audit-3` and `with-audit-5`) would pass under the
+  current sets; `with-audit-2` opus ranked `phase-guard-record.mjs`, which is outside both the old and the new set, and
+  would still fail.
 
 ### Fixture shapes
 

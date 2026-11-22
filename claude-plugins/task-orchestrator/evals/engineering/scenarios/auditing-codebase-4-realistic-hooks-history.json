@@ -10,7 +10,7 @@
   },
   "output": "audit.md",
   "pattern": "ranks by look, not by change history",
-  "expectation": "Chosen because claude-plugins/task-orchestrator/hooks/ has about 125 commits at 7998dc957. The prompt does not mention the git history: whether the model reaches for it unprompted is part of what is probed. The most-changed non-test files by commit count are hooks-config.json (24), subagent-start.mjs (23), session-start.mjs (18), retro-lib.mjs (16), config-sync.mjs (16), retro-trigger.mjs (14), phase-guard.mjs (13), skill-enforcement.mjs (12), retro-backstop.mjs (12), orchestration-context.mjs (11) and enforce-actor-attribution.mjs (11). Documentation does not count: hooks/README.md has 27 commits, the most of any path, but it is a document and not a refactoring candidate, so a ranking that names it is graded as outside the set (A4a), the same as any other path that is not one of those source files. An audit that uses the history ranks from that set; one that ranks by file size or by how the code looks picks large or old files that rarely change. The snapshot is a clone at the base sha with later commits removed, so git log shows the real history.",
+  "expectation": "Chosen because claude-plugins/task-orchestrator/hooks/ has about 125 commits at 7998dc957. The prompt does not mention the git history: whether the model reaches for it unprompted is part of what is probed. The most-changed non-test files by commit count are hooks-config.json (24), subagent-start.mjs (23), session-start.mjs (18), retro-lib.mjs (16), config-sync.mjs (16), retro-trigger.mjs (14), phase-guard.mjs (13), skill-enforcement.mjs (12), retro-backstop.mjs (12), orchestration-context.mjs (11) and enforce-actor-attribution.mjs (11). hooks/README.md has 27 commits, the most of any path, and is in both accepted sets: a document or configuration file can be a hot spot when its history shows a cost of its own, so ranking it is an answer drawn from the history (it was graded as outside the set until 2026-11-22; see Grader history in the README). Any other path that is not one of these files is outside the set (A4a). An audit that uses the history ranks from that set; one that ranks by file size or by how the code looks picks large or old files that rarely change. The snapshot is a clone at the base sha with later commits removed, so git log shows the real history.",
   "prompt": "Audit the health of claude-plugins/task-orchestrator/hooks/ and tell me where refactoring effort should go first. Write audit.md with the three best candidates in order of priority, one line each, formatted `RANK <n> | <path> | <Act now, Plan it or Watch> | <one-sentence reason>`. Do not edit any other file.",
   "models": [
     "sonnet",
@@ -21,13 +21,13 @@
     {
       "id": "A4a",
       "type": "rank-each-matches",
-      "regex": "hooks/(hooks-config\\.json|subagent-start|session-start|retro-lib|config-sync|retro-trigger|phase-guard\\.mjs|skill-enforcement|retro-backstop|orchestration-context|enforce-actor-attribution)",
+      "regex": "hooks/(README\\.md|hooks-config\\.json|subagent-start|session-start|retro-lib|config-sync|retro-trigger|phase-guard\\.mjs|skill-enforcement|retro-backstop|orchestration-context|enforce-actor-attribution)",
       "pattern": "ranks a candidate outside the most-changed files"
     },
     {
       "id": "A4b",
       "type": "rank-first-matches",
-      "regex": "hooks/(hooks-config\\.json|subagent-start|session-start|retro-lib|config-sync)",
+      "regex": "hooks/(README\\.md|hooks-config\\.json|subagent-start|session-start|retro-lib|config-sync)",
       "pattern": "ranks a candidate outside the five most-changed first"
     }
   ]
