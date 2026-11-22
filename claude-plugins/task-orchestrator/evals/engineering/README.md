@@ -4,9 +4,13 @@ Dev tooling that measures what a model gets wrong on engineering work, before an
 the plugin package but nothing at runtime calls it. Each scenario is a small fixture repository plus one request; the
 run is graded from the files written, the git diff and the final message. There is no model judge and no server.
 
+It is maintainer dev tooling for the plugin's own skills, not plugin text a project reads. Its realistic scenarios run
+against the Task Orchestrator repository, so they name that repository's paths and commit shas by design: the rule that
+plugin text states no project's paths does not apply to this folder.
+
 ## Scenarios
 
-At least three per skill, fixture scenarios first and the realistic tier after them. A scenario names the failure pattern it probes (the catalog names of the slop skill, or the
+At least three per skill, fixture scenarios first and the realistic tier after them. A scenario names the failure pattern it probes (the entry names of the slop catalog, or the
 design and legibility check it exercises). Fixtures are in `fixtures/`; scenario files in `scenarios/`.
 
 | Skill | Scenarios | What they probe |
@@ -21,6 +25,8 @@ Prompts carry no hint of the answer (no "Stripe is the only provider we use", no
 variant would be a separate scenario id.
 
 Scenario ids start with the skill name, so `--scenario spotting-code-slop` runs all of that skill's scenarios.
+Rows that results.md recorded before the audit skill's rename name `auditing-codebase-health-<n>-...`; that is the
+scenario now named `auditing-codebase-<n>-...`.
 
 Two scenario families have no skill directory of their own: the slop catalog that `spotting-code-slop` probes now sits
 under `skills/auditing-codebase`, and `organizing-codebases` was cancelled. Their scenarios stay as baselines;

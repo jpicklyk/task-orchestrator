@@ -18,7 +18,7 @@ The scope is the path or area you were given, or the whole repository when none 
 
 1. **Read what the project says about itself.** Its written conventions, its glossary and its decision records (often a `docs/decisions` or `adr` folder). They set what counts as a problem here. A documented decision is a reason, not a finding.
 2. **Find the hot spots.** Rank files by how often they change, then find files that change together. Code that is ugly but never touched costs nothing; code that changes every week costs every week. Drop churn that is there by design (the list is in hotspots). Every other file can be a hot spot, whatever its kind: a configuration table, a registry, prompt or skill text, or a document that every change has to edit is ranked like code when its history shows a cost of its own. A file that changes only because one hot file changed is that file's partner. The hot set is judged against the whole repository even when the scope is one area. Commands, the partner test and the hot set: [hotspots](references/hotspots.md). With no history (a fresh clone with one commit, an export), say so and fall back to size and fan-in, and mark every ranking as lower confidence.
-3. **Look closely at the hot spots only.** For each, in order of churn, read it and apply the design signals in [design-signals](references/design-signals.md) and the entries of [slop-catalog](references/slop-catalog.md) that apply to code that exists. A file outside the hot set gets a look only because a hot file depends on it or changes together with it; it is named on the hot file's line as a partner, and is not ranked as a candidate of its own.
+3. **Look closely at the hot spots only.** For each, in order of churn, read it and apply the design signals in [design-signals](references/design-signals.md) and the entries of [slop-catalog](references/slop-catalog.md) that apply to code that exists, except vocabulary drift, which step 4 checks. A file outside the hot set gets a look only because a hot file depends on it or changes together with it; it is named on the hot file's line as a partner, and is not ranked as a candidate of its own.
 4. **Check vocabulary drift.** See the next section.
 5. **Weigh each candidate against the project's own record.** If a decision record, a convention or a comment explains the shape, drop the candidate, or keep it only with the decision's cost shown: what that choice now makes expensive, with evidence from the history. A candidate that touches a record is flagged as such on its line, whichever way you rank it.
 6. **Rank.** Sort and rate by [ranking](references/ranking.md), and write the output below.
@@ -27,10 +27,9 @@ The scope is the path or area you were given, or the whole repository when none 
 
 Run this only when the project has a glossary. Otherwise write "no glossary" in the report and move on. Check, in the hot spots first:
 
-- **Terms absent from code.** A glossary term whose code name nothing uses. Either the code moved on or the entry is stale.
+- **Terms the code does not use.** An entry whose `In code` name no longer exists, or a term whose name nothing in the code uses. Either the code moved on or the entry is stale.
 - **Words without a term.** A domain word that recurs across hot-spot files, in names or comments, and has no entry. The concept is in use and nobody owns its meaning.
-- **Rejected words in use.** A word an entry lists under `Don't call it` appearing in code, tests, comments or docs. Count the sites; a rejected word in a hot spot is the strongest case.
-- **Entries that point at nothing.** An `In code` name that no longer exists.
+- **Rejected words in use.** A word an entry lists under `Don't call it`, used in code, tests, comments or docs to name that entry's concept. The same word in another sense is not drift: count only the sites that mean the entry's concept. A rejected word in a hot spot is the strongest case.
 
 Report each as a candidate with the sites found. Fixing vocabulary is usually cheap, so these rarely rank above structural findings in a hot spot; they rank high when the same file already needs rework, because renames then ride along with it.
 

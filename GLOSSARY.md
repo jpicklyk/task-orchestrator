@@ -1,13 +1,12 @@
 # Task Orchestrator
 
-Work items move through gated phases; seats are the agents that fill each phase's notes. These terms name the concepts that code, schemas and reviews share.
+Work items move through gated phases; seats are the positions whose agents fill each phase's notes. These terms name the concepts that code, schemas and reviews share.
 
 ## Seat
 
 A named position in an item's workflow, declared in a schema for one phase, that one agent fills.
 
-Distinct from: role. A role is the phase a note belongs to; a seat is who fills it.
-Don't call it: agent.
+Distinct from: role. A role is the phase a note belongs to; a seat is the position whose agent fills it.
 In code: `SeatDefinition`.
 
 ## Seat-aware schema
