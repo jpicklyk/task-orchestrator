@@ -2,7 +2,8 @@ package io.github.jpicklyk.mcptask.current.domain.model
 
 /**
  * The one rule for which seat owns a note (glossary: "Owning seat"). Every site that asks who owns a note (gate buckets,
- * note-write ownership, the independence check, config lint and parse warnings) goes through here.
+ * note-write ownership, the independence check, config lint and the unowned-required-note warning of config validation)
+ * goes through here.
  *
  * A note's owning seat is the seat its schema entry names ([NoteSchemaEntry.seat]):
  * - when [seats] is empty (the schema is not seat-aware) the named seat stands as written;
