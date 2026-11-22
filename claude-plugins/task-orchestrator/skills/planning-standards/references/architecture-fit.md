@@ -32,7 +32,8 @@ it is speculative: do not add it for a second use that may arrive later.
 
 For each new boundary the plan introduces (any of the abstractions above), write down what it
 hides, which of the two justifies it, and which way its dependencies point. A boundary whose
-dependencies point against the stated layering is a fit problem in its own right: change its direction in the plan, whatever justifies it.
+dependencies point against the stated layering is a fit problem in its own right: change its
+direction in the plan, whatever justifies it.
 
 Self-check: for each new abstraction, name what it hides, the second implementation, test fake or
 dependency rule that justifies it, and the direction of its dependencies. If nothing justifies
