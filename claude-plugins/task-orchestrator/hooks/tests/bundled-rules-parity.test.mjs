@@ -20,7 +20,6 @@ const KEYS = [
   'review-cited-claims',
   'planning-sweeps',
   'orchestration-discipline',
-  'domain-language',
 ];
 const BUNDLED_DIR = fileURLToPath(new URL('../../bundled-rules/', import.meta.url));
 const REPO_ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
@@ -77,8 +76,22 @@ for (const key of KEYS) {
   });
 }
 
-test('75f0e354 S17: manifest.json is append-only across its git history — every historical hash list is a prefix of the current one', () => {
-  const commits = execFileSync('git', ['log', '--format=%H', '--', MANIFEST_REL], { cwd: REPO_ROOT, encoding: 'utf-8' })
+// The guard protects the hashes of rules that have shipped, so it walks only commits reachable from
+// main (origin/main when present). A key that exists only on an unmerged branch may still be removed.
+function releasedRef() {
+  for (const ref of ['origin/main', 'main']) {
+    try {
+      execFileSync('git', ['rev-parse', '--verify', '--quiet', ref], { cwd: REPO_ROOT, stdio: 'ignore' });
+      return ref;
+    } catch {
+      // try the next ref
+    }
+  }
+  assert.fail('neither origin/main nor main is available: check out with full history (fetch-depth 0)');
+}
+
+test('75f0e354 S17: manifest.json is append-only across released history (commits reachable from main) — every historical hash list is a prefix of the current one', () => {
+  const commits = execFileSync('git', ['log', '--format=%H', releasedRef(), '--', MANIFEST_REL], { cwd: REPO_ROOT, encoding: 'utf-8' })
     .split('\n')
     .map((s) => s.trim())
     .filter(Boolean);

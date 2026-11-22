@@ -16,6 +16,19 @@ Where the project documents its own glossary conventions, they take precedence o
 - **A project without a glossary:** stay silent about glossaries; do not suggest one unprompted. Only when the owner agrees a first term that passes the test below is the file created, and that term creates it in the same change as the code that needs it.
 - **A concept the glossary lacks:** propose an entry; do not coin one silently. The owner approves it in review.
 
+## Instructions-file lines
+
+When a project's first glossary is created, the same change adds these lines to the project's agent instructions file (CLAUDE.md, or AGENTS.md on other hosts), which every session and subagent loads. Adapt the wording; keep every point:
+
+```markdown
+## Glossary
+
+Domain terms are defined in [GLOSSARY.md](GLOSSARY.md).
+- Use the glossary's term for a concept; never use a word an entry lists under Don't call it.
+- When a concept has no entry, propose one; do not coin a name silently.
+- Update the glossary in the same commit as the code that adds or renames a concept.
+```
+
 ## Does it earn an entry
 
 A term gets an entry only if at least one holds:
