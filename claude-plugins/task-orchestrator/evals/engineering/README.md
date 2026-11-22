@@ -30,11 +30,11 @@ right answer needs discovery in a large tree. Each scenario's `expectation` says
 
 | Scenario | Target in this repository | Graded on |
 |----------|---------------------------|-----------|
-| `organizing-codebases-4-realistic-session-marker` | a once-per-session hook; `hooks/lib/markers.mjs`, `stdin.mjs` and `emit.mjs` serve about ten hooks | no hand-rolled temp file, stdin reader or output, no parallel helper under `hooks/lib`, marker helpers imported |
+| `organizing-codebases-4-realistic-session-marker` | a once-per-session hook; at `7998dc957` `hooks/lib/markers.mjs` is imported by 9 hook scripts, `stdin.mjs` by 22 and `emit.mjs` by 22 (counted as `from './lib/<name>.mjs'` in the top-level hook scripts, tests excluded) | no hand-rolled temp file, stdin reader or output, no parallel helper under `hooks/lib`, marker helpers imported |
 | `designing-modules-4-realistic-cache-share` | a cache-share figure over a transcript; `scripts/lib/meters.mjs` is the one transcript measure | no new module, no re-parsing of the usage fields, `transcriptMeters` or `sumUsage` reused |
 | `defining-project-terms-5-realistic-seat-ownership` | a request that says "seat ownership"; `GLOSSARY.md` lists it as a term to avoid for owning seat | the avoided term in no file name, code, comment or test; the glossary term used |
 | `spotting-code-slop-4-realistic-historical-commit` | commit `c506096c5` (#743), whose review recorded finding N1 (the skill step dropped the sort and paging the code relies on) | a FINDING on `SKILL.md` about paging, sort order or the limit |
-| `auditing-codebase-health-4-realistic-hooks-history` | `hooks/`, about 125 commits at the base sha | every ranked path, and the first, among the most-changed non-test files |
+| `auditing-codebase-health-4-realistic-hooks-history` | `hooks/`, about 125 commits at the base sha; the prompt does not mention the git history | every ranked path, and the first, among the most-changed source files; documentation does not count, so `hooks/README.md` (27 commits, the most of any path) is graded as outside the set |
 
 A scenario with a `snapshot` field (`ref`, and optionally `overlay` or `history`) builds its repository from this
 checkout instead of a fixture folder, outside the repository, in a fresh temp directory per run:
@@ -43,25 +43,53 @@ checkout instead of a fixture folder, outside the repository, in a fresh temp di
   the base sha of the baseline.
 - `overlay { from, paths, message }`: the archive of `ref` as commit 1, then those paths as they are in commit `from`
   as commit 2. The review scenario uses the parent of `c506096c5` as `ref` (the commit itself is in the base sha, so a
-  base-sha archive has nothing to review) and adds the commit's three non-test files; the tests and changelog are left out.
+  base-sha archive has nothing to review) and adds every file the real commit touches, tests, new test file and
+  changelog included, so the agent reviews exactly what history holds (a test compares each file with the commit).
 - `history: true`: a clone checked out at `ref`, with every other ref, reflog entry and unreachable object removed, so
   `git log` shows the real history up to `ref` and nothing after it. The audit scenario needs it.
 
-The snapshot's `.mcp.json` and `.claude/settings*.json` are removed before the first commit and the plugin is never
-passed with `--plugin-dir` for a baseline, so the snapshot's own plugin and servers never load; its `CLAUDE.md` and
-`GLOSSARY.md` stay, because an agent working in the repository normally sees them. Caps for a realistic run: at most
+The snapshot's `.mcp.json`, `.claude/settings*.json`, `.claude/skills`, `.claude/commands` and `.claude/agents` are
+removed before the first commit (and, for `history`, in one extra commit on top of the base sha), and a baseline never
+passes the plugin, so the snapshot's own plugin, servers and project skills never load, not even beside the one skill a
+rerun adds; its `CLAUDE.md` and `GLOSSARY.md` stay, because an agent working in the repository normally sees them. Caps for a realistic run: at most
 60 turns (40 for a fixture run) and a 20 minute timeout (15 for a fixture run); a run that hits either is an error row
 and is not recorded.
 
 ### Slop graders on build scenarios
 
 Every build scenario (fixture or realistic) also grades, on the lines the run added, the slop families models produce
-most: `narrating-comments` (a `//` comment that restates the code line below it, or a change-log comment; doc comments are skipped), `swallowed-catch`
-(a catch that is empty, log-only or returns a default), `defensive-guards` (three or more null, undefined,
+most: `narrating-comments` (a comment that restates the code line below it, or a change-log comment; a doc comment is
+flagged only when its words are all words of the declaration below it, so one that states a contract stays unflagged),
+`swallowed-catch` (a catch that is empty, log-only or returns a default), `broad-try` (a try with a catch or finally
+over six or more code lines: a wide net around new code), `defensive-guards` (three or more null, undefined,
 `Array.isArray` or `?.` guards; six for the config loader, which validates input on purpose), a new dependency in
-`package.json`, `modified-outside` (an existing file outside the paths the request needs: scope creep), `unused-export`
-(a new export no added line refers to a second time) and a TODO or FIXME left behind. They read production files only;
-the scenario's own request checks sit next to them.
+`package.json`, `modified-outside` (an existing file outside the paths the request needs: scope creep, on every build
+scenario), `unused-export` (a new export no added line refers to a second time) and a TODO or FIXME left behind. They
+read production files only; the scenario's own request checks sit next to them.
+
+`designing-modules-1-single-provider` catches a one-implementation abstraction by shape (`single-implementation`): an
+`interface`, an `abstract class` or a base class whose methods only throw "not implemented"; a base class with exactly
+one subclass; a parameter whose default is the one concrete implementation, with no fake, stub, mock or spy in the
+added tests; a one-entry lookup table read back by key. Name checks (`Provider`, `Gateway`, `Factory`) stay beside them.
+
+The review and audit checks require a finding to name the defect kind, not only the file (`S1a`, `S1b`, `S1d`, `S3c`).
+
+### Grader history
+
+A grader that changed after a failing row is listed here with what it was, so a pass can be read against it.
+
+- `S4a` (slop-4) first read `SKILL\.md.*(page|paging|sort|order|truncat|limit|200|older|oldest|newest|beyond|unread)`.
+  It was narrowed to terms that trace to finding N1 (`order`, `limit` and `200` were removed); the current regex is
+  in the scenario file. The rows from before the narrowing are superseded in results.md.
+- `narrating-comments` first flagged a one-line contract doc comment as narration (a false positive), was then changed
+  to skip every doc comment, and now skips a doc comment that states a contract and flags one that only restates the
+  declaration.
+- `S1a`, `S1b`, `S1d` and `S3c` matched a bare file name or a bare word such as `error`; they now need the defect kind.
+- `D1a` and `D1c` matched names only (`Provider`, `Gateway`, `Factory`); they are shape checks now and the name
+  regexes are `D1d` and `D1e`.
+- The glossary fixture's `CLAUDE.md` stated the rule `T3a` checks (update the glossary with the change); it no longer does.
+- The audit-4 prompt said "use the repository's git history", which names the method it probes; it no longer does.
+- The review-4 change was the real commit with its tests cut; it is the real commit in full now.
 
 ### Fixture shapes
 
@@ -92,7 +120,7 @@ directory and prints the path.
 ## Commands
 
 ```
-node claude-plugins/task-orchestrator/evals/engineering/run-evals.mjs [--scenario <id>]... [--model <alias>]... [--plugin-dir <path>] [--label <text>] [--check] [--list] [--record] [--expect-pass]
+node claude-plugins/task-orchestrator/evals/engineering/run-evals.mjs [--scenario <id>]... [--model <alias>]... [--with-skill <name> | --plugin-dir <path>] [--label <text>] [--run-id <id>] [--check] [--list] [--record] [--collect <run-id>] [--expect-pass]
 ```
 
 - `--check` validates the scenario files and fixtures only: zero tokens. Run it after editing a scenario.
@@ -100,34 +128,58 @@ node claude-plugins/task-orchestrator/evals/engineering/run-evals.mjs [--scenari
 - `--scenario` selects an id or a skill-name prefix (repeatable); without it every scenario runs.
 - `--model` replaces the scenario's own model list. The defaults are `sonnet` (the implementer seat's model) for build
   scenarios and `sonnet` and `opus` (the reviewer seat's model) for review and audit scenarios.
-- `--record` appends one row per run to [results.md](results.md): date, sha, model, scenario, mode, result, failure.
+- `--with-skill <name>` loads that one skill and nothing else (see below); `--plugin-dir <path>` loads a whole plugin.
+- `--run-id` names the folder under `runs/` that holds the run's graded artifacts (default: the UTC minute).
+- `--record` appends one row per run to [results.md](results.md): date, sha, model, scenario, mode, result, failure,
+  artifacts. Processes started in parallel must not use it; each saves a `row.json` with its artifacts, and
+  `--collect <run-id>` appends all of them afterwards, in scenario order.
 - `--expect-pass` exits 1 when any run showed a failure.
 
-Exit codes: 0 done, 1 a run errored (or `--expect-pass` saw a failure), 2 bad arguments, scenario or fixture.
+Exit codes: 0 done, 1 a run errored (or `--expect-pass` saw a failure), 2 bad arguments, scenario or fixture, or a
+failed preflight (gh still resolves, a GitHub token is set, or node, git or bash no longer resolves once the
+directories holding gh are dropped from `PATH`: a run without git is never recorded as a model failure).
+
+The sha in a row is the checkout the graders ran at, with `+dirty` when tracked or untracked files other than
+`results.md` and `runs/` differ from it: commit harness changes before a recorded run.
+
+### Graded artifacts
+
+Every run saves, under `runs/<run-id>/<scenario>--<model>/`: `answer.md` (the final message), the review or audit
+file the run wrote, `diff.stat` and `diff.patch` (what the run changed, cut at 200 KB), `grading.txt` (each check's
+verdict and detail) and `run.json` (model ids, skills the transcript shows invoked). The results row's last column
+names the folder, so a pass can be checked against what the grader saw.
 
 `node --test claude-plugins/task-orchestrator/evals/engineering/checks.test.mjs` tests the graders, the scenario
 validation and the repository builder with no model.
 
 ## Rerun with and without a skill
 
-Without `--plugin-dir` every run passes `--disable-slash-commands`, so no skill is loaded: that is the baseline, and
-it is how results.md was first filled.
+Without `--with-skill` and `--plugin-dir` every run passes `--disable-slash-commands`, so no skill is loaded: that is
+the baseline, and it is how results.md is filled.
 
-To rerun WITH a skill, load the plugin checkout that holds it:
+To rerun WITH a skill, load that skill alone:
 
 ```
-node claude-plugins/task-orchestrator/evals/engineering/run-evals.mjs --scenario spotting-code-slop --plugin-dir claude-plugins/task-orchestrator --label "with spotting-code-slop" --record
+node claude-plugins/task-orchestrator/evals/engineering/run-evals.mjs --scenario spotting-code-slop --with-skill spotting-code-slop --label "with spotting-code-slop" --run-id with-slop-1 --record
 ```
 
-The mode column then reads the label, plus the skills the transcript shows the agent invoked (or `no skill
-invoked`, a signal that the skill's description did not trigger). Compare the new rows with the baseline rows of the
-same scenario and model. The target failures should be gone; a scenario that was `no failure` in the baseline must
-stay `no failure` (that is how a false positive or over-triggering shows up).
+`--with-skill` copies `skills/<name>` of this plugin into a throwaway plugin of its own (a `plugin.json` that points at
+`./skills`, no hooks, no agents, no other skill) and passes that folder with `--plugin-dir`; the folder is removed when
+the runs end. A rerun therefore differs from the baseline by that one skill, and the repository snapshots do not load
+the repository's own project skills beside it. `--plugin-dir` instead loads a whole plugin folder, every skill and hook
+in it: use it only to test the plugin as a whole, never as the rerun of one skill. Skills in the user's own home
+`.claude` folder can still load; the row's `skills used` list shows which skills the transcript invoked.
+
+The mode column reads the label, plus the skills the transcript shows the agent invoked (or `no skill invoked`, a
+signal that the skill's description did not trigger). Compare the new rows with the baseline rows of the same scenario
+and model. The target failures should be gone; a scenario that showed no failure in the baseline must still show none
+(that is how a false positive or over-triggering shows up).
 
 ## Safety
 
 - Each run copies a fixture into a fresh directory under the system temp folder, initializes a git repository there
-  and runs `claude -p` once in it. The directory is removed afterwards (kept only for a manual scenario).
+  and runs `claude -p` once in it. The directory is removed afterwards (kept only for a manual scenario); what the
+  grader saw is kept under `runs/`.
 - Settings come from `--setting-sources project`, so the user's settings and enabled plugins do not apply. Tools
   are limited to file tools, `node`, read-only shell commands and `git`; `gh` is on neither the allow list nor the
   child `PATH`, and `GH_TOKEN` and `GITHUB_TOKEN` are removed. Fixtures have no remote.

@@ -8,7 +8,7 @@
     "ref": "7998dc957"
   },
   "pattern": "reinvented helper in a large tree",
-  "expectation": "Chosen because hooks/lib/markers.mjs (sessionMarkerPath, createMarkerOnce, readMarker, writeMarker) is used by about ten hooks (seat-skill-hint.mjs, phase-guard.mjs, session-start.mjs, skill-enforcement.mjs and others), hooks/lib/stdin.mjs (readHookInput) by every hook, and hooks/lib/emit.mjs by the same set, yet the prompt names none of them. A once-per-session reminder is exactly their job. Without guidance the agent, having read a hook or two, writes its own temp file with node:fs, reads stdin by hand or prints JSON itself, or adds a parallel helper under hooks/lib.",
+  "expectation": "Chosen because hooks/lib/markers.mjs (sessionMarkerPath, createMarkerOnce, readMarker, writeMarker) is imported by 9 hook scripts at 7998dc957 (seat-skill-hint.mjs, phase-guard.mjs, session-start.mjs, skill-enforcement.mjs and others; 12 files counting hooks/lib), hooks/lib/stdin.mjs (readHookInput) by 22 and hooks/lib/emit.mjs by 22 (counts of `from './lib/<name>.mjs'` in top-level hook scripts, tests excluded), yet the prompt names none of them. A once-per-session reminder is exactly their job. Without guidance the agent, having read a hook or two, writes its own temp file with node:fs, reads stdin by hand or prints JSON itself, or adds a parallel helper under hooks/lib.",
   "prompt": "Add a new hook script claude-plugins/task-orchestrator/hooks/plan-reminder.mjs. It runs on UserPromptSubmit and reads the hook's JSON input from stdin. The first time it runs in a given session it adds the one-line reminder \"Check items_read next before you plan.\" to the model's context; every later invocation in the same session must stay silent (each invocation is a new process). Do not register it in hooks-config.json. Add a test next to the other hook tests.",
   "models": [
     "sonnet"
@@ -93,6 +93,12 @@
       "in": "^claude-plugins/task-orchestrator/hooks/plan-reminder\\.mjs$",
       "regex": "\\b(TODO|FIXME|XXX|HACK)\\b",
       "pattern": "TODO or FIXME left behind"
+    },
+    {
+      "id": "G8",
+      "type": "broad-try",
+      "in": "^claude-plugins/task-orchestrator/hooks/plan-reminder\\.mjs$",
+      "pattern": "broad try/catch around new code"
     }
   ]
 }

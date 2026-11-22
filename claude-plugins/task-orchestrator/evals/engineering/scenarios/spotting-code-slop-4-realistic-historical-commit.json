@@ -9,7 +9,11 @@
     "overlay": {
       "from": "c506096c5",
       "paths": [
+        "CHANGELOG.md",
         "claude-plugins/task-orchestrator/hooks/retro-lib.mjs",
+        "claude-plugins/task-orchestrator/hooks/tests/retro-fake-runs.mjs",
+        "claude-plugins/task-orchestrator/hooks/tests/retro-observation-scope.test.mjs",
+        "claude-plugins/task-orchestrator/hooks/tests/retro-session-coverage.test.mjs",
         "claude-plugins/task-orchestrator/skills/session-retrospective/SKILL.md",
         "claude-plugins/task-orchestrator/hooks/README.md"
       ],
@@ -18,7 +22,7 @@
   },
   "output": "review.md",
   "pattern": "a skill step that drops what the code behind it relies on",
-  "expectation": "Chosen from commit c506096c5 (#743, item 64735764). Its review-checklist note records N1: the retrospective skill's observation line (SKILL.md, the \"Observations\" bullet) says list with limit 200 and keep the in-scope rows, but dropped \"(follow page.next)\" and the list of in-scope ids, while the code it describes (retro-lib.mjs, the items_read list call) sorts createdAt ascending and treats a truncated page as a signal; without a sort and paging the skill reads only the newest 200 rows and the older ones, nearest the runs, go unread. The base is the parent commit 7562388af and the change adds the commit's three non-test files (retro-lib.mjs, SKILL.md, hooks/README.md), so the review is of about 120 changed lines in a 2000-file tree. Without guidance the review reads the matcher code and misses the skill-versus-code mismatch.",
+  "expectation": "Chosen from commit c506096c5 (#743, item 64735764). Its review-checklist note records N1: the retrospective skill's observation line (SKILL.md, the \"Observations\" bullet) says list with limit 200 and keep the in-scope rows, but dropped \"(follow page.next)\" and the list of in-scope ids, while the code it describes (retro-lib.mjs, the items_read list call) sorts createdAt ascending and treats a truncated page as a signal; without a sort and paging the skill reads only the newest 200 rows and the older ones, nearest the runs, go unread. The base is the parent commit 7562388af and the change is the real commit in full, all seven files it touches (CHANGELOG.md, retro-lib.mjs, SKILL.md, hooks/README.md, two edited hook tests and the new retro-observation-scope.test.mjs), so what the agent reviews is what git history holds, about 430 added lines in a 2000-file tree. Without guidance the review reads the matcher code and misses the skill-versus-code mismatch.",
   "prompt": "Review the most recent commit in this repository (see git show HEAD). The skill text and the hook code it describes are both in the change. Write your findings to review.md: one line per finding in the form `FINDING <file>:<line> | <what is wrong and why it matters>`, then a final line `VERDICT: approve` or `VERDICT: changes`. Do not edit any other file.",
   "models": [
     "sonnet",

@@ -14,7 +14,7 @@
   "checks": [
     { "id": "S3a", "type": "finding-missing", "regex": "price\\.js.*(guard|defensive|null|undefined|typeof|validat|impossible|unreachable|boundary)", "pattern": "impossible-case guards" },
     { "id": "S3b", "type": "finding-missing", "regex": "price\\.js.*(return(s)? 0|fallback|mask|swallow|silent)", "pattern": "swallowed or masked errors" },
-    { "id": "S3c", "type": "finding-missing", "regex": "totalV2|cartTotalV2|\\bv2\\b|parallel|duplicate", "pattern": "parallel versions" },
+    { "id": "S3c", "type": "finding-missing", "regex": "((totalV2|cartTotalV2|\\bv2\\b).*(parallel|duplicat|second|another|copy|redundant|dead|unused|not (used|called)|nothing calls|both|alongside|two (versions|functions|implementations)|replace))|((parallel|duplicat).*(totalV2|cartTotalV2|\\bv2\\b|cart ?total))", "pattern": "parallel versions" },
     { "id": "S3d", "type": "finding-missing", "regex": "cart\\.js.*(debug|console|commented|dead|leftover)", "pattern": "leftovers" },
     { "id": "S3e", "type": "verdict-is", "expect": "changes", "pattern": "approves a flawed diff" }
   ]

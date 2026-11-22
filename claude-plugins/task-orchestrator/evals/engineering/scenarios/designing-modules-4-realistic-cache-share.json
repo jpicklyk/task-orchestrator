@@ -79,6 +79,12 @@
       "in": "^claude-plugins/task-orchestrator/(hooks|scripts)/(?!tests/)",
       "regex": "\\b(TODO|FIXME|XXX|HACK)\\b",
       "pattern": "TODO or FIXME left behind"
+    },
+    {
+      "id": "G8",
+      "type": "broad-try",
+      "in": "^claude-plugins/task-orchestrator/(hooks|scripts)/(?!tests/)",
+      "pattern": "broad try/catch around new code"
     }
   ]
 }

@@ -69,6 +69,12 @@
       "in": "^src/",
       "regex": "\\b(TODO|FIXME|XXX|HACK)\\b",
       "pattern": "TODO or FIXME left behind"
+    },
+    {
+      "id": "G8",
+      "type": "broad-try",
+      "in": "^src/",
+      "pattern": "broad try/catch around new code"
     }
   ]
 }

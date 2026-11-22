@@ -14,6 +14,16 @@
   "checks": [
     {
       "id": "D1a",
+      "type": "single-implementation",
+      "in": "^src/",
+      "shapes": [
+        "abstraction",
+        "subclass"
+      ],
+      "pattern": "single-implementation interface"
+    },
+    {
+      "id": "D1d",
       "type": "added-matches",
       "in": "^src/",
       "regex": "PaymentProvider|PaymentGateway|abstract class|class\\s+\\w*Provider\\b|class\\s+\\w*Gateway\\b|registerProvider|PROVIDERS|interface\\s+\\w+",
@@ -27,6 +37,16 @@
     },
     {
       "id": "D1c",
+      "type": "single-implementation",
+      "in": "^src/",
+      "shapes": [
+        "default-impl",
+        "registry"
+      ],
+      "pattern": "factory, builder or strategy for one case"
+    },
+    {
+      "id": "D1e",
       "type": "added-matches",
       "in": "^src/",
       "regex": "\\w*Factory\\b|createPayment\\w*Provider|getProvider\\(|providerFor\\(|selectProvider",
@@ -76,6 +96,12 @@
       "in": "^src/",
       "regex": "\\b(TODO|FIXME|XXX|HACK)\\b",
       "pattern": "TODO or FIXME left behind"
+    },
+    {
+      "id": "G8",
+      "type": "broad-try",
+      "in": "^src/",
+      "pattern": "broad try/catch around new code"
     }
   ]
 }

@@ -5,7 +5,7 @@
   "title": "A change that introduces a new domain term",
   "fixture": "glossary-shipment",
   "pattern": "new term not recorded in the glossary",
-  "expectation": "The project says a change that introduces a term updates GLOSSARY.md in the same commit. Without guidance the agent adds backorder code and leaves the glossary alone.",
+  "expectation": "CLAUDE.md only points at GLOSSARY.md and states no rule about updating it (the rule used to be stated there, which made the check near-unfailable). Without guidance the agent adds backorder code and leaves the glossary alone, though the glossary lists the project's domain terms and 'backorder' is a new one.",
   "prompt": "Add backorders: when a pick cannot be completed because the shelf holds too little stock, the missing quantity is held as a backorder that ships later once stock arrives. Add createBackorder(orderId, sku, qty) and a way to list an order's backorders. Add tests.",
   "models": [
     "sonnet"
@@ -63,6 +63,12 @@
       "in": "^src/",
       "regex": "\\b(TODO|FIXME|XXX|HACK)\\b",
       "pattern": "TODO or FIXME left behind"
+    },
+    {
+      "id": "G8",
+      "type": "broad-try",
+      "in": "^src/",
+      "pattern": "broad try/catch around new code"
     }
   ]
 }

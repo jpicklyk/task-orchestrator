@@ -25,7 +25,11 @@
 //
 // Slop checks (build scenarios; they read added lines only, `in` and `notIn` filter by path, min defaults to 1):
 //   narrating-comments { in, notIn, min }             a comment that restates the code line below it, or a change-log
-//                                                     comment ("added", "now returns", "previously")
+//                                                     comment ("added", "now returns", "previously"); a doc comment is
+//                                                     flagged only when its words are all in the declaration below it
+//   broad-try          { in, notIn, min, lines = 6 }  a try with a catch or finally whose body holds `lines` code lines or more
+//   single-implementation { in, notIn, min, shapes }  an abstraction with one implementation, by shape: abstraction,
+//                                                     subclass, default-impl, registry (see singleImplementations)
 //   swallowed-catch    { in, notIn, min }             a catch body that is empty, log-only or returns a default
 //   defensive-guards   { in, notIn, min = 3 }         null/undefined, typeof-undefined, Array.isArray and ?. guards
 //   unused-export      { in, notIn, min }             a new export whose name appears nowhere else in the added lines
@@ -94,6 +98,28 @@ export function stems(text) {
 const CHANGELOG_COMMENT = /^\s*(?:\/\/|\/\*+|\*)\s*(?:added|new:|updated|changed|removed|fixed|modified|refactored|previously|used to|now (?:uses|returns|calls|checks|handles))\b/i;
 const COMMENT_LINE = /^\s*(?:\/\/+|\/\*+|\*(?!\/))\s?(.*?)\s*(?:\*\/)?$/;
 
+const DOC_STOP = new Set(['return', 'get', 'set']);
+const stemMatches = (w, set) => set.has(w) || [...set].some((c) => c.length >= 4 && w.length >= 4 && (c.startsWith(w) || w.startsWith(c)));
+
+/**
+ * A `/** ... *\/` block whose words are (almost) all words of the declaration right below it: the doc comment says
+ * nothing the signature does not. A doc comment that states a contract (what the value means, units, failure modes)
+ * brings words the declaration lacks and is left alone. Returns { end, hit }: the index of the block's last line and
+ * the block's first line when it only restates.
+ */
+function docBlock(lines, i) {
+  let end = i;
+  while (end < lines.length && !/\*\//.test(lines[end])) end += 1;
+  if (end >= lines.length) return { end: i, hit: null };
+  const body = lines.slice(i, end + 1).join(' ').replace(/\/\*+|\*+\//g, ' ').replace(/(^|\s)\*(?=\s)/g, ' ').replace(/\{[^}]*\}/g, ' ').replace(/@\w+/g, ' ');
+  const words = stems(body).filter((w) => !DOC_STOP.has(w));
+  const next = lines.slice(end + 1).find((l) => l.trim() !== '');
+  if (next === undefined || words.length < 2) return { end, hit: null };
+  const code = new Set(stems(next));
+  const covered = words.filter((w) => stemMatches(w, code)).length / words.length;
+  return { end, hit: covered >= 0.7 ? lines[i].trim() : null };
+}
+
 /** Narrating or change-log comment lines in one file's added text; each hit is the comment line. */
 export function narratingComments(text) {
   const lines = String(text).split(/\r?\n/);
@@ -102,7 +128,13 @@ export function narratingComments(text) {
     const c = lines[i].match(COMMENT_LINE);
     if (!c) continue;
     if (CHANGELOG_COMMENT.test(lines[i])) { hits.push(lines[i].trim()); continue; }
-    if (/^\s*(?:\/\*\*|\*)/.test(lines[i])) continue; // a doc comment documents an API, it does not narrate
+    if (/^\s*\/\*\*/.test(lines[i])) {
+      const d = docBlock(lines, i);
+      if (d.hit) hits.push(d.hit);
+      i = d.end;
+      continue;
+    }
+    if (/^\s*\*/.test(lines[i])) continue; // the middle of a doc block whose opening line is not among the added lines
     const next = lines.slice(i + 1).find((l) => l.trim() !== '');
     if (next === undefined || COMMENT_LINE.test(next)) continue;
     const words = stems(c[1]);
@@ -135,6 +167,67 @@ export function unusedExports(obs, spec) {
     for (const m of text.matchAll(/export\s+(?:async\s+)?(?:function\*?|const|let|class)\s+([A-Za-z_$][\w$]*)/g)) names.push(m[1]);
   }
   return names.filter((n) => (all.match(new RegExp(`(?<![\\w$])${n.replace(/\$/g, '\\$')}(?![\\w$])`, 'g')) || []).length <= 1);
+}
+
+/** `try` blocks followed by catch or finally whose body holds at least `minLines` code lines: a wide net over new code. */
+export function broadTries(text, minLines = 6) {
+  const src = String(text);
+  const hits = [];
+  for (const m of src.matchAll(/\btry\s*\{/g)) {
+    let depth = 1;
+    let j = m.index + m[0].length;
+    for (; j < src.length && depth > 0; j += 1) {
+      if (src[j] === '{') depth += 1;
+      else if (src[j] === '}') depth -= 1;
+    }
+    if (depth !== 0 || !/^\s*(catch|finally)\b/.test(src.slice(j))) continue;
+    const body = src.slice(m.index + m[0].length, j - 1).split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !/^(\/\/|\/\*|\*)/.test(l));
+    if (body.length >= minLines) hits.push(`try over ${body.length} lines: ${body[0].slice(0, 50)}`);
+  }
+  return hits;
+}
+
+const IMPL_SHAPES = ['abstraction', 'subclass', 'default-impl', 'registry'];
+
+/**
+ * Shapes of an abstraction that has one concrete implementation, in added production text (names alone never count):
+ *   abstraction   an `interface`, an `abstract class`, or a base class whose methods only throw "not implemented"
+ *   subclass      a base class defined in the added text with exactly one `extends` of it
+ *   default-impl  a function or constructor parameter whose default is the one concrete implementation (an injected
+ *                 seam), when no added test file brings a fake, stub, mock, double or spy to put behind it
+ *   registry      a lookup table with a single entry that is read back by key
+ */
+export function singleImplementations(obs, spec = {}) {
+  const shapes = spec.shapes || IMPL_SHAPES;
+  const prod = addedEntries(obs, spec).map(([, t]) => t).join('\n');
+  const tests = Object.entries(obs.added || {}).filter(([p]) => isTestPath(p)).map(([, t]) => t).join('\n');
+  const hits = [];
+  if (shapes.includes('abstraction')) {
+    for (const m of prod.matchAll(/\binterface\s+(\w+)|\babstract\s+class\s+(\w+)/g)) hits.push(`abstraction ${m[1] || m[2]}`);
+    for (const m of prod.matchAll(/\bclass\s+(\w+)\s*\{([^]*?)\n\}/g)) {
+      if (/throw\s+new\s+Error\(\s*['"`][^'"`]*(not implemented|must (?:be )?(?:implement|override)|abstract|subclass)/i.test(m[2])) hits.push(`abstraction ${m[1]}`);
+    }
+  }
+  if (shapes.includes('subclass')) {
+    const subs = [...prod.matchAll(/\bclass\s+(\w+)\s+extends\s+(\w+)/g)];
+    for (const m of prod.matchAll(/\bclass\s+(\w+)\s*\{/g)) {
+      const n = subs.filter((s) => s[2] === m[1]).length;
+      if (n === 1) hits.push(`base ${m[1]} with one subclass`);
+    }
+  }
+  if (shapes.includes('default-impl') && !/\b(fake|stub|mock|double|spy)\w*/i.test(tests)) {
+    for (const line of prod.split(/\r?\n/)) {
+      if (!/(\bfunction\b|\bconstructor\b|=>|^\s*(?:async\s+)?\w+\s*\()/.test(line)) continue;
+      const m = line.match(/\(([^)]*\b\w+\s*=\s*(?:new\s+[A-Z]\w*\(|default[A-Z]\w*|[A-Za-z]*Impl\b)[^)]*)\)/);
+      if (m) hits.push(`default implementation injected: ${line.trim().slice(0, 70)}`);
+    }
+  }
+  if (shapes.includes('registry')) {
+    for (const m of prod.matchAll(/\bconst\s+(\w+)\s*=\s*(?:\{\s*['"]?\w+['"]?\s*:[^,{}]+,?\s*\}|new\s+Map\(\s*\[\s*\[[^\]]*\]\s*,?\s*\]\s*\))/g)) {
+      if (new RegExp(`\\b${m[1]}\\s*(?:\\[|\\.get\\()`).test(prod)) hits.push(`one-entry registry ${m[1]}`);
+    }
+  }
+  return hits;
 }
 
 export const CHECK_TYPES = {
@@ -195,6 +288,14 @@ export const CHECK_TYPES = {
   'unused-export': (obs, s) => {
     const names = unusedExports(obs, s);
     return { failed: names.length >= (s.min ?? 1), detail: names.join(', ') };
+  },
+  'broad-try': (obs, s) => {
+    const hits = addedEntries(obs, s).flatMap(([, t]) => broadTries(t, s.lines ?? 6));
+    return { failed: hits.length >= (s.min ?? 1), detail: hits.slice(0, 3).join(' | ') };
+  },
+  'single-implementation': (obs, s) => {
+    const hits = singleImplementations(obs, s);
+    return { failed: hits.length >= (s.min ?? 1), detail: hits.slice(0, 3).join(' | ') };
   },
   'modified-outside': (obs, s) => {
     const fresh = new Set(obs.newFiles || []);
