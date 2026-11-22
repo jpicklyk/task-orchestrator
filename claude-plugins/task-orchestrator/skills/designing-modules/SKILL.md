@@ -24,26 +24,27 @@ Draw a boundary around one decision likely to change (a format, a storage choice
 - **Look for:** the same knowledge in several modules: two files that parse one format, build one key, or know one table's columns. A change to that format that would touch three files is a leaked secret.
 - **Look for:** modules split by the order things happen (read, parse, validate, save), each knowing the same data shape. Sequence is a poor reason for a boundary; shared knowledge is a strong reason to merge. (Ousterhout, *A Philosophy of Software Design*, "Information Hiding (and Leakage)".)
 
-## 2. Inline check: does this module earn its surface?
+## 2. Does this module save its callers anything?
 
-Imagine folding the module into its callers. If complexity disappears, it was a pass-through. If complexity spreads to every caller, it does real work.
+Compare two quantities: what a caller must know to use the module (its signatures, plus the ordering, constraints and failure modes the signatures do not show) and what the module saves the caller from knowing. A deep module saves a lot behind a small surface; a shallow one saves almost nothing, and a surface that saves nothing is cost without benefit. (Ousterhout, *A Philosophy of Software Design*, "Modules Should Be Deep" and, for methods that only forward, "Different Layer, Different Abstraction".)
 
-- **Look for:** functions or classes that forward to one call with the same arguments; layers that only rename; a surface nearly as large as the body behind it.
-- **Look for the opposite too:** one concept spread over many tiny files or functions, so a reader opens five files to follow one behaviour. Fold them together.
+- **Look for:** functions or classes that forward to one call with the same arguments (pass-through methods); layers that only rename; a surface nearly as large as the body behind it.
+- **Look for the opposite too:** one concept spread over many tiny files or functions, so a reader opens five files to follow one behaviour. Bring them together. (Ousterhout, "Better Together Or Better Apart?".)
 
 ## 3. Name the force before the pattern
 
 A pattern answers a pressure: this varies by vendor, this must be swappable in tests, this changes on a different schedule. If the pressure cannot be named, the pattern is ceremony.
 
-- **Look for:** an interface, port or abstract class with one real implementation and no test double; a factory, registry or strategy with one case; options and hooks no caller sets. A test fake counts as a second implementation; a hypothetical future one does not.
-- **Do not demand** an abstraction for one stable case. Duplication is cheaper than the wrong abstraction, so wait until a third occurrence shows the shared shape (the "rule of three", our wording of a common rule of thumb). (Metz, "The Wrong Abstraction", 2016; Fowler, *Refactoring*, "Speculative Generality".)
+- **Look for:** an interface, port or abstract class with one implementation, no test fake and no dependency rule that needs it; a factory, registry or strategy with one case; options and hooks no caller sets. A second implementation counts when it exists now, and a test fake is one; an implementation expected someday does not.
+- **A one-implementation port is legitimate** when a dependency rule needs it (core logic must not import storage or transport types; see check 4) or when a test fake is its second implementation.
+- **Do not demand** an abstraction for one stable case. Duplication is cheaper than the wrong abstraction, so wait until a third occurrence shows the shared shape (the "rule of three", which Fowler's *Refactoring* credits to Don Roberts). (Metz, "The Wrong Abstraction", 2016; Fowler, *Refactoring*, "Speculative Generality".)
 
 ## 4. Which way do dependencies point?
 
 Dependencies point toward code that changes less: policy and domain at the centre, IO and frameworks at the edge. Wiring happens in one place at startup. No cycles. (Martin, *Clean Architecture*, the dependency rule and the component principles.)
 
 - **Look for:** core logic importing transport, storage or framework types; packages that import each other; objects constructed deep inside logic instead of passed in; a module that cannot be tested without starting the world.
-- **Third-party services:** wrap the vendor behind a narrow interface you own and fake that interface in tests; do not mock the vendor's own client (our judgement).
+- **Code you do not control:** wrap a vendor client or SDK behind a narrow interface you own and fake that interface in tests; do not mock types you do not own. (Freeman and Pryce, *Growing Object-Oriented Software, Guided by Tests*, 2009.)
 
 ## 5. Who owns this state?
 
@@ -59,7 +60,7 @@ Prefer interfaces where the error cannot happen (an idempotent delete, a default
 
 ## 7. Will this survive the next likely change?
 
-Once a surface is used, every observable behaviour of it will be depended on, documented or not. (Hyrum's law, in *Software Engineering at Google*, 2020.) Change a widely used surface in three steps: add the new form beside the old, move the callers, remove the old (often called parallel change or expand and contract).
+With a sufficient number of users of a surface, every observable behaviour of it will be depended on by somebody, documented or not. (Hyrum's law, in *Software Engineering at Google*, 2020.) Change a widely used surface in three steps: add the new form beside the old, move the callers, remove the old (often called parallel change or expand and contract).
 
 - **Look for:** a widely used surface with flags or optional parameters bolted on for one caller each; boolean or mode parameters that switch between two behaviours (two functions hiding in one); old and new versions left side by side.
 
