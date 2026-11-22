@@ -581,3 +581,17 @@ test('parseStream skillFiles: only reads under the loaded plugin folder count, s
   assert.deepEqual(parseStream(out, dir).skillFiles, ['auditing-documentation/references/gaps.md', 'auditing-documentation/references/scope-test.md']);
   assert.deepEqual(parseStream(out, null).skillFiles, []);
 });
+
+// Positive control, recorded 2026-11-22 at 728a55926 (sonnet, claude -p on makeSkillPlugin('auditing-documentation'), prompt asked it to Read references/gaps.md):
+// the tool_use events of that run, temp prefix replaced by a placeholder, ids and text dropped. The real capture read the file and parseStream listed it.
+test('parseStream skillFiles: a recorded stream of a real run lists the reference file the run opened', () => {
+  const ev = (name, input) => JSON.stringify({ type: 'assistant', message: { model: 'claude-sonnet-5-5', content: [{ type: 'tool_use', name, input }] } });
+  const out = [
+    ev('Skill', { skill: 'eng-eval-skill:auditing-documentation' }),
+    ev('Read', { file_path: 'C:\\T\\eng-eval-skill-m1molt\\skills\\auditing-documentation\\references\\gaps.md' }),
+    JSON.stringify({ type: 'result', subtype: 'success', is_error: false, num_turns: 4, result: 'ok' }),
+  ].join('\n');
+  const got = parseStream(out, 'C:\\T\\eng-eval-skill-m1molt');
+  assert.ok(got.skillFiles.includes('auditing-documentation/references/gaps.md'));
+  assert.deepEqual(got.skills, ['eng-eval-skill:auditing-documentation']);
+});
