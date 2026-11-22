@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.OwningSeat
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 
 /**
  * One validation finding: [path] is an RFC 6901 JSON Pointer into the config document (the root is the empty
@@ -54,8 +53,9 @@ fun interface ConfigStructuralValidator {
  * itself. [serverLayer] is the server-wide config (today the global file); with none, a per-root document sees no
  * server traits and an empty registry.
  *
- * Lint is separate: [lint] returns warning-only quality findings for a valid per-root document, never part of a
- * [ConfigValidationResult], so `push` and the import neither compute nor store them.
+ * A schema whose merged seats (through [TraitResolver], server-layer traits included) own no required note it lists draws a
+ * warning here, so `push` and the import store it. Lint is separate: [lint] returns warning-only quality findings for a
+ * valid per-root document, never part of a [ConfigValidationResult], so `push` and the import neither compute nor store them.
  */
 class ConfigValidator(
     private val structural: ConfigStructuralValidator = ConfigStructuralValidator.NONE,
@@ -97,7 +97,8 @@ class ConfigValidator(
                 .filter { it.path !in parserPaths }
                 .forEach(::add)
             semantic(document, root, scope, serverLayer).forEach(::add)
-            semanticWarnings = traitOrderWarnings(document, root, scope, serverLayer)
+            semanticWarnings =
+                traitOrderWarnings(document, root, scope, serverLayer) + unownedRequiredNoteWarnings(document, scope, serverLayer)
         }
 
         val order = compareBy<ConfigViolation>({ it.path }, { it.reason })
@@ -145,7 +146,7 @@ class ConfigValidator(
      * (or a required trait note no schema here lists) whose seat no seat owns; an `independent_of` or seat `after` name no
      * seat declares; a trait `dispatch` seat override no seat declares for its phase; the same guidance on several notes; a per-root schema or trait that shadows a server one; a trait with no
      * `applies_when`; a seat `rules` entry that is not served; a seat or note skill that names a served rule. The
-     * required-unseated-note case is reported by the parser's own advisory and is not repeated here. The result is
+     * required-unowned-note case is [validate]'s warning and is not repeated here. The result is
      * distinct and sorted by path, then reason. The caller passes a valid document (the paths use the positions of a
      * strict parse; the parser collapses a repeated seat rule or skill, so those two use raw positions).
      */
@@ -164,32 +165,27 @@ class ConfigValidator(
         val schemas = document.workItemSchemas.filterKeys { rawSchemas?.containsKey(it) == true }
         val traits = document.traits.filterKeys { rawTraits?.containsKey(it) == true }
 
-        fun traitNotes(trait: String): List<NoteSchemaEntry> =
-            if (trait in document.traits) document.traits[trait].orEmpty() else serverDocument?.traits?.get(trait).orEmpty()
+        // Every schema of this document as the gates resolve it: the real trait merge, so a server-layer trait counts.
+        val resolver = TraitResolver(traitLayers(document, ConfigScope.ROOT, serverLayer))
+        val mergedAll = document.workItemSchemas.mapValues { (name, schema) -> resolver.mergeSchema(schema, emptyList(), name) }
 
-        fun traitSeats(trait: String): List<SeatDefinition> =
-            if (trait in document.traits) document.traitSeats[trait].orEmpty() else serverDocument?.traitSeats?.get(trait).orEmpty()
-
-        fun mergedNotes(schema: WorkItemSchema): List<NoteSchemaEntry> {
-            val seen = HashSet<String>()
-            return (schema.notes + schema.defaultTraits.flatMap(::traitNotes)).filter { seen.add(it.key) }
-        }
-
-        fun effectiveSeats(schema: WorkItemSchema): List<SeatDefinition> = schema.seats + schema.defaultTraits.flatMap(::traitSeats)
-
-        // Every seat visible to this document: its traits' seats, its schemas' effective seats and the server layer's.
+        // Every seat visible to this document. A server trait's seats count only when this document does not declare a
+        // trait of that name, and a server schema's only when it does not declare that key: a per-root entry replaces
+        // the server one whole.
         val visibleSeats: List<SeatDefinition> =
             document.traitSeats.values.flatten() +
-                document.workItemSchemas.values.flatMap(::effectiveSeats) +
+                mergedAll.values.flatMap { it.seats } +
                 serverDocument
                     ?.workItemSchemas
-                    ?.values
                     .orEmpty()
+                    .filterKeys { it !in document.workItemSchemas }
+                    .values
                     .flatMap { it.seats } +
                 serverDocument
                     ?.traitSeats
-                    ?.values
                     .orEmpty()
+                    .filterKeys { it !in document.traits }
+                    .values
                     .flatten()
         val hereTraitScope = "which no schema or trait here or in the server config declares"
 
@@ -198,52 +194,27 @@ class ConfigValidator(
             seat: String,
             scope: String,
         ): String =
-            "note '${note.key}' (${note.role.name.lowercase()}) names seat '$seat', which $scope for the ${note.role.name.lowercase()} phase; no seat owns it"
+            "note '${note.key}' (${note.role.name.lowercase()}) names seat '$seat', $scope for the ${note.role.name.lowercase()} phase; no seat owns it"
 
-        fun independentOfChecks(
-            notes: List<NoteSchemaEntry>,
-            rawNotes: List<*>?,
+        // A name in a note's `independent_of` or a seat's `after` that no declared seat carries, once per name.
+        fun <T> undeclaredNameChecks(
+            items: List<T>,
+            rawItems: List<*>?,
             basePath: Array<String>,
+            listKey: String,
+            field: String,
+            names: (T) -> List<String>,
             declared: List<SeatDefinition>,
-            scope: String,
+            reason: (T, String) -> String,
         ) {
-            notes.forEachIndexed { i, note ->
-                val raw = (rawNotes?.getOrNull(i) as? Map<*, *>)?.get("independent_of") as? List<*>
+            items.forEachIndexed { i, item ->
+                val raw = (rawItems?.getOrNull(i) as? Map<*, *>)?.get(field) as? List<*>
                 val seen = HashSet<String>()
-                note.independentOf.forEachIndexed { parsedIndex, name ->
+                names(item).forEachIndexed { parsedIndex, name ->
                     if (name in seen || declared.any { it.name == name }) return@forEachIndexed
                     seen.add(name)
                     val j = raw?.indexOf(name)?.takeIf { it >= 0 } ?: parsedIndex
-                    out.add(
-                        ConfigViolation(
-                            pointer(*basePath, "notes", i.toString(), "independent_of", j.toString()),
-                            "note '${note.key}' is independent_of seat '$name', $scope; the independence check skips it"
-                        )
-                    )
-                }
-            }
-        }
-
-        fun afterChecks(
-            seats: List<SeatDefinition>,
-            rawSeats: List<*>?,
-            basePath: Array<String>,
-            declared: List<SeatDefinition>,
-            scope: String,
-        ) {
-            seats.forEachIndexed { i, seat ->
-                val raw = (rawSeats?.getOrNull(i) as? Map<*, *>)?.get("after") as? List<*>
-                val seen = HashSet<String>()
-                seat.after.forEachIndexed { parsedIndex, name ->
-                    if (name in seen || declared.any { it.name == name }) return@forEachIndexed
-                    seen.add(name)
-                    val j = raw?.indexOf(name)?.takeIf { it >= 0 } ?: parsedIndex
-                    out.add(
-                        ConfigViolation(
-                            pointer(*basePath, "seats", i.toString(), "after", j.toString()),
-                            "seat '${seat.name}' lists '$name' under after, $scope"
-                        )
-                    )
+                    out.add(ConfigViolation(pointer(*basePath, listKey, i.toString(), field, j.toString()), reason(item, name)))
                 }
             }
         }
@@ -325,9 +296,16 @@ class ConfigValidator(
         // L1, L2, L7, L8, L9 over schemas.
         schemas.forEach { (name, schema) ->
             val base = arrayOf("work_item_schemas", name)
-            val merged = mergedNotes(schema)
+            val merged = mergedAll.getValue(name)
+            val mergedRequired =
+                merged.notes
+                    .filter { it.required }
+                    .map { it.key }
+                    .toSet()
+            val schemaScope = "which schema '$name' does not declare"
+            val rawSchema = rawSchemas?.get(name) as? Map<*, *>
             schema.seats.forEachIndexed { i, seat ->
-                if (!owns(seat, merged)) {
+                if (!owns(seat, merged.notes)) {
                     out.add(
                         ConfigViolation(
                             pointer(*base, "seats", i.toString()),
@@ -336,52 +314,49 @@ class ConfigValidator(
                     )
                 }
             }
-            if (effectiveSeats(schema).isNotEmpty()) {
+            if (merged.seats.isNotEmpty()) {
                 schema.notes.forEachIndexed { i, note ->
-                    if (note.seat == null && !note.required) {
+                    // A note the merge makes required is the advisory's (validate), not a lint finding.
+                    if (note.required || note.key in mergedRequired) return@forEachIndexed
+                    val label = note.seat
+                    if (label == null) {
                         out.add(
                             ConfigViolation(
                                 pointer(*base, "notes", i.toString()),
                                 "optional note '${note.key}' has no seat although schema '$name' declares seats; no seat owns it"
                             )
                         )
-                    }
-                }
-            }
-            val effective = effectiveSeats(schema)
-            if (effective.isNotEmpty()) {
-                schema.notes.forEachIndexed { i, note ->
-                    val label = note.seat
-                    if (label != null && !note.required && OwningSeat.of(note, effective) == null) {
+                    } else if (OwningSeat.of(note, merged.seats) == null) {
                         out.add(
                             ConfigViolation(
                                 pointer(*base, "notes", i.toString()),
-                                unownedNoteLabel(note, label, "schema '$name' does not declare")
+                                unownedNoteLabel(note, label, schemaScope)
                             )
                         )
                     }
                 }
-                val schemaScope = "which schema '$name' does not declare"
-                independentOfChecks(
-                    schema.notes,
-                    (rawSchemas?.get(name) as? Map<*, *>)?.get("notes") as? List<*>,
-                    base,
-                    effective,
-                    schemaScope
-                )
-                afterChecks(schema.seats, (rawSchemas?.get(name) as? Map<*, *>)?.get("seats") as? List<*>, base, effective, schemaScope)
+                undeclaredNameChecks(schema.notes, rawSchema?.get("notes") as? List<*>, base, "notes", "independent_of", {
+                    it.independentOf
+                }, merged.seats) { note, seatName ->
+                    "note '${note.key}' is independent_of seat '$seatName', $schemaScope; the independence check skips it"
+                }
+                undeclaredNameChecks(schema.seats, rawSchema?.get("seats") as? List<*>, base, "seats", "after", {
+                    it.after
+                }, merged.seats) { seat, seatName ->
+                    "seat '${seat.name}' lists '$seatName' under after, $schemaScope"
+                }
             }
-            seatChecks(schema.seats, (rawSchemas?.get(name) as? Map<*, *>)?.get("seats") as? List<*>, base)
-            noteSkillChecks(schema.notes, (rawSchemas?.get(name) as? Map<*, *>)?.get("notes") as? List<*>, base)
+            seatChecks(schema.seats, rawSchema?.get("seats") as? List<*>, base)
+            noteSkillChecks(schema.notes, rawSchema?.get("notes") as? List<*>, base)
         }
 
         // L1, L2, L7, L8, L9 over traits.
         traits.forEach { (name, notes) ->
             val base = arrayOf("traits", name)
             val seats = document.traitSeats[name].orEmpty()
-            val listing = schemas.values.filter { name in it.defaultTraits }
+            val listing = schemas.filter { name in it.value.defaultTraits }.map { mergedAll.getValue(it.key) }
             seats.forEachIndexed { i, seat ->
-                if (!owns(seat, notes) && listing.none { owns(seat, mergedNotes(it)) }) {
+                if (!owns(seat, notes) && listing.none { owns(seat, it.notes) }) {
                     out.add(
                         ConfigViolation(
                             pointer(*base, "seats", i.toString()),
@@ -390,9 +365,11 @@ class ConfigValidator(
                     )
                 }
             }
+            val rawTrait = rawTraits?.get(name) as? Map<*, *>
             if (seats.isNotEmpty()) {
                 notes.forEachIndexed { i, note ->
-                    if (note.seat == null && !note.required) {
+                    val label = note.seat
+                    if (label == null && !note.required) {
                         out.add(
                             ConfigViolation(
                                 pointer(*base, "notes", i.toString()),
@@ -400,31 +377,34 @@ class ConfigValidator(
                             )
                         )
                     }
-                }
-            }
-            if (seats.isNotEmpty()) {
-                notes.forEachIndexed { i, note ->
-                    val label = note.seat
                     if (label != null && (!note.required || listing.isEmpty()) && OwningSeat.of(note, visibleSeats) == null) {
                         out.add(
                             ConfigViolation(
                                 pointer(*base, "notes", i.toString()),
-                                unownedNoteLabel(note, label, "no schema or trait here or in the server config declares")
+                                unownedNoteLabel(note, label, hereTraitScope)
                             )
                         )
                     }
                 }
-                independentOfChecks(
-                    notes,
-                    (rawTraits?.get(name) as? Map<*, *>)?.get("notes") as? List<*>,
+                undeclaredNameChecks(notes, rawTrait?.get("notes") as? List<*>, base, "notes", "independent_of", {
+                    it.independentOf
+                }, visibleSeats) { note, seatName ->
+                    "note '${note.key}' is independent_of seat '$seatName', $hereTraitScope; the independence check skips it"
+                }
+                undeclaredNameChecks(
+                    seats,
+                    rawTrait?.get("seats") as? List<*>,
                     base,
-                    visibleSeats,
-                    hereTraitScope
-                )
-                afterChecks(seats, (rawTraits?.get(name) as? Map<*, *>)?.get("seats") as? List<*>, base, visibleSeats, hereTraitScope)
+                    "seats",
+                    "after",
+                    { it.after },
+                    visibleSeats
+                ) { seat, seatName ->
+                    "seat '${seat.name}' lists '$seatName' under after, $hereTraitScope"
+                }
             }
-            seatChecks(seats, (rawTraits?.get(name) as? Map<*, *>)?.get("seats") as? List<*>, base)
-            noteSkillChecks(notes, (rawTraits?.get(name) as? Map<*, *>)?.get("notes") as? List<*>, base)
+            seatChecks(seats, rawTrait?.get("seats") as? List<*>, base)
+            noteSkillChecks(notes, rawTrait?.get("notes") as? List<*>, base)
             // L6
             if (document.traitDescriptors[name]?.appliesWhen.isNullOrBlank()) {
                 out.add(ConfigViolation(pointer(*base), "trait '$name' has no applies_when; say when the trait should be applied"))
@@ -442,7 +422,7 @@ class ConfigValidator(
                         out.add(
                             ConfigViolation(
                                 pointer("traits", trait, "dispatch", phaseName, "seats", seat),
-                                "trait '$trait' overrides dispatch for $phaseName seat '$seat', which no schema or trait here or in the server config declares for the $phaseName phase; the override never applies"
+                                "trait '$trait' overrides dispatch for $phaseName seat '$seat', $hereTraitScope for the $phaseName phase; the override never applies"
                             )
                         )
                     }
@@ -531,6 +511,49 @@ class ConfigValidator(
         }
 
         return out.distinct().sortedWith(compareBy({ it.path }, { it.reason }))
+    }
+
+    /**
+     * The layers a document's schemas merge their traits through, as the gates see them: a per-root document over the
+     * server layer, or (for a [ConfigScope.SERVER] document) the document as the server layer alone.
+     */
+    private fun traitLayers(
+        document: ConfigDocument,
+        scope: ConfigScope,
+        serverLayer: ConfigLayer?,
+    ): LayeredConfig =
+        if (scope == ConfigScope.SERVER) {
+            LayeredConfig(null, null, LayerBackedGlobalLookup(ConfigLayer(document, null, ConfigSource.GLOBAL)))
+        } else {
+            LayeredConfig(null, ConfigLayer(document, null, ConfigSource.PER_ROOT), LayerBackedGlobalLookup(serverLayer))
+        }
+
+    /**
+     * In a schema whose merged seats (its own and its traits', through [TraitResolver]) are non-empty, a warning for
+     * every merged REQUIRED note that [OwningSeat] gives no owner: the gate serves it under the `unowned` bucket of
+     * `missingBySeat`. Reported at `/work_item_schemas/<name>`. A schema with no merged seats is not seat-aware.
+     */
+    private fun unownedRequiredNoteWarnings(
+        document: ConfigDocument,
+        scope: ConfigScope,
+        serverLayer: ConfigLayer?,
+    ): List<ConfigViolation> {
+        val resolver = TraitResolver(traitLayers(document, scope, serverLayer))
+        val out = mutableListOf<ConfigViolation>()
+        document.workItemSchemas.forEach { (name, schema) ->
+            val merged = resolver.mergeSchema(schema, emptyList(), name)
+            if (merged.seats.isEmpty()) return@forEach
+            merged.notes.filter { it.required && OwningSeat.of(it, merged.seats) == null }.forEach { note ->
+                out.add(
+                    ConfigViolation(
+                        pointer("work_item_schemas", name),
+                        "Schema '$name': required note '${note.key}' (role '${note.role.name.lowercase()}') is " +
+                            "not owned by any declared seat; listed under 'unowned' in missingBySeat"
+                    )
+                )
+            }
+        }
+        return out
     }
 
     /** `notes (added: ..; removed: ..; changed: ..)` between a per-root and a server note list, or null when equal. */
