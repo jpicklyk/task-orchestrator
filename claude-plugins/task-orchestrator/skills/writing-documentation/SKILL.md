@@ -12,7 +12,7 @@ Where the project documents its own conventions for documents, they take precede
 
 - Name the document's audience (user, contributor or agent) and its one type. A document that serves two audiences is split into two.
 - For each section ask: could a reader with the code and a search find this in a minute? If yes, cut it, unless it is one of the things the next list keeps. A pointer to a check that enforces a rule stays too, as the agent-file rule below says.
-- Cut before you update. A change may cut a section or a whole document, and should when its subject is gone. A living doc that keeps describing something that no longer exists misleads more than a gap does.
+- Cut before you update. A change may cut a section or a whole document, and should when its subject is gone. A living doc that keeps describing something that no longer exists misleads more than a gap does. When the subject is gone, cut the section (or the document) with no note that it is gone or was removed: a note about an absent thing is still a claim about it. History belongs in the changelog.
 
 ## What a document keeps
 
