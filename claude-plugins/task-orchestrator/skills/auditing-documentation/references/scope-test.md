@@ -10,12 +10,12 @@ Could a reader with the code and a search tool find this out in a minute? If yes
 
 | Keep | Because the code cannot say it | Source |
 | --- | --- | --- |
-| The why: decisions, rejected options, consequences | Code shows the choice that was made, not the reason or the alternatives | Nygard, "Documenting Architecture Decisions" (2011): a decision is worth recording with its context and consequences |
-| Invariants and absences ("this layer never reaches that one") | An absence leaves no line to read | matklad, "ARCHITECTURE.md" (2021): invariants are often an absence, and absences are hard to see in code |
-| Traps: places where reading the code misleads, a single place an object must be built | Reading the code is what leads people wrong there | Ousterhout, *A Philosophy of Software Design*, the chapter on comments: write down what the code cannot make obvious |
-| Knowledge from outside the project: verify commands, deploy steps, process | It is not in the tree | Anthropic, Claude Code documentation on memory files: they earn their place by carrying what the agent cannot infer from the files |
-| A coarse codemap by searchable name: one line per module, naming the module and its important types | It orients a reader at the price of one line each | matklad, "ARCHITECTURE.md" (2021): a short map of modules and key types, by name so a search finds them |
-| User tasks: getting started, how-to, troubleshooting, the public surface | Users do not read the source | Procida, Diataxis framework: tutorials and how-to guides serve what a user is trying to do |
+| The why: decisions, rejected options, consequences | Code shows the choice that was made, not the reason or the alternatives | Nygard, "Documenting Architecture Decisions" (2011): the short decision record, which keeps what was chosen beside the pressures behind it and what it costs |
+| Invariants and absences ("this layer never reaches that one") | An absence leaves no line to read | matklad, "ARCHITECTURE.md" (2021): a rule about what a part must never touch leaves no line to point at, so the document has to carry it |
+| Traps: places where reading the code misleads, a single place an object must be built | Reading the code is what leads people wrong there | Ousterhout, *A Philosophy of Software Design*, the chapter on comments: prose pays for itself where reading the code would leave a reader guessing or wrong |
+| Knowledge from outside the project: verify commands, deploy steps, process | It is not in the tree | Anthropic, Claude Code documentation on memory files: the file is for facts an agent would otherwise miss because they are not in the tree |
+| A coarse codemap by searchable name: one line per module, naming the module and its important types | It orients a reader at the price of one line each | matklad, "ARCHITECTURE.md" (2021): his codemap section, kept coarse and written as names to search for, not links |
+| User tasks: getting started, how-to, troubleshooting, the public surface | Users do not read the source | Procida, Diataxis framework: documentation is divided by what the reader is doing, so a task guide is its own page |
 
 A stated why stays even when it sits next to text that is cut. Say in the report that you kept it.
 

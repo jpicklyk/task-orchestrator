@@ -15,14 +15,14 @@ Content that restates something the code holds changes whenever the code does. E
 
 | Content | Move | Source |
 | --- | --- | --- |
-| A count ("N tools", "N hooks") | Cut | Hunt and Thomas, *The Pragmatic Programmer*: a piece of knowledge has one authoritative home |
+| A count ("N tools", "N hooks") | Cut | Hunt and Thomas, *The Pragmatic Programmer*, the DRY principle: a fact is stated in one place |
 | A default, limit, enum list or version number | Point at the file that defines it, stated once; or generate the block | Hunt and Thomas, same book: repeated knowledge drifts apart |
-| A signature, parameter list or option table | Generate it from the source | Hunt and Thomas, same book: generate documentation from the code instead of keeping a second copy |
-| A file, directory or class inventory | Replace with a codemap of searchable names, or cut | matklad, "ARCHITECTURE.md" (2021): keep the map coarse |
+| A signature, parameter list or option table | Generate it from the source | Hunt and Thomas, same book: derive reference text from the source rather than writing it twice |
+| A file, directory or class inventory | Replace with a codemap of searchable names, or cut | matklad, "ARCHITECTURE.md" (2021): a coarse map changes less often than a detailed inventory |
 | A step-by-step account of a code path | Replace with the invariant or decision behind it | Ousterhout, *A Philosophy of Software Design*: text that repeats the code adds a second thing to keep true |
-| A copied snippet or example | Make it tested or extracted, or point at a real test | The rustdoc Book, documentation tests: examples in docs run as tests |
-| A link to a file and line | Use a searchable symbol name | matklad, "ARCHITECTURE.md" (2021): links to files rot, names can be searched |
-| The same fact in two places | Keep one canonical home and point the others at it | Hunt and Thomas, same book: one fact, one place |
+| A copied snippet or example | Make it tested or extracted, or point at a real test | The rustdoc Book, documentation tests: an example that fails to build or run fails the suite |
+| A link to a file and line | Use a searchable symbol name | matklad, "ARCHITECTURE.md" (2021): a symbol name still finds its target after a file moves, a link does not |
+| The same fact in two places | Keep one canonical home and point the others at it | Hunt and Thomas, same book: name the single owner of a fact and let the rest refer to it |
 
 When a value is copied into several documents, report it as one candidate with every site, and name the home it should be stated in.
 
