@@ -7,6 +7,7 @@
   "snapshot": {
     "ref": "848db0fa0"
   },
+  "timeoutMinutes": 10,
   "pattern": "file-by-file inventory, copied counts and function inventory in a README",
   "expectation": "Chosen because claude-plugins/task-orchestrator/hooks/lib has 16 files at 848db0fa0 (helper modules, two JSON tables and a catalog) and no README, so the right answer needs discovery in a large tree and a decision about what a reader cannot get from a directory listing. Without guidance the README lists every file with a line each, copies the file count and export names that change with every commit, and spells out function signatures. A pass says what the folder is for, how the helpers relate and what a hook author must know, and points at the files for the rest. The snapshot is the archive of the base sha, one commit, no history.",
   "prompt": "Write a README for claude-plugins/task-orchestrator/hooks/lib.",

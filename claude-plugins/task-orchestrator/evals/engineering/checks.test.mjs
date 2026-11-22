@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
 
 import { grade, parseFindings, parseVerdict, parseRanks, broadTries, singleImplementations } from './checks.mjs';
-import { loadScenarios, validateScenarios, buildRepo, observe, parseArgs, resultRow, preflightEnv, buildChildEnv, checkoutLabel, makeSkillPlugin, saveArtifacts, collectRows } from './run-evals.mjs';
+import { loadScenarios, validateScenarios, buildRepo, observe, parseArgs, resultRow, preflightEnv, buildChildEnv, checkoutLabel, makeSkillPlugin, saveArtifacts, collectRows, timeoutMs, parseStream } from './run-evals.mjs';
 
 test('the shipped scenario set is valid: 3 or more per skill, known check types, fixtures present', () => {
   assert.deepEqual(validateScenarios(loadScenarios()), []);
@@ -542,4 +542,42 @@ test('documentation scenarios: a hand-made bad run fails with the listed pattern
   assert.deepEqual(failures(a4, { output: 'FINDING current/docs/api-rest.md:672 | typo | fix it\n' }), ['keeps copied defaults', 'no document-level cut proposed']);
   const goodA4 = 'FINDING current/docs/workflow-guide.md:1098 | claim TTL default 900 copied into three pages | state it once in config-reference and point at it\nFINDING current/docs/quick-start.md:1 | the page repeats the guide | merge the page into the guide\n';
   assert.equal(grade(a4, { output: goodA4 }).outcome, 'no failure');
+});
+
+test('timeoutMinutes: validation reports out-of-range values, accepts the caps and absence', () => {
+  const [fixture] = loadScenarios().filter((s) => !s.snapshot);
+  const snap = loadScenarios().find((s) => s.snapshot);
+  const bad = (s, v) => validateScenarios([{ ...s, timeoutMinutes: v }]).some((p) => /timeoutMinutes/.test(p));
+  for (const v of [0, 2.5, '10', 16]) assert.ok(bad(fixture, v), `fixture ${JSON.stringify(v)}`);
+  assert.ok(bad(snap, 21), 'snapshot 21');
+  assert.ok(!bad(snap, 10), 'snapshot 10');
+  assert.ok(!bad(fixture, 15), 'fixture 15');
+  assert.ok(!validateScenarios([fixture]).some((p) => /timeoutMinutes/.test(p)), 'absent');
+});
+
+test('timeoutMs: the scenario value, else the tier cap', () => {
+  assert.equal(timeoutMs({ snapshot: {} }), 1200000);
+  assert.equal(timeoutMs({}), 900000);
+  assert.equal(timeoutMs({ snapshot: {}, timeoutMinutes: 10 }), 600000);
+});
+
+test('the realistic documentation scenarios cap at 10 minutes and the audit names its file set', () => {
+  const all = loadScenarios();
+  const audit = all.find((s) => s.id === 'auditing-documentation-4-realistic-current-docs');
+  const write = all.find((s) => s.id === 'writing-documentation-4-realistic-hooks-lib');
+  assert.ok(audit.timeoutMinutes <= 10 && write.timeoutMinutes <= 10);
+  for (const name of ['workflow-guide.md', 'ClaimService.kt', 'AdvanceRequests.kt']) assert.ok(audit.prompt.includes(name), name);
+});
+
+test('parseStream skillFiles: only reads under the loaded plugin folder count, sorted, backslashes and Bash included', () => {
+  const ev = (name, input) => JSON.stringify({ type: 'assistant', message: { model: 'm', content: [{ type: 'tool_use', name, input }] } });
+  const out = [
+    ev('Read', { file_path: 'C:\\T\\eng-eval-skill-ab12\\skills\\auditing-documentation\\references\\gaps.md' }),
+    ev('Bash', { command: 'cat /c/T/eng-eval-skill-ab12/skills/auditing-documentation/references/scope-test.md' }),
+    ev('Read', { file_path: 'claude-plugins/task-orchestrator/skills/run-wave/SKILL.md' }),
+    ev('Read', { file_path: 'C:\\T\\eng-eval-skill-zz99\\skills\\auditing-documentation\\references\\drift-classes.md' }),
+  ].join('\n');
+  const dir = 'C:\\T\\eng-eval-skill-ab12';
+  assert.deepEqual(parseStream(out, dir).skillFiles, ['auditing-documentation/references/gaps.md', 'auditing-documentation/references/scope-test.md']);
+  assert.deepEqual(parseStream(out, null).skillFiles, []);
 });
