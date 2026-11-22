@@ -313,16 +313,22 @@ function schemas(plan) {
  * reviewerPreamble(plan) -> string (shared READ-ONLY preamble for reviewer, lens and gap prompts; all repo facts
  * come from plan.repo/plan.rubric/plan.backlog). The METHOD paragraph names plan.methodSkill, the one place the
  * method skill's name enters a prompt: the reviewer applies that skill's method inside its slice, and the slice
- * (paths and focus), the HARD RULES and the FINDINGS shape take precedence over it.
+ * (paths and focus), the HARD RULES and the FINDINGS shape take precedence over it. The slice bounds coverage:
+ * a hot-spot ranking never narrows it, and the categories plan.classMap maps to 'bug' stay in scope.
  */
 function reviewerPreamble(plan) {
   const backlog = (plan.backlog || []).map((b) => '- ' + b.id + ' — ' + b.title).join('\n')
   const rubric = plan.rubric ? JSON.stringify(plan.rubric) : 'critical/high/medium/low, standard severity practice'
+  const bugCategories = (plan.categories || []).filter((c) => plan.classMap && plan.classMap[c] === 'bug')
   let out = 'You are performing ONE slice of an audit of the repository at ' + plan.repo.root
   if (plan.repo.description) out += ' (' + plan.repo.description + ')'
   out += '.\n\nHARD RULES: READ-ONLY. Do not create, edit, or delete any file. Do not run any command that mutates repository or environment state. Do not call any write tool. Do not prefix bash commands with cd.\n\n'
   out += 'METHOD: before reading any code, invoke the skill ' + plan.methodSkill + ' with the Skill tool and audit by its method, confined to YOUR SLICE below. ' +
     'The slice is your scope (its paths; for a cross-cutting lens, every scoped path) and its focus is the lens you apply the method through. ' +
+    'Together they set what you cover: any ranking of hot spots the method makes only orders your attention inside the slice and never drops cold code from it' +
+    (bugCategories.length
+      ? ', and defects in the categories ' + bugCategories.join(', ') + ' stay in scope for a slice whose focus carries them, whatever the method says about bug hunts or security reviews, so report them as findings, not as asides. '
+      : '. ') +
     'Where the method and this prompt disagree, this prompt wins: the HARD RULES, the slice, and the structured findings you return in place of the method\'s own report. ' +
     'Write each candidate as one finding: its move as recommendation, its evidence and any decision record it touches in evidence, its confidence as confidence, its severity per the rubric below, and as category the one from the output schema\'s list that fits it best.\n\n'
   out += 'Severity rubric: ' + rubric + '\n\n'

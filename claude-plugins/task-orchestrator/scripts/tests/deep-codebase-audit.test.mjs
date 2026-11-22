@@ -1,8 +1,11 @@
-// ESM tests for workflows/deep-codebase-audit.js (item c039bb77). Blind test-author: this file, and its
-// sibling workflow-harness-ext.mjs, are the ONLY files the author touches. The script itself
-// is never opened directly (Read/Grep/sed/cat/git diff/etc.) — every fact about it used below
-// comes from the frozen declarations block and reaches the script only through loadScript /
-// loadCoreNamed / scriptText / coreSlice (workflow-harness.mjs, workflow-harness-ext.mjs).
+// ESM tests for workflows/deep-codebase-audit.js (item c039bb77). Two authorships share this file.
+// Every section before "Method skill" was written by a blind test author (item c039bb77), who
+// touched only this file and workflow-harness-ext.mjs and never opened the script directly
+// (Read/Grep/sed/cat/git diff/etc.): every fact those sections use comes from the frozen
+// declarations block and reaches the script only through loadScript / loadCoreNamed /
+// scriptText / coreSlice (workflow-harness.mjs, workflow-harness-ext.mjs). The closing
+// "Method skill" section (item e7887059) is implementer-written, by an author who has read the
+// script; its oracle is that item's task-scope and amendments, not the script.
 //
 // Scenario ids (S1-S13 + probes) match the item's `test-plan` note. Oracles are cited per
 // scenario: plan/phase-c-workflows.md §2.x, plans/workflows-reference/architectural-review.js
@@ -1575,6 +1578,39 @@ test('Method skill: a configured methodSkill replaces the default in every revie
     assert.ok(c.prompt.includes('proj:area-audit'), `${c.label} prompt must name the configured skill`)
     assert.equal(c.prompt.includes(METHOD_DEFAULT), false, `${c.label} prompt must not name the default`)
   }
+})
+
+test('Method skill: methodSkill is trimmed, and null falls back to the default', () => {
+  assert.equal(buildPlan({ methodSkill: ' p:x ' }).methodSkill, 'p:x')
+  assert.equal(buildPlan({ methodSkill: null }).methodSkill, METHOD_DEFAULT)
+})
+
+// Oracle: amendments A1 / O2: the slice and its lens set coverage; a hot-spot ranking only
+// orders attention and never drops cold code; the bug-class categories (those the class map
+// sends to 'bug') stay in scope whatever the method says about bug hunts.
+test('Method skill: every reviewer, lens and gap prompt says the slice bounds coverage and keeps the bug-class categories', async () => {
+  const plan = methodRunPlan()
+  const { agent, calls } = autoAgent(methodRunResponder(plan))
+  await CORE.runAudit(plan, makeDeps({ agent }))
+  const reviewerCalls = calls.filter((c) => c.label.startsWith('review:') || c.label.startsWith('gap:'))
+  assert.equal(reviewerCalls.length, 3)
+  const bugList = 'concurrency, transactions, error-handling, security-architecture, data-model'
+  for (const c of reviewerCalls) {
+    assert.match(c.prompt, /hot spots[^.]*only orders your attention inside the slice and never drops cold code from it/,
+      `${c.label} prompt must say a hot-spot ranking never narrows the slice`)
+    assert.ok(c.prompt.includes('defects in the categories ' + bugList + ' stay in scope'),
+      `${c.label} prompt must keep the bug-class categories in scope`)
+    assert.match(c.prompt, /whatever the method says about bug hunts/, `${c.label} prompt must override the method's bug-hunt exclusion`)
+  }
+})
+
+test('Method skill: the in-scope bug-class list follows the class map', () => {
+  const plan = buildPlan({ classMap: { concurrency: 'tech-debt', 'dead-code': 'bug' } })
+  const preamble = CORE.reviewerPreamble(plan)
+  assert.ok(preamble.includes('defects in the categories transactions, error-handling, security-architecture, data-model, dead-code stay in scope'))
+  const none = CORE.reviewerPreamble(buildPlan({ classMap: { concurrency: 'tech-debt', transactions: 'tech-debt', 'error-handling': 'tech-debt', 'security-architecture': 'tech-debt', 'data-model': 'tech-debt' } }))
+  assert.match(none, /never drops cold code from it\. /)
+  assert.equal(none.includes('defects in the categories'), false)
 })
 
 test('Method skill: a methodSkill that is not a non-empty string is rejected', () => {
