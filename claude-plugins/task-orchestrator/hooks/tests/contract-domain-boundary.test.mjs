@@ -2,13 +2,14 @@
 // declaredSkills, pluginShippedNames, scanDomainBoundary) and its two data files
 // (domain-boundary-allowlist.json, domain-boundary-baseline.json). Scenarios S1-S15 match the item's
 // frozen `test-plan` note (5243923d). Oracles: task-scope 'Library contract', 'Data files' and
-// 'The two scans', acceptance criteria AC1-AC7. S16-S17 oracle: task-scope of item 63ea8f0c.
+// 'The two scans', acceptance criteria AC1-AC7. S16-S17 oracle: task-scope of item 63ea8f0c; S18: task-scope of item c9d842a9.
 // Node 22, node:test, no dependencies.
 
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -398,6 +399,20 @@ test('S17: a plugin engineering skill and its references are scanned like any ot
       );
     }
   }
+});
+
+test('S18: gitignored files are not scanned, tracked files under an ignored-looking name still are', () => {
+  const root = fixtureRoot({
+    '.gitignore': 'runs/\n',
+    'runs/a.md': 'this repo\n',
+    'runs/t.md': 'this repo\n',
+    'skills/x/SKILL.md': 'this repo\n',
+  });
+  const git = (...args) => spawnSync('git', ['-C', root, ...args], { encoding: 'utf8' });
+  assert.equal(git('init', '-q').status, 0);
+  assert.equal(git('add', '-f', 'runs/t.md').status, 0);
+  const r = scanDomainBoundary({ root, scopes: [{ dir: '.' }], names: [], phrases: ['this repo'] });
+  assert.deepEqual(r.violations.map((v) => v.file).sort(), ['runs/t.md', 'skills/x/SKILL.md']);
 });
 
 // ---- Probes --------------------------------------------------------------------------------

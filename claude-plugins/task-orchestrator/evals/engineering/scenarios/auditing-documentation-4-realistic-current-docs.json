@@ -1,0 +1,34 @@
+{
+  "id": "auditing-documentation-4-realistic-current-docs",
+  "skill": "auditing-documentation",
+  "kind": "audit",
+  "tier": "realistic",
+  "title": "Audit the lifecycle and claims chapters of the real workflow guide",
+  "snapshot": {
+    "ref": "848db0fa0"
+  },
+  "output": "audit.md",
+  "pattern": "keeps copied defaults; proposes no cut at the level of a section or document",
+  "expectation": "Chosen because current/docs/workflow-guide.md copies a value the code already states: the claim TTL default 900 (application/service/ClaimService.kt:409, application/api/advance/AdvanceRequests.kt:14 and :154) appears in chapter 10 at about lines 1034, 1062, 1080, 1098, 1101, 1112 and 1122, so a code change leaves every copy stale. The scope is bounded so a run fits the 10 minute cap: chapters 1, 2 and 10 of the guide and the five code files they describe, named by full path. Without guidance the audit lists typos and stale details to correct line by line, and proposes no cut at the level of a section or a whole document. A pass reports the copied defaults with a move to state each in one place and point at it, and proposes at least one document-level cut, split or merge. A finding is `FINDING <file>:<line> | <what is wrong> | <what to do>`; content terms are matched after the location. The snapshot is the archive of the base sha, one commit, no history. This replaces the whole-folder prompt of docs-baseline-1, which took 67 turns on sonnet and could not be bounded.",
+  "prompt": "Audit part of current/docs/workflow-guide.md against the code it describes, and tell me the ten most important problems, at most ten, in order of importance. The part is section 1 \"Role-Based Workflow\", section 2 \"Transitions Reference\" and section 10 \"Claim Mechanism for Multi-Agent Fleets\" of current/docs/workflow-guide.md. The code is current/src/main/kotlin/io/github/jpicklyk/mcptask/current/domain/model/Role.kt, current/src/main/kotlin/io/github/jpicklyk/mcptask/current/domain/lifecycle/Trigger.kt, current/src/main/kotlin/io/github/jpicklyk/mcptask/current/domain/lifecycle/TransitionTable.kt, current/src/main/kotlin/io/github/jpicklyk/mcptask/current/application/service/ClaimService.kt, current/src/main/kotlin/io/github/jpicklyk/mcptask/current/application/api/advance/AdvanceRequests.kt. Write audit.md with one line per problem, formatted `FINDING <file>:<line> | <what is wrong> | <what to do about it>`. Do not edit any other file.",
+  "models": [
+    "sonnet",
+    "opus"
+  ],
+  "grading": "auto",
+  "checks": [
+    {
+      "id": "DA4a",
+      "type": "finding-missing",
+      "regex": "^FINDING\\b[^|]*\\|[^|]*(?:default|ttl|900|limit)[^|]*\\|.*(?:\\b(?:cut|delete|remove|drop|point|link|generat|refer|source)|single|one place|canonical)",
+      "pattern": "keeps copied defaults"
+    },
+    {
+      "id": "DA4b",
+      "type": "finding-missing",
+      "regex": "^FINDING\\b[^|]*\\|[^|]*\\|(?=[^|]*\\b(?:cut|retire|merge|split|consolidat|delete))(?=[^|]*\\b(?:section|document|page|guide|chapter))[^|]*$",
+      "pattern": "no document-level cut proposed"
+    }
+  ],
+  "timeoutMinutes": 10
+}

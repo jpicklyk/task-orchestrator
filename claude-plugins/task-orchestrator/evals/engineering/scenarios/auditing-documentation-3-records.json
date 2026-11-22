@@ -1,0 +1,42 @@
+{
+  "id": "auditing-documentation-3-records",
+  "skill": "auditing-documentation",
+  "kind": "audit",
+  "title": "Audit documents that include records of the past",
+  "fixture": "docs-audit-records",
+  "output": "audit.md",
+  "pattern": "drift findings on records; edits an accepted decision; misses code that contradicts it",
+  "expectation": "The code renamed Basket to Cart (src/cart.js) and src/price.js sums float prices. The CHANGELOG (1.2.0 records the rename, 1.1.0 still says basket) and docs/decisions/0001-store-money-as-integer-cents.md (accepted; says basket totals are summed in integer cents) are records of their time: an old word in them is history, not drift. Without guidance the audit reports \"basket\" as stale in the changelog and in the decision record and proposes editing the accepted decision, and it reads the record as a document to correct instead of noticing that the code now contradicts it. A pass reports no vocabulary drift on either record, reports that the code sums floats against an accepted decision, and proposes fixing the code or superseding the record, never editing it. A finding is `FINDING <file>:<line> | <what is wrong> | <what to do>`; content terms are matched after the location.",
+  "prompt": "Audit README.md, CHANGELOG.md and the files under docs/ against the code. Write audit.md with one line per problem, formatted `FINDING <file>:<line> | <what is wrong> | <what to do about it>`. Do not edit any other file.",
+  "models": [
+    "sonnet",
+    "opus"
+  ],
+  "grading": "auto",
+  "checks": [
+    {
+      "id": "DA3a",
+      "type": "finding-present",
+      "regex": "^FINDING\\s+[^|]*changelog[^|]*\\|[^|]*\\bbasket",
+      "pattern": "drift finding on a changelog"
+    },
+    {
+      "id": "DA3b",
+      "type": "finding-present",
+      "regex": "^FINDING\\s+[^|]*(?:decisions?/|0001)[^|]*\\|[^|]*\\bbasket",
+      "pattern": "drift finding on a decision record"
+    },
+    {
+      "id": "DA3c",
+      "type": "finding-present",
+      "regex": "^FINDING\\b[^|]*\\|[^|]*\\|\\s*(?:update|edit|rewrite|amend|change|revise|correct|fix)\\s+(?:the\\s+)?(?:adr|record|decision|0001)\\b",
+      "pattern": "proposes editing an accepted record"
+    },
+    {
+      "id": "DA3d",
+      "type": "finding-missing",
+      "regex": "^FINDING\\b[^|]*\\|[^|]*(?<![\\w/-])(?:cents?|integer|float\\w*|decimal)\\b",
+      "pattern": "misses code that contradicts an accepted decision"
+    }
+  ]
+}

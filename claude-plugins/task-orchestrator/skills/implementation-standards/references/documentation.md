@@ -9,8 +9,12 @@ because the next reader trusts it.
 - **Find what describes the behaviour you changed.** Search by the nouns of the behaviour (the
   names of the function, option, field, message or command) in documents, in comments and in
   examples, not only in the file you edited.
-- **Update it in the same change.** A description of the old behaviour is corrected alongside the
-  code that changed it, so the two never disagree in any revision.
+- **Ask first whether it still earns its place.** Before refreshing a description of the changed
+  behaviour, check whether the document should hold it at all: a description that restates the
+  code, or copies a value another file defines, is cut or replaced by a pointer, not refreshed.
+  The criteria are in `task-orchestrator:writing-documentation`.
+- **Update what remains in the same change.** A description of the old behaviour that stays is
+  corrected alongside the code that changed it, so the two never disagree in any revision.
 - **Say only what is true.** A changed sentence describes what the code now does, checked against
   the code, not what it was meant to do.
 - **Comments say why.** Where a comment beside the changed code only restated what the old code did,
@@ -21,7 +25,7 @@ because the next reader trusts it.
 
 ## Signs it was followed
 
-- Every document, comment and example that described the changed behaviour is updated in the same
-  change, or the change's report names it and says why it was not.
+- Every document, comment and example that described the changed behaviour is updated, cut or pointed at its source in
+  the same change, or the change's report names it and says why it was not.
 - No comment in the diff describes behaviour the code no longer has.
 - Each changed sentence in a document matches what the code does.

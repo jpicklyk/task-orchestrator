@@ -28,7 +28,7 @@
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, mkdtempSync, rmSync, existsSync, cpSync, appendFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
-import { dirname, join, resolve, delimiter, relative } from 'node:path';
+import { dirname, join, resolve, delimiter, relative, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { CHECK_IDS, grade } from './checks.mjs';
@@ -49,7 +49,7 @@ const SNAPSHOT_MAX_TURNS = 60;
 // Scenario families: the `skill` field of a scenario and the prefix of its id. Two families have no skill directory of
 // their own: spotting-code-slop's catalog lives under skills/auditing-codebase, and organizing-codebases was cancelled.
 // Their scenarios stay as baselines; --with-skill takes only a family whose skills/<name>/SKILL.md exists.
-const SKILLS = ['spotting-code-slop', 'designing-modules', 'organizing-codebases', 'defining-project-terms', 'auditing-codebase'];
+const SKILLS = ['spotting-code-slop', 'designing-modules', 'organizing-codebases', 'defining-project-terms', 'auditing-codebase', 'writing-documentation', 'auditing-documentation'];
 const hasSkillDir = (name, pluginRoot = PLUGIN) => existsSync(join(pluginRoot, 'skills', name, 'SKILL.md'));
 const KINDS = ['build', 'review', 'audit'];
 
@@ -109,6 +109,10 @@ export function validateScenarios(list, fixturesDir = FIXTURES) {
       if (o && (!/^[0-9a-f]{7,40}$/i.test(String(o.from || '')) || !Array.isArray(o.paths) || o.paths.length === 0)) problems.push(`${at}: snapshot.overlay needs a from sha and a non-empty paths list`);
       if (o && s.snapshot.history) problems.push(`${at}: snapshot.overlay and snapshot.history are exclusive`);
     } else if (!s.fixture) problems.push(`${at}: missing fixture (or a snapshot)`);
+    if (s.timeoutMinutes !== undefined) {
+      const cap = (s.snapshot ? SNAPSHOT_TIMEOUT_MS : RUN_TIMEOUT_MS) / 60000;
+      if (!Number.isInteger(s.timeoutMinutes) || s.timeoutMinutes < 1 || s.timeoutMinutes > cap) problems.push(`${at}: timeoutMinutes must be an integer from 1 to ${cap} (the ${s.snapshot ? 'snapshot' : 'fixture'} cap)`);
+    }
     if (!['auto', 'manual'].includes(s.grading)) problems.push(`${at}: grading must be auto or manual`);
     if (s.grading === 'manual' && !s.manual) problems.push(`${at}: manual grading needs a manual field`);
     if (s.kind !== 'build' && !s.output) problems.push(`${at}: a ${s.kind} scenario needs an output file name`);
@@ -283,22 +287,36 @@ function buildSnapshot(scenario, work) {
   return git(work, ['rev-parse', 'HEAD']).trim();
 }
 
-/** Added lines per file, new files and the output file, read from the working tree against the fixture's last commit. */
+/**
+ * Added and removed lines per file, new files and the output file, read from the working tree against the fixture's
+ * last commit. `removed` is keyed by the `--- a/<path>` header, so a deleted file's lines are in it.
+ */
 export function observe(scenario, work, answer) {
   git(work, ['add', '-A', '--', '.', ':(exclude).claude']);
   const status = git(work, ['diff', '--cached', '--no-renames', '--name-status', 'HEAD']).split(/\r?\n/).filter(Boolean);
   const newFiles = status.filter((l) => l.startsWith('A')).map((l) => l.split('\t')[1]);
   const added = {};
+  const removed = {};
   let cur = null;
+  let old = null;
+  let header = false;
   for (const line of git(work, ['diff', '--cached', '--no-renames', '-U0', 'HEAD']).split(/\r?\n/)) {
-    const h = line.match(/^\+\+\+ b\/(.+)$/);
-    if (h) { cur = h[1]; added[cur] = ''; continue; }
-    if (cur && line.startsWith('+') && !line.startsWith('+++')) added[cur] += `${line.slice(1)}\n`;
+    if (line.startsWith('diff --git ')) { header = true; cur = null; old = null; continue; }
+    if (header) {
+      const o = line.match(/^--- a\/(.+)$/);
+      if (o) { old = o[1]; removed[old] = ''; continue; }
+      const h = line.match(/^\+\+\+ b\/(.+)$/);
+      if (h) { cur = h[1]; added[cur] = ''; continue; }
+      if (line.startsWith('@@')) header = false;
+      continue;
+    }
+    if (cur && line.startsWith('+')) added[cur] += `${line.slice(1)}\n`;
+    else if (old && line.startsWith('-')) removed[old] += `${line.slice(1)}\n`;
   }
   const outPath = scenario.output ? join(work, scenario.output) : null;
   const output = outPath && existsSync(outPath) ? readFileSync(outPath, 'utf8') : null;
-  if (scenario.output) delete added[scenario.output];
-  return { added, newFiles: newFiles.filter((p) => p !== scenario.output), output, answer };
+  if (scenario.output) { delete added[scenario.output]; delete removed[scenario.output]; }
+  return { added, removed, newFiles: newFiles.filter((p) => p !== scenario.output), output, answer };
 }
 
 // ---- running claude ---------------------------------------------------------------------------------------------
@@ -306,7 +324,25 @@ export function observe(scenario, work, answer) {
 const ALLOWED = ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash(node:*)', 'Bash(git:*)', 'Bash(ls:*)', 'Bash(cat:*)', 'Bash(find:*)',
   'Bash(grep:*)', 'Bash(wc:*)', 'Bash(head:*)', 'Bash(sort:*)', 'Skill'];
 
-function parseStream(stdout) {
+/** The wall-time cap of one run: the scenario's own timeoutMinutes when set, else the tier cap. */
+export function timeoutMs(scenario) {
+  if (scenario.timeoutMinutes) return scenario.timeoutMinutes * 60 * 1000;
+  return scenario.snapshot ? SNAPSHOT_TIMEOUT_MS : RUN_TIMEOUT_MS;
+}
+
+/**
+ * Read the claude stream-json output. skillFiles: the files under <pluginDir>/skills/ that a Read or a Bash command
+ * named, relative to that folder, sorted and unique. Matched on the `<basename(pluginDir)>/skills/` segment, so a
+ * snapshot's own skills folder never counts; without pluginDir it is [].
+ */
+export function parseStream(stdout, pluginDir = null) {
+  const files = new Set();
+  const noteFiles = (text) => {
+    if (!pluginDir) return;
+    const marker = `${basename(pluginDir)}/skills/`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`${marker}([^\\s"'\`;|&<>)]+)`, 'gi');
+    for (const m of String(text || '').replace(/\\/g, '/').matchAll(re)) files.add(m[1]);
+  };
   let answer = '';
   let tail = '';
   const models = new Set();
@@ -317,14 +353,19 @@ function parseStream(stdout) {
     try { e = JSON.parse(line); } catch { continue; }
     if (e.type === 'assistant') {
       if (e.message?.model) models.add(e.message.model);
-      for (const part of e.message?.content || []) if (part.type === 'tool_use' && part.name === 'Skill') skills.add(String(part.input?.skill || ''));
+      for (const part of e.message?.content || []) {
+        if (part.type !== 'tool_use') continue;
+        if (part.name === 'Skill') skills.add(String(part.input?.skill || ''));
+        else if (part.name === 'Read') noteFiles(part.input?.file_path);
+        else if (part.name === 'Bash') noteFiles(part.input?.command);
+      }
     }
     if (e.type === 'result') {
       answer = String(e.result || '');
       tail = JSON.stringify({ subtype: e.subtype, is_error: e.is_error, turns: e.num_turns });
     }
   }
-  return { answer, tail, models: [...models], skills: [...skills] };
+  return { answer, tail, models: [...models], skills: [...skills], skillFiles: [...files].sort() };
 }
 
 async function runClaude(scenario, model, work, pluginDir) {
@@ -334,15 +375,16 @@ async function runClaude(scenario, model, work, pluginDir) {
     '--max-turns', String(scenario.snapshot ? SNAPSHOT_MAX_TURNS : MAX_TURNS), '--allowedTools', ...ALLOWED, ...(scenario.snapshot ? ['Bash(uniq:*)'] : []), '--disallowedTools', 'Bash(gh:*)', '--output-format', 'stream-json', '--verbose'];
   if (pluginDir) args.push('--plugin-dir', pluginDir);
   else args.push('--disable-slash-commands');
+  const started = Date.now();
   return new Promise((done) => {
     const child = spawn(claude, args, { cwd: work, env: buildChildEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
-    const timer = setTimeout(() => child.kill(), scenario.snapshot ? SNAPSHOT_TIMEOUT_MS : RUN_TIMEOUT_MS);
+    const timer = setTimeout(() => child.kill(), timeoutMs(scenario));
     child.stdout.on('data', (c) => { stdout += c; });
     child.stderr.on('data', (c) => { stderr += c; });
-    child.on('close', (code) => { clearTimeout(timer); done({ exitCode: code, stdout, stderr }); });
-    child.on('error', (e) => { clearTimeout(timer); done({ exitCode: -1, stdout, stderr: String(e) }); });
+    child.on('close', (code) => { clearTimeout(timer); done({ exitCode: code, stdout, stderr, durationMs: Date.now() - started }); });
+    child.on('error', (e) => { clearTimeout(timer); done({ exitCode: -1, stdout, stderr: String(e), durationMs: Date.now() - started }); });
   });
 }
 
@@ -392,13 +434,13 @@ async function runOne(scenario, model, a, sha, runId, pluginDir) {
   try {
     buildRepo(scenario, work);
     const out = await runClaude(scenario, model, work, pluginDir);
-    const parsed = parseStream(out.stdout);
+    const parsed = parseStream(out.stdout, pluginDir);
     row.model = `${model} (${parsed.models.join(',') || 'unobserved'})`;
     if (pluginDir) row.mode += parsed.skills.length ? `; skills used: ${parsed.skills.join(',')}` : '; no skill invoked';
     if (out.exitCode !== 0) { row.detail = `claude exit ${out.exitCode}: ${out.stderr.slice(-300)} ${parsed.tail}`; return row; }
     const obs = observe(scenario, work, parsed.answer);
     const g = scenario.grading === 'manual' ? null : grade(scenario, obs);
-    row.artifacts = saveArtifacts(RUNS, runId, scenario, model, work, obs, g, { models: parsed.models, skills: parsed.skills, result: parsed.tail });
+    row.artifacts = saveArtifacts(RUNS, runId, scenario, model, work, obs, g, { models: parsed.models, skills: parsed.skills, skillFiles: parsed.skillFiles, durationMs: out.durationMs, result: parsed.tail });
     if (!g) {
       row.outcome = 'manual';
       row.manual = scenario.manual;

@@ -41,7 +41,9 @@ followed.
    [state and resources](references/state-and-resources.md).
 7. **Update what describes the change.** When the change alters behaviour that a document, a
    comment or an example describes, update it in the same change, or say in the change's report
-   that it was not done and why. Detail: [documentation](references/documentation.md).
+   that it was not done and why. Detail: [documentation](references/documentation.md). When the
+   change writes, reworks or cuts a document, follow `task-orchestrator:writing-documentation`
+   for what the document holds and what it leaves to the code.
 8. **Verify and report.** Verify your own change before calling it done, and say what you ran,
    what it showed, and what you did not run and why. Detail:
    [verification](references/verification.md).

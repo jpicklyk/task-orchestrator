@@ -6,6 +6,8 @@
 //
 // Observation:
 //   added        { path: addedText }  lines the run added or changed, per file (git diff against the fixture)
+//   removed      { path: removedText } lines the run removed or changed away, per file, keyed by the `--- a/` path, so a
+//                                     deleted file counts (absent in a hand-made observation: read as none)
 //   newFiles     [path]               files the run created
 //   output       string | null        content of the scenario's output file (review.md, audit.md), null if missing
 //   answer       string               the session's final message
@@ -14,6 +16,7 @@
 //   new-file-matches  { regex, min = 1 }              fails when at least `min` new files match
 //   added-matches     { regex, in, notIn, min = 1 }   fails when added text matches at least `min` times
 //   added-lacks       { regex, in }                   fails when added text never matches
+//   removed-lacks     { regex, in, min = 1 }          fails when removed text matches fewer than `min` times
 //   finding-missing   { regex }                       fails when no FINDING line matches
 //   finding-present   { regex }                       fails when a FINDING line matches
 //   verdict-is        { expect }                      fails when the VERDICT line differs
@@ -34,7 +37,7 @@
 //   swallowed-catch    { in, notIn, min }             a catch body that is empty, log-only or returns a default
 //   defensive-guards   { in, notIn, min = 3 }         null/undefined, typeof-undefined, Array.isArray and ?. guards
 //   unused-export      { in, notIn, min }             a new export whose name appears nowhere else in the added lines
-//   modified-outside   { regex, min }                 existing files changed outside the allowed path regex (scope creep)
+//   modified-outside   { regex, min }                 existing files changed or deleted outside the allowed path regex (scope creep)
 
 const re = (s) => new RegExp(s, 'i');
 
@@ -64,6 +67,14 @@ function addedFor(obs, spec) {
   const notRe = spec.notIn ? re(spec.notIn) : null;
   return Object.entries(obs.added || {})
     .filter(([p]) => (!inRe || inRe.test(p)) && (!notRe || !notRe.test(p)))
+    .map(([, text]) => text)
+    .join('\n');
+}
+
+function removedFor(obs, spec) {
+  const inRe = spec.in ? re(spec.in) : null;
+  return Object.entries(obs.removed || {})
+    .filter(([p]) => !inRe || inRe.test(p))
     .map(([, text]) => text)
     .join('\n');
 }
@@ -244,6 +255,10 @@ export const CHECK_TYPES = {
     const n = countMatches(addedFor(obs, s), re(s.regex));
     return { failed: n === 0, detail: n === 0 ? 'never added' : '' };
   },
+  'removed-lacks': (obs, s) => {
+    const n = countMatches(removedFor(obs, s), re(s.regex));
+    return { failed: n < (s.min ?? 1), detail: `${n} removed match(es)` };
+  },
   'finding-missing': (obs, s) => {
     const hit = parseFindings(obs.output).find((l) => re(s.regex).test(l));
     return { failed: !hit, detail: hit ? '' : 'no finding line matches' };
@@ -300,7 +315,8 @@ export const CHECK_TYPES = {
   },
   'modified-outside': (obs, s) => {
     const fresh = new Set(obs.newFiles || []);
-    const off = Object.keys(obs.added || {}).filter((p) => !fresh.has(p) && !re(s.regex).test(p));
+    const touched = new Set([...Object.keys(obs.added || {}), ...Object.keys(obs.removed || {})]);
+    const off = [...touched].filter((p) => !fresh.has(p) && !re(s.regex).test(p));
     return { failed: off.length >= (s.min ?? 1), detail: off.join(', ') };
   },
 };

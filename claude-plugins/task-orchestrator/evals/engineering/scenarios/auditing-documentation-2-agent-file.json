@@ -1,0 +1,36 @@
+{
+  "id": "auditing-documentation-2-agent-file",
+  "skill": "auditing-documentation",
+  "kind": "audit",
+  "title": "Audit the instruction file coding agents read",
+  "fixture": "docs-audit-agent-file",
+  "output": "audit.md",
+  "pattern": "keeps an overview in an agent file; misses a contradiction and a dead path",
+  "expectation": "CLAUDE.md has an Overview that retells src/ and scripts/ (an agent reads the tree), says \"Run the tests with npm test\" and later \"Never run npm test directly; use npm run verify\" (two instructions that disagree), and points at scripts/release-notes.sh, which does not exist. Without guidance the audit checks the overview for accuracy and leaves it, and reads each line alone, so the contradiction and the dead path go unreported. A pass proposes to cut the overview, reports the contradiction and reports the dead path. A finding is `FINDING <file>:<line> | <what is wrong> | <what to do>`; content terms are matched after the location.",
+  "prompt": "Audit CLAUDE.md, the instruction file coding agents read in this project, against the code. Write audit.md with one line per problem, formatted `FINDING <file>:<line> | <what is wrong> | <what to do about it>`. Do not edit any other file.",
+  "models": [
+    "sonnet",
+    "opus"
+  ],
+  "grading": "auto",
+  "checks": [
+    {
+      "id": "DA2a",
+      "type": "finding-missing",
+      "regex": "^FINDING\\b[^|]*\\|[^|]*(?:overview|structure|layout|tour|files)[^|]*\\|.*\\b(?:cut|delete|remove|drop)",
+      "pattern": "keeps an overview in an agent file"
+    },
+    {
+      "id": "DA2b",
+      "type": "finding-missing",
+      "regex": "^FINDING\\b[^|]*\\|.*(?:contradict|conflict|inconsisten|disagree)",
+      "pattern": "misses a contradiction"
+    },
+    {
+      "id": "DA2c",
+      "type": "finding-missing",
+      "regex": "^FINDING\\b[^|]*\\|.*release-notes\\.sh",
+      "pattern": "misses a dead path"
+    }
+  ]
+}

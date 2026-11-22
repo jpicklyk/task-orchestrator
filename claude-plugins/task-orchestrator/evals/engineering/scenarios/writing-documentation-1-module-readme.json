@@ -1,0 +1,59 @@
+{
+  "id": "writing-documentation-1-module-readme",
+  "skill": "writing-documentation",
+  "kind": "build",
+  "title": "Write a README for a small module",
+  "fixture": "docs-module-readme",
+  "pattern": "file tour, copied values and function inventory instead of the invariant and its reason",
+  "expectation": "Without guidance the README tours the three files one heading each, lists the six functions with their signatures, copies the defaults (capacity 120, idle TTL 900, refill 7) that the code already states, and leaves out the one thing a reader cannot get from the code: tokens come from elapsed time at each take, never from a timer, because a timer per key keeps idle keys alive (the comment in bucket.js). A pass tells the reader what the module is for, the invariant and its reason, and points at the code for the rest.",
+  "prompt": "Write a README for the src/ratelimit module.",
+  "models": [
+    "sonnet"
+  ],
+  "grading": "auto",
+  "checks": [
+    {
+      "id": "W1a",
+      "type": "added-lacks",
+      "in": "(^|/)README\\.md$",
+      "regex": "\\S",
+      "pattern": "no README written"
+    },
+    {
+      "id": "W1b",
+      "type": "added-matches",
+      "in": "(^|/)README\\.md$",
+      "regex": "(?:^|\\n)\\s*(?:#{1,6}\\s+|[-*+]\\s+|\\|\\s*|\\d+[.)]\\s+)[\\x60*_]{0,3}[\\w./-]*\\.js\\b",
+      "min": 3,
+      "pattern": "file-by-file tour"
+    },
+    {
+      "id": "W1c",
+      "type": "added-matches",
+      "in": "(^|/)README\\.md$",
+      "regex": "\\b(?:120|900)\\b",
+      "pattern": "copied default values"
+    },
+    {
+      "id": "W1d",
+      "type": "added-matches",
+      "in": "(^|/)README\\.md$",
+      "regex": "(?:^|\\n)\\s*(?:#{1,6}\\s+|[-*+]\\s+|\\|\\s*|\\d+[.)]\\s+)?[\\x60*_]{0,3}[A-Za-z_]\\w*\\(",
+      "min": 4,
+      "pattern": "function inventory"
+    },
+    {
+      "id": "W1e",
+      "type": "added-lacks",
+      "in": "(^|/)README\\.md$",
+      "regex": "timer|lazil|elapsed",
+      "pattern": "omits the invariant and its reason"
+    },
+    {
+      "id": "G5",
+      "type": "modified-outside",
+      "regex": "^(src/ratelimit/)?README\\.md$",
+      "pattern": "scope creep: unrelated existing files changed"
+    }
+  ]
+}

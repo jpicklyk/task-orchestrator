@@ -1,7 +1,7 @@
 export const meta = {
   name: 'deep-codebase-audit',
-  description: 'Barrier-per-phase codebase audit: reviewers that each follow the method skill named by the methodSkill arg within their slice, gap critic, adversarial verify, synthesis report, and a triage-derived findings proposal.',
-  whenToUse: 'Rare and expensive: a broad multi-agent pass over existing code. Presets quick|standard|full trade reviewer/verifier fan-out for cost; runId, date, and reportPath are required args; methodSkill (optional) replaces the reviewers\' method skill. quick fits the default maxAgents (60); standard and full project well past 60 agents and need allowLarge:true or a raised maxAgents. full runs roughly 90 minutes and about 30M tokens — prefer quick or standard for routine sweeps.',
+  description: 'Barrier-per-phase codebase audit: reviewers that each follow the method skill of their own slice, gap critic, adversarial verify, synthesis report, and a triage-derived findings proposal.',
+  whenToUse: 'Rare and expensive: a broad multi-agent pass over existing code and documentation, by slice (focus picks which). Presets quick|standard|full trade reviewer/verifier fan-out for cost; runId, date, and reportPath are required args; focus (optional: code, docs or all; default all) limits the audit to code slices, documentation slices or both; methodSkill (optional) replaces the method skill of code slices, and a slice or lens may carry its own methodSkill. quick fits the default maxAgents (60); standard and full project well past 60 agents and need allowLarge:true or a raised maxAgents. full runs roughly 90 minutes and about 30M tokens — prefer quick or standard for routine sweeps.',
   phases: [
     { title: 'Scope' }, { title: 'Review' }, { title: 'Gaps' }, { title: 'Merge' },
     { title: 'Verify' }, { title: 'Synthesize' }, { title: 'Triage' },
@@ -12,6 +12,8 @@ export const meta = {
 
 const SEVERITY_RANK = { critical: 4, high: 3, medium: 2, low: 1 }
 const DEFAULT_METHOD_SKILL = 'task-orchestrator:auditing-codebase'
+const DOCS_METHOD_SKILL = 'task-orchestrator:auditing-documentation'
+const FOCUS_VALUES = ['code', 'docs', 'all']
 const LENS_KEYS = ['evidence', 'significance', 'consequence', 'combined']
 
 const PRESETS = {
@@ -23,12 +25,12 @@ const PRESETS = {
 const CATEGORIES = [
   'layering', 'coupling', 'cohesion', 'duplication', 'consistency', 'concurrency', 'transactions',
   'error-handling', 'extensibility', 'security-architecture', 'performance-architecture', 'testability',
-  'operability', 'api-design', 'data-model', 'documentation-drift', 'dead-code',
+  'operability', 'api-design', 'data-model', 'documentation-scope', 'documentation-drift', 'dead-code',
 ]
 
 const DEFAULT_CLASS_MAP = {
   concurrency: 'bug', transactions: 'bug', 'security-architecture': 'bug', 'error-handling': 'bug', 'data-model': 'bug',
-  'documentation-drift': 'tech-debt', 'dead-code': 'tech-debt', duplication: 'tech-debt', coupling: 'tech-debt',
+  'documentation-scope': 'tech-debt', 'documentation-drift': 'tech-debt', 'dead-code': 'tech-debt', duplication: 'tech-debt', coupling: 'tech-debt',
   cohesion: 'tech-debt', layering: 'tech-debt', consistency: 'tech-debt', extensibility: 'tech-debt',
   testability: 'tech-debt', 'api-design': 'tech-debt', 'performance-architecture': 'tech-debt', operability: 'tech-debt',
 }
@@ -40,6 +42,16 @@ const VERIFY_LENS_INSTRUCTIONS = {
   significance: 'LENS = SIGNIFICANCE. Argue that this is NOT a real problem worth reporting: an intentional, documented design; severity overstated per the rubric; the recommended change not worth its cost; or already tracked. Set refuted=true only if it is not a genuine problem worth reporting. Otherwise set adjustedSeverity per the rubric and explain.',
   consequence: 'LENS = CONSEQUENCE. Try to demonstrate a concrete consequence: for correctness/concurrency/security findings, a realistic sequence of calls or configuration that produces an observable failure, traced through the code; for maintainability findings, concrete change-amplification evidence (history showing past changes or fixes that had to touch the duplicated places). Set refuted=true if no concrete consequence can be established and the claim is purely theoretical.',
   combined: 'LENS = COMBINED. (1) Open every cited location and verify the factual claims; search for counter-evidence (shared helpers, checks performed elsewhere, guards, tests). (2) Consider whether it is intentional documented design, overstated per the rubric, or already tracked. Set refuted=true if the core claim is false or it is not a genuine problem worth reporting; if partly wrong set evidenceAccurate=false with correctedEvidence.',
+}
+
+const DOCS_CATEGORIES = ['documentation-scope', 'documentation-drift']
+
+const DOCS_VERIFY_RULE = 'DOCUMENTATION FINDING: judge this finding by the documentation method, not by the code reading of the lens above. A document owes accuracy where it makes a claim and never owes coverage, and a cut needs no proof that the text is wrong. A passage that is accurate today but restates what the code or a search shows, copies a default, limit or other value that has one defining file, or does not serve the reader of its document is still a valid finding: do not refute it because the text is true, because no concrete consequence can be shown, or because the choice looks intentional. Refute it only when the cited text is not there, or when the document claims something the code cannot show (a reason, a rejected option, a trap, an invariant or an absence), so the passage is not a restatement. Check the cited facts as before.'
+
+/** verifyLensText(lensKey, category) -> the lens instruction, followed by the documentation rule when the finding is in a documentation category */
+function verifyLensText(lensKey, category) {
+  const lens = VERIFY_LENS_INSTRUCTIONS[lensKey]
+  return DOCS_CATEGORIES.indexOf(category) === -1 ? lens : lens + '\n\n' + DOCS_VERIFY_RULE
 }
 
 /** agentOpts(plan, phaseKey, base) -> base merged with model/effort from plan.models[phaseKey]/plan.efforts[phaseKey] when set */
@@ -59,6 +71,26 @@ function agentOpts(plan, phaseKey, base) {
   if (plan.efforts && plan.efforts[phaseKey]) opts.effort = plan.efforts[phaseKey]
   opts.label = `${base.label} ${dispatchTag(opts)}`
   return opts
+}
+
+/** sliceKind(s) -> 'docs' | 'code' (a slice, lens or gap without a kind is code) */
+function sliceKind(s) {
+  return s && s.kind === 'docs' ? 'docs' : 'code'
+}
+
+/** inFocus(focus, s) -> boolean (focus 'all' keeps every slice; 'code' or 'docs' keeps only that kind) */
+function inFocus(focus, s) {
+  return focus === 'all' || sliceKind(s) === focus
+}
+
+/**
+ * methodSkillOf(plan, s) -> string, the one place the method policy lives: the slice's own methodSkill when it
+ * is a non-blank string, else DOCS_METHOD_SKILL for a docs slice, else the run-level plan.methodSkill.
+ */
+function methodSkillOf(plan, s) {
+  if (s && typeof s.methodSkill === 'string' && s.methodSkill.trim()) return s.methodSkill.trim()
+  if (sliceKind(s) === 'docs') return DOCS_METHOD_SKILL
+  return plan.methodSkill
 }
 
 /** normalizeArgs(raw) -> {ok:true, plan} | {ok:false, reason} */
@@ -104,13 +136,34 @@ function normalizeArgs(raw) {
     return { ok: false, reason: 'invalid args: methodSkill must be a non-empty string' }
   }
 
+  const focus = A.focus != null ? A.focus : 'all'
+  if (FOCUS_VALUES.indexOf(focus) === -1) return { ok: false, reason: 'invalid args: focus must be code, docs or all' }
+  for (const f of ['reviewers', 'lenses']) {
+    const list = scopeIn[f]
+    if (list == null) continue
+    if (!Array.isArray(list)) return { ok: false, reason: 'invalid args: scope.' + f + ' must be an array' }
+    for (let i = 0; i < list.length; i++) {
+      if (!list[i] || typeof list[i] !== 'object' || Array.isArray(list[i])) {
+        return { ok: false, reason: 'invalid args: scope.' + f + '[' + i + '] must be an object' }
+      }
+    }
+  }
+  const given = (scopeIn.reviewers || []).concat(scopeIn.lenses || [])
+  for (const s of given) {
+    if (s.kind != null && s.kind !== 'code' && s.kind !== 'docs') return { ok: false, reason: 'invalid args: slice ' + s.key + ' kind must be code or docs' }
+    if (s.methodSkill != null && (typeof s.methodSkill !== 'string' || !s.methodSkill.trim())) {
+      return { ok: false, reason: 'invalid args: slice ' + s.key + ' methodSkill must be a non-empty string' }
+    }
+    if (!inFocus(focus, s)) return { ok: false, reason: 'invalid args: slice ' + s.key + ' is kind ' + sliceKind(s) + ', outside focus ' + focus }
+  }
+
   const gaps = Object.assign({}, preset.gaps, A.gaps || {})
   const plan = {
     contract: 'audit/args-v1', runId: A.runId, date: A.date, repo: A.repo, preset: presetName,
     scope: { paths: scopeIn.paths, reviewers: scopeIn.reviewers || null, lenses: scopeIn.lenses || [], reviewerCount: scopeIn.reviewerCount || preset.reviewerCount },
     rubric: A.rubric || null, categories: A.categories || CATEGORIES, backlog: A.backlog || [], gaps, verify,
     models: A.models || {}, efforts: A.efforts || {}, reportPath: A.reportPath, items,
-    maxAgents: A.maxAgents != null ? A.maxAgents : 60, allowLarge: !!A.allowLarge, title: A.title || A.runId,
+    maxAgents: A.maxAgents != null ? A.maxAgents : 60, allowLarge: !!A.allowLarge, title: A.title || A.runId, focus,
     classMap: Object.assign({}, DEFAULT_CLASS_MAP, A.classMap || {}), observationPaths: A.observationPaths || [],
     methodSkill: A.methodSkill != null ? A.methodSkill.trim() : DEFAULT_METHOD_SKILL,
   }
@@ -234,8 +287,8 @@ function schemas(plan) {
   const SCOPE = {
     type: 'object',
     properties: {
-      reviewers: { type: 'array', items: { type: 'object', properties: { key: { type: 'string' }, label: { type: 'string' }, focus: { type: 'string' }, paths: { type: 'array', items: { type: 'string' } } }, required: ['key', 'label', 'focus', 'paths'] } },
-      lenses: { type: 'array', items: { type: 'object', properties: { key: { type: 'string' }, label: { type: 'string' }, focus: { type: 'string' } }, required: ['key', 'label', 'focus'] } },
+      reviewers: { type: 'array', items: { type: 'object', properties: { key: { type: 'string' }, label: { type: 'string' }, focus: { type: 'string' }, kind: { type: 'string', enum: ['code', 'docs'] }, paths: { type: 'array', items: { type: 'string' } } }, required: ['key', 'label', 'focus', 'kind', 'paths'] } },
+      lenses: { type: 'array', items: { type: 'object', properties: { key: { type: 'string' }, label: { type: 'string' }, focus: { type: 'string' }, kind: { type: 'string', enum: ['code', 'docs'] } }, required: ['key', 'label', 'focus', 'kind'] } },
     },
     required: ['reviewers', 'lenses'],
   }
@@ -261,7 +314,7 @@ function schemas(plan) {
   }
   const CRITIC = {
     type: 'object',
-    properties: { assessment: { type: 'string' }, gaps: { type: 'array', items: { type: 'object', properties: { label: { type: 'string' }, prompt: { type: 'string' } }, required: ['label', 'prompt'] } } },
+    properties: { assessment: { type: 'string' }, gaps: { type: 'array', items: { type: 'object', properties: { label: { type: 'string' }, kind: { type: 'string', enum: ['code', 'docs'] }, prompt: { type: 'string' } }, required: ['label', 'kind', 'prompt'] } } },
     required: ['assessment', 'gaps'],
   }
   const DEDUP = {
@@ -310,20 +363,20 @@ function schemas(plan) {
 }
 
 /**
- * reviewerPreamble(plan) -> string (shared READ-ONLY preamble for reviewer, lens and gap prompts; all repo facts
- * come from plan.repo/plan.rubric/plan.backlog). The METHOD paragraph names plan.methodSkill, the one place the
+ * reviewerPreamble(plan, slice = {}, docsInRun = false) -> string (shared READ-ONLY preamble for reviewer, lens and gap prompts; all repo facts
+ * come from plan.repo/plan.rubric/plan.backlog). The METHOD paragraph names methodSkillOf(plan, slice), the one place the
  * method skill's name enters a prompt: the reviewer applies that skill's method inside its slice, and the slice
  * (paths and focus), the HARD RULES and the FINDINGS shape take precedence over it. The slice bounds coverage:
  * a hot-spot ranking never narrows it, and the categories plan.classMap maps to 'bug' stay in scope.
  */
-function reviewerPreamble(plan) {
+function reviewerPreamble(plan, slice = {}, docsInRun = false) {
   const backlog = (plan.backlog || []).map((b) => '- ' + b.id + ' — ' + b.title).join('\n')
   const rubric = plan.rubric ? JSON.stringify(plan.rubric) : 'critical/high/medium/low, standard severity practice'
   const bugCategories = (plan.categories || []).filter((c) => plan.classMap && plan.classMap[c] === 'bug')
   let out = 'You are performing ONE slice of an audit of the repository at ' + plan.repo.root
   if (plan.repo.description) out += ' (' + plan.repo.description + ')'
   out += '.\n\nHARD RULES: READ-ONLY. Do not create, edit, or delete any file. Do not run any command that mutates repository or environment state. Do not call any write tool. Do not prefix bash commands with cd.\n\n'
-  out += 'METHOD: before reading any code, invoke the skill ' + plan.methodSkill + ' with the Skill tool and audit by its method, confined to YOUR SLICE below. ' +
+  out += 'METHOD: before reading any code, invoke the skill ' + methodSkillOf(plan, slice) + ' with the Skill tool and audit by its method, confined to YOUR SLICE below. ' +
     'The slice is your scope (its paths; for a cross-cutting lens, every scoped path) and its focus is the lens you apply the method through. ' +
     'Together they set what you cover: any ranking of hot spots the method makes only orders your attention inside the slice and never drops cold code from it' +
     (bugCategories.length
@@ -331,6 +384,11 @@ function reviewerPreamble(plan) {
       : '. ') +
     'Where the method and this prompt disagree, this prompt wins: the HARD RULES, the slice, and the structured findings you return in place of the method\'s own report. ' +
     'Write each candidate as one finding: its move as recommendation, its evidence and any decision record it touches in evidence, its confidence as confidence, its severity per the rubric below, and as category the one from the output schema\'s list that fits it best.\n\n'
+  if (sliceKind(slice) === 'docs') {
+    out += 'DOCUMENTATION SLICE: audit only the document files in your scope; comments inside source files belong to the code slices.\n\n'
+  } else if (docsInRun) {
+    out += 'Document files in your scope belong to the documentation slices; comments inside source files stay yours.\n\n'
+  }
   out += 'Severity rubric: ' + rubric + '\n\n'
   if (backlog) out += 'ALREADY-TRACKED BACKLOG (do not re-report these as-is):\n' + backlog + '\n\n'
   return out + 'YOUR SLICE:\n'
@@ -349,19 +407,19 @@ function verifierPreamble(plan) {
   return out
 }
 
-/** buildReviewerPrompt(plan, reviewer) -> string */
-function buildReviewerPrompt(plan, r) {
-  return reviewerPreamble(plan) + 'FOCUS: ' + r.focus + '. PATHS: ' + (r.paths || []).join(', ') + '.'
+/** buildReviewerPrompt(plan, reviewer, docsInRun = false) -> string */
+function buildReviewerPrompt(plan, r, docsInRun = false) {
+  return reviewerPreamble(plan, r, docsInRun) + 'FOCUS: ' + r.focus + '. PATHS: ' + (r.paths || []).join(', ') + '.'
 }
 
-/** buildLensPrompt(plan, lens) -> string */
-function buildLensPrompt(plan, l) {
-  return reviewerPreamble(plan) + 'CROSS-CUTTING LENS — ' + l.label + '. FOCUS: ' + l.focus + '. Examine across all scoped paths: ' + plan.scope.paths.join(', ') + '.'
+/** buildLensPrompt(plan, lens, docsInRun = false) -> string */
+function buildLensPrompt(plan, l, docsInRun = false) {
+  return reviewerPreamble(plan, l, docsInRun) + 'CROSS-CUTTING LENS — ' + l.label + '. FOCUS: ' + l.focus + '. Examine across all scoped paths: ' + plan.scope.paths.join(', ') + '.'
 }
 
-/** buildGapPrompt(plan, gap) -> string */
-function buildGapPrompt(plan, g) {
-  return reviewerPreamble(plan) + 'FOCUS: ' + g.prompt
+/** buildGapPrompt(plan, gap, docsInRun = false) -> string */
+function buildGapPrompt(plan, g, docsInRun = false) {
+  return reviewerPreamble(plan, g, docsInRun) + 'FOCUS: ' + g.prompt
 }
 
 /** normalizeObsPath(location) -> string (strips trailing ':line', backslash -> forward slash) */
@@ -429,10 +487,11 @@ async function runAudit(plan, deps) {
   phase('Scope')
   let reviewers = plan.scope.reviewers
   let lenses = plan.scope.lenses || []
+  const focusSentence = plan.focus === 'all' ? '' : ' Return only kind ' + plan.focus + ' slices: only kind ' + plan.focus + ' belongs in this audit.'
   if (!reviewers || !reviewers.length) {
     const scopeResult = await agent(
       'READ-ONLY. Determine the review scope for an audit. Repository root: ' + plan.repo.root + '. Candidate paths: ' + plan.scope.paths.join(', ') +
-        '. Propose up to ' + plan.scope.reviewerCount + ' reviewer slices (key, label, focus, paths) and any cross-cutting lenses (key, label, focus) worth a dedicated pass.',
+        '. Propose up to ' + plan.scope.reviewerCount + ' reviewer slices (key, label, focus, paths) and any cross-cutting lenses (key, label, focus) worth a dedicated pass. Give every slice and lens a kind: docs for document files (READMEs, guides, user docs, agent instruction files, generated reference pages), code for source files, their comments included; a docs slice and a code slice never share a path.' + focusSentence,
       agentOpts(plan, 'review', { label: 'scope', phase: 'Scope', schema: S.SCOPE }),
     )
     if (!scopeResult) {
@@ -443,17 +502,22 @@ async function runAudit(plan, deps) {
       }
     }
     reviewers = scopeResult.reviewers || []
+    const outR = reviewers.filter((r) => !inFocus(plan.focus, r))
+    const outL = (scopeResult.lenses || []).filter((l) => !inFocus(plan.focus, l))
+    if (outR.length || outL.length) log('scope proposed slices outside focus ' + plan.focus + '; dropped: ' + outR.concat(outL).map((x) => x.key).join(', '))
+    reviewers = reviewers.filter((r) => inFocus(plan.focus, r))
     if (reviewers.length > plan.scope.reviewerCount) {
       const droppedReviewers = reviewers.slice(plan.scope.reviewerCount).map((r) => r.key)
       reviewers = reviewers.slice(0, plan.scope.reviewerCount)
       log('scope proposed ' + (reviewers.length + droppedReviewers.length) + ' reviewers; keeping first ' + plan.scope.reviewerCount + ', dropped: ' + droppedReviewers.join(', '))
     }
-    lenses = scopeResult.lenses || []
+    lenses = (scopeResult.lenses || []).filter((l) => inFocus(plan.focus, l))
   }
 
   phase('Review')
-  const reviewItems = reviewers.map((r) => ({ key: r.key, label: r.label, prompt: buildReviewerPrompt(plan, r) }))
-    .concat(lenses.map((l) => ({ key: l.key, label: l.label, prompt: buildLensPrompt(plan, l) })))
+  const docsInRun = reviewers.concat(lenses).some((x) => sliceKind(x) === 'docs')
+  const reviewItems = reviewers.map((r) => ({ key: r.key, label: r.label, prompt: buildReviewerPrompt(plan, r, docsInRun) }))
+    .concat(lenses.map((l) => ({ key: l.key, label: l.label, prompt: buildLensPrompt(plan, l, docsInRun) })))
   const reviewed = await parallel(reviewItems.map((it) => () =>
     agent(it.prompt, agentOpts(plan, 'review', { label: 'review:' + it.key, phase: 'Review', schema: S.FINDINGS })).then((r) => (r ? Object.assign({}, r, { key: it.key, label: it.label }) : null))))
   const slices = reviewed.filter(Boolean)
@@ -470,15 +534,17 @@ async function runAudit(plan, deps) {
       s.findings.map((f) => '- [' + f.severity + '] ' + f.title + ' (' + (f.locations || []).slice(0, 3).join(', ') + ')').join('\n')).join('\n\n')
     critic = await agent(
       'READ-ONLY. You are the completeness critic for an audit of ' + plan.repo.root + '. Below is what the reviewers covered. Identify up to ' + plan.gaps.max +
-        ' MATERIAL gaps — subsystems or concerns not covered — each with a label and a prompt (paths and questions) for a focused follow-up reviewer. Return an empty gaps array if coverage is adequate.\n\nCOVERAGE:\n' + coverage,
+        ' MATERIAL gaps — subsystems or concerns not covered — each with a label, a kind (docs for document files, code for source files and their comments) and a prompt (paths and questions) for a focused follow-up reviewer.' + (plan.focus === 'all' ? '' : ' Propose only kind ' + plan.focus + ' gaps: only kind ' + plan.focus + ' belongs in this audit.') + ' Return an empty gaps array if coverage is adequate.\n\nCOVERAGE:\n' + coverage,
       agentOpts(plan, 'critic', { label: 'critic', phase: 'Gaps', schema: S.CRITIC }),
     )
-    const gapList = (critic && critic.gaps) || []
+    const allGaps = (critic && critic.gaps) || []
+    const gapList = allGaps.filter((g) => inFocus(plan.focus, g))
+    if (gapList.length < allGaps.length) log('critic proposed gaps outside focus ' + plan.focus + '; dropped: ' + allGaps.filter((g) => !inFocus(plan.focus, g)).map((g) => g.label).join('; '))
     const runGaps = gapList.slice(0, plan.gaps.max)
     droppedGaps = gapList.slice(plan.gaps.max).map((g) => g.label)
     if (droppedGaps.length) log('critic proposed ' + gapList.length + ' gaps; running first ' + plan.gaps.max + ', dropped: ' + droppedGaps.join('; '))
     const gapRun = await parallel(runGaps.map((g, i) => () =>
-      agent(buildGapPrompt(plan, g), agentOpts(plan, 'review', { label: 'gap:' + (i + 1), phase: 'Gaps', schema: S.FINDINGS })).then((r) => (r ? Object.assign({}, r, { key: 'gap' + (i + 1), label: 'Gap: ' + g.label }) : null))))
+      agent(buildGapPrompt(plan, g, docsInRun), agentOpts(plan, 'review', { label: 'gap:' + (i + 1), phase: 'Gaps', schema: S.FINDINGS })).then((r) => (r ? Object.assign({}, r, { key: 'gap' + (i + 1), label: 'Gap: ' + g.label }) : null))))
     gapResults = gapRun.filter(Boolean)
     log('gap reviews: ' + gapResults.length + ' run')
   }
@@ -507,7 +573,7 @@ async function runAudit(plan, deps) {
       const lensKeys = verifyPlan(f, plan.verify)
       const findingText = JSON.stringify({ id: f.id, title: f.title, severity: f.severity, category: f.category, locations: f.locations, evidence: f.evidence, impact: f.impact, recommendation: f.recommendation })
       const votes = await parallel(lensKeys.map((l) => () =>
-        agent(verifierPreamble(plan) + VERIFY_LENS_INSTRUCTIONS[l] + '\n\nFINDING:\n' + findingText,
+        agent(verifierPreamble(plan) + verifyLensText(l, f.category) + '\n\nFINDING:\n' + findingText,
           agentOpts(plan, 'verify', { label: 'verify:' + f.id + ':' + l, phase: 'Verify', schema: S.VERDICT }))))
       return Object.assign({}, f, decideVerdict(votes, lensKeys, f.severity))
     }))

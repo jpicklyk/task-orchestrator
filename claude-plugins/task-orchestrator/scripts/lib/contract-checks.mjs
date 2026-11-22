@@ -1,6 +1,7 @@
-// contract-checks.mjs - pure checks that keep the plugin in step with the 4.0 server contract.
+// contract-checks.mjs - checks that keep the plugin in step with the 4.0 server contract.
 //
-// Three checks, each a pure function of its arguments plus file reads under the given plugin root:
+// Three checks, each a function of its arguments plus file reads under the given plugin root (the
+// domain-boundary scan also asks git which files are ignored):
 //   checkMatchers   every orchestrator hook matcher names only real 4.0 tools and equals the
 //                   registration.mjs builder output.
 //   scanToolNames   no file names a retired 3.x tool: a qualified mcp__<server>__<name> literal with an
@@ -12,6 +13,7 @@
 //
 // Callers: hooks/tests/contract-*.test.mjs (against the real repo and against fixtures).
 
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { SERVER_SEGMENT_TOKEN, hostToolMatcher, orchestratorToolMatcher } from '../../hooks/registration.mjs';
@@ -440,7 +442,22 @@ function collectBoundaryFiles(root, scopes) {
 }
 
 /**
- * Scans scopes for a host skill name (slash or next to the word skill) or a banned phrase. allow and
+ * Drops the files git ignores (one check-ignore call, run from root). Tracked files are never reported
+ * by check-ignore, so they stay. Exit 1 (none ignored), 128 (not a repository) or a spawn error drops
+ * nothing.
+ */
+function dropGitIgnored(root, files) {
+  if (files.length === 0) return files;
+  const rels = files.map((abs) => toPosix(relative(root, abs)));
+  const r = spawnSync('git', ['-C', root, 'check-ignore', '--stdin'], { input: rels.join('\n'), encoding: 'utf8' });
+  if (r.error || r.status !== 0) return files;
+  const ignored = new Set(r.stdout.split('\n').map((l) => l.trim()).filter(Boolean));
+  return files.filter((_, i) => !ignored.has(rels[i]));
+}
+
+/**
+ * Scans scopes (gitignored files excluded) for a host skill name (slash or next to the word skill) or a
+ * banned phrase. allow and
  * baseline rows ({file, name}) excuse every hit of that name in that file; both are two-way ratchets:
  * a row whose file is missing or holds no hit of its name is stale.
  * @param {{root: string, scopes: {dir: string, recursive?: boolean}[], names: string[], phrases?: string[], allow?: {file: string, name: string}[], baseline?: {file: string, name: string}[]}} args
@@ -450,7 +467,7 @@ export function scanDomainBoundary({ root, scopes, names, phrases = [], allow = 
   const excused = new Set([...allow, ...baseline].map((r) => `${r.file}\u0000${r.name}`));
   const violations = [];
   const hitKeys = new Set();
-  for (const abs of collectBoundaryFiles(root, scopes)) {
+  for (const abs of dropGitIgnored(root, collectBoundaryFiles(root, scopes))) {
     const file = toPosix(relative(root, abs));
     readText(abs).split('\n').forEach((line, idx) => {
       for (const h of boundaryHits(line, names, phrases)) {

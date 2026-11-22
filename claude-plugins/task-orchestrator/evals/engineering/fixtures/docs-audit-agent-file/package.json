@@ -1,0 +1,9 @@
+{
+  "name": "notify-queue",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "verify": "node scripts/verify.js"
+  }
+}

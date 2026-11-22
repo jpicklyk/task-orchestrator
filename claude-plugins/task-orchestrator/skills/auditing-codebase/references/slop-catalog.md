@@ -50,7 +50,7 @@ Project standards, written conventions and decision records take precedence over
 
 **Leftovers** (lintable: commented-out code, debug prints, TODO with no owner, unused imports or exports). Tell: code that nothing runs or reads, and notes to self left in the source. Cost: the next change treats whatever exists as something to copy. Move: delete. Source: Hunt and Thomas (broken windows); Fowler, *Refactoring* (the refactoring Remove Dead Code).
 
-**Vocabulary drift** (lintable when the glossary lists words to avoid; otherwise judgement). Tell: code, notes or docs name a glossary concept with a word the glossary rejects, or coin a second name for a defined term. Cost: one concept under two names, so search finds half the uses and readers assume two things. Move: rename to the glossary term; if the new word is better, change the glossary first, as an owner decision. Source: Evans, *Domain-Driven Design* (ubiquitous language).
+**Vocabulary drift** (lintable when the glossary lists words to avoid; otherwise judgement). Tell: code, tests or comments name a glossary concept with a word the glossary rejects, or coin a second name for a defined term. Cost: one concept under two names, so search finds half the uses and readers assume two things. Move: rename to the glossary term; if the new word is better, change the glossary first, as an owner decision. Source: Evans, *Domain-Driven Design* (ubiquitous language).
 
 ## Change hygiene
 

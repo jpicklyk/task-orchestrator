@@ -20,6 +20,8 @@ design and legibility check it exercises). Fixtures are in `fixtures/`; scenario
 | `spotting-code-slop` | `1-seeded-diff`, `2-clean-standard`, `3-seeded-diff-defensive` | review catches four seeded defects; review leaves a documented project standard alone; guards, parallel version, leftovers |
 | `defining-project-terms` | `1-order-purchase`, `2-shipment-package`, `3-new-term`, `4-no-glossary` | vocabulary drift against a glossary; a new term recorded; silence when there is no glossary |
 | `auditing-codebase` | `1-hot-spot`, `2-glossary-drift`, `3-decision-record` | a hot spot outranks a stable ugly module; a glossary-drift pass; a decision-record conflict is flagged |
+| `writing-documentation` | `1-module-readme`, `2-agent-file`, `3-stale-section` | a README that tours files and copies values instead of the invariant and its reason; an agent file that retells the tree; a section whose subject is gone is deleted, not kept or rewritten |
+| `auditing-documentation` | `1-drift-classes`, `2-agent-file`, `3-records` | accurate copies of code are proposed for a cut, a dangling name is reported, a stated why is kept; an overview, a contradiction and a dead path in an agent file; a changelog and an accepted decision record are not drift-checked or edited |
 
 Prompts carry no hint of the answer (no "Stripe is the only provider we use", no "formatted for display"): a hinted
 variant would be a separate scenario id.
@@ -31,11 +33,12 @@ scenario now named `auditing-codebase-<n>-...`.
 Two scenario families have no skill directory of their own: the slop catalog that `spotting-code-slop` probes now sits
 under `skills/auditing-codebase`, and `organizing-codebases` was cancelled. Their scenarios stay as baselines;
 `--with-skill` accepts only a family whose `skills/<name>/SKILL.md` exists.
+The two documentation families now have skills of their own (`writing-documentation`, `auditing-documentation`), so `--with-skill` takes both; their with-skill reruns are in results.md.
 
 ### Realistic tier
 
 The fixture scenarios are tiny, so the agent reads every file. Each skill therefore also has one scenario (id
-`<skill>-4-realistic-...`, or `-5-` for `defining-project-terms`) that runs against this repository itself, where the
+`<skill>-4-realistic-...`, or `-5-` for `defining-project-terms`; the two documentation skills run at the later base sha `848db0fa0`) that runs against this repository itself, where the
 right answer needs discovery in a large tree. Each scenario's `expectation` says why its target was chosen.
 
 | Scenario | Target in this repository | Graded on |
@@ -45,12 +48,14 @@ right answer needs discovery in a large tree. Each scenario's `expectation` says
 | `defining-project-terms-5-realistic-seat-ownership` | a request that says "seat ownership"; `GLOSSARY.md` lists it as a term to avoid for owning seat | the avoided term in no file name, code, comment or test; the glossary term used |
 | `spotting-code-slop-4-realistic-historical-commit` | commit `c506096c5` (#743), whose review recorded finding N1 (the skill step dropped the sort and paging the code relies on) | a FINDING on `SKILL.md` about paging, sort order or the limit |
 | `auditing-codebase-4-realistic-hooks-history` | `hooks/`, about 125 commits at the base sha; the prompt does not mention the git history | every ranked path, and the first, among the most-changed files, `hooks/README.md` (27 commits, the most of any path) included |
+| `writing-documentation-4-realistic-hooks-lib` | `hooks/lib`, 16 files and no README at `848db0fa0` | a README of at least eight file-by-file lines, a copied count or ten function lines is a failure; an empty or missing README too |
+| `auditing-documentation-4-realistic-current-docs` | sections 1, 2 and 10 of `current/docs/workflow-guide.md` and the five code files they describe, named by full path in the prompt (`Role.kt`, `Trigger.kt`, `TransitionTable.kt`, `ClaimService.kt`, `AdvanceRequests.kt`); chapter 10 copies the claim TTL default 900 into seven places | a finding on a copied default whose move is to state it once, and a move that cuts, merges or splits a section or document |
 
 A scenario with a `snapshot` field (`ref`, and optionally `overlay` or `history`) builds its repository from this
 checkout instead of a fixture folder, outside the repository, in a fresh temp directory per run:
 
 - default: `git archive <ref>` extracted, then `git init` and one commit, so the agent can diff. `ref` is `7998dc957`,
-  the base sha of the baseline.
+  the base sha of the baseline (`848db0fa0` for the two documentation scenarios, which have no history).
 - `overlay { from, paths, message }`: the archive of `ref` as commit 1, then those paths as they are in commit `from`
   as commit 2. The review scenario uses the parent of `c506096c5` as `ref` (the commit itself is in the base sha, so a
   base-sha archive has nothing to review) and adds every file the real commit touches, tests, new test file and
@@ -62,8 +67,11 @@ The snapshot's `.mcp.json`, `.claude/settings*.json`, `.claude/skills`, `.claude
 removed before the first commit (and, for `history`, in one extra commit on top of the base sha), and a baseline never
 passes the plugin, so the snapshot's own plugin, servers and project skills never load, not even beside the one skill a
 rerun adds; its `CLAUDE.md` and `GLOSSARY.md` stay, because an agent working in the repository normally sees them. Caps for a realistic run: at most
-60 turns (40 for a fixture run) and a 20 minute timeout (15 for a fixture run); a run that hits either is an error row
-and is not recorded.
+60 turns (40 for a fixture run) and a 20 minute timeout (15 for a fixture run); a scenario may set `timeoutMinutes`, an
+integer from 1 up to its tier cap, to lower the timeout for its runs (turns are unchanged). A run that hits either cap is
+an error row and is not recorded. Guard rails for a realistic documentation scenario: it names its file set in the prompt
+(a whole folder is not a bounded audit), runs once per model, and sets `timeoutMinutes` 10; a cap hit is a gap, re-run at
+most once, and a second hit is named in the results note rather than retried.
 
 ### Slop graders on build scenarios
 
@@ -75,7 +83,9 @@ over six or more code lines: a wide net around new code), `defensive-guards` (th
 `Array.isArray` or `?.` guards; six for the config loader, which validates input on purpose), a new dependency in
 `package.json`, `modified-outside` (an existing file outside the paths the request needs: scope creep, on every build
 scenario), `unused-export` (a new export no added line refers to a second time) and a TODO or FIXME left behind. They
-read production files only; the scenario's own request checks sit next to them.
+read production files only; the scenario's own request checks sit next to them. The documentation build scenarios
+(`writing-documentation-*`) carry only `modified-outside` (an existing file changed or deleted outside the one document
+the request names): the other graders read code, and their output is a document.
 
 `designing-modules-1-single-provider` catches a one-implementation abstraction by shape (`single-implementation`): an
 `interface`, an `abstract class` or a base class whose methods only throw "not implemented"; a base class with exactly
@@ -112,6 +122,19 @@ A grader that changed after a failing row is listed here with what it was, so a 
   before the change whose only A4a hit was the README (opus in `with-audit-3` and `with-audit-5`) would pass under the
   current sets; `with-audit-2` opus ranked `phase-guard-record.mjs`, which is outside both the old and the new set, and
   would still fail.
+- `W3a` (writing-documentation-3) counted the letters `csv` (`min` 4), so the two on the `exportCsv` line let a run that
+  kept one CSV line pass; it counts the word `\bcsv\b`. `W3c` checked only that `writeJson` was added, so a run that
+  renamed the code sample and left `exportJson` in the prose passed; `W3d` now needs all three `exportJson` lines in
+  the removed text. `DA3d` (auditing-documentation-3) matched `integer` or `cents` anywhere after the location, so the
+  decision record's own file name in the move satisfied it; it now needs the float point in the problem segment, and a
+  term inside a hyphenated path does not count. The `docs-baseline-1` rows were re-graded from their saved artifacts;
+  none changed.
+- `auditing-documentation-4-realistic-current-docs` was rescoped after its first baseline: the prompt asked for an audit
+  of all of `current/docs/`, which took 67 turns on sonnet and hit the 20 minute cap twice on opus, so the run could not
+  be bounded. It now names sections 1, 2 and 10 of `workflow-guide.md` and five code files, and the scenario sets
+  `timeoutMinutes` 10. DA4a and DA4b are unchanged (they read content after the location, not paths), so no row was
+  re-graded. The `docs-baseline-1` sonnet row of this scenario is marked `superseded; baseline` in results.md and the
+  rescoped baseline is `docs-baseline-2`.
 
 ### Fixture shapes
 
@@ -126,13 +149,19 @@ A grader that changed after a failing row is listed here with what it was, so a 
 
 `id`, `skill`, `kind` (`build`, `review` or `audit`), `title`, `fixture`, `prompt`, `pattern` (what it probes),
 `expectation` (the failure expected without the skill), `models` (default list), `grading` (`auto` or `manual`),
-`checks`, and for review and audit scenarios `output` (the file the agent writes: `review.md` with
+`checks`, optionally `timeoutMinutes` (see Realistic tier), and for review and audit scenarios `output` (the file the agent writes: `review.md` with
 `FINDING <file>:<line> | <text>` lines and a `VERDICT:` line, or `audit.md` with
-`RANK <n> | <path> | <rating> | <reason>` lines).
+`RANK <n> | <path> | <rating> | <reason>` lines; the documentation audits write `audit.md` with
+`FINDING <file>:<line> | <what is wrong> | <what to do>` lines, three segments, the move last). A check on such a line
+matches the whole line, but a content term must match after the first `|` (a file name such as
+`0001-store-money-as-integer-cents.md` is not content), and the move is read from the last segment. The prompt never
+lists the moves.
 
 ### Graders
 
-`checks.mjs` holds the check types (documented at the top of the file). A check names the pattern it probes and FAILS
+`checks.mjs` holds the check types (documented at the top of the file). An observation holds `added` and `removed` lines
+per file (`removed` is keyed by the old path, so a deleted file counts); `removed-lacks` reads them, because a section
+the run left untouched adds nothing to the diff. A check names the pattern it probes and FAILS
 when that failure is observed, so a run's failures are the distinct pattern names of its failed checks, and a run with
 none is `no failure`. The checks are heuristics over paths, added lines and output lines: read a surprising row
 together with the run's detail line before drawing a conclusion. A scenario that cannot be graded deterministically
@@ -168,7 +197,7 @@ The sha in a row is the checkout the graders ran at, with `+dirty` when tracked 
 
 Every run saves, under `runs/<run-id>/<scenario>--<model>/`: `answer.md` (the final message), the review or audit
 file the run wrote, `diff.stat` and `diff.patch` (what the run changed, cut at 200 KB), `grading.txt` (each check's
-verdict and detail) and `run.json` (model ids, skills the transcript shows invoked). The results row's last column
+verdict and detail) and `run.json` (model ids, skills the transcript shows invoked, `skillFiles`: the files under the loaded plugin's `skills/` folder that a Read or a Bash command named, relative to it, which shows whether a skill's reference files were opened, and `durationMs`: the wall time of the run). The results row's last column
 names the folder, so a pass can be checked against what the grader saw.
 
 `runs/` is gitignored (`.gitignore` in this folder): the artifacts stay in the checkout that ran them and are not

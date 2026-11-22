@@ -1,0 +1,52 @@
+{
+  "id": "writing-documentation-3-stale-section",
+  "skill": "writing-documentation",
+  "kind": "build",
+  "title": "Bring a README in line with changed code",
+  "fixture": "docs-stale-section",
+  "pattern": "keeps or rewrites a section whose subject is gone; leaves a stale name",
+  "expectation": "The 2.0.0 release removed CSV export and renamed exportJson to writeJson (the CHANGELOG records both; the code has no CSV). The README still has a Usage block naming exportJson and a five-line \"Exporting to CSV\" section. Without guidance the agent leaves the CSV section standing, or rewrites it into a note that CSV was removed (history, which the CHANGELOG already holds), or fixes the code sample and misses the name in the prose. A pass deletes the section and renames the stale name everywhere in the README. The grader reads removed lines too, because a section left untouched adds nothing to the diff.",
+  "prompt": "The export code changed in the 2.0.0 release. Bring README.md in line with the code.",
+  "models": [
+    "sonnet"
+  ],
+  "grading": "auto",
+  "checks": [
+    {
+      "id": "W3a",
+      "type": "removed-lacks",
+      "in": "^README\\.md$",
+      "regex": "\\bcsv\\b",
+      "min": 4,
+      "pattern": "keeps a section whose subject is gone"
+    },
+    {
+      "id": "W3b",
+      "type": "added-matches",
+      "in": "^README\\.md$",
+      "regex": "csv",
+      "pattern": "rewrites a section whose subject is gone"
+    },
+    {
+      "id": "W3c",
+      "type": "added-lacks",
+      "in": "^README\\.md$",
+      "regex": "writeJson",
+      "pattern": "leaves a stale name"
+    },
+    {
+      "id": "W3d",
+      "type": "removed-lacks",
+      "in": "^README\\.md$",
+      "regex": "exportJson",
+      "min": 3,
+      "pattern": "leaves a stale name"
+    },
+    {
+      "id": "G5",
+      "type": "modified-outside",
+      "regex": "^README\\.md$",
+      "pattern": "scope creep: unrelated existing files changed"
+    }
+  ]
+}
