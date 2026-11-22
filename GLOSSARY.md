@@ -43,16 +43,14 @@ In code: `RunSeat.COORDINATOR`.
 
 The server tool profile served at `/mcp/director`: the run board and decision inbox, with no read that returns a note or document body.
 
-Distinct from: director mode, which is a session state, not an endpoint.
-Don't call it: director, on its own; the bare word also names director mode, so say which.
+Distinct from: director mode, which is a session state, not an endpoint. The bare word "director" names both, so where the context does not settle it, say which.
 In code: `ToolProfile.DIRECTOR`.
 
 ## Director mode
 
 A session state in which the session runs the board and delegates every read or edit to background agents, entered with the director skill or by running as the hardened director agent.
 
-Distinct from: director profile, which is a server endpoint.
-Don't call it: director, on its own; the bare word also names director profile, so say which.
+Distinct from: director profile, which is a server endpoint. The bare word "director" names both, so where the context does not settle it, say which.
 Example: a background agent dispatched by a director session is not in director mode.
 
 ## Sizing tier
