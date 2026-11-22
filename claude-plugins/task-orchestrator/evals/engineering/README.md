@@ -33,7 +33,7 @@ scenario now named `auditing-codebase-<n>-...`.
 Two scenario families have no skill directory of their own: the slop catalog that `spotting-code-slop` probes now sits
 under `skills/auditing-codebase`, and `organizing-codebases` was cancelled. Their scenarios stay as baselines;
 `--with-skill` accepts only a family whose `skills/<name>/SKILL.md` exists.
-The two documentation families are baselines until their skills exist.
+The two documentation families now have skills of their own (`writing-documentation`, `auditing-documentation`), so `--with-skill` takes both; their with-skill reruns are in results.md.
 
 ### Realistic tier
 
@@ -49,7 +49,7 @@ right answer needs discovery in a large tree. Each scenario's `expectation` says
 | `spotting-code-slop-4-realistic-historical-commit` | commit `c506096c5` (#743), whose review recorded finding N1 (the skill step dropped the sort and paging the code relies on) | a FINDING on `SKILL.md` about paging, sort order or the limit |
 | `auditing-codebase-4-realistic-hooks-history` | `hooks/`, about 125 commits at the base sha; the prompt does not mention the git history | every ranked path, and the first, among the most-changed files, `hooks/README.md` (27 commits, the most of any path) included |
 | `writing-documentation-4-realistic-hooks-lib` | `hooks/lib`, 16 files and no README at `848db0fa0` | a README of at least eight file-by-file lines, a copied count or ten function lines is a failure; an empty or missing README too |
-| `auditing-documentation-4-realistic-current-docs` | `current/docs/`, where the claim TTL default 900 is copied into `workflow-guide.md` and `fleet-deployment.md` and the page-limit default 50 into `api-rest.md` | a finding on a copied default whose move is to state it once, and a move that cuts, merges or splits a section or document |
+| `auditing-documentation-4-realistic-current-docs` | sections 1, 2 and 10 of `current/docs/workflow-guide.md` and the five code files they describe, named by full path in the prompt (`Role.kt`, `Trigger.kt`, `TransitionTable.kt`, `ClaimService.kt`, `AdvanceRequests.kt`); chapter 10 copies the claim TTL default 900 into seven places | a finding on a copied default whose move is to state it once, and a move that cuts, merges or splits a section or document |
 
 A scenario with a `snapshot` field (`ref`, and optionally `overlay` or `history`) builds its repository from this
 checkout instead of a fixture folder, outside the repository, in a fresh temp directory per run:
@@ -67,8 +67,11 @@ The snapshot's `.mcp.json`, `.claude/settings*.json`, `.claude/skills`, `.claude
 removed before the first commit (and, for `history`, in one extra commit on top of the base sha), and a baseline never
 passes the plugin, so the snapshot's own plugin, servers and project skills never load, not even beside the one skill a
 rerun adds; its `CLAUDE.md` and `GLOSSARY.md` stay, because an agent working in the repository normally sees them. Caps for a realistic run: at most
-60 turns (40 for a fixture run) and a 20 minute timeout (15 for a fixture run); a run that hits either is an error row
-and is not recorded.
+60 turns (40 for a fixture run) and a 20 minute timeout (15 for a fixture run); a scenario may set `timeoutMinutes`, an
+integer from 1 up to its tier cap, to lower the timeout for its runs (turns are unchanged). A run that hits either cap is
+an error row and is not recorded. Guard rails for a realistic documentation scenario: it names its file set in the prompt
+(a whole folder is not a bounded audit), runs once per model, and sets `timeoutMinutes` 10; a cap hit is a gap, re-run at
+most once, and a second hit is named in the results note rather than retried.
 
 ### Slop graders on build scenarios
 
@@ -126,6 +129,12 @@ A grader that changed after a failing row is listed here with what it was, so a 
   decision record's own file name in the move satisfied it; it now needs the float point in the problem segment, and a
   term inside a hyphenated path does not count. The `docs-baseline-1` rows were re-graded from their saved artifacts;
   none changed.
+- `auditing-documentation-4-realistic-current-docs` was rescoped after its first baseline: the prompt asked for an audit
+  of all of `current/docs/`, which took 67 turns on sonnet and hit the 20 minute cap twice on opus, so the run could not
+  be bounded. It now names sections 1, 2 and 10 of `workflow-guide.md` and five code files, and the scenario sets
+  `timeoutMinutes` 10. DA4a and DA4b are unchanged (they read content after the location, not paths), so no row was
+  re-graded. The `docs-baseline-1` sonnet row of this scenario is marked `superseded; baseline` in results.md and the
+  rescoped baseline is `docs-baseline-2`.
 
 ### Fixture shapes
 
@@ -140,7 +149,7 @@ A grader that changed after a failing row is listed here with what it was, so a 
 
 `id`, `skill`, `kind` (`build`, `review` or `audit`), `title`, `fixture`, `prompt`, `pattern` (what it probes),
 `expectation` (the failure expected without the skill), `models` (default list), `grading` (`auto` or `manual`),
-`checks`, and for review and audit scenarios `output` (the file the agent writes: `review.md` with
+`checks`, optionally `timeoutMinutes` (see Realistic tier), and for review and audit scenarios `output` (the file the agent writes: `review.md` with
 `FINDING <file>:<line> | <text>` lines and a `VERDICT:` line, or `audit.md` with
 `RANK <n> | <path> | <rating> | <reason>` lines; the documentation audits write `audit.md` with
 `FINDING <file>:<line> | <what is wrong> | <what to do>` lines, three segments, the move last). A check on such a line
@@ -188,7 +197,7 @@ The sha in a row is the checkout the graders ran at, with `+dirty` when tracked 
 
 Every run saves, under `runs/<run-id>/<scenario>--<model>/`: `answer.md` (the final message), the review or audit
 file the run wrote, `diff.stat` and `diff.patch` (what the run changed, cut at 200 KB), `grading.txt` (each check's
-verdict and detail) and `run.json` (model ids, skills the transcript shows invoked). The results row's last column
+verdict and detail) and `run.json` (model ids, skills the transcript shows invoked, `skillFiles`: the files under the loaded plugin's `skills/` folder that a Read or a Bash command named, relative to it, which shows whether a skill's reference files were opened, and `durationMs`: the wall time of the run). The results row's last column
 names the folder, so a pass can be checked against what the grader saw.
 
 `runs/` is gitignored (`.gitignore` in this folder): the artifacts stay in the checkout that ran them and are not
