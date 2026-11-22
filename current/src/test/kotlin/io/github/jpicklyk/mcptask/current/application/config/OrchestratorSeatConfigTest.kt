@@ -111,7 +111,7 @@ class OrchestratorSeatConfigTest {
                 "        required: true",
                 "        seat: $ownerOfConfirmation",
             )
-        return parsed(text).document.warningViolations.map { it.reason }
+        return validator.validate(parsed(text), ConfigScope.ROOT, null).warnings.map { it.reason }
     }
 
     @Test

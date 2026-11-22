@@ -20,7 +20,7 @@ import kotlin.test.assertTrue
  *
  * Oracle P (task-scope build item 3): extraction is identical in both modes; the mode only classifies a finding.
  * STRICT turns each former soft skip into an error with an RFC 6901 path, MIGRATION keeps it a warning at the same
- * path. Advisory findings (resource fan-out, a required note no seat owns) are warnings in both. Seat structure errors
+ * path. Advisory findings (resource fan-out; the unowned-note advisory is validation's) are warnings in both. Seat structure errors
  * F1-F4 are fatal in both, with a path. Scenarios S9, S16 and the decision D1 (reading a stored version never fails on
  * findings).
  */
@@ -139,16 +139,14 @@ class ParseModeTest {
             "      - { key: w3, role: work, required: true, seat: implementer }\n"
 
     @Test
-    fun `S8 a required note no seat owns is a warning in STRICT and in MIGRATION, never an error`() {
+    fun `S8 a required note no seat owns draws no parse warning`() {
         for (mode in ParseMode.values()) {
             val document = parsed(unownedNoteYaml, mode)
 
             assertEquals(emptyList(), document.errors, "mode $mode")
-            assertTrue(document.warnings.any { it.contains("q1") }, "mode $mode warnings: ${document.warnings}")
-            assertTrue(document.warnings.any { it.contains("w1") }, "mode $mode warnings: ${document.warnings}")
             assertTrue(
-                document.warnings.none { it.contains("w3") },
-                "the properly owned note must not be named, mode $mode: ${document.warnings}"
+                document.warnings.none { it.contains("q1") || it.contains("w1") },
+                "mode $mode warnings: ${document.warnings}"
             )
         }
     }
