@@ -1696,6 +1696,31 @@ test('T2 caller slices: kind, methodSkill and focus reasons for a reviewer and f
   }
 })
 
+test('T2b malformed reviewers or lenses return a reason and never throw', () => {
+  const run = (where, value) => {
+    const a = baseArgs()
+    a.scope = { paths: ['p'], reviewers: [], lenses: [] }
+    a.scope[where] = value
+    return CORE.normalizeArgs(a)
+  }
+  for (const where of ['reviewers', 'lenses']) {
+    for (const bad of [{}, { key: 'x' }, 'r1', 3, true]) {
+      const r = run(where, bad)
+      assert.equal(r.ok, false, `${where} ${JSON.stringify(bad)} must be rejected`)
+      assert.equal(r.reason, `invalid args: scope.${where} must be an array`)
+    }
+    for (const entry of [null, 3, 'r1', [], undefined]) {
+      const r = run(where, [entry])
+      assert.equal(r.ok, false, `${where} entry ${JSON.stringify(entry)} must be rejected`)
+      assert.equal(r.reason, `invalid args: scope.${where}[0] must be an object`)
+    }
+    const second = run(where, [reviewerSpec('ok'), null])
+    assert.equal(second.reason, `invalid args: scope.${where}[1] must be an object`)
+    assert.equal(run(where, null).ok, true)
+    assert.equal(run(where, [reviewerSpec('ok')]).ok, true)
+  }
+})
+
 test('T3 resolution order of the method skill', async () => {
   const plan = buildPlan({
     methodSkill: 'proj:run',

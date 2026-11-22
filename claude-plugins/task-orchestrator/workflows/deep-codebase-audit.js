@@ -128,6 +128,16 @@ function normalizeArgs(raw) {
 
   const focus = A.focus != null ? A.focus : 'all'
   if (FOCUS_VALUES.indexOf(focus) === -1) return { ok: false, reason: 'invalid args: focus must be code, docs or all' }
+  for (const f of ['reviewers', 'lenses']) {
+    const list = scopeIn[f]
+    if (list == null) continue
+    if (!Array.isArray(list)) return { ok: false, reason: 'invalid args: scope.' + f + ' must be an array' }
+    for (let i = 0; i < list.length; i++) {
+      if (!list[i] || typeof list[i] !== 'object' || Array.isArray(list[i])) {
+        return { ok: false, reason: 'invalid args: scope.' + f + '[' + i + '] must be an object' }
+      }
+    }
+  }
   const given = (scopeIn.reviewers || []).concat(scopeIn.lenses || [])
   for (const s of given) {
     if (s.kind != null && s.kind !== 'code' && s.kind !== 'docs') return { ok: false, reason: 'invalid args: slice ' + s.key + ' kind must be code or docs' }
