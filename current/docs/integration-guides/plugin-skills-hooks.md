@@ -434,7 +434,7 @@ test-authoring seat, respectively.
 
 The shipped workflows, each launched on its own terms:
 
-- `deep-codebase-audit` — read-only report + proposal; every reviewer follows the `auditing-codebase` skill (the `methodSkill` argument names it) inside its own slice; materializing its findings goes through [create-item](../../../claude-plugins/task-orchestrator/skills/create-item/SKILL.md#from-a-workflow-findings-proposal). Cost scales with the preset: `quick`, `standard` or `full`; `full` runs roughly 90 minutes and about 30M tokens.
+- `deep-codebase-audit` — read-only report + proposal; every reviewer follows the `auditing-codebase` skill by default (the `methodSkill` argument names another) inside its own slice; materializing its findings goes through [create-item](../../../claude-plugins/task-orchestrator/skills/create-item/SKILL.md#from-a-workflow-findings-proposal). Cost scales with the preset: `quick`, `standard` or `full`; `full` runs roughly 90 minutes and about 30M tokens.
 - `retro-analysis` — two modes. `deep` and `audit` are invoked via `/task-orchestrator:review-retrospectives --deep` and `--audit`; the consumer is that skill's Step 3 (present the result, then apply its create and retire shapes after the user confirms).
 - `review-wave` — independent review lanes over an item's owned-file diff, aggregated into one verdict in args order. Verdict lanes (the default) decide the verdict; a lane whose review notes declare `lane.output: findings` reports findings only and never sets it, though its stopped status still stops the item; `lane.after` orders lanes and never halts or skips one. Shipped; the `run-wave` front door builds the lanes from the review notes' `lane` declarations.
 

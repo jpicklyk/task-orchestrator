@@ -31,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Plugin
 
+- **Changed: the `audit` workflow is now `deep-codebase-audit`.** A launch by the old name `task-orchestrator:audit` no longer resolves; use the new name. Its arguments, result and findings proposal are unchanged (`audit/args-v1`, `audit/result-v1`).
+
 - **Added: engineering skills for module design, project terms and codebase audits.** `designing-modules` (seven checks for deciding or assessing a module's shape) is now a default skill of the planner seat, and `planning-standards` asks the same seam questions. `defining-project-terms` keeps a project glossary agreed and current and gives the few lines a project adds to its agent instructions file. `auditing-codebase` is a user-run audit of existing code, scoped by version-control history, with design signals, a slop catalog and a glossary-drift check. The `audit` workflow is renamed `deep-codebase-audit`, and each of its reviewers now follows `auditing-codebase`. Scenario evals for these skills ship under `evals/engineering/`.
 
 - **Fixed: run-wave's post-run step names the coordinator token for a child's disposition register.** "Dispositions at child close" now says to write `orchestrator-confirmation` under the coordinator token while the run is open; the server owns that note as the orchestrator seat's in every phase, so a token-less write in an open run is refused.
