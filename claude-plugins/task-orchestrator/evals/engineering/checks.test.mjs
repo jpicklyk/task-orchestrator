@@ -73,6 +73,10 @@ test('rank checks read the first rank, a rating and a line', () => {
   const lacks = scn([{ id: 'c', type: 'rank-line-lacks', path: 'pricing', regex: '0002', pattern: 'record' }], { output: 'audit.md' });
   assert.equal(grade(lacks, { output: out }).outcome, 'no failure');
   assert.equal(grade(lacks, { output: 'RANK 1 | src/pricing.js | Plan it | slow' }).outcome, 'fail');
+  assert.equal(grade(lacks, { output: 'RANK 1 | src/other.js | Plan it | slow' }).outcome, 'fail');
+  const optional = scn([{ id: 'c', type: 'rank-line-lacks', path: 'pricing', regex: '0002', absentOk: true, pattern: 'record' }], { output: 'audit.md' });
+  assert.equal(grade(optional, { output: 'RANK 1 | src/other.js | Plan it | slow' }).outcome, 'no failure');
+  assert.equal(grade(optional, { output: 'RANK 1 | src/pricing.js | Plan it | slow' }).outcome, 'fail');
 });
 
 test('output-lacks fails when the pass is absent', () => {

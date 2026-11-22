@@ -1,0 +1,3 @@
+# Graded run artifacts stay in the checkout that ran them: they are not committed and so not shipped in the plugin.
+# results.md is the committed record.
+runs/

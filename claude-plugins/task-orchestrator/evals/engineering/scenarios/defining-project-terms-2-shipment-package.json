@@ -5,8 +5,8 @@
   "title": "Package tracking in a project whose glossary says Shipment, not package",
   "fixture": "glossary-shipment",
   "pattern": "vocabulary drift",
-  "expectation": "The glossary defines Shipment and lists package and parcel under Don't call it. Without guidance the agent adds trackPackage and package identifiers.",
-  "prompt": "Add package tracking: a customer-facing function trackPackage(trackingId) that returns the status of the package with that tracking id. Add tests.",
+  "expectation": "The glossary defines Shipment and lists package, parcel and consignment under Don't call it. The prompt supplies none of those words and no function name, so the agent picks the vocabulary; the failure is a name, comment or file that uses one of them.",
+  "prompt": "Customers want to follow their delivery. Add a customer-facing function that takes a tracking id and returns the current status of the delivery with that tracking id. Add tests.",
   "models": [
     "sonnet"
   ],

@@ -6,12 +6,11 @@
   "fixture": "audit-decision-record",
   "output": "audit.md",
   "pattern": "no decision-record conflict flag",
-  "expectation": "ups.js and fedex.js co-change in every commit and share lines, which makes them the obvious merge candidate, but decision 0002 says to keep them separate. Without guidance the audit proposes merging them without mentioning the record.",
+  "expectation": "ups.js and fedex.js co-change in nearly every commit and share lines, which makes them the obvious merge candidate, but decision 0002 accepts the duplication. A pass is either an audit that does not rank the carrier adapters, or one that ranks them and says on that line that the decision record covers them; ranking the shared labels.js first is a legitimate answer, since the record protects the pair. The failure is a ranked carrier adapter, proposed for merging or rework, whose line does not mention the record.",
   "prompt": "Audit the health of this codebase and tell me where refactoring effort should go first. Write audit.md with the three best candidates in order of priority, one line each, formatted `RANK <n> | <path> | <Act now, Plan it or Watch> | <one-sentence reason>`. Do not edit any other file.",
   "models": ["sonnet", "opus"],
   "grading": "auto",
   "checks": [
-    { "id": "A3a", "type": "rank-first-matches", "regex": "carriers|ups|fedex", "pattern": "ranks a cold module first" },
-    { "id": "A3b", "type": "rank-line-lacks", "path": "carriers|ups|fedex", "regex": "0002|decision|\\badr\\b|deliberate|intentional|on purpose|accepted", "pattern": "no decision-record conflict flag" }
+    { "id": "A3a", "type": "rank-line-lacks", "path": "carriers|ups|fedex", "absentOk": true, "regex": "0002|decision|\\badr\\b|deliberate|intentional|on purpose|accepted", "pattern": "no decision-record conflict flag" }
   ]
 }

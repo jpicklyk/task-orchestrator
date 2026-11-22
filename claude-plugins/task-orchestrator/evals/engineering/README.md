@@ -89,6 +89,11 @@ A grader that changed after a failing row is listed here with what it was, so a 
   regexes are `D1d` and `D1e`.
 - The glossary fixture's `CLAUDE.md` stated the rule `T3a` checks (update the glossary with the change); it no longer does.
 - The audit-4 prompt said "use the repository's git history", which names the method it probes; it no longer does.
+- `2-shipment-package` (terms-2) prompt named `trackPackage(trackingId)`, so a run could not fail on its own choice of
+  name; it now names neither the function nor any glossary-avoided word ("delivery"). Earlier rows are superseded.
+- `3-decision-record` (audit-3) required rank 1 to be a carrier adapter, which the fixture's own decision record
+  protects. It now passes when the adapters are not ranked, or are ranked with a line that mentions the record
+  (`rank-line-lacks` with `absentOk`); ranking `labels.js` first is a legitimate answer. Earlier rows are superseded.
 - The review-4 change was the real commit with its tests cut; it is the real commit in full now.
 
 ### Fixture shapes
@@ -149,6 +154,11 @@ file the run wrote, `diff.stat` and `diff.patch` (what the run changed, cut at 2
 verdict and detail) and `run.json` (model ids, skills the transcript shows invoked). The results row's last column
 names the folder, so a pass can be checked against what the grader saw.
 
+`runs/` is gitignored (`.gitignore` in this folder): the artifacts stay in the checkout that ran them and are not
+committed, so they do not ship in the plugin package and do not grow it with each rerun. `results.md` is the only
+committed record. To audit a row, rerun its scenario in a checkout or keep the folder the run wrote; a row's artifacts
+column names a path that exists only where the run happened.
+
 `node --test claude-plugins/task-orchestrator/evals/engineering/checks.test.mjs` tests the graders, the scenario
 validation and the repository builder with no model.
 
@@ -179,7 +189,7 @@ and model. The target failures should be gone; a scenario that showed no failure
 
 - Each run copies a fixture into a fresh directory under the system temp folder, initializes a git repository there
   and runs `claude -p` once in it. The directory is removed afterwards (kept only for a manual scenario); what the
-  grader saw is kept under `runs/`.
+  grader saw is kept under `runs/` (not committed, see Graded artifacts).
 - Settings come from `--setting-sources project`, so the user's settings and enabled plugins do not apply. Tools
   are limited to file tools, `node`, read-only shell commands and `git`; `gh` is on neither the allow list nor the
   child `PATH`, and `GH_TOKEN` and `GITHUB_TOKEN` are removed. Fixtures have no remote.

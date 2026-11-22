@@ -19,7 +19,8 @@
 //   verdict-is        { expect }                      fails when the VERDICT line differs
 //   rank-first-matches { regex }                      fails when rank 1 names a path that does not match
 //   rank-rating-not   { path, rating }                fails when the RANK line for `path` carries a rating that matches
-//   rank-line-lacks   { path, regex }                 fails when the RANK line for `path` does not match `regex`
+//   rank-line-lacks   { path, regex, absentOk }       fails when the RANK line for `path` does not match `regex`; a path
+//                                                     not ranked at all fails unless absentOk is true
 //   output-lacks      { regex }                       fails when the output file never matches
 //   rank-each-matches { regex }                       fails when no RANK line exists or any ranked path does not match
 //
@@ -265,7 +266,7 @@ export const CHECK_TYPES = {
   },
   'rank-line-lacks': (obs, s) => {
     const row = rowFor(obs, s.path);
-    return { failed: !row || !re(s.regex).test(row.line), detail: row ? row.line : 'path not ranked' };
+    return { failed: row ? !re(s.regex).test(row.line) : !s.absentOk, detail: row ? row.line : 'path not ranked' };
   },
   'output-lacks': (obs, s) => ({ failed: !re(s.regex).test(String(obs.output || '')), detail: '' }),
   'rank-each-matches': (obs, s) => {
