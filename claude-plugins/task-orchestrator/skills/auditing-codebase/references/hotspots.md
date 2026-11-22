@@ -12,7 +12,7 @@ git log --since="12 months ago" --name-only --pretty=format: -- <path> | grep -v
 
 `--pretty=format:` prints an empty line for every commit; the `grep` drops them so they are not counted as a path.
 
-Drop churn that is there by design: lock files, generated output, changelogs, vendored code, test fixtures and data snapshots. Look at the paths before you rank them; what is left goes on to the next two sections, whatever kind of file it is.
+Drop churn that is there by design: lock files, generated output, changelogs, vendored code, test fixtures, data snapshots, and bulk commits such as renames or formatting sweeps. Look at the paths before you rank them; what is left goes on to the next two sections, whatever kind of file it is.
 
 Commit count counts changes, not size. A file edited in a hundred one-line commits and one rewritten twice are different cases; for the top few, run `git log --oneline --follow -- <file>` and read the subjects. A burst around one feature that has since stopped is cooler than the count says.
 
