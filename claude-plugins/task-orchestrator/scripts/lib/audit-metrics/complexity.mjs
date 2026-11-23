@@ -28,7 +28,7 @@ function countBranches(text, cl) {
  */
 export function countedLines(text, lang) {
   const cl = lang ? compileLang(lang) : null;
-  const lines = text.replace(/^﻿/, '').split(/\r\n|\n/);
+  const lines = text.replace(/^\uFEFF/, '').split(/\r\n|\n/);
   const out = [];
   let inBlock = false;
   for (let i = 0; i < lines.length; i++) {
