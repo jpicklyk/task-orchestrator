@@ -1,9 +1,9 @@
 export const meta = {
   name: 'deep-codebase-audit',
-  description: 'Barrier-per-phase codebase audit: reviewers that each follow the method skill of their own slice, gap critic, adversarial verify, synthesis report, and a triage-derived findings proposal.',
-  whenToUse: 'Rare and expensive: a broad multi-agent pass over existing code and documentation, by slice (focus picks which). Presets quick|standard|full trade reviewer/verifier fan-out for cost; runId, date, and reportPath are required args; focus (optional: code, docs or all; default all) limits the audit to code slices, documentation slices or both; methodSkill (optional) replaces the method skill of code slices, and a slice or lens may carry its own methodSkill. quick fits the default maxAgents (60); standard and full project well past 60 agents and need allowLarge:true or a raised maxAgents. full runs roughly 90 minutes and about 30M tokens — prefer quick or standard for routine sweeps.',
+  description: 'Barrier-per-phase codebase audit: a measurement pass, reviewers that each follow the method skill of their own slice, gap critic, stratified adversarial verify, structured synthesis, and a triage-derived findings proposal.',
+  whenToUse: 'Rare and expensive: a broad multi-agent pass over existing code and documentation, by slice (focus picks which). Presets quick|standard|full trade reviewer/verifier fan-out for cost; runId, date, and reportPath are required args; scriptsDir and workDir (optional, together) turn on the Measure phase, and items.policy (gated, bugs or all) picks which findings the proposal selects; models and efforts override the default model and effort per phase key; focus (optional: code, docs or all; default all) limits the audit to code slices, documentation slices or both; methodSkill (optional) replaces the method skill of code slices, and a slice or lens may carry its own methodSkill. quick fits the default maxAgents (60); standard and full project well past 60 agents and need allowLarge:true or a raised maxAgents. full runs roughly 90 minutes and about 30M tokens — prefer quick or standard for routine sweeps.',
   phases: [
-    { title: 'Scope' }, { title: 'Review' }, { title: 'Gaps' }, { title: 'Merge' },
+    { title: 'Measure' }, { title: 'Scope' }, { title: 'Review' }, { title: 'Gaps' }, { title: 'Merge' },
     { title: 'Verify' }, { title: 'Synthesize' }, { title: 'Triage' },
   ],
 }
@@ -15,9 +15,31 @@ const DEFAULT_METHOD_SKILL = 'task-orchestrator:auditing-codebase'
 const DOCS_METHOD_SKILL = 'task-orchestrator:auditing-documentation'
 const FOCUS_VALUES = ['code', 'docs', 'all']
 const LENS_KEYS = ['evidence', 'significance', 'consequence', 'combined']
+const RATINGS = ['act-now', 'plan-it', 'watch']
+const RATING_RANK = { 'act-now': 3, 'plan-it': 2, watch: 1 }
+const ITEM_POLICIES = ['gated', 'bugs', 'all']
+
+const DEFAULT_DISPATCH = {
+  measure: { model: 'haiku', effort: 'low' },
+  scope: { model: 'sonnet', effort: 'medium' },
+  review: { model: 'sonnet', effort: 'high' },
+  'review-architecture': { model: 'opus', effort: 'high' },
+  critic: { model: 'sonnet', effort: 'medium' },
+  merge: { model: 'sonnet', effort: 'low' },
+  verify: { model: 'sonnet', effort: 'medium' },
+  'verify-high': { model: 'opus', effort: 'medium' },
+  synth: { model: 'opus', effort: 'medium' },
+  triage: { model: 'sonnet', effort: 'low' },
+}
+const FAN_OUT_KEYS = ['review', 'verify', 'verify-high', 'triage', 'merge', 'measure']
+
+const ARCHITECTURE_LENS = {
+  key: 'architecture', label: 'Architecture', kind: 'code',
+  focus: 'State the intended architecture from the project' + "'" + 's own records (its conventions, decision records and guard tests), then check the dependency structure and cycles against it and report each divergence. Take a pattern inventory: each recurring pattern, its instances, and where the instances diverge; two patterns for one job is a finding.',
+}
 
 const PRESETS = {
-  quick: { reviewerCount: 4, gaps: { enabled: false, max: 0 }, verify: { highLenses: ['combined'], defaultLenses: ['combined'], maxFindings: 20 } },
+  quick: { reviewerCount: 4, gaps: { enabled: true, max: 1 }, verify: { highLenses: ['combined'], defaultLenses: ['combined'], maxFindings: 20 } },
   standard: { reviewerCount: 8, gaps: { enabled: true, max: 2 }, verify: { highLenses: ['evidence', 'significance', 'consequence'], defaultLenses: ['combined'], maxFindings: 40 } },
   full: { reviewerCount: 16, gaps: { enabled: true, max: 4 }, verify: { highLenses: ['evidence', 'significance', 'consequence'], defaultLenses: ['combined'], maxFindings: 100 } },
 }
@@ -26,6 +48,7 @@ const CATEGORIES = [
   'layering', 'coupling', 'cohesion', 'duplication', 'consistency', 'concurrency', 'transactions',
   'error-handling', 'extensibility', 'security-architecture', 'performance-architecture', 'testability',
   'operability', 'api-design', 'data-model', 'documentation-scope', 'documentation-drift', 'dead-code',
+  'complexity', 'architecture-conformance', 'test-quality',
 ]
 
 const DEFAULT_CLASS_MAP = {
@@ -33,6 +56,7 @@ const DEFAULT_CLASS_MAP = {
   'documentation-scope': 'tech-debt', 'documentation-drift': 'tech-debt', 'dead-code': 'tech-debt', duplication: 'tech-debt', coupling: 'tech-debt',
   cohesion: 'tech-debt', layering: 'tech-debt', consistency: 'tech-debt', extensibility: 'tech-debt',
   testability: 'tech-debt', 'api-design': 'tech-debt', 'performance-architecture': 'tech-debt', operability: 'tech-debt',
+  complexity: 'tech-debt', 'architecture-conformance': 'tech-debt', 'test-quality': 'tech-debt',
 }
 
 const TYPE_MAP_KEY = { bug: 'bug', 'tech-debt': 'techDebt' }
@@ -60,7 +84,6 @@ function verifyLensText(lensKey, category, fromDocs = false) {
   return !fromDocs && DOCS_CATEGORIES.indexOf(category) === -1 ? lens : lens + '\n\n' + DOCS_VERIFY_RULE
 }
 
-/** agentOpts(plan, phaseKey, base) -> base merged with model/effort from plan.models[phaseKey]/plan.efforts[phaseKey] when set */
 /**
  * dispatchTag({model?, effort?}) -> '[<model>/<effort>]' | '[<model>]' | '[inherit]'. The label
  * suffix that shows the assigned model and effort wherever the label is displayed (the workflow
@@ -71,12 +94,62 @@ function dispatchTag(d) {
   return d && d.effort ? `[${model}/${d.effort}]` : `[${model}]`
 }
 
-function agentOpts(plan, phaseKey, base) {
-  const opts = Object.assign({}, base)
-  if (plan.models && plan.models[phaseKey]) opts.model = plan.models[phaseKey]
-  if (plan.efforts && plan.efforts[phaseKey]) opts.effort = plan.efforts[phaseKey]
+/** agentOpts(plan, dispatchKey, base) -> base with model and effort from plan.dispatch[dispatchKey] and the label suffixed by dispatchTag; never leaves a model unset */
+function agentOpts(plan, dispatchKey, base) {
+  const d = plan.dispatch[dispatchKey]
+  const opts = Object.assign({}, base, { model: d.model, effort: d.effort })
   opts.label = `${base.label} ${dispatchTag(opts)}`
   return opts
+}
+
+/** shiftMonths(date, n) -> 'YYYY-MM-DD' shifted by n calendar months, the day clamped to the target month's last day (string arithmetic only) */
+function shiftMonths(date, n) {
+  const y = Number(date.slice(0, 4))
+  const m = Number(date.slice(5, 7))
+  const d = Number(date.slice(8, 10))
+  const total = y * 12 + (m - 1) + n
+  const ny = Math.floor(total / 12)
+  const nm = total - ny * 12 + 1
+  const leap = (ny % 4 === 0 && ny % 100 !== 0) || ny % 400 === 0
+  const last = nm === 2 ? (leap ? 29 : 28) : [4, 6, 9, 11].indexOf(nm) !== -1 ? 30 : 31
+  const pad = (v, w) => String(v).padStart(w, '0')
+  return pad(ny, 4) + '-' + pad(nm, 2) + '-' + pad(Math.min(d, last), 2)
+}
+
+/** testPathsOf(paths) -> the paths (backslash -> slash) with a segment named test, tests, __tests__, spec or specs, compared lowercased */
+function testPathsOf(paths) {
+  const names = ['test', 'tests', '__tests__', 'spec', 'specs']
+  return (paths || []).map((p) => String(p).split(String.fromCharCode(92)).join('/')).filter((p) => p.split('/').some((seg) => names.indexOf(seg.toLowerCase()) !== -1))
+}
+
+/** trimDir(dir) -> dir without trailing slashes or backslashes */
+function trimDir(dir) {
+  let out = String(dir)
+  while (out.length && (out.charAt(out.length - 1) === '/' || out.charAt(out.length - 1) === String.fromCharCode(92))) out = out.slice(0, -1)
+  return out
+}
+
+/** formatMetricsDigest(m) -> the 'MEASURED STRUCTURE' text injected into prompts: first 15 hot-set paths, 10 top-complexity paths, 10 cycles, 10 least stable modules */
+function formatMetricsDigest(m) {
+  const list = (a, n, f) => (a || []).slice(0, n).map(f)
+  const section = (title, lines) => title + ':\n' + (lines.length ? lines.join('\n') : '- (none)')
+  return [
+    'MEASURED STRUCTURE (approximate; churn from version history, complexity from the source text):',
+    section('Hot set (churn x complexity)', list(m.hotSet, 15, (h) => '- ' + h.path + ' (churn ' + h.churn + ', complexity ' + h.complexity + ')')),
+    section('Highest complexity', list(m.topComplexity, 10, (c) => '- ' + c.path + ' (complexity ' + c.complexity + ')')),
+    section('Dependency cycles', list(m.cycles, 10, (c) => '- ' + (c || []).join(' -> '))),
+    section('Least stable modules', list(m.unstableModules, 10, (u) => '- ' + u.id + ' (instability ' + u.instability + ')')),
+  ].join('\n')
+}
+
+/** buildMeasurePrompt(plan) -> string, the Measure agent's prompt: one metrics command, one file written under workDir */
+function buildMeasurePrompt(plan) {
+  const S = trimDir(plan.scriptsDir)
+  const W = trimDir(plan.workDir)
+  const cmd = 'node "' + S + '/audit-metrics.mjs" --root "' + plan.repo.root + '" --paths "' + plan.scope.paths.join(',') + '" --since ' + shiftMonths(plan.date, -12) + ' --recent ' + shiftMonths(plan.date, -3) + ' --out "' + W + '/metrics.json"'
+  return 'READ-ONLY with one exception: the command below writes ' + W + '/metrics.json, the only file written. Do not create, edit, or delete any other file, run no other command that mutates repository or environment state, and do not prefix bash commands with cd.\n\n' +
+    'Run this command once:\n' + cmd + '\n\n' +
+    'Then read ' + W + '/metrics.json and return its digest as structured data: hotSet (from hotSet: path, churn, and complexity taken from indentComplexity), topComplexity (the ten files with the highest indentComplexity: path, complexity), cycles (modules.cycles, each a list of module ids), unstableModules (the ten modules with the highest instability in modules.nodes: id, instability) and notes (its notes, plus anything that kept the command from running). If the command fails, return empty lists and say why in notes.'
 }
 
 /** sliceKind(s) -> 'docs' | 'code' (a slice, lens or gap without a kind is code) */
@@ -105,8 +178,8 @@ function normalizeArgs(raw) {
   if (typeof A === 'string') {
     try { A = JSON.parse(A) } catch (e) { return { ok: false, reason: 'invalid args: bad JSON' } }
   }
-  if (!A || typeof A !== 'object' || A.contract !== 'audit/args-v1') {
-    return { ok: false, reason: 'invalid args: contract must be audit/args-v1' }
+  if (!A || typeof A !== 'object' || (A.contract !== 'audit/args-v2' && A.contract !== 'audit/args-v1')) {
+    return { ok: false, reason: 'invalid args: contract must be audit/args-v2 or audit/args-v1' }
   }
   for (const f of ['runId', 'date', 'repo.root', 'reportPath']) {
     const v = f === 'repo.root' ? (A.repo && A.repo.root) : A[f]
@@ -132,7 +205,9 @@ function normalizeArgs(raw) {
     if (LENS_KEYS.indexOf(k) === -1) return { ok: false, reason: 'invalid args: unknown verify lens ' + k }
   }
 
-  const items = Object.assign({ enabled: false, rootId: '', materializeMin: 'high', typeMap: {} }, A.items || {})
+  const itemsIn = A.items || {}
+  const items = Object.assign({ enabled: false, rootId: '', materializeMin: 'high', typeMap: {}, policy: 'gated' }, itemsIn)
+  if (itemsIn.enabled == null) items.enabled = !!items.rootId
   if (items.enabled && !items.rootId) return { ok: false, reason: 'invalid args: items.rootId required when items.enabled' }
   if (items.materializeMin !== 'high' && items.materializeMin !== 'medium') {
     return { ok: false, reason: 'invalid args: items.materializeMin must be high or medium' }
@@ -163,12 +238,33 @@ function normalizeArgs(raw) {
     if (!inFocus(focus, s)) return { ok: false, reason: 'invalid args: slice ' + s.key + ' is kind ' + sliceKind(s) + ', outside focus ' + focus }
   }
 
+  for (const f of ['scriptsDir', 'workDir']) {
+    if (A[f] != null && (typeof A[f] !== 'string' || !A[f].trim())) return { ok: false, reason: 'invalid args: ' + f + ' must be a non-empty string' }
+  }
+  if (A.scriptsDir != null && A.workDir == null) return { ok: false, reason: 'invalid args: workDir required when scriptsDir is set' }
+  if (ITEM_POLICIES.indexOf(items.policy) === -1) return { ok: false, reason: 'invalid args: items.policy must be gated, bugs or all' }
+
+  const dispatch = {}
+  for (const k of Object.keys(DEFAULT_DISPATCH)) dispatch[k] = { model: DEFAULT_DISPATCH[k].model, effort: DEFAULT_DISPATCH[k].effort }
+  for (const field of ['models', 'efforts']) {
+    const given = A[field]
+    if (given == null || typeof given !== 'object') continue
+    const prop = field === 'models' ? 'model' : 'effort'
+    for (const k of Object.keys(given)) {
+      if (!Object.prototype.hasOwnProperty.call(DEFAULT_DISPATCH, k)) return { ok: false, reason: 'invalid args: unknown dispatch key ' + field + '.' + k }
+      const v = given[k]
+      if (typeof v !== 'string' || !v.trim()) return { ok: false, reason: 'invalid args: ' + field + '.' + k + ' must be a non-empty string' }
+      if (field === 'models' && FAN_OUT_KEYS.indexOf(k) !== -1 && /fable/i.test(v)) return { ok: false, reason: 'invalid args: fable is not allowed for fan-out phase ' + k }
+      dispatch[k][prop] = v
+    }
+  }
+
   const gaps = Object.assign({}, preset.gaps, A.gaps || {})
   const plan = {
-    contract: 'audit/args-v1', runId: A.runId, date: A.date, repo: A.repo, preset: presetName,
+    contract: A.contract, runId: A.runId, date: A.date, repo: A.repo, preset: presetName,
     scope: { paths: scopeIn.paths, reviewers: scopeIn.reviewers || null, lenses: scopeIn.lenses || [], reviewerCount: scopeIn.reviewerCount || preset.reviewerCount },
     rubric: A.rubric || null, categories: A.categories || CATEGORIES, backlog: A.backlog || [], gaps, verify,
-    models: A.models || {}, efforts: A.efforts || {}, reportPath: A.reportPath, items,
+    dispatch, scriptsDir: A.scriptsDir != null ? A.scriptsDir : null, workDir: A.workDir != null ? A.workDir : null, reportPath: A.reportPath, items,
     maxAgents: A.maxAgents != null ? A.maxAgents : 60, allowLarge: !!A.allowLarge, title: A.title || A.runId, focus,
     classMap: Object.assign({}, DEFAULT_CLASS_MAP, A.classMap || {}), observationPaths: A.observationPaths || [],
     methodSkill: A.methodSkill != null ? A.methodSkill.trim() : DEFAULT_METHOD_SKILL,
@@ -176,10 +272,17 @@ function normalizeArgs(raw) {
   return { ok: true, plan }
 }
 
-/** projectAgents(plan) -> {total, scope, review, gaps, merge, verify, synth, triage} (upper-bound cost projection) */
+/** addsArchitectureLens(plan, lenses) -> true when focus is not docs and no lens in lenses is keyed architecture */
+function addsArchitectureLens(plan, lenses) {
+  return plan.focus !== 'docs' && !(lenses || []).some((l) => l && l.key === ARCHITECTURE_LENS.key)
+}
+
+/** projectAgents(plan) -> {total, measure, scope, review, gaps, merge, verify, synth, triage} (upper-bound cost projection) */
 function projectAgents(plan) {
   const reviewersGiven = !!(plan.scope.reviewers && plan.scope.reviewers.length)
-  const R = reviewersGiven ? plan.scope.reviewers.length + (plan.scope.lenses || []).length : plan.scope.reviewerCount
+  const lensesGiven = plan.scope.lenses || []
+  const R = reviewersGiven ? plan.scope.reviewers.length + lensesGiven.length + (addsArchitectureLens(plan, lensesGiven) ? 1 : 0) : plan.scope.reviewerCount
+  const measure = plan.scriptsDir ? 1 : 0
   const scope = reviewersGiven ? 0 : 1
   const review = R
   const gapsEnabled = !!plan.gaps.enabled
@@ -189,8 +292,8 @@ function projectAgents(plan) {
   const verify = nV * Math.max(plan.verify.highLenses.length, plan.verify.defaultLenses.length)
   const merge = 1
   const synth = 1
-  const triage = plan.items.enabled ? Math.ceil(nV / 10) : 0
-  return { total: scope + review + gaps + merge + verify + synth + triage, scope, review, gaps, merge, verify, synth, triage }
+  const triage = plan.items.enabled ? Math.ceil(est / 10) : 0
+  return { total: measure + scope + review + gaps + merge + verify + synth + triage, measure, scope, review, gaps, merge, verify, synth, triage }
 }
 
 /** sizeGuard(plan) -> null | {reason} (refuses when projection > maxAgents and !allowLarge) */
@@ -223,25 +326,30 @@ function mergeFindings(all, groups) {
     const members = ids.map((id) => byId[id].f)
     const canon = members[0]
     const maxSev = members.reduce((acc, m) => (SEVERITY_RANK[m.severity] > SEVERITY_RANK[acc] ? m.severity : acc), canon.severity)
+    const rating = members.reduce((acc, m) => (RATING_RANK[m.rating || 'watch'] > RATING_RANK[acc] ? m.rating : acc), 'watch')
     const locations = []
     const locSeen = new Set()
     members.forEach((m) => (m.locations || []).forEach((l) => { if (!locSeen.has(l)) { locSeen.add(l); locations.push(l) } }))
     const otherIds = members.slice(1).map((m) => m.id)
     const evidence = canon.evidence + (otherIds.length ? '\n\nCorroborating evidence from: ' + otherIds.join(', ') : '')
-    merged.push({
+    const row = {
       id: canon.id, title: g.mergedTitle || canon.title, severity: maxSev, category: canon.category, locations, evidence,
-      impact: canon.impact, recommendation: canon.recommendation, effort: canon.effort, confidence: canon.confidence,
+      impact: canon.impact, recommendation: canon.recommendation, effort: canon.effort, confidence: canon.confidence, rating,
       sources: Array.from(new Set(members.map((m) => m.source))), memberIds: ids,
-    })
+    }
+    if (canon.metrics) row.metrics = canon.metrics
+    merged.push(row)
   }
   all.forEach((f) => {
     if (!seen.has(f.id)) {
       seen.add(f.id)
-      merged.push({
+      const row = {
         id: f.id, title: f.title, severity: f.severity, category: f.category, locations: f.locations, evidence: f.evidence,
-        impact: f.impact, recommendation: f.recommendation, effort: f.effort, confidence: f.confidence,
+        impact: f.impact, recommendation: f.recommendation, effort: f.effort, confidence: f.confidence, rating: f.rating || 'watch',
         sources: [f.source], memberIds: [f.id],
-      })
+      }
+      if (f.metrics) row.metrics = f.metrics
+      merged.push(row)
     }
   })
   return merged
@@ -273,11 +381,39 @@ function decideVerdict(votes, lenses, severity) {
   return { verdict, dropped, finalSeverity, trackedId, correctedEvidence }
 }
 
-/** capVerification(merged, maxFindings) -> {verify, unverified} (stable severity-desc sort; first maxFindings -> verify) */
+/**
+ * capVerification(merged, maxFindings) -> {verify, unverified}. Findings group by category and rating (no rating = watch); groups
+ * order by their highest severity, then by their first member's input index; inside a group severity desc, then input index.
+ * verify takes one finding per group per round, in group order, until maxFindings; unverified is the rest in input order.
+ */
 function capVerification(merged, maxFindings) {
-  const indexed = merged.map((f, i) => ({ f, i }))
-  indexed.sort((a, b) => { const d = SEVERITY_RANK[b.f.severity] - SEVERITY_RANK[a.f.severity]; return d !== 0 ? d : a.i - b.i })
-  return { verify: indexed.slice(0, maxFindings).map((x) => x.f), unverified: indexed.slice(maxFindings).map((x) => x.f) }
+  const groups = new Map()
+  merged.forEach((f, i) => {
+    const key = f.category + '|' + (f.rating || 'watch')
+    if (!groups.has(key)) groups.set(key, { members: [], top: 0, first: i })
+    const g = groups.get(key)
+    g.members.push({ f, i })
+    g.top = Math.max(g.top, SEVERITY_RANK[f.severity] || 0)
+  })
+  const ordered = Array.from(groups.values()).sort((a, b) => (b.top - a.top) || (a.first - b.first))
+  ordered.forEach((g) => g.members.sort((a, b) => ((SEVERITY_RANK[b.f.severity] || 0) - (SEVERITY_RANK[a.f.severity] || 0)) || (a.i - b.i)))
+  const selected = []
+  for (let round = 0; selected.length < maxFindings; round++) {
+    let any = false
+    for (const g of ordered) {
+      if (selected.length >= maxFindings) break
+      if (g.members[round]) { selected.push(g.members[round]); any = true }
+    }
+    if (!any) break
+  }
+  const chosen = new Set(selected.map((x) => x.i))
+  return { verify: selected.map((x) => x.f), unverified: merged.filter((f, i) => !chosen.has(i)) }
+}
+
+/** criticState(plan, critic) -> 'disabled' | 'no-result' | 'ran' (disabled unless gaps are enabled with max > 0; no-result when the critic returned null) */
+function criticState(plan, critic) {
+  if (!(plan.gaps.enabled && plan.gaps.max > 0)) return 'disabled'
+  return critic ? 'ran' : 'no-result'
 }
 
 /** reportIds(synth) -> {[findingId]: reportId}, or {} when synth is null */
@@ -288,8 +424,20 @@ function reportIds(synth) {
   return out
 }
 
-/** schemas(plan) -> {SCOPE, FINDINGS, CRITIC, DEDUP, VERDICT, SYNTH, TRIAGE} StructuredOutput JSON Schemas; FINDINGS.category enum = plan.categories */
+/** schemas(plan) -> {MEASURE, SCOPE, FINDINGS, CRITIC, DEDUP, VERDICT, SYNTH, TRIAGE} StructuredOutput JSON Schemas; FINDINGS.category enum = plan.categories */
 function schemas(plan) {
+  const str = { type: 'string' }
+  const MEASURE = {
+    type: 'object',
+    properties: {
+      hotSet: { type: 'array', items: { type: 'object', properties: { path: str, churn: { type: 'number' }, complexity: { type: 'number' } }, required: ['path', 'churn', 'complexity'] } },
+      topComplexity: { type: 'array', items: { type: 'object', properties: { path: str, complexity: { type: 'number' } }, required: ['path', 'complexity'] } },
+      cycles: { type: 'array', items: { type: 'array', items: str } },
+      unstableModules: { type: 'array', items: { type: 'object', properties: { id: str, instability: { type: 'number' } }, required: ['id', 'instability'] } },
+      notes: { type: 'array', items: str },
+    },
+    required: ['hotSet', 'topComplexity', 'cycles', 'unstableModules', 'notes'],
+  }
   const SCOPE = {
     type: 'object',
     properties: {
@@ -311,8 +459,10 @@ function schemas(plan) {
             title: { type: 'string' }, severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] }, category: { type: 'string', enum: plan.categories },
             locations: { type: 'array', items: { type: 'string' } }, evidence: { type: 'string' }, impact: { type: 'string' }, recommendation: { type: 'string' },
             effort: { type: 'string', enum: ['S', 'M', 'L', 'XL'] }, confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+            rating: { type: 'string', enum: RATINGS },
+            metrics: { type: 'object', properties: { churn: { type: 'number' }, complexity: { type: 'number' } } },
           },
-          required: ['title', 'severity', 'category', 'locations', 'evidence', 'impact', 'recommendation', 'effort', 'confidence'],
+          required: ['title', 'severity', 'category', 'locations', 'evidence', 'impact', 'recommendation', 'effort', 'confidence', 'rating'],
         },
       },
     },
@@ -340,12 +490,13 @@ function schemas(plan) {
   const SYNTH = {
     type: 'object',
     properties: {
-      reportPath: { type: 'string' }, healthVerdict: { type: 'string' }, executiveSummary: { type: 'string' },
+      healthVerdict: { type: 'string' }, executiveSummary: { type: 'string' },
       themes: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, summary: { type: 'string' }, reportIds: { type: 'array', items: { type: 'string' } } }, required: ['name', 'summary', 'reportIds'] } },
       findingIndex: { type: 'array', items: { type: 'object', properties: { reportId: { type: 'string' }, findingId: { type: 'string' }, title: { type: 'string' }, severity: { type: 'string' }, effort: { type: 'string' }, verdict: { type: 'string' }, alreadyTrackedId: { type: 'string' } }, required: ['reportId', 'findingId', 'title', 'severity', 'effort', 'verdict', 'alreadyTrackedId'] } },
       roadmap: { type: 'object', properties: { now: { type: 'array', items: { type: 'string' } }, next: { type: 'array', items: { type: 'string' } }, later: { type: 'array', items: { type: 'string' } } }, required: ['now', 'next', 'later'] },
+      strengths: { type: 'array', items: { type: 'string' } }, method: { type: 'string' }, notExamined: { type: 'array', items: { type: 'string' } },
     },
-    required: ['reportPath', 'healthVerdict', 'executiveSummary', 'themes', 'findingIndex', 'roadmap'],
+    required: ['healthVerdict', 'executiveSummary', 'themes', 'strengths', 'findingIndex', 'roadmap', 'method', 'notExamined'],
   }
   const TRIAGE = {
     type: 'object',
@@ -365,17 +516,18 @@ function schemas(plan) {
     },
     required: ['results'],
   }
-  return { SCOPE, FINDINGS, CRITIC, DEDUP, VERDICT, SYNTH, TRIAGE }
+  return { MEASURE, SCOPE, FINDINGS, CRITIC, DEDUP, VERDICT, SYNTH, TRIAGE }
 }
 
 /**
- * reviewerPreamble(plan, slice = {}, docsInRun = false) -> string (shared READ-ONLY preamble for reviewer, lens and gap prompts; all repo facts
+ * reviewerPreamble(plan, slice = {}, docsInRun = false, digest = '') -> string (shared READ-ONLY preamble for reviewer, lens and gap prompts; all repo facts
  * come from plan.repo/plan.rubric/plan.backlog). The METHOD paragraph names methodSkillOf(plan, slice), the one place the
  * method skill's name enters a prompt: the reviewer applies that skill's method inside its slice, and the slice
  * (paths and focus), the HARD RULES and the FINDINGS shape take precedence over it. The slice bounds coverage:
- * a hot-spot ranking never narrows it, and the categories plan.classMap maps to 'bug' stay in scope.
+ * a hot-spot ranking never narrows it, and the categories plan.classMap maps to 'bug' stay in scope. A non-empty digest (the measured
+ * structure) is placed just before YOUR SLICE.
  */
-function reviewerPreamble(plan, slice = {}, docsInRun = false) {
+function reviewerPreamble(plan, slice = {}, docsInRun = false, digest = '') {
   const backlog = (plan.backlog || []).map((b) => '- ' + b.id + ' — ' + b.title).join('\n')
   const rubric = plan.rubric ? JSON.stringify(plan.rubric) : 'critical/high/medium/low, standard severity practice'
   const bugCategories = (plan.categories || []).filter((c) => plan.classMap && plan.classMap[c] === 'bug')
@@ -389,7 +541,8 @@ function reviewerPreamble(plan, slice = {}, docsInRun = false) {
       ? ', and defects in the categories ' + bugCategories.join(', ') + ' stay in scope for a slice whose focus carries them, whatever the method says about bug hunts or security reviews, so report them as findings, not as asides. '
       : '. ') +
     'Where the method and this prompt disagree, this prompt wins: the HARD RULES, the slice, and the structured findings you return in place of the method\'s own report. ' +
-    'Write each candidate as one finding: its move as recommendation, its evidence and any decision record it touches in evidence, its confidence as confidence, its severity per the rubric below, and as category the one from the output schema\'s list that fits it best.\n\n'
+    'Write each candidate as one finding: its move as recommendation, its evidence and any decision record it touches in evidence, its confidence as confidence, its severity per the rubric below, and as category the one from the output schema\'s list that fits it best. ' +
+    'Rate each finding by payback: act-now when the cost recurs on every change and the fix is cheap or urgent, plan-it when it is worth a scheduled change, watch when it is worth recording but not acting on yet; where measurements are given below, set metrics (churn, complexity) for the file the finding is about.\n\n'
   if (sliceKind(slice) === 'docs') {
     out += 'DOCUMENTATION SLICE: audit only the document files in your scope; comments inside source files belong to the code slices.\n\n'
   } else if (docsInRun) {
@@ -397,6 +550,7 @@ function reviewerPreamble(plan, slice = {}, docsInRun = false) {
   }
   out += 'Severity rubric: ' + rubric + '\n\n'
   if (backlog) out += 'ALREADY-TRACKED BACKLOG (do not re-report these as-is):\n' + backlog + '\n\n'
+  if (digest) out += digest + '\n\n'
   return out + 'YOUR SLICE:\n'
 }
 
@@ -413,19 +567,19 @@ function verifierPreamble(plan) {
   return out
 }
 
-/** buildReviewerPrompt(plan, reviewer, docsInRun = false) -> string */
-function buildReviewerPrompt(plan, r, docsInRun = false) {
-  return reviewerPreamble(plan, r, docsInRun) + 'FOCUS: ' + r.focus + '. PATHS: ' + (r.paths || []).join(', ') + '.'
+/** buildReviewerPrompt(plan, reviewer, docsInRun = false, digest = '') -> string */
+function buildReviewerPrompt(plan, r, docsInRun = false, digest = '') {
+  return reviewerPreamble(plan, r, docsInRun, digest) + 'FOCUS: ' + r.focus + '. PATHS: ' + (r.paths || []).join(', ') + '.'
 }
 
-/** buildLensPrompt(plan, lens, docsInRun = false) -> string */
-function buildLensPrompt(plan, l, docsInRun = false) {
-  return reviewerPreamble(plan, l, docsInRun) + 'CROSS-CUTTING LENS — ' + l.label + '. FOCUS: ' + l.focus + '. Examine across all scoped paths: ' + plan.scope.paths.join(', ') + '.'
+/** buildLensPrompt(plan, lens, docsInRun = false, digest = '') -> string */
+function buildLensPrompt(plan, l, docsInRun = false, digest = '') {
+  return reviewerPreamble(plan, l, docsInRun, digest) + 'CROSS-CUTTING LENS — ' + l.label + '. FOCUS: ' + l.focus + '. Examine across all scoped paths: ' + plan.scope.paths.join(', ') + '.'
 }
 
-/** buildGapPrompt(plan, gap, docsInRun = false) -> string */
-function buildGapPrompt(plan, g, docsInRun = false) {
-  return reviewerPreamble(plan, g, docsInRun) + 'FOCUS: ' + g.prompt
+/** buildGapPrompt(plan, gap, docsInRun = false, digest = '') -> string */
+function buildGapPrompt(plan, g, docsInRun = false, digest = '') {
+  return reviewerPreamble(plan, g, docsInRun, digest) + 'FOCUS: ' + g.prompt
 }
 
 /** normalizeObsPath(location) -> string (strips trailing ':line', backslash -> forward slash) */
@@ -441,7 +595,7 @@ function isObservation(locations, observationPaths) {
   return locations.every((l) => { const norm = normalizeObsPath(l); return prefixes.some((p) => norm.indexOf(p) === 0) })
 }
 
-/** buildProposal(kept, triage, plan) -> proposal | null; kept = result-v1 kept[]; triage = {[findingId]:{candidates, likelyDuplicate}}; null when !plan.items.enabled */
+/** buildProposal(kept, triage, plan) -> proposal | null; kept = result-v2 kept[]; triage = {[findingId]:{candidates, likelyDuplicate}}; null when !plan.items.enabled */
 function buildProposal(kept, triage, plan) {
   if (!plan.items.enabled) return null
   const container = { title: 'Audit — ' + plan.title + ' — ' + plan.date, type: 'container', tags: 'container,audit' }
@@ -457,14 +611,23 @@ function buildProposal(kept, triage, plan) {
     const anchor = k.reportId ? '#' + k.reportId.toLowerCase() : ''
     const description = 'Report: ' + plan.reportPath + anchor + '\n' + (k.locations || []).slice(0, 4).join('\n')
 
-    let materialize = true
-    let reason = 'ok'
-    if (SEVERITY_RANK[k.severity] < minRank) { materialize = false; reason = 'severity below ' + plan.items.materializeMin }
-    else if (k.verdict !== 'CONFIRMED' && k.verdict !== 'PLAUSIBLE') { materialize = false; reason = 'verdict ' + k.verdict }
-    else if (k.trackedId) { materialize = false; reason = 'tracked ' + k.trackedId }
-    else if (t.likelyDuplicate === 'strong' || t.likelyDuplicate === 'unknown') { materialize = false; reason = 'likely duplicate ' + t.likelyDuplicate }
+    let gated = true
+    let gatedReason = 'ok'
+    if (SEVERITY_RANK[k.severity] < minRank) { gated = false; gatedReason = 'severity below ' + plan.items.materializeMin }
+    else if (k.verdict !== 'CONFIRMED' && k.verdict !== 'PLAUSIBLE') { gated = false; gatedReason = 'verdict ' + k.verdict }
+    else if (k.trackedId) { gated = false; gatedReason = 'tracked ' + k.trackedId }
+    else if (t.likelyDuplicate === 'strong' || t.likelyDuplicate === 'unknown') { gated = false; gatedReason = 'likely duplicate ' + t.likelyDuplicate }
+    const notTracked = !k.trackedId && t.likelyDuplicate !== 'strong'
+    const trackedReason = k.trackedId ? 'tracked ' + k.trackedId : t.likelyDuplicate === 'strong' ? 'likely duplicate strong' : 'ok'
+    const selectedBy = { gated, bugs: cls === 'bug' && notTracked, all: cls !== 'observation' && notTracked }
+    const policy = plan.items.policy
+    const materialize = selectedBy[policy]
+    const reason = policy === 'gated' ? gatedReason
+      : policy === 'bugs' ? (cls !== 'bug' ? 'class ' + cls : trackedReason)
+        : (cls === 'observation' ? 'observation' : trackedReason)
+    const tagged = k.verdict === 'UNVERIFIED' && (selectedBy.gated || selectedBy.bugs || selectedBy.all) ? tags + ',unverified' : tags
 
-    const entry = { findingId: k.findingId, reportId: k.reportId, class: cls, title: k.title, summary, description, priority, tags, materialize, reason, candidates: t.candidates, likelyDuplicate: t.likelyDuplicate }
+    const entry = { findingId: k.findingId, reportId: k.reportId, class: cls, title: k.title, summary, description, priority, tags: tagged, severity: k.severity, verdict: k.verdict, selectedBy, materialize, reason, candidates: t.candidates, likelyDuplicate: t.likelyDuplicate }
     if (!observation) {
       const typeKey = TYPE_MAP_KEY[cls]
       const type = typeKey ? plan.items.typeMap[typeKey] : undefined
@@ -483,49 +646,75 @@ function buildProposal(kept, triage, plan) {
   return { rootId: plan.items.rootId, container, items, batches, observations }
 }
 
-/** runAudit(plan, deps{agent, parallel, pipeline, phase, log}) -> audit/result-v1; Scope(opt) -> Review -> Gaps -> Merge -> Verify -> Synthesize -> Triage(opt) */
+/** runAudit(plan, deps{agent, parallel, pipeline, phase, log}) -> audit/result-v2; Measure(opt) -> Scope(opt) -> Review -> Gaps -> Merge -> Verify -> Synthesize -> Triage(opt) */
 async function runAudit(plan, deps) {
   const { agent, parallel, pipeline, phase, log } = deps
   const S = schemas(plan)
   const projected = projectAgents(plan)
   log('projected ' + projected.total + ' agents')
 
+  phase('Measure')
+  let metricsPath = null
+  let digest = ''
+  if (!plan.scriptsDir) {
+    log('measure skipped: no scriptsDir')
+  } else {
+    const measured = await agent(buildMeasurePrompt(plan), agentOpts(plan, 'measure', { label: 'measure', phase: 'Measure', schema: S.MEASURE }))
+    if (measured) {
+      metricsPath = trimDir(plan.workDir) + '/metrics.json'
+      digest = formatMetricsDigest(measured)
+    } else {
+      log('WARNING: measure returned no result; continuing without measurements')
+    }
+  }
+
   phase('Scope')
   let reviewers = plan.scope.reviewers
   let lenses = plan.scope.lenses || []
   const focusSentence = plan.focus === 'all' ? '' : ' Return only kind ' + plan.focus + ' slices: only kind ' + plan.focus + ' belongs in this audit.'
   if (!reviewers || !reviewers.length) {
+    const reserveLens = plan.focus !== 'docs'
+    const promptBudget = plan.scope.reviewerCount - (reserveLens ? 1 : 0)
+    const testPaths = testPathsOf(plan.scope.paths)
+    const bugCats = (plan.categories || []).filter((c) => plan.classMap && plan.classMap[c] === 'bug')
     const scopeResult = await agent(
-      'READ-ONLY. Determine the review scope for an audit. Repository root: ' + plan.repo.root + '. Candidate paths: ' + plan.scope.paths.join(', ') +
-        '. Propose up to ' + plan.scope.reviewerCount + ' reviewer slices (key, label, focus, paths) and any cross-cutting lenses (key, label, focus) worth a dedicated pass. Give every slice and lens a kind: docs for document files (READMEs, guides, user docs, agent instruction files about the project such as CLAUDE.md or AGENTS.md, generated reference pages), code for source files, their comments included, and for text shipped to drive an agent (skill files and their references, agent definitions, rules, prompt strings); a docs slice and a code slice never share a path.' + focusSentence,
-      agentOpts(plan, 'review', { label: 'scope', phase: 'Scope', schema: S.SCOPE }),
+      'READ-ONLY. Determine the review scope for an audit. Repository root: ' + plan.repo.root + '. Candidate paths: ' + plan.scope.paths.join(', ') + '.\n\n' +
+        (digest ? digest + '\n\n' : '') +
+        'Cut the slices where the code costs the most to change: where complexity, coupling, duplication or drift concentrate, using any measurements above to place them. Frame every slice focus as a question about that cost, not as a defect hunt' +
+        (bugCats.length ? '; defects in the categories ' + bugCats.join(', ') + ' stay reportable inside any slice, but no slice is built around hunting them' : '') + '. ' +
+        'Propose up to ' + promptBudget + ' reviewer slices (key, label, focus, paths) and cross-cutting lenses (key, label, focus) in total: lenses count against that number' + (reserveLens ? '; an architecture lens is added automatically, so do not propose one' : '') + '. ' +
+        'Give every slice and lens a kind: docs for document files (READMEs, guides, user docs, agent instruction files about the project such as CLAUDE.md or AGENTS.md, generated reference pages), code for source files, their comments included, and for text shipped to drive an agent (skill files and their references, agent definitions, rules, prompt strings); a docs slice and a code slice never share a path.' + focusSentence +
+        (testPaths.length ? '\n\nTEST CODE: these scoped paths are test code: ' + testPaths.join(', ') + '. Make one code slice focused on test quality: what the tests pin, setup copied between tests, and tests that could not fail.' : ''),
+      agentOpts(plan, 'scope', { label: 'scope', phase: 'Scope', schema: S.SCOPE }),
     )
     if (!scopeResult) {
       return {
-        contract: 'audit/result-v1', started: true, runId: plan.runId,
+        contract: 'audit/result-v2', started: true, runId: plan.runId,
         stats: { reviewers: 0, gaps: 0, raw: 0, merged: 0, kept: 0, confirmed: 0, plausible: 0, unverified: 0, refuted: 0, missing: ['scope'], projectedAgents: projected.total, droppedGaps: [], unverifiedByCap: 0 },
-        report: null, kept: [], refuted: [], proposal: null,
+        report: null, kept: [], refuted: [], proposal: null, metricsPath,
       }
     }
-    reviewers = scopeResult.reviewers || []
-    const outR = reviewers.filter((r) => !inFocus(plan.focus, r))
-    const outL = (scopeResult.lenses || []).filter((l) => !inFocus(plan.focus, l))
+    const proposedR = scopeResult.reviewers || []
+    const proposedL = scopeResult.lenses || []
+    const outR = proposedR.filter((r) => !inFocus(plan.focus, r))
+    const outL = proposedL.filter((l) => !inFocus(plan.focus, l))
     if (outR.length || outL.length) log('scope proposed slices outside focus ' + plan.focus + '; dropped: ' + outR.concat(outL).map((x) => x.key).join(', '))
-    reviewers = reviewers.filter((r) => inFocus(plan.focus, r))
-    if (reviewers.length > plan.scope.reviewerCount) {
-      const droppedReviewers = reviewers.slice(plan.scope.reviewerCount).map((r) => r.key)
-      reviewers = reviewers.slice(0, plan.scope.reviewerCount)
-      log('scope proposed ' + (reviewers.length + droppedReviewers.length) + ' reviewers; keeping first ' + plan.scope.reviewerCount + ', dropped: ' + droppedReviewers.join(', '))
-    }
-    lenses = (scopeResult.lenses || []).filter((l) => inFocus(plan.focus, l))
+    const inR = proposedR.filter((r) => inFocus(plan.focus, r))
+    const inL = proposedL.filter((l) => inFocus(plan.focus, l))
+    const budget = plan.scope.reviewerCount - (addsArchitectureLens(plan, inL) ? 1 : 0)
+    reviewers = inR.slice(0, budget)
+    lenses = inL.slice(0, Math.max(0, budget - reviewers.length))
+    const droppedKeys = inR.slice(reviewers.length).concat(inL.slice(lenses.length)).map((x) => x.key)
+    if (droppedKeys.length) log('scope proposed ' + (inR.length + inL.length) + ' slices and lenses; keeping first ' + budget + ', dropped: ' + droppedKeys.join(', '))
   }
+  if (addsArchitectureLens(plan, lenses)) lenses = lenses.concat([ARCHITECTURE_LENS])
 
   phase('Review')
   const docsInRun = reviewers.concat(lenses).some((x) => sliceKind(x) === 'docs')
-  const reviewItems = reviewers.map((r) => ({ key: r.key, label: r.label, kind: sliceKind(r), prompt: buildReviewerPrompt(plan, r, docsInRun) }))
-    .concat(lenses.map((l) => ({ key: l.key, label: l.label, kind: sliceKind(l), prompt: buildLensPrompt(plan, l, docsInRun) })))
+  const reviewItems = reviewers.map((r) => ({ key: r.key, label: r.label, kind: sliceKind(r), dispatchKey: 'review', prompt: buildReviewerPrompt(plan, r, docsInRun, digest) }))
+    .concat(lenses.map((l) => ({ key: l.key, label: l.label, kind: sliceKind(l), dispatchKey: l.key === ARCHITECTURE_LENS.key ? 'review-architecture' : 'review', prompt: buildLensPrompt(plan, l, docsInRun, digest) })))
   const reviewed = await parallel(reviewItems.map((it) => () =>
-    agent(it.prompt, agentOpts(plan, 'review', { label: 'review:' + it.key, phase: 'Review', schema: S.FINDINGS })).then((r) => (r ? Object.assign({}, r, { key: it.key, label: it.label, kind: it.kind }) : null))))
+    agent(it.prompt, agentOpts(plan, it.dispatchKey, { label: 'review:' + it.key, phase: 'Review', schema: S.FINDINGS })).then((r) => (r ? Object.assign({}, r, { key: it.key, label: it.label, kind: it.kind }) : null))))
   const slices = reviewed.filter(Boolean)
   const missing = reviewItems.filter((it) => !slices.find((s) => s.key === it.key)).map((it) => it.key)
   if (missing.length) log('WARNING: reviewers with no result: ' + missing.join(', '))
@@ -550,7 +739,7 @@ async function runAudit(plan, deps) {
     droppedGaps = gapList.slice(plan.gaps.max).map((g) => g.label)
     if (droppedGaps.length) log('critic proposed ' + gapList.length + ' gaps; running first ' + plan.gaps.max + ', dropped: ' + droppedGaps.join('; '))
     const gapRun = await parallel(runGaps.map((g, i) => () =>
-      agent(buildGapPrompt(plan, g, docsInRun), agentOpts(plan, 'review', { label: 'gap:' + (i + 1), phase: 'Gaps', schema: S.FINDINGS })).then((r) => (r ? Object.assign({}, r, { key: 'gap' + (i + 1), label: 'Gap: ' + g.label, kind: sliceKind(g) }) : null))))
+      agent(buildGapPrompt(plan, g, docsInRun, digest), agentOpts(plan, 'review', { label: 'gap:' + (i + 1), phase: 'Gaps', schema: S.FINDINGS })).then((r) => (r ? Object.assign({}, r, { key: 'gap' + (i + 1), label: 'Gap: ' + g.label, kind: sliceKind(g) }) : null))))
     gapResults = gapRun.filter(Boolean)
     log('gap reviews: ' + gapResults.length + ' run')
   }
@@ -561,9 +750,9 @@ async function runAudit(plan, deps) {
   const all = flattenFindings(allSlices)
   let merged = []
   if (all.length > 0) {
-    const digest = all.map((f) => f.id + ' | ' + f.severity + ' | ' + f.category + ' | ' + f.title + ' | ' + (f.locations || []).slice(0, 4).join(', ') + ' | ' + f.evidence.slice(0, 300).replace(/\n/g, ' ')).join('\n')
+    const digestText = all.map((f) => f.id + ' | ' + f.severity + ' | ' + f.category + ' | ' + f.title + ' | ' + (f.locations || []).slice(0, 4).join(', ') + ' | ' + f.evidence.slice(0, 300).replace(/\n/g, ' ')).join('\n')
     const dd = await agent(
-      'READ-ONLY. You are deduplicating findings from an audit of ' + plan.repo.root + '. Group findings describing the SAME underlying problem (same root cause and remedy); every id below must appear in exactly one group (singletons are groups with an empty duplicateIds). canonicalId = the best-evidenced member. mergedTitle = a precise merged title. Do not read files; work only from the digest below.\n\nDIGEST (id | severity | category | title | locations | evidence excerpt):\n' + digest,
+      'READ-ONLY. You are deduplicating findings from an audit of ' + plan.repo.root + '. Group findings describing the SAME underlying problem (same root cause and remedy); every id below must appear in exactly one group (singletons are groups with an empty duplicateIds). canonicalId = the best-evidenced member. mergedTitle = a precise merged title. Do not read files; work only from the digest below.\n\nDIGEST (id | severity | category | title | locations | evidence excerpt):\n' + digestText,
       agentOpts(plan, 'merge', { label: 'merge', phase: 'Merge', schema: S.DEDUP }),
     )
     merged = mergeFindings(all, (dd && dd.groups) || [])
@@ -578,47 +767,70 @@ async function runAudit(plan, deps) {
     if (capResult.unverified.length) log(capResult.unverified.length + ' findings unverified by cap')
     verdicts = await parallel(capResult.verify.map((f) => async () => {
       const lensKeys = verifyPlan(f, plan.verify)
+      const verifyKey = SEVERITY_RANK[f.severity] >= 3 ? 'verify-high' : 'verify'
       const findingText = JSON.stringify({ id: f.id, title: f.title, severity: f.severity, category: f.category, locations: f.locations, evidence: f.evidence, impact: f.impact, recommendation: f.recommendation })
       const votes = await parallel(lensKeys.map((l) => () =>
         agent(verifierPreamble(plan) + verifyLensText(l, f.category, fromDocsSlice(f, docsKeys)) + '\n\nFINDING:\n' + findingText,
-          agentOpts(plan, 'verify', { label: 'verify:' + f.id + ':' + l, phase: 'Verify', schema: S.VERDICT }))))
+          agentOpts(plan, verifyKey, { label: 'verify:' + f.id + ':' + l, phase: 'Verify', schema: S.VERDICT }))))
       return Object.assign({}, f, decideVerdict(votes, lensKeys, f.severity))
     }))
   }
   const cappedUnverified = capResult.unverified.map((f) => Object.assign({}, f, { verdict: 'UNVERIFIED', dropped: false, finalSeverity: f.severity, trackedId: '', correctedEvidence: '' }))
+  const cappedIds = new Set(capResult.unverified.map((f) => f.id))
   const allVerdicts = verdicts.concat(cappedUnverified)
   const keptRaw = allVerdicts.filter((v) => !v.dropped)
   const refutedRaw = allVerdicts.filter((v) => v.dropped)
   log('verification: ' + keptRaw.length + ' kept, ' + refutedRaw.length + ' refuted')
 
   phase('Synthesize')
-  const keptPayload = keptRaw.map((k) => ({ findingId: k.id, title: k.title, severity: k.finalSeverity, category: k.category, locations: k.locations, evidence: k.evidence, correctedEvidence: k.correctedEvidence, impact: k.impact, recommendation: k.recommendation, effort: k.effort, verdict: k.verdict, trackedId: k.trackedId }))
+  const keptPayload = keptRaw.map((k) => ({ findingId: k.id, title: k.title, severity: k.finalSeverity, rating: k.rating, category: k.category, locations: k.locations, evidence: k.evidence, correctedEvidence: k.correctedEvidence, impact: k.impact, recommendation: k.recommendation, effort: k.effort, verdict: k.verdict, trackedId: k.trackedId }))
   const refutedPayload = refutedRaw.map((d) => ({ findingId: d.id, title: d.title }))
   const slicePayload = allSlices.map((s) => ({ key: s.key, label: s.label, summary: s.sliceSummary, strengths: s.strengths }))
+  const criticLine = criticState(plan, critic) === 'disabled' ? 'GAP CRITIC: disabled for this run.'
+    : criticState(plan, critic) === 'no-result' ? 'GAP CRITIC: enabled, but it returned no result.'
+      : 'GAP CRITIC ASSESSMENT:\n' + critic.assessment
   const synth = await agent(
-    'You are the lead architect writing the FINAL REPORT of an audit of ' + plan.repo.root + ' run on ' + plan.date + '. ' + slices.length +
+    'You are the lead architect summarising the results of an audit of ' + plan.repo.root + ' run on ' + plan.date + '. ' + slices.length +
       ' reviewer(s) examined subsystem slices and cross-cutting lenses' + (gapResults.length ? ' plus ' + gapResults.length + ' gap follow-up(s)' : '') +
       '; their findings were deduplicated and adversarially verified. Verdicts: CONFIRMED = survived every verifier; PLAUSIBLE = kept, but at least one verifier objected (say so in the finding); UNVERIFIED = no verifier returned, or the finding fell beyond the verification cap. Use finalSeverity (verifier-adjusted), not the originally reported severity. Apply correctedEvidence: drop or fix any evidence a verifier showed to be wrong. You may open source files to make the architecture map accurate, but do NOT re-litigate verdicts and do NOT add new findings.\n\n' +
-      'Write the report to reportPath = ' + plan.reportPath + ' (this is the only file you may create; no other writes, no command that mutates repository or environment state).\n\n' +
-      'REPORT (Markdown) must contain, in order: (1) Title; date ' + plan.date + '; scope and method (reviewers, lenses, dedup, verification lenses, counts). (2) Executive summary: overall health verdict in one sentence, then balanced bullets (strengths and problems). (3) Strengths to preserve, deduplicated and specific. (4) Systemic themes grouping findings by root cause, each naming the findings it explains (report ids) and the structural remedy. (5) Findings: assign report ids ordered by finalSeverity (critical -> low) then leverage; a summary table, then one subsection per finding with severity/verdict/effort/category, locations, evidence, impact, recommendation, and "Already tracked: <id>" where applicable. (6) Recommended roadmap: now/next/later, each entry referencing report ids. (7) Appendix: refuted findings (one line each with the reason) and coverage (reviewers and gap follow-ups run).\n\n' +
-      'Then return the structured summary: reportPath, healthVerdict (one sentence), executiveSummary (<=150 words), themes, findingIndex (every report id mapped to its findingId), roadmap (short strings referencing report ids).\n\n' +
+      'HARD RULES: READ-ONLY. Do not create, edit, or delete any file. Do not run any command that mutates repository or environment state. Do not call any write tool. Do not prefix bash commands with cd. You write no report file; the report is the structured data you return.\n\n' +
+      'Return: healthVerdict (one sentence); executiveSummary (<=150 words, balanced: strengths and problems); themes (systemic themes grouping findings by root cause, each with the report ids it explains and the structural remedy in its summary); strengths (the strengths to preserve, deduplicated and specific); findingIndex (assign report ids R01, R02, ... ordered by finalSeverity, critical first, then by leverage, and map every report id to its findingId); roadmap (now/next/later, short strings referencing report ids); method (one short paragraph: reviewers, lenses, dedup, verification, counts); notExamined (areas the audit did not cover, one string each).\n\n' +
       'SLICE SUMMARIES & STRENGTHS:\n' + JSON.stringify(slicePayload) + '\n\nKEPT FINDINGS (' + keptPayload.length + '):\n' + JSON.stringify(keptPayload) +
       '\n\nREFUTED FINDINGS (' + refutedPayload.length + '):\n' + JSON.stringify(refutedPayload) +
-      '\n\nGAP CRITIC ASSESSMENT:\n' + ((critic && critic.assessment) || '(no critic result)'),
+      '\n\n' + criticLine,
     agentOpts(plan, 'synth', { label: 'synthesis', phase: 'Synthesize', schema: S.SYNTH }),
   )
   const ridMap = reportIds(synth)
-  const keptOut = keptRaw.map((k) => ({ findingId: k.id, reportId: ridMap[k.id] || '', title: k.title, severity: k.finalSeverity, verdict: k.verdict, category: k.category, effort: k.effort, locations: (k.locations || []).slice(0, 4), trackedId: k.trackedId || '' }))
+  const keptOut = keptRaw.map((k) => {
+    const row = {
+      findingId: k.id, reportId: ridMap[k.id] || '', title: k.title, severity: k.finalSeverity, verdict: k.verdict, category: k.category, effort: k.effort,
+      locations: (k.locations || []).slice(0, 4), trackedId: k.trackedId || '',
+      evidence: k.evidence + (k.correctedEvidence ? '\n\nVerifier correction: ' + k.correctedEvidence : ''),
+      impact: k.impact, recommendation: k.recommendation, confidence: k.confidence, rating: k.rating || 'watch', sliceKey: (k.sources || [])[0],
+    }
+    if (k.verdict === 'UNVERIFIED') row.unverifiedReason = cappedIds.has(k.id) ? 'cap' : 'no-verifier'
+    return row
+  })
   const refutedOut = refutedRaw.map((d) => ({ findingId: d.id, title: d.title }))
-  const report = synth ? { path: synth.reportPath, healthVerdict: synth.healthVerdict, executiveSummary: synth.executiveSummary, themes: synth.themes } : null
+  const report = synth ? {
+    reportPath: plan.reportPath, healthVerdict: synth.healthVerdict, executiveSummary: synth.executiveSummary, themes: synth.themes,
+    strengths: synth.strengths, roadmap: synth.roadmap, method: synth.method,
+    coverage: {
+      reviewers: allSlices.map((s) => ({ key: s.key, label: s.label, kind: s.kind })),
+      notExamined: missing.map((k) => 'slice ' + k + ': no result').concat(droppedGaps.map((l) => 'gap not run: ' + l)).concat(synth.notExamined || []),
+      critic: criticState(plan, critic),
+      verification: {
+        confirmed: keptRaw.filter((k) => k.verdict === 'CONFIRMED').length, refuted: refutedOut.length,
+        unverifiedByCap: capResult.unverified.length, unverifiedNoVerifier: verdicts.filter((v) => v.verdict === 'UNVERIFIED').length,
+      },
+    },
+  } : null
 
   phase('Triage')
   let triageMap = {}
-  const cappedIds = new Set(capResult.unverified.map((f) => f.id))
-  const triageTargets = keptOut.filter((k) => !cappedIds.has(k.findingId))
-  if (plan.items.enabled && triageTargets.length) {
+  if (plan.items.enabled && keptOut.length) {
     const chunks = []
-    for (let i = 0; i < triageTargets.length; i += 10) chunks.push(triageTargets.slice(i, i + 10))
+    for (let i = 0; i < keptOut.length; i += 10) chunks.push(keptOut.slice(i, i + 10))
     const triageResults = await parallel(chunks.map((chunk, i) => () =>
       agent('READ-ONLY. For each finding below, run an UNSCOPED items_read search (select="search", no ancestorId or itemId filter, limit=5) using key terms from its title to look for likely duplicate existing items; report up to a few candidates each (id, short, role, title) and a likelyDuplicate verdict of none, weak, or strong.\n\nFINDINGS:\n' +
         JSON.stringify(chunk.map((k) => ({ findingId: k.findingId, title: k.title, category: k.category }))),
@@ -638,7 +850,7 @@ async function runAudit(plan, deps) {
     unverified: keptRaw.filter((k) => k.verdict === 'UNVERIFIED').length, refuted: refutedOut.length, missing,
     projectedAgents: projected.total, droppedGaps, unverifiedByCap: capResult.unverified.length,
   }
-  return { contract: 'audit/result-v1', started: true, runId: plan.runId, stats, report, kept: keptOut, refuted: refutedOut, proposal }
+  return { contract: 'audit/result-v2', started: true, runId: plan.runId, stats, report, kept: keptOut, refuted: refutedOut, proposal, metricsPath }
 }
 
 // @core-end
