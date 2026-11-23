@@ -77,14 +77,15 @@ In code: the work-summary and director skills render it today. Its reads are `ru
 
 ### Director mode
 
-The session mode in which the user's session plays the director, entered with the director skill or by running as the hardened director agent. A guard hook keeps the session from reading files, editing, or dispatching in the foreground.
+The session mode in which the user's session plays the director, entered with the director skill. It runs on the same connection and tools as the orchestrator; the `director-guard` hook alone enforces altitude, denying body reads and edits and allowing read-only scripts and background dispatch. The director offloads research to background agents and answers from their concise result.
 
 Distinct from: director profile, which is a server endpoint. The bare word "director" names the layer, this mode and the profile, so where the context does not settle it, say which.
 Example: a background agent dispatched by a director session is not in director mode.
+In code: today the hardened director agent and the director profile also apply the limits; both are being made optional.
 
 ### Director profile
 
-The server tool profile served at `/mcp/director`: the director's altitude-limited tool set (reads of the board, the decision inbox and rollups), with no read that returns a note or document body. Calling it does not make a caller a director, and it is not where decision authority lives.
+The server tool profile served at `/mcp/director`: the director's altitude-limited tool set (reads of the board, the decision inbox and rollups), with no read that returns a note or document body. Calling it does not make a caller a director, and it is not where decision authority lives. It stays served, for other platforms and deployments, but director mode no longer depends on it.
 
 Distinct from: director mode, which is a session state, and the director layer.
 In code: `ToolProfile.DIRECTOR`.
