@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.platform.sqlite.repository
 
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteNoteRepository
 import io.github.jpicklyk.mcptask.current.model.proof.ProofClaims
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -14,7 +13,7 @@ import kotlinx.serialization.json.longOrNull
 import org.slf4j.Logger
 
 /**
- * Manual JSON encode/decode for [ProofClaims], used by [SQLiteNoteRepository] to persist/read the `actor_proof_claims` TEXT column (V17). The retired
+ * Manual JSON encode/decode for [ProofClaims], used by `SQLiteNoteRepository` to persist/read the `actor_proof_claims` TEXT column (V17). The retired
  * `role_transitions` table used it too; its rows now live in `events` (V29).
  *
  * [ProofClaims] deliberately carries no `@Serializable` annotation — domain models in this
@@ -50,7 +49,7 @@ internal fun ProofClaims.toJsonStringOrNull(): String? {
 /**
  * Decodes a JSON string previously produced by [toJsonStringOrNull] back into [ProofClaims].
  * Returns `null` and logs a warning on any parse failure, mirroring the
- * `consumedCredentials` decode-failure handling in [SQLiteNoteRepository].
+ * `consumedCredentials` decode-failure handling in `SQLiteNoteRepository`.
  */
 internal fun parseProofClaimsOrNull(
     raw: String?,
