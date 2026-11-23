@@ -1030,3 +1030,129 @@ test('languages: noise rules of R2 (basenames, suffixes, path segments)', () => 
     assert.equal(table.isNoise(p), false, p);
   }
 });
+
+// ------------------------------------------- module bases (item bf401ffd, test-author seat)
+//
+// Oracle: the item's task-scope D1. A module id is a base plus up to N directory segments below it. The
+// base of a file is the deepest group base above it. A group is the scoped files under one source root
+// (package languages, root derived from an import's matched path suffix) or a connected component of
+// resolved relative imports (relative languages); its base is the longest common directory of its files.
+// A file under no group base keeps the --paths entry base ('' for '.'). Every expected id below is
+// hand-computed from that rule on the fixture beside it; nothing is read from the implementation.
+
+const KT_CORE = 'app/src/main/kotlin/com/acme/core';
+const KT_TEST_CORE = 'app/src/test/kotlin/com/acme/core';
+
+function ktFile(pkg, imports, name) {
+  return [`package com.acme.core.${pkg}`, '', ...imports.map((i) => `import com.acme.core.${i}`), '', `class ${name}`, ''].join('\n');
+}
+
+function ktBaseFiles() {
+  return {
+    [`${KT_CORE}/a/A.kt`]: ktFile('a', ['b.B'], 'A'),
+    [`${KT_CORE}/b/B.kt`]: ktFile('b', ['c.C'], 'B'),
+    [`${KT_CORE}/c/C.kt`]: ktFile('c', ['a.A'], 'C'),
+    [`${KT_TEST_CORE}/a/ATest.kt`]: ktFile('a', ['a.A', 'testkit.Kit'], 'ATest'),
+    [`${KT_TEST_CORE}/testkit/Kit.kt`]: ktFile('testkit', [], 'Kit'),
+    'app/build.gradle.kts': 'plugins {\n  kotlin\n}\n',
+  };
+}
+
+function buildSourceRoots() {
+  return makeRepo('srcroots', [{ date: '2026-02-01', files: ktBaseFiles() }]);
+}
+
+function buildSourceRootsDeep() {
+  return makeRepo('srcrootsdeep', [
+    { date: '2026-02-01', files: { ...ktBaseFiles(), [`${KT_CORE}/a/x/AX.kt`]: ktFile('a.x', [], 'AX') } },
+  ]);
+}
+
+function buildPluginTree() {
+  return makeRepo('plugtree', [
+    {
+      date: '2026-02-01',
+      files: {
+        'tools/plug/hooks/h.mjs': "import { l } from '../lib/l.mjs';\nexport const h = l;\n",
+        'tools/plug/lib/l.mjs': "import { h } from '../hooks/h.mjs';\nexport const l = h;\n",
+        'tools/plug/hooks/solo.mjs': 'export const solo = 1;\n',
+        'tools/plug/README.md': 'plug\n  notes\n',
+        'docs/x.md': 'docs\n  notes\n',
+      },
+    },
+  ]);
+}
+
+const nodeIds = (m) => m.nodes.map((n) => n.id).sort();
+const edgeKeys = (m) => m.edges.map((e) => `${e.from} -> ${e.to} x${e.count}`).sort();
+
+const MAIN_A = `${KT_CORE}/a`;
+const MAIN_B = `${KT_CORE}/b`;
+const MAIN_C = `${KT_CORE}/c`;
+const TEST_A = `${KT_TEST_CORE}/a`;
+const TEST_KIT = `${KT_TEST_CORE}/testkit`;
+
+test('S11: --paths . on a source-root layout bases modules on the source roots, so the 3-cycle shows and test code is its own modules', () => {
+  const repo = once('srcroots', buildSourceRoots);
+  const { json } = metrics(repo, { paths: '.' });
+  const m = json.modules;
+  assert.equal(m.depth, 2);
+  assert.deepEqual(m.cycles, [[MAIN_A, MAIN_B, MAIN_C]]);
+  assert.deepEqual(nodeIds(m), ['app', MAIN_A, MAIN_B, MAIN_C, TEST_A, TEST_KIT].sort());
+  assert.deepEqual(edgeKeys(m), [
+    `${MAIN_A} -> ${MAIN_B} x1`,
+    `${MAIN_B} -> ${MAIN_C} x1`,
+    `${MAIN_C} -> ${MAIN_A} x1`,
+    `${TEST_A} -> ${MAIN_A} x1`,
+    `${TEST_A} -> ${TEST_KIT} x1`,
+  ].sort());
+  assert.equal(m.unresolved, 0);
+});
+
+test('S12: --paths on the package directory itself gives the same cycle', () => {
+  const repo = once('srcroots', buildSourceRoots);
+  const { json } = metrics(repo, { paths: KT_CORE });
+  assert.deepEqual(json.modules.cycles, [[MAIN_A, MAIN_B, MAIN_C]]);
+  assert.deepEqual(nodeIds(json.modules), [MAIN_A, MAIN_B, MAIN_C]);
+});
+
+test('S13: relative languages group by connected import components; a file in a group directory and a README join its module, a tree beyond every group keeps the entry base', () => {
+  const repo = once('plugtree', buildPluginTree);
+  const { json } = metrics(repo, { paths: '.' });
+  const m = json.modules;
+  assert.deepEqual(m.cycles, [['tools/plug/hooks', 'tools/plug/lib']]);
+  assert.deepEqual(nodeIds(m), ['docs', 'tools/plug', 'tools/plug/hooks', 'tools/plug/lib']);
+  const files = Object.fromEntries(m.nodes.map((n) => [n.id, n.files]));
+  // h.mjs and solo.mjs share tools/plug/hooks; README.md sits in the group base itself; x.md has no group
+  assert.deepEqual(files, { docs: 1, 'tools/plug': 1, 'tools/plug/hooks': 2, 'tools/plug/lib': 1 });
+});
+
+test('S14: --module-depth counts segments below the derived base: depth 1 folds a/x into a, depth 2 keeps a/x', () => {
+  const repo = once('srcrootsdeep', buildSourceRootsDeep);
+  const one = metrics(repo, { paths: '.', extra: ['--module-depth', '1'] }).json.modules;
+  assert.equal(one.depth, 1);
+  assert.deepEqual(nodeIds(one), ['app', MAIN_A, MAIN_B, MAIN_C, TEST_A, TEST_KIT].sort());
+  assert.deepEqual(one.cycles, [[MAIN_A, MAIN_B, MAIN_C]]);
+  const two = metrics(repo, { paths: '.', extra: ['--module-depth', '2'] }).json.modules;
+  assert.deepEqual(nodeIds(two), ['app', MAIN_A, `${MAIN_A}/x`, MAIN_B, MAIN_C, TEST_A, TEST_KIT].sort());
+  assert.deepEqual(two.cycles, [[MAIN_A, MAIN_B, MAIN_C]]);
+  const ax = two.nodes.find((n) => n.id === `${MAIN_A}/x`);
+  assert.equal(ax.files, 1);
+});
+
+test('probe: a trailing slash and a ./ prefix on --paths give the same modules as the bare entry', () => {
+  const repo = once('srcroots', buildSourceRoots);
+  const bare = metrics(repo, { paths: KT_CORE }).json.modules;
+  const slash = metrics(repo, { paths: `${KT_CORE}/` }).json.modules;
+  const dot = metrics(repo, { paths: `./${KT_CORE}` }).json.modules;
+  assert.deepEqual(slash, bare);
+  assert.deepEqual(dot, bare);
+});
+
+test('probe: the module graph does not depend on how the same tree is named in --paths (. versus the app directory)', () => {
+  const repo = once('srcroots', buildSourceRoots);
+  const all = metrics(repo, { paths: '.' }).json.modules;
+  const app = metrics(repo, { paths: 'app' }).json.modules;
+  assert.deepEqual(app.cycles, all.cycles);
+  assert.deepEqual(nodeIds(app), nodeIds(all));
+});

@@ -277,7 +277,7 @@ test('S12: audit/result-v2 has exactly the documented top-level keys', async () 
   const result = await CORE.runAudit(plan, makeDeps({ agent }))
   assert.deepEqual(
     Object.keys(result).sort(),
-    ['contract', 'started', 'runId', 'stats', 'report', 'kept', 'refuted', 'proposal', 'metricsPath'].sort()
+    ['contract', 'started', 'runId', 'stats', 'report', 'kept', 'refuted', 'proposal', 'metricsPath', 'date'].sort()
   )
   assert.equal(result.contract, 'audit/result-v2')
   assert.deepEqual(
@@ -2011,6 +2011,7 @@ function v2Args(overrides = {}) {
 
 function measureResult(overrides = {}) {
   return {
+    metricsWritten: true,
     hotSet: [{ path: 'hot/zz.kt', churn: 9, complexity: 30 }],
     topComplexity: [{ path: 'cx/yy.kt', complexity: 44 }],
     cycles: [['mod-aa', 'mod-bb']],
@@ -2716,9 +2717,9 @@ test('S27: one finding each confirmed, refuted, capped and all-null -> the verif
 
 test('D9: MEASURE, FINDINGS and SYNTH schemas follow the frozen shapes', () => {
   const s = CORE.schemas(buildPlan())
-  assert.deepEqual([...s.MEASURE.required].sort(), ['cycles', 'hotSet', 'notes', 'topComplexity', 'unstableModules'])
+  assert.deepEqual([...s.MEASURE.required].sort(), ['coupling', 'cycles', 'hotSet', 'metricsWritten', 'notes', 'topComplexity', 'trend', 'unstableModules'])
   const hot = s.MEASURE.properties.hotSet.items
-  assert.deepEqual(Object.keys(hot.properties).sort(), ['churn', 'complexity', 'path'])
+  assert.deepEqual(Object.keys(hot.properties).sort(), ['churn', 'churnRecent', 'complexity', 'hotspotScore', 'path'])
   assert.deepEqual(Object.keys(s.MEASURE.properties.topComplexity.items.properties).sort(), ['complexity', 'path'])
   assert.deepEqual(Object.keys(s.MEASURE.properties.unstableModules.items.properties).sort(), ['id', 'instability'])
   assert.equal(s.MEASURE.properties.cycles.items.type, 'array')
@@ -3030,5 +3031,356 @@ test('S37: the four audit classes exist in the policy at the A1 values, and the 
   for (const [cls, v] of Object.entries(want)) {
     assert.ok(classes[cls], `class ${cls} exists`)
     assert.deepEqual({ model: classes[cls].model, effort: classes[cls].effort }, v, cls)
+  }
+})
+
+// -- Feature-review A1 fixes (item bf401ffd, test-author seat) --------------------------------
+// Blind test author: the oracle is the item's task-scope D1-D7 and test-plan S1-S9 (frozen before the
+// implementation); signatures come from the supplied declarations block. No implementation source was
+// opened. The literals below (the digest cut note, the ctx line shapes, the log text) are copied from D2
+// and D5, never read from CORE.
+
+const DIGEST_CUT_NOTE_LITERAL = '(digest cut at 8000 characters; the full numbers are in the metrics file)'
+const NO_FILE_WARNING = 'WARNING: measure wrote no metrics file; continuing without measurements'
+
+/** Every JSON value (object or array) that parses out of free text, found by a string-aware bracket scan. */
+function jsonValuesIn(text) {
+  const out = []
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== '{' && text[i] !== '[') continue
+    let depth = 0
+    let inStr = false
+    let esc = false
+    for (let j = i; j < text.length; j++) {
+      const ch = text[j]
+      if (inStr) {
+        if (esc) esc = false
+        else if (ch === '\\') esc = true
+        else if (ch === '"') inStr = false
+        continue
+      }
+      if (ch === '"') inStr = true
+      else if (ch === '{' || ch === '[') depth++
+      else if (ch === '}' || ch === ']') {
+        depth--
+        if (depth === 0) {
+          try {
+            out.push(JSON.parse(text.slice(i, j + 1)))
+          } catch {
+            // not JSON: an unrelated bracket in prose
+          }
+          break
+        }
+      }
+    }
+  }
+  return out
+}
+
+function objectsDeep(value, acc = []) {
+  if (Array.isArray(value)) {
+    for (const v of value) objectsDeep(v, acc)
+  } else if (value && typeof value === 'object') {
+    acc.push(value)
+    for (const v of Object.values(value)) objectsDeep(v, acc)
+  }
+  return acc
+}
+
+function noFileMeasure(overrides = {}) {
+  return measureResult({
+    metricsWritten: false, hotSet: [], topComplexity: [], cycles: [], unstableModules: [], coupling: [], trend: [],
+    notes: ['the metrics command failed'], ...overrides,
+  })
+}
+
+// S1 (D2) ---------------------------------------------------------------------------------------
+
+test('S1 / D2: metricsWritten false -> metricsPath null, the WARNING is logged, no prompt carries a digest, the run completes', async () => {
+  const { calls, result, logLines } = await fullRun(v2Args(), { measure: noFileMeasure() })
+  assert.equal(calls.filter((c) => c.label === 'measure').length, 1)
+  assert.equal(result.metricsPath, null)
+  assert.equal(result.started, true)
+  assert.ok(result.kept.length > 0, 'the run still produces findings')
+  assert.ok(logLines.some((l) => l.includes(NO_FILE_WARNING)), 'the no-metrics-file WARNING is logged')
+  for (const c of calls) {
+    assert.equal(c.prompt.includes('MEASURED STRUCTURE'), false, `${c.label} must carry no digest`)
+    assert.equal(c.prompt.includes('Metrics file:'), false, `${c.label} must carry no metrics file line`)
+  }
+})
+
+test('S1 / D2 probe: a null scope result with metricsWritten false still reports metricsPath null and a null report', async () => {
+  const { result, logLines } = await fullRun(fullArgs(), { scope: null, measure: noFileMeasure() })
+  assert.equal(result.metricsPath, null)
+  assert.equal(result.report, null)
+  assert.ok(Object.keys(result).includes('metricsPath'))
+  assert.ok(logLines.some((l) => l.includes(NO_FILE_WARNING)))
+})
+
+test('S1 / D2 probe: the flag decides, not the emptiness - metricsWritten true with empty lists keeps the path and the digest', async () => {
+  const m = noFileMeasure({ metricsWritten: true })
+  const { calls, result, logLines } = await fullRun(v2Args(), { measure: m })
+  assert.equal(result.metricsPath, 'W/metrics.json')
+  assert.equal(logLines.some((l) => l.includes(NO_FILE_WARNING)), false)
+  assert.ok(calls.some((c) => c.label.startsWith('review:') && c.prompt.includes('MEASURED STRUCTURE')))
+})
+
+test('S1 / D2 probe: only the boolean true counts - absent, 1, "true" and null all mean no metrics file', async () => {
+  const absent = measureResult()
+  delete absent.metricsWritten
+  for (const m of [absent, measureResult({ metricsWritten: 1 }), measureResult({ metricsWritten: 'true' }), measureResult({ metricsWritten: null })]) {
+    const { calls, result } = await fullRun(v2Args(), { measure: m })
+    assert.equal(result.metricsPath, null, `metricsWritten=${JSON.stringify(m.metricsWritten)}`)
+    for (const c of calls) assert.equal(c.prompt.includes('MEASURED STRUCTURE'), false, `${c.label} carries no digest`)
+  }
+})
+
+// S2, S3 (D2, D5) ------------------------------------------------------------------------------
+
+test('S2 / D2, D5: the MEASURE schema requires metricsWritten, coupling and trend; a hot-set item requires churnRecent and hotspotScore', () => {
+  const m = CORE.schemas(buildPlan()).MEASURE
+  assert.equal(m.properties.metricsWritten.type, 'boolean')
+  for (const k of ['metricsWritten', 'coupling', 'trend']) assert.ok(m.required.includes(k), `${k} is required`)
+  const hot = m.properties.hotSet.items
+  for (const k of ['churnRecent', 'hotspotScore']) {
+    assert.ok(hot.required.includes(k), `hotSet item requires ${k}`)
+    assert.equal(hot.properties[k].type, 'number')
+  }
+  const coupling = m.properties.coupling
+  assert.equal(coupling.type, 'array')
+  assert.deepEqual([...coupling.items.required].sort(), ['partners', 'path'])
+  assert.equal(coupling.items.properties.path.type, 'string')
+  assert.equal(coupling.items.properties.partners.type, 'array')
+  const partner = coupling.items.properties.partners.items
+  assert.deepEqual([...partner.required].sort(), ['count', 'path'])
+  assert.equal(partner.properties.count.type, 'number')
+  const trend = m.properties.trend
+  assert.equal(trend.type, 'array')
+  assert.deepEqual([...trend.items.required].sort(), ['complexities', 'path'])
+  assert.equal(trend.items.properties.complexities.type, 'array')
+  assert.equal(trend.items.properties.complexities.items.type, 'number')
+})
+
+test('S3 / D2, D5: the measure prompt names metricsWritten, coupling, trend, churnRecent and hotspotScore', () => {
+  const plan = buildPlan({ contract: 'audit/args-v2', scriptsDir: 'S', workDir: 'W' })
+  const p = CORE.buildMeasurePrompt(plan)
+  for (const w of ['metricsWritten', 'coupling', 'trend', 'churnRecent', 'hotspotScore']) {
+    assert.ok(p.includes(w), `the measure prompt names ${w}`)
+  }
+  assert.match(p, /READ-ONLY/)
+})
+
+// S4 (D3) ----------------------------------------------------------------------------------------
+
+test('S4 / D3: result.date is args.date on a full run and on a null-scope run, for two different dates', async () => {
+  for (const date of ['2026-11-22', '2027-01-31']) {
+    const full = await fullRun(fullArgs({ date }), fullScopeOpts())
+    assert.equal(full.result.date, date, 'full run')
+    const cut = await fullRun(fullArgs({ date }), { scope: null })
+    assert.equal(cut.result.date, date, 'null-scope run')
+    assert.equal(cut.result.report, null)
+  }
+})
+
+test('S4 / D3 probe: a run without scriptsDir (no Measure) carries the date too', async () => {
+  const { result } = await fullRun(baseArgs({ contract: 'audit/args-v2', date: '2026-03-31' }), {})
+  assert.equal(result.date, '2026-03-31')
+})
+
+// S5 (D4) ----------------------------------------------------------------------------------------
+
+test('S5 / D4: finding metrics reach the kept row and the synthesis JSON unchanged; a finding without metrics gets no key in either', async () => {
+  const withMetrics = makeFinding({ title: 'T-with-metrics-q9', metrics: { churn: 3, complexity: 7 } })
+  const without = makeFinding({ title: 'T-without-metrics-q9' })
+  const { result, calls } = await fullRun(v2Args(), {
+    findingFor: (key) => (key === 'r1' ? withMetrics : key === 'r2' ? without : null),
+  })
+  const keptWith = result.kept.find((k) => k.title === 'T-with-metrics-q9')
+  const keptWithout = result.kept.find((k) => k.title === 'T-without-metrics-q9')
+  assert.ok(keptWith && keptWithout, 'both findings are kept')
+  assert.deepEqual(keptWith.metrics, { churn: 3, complexity: 7 })
+  assert.equal('metrics' in keptWithout, false, 'no metrics -> no key on the kept row')
+
+  const synth = calls.find((c) => c.label === 'synthesis')
+  assert.ok(synth, 'synthesis ran')
+  const rowsFor = (title) => objectsDeep(jsonValuesIn(synth.prompt)).filter((o) => Object.values(o).includes(title))
+  const payloadWith = rowsFor('T-with-metrics-q9')
+  const payloadWithout = rowsFor('T-without-metrics-q9')
+  assert.ok(payloadWith.length > 0, 'the synthesis prompt carries the finding as JSON')
+  assert.ok(payloadWithout.length > 0, 'the synthesis prompt carries the unmeasured finding as JSON')
+  for (const o of payloadWith) assert.deepEqual(o.metrics, { churn: 3, complexity: 7 })
+  for (const o of payloadWithout) assert.equal('metrics' in o, false, 'no metrics -> no key in the synthesis JSON')
+})
+
+// S6, S7, S8 (D5): formatMetricsDigest(m, ctx) ---------------------------------------------------
+
+function digestInput(overrides = {}) {
+  return {
+    hotSet: [{ path: 'a.kt', churn: 9, churnRecent: 2, complexity: 30, hotspotScore: 0.5 }],
+    topComplexity: [{ path: 'a.kt', complexity: 30 }],
+    cycles: [],
+    unstableModules: [],
+    coupling: [{
+      path: 'a.kt',
+      partners: [{ path: 'b.kt', count: 4 }, { path: 'c.kt', count: 2 }, { path: 'd.kt', count: 1 }, { path: 'e.kt', count: 1 }],
+    }],
+    trend: [
+      { path: 'up.kt', complexities: [10, 12, 15] },
+      { path: 'down.kt', complexities: [15, 12, 10] },
+      { path: 'flat.kt', complexities: [10, 15, 10] },
+    ],
+    notes: [],
+    ...overrides,
+  }
+}
+
+const DIGEST_CTX = { metricsPath: 'W/metrics.json', since: '2025-11-22', recent: '2026-08-22' }
+const WINDOWS_LINE = 'Windows: long since 2025-11-22, recent since 2026-08-22'
+const FILE_LINE = 'Metrics file: W/metrics.json (every number above comes from it; read it instead of running the metrics script)'
+
+test('S6 / D5: the digest prints hot-set, coupling and trend lines in the D5 shapes and ends with the two ctx lines', () => {
+  const d = CORE.formatMetricsDigest(digestInput(), DIGEST_CTX)
+  const lines = d.split('\n')
+  assert.ok(d.startsWith('MEASURED STRUCTURE'))
+  assert.ok(lines.includes('- a.kt (churn 9, recent 2, complexity 30, score 0.5)'), 'hot-set line')
+  assert.ok(lines.includes('- a.kt: b.kt (4), c.kt (2), d.kt (1)'), 'coupling line: three partners, the fourth is cut')
+  assert.equal(d.includes('e.kt'), false, 'a fourth partner is not printed')
+  assert.ok(lines.includes('- up.kt: 10 -> 12 -> 15 (rising)'))
+  assert.ok(lines.includes('- down.kt: 15 -> 12 -> 10 (falling)'))
+  assert.ok(lines.includes('- flat.kt: 10 -> 15 -> 10 (flat)'), 'last equal to first is flat')
+  assert.deepEqual(d.trimEnd().split('\n').slice(-2), [WINDOWS_LINE, FILE_LINE])
+})
+
+test('S6 / D5: the sections come in the order hot set, highest complexity, cycles, least stable, coupling, trend', () => {
+  const d = CORE.formatMetricsDigest(digestInput({ cycles: [['m1', 'm2']], unstableModules: [{ id: 'm1', instability: 0.9 }] })).toLowerCase()
+  const heads = ['hot set', 'highest complexity', 'dependency cycles', 'least stable modules', 'change coupling', 'complexity trend']
+  const at = heads.map((h) => d.indexOf(h))
+  for (let i = 0; i < heads.length; i++) assert.notEqual(at[i], -1, `${heads[i]} is present`)
+  for (let i = 1; i < at.length; i++) assert.ok(at[i - 1] < at[i], `${heads[i - 1]} before ${heads[i]}`)
+})
+
+test('S6 / D5 probe: trend direction compares the last sample with the first, not a peak', () => {
+  const d = CORE.formatMetricsDigest(digestInput({
+    trend: [{ path: 'dip.kt', complexities: [10, 5, 15] }, { path: 'peak.kt', complexities: [10, 30, 12] }, { path: 'fall.kt', complexities: [15, 20, 10] }],
+  }))
+  const lines = d.split('\n')
+  assert.ok(lines.includes('- dip.kt: 10 -> 5 -> 15 (rising)'))
+  assert.ok(lines.includes('- peak.kt: 10 -> 30 -> 12 (rising)'))
+  assert.ok(lines.includes('- fall.kt: 15 -> 20 -> 10 (falling)'))
+})
+
+test('S6 / D5 probe: an absent number in a hot-set item prints as a dash', () => {
+  const d = CORE.formatMetricsDigest(digestInput({ hotSet: [{ path: 'p.kt', churn: 1, complexity: 2 }] }))
+  assert.ok(d.split('\n').includes('- p.kt (churn 1, recent -, complexity 2, score -)'))
+})
+
+test('S6 / D5 probe: the ctx lines appear only for the ctx members given, Windows before Metrics file', () => {
+  const m = digestInput()
+  const none = CORE.formatMetricsDigest(m)
+  assert.equal(none.includes('Windows:'), false)
+  assert.equal(none.includes('Metrics file:'), false)
+  assert.equal(CORE.formatMetricsDigest(m, {}), none, 'an empty ctx equals no ctx')
+  const windowsOnly = CORE.formatMetricsDigest(m, { since: '2025-11-22', recent: '2026-08-22' })
+  assert.ok(windowsOnly.includes(WINDOWS_LINE))
+  assert.equal(windowsOnly.includes('Metrics file:'), false)
+  const fileOnly = CORE.formatMetricsDigest(m, { metricsPath: 'W/metrics.json' })
+  assert.ok(fileOnly.includes(FILE_LINE))
+  assert.equal(fileOnly.includes('Windows:'), false)
+  const both = CORE.formatMetricsDigest(m, DIGEST_CTX)
+  assert.ok(both.indexOf(WINDOWS_LINE) < both.indexOf(FILE_LINE))
+  assert.equal(none.includes('digest cut'), false, 'a small digest is not cut')
+})
+
+function hotLine(path) {
+  return `- ${path} (churn 1, recent 1, complexity 1, score 0.1)`
+}
+
+function bigHotInput() {
+  const paths = Array.from({ length: 15 }, (_, i) => `h${String(i + 1).padStart(2, '0')}${'x'.repeat(597)}`)
+  const m = digestInput({
+    hotSet: paths.map((p) => ({ path: p, churn: 1, churnRecent: 1, complexity: 1, hotspotScore: 0.1 })),
+    coupling: [],
+    trend: [],
+    topComplexity: [],
+  })
+  return { paths, m }
+}
+
+test('S7 / D5: 15 hot paths of 600 characters are cut at the last line break within 8000, the note ends the capped text, the ctx lines follow', () => {
+  const { paths, m } = bigHotInput()
+  const d = CORE.formatMetricsDigest(m, DIGEST_CTX)
+  const at = d.indexOf('Windows:')
+  assert.notEqual(at, -1)
+  const capped = d.slice(0, at).trimEnd()
+  assert.ok(capped.endsWith(DIGEST_CUT_NOTE_LITERAL), 'the cut note ends the capped text')
+  const cutText = capped.slice(0, capped.length - DIGEST_CUT_NOTE_LITERAL.length).trimEnd()
+  assert.ok(cutText.length <= 8000, `the text before the note is at most 8000 characters (${cutText.length})`)
+  const kept = paths.filter((p) => cutText.includes(p))
+  assert.ok(kept.length >= 1 && kept.length < 15, 'some, not all, hot paths survive the cut')
+  assert.deepEqual(kept, paths.slice(0, kept.length), 'the cut drops from the end')
+  for (const l of cutText.split('\n').filter((x) => x.startsWith('- h'))) assert.ok(l.endsWith(')'), 'no line is cut in the middle')
+  const firstDropped = paths[kept.length]
+  assert.ok(cutText.length + 1 + hotLine(firstDropped).length > 8000, 'the cut is at the last line break that fits, not an earlier one')
+  assert.deepEqual(d.trimEnd().split('\n').slice(-2), [WINDOWS_LINE, FILE_LINE])
+})
+
+test('S7 / D5: without ctx the capped text stands alone and ends with the cut note', () => {
+  const { m } = bigHotInput()
+  const d = CORE.formatMetricsDigest(m)
+  assert.ok(d.endsWith(DIGEST_CUT_NOTE_LITERAL))
+  assert.equal(d.includes('Windows:'), false)
+  assert.equal(d.includes('Metrics file:'), false)
+})
+
+test('S7 / D5 probe: a digest of exactly 8000 characters is not cut, one more character is', () => {
+  const build = (len) => digestInput({
+    hotSet: [{ path: 'x'.repeat(len), churn: 1, churnRecent: 1, complexity: 1, hotspotScore: 0.1 }],
+    coupling: [], trend: [], topComplexity: [],
+  })
+  const a = CORE.formatMetricsDigest(build(10)).length
+  const b = CORE.formatMetricsDigest(build(11)).length
+  assert.equal(b - a, 1, 'fixture: the digest grows by one character per path character')
+  const exact = 10 + (8000 - a)
+  const atCap = CORE.formatMetricsDigest(build(exact))
+  assert.equal(atCap.length, 8000, 'fixture: exactly 8000 characters')
+  assert.equal(atCap.includes('digest cut'), false, 'at the cap is not over it')
+  const over = CORE.formatMetricsDigest(build(exact + 1))
+  assert.ok(over.endsWith(DIGEST_CUT_NOTE_LITERAL), 'one character over is cut')
+  const cutText = over.slice(0, over.length - DIGEST_CUT_NOTE_LITERAL.length).trimEnd()
+  assert.ok(cutText.length <= 8000, 'the text before the note fits the cap')
+})
+
+test('S8 / D5: a 12-id cycle prints 8 ids then (+4 more); 8 ids print whole; 9 ids print (+1 more)', () => {
+  const ids = (n) => Array.from({ length: n }, (_, i) => `m${String(i + 1).padStart(2, '0')}`)
+  const d12 = CORE.formatMetricsDigest(digestInput({ cycles: [ids(12)] }))
+  assert.ok(d12.includes(`${ids(8).join(' -> ')} (+4 more)`))
+  assert.equal(d12.includes('m09'), false)
+  const d8 = CORE.formatMetricsDigest(digestInput({ cycles: [ids(8)] }))
+  assert.ok(d8.includes(ids(8).join(' -> ')))
+  assert.equal(d8.includes('more)'), false, 'no suffix at exactly 8')
+  const d9 = CORE.formatMetricsDigest(digestInput({ cycles: [ids(9)] }))
+  assert.ok(d9.includes(`${ids(8).join(' -> ')} (+1 more)`))
+  assert.equal(d9.includes('m09'), false)
+})
+
+// S9 (D5): runAudit hands the digest its ctx --------------------------------------------------------
+
+test('S9 / D5: reviewer prompts carry the metrics file and both windows after the digest, before the slice', async () => {
+  const args = fullArgs({ date: '2026-11-22', scope: { paths: ['p1', 'p2'] } })
+  const { calls } = await fullRun(args, fullScopeOpts())
+  const reviewers = calls.filter((c) => c.label.startsWith('review:'))
+  assert.ok(reviewers.length >= 4, 'reviewers, a lens and the architecture lens ran')
+  for (const c of reviewers) {
+    assert.ok(c.prompt.includes('Metrics file: W/metrics.json'), `${c.label} names the metrics file`)
+    assert.ok(c.prompt.includes('long since 2025-11-22, recent since 2026-08-22'), `${c.label} names the windows`)
+    assert.ok(c.prompt.indexOf('MEASURED STRUCTURE') < c.prompt.indexOf('Metrics file:'), `${c.label}: ctx after the digest`)
+    assert.ok(c.prompt.indexOf('Metrics file:') < c.prompt.indexOf('YOUR SLICE:'), `${c.label}: ctx before the slice`)
+  }
+})
+
+test('S9 / D5 probe: the windows follow the run date with calendar clamping', async () => {
+  const { calls } = await fullRun(fullArgs({ date: '2026-05-31' }), fullScopeOpts())
+  for (const c of calls.filter((x) => x.label.startsWith('review:'))) {
+    assert.ok(c.prompt.includes('long since 2025-05-31, recent since 2026-02-28'), `${c.label} windows`)
   }
 })

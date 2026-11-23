@@ -670,3 +670,55 @@ test('probe: v1-shaped rows with only the old fields still render', () => {
   const html = renderAuditReport({ contract: 'audit/result-v1', kept: [{ findingId: 'f', reportId: 'R01', title: 'Old', severity: 'low', verdict: 'CONFIRMED' }] })
   assert.ok(html.includes('id="r01"') && textOf(html).includes('Old'))
 })
+
+// -- Feature-review A1 fixes (item bf401ffd, test-author seat) -------------------------------
+// S10 (D4): a kept row that carries finding metrics shows one "Measured:" line after the Confidence line,
+// one part per finite number. Oracle: the item's task-scope D4; nothing here was read from the implementation.
+
+const measuredLine = (inner) => `<p class="src">Measured: ${inner}</p>`
+const cardWith = (html, title) => cards(html).find((c) => c.html.includes(title))
+
+test('S10 a row with churn and complexity shows both, in that order, after the Confidence line', () => {
+  const html = renderAuditReport(res([row({ title: 'T-both', confidence: 'high', metrics: { churn: 12, complexity: 340 } })]))
+  const card = cardWith(html, 'T-both').html
+  assert.ok(card.includes(measuredLine('churn 12, complexity 340')), 'the exact Measured paragraph')
+  assert.ok(card.indexOf('Confidence') !== -1 && card.indexOf('Confidence') < card.indexOf('Measured:'), 'after the Confidence line')
+  assert.equal(count(card, 'Measured:'), 1)
+})
+
+test('S10 each part shows only for a finite number: churn alone, complexity alone', () => {
+  const html = renderAuditReport(
+    res([
+      row({ title: 'T-churn', metrics: { churn: 12 } }),
+      row({ title: 'T-cx', metrics: { complexity: 340 } }),
+      row({ title: 'T-zero', metrics: { churn: 0, complexity: 0 } }),
+    ]),
+  )
+  assert.ok(cardWith(html, 'T-churn').html.includes(measuredLine('churn 12')))
+  assert.ok(cardWith(html, 'T-cx').html.includes(measuredLine('complexity 340')))
+  assert.ok(cardWith(html, 'T-zero').html.includes(measuredLine('churn 0, complexity 0')), 'zero is a finite number')
+})
+
+test('S10 no numeric part, no line: a string, a non-finite number, an empty object, null, a non-object or no metrics at all', () => {
+  const bad = [
+    { title: 'T-str', metrics: { churn: 'x' } },
+    { title: 'T-str2', metrics: { churn: '12', complexity: '340' } },
+    { title: 'T-nan', metrics: { churn: NaN, complexity: Infinity } },
+    { title: 'T-empty', metrics: {} },
+    { title: 'T-null', metrics: null },
+    { title: 'T-text', metrics: 'churn 5' },
+    { title: 'T-none' },
+  ]
+  const html = renderAuditReport(res(bad.map((b) => row(b))))
+  for (const b of bad) assert.equal(cardWith(html, b.title).html.includes('Measured:'), false, b.title)
+})
+
+test('S10 a non-finite part is dropped while the finite part stays', () => {
+  const html = renderAuditReport(res([row({ title: 'T-mixed', metrics: { churn: 'x', complexity: 340 } })]))
+  assert.ok(cardWith(html, 'T-mixed').html.includes(measuredLine('complexity 340')))
+  assert.equal(cardWith(html, 'T-mixed').html.includes('churn'), false)
+})
+
+test('S10 the fixture rows carry no metrics, so the checked-in page has no Measured line', () => {
+  assert.equal(FULL.includes('Measured:'), false)
+})
