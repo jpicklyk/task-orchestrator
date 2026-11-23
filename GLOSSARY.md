@@ -63,7 +63,7 @@ The layer the user's own session plays, which also says who decides:
 - **Orchestration mode** (the default): the session is the orchestrator and the user answers the decisions that reach it. An open run in the session shows as a run indicator, not a separate mode.
 - **Director mode**: the session is the director, orchestrators work in the background, and the user hears only escalations.
 
-Distinct from: the `orchestration.mode` config key (`workflow`, `schema`, `off`), which sets how strongly the orchestration hooks steer a session whatever its session mode.
+Distinct from: steering, the hook config that sets how strongly the plugin hooks steer a session whatever its session mode.
 Don't call it: coordinator mode (an open run in orchestration mode), orchestrator mode.
 In code: the `orchestration-mode` mod's footer labels.
 
@@ -88,6 +88,19 @@ The session or process that hosts the orchestrator of a run, numbered as tiers 1
 Distinct from: sizing tier. Sizing decides that work goes to a run; placement decides what hosts that run's orchestrator.
 Don't call it: coordinator tier.
 In code: `TIERS` (`scripts/coordinator-tiers.mjs`, `skills/director/references/coordinator-tiers.md`).
+
+### Steering
+
+How much orchestration behaviour the plugin hooks put into a session:
+- `workflow`, the default: sizing tiers, the model-effort table and dispatch rules.
+- `schema`: the item's resolved schema alone drives the process.
+- `off`: the hooks stay silent.
+
+It is project config and independent of the session mode.
+
+Distinct from: session mode, which says which layer the user's session plays.
+Don't call it: orchestration mode (the session mode).
+In code: today `extensions.claude-code.orchestration.mode`. To be renamed `extensions.claude-code.steering`, with the old key still read as a deprecated alias.
 
 ## Decisions
 
@@ -116,7 +129,14 @@ In code: proposed `decisions_write` `answer`; today `runs_write` `answer` (direc
 
 The named kind a decision is raised under. It sets who may answer it (`answerers`), its default severity and when it becomes overdue. A class is project config, and it decides whether the director may answer a decision or must escalate it.
 
-In code: `decision_classes:`.
+`answerers` has three values:
+- `human-only`: only the user.
+- `director-or-human`: the user or the director.
+- `any-actor`: anyone, seats included.
+
+The server tests the caller's credential, never its role.
+
+In code: `decision_classes:`, `DecisionRequestAnswerers`. Today `director-or-human` is tested by "served on the director profile without a seat token" (`DecisionCommands.kt`). Once decisions are role-neutral, it becomes a human, or a caller without a seat token whose credential carries the answer capability.
 
 ### Escalation
 
@@ -126,7 +146,7 @@ Handing a decision to the user because the director may not or should not settle
 - the answer would contradict an earlier ruling;
 - the decision is high severity or overdue.
 
-Distinct from: `on_expiry: escalate`, which only raises the reported severity of an overdue decision and puts nothing in front of the user.
+How it relates to `on_expiry: escalate`: the server only marks an overdue decision for escalation by raising its reported severity. Because an overdue decision meets the criteria above, the director then hands it to the user. In orchestration mode the user already decides, so the raised severity only orders the inbox.
 
 ### Ruling
 
