@@ -1,9 +1,9 @@
 export const meta = {
   name: 'deep-codebase-audit',
-  description: 'Barrier-per-phase codebase audit: a measurement pass, reviewers that each follow the method skill of their own slice, gap critic, stratified adversarial verify, structured synthesis, and a triage-derived findings proposal.',
-  whenToUse: 'Rare and expensive: a broad multi-agent pass over existing code and documentation, by slice (focus picks which). Presets quick|standard|full trade reviewer/verifier fan-out for cost; runId, date, and reportPath are required args; scriptsDir and workDir (optional, together) turn on the Measure phase, and items.policy (gated, bugs or all) picks which findings the proposal selects; dispatchClasses (required: the classes of dispatch-policy.json) gives each phase key its model and effort, and models and efforts override them per phase key; focus (optional: code, docs or all; default all) limits the audit to code slices, documentation slices or both; methodSkill (optional) replaces the method skill of code slices, and a slice or lens may carry its own methodSkill. quick fits the default maxAgents (60); standard and full project well past 60 agents and need allowLarge:true or a raised maxAgents. full runs roughly 90 minutes and about 30M tokens — prefer quick or standard for routine sweeps.',
+  description: 'Barrier-per-phase codebase audit: reviewers that each follow the method skill of their own slice, gap critic, stratified adversarial verify, structured synthesis, and a triage-derived findings proposal.',
+  whenToUse: 'Rare and expensive: a broad multi-agent pass over existing code and documentation, by slice (focus picks which). Presets quick|standard|full trade reviewer/verifier fan-out for cost; runId, date, and reportPath are required args; measured (optional: an audit/digest-v1 object the run-audit skill measured before launch) puts the measured structure into reviewer prompts, and items.policy (gated, bugs or all) picks which findings the proposal selects; dispatchClasses (required: the classes of dispatch-policy.json) gives each phase key its model and effort, and models and efforts override them per phase key; focus (optional: code, docs or all; default all) limits the audit to code slices, documentation slices or both; methodSkill (optional) replaces the method skill of code slices, and a slice or lens may carry its own methodSkill. quick fits the default maxAgents (60); standard and full project well past 60 agents and need allowLarge:true or a raised maxAgents. full runs roughly 90 minutes and about 30M tokens — prefer quick or standard for routine sweeps.',
   phases: [
-    { title: 'Measure' }, { title: 'Scope' }, { title: 'Review' }, { title: 'Gaps' }, { title: 'Merge' },
+    { title: 'Scope' }, { title: 'Review' }, { title: 'Gaps' }, { title: 'Merge' },
     { title: 'Verify' }, { title: 'Synthesize' }, { title: 'Triage' },
   ],
 }
@@ -20,7 +20,6 @@ const RATING_RANK = { 'act-now': 3, 'plan-it': 2, watch: 1 }
 const ITEM_POLICIES = ['gated', 'bugs', 'all']
 
 const DISPATCH_CLASSES = {
-  measure: 'audit-measure',
   scope: 'research',
   review: 'audit-review',
   'review-architecture': 'review',
@@ -31,7 +30,7 @@ const DISPATCH_CLASSES = {
   synth: 'audit-synthesis',
   triage: 'extraction',
 }
-const FAN_OUT_KEYS = ['review', 'verify', 'verify-high', 'triage', 'merge', 'measure']
+const FAN_OUT_KEYS = ['review', 'verify', 'verify-high', 'triage', 'merge']
 
 const ARCHITECTURE_LENS = {
   key: 'architecture', label: 'Architecture', kind: 'code',
@@ -102,42 +101,85 @@ function agentOpts(plan, dispatchKey, base) {
   return opts
 }
 
-/** shiftMonths(date, n) -> 'YYYY-MM-DD' shifted by n calendar months, the day clamped to the target month's last day (string arithmetic only) */
-function shiftMonths(date, n) {
-  const y = Number(date.slice(0, 4))
-  const m = Number(date.slice(5, 7))
-  const d = Number(date.slice(8, 10))
-  const total = y * 12 + (m - 1) + n
-  const ny = Math.floor(total / 12)
-  const nm = total - ny * 12 + 1
-  const leap = (ny % 4 === 0 && ny % 100 !== 0) || ny % 400 === 0
-  const last = nm === 2 ? (leap ? 29 : 28) : [4, 6, 9, 11].indexOf(nm) !== -1 ? 30 : 31
-  const pad = (v, w) => String(v).padStart(w, '0')
-  return pad(ny, 4) + '-' + pad(nm, 2) + '-' + pad(Math.min(d, last), 2)
-}
-
 /** testPathsOf(paths) -> the paths (backslash -> slash) with a segment named test, tests, __tests__, spec or specs, compared lowercased */
 function testPathsOf(paths) {
   const names = ['test', 'tests', '__tests__', 'spec', 'specs']
   return (paths || []).map((p) => String(p).split(String.fromCharCode(92)).join('/')).filter((p) => p.split('/').some((seg) => names.indexOf(seg.toLowerCase()) !== -1))
 }
 
-/** trimDir(dir) -> dir without trailing slashes or backslashes */
-function trimDir(dir) {
-  let out = String(dir)
-  while (out.length && (out.charAt(out.length - 1) === '/' || out.charAt(out.length - 1) === String.fromCharCode(92))) out = out.slice(0, -1)
+const DIGEST_MAX_CHARS = 8000
+const SLICE_DIGEST_MAX_CHARS = 3000
+const MERGE_BATCH_MAX = 40
+
+/** normPathText(p) -> p with backslashes as '/', no leading './' and no trailing '/'; '.' and '' both give '' (the whole tree) */
+function normPathText(p) {
+  let out = String(p == null ? '' : p).split(String.fromCharCode(92)).join('/')
+  while (out.indexOf('./') === 0) out = out.slice(2)
+  while (out.length && out.charAt(out.length - 1) === '/') out = out.slice(0, -1)
+  return out === '.' ? '' : out
+}
+
+/** underPath(x, p) -> true when p is the whole tree (''), x equals p, or x starts with p + '/' (both already through normPathText) */
+function underPath(x, p) {
+  return p === '' || x === p || x.indexOf(p + '/') === 0
+}
+
+/** primaryPath(locations) -> string: the first location, backslashes to '/', no leading './', a trailing ':<digits>[-<digits>]' stripped; '' with no location */
+function primaryPath(locations) {
+  const first = Array.isArray(locations) && locations.length ? locations[0] : null
+  if (typeof first !== 'string' || !first) return ''
+  let out = first.split(String.fromCharCode(92)).join('/')
+  out = out.replace(/:\d+(-\d+)?$/, '')
+  while (out.indexOf('./') === 0) out = out.slice(2)
   return out
 }
 
-const DIGEST_MAX_CHARS = 8000
-const DIGEST_CUT_NOTE = '(digest cut at ' + DIGEST_MAX_CHARS + ' characters; the full numbers are in the metrics file)'
+/** fnv1a32(text) -> 8 lowercase hex digits: FNV-1a 32-bit over the UTF-8 bytes of text (offset 0x811c9dc5, prime 0x01000193) */
+function fnv1a32(text) {
+  const bytes = []
+  for (const ch of String(text)) {
+    const c = ch.codePointAt(0)
+    if (c < 0x80) bytes.push(c)
+    else if (c < 0x800) bytes.push(0xc0 | (c >> 6), 0x80 | (c & 63))
+    else if (c < 0x10000) bytes.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63))
+    else bytes.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63))
+  }
+  let h = 0x811c9dc5
+  for (const b of bytes) {
+    h ^= b
+    h = Math.imul(h, 0x01000193)
+  }
+  return (h >>> 0).toString(16).padStart(8, '0')
+}
+
+/**
+ * stableIds(rows) -> string[] aligned with rows: 'F-' + fnv1a32(category + '|' + primaryPath(locations)). Rows that share an id take
+ * '-2', '-3' and so on in the order of the line of their first location (a row with no line first, ties by position), so the ids do not depend on row order.
+ */
+function stableIds(rows) {
+  const list = rows || []
+  const lineOf = (r) => {
+    const m = /:(\d+)(-\d+)?$/.exec(Array.isArray(r.locations) && typeof r.locations[0] === 'string' ? r.locations[0] : '')
+    return m ? Number(m[1]) : 0
+  }
+  const bases = list.map((r) => 'F-' + fnv1a32(r.category + '|' + primaryPath(r.locations)))
+  const out = new Array(list.length)
+  const byBase = new Map()
+  bases.forEach((b, i) => { if (!byBase.has(b)) byBase.set(b, []); byBase.get(b).push(i) })
+  for (const [b, idxs] of byBase) {
+    idxs.sort((x, y) => (lineOf(list[x]) - lineOf(list[y])) || (x - y))
+    idxs.forEach((i, n) => { out[i] = n === 0 ? b : b + '-' + (n + 1) })
+  }
+  return out
+}
 
 /**
  * formatMetricsDigest(m, ctx = {}) -> the 'MEASURED STRUCTURE' text injected into prompts: first 15 hot-set paths, 10 top-complexity paths,
- * 10 cycles (8 ids each), 10 least stable modules, 5 coupling entries, 5 complexity trends; the text is capped at DIGEST_MAX_CHARS at a line break,
- * then ctx.since/ctx.recent and ctx.metricsPath add the window and file lines after the cap
+ * 10 cycles (8 ids each), 10 least stable modules, 5 coupling entries, 5 complexity trends; the text is capped at ctx.maxChars (default
+ * DIGEST_MAX_CHARS) at a line break, then ctx.since/ctx.recent and ctx.metricsPath add the window and file lines after the cap
  */
 function formatMetricsDigest(m, ctx = {}) {
+  const cap = typeof ctx.maxChars === 'number' && ctx.maxChars > 0 ? ctx.maxChars : DIGEST_MAX_CHARS
   const list = (a, n, f) => (a || []).slice(0, n).map(f)
   const section = (title, lines) => title + ':\n' + (lines.length ? lines.join('\n') : '- (none)')
   const num = (v) => (typeof v === 'number' && isFinite(v) ? String(v) : '-')
@@ -164,23 +206,210 @@ function formatMetricsDigest(m, ctx = {}) {
     })),
     section('Complexity trend', list(m.trend, 5, trendLine)),
   ].join('\n')
-  if (text.length > DIGEST_MAX_CHARS) {
-    const cut = text.lastIndexOf('\n', DIGEST_MAX_CHARS)
-    text = text.slice(0, cut > 0 ? cut : DIGEST_MAX_CHARS) + '\n' + DIGEST_CUT_NOTE
+  if (text.length > cap) {
+    const cut = text.lastIndexOf('\n', cap)
+    text = text.slice(0, cut > 0 ? cut : cap) + '\n(digest cut at ' + cap + ' characters; the full numbers are in the metrics file)'
   }
   if (ctx.since) text += '\nWindows: long since ' + ctx.since + ', recent since ' + ctx.recent
-  if (ctx.metricsPath) text += '\nMetrics file: ' + ctx.metricsPath + ' (every number above comes from it; read it instead of running the metrics script)'
+  if (ctx.metricsPath) text += '\nMetrics file: ' + ctx.metricsPath + ' (every number above comes from it, and it holds the numbers for every other file; read it instead of running the metrics script)'
   return text
 }
 
-/** buildMeasurePrompt(plan) -> string, the Measure agent's prompt: one metrics command, one file written under workDir */
-function buildMeasurePrompt(plan) {
-  const S = trimDir(plan.scriptsDir)
-  const W = trimDir(plan.workDir)
-  const cmd = 'node "' + S + '/audit-metrics.mjs" --root "' + plan.repo.root + '" --paths "' + plan.scope.paths.join(',') + '" --since ' + shiftMonths(plan.date, -12) + ' --recent ' + shiftMonths(plan.date, -3) + ' --out "' + W + '/metrics.json"'
-  return 'READ-ONLY with one exception: the command below writes ' + W + '/metrics.json, the only file written. Do not create, edit, or delete any other file, run no other command that mutates repository or environment state, and do not prefix bash commands with cd.\n\n' +
-    'Run this command once:\n' + cmd + '\n\n' +
-    'Then read ' + W + '/metrics.json and return its digest as structured data: metricsWritten (true only when the command exited 0 and you read the file; otherwise false), hotSet (from hotSet: path, churn, churnRecent, hotspotScore, and complexity taken from indentComplexity), topComplexity (the ten files with the highest indentComplexity: path, complexity), cycles (modules.cycles, each a list of module ids), unstableModules (the ten modules with the highest instability in modules.nodes: id, instability), coupling (the first five entries of coupling: path and up to three partners, each path and count), trend (the first five entries of trend: path and complexities, the indentComplexity of its samples in order) and notes (its notes, plus anything that kept the command from running). If the command fails or the file is not written, return metricsWritten false and empty lists and say why in notes.'
+/** measuredCtx(measured) -> {since, recent, metricsPath} for formatMetricsDigest, from measured.window and measured.metricsPath (a missing part stays out) */
+function measuredCtx(measured) {
+  const w = measured && measured.window && typeof measured.window === 'object' ? measured.window : {}
+  const ctx = {}
+  if (w.since) { ctx.since = w.since; ctx.recent = w.recent }
+  if (measured && typeof measured.metricsPath === 'string' && measured.metricsPath) ctx.metricsPath = measured.metricsPath
+  return ctx
+}
+
+/**
+ * sliceDigest(measured, paths) -> string: formatMetricsDigest over the part of the measured structure under paths, capped at
+ * SLICE_DIGEST_MAX_CHARS. A path is normPathText'd; '' or '.' is the whole tree. Kept: hot-set, top-complexity and trend rows under a path;
+ * cycles and unstable modules whose module id M is under a path or has a path under it; coupling entries whose path or a partner is under a path.
+ */
+function sliceDigest(measured, paths) {
+  const ps = (paths || []).map(normPathText)
+  const keepPath = (x) => ps.some((p) => underPath(normPathText(x), p))
+  const keepModule = (id) => ps.some((p) => underPath(normPathText(id), p) || underPath(p, normPathText(id)))
+  const m = measured || {}
+  const filtered = {
+    hotSet: (m.hotSet || []).filter((h) => keepPath(h.path)),
+    topComplexity: (m.topComplexity || []).filter((c) => keepPath(c.path)),
+    trend: (m.trend || []).filter((t) => keepPath(t.path)),
+    cycles: (m.cycles || []).filter((c) => (c || []).some(keepModule)),
+    unstableModules: (m.unstableModules || []).filter((u) => keepModule(u.id)),
+    coupling: (m.coupling || []).filter((c) => keepPath(c.path) || (c.partners || []).some((pt) => keepPath(pt.path))),
+  }
+  return formatMetricsDigest(filtered, Object.assign({ maxChars: SLICE_DIGEST_MAX_CHARS }, measuredCtx(m)))
+}
+
+const CLAIM_FIELDS = ['churn', 'churnRecent', 'complexity', 'hotspotScore', 'cycle']
+
+/** validClaim(c) -> true for a measuredClaim: field in CLAIM_FIELDS; a finite numeric value, or for 'cycle' a non-empty modules array of strings */
+function validClaim(c) {
+  if (!c || typeof c !== 'object' || Array.isArray(c) || CLAIM_FIELDS.indexOf(c.field) === -1) return false
+  if (c.field === 'cycle') return Array.isArray(c.modules) && c.modules.length > 0 && c.modules.every((x) => typeof x === 'string')
+  return typeof c.value === 'number' && isFinite(c.value)
+}
+
+/**
+ * markMetricsPending(rows) -> {pending, rest}. A row with basis 'measured' and a valid measuredClaim is pending: verdict UNVERIFIED,
+ * unverifiedReason 'metrics-pending', verifiedBy 'none', finalSeverity = severity, dropped false. Every other row goes to rest with basis
+ * 'judgement' and no measuredClaim. No returned row carries metrics. Order inside each list is the input order.
+ */
+function markMetricsPending(rows) {
+  const pending = []
+  const rest = []
+  for (const r of rows || []) {
+    const row = Object.assign({}, r)
+    delete row.metrics
+    if (row.basis === 'measured' && validClaim(row.measuredClaim)) {
+      const c = row.measuredClaim
+      row.measuredClaim = c.field === 'cycle' ? { field: 'cycle', modules: c.modules.slice() } : { field: c.field, value: c.value }
+      pending.push(Object.assign(row, { verdict: 'UNVERIFIED', unverifiedReason: 'metrics-pending', verifiedBy: 'none', finalSeverity: r.severity, dropped: false, trackedId: '', correctedEvidence: '' }))
+    } else {
+      row.basis = 'judgement'
+      delete row.measuredClaim
+      rest.push(row)
+    }
+  }
+  return { pending, rest }
+}
+
+/**
+ * preCluster(all, measured = null) -> {autoGroups, clusters, batches}, all in input order.
+ * autoGroups: [{canonicalId, duplicateIds, mergedTitle: ''}] for 2 or more findings with an equal category and an equal first location
+ * (normPathText'd, line kept); the canonical is the earliest. A unit is an auto group or an ungrouped finding; units are linked (union-find)
+ * by an equal non-empty primaryPath, by both primaryPaths in the subject of one 'co-change' candidate of measured, and by both modules in the
+ * subject of one 'cycle' candidate (a unit's module is the longest known module id M, from the hot set, top complexity, cycles and unstable modules,
+ * with its primaryPath under M). clusters: [{k (1-based), ids (every finding id in the cluster), units: [{canonicalId, ids}], needsAgent (2 or more units)}].
+ * batches: arrays of the needsAgent clusters, packed in order while their findings total at most MERGE_BATCH_MAX; a cluster is never split, and
+ * a cluster over the limit is a batch of its own.
+ */
+function preCluster(all, measured = null) {
+  const rows = all || []
+  const order = new Map(rows.map((f, j) => [f.id, j]))
+  const byKey = new Map()
+  rows.forEach((f, i) => {
+    if (!f.locations || !f.locations.length) return
+    const key = f.category + '|' + normPathText(f.locations[0])
+    if (!byKey.has(key)) byKey.set(key, [])
+    byKey.get(key).push(i)
+  })
+  const grouped = new Map()
+  const autoGroups = []
+  for (const idxs of byKey.values()) {
+    if (idxs.length < 2) continue
+    autoGroups.push({ canonicalId: rows[idxs[0]].id, duplicateIds: idxs.slice(1).map((i) => rows[i].id), mergedTitle: '', first: idxs[0] })
+    idxs.forEach((i) => grouped.set(i, idxs[0]))
+  }
+  autoGroups.sort((a, b) => a.first - b.first)
+  const units = []
+  rows.forEach((f, i) => {
+    if (grouped.has(i) && grouped.get(i) !== i) return
+    const g = autoGroups.find((x) => x.first === i)
+    units.push({ canonicalId: f.id, ids: g ? [f.id].concat(g.duplicateIds) : [f.id], path: primaryPath(f.locations), first: i })
+  })
+  const outGroups = autoGroups.map((g) => ({ canonicalId: g.canonicalId, duplicateIds: g.duplicateIds, mergedTitle: g.mergedTitle }))
+  const parent = units.map((u, i) => i)
+  const find = (x) => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x] } return x }
+  const union = (a, b) => { const ra = find(a); const rb = find(b); if (ra !== rb) parent[Math.max(ra, rb)] = Math.min(ra, rb) }
+  const firstByPath = new Map()
+  units.forEach((u, i) => {
+    if (!u.path) return
+    if (firstByPath.has(u.path)) union(firstByPath.get(u.path), i)
+    else firstByPath.set(u.path, i)
+  })
+  const mz = measured && typeof measured === 'object' ? measured : {}
+  const candidates = Array.isArray(mz.candidates) ? mz.candidates : []
+  const known = new Set()
+  ;(mz.hotSet || []).concat(mz.topComplexity || []).forEach((x) => { if (x && x.module) known.add(normPathText(x.module)) })
+  ;(mz.cycles || []).forEach((c) => (c || []).forEach((id) => known.add(normPathText(id))))
+  ;(mz.unstableModules || []).forEach((u) => { if (u && u.id) known.add(normPathText(u.id)) })
+  known.delete('')
+  const moduleOf = (path) => {
+    let best = ''
+    for (const id of known) if (underPath(path, id) && id.length > best.length) best = id
+    return best
+  }
+  units.forEach((u) => { u.module = u.path ? moduleOf(normPathText(u.path)) : '' })
+  for (const c of candidates) {
+    if (!c || !Array.isArray(c.subject)) continue
+    const subject = new Set(c.subject.map(normPathText))
+    const key = c.kind === 'co-change' ? 'path' : c.kind === 'cycle' ? 'module' : null
+    if (!key) continue
+    let head = -1
+    units.forEach((u, i) => {
+      if (!u[key] || !subject.has(key === 'path' ? normPathText(u.path) : u.module)) return
+      if (head === -1) head = i
+      else union(head, i)
+    })
+  }
+  const byRoot = new Map()
+  units.forEach((u, i) => {
+    const r = find(i)
+    if (!byRoot.has(r)) byRoot.set(r, [])
+    byRoot.get(r).push(u)
+  })
+  const clusters = Array.from(byRoot.values()).sort((a, b) => a[0].first - b[0].first).map((us, i) => {
+    const ids = []
+    us.forEach((u) => u.ids.forEach((id) => ids.push(id)))
+    ids.sort((a, b) => order.get(a) - order.get(b))
+    return { k: i + 1, ids, units: us.map((u) => ({ canonicalId: u.canonicalId, ids: u.ids })), needsAgent: us.length >= 2 }
+  })
+  const batches = []
+  let cur = []
+  let count = 0
+  const flush = () => { if (cur.length) batches.push(cur); cur = []; count = 0 }
+  for (const c of clusters) {
+    if (!c.needsAgent) continue
+    if (c.ids.length > MERGE_BATCH_MAX) { flush(); batches.push([c]); continue }
+    if (count + c.ids.length > MERGE_BATCH_MAX) flush()
+    cur.push(c)
+    count += c.ids.length
+  }
+  flush()
+  return { autoGroups: outGroups, clusters, batches }
+}
+
+/** buildMergePrompt(plan, rowsById, batch) -> string: the merge agent's prompt for one batch; its units are listed under CLUSTER <k>, an auto group by its canonical id only */
+function buildMergePrompt(plan, rowsById, batch) {
+  const line = (f) => f.id + ' | ' + f.severity + ' | ' + f.category + ' | ' + f.title + ' | ' + (f.locations || []).slice(0, 4).join(', ') + ' | ' + f.evidence.slice(0, 300).replace(/\n/g, ' ')
+  const text = batch.map((c) => 'CLUSTER ' + c.k + ':\n' + c.units.map((u) => line(rowsById[u.canonicalId])).join('\n')).join('\n\n')
+  return 'READ-ONLY. You are deduplicating findings from an audit of ' + plan.repo.root + '. The findings are already clustered by shared files and measured relations; group findings describing the SAME underlying problem (same root cause and remedy), and group only findings listed under the same CLUSTER: a group never spans two clusters. Every id below must appear in exactly one group (singletons are groups with an empty duplicateIds). canonicalId = the best-evidenced member. mergedTitle = a precise merged title. Do not read files; work only from the digest below.\n\nDIGEST by cluster (id | severity | category | title | locations | evidence excerpt):\n' + text
+}
+
+/**
+ * applyMergeGroups(pre, batchResults) -> groups for mergeFindings. batchResults[i] is the merge agent's {groups} for pre.batches[i], or null.
+ * An agent group keeps only ids that sit in its canonical's cluster, each id standing for its whole unit (an auto group comes along);
+ * an auto group no agent group touched is added as it is, so a null result leaves its batch to the auto groups.
+ */
+function applyMergeGroups(pre, batchResults) {
+  const clusterOf = new Map()
+  const unitOf = new Map()
+  pre.clusters.forEach((c) => c.units.forEach((u) => { u.ids.forEach((id) => { clusterOf.set(id, c); unitOf.set(id, u) }) }))
+  const out = []
+  const used = new Set()
+  ;(batchResults || []).forEach((res) => {
+    for (const g of (res && res.groups) || []) {
+      const home = clusterOf.get(g.canonicalId)
+      if (!home) continue
+      const ids = []
+      for (const id of [g.canonicalId].concat(g.duplicateIds || [])) {
+        if (clusterOf.get(id) !== home) continue
+        const u = unitOf.get(id)
+        if (used.has(u.canonicalId)) continue
+        used.add(u.canonicalId)
+        u.ids.forEach((x) => ids.push(x))
+      }
+      if (!ids.length) continue
+      out.push({ canonicalId: ids[0], duplicateIds: ids.slice(1), mergedTitle: g.mergedTitle || '' })
+    }
+  })
+  for (const g of pre.autoGroups) if (!used.has(g.canonicalId)) out.push(g)
+  return out
 }
 
 /** sliceKind(s) -> 'docs' | 'code' (a slice, lens or gap without a kind is code) */
@@ -275,6 +504,10 @@ function normalizeArgs(raw) {
   if (A.scriptsDir != null && A.workDir == null) return { ok: false, reason: 'invalid args: workDir required when scriptsDir is set' }
   if (ITEM_POLICIES.indexOf(items.policy) === -1) return { ok: false, reason: 'invalid args: items.policy must be gated, bugs or all' }
 
+  if (A.measured != null && (typeof A.measured !== 'object' || Array.isArray(A.measured) || A.measured.contract !== 'audit/digest-v1')) {
+    return { ok: false, reason: 'invalid args: measured must be an audit/digest-v1 object' }
+  }
+
   const dc = A.dispatchClasses
   if (!dc || typeof dc !== 'object' || Array.isArray(dc)) return { ok: false, reason: 'invalid args: dispatchClasses required' }
   const dispatch = {}
@@ -307,7 +540,7 @@ function normalizeArgs(raw) {
     contract: A.contract, runId: A.runId, date: A.date, repo: A.repo, preset: presetName,
     scope: { paths: scopeIn.paths, reviewers: scopeIn.reviewers || null, lenses: scopeIn.lenses || [], reviewerCount: scopeIn.reviewerCount || preset.reviewerCount },
     rubric: A.rubric || null, categories: A.categories || CATEGORIES, backlog: A.backlog || [], gaps, verify,
-    dispatch, scriptsDir: A.scriptsDir != null ? A.scriptsDir : null, workDir: A.workDir != null ? A.workDir : null, reportPath: A.reportPath, items,
+    dispatch, measured: A.measured != null ? A.measured : null, scriptsDir: A.scriptsDir != null ? A.scriptsDir : null, workDir: A.workDir != null ? A.workDir : null, reportPath: A.reportPath, items,
     maxAgents: A.maxAgents != null ? A.maxAgents : 60, allowLarge: !!A.allowLarge, title: A.title || A.runId, focus,
     classMap: Object.assign({}, DEFAULT_CLASS_MAP, A.classMap || {}), observationPaths: A.observationPaths || [],
     methodSkill: A.methodSkill != null ? A.methodSkill.trim() : DEFAULT_METHOD_SKILL,
@@ -320,12 +553,11 @@ function addsArchitectureLens(plan, lenses) {
   return plan.focus !== 'docs' && !(lenses || []).some((l) => l && l.key === ARCHITECTURE_LENS.key)
 }
 
-/** projectAgents(plan) -> {total, measure, scope, review, gaps, merge, verify, synth, triage} (upper-bound cost projection) */
+/** projectAgents(plan) -> {total, scope, review, gaps, merge, verify, synth, triage} (upper-bound cost projection; merge = max(1, ceil(est / 40))) */
 function projectAgents(plan) {
   const reviewersGiven = !!(plan.scope.reviewers && plan.scope.reviewers.length)
   const lensesGiven = plan.scope.lenses || []
   const R = reviewersGiven ? plan.scope.reviewers.length + lensesGiven.length + (addsArchitectureLens(plan, lensesGiven) ? 1 : 0) : plan.scope.reviewerCount
-  const measure = plan.scriptsDir ? 1 : 0
   const scope = reviewersGiven ? 0 : 1
   const review = R
   const gapsEnabled = !!plan.gaps.enabled
@@ -333,10 +565,10 @@ function projectAgents(plan) {
   const est = (R + (gapsEnabled ? plan.gaps.max : 0)) * 8
   const nV = Math.min(est, plan.verify.maxFindings)
   const verify = nV * Math.max(plan.verify.highLenses.length, plan.verify.defaultLenses.length)
-  const merge = 1
+  const merge = Math.max(1, Math.ceil(est / MERGE_BATCH_MAX))
   const synth = 1
   const triage = plan.items.enabled ? Math.ceil(est / 10) : 0
-  return { total: measure + scope + review + gaps + merge + verify + synth + triage, measure, scope, review, gaps, merge, verify, synth, triage }
+  return { total: scope + review + gaps + merge + verify + synth + triage, scope, review, gaps, merge, verify, synth, triage }
 }
 
 /** sizeGuard(plan) -> null | {reason} (refuses when projection > maxAgents and !allowLarge) */
@@ -380,7 +612,8 @@ function mergeFindings(all, groups) {
       impact: canon.impact, recommendation: canon.recommendation, effort: canon.effort, confidence: canon.confidence, rating,
       sources: Array.from(new Set(members.map((m) => m.source))), memberIds: ids,
     }
-    if (canon.metrics) row.metrics = canon.metrics
+    if (canon.basis) row.basis = canon.basis
+    if (canon.measuredClaim) row.measuredClaim = canon.measuredClaim
     merged.push(row)
   }
   all.forEach((f) => {
@@ -391,7 +624,8 @@ function mergeFindings(all, groups) {
         impact: f.impact, recommendation: f.recommendation, effort: f.effort, confidence: f.confidence, rating: f.rating || 'watch',
         sources: [f.source], memberIds: [f.id],
       }
-      if (f.metrics) row.metrics = f.metrics
+      if (f.basis) row.basis = f.basis
+      if (f.measuredClaim) row.measuredClaim = f.measuredClaim
       merged.push(row)
     }
   })
@@ -467,23 +701,9 @@ function reportIds(synth) {
   return out
 }
 
-/** schemas(plan) -> {MEASURE, SCOPE, FINDINGS, CRITIC, DEDUP, VERDICT, SYNTH, TRIAGE} StructuredOutput JSON Schemas; FINDINGS.category enum = plan.categories */
+/** schemas(plan) -> {SCOPE, FINDINGS, CRITIC, DEDUP, VERDICT, SYNTH, TRIAGE} StructuredOutput JSON Schemas; FINDINGS.category enum = plan.categories */
 function schemas(plan) {
   const str = { type: 'string' }
-  const MEASURE = {
-    type: 'object',
-    properties: {
-      metricsWritten: { type: 'boolean' },
-      hotSet: { type: 'array', items: { type: 'object', properties: { path: str, churn: { type: 'number' }, churnRecent: { type: 'number' }, complexity: { type: 'number' }, hotspotScore: { type: 'number' } }, required: ['path', 'churn', 'churnRecent', 'complexity', 'hotspotScore'] } },
-      topComplexity: { type: 'array', items: { type: 'object', properties: { path: str, complexity: { type: 'number' } }, required: ['path', 'complexity'] } },
-      cycles: { type: 'array', items: { type: 'array', items: str } },
-      unstableModules: { type: 'array', items: { type: 'object', properties: { id: str, instability: { type: 'number' } }, required: ['id', 'instability'] } },
-      coupling: { type: 'array', items: { type: 'object', properties: { path: str, partners: { type: 'array', items: { type: 'object', properties: { path: str, count: { type: 'number' } }, required: ['path', 'count'] } } }, required: ['path', 'partners'] } },
-      trend: { type: 'array', items: { type: 'object', properties: { path: str, complexities: { type: 'array', items: { type: 'number' } } }, required: ['path', 'complexities'] } },
-      notes: { type: 'array', items: str },
-    },
-    required: ['metricsWritten', 'hotSet', 'topComplexity', 'cycles', 'unstableModules', 'coupling', 'trend', 'notes'],
-  }
   const SCOPE = {
     type: 'object',
     properties: {
@@ -506,9 +726,14 @@ function schemas(plan) {
             locations: { type: 'array', items: { type: 'string' } }, evidence: { type: 'string' }, impact: { type: 'string' }, recommendation: { type: 'string' },
             effort: { type: 'string', enum: ['S', 'M', 'L', 'XL'] }, confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
             rating: { type: 'string', enum: RATINGS },
-            metrics: { type: 'object', properties: { churn: { type: 'number' }, complexity: { type: 'number' } } },
+            basis: { type: 'string', enum: ['measured', 'judgement'] },
+            measuredClaim: {
+              type: 'object',
+              properties: { field: { type: 'string', enum: CLAIM_FIELDS }, value: { type: 'number' }, modules: { type: 'array', items: { type: 'string' } } },
+              required: ['field'],
+            },
           },
-          required: ['title', 'severity', 'category', 'locations', 'evidence', 'impact', 'recommendation', 'effort', 'confidence', 'rating'],
+          required: ['title', 'severity', 'category', 'locations', 'evidence', 'impact', 'recommendation', 'effort', 'confidence', 'rating', 'basis'],
         },
       },
     },
@@ -562,7 +787,7 @@ function schemas(plan) {
     },
     required: ['results'],
   }
-  return { MEASURE, SCOPE, FINDINGS, CRITIC, DEDUP, VERDICT, SYNTH, TRIAGE }
+  return { SCOPE, FINDINGS, CRITIC, DEDUP, VERDICT, SYNTH, TRIAGE }
 }
 
 /**
@@ -588,7 +813,8 @@ function reviewerPreamble(plan, slice = {}, docsInRun = false, digest = '') {
       : '. ') +
     'Where the method and this prompt disagree, this prompt wins: the HARD RULES, the slice, and the structured findings you return in place of the method\'s own report. ' +
     'Write each candidate as one finding: its move as recommendation, its evidence and any decision record it touches in evidence, its confidence as confidence, its severity per the rubric below, and as category the one from the output schema\'s list that fits it best. ' +
-    'Rate each finding by payback: act-now when the cost recurs on every change and the fix is cheap or urgent, plan-it when it is worth a scheduled change, watch when it is worth recording but not acting on yet; where measurements are given below, set metrics (churn, complexity) for the file the finding is about.\n\n'
+    'Rate each finding by payback: act-now when the cost recurs on every change and the fix is cheap or urgent, plan-it when it is worth a scheduled change, watch when it is worth recording but not acting on yet. ' +
+    'Set basis on each finding: measured when the finding rests on a number from the MEASURED STRUCTURE below (churn, complexity, hotspot score or a dependency cycle), judgement when it rests on your reading of the code or documents. For a measured finding give measuredClaim: the field (churn, churnRecent, complexity, hotspotScore or cycle) and the number you rely on, or for cycle the module ids; a script checks that claim against the measurements after the run, so quote the figure as it appears there and never estimate one.\n\n'
   if (sliceKind(slice) === 'docs') {
     out += 'DOCUMENTATION SLICE: audit only the document files in your scope; comments inside source files belong to the code slices.\n\n'
   } else if (docsInRun) {
@@ -600,8 +826,8 @@ function reviewerPreamble(plan, slice = {}, docsInRun = false, digest = '') {
   return out + 'YOUR SLICE:\n'
 }
 
-/** verifierPreamble(plan) -> string (shared READ-ONLY preamble for adversarial verifiers: backlog, rubric, and VERDICT field semantics incl. alreadyTrackedId derivation) */
-function verifierPreamble(plan) {
+/** verifierPreamble(plan, metricsPath = '') -> string (shared READ-ONLY preamble for adversarial verifiers: backlog, rubric, the metrics file line when metricsPath is set, and VERDICT field semantics incl. alreadyTrackedId derivation) */
+function verifierPreamble(plan, metricsPath = '') {
   const backlog = (plan.backlog || []).map((b) => '- ' + b.id + ' — ' + b.title).join('\n')
   const rubric = plan.rubric ? JSON.stringify(plan.rubric) : 'critical/high/medium/low, standard severity practice'
   let out = 'You are an ADVERSARIAL VERIFIER for ONE finding from an audit of the repository at ' + plan.repo.root
@@ -609,6 +835,7 @@ function verifierPreamble(plan) {
   out += '.\n\nHARD RULES: READ-ONLY. Do not create, edit, or delete any file. Do not run any command that mutates repository or environment state. Do not call any write tool. Do not prefix bash commands with cd. Default stance: skeptical — the finding must earn its place.\n\n'
   out += 'Severity rubric: ' + rubric + '\n\n'
   if (backlog) out += 'ALREADY-TRACKED BACKLOG (open items; use these, and a search, to judge alreadyTrackedId):\n' + backlog + '\n\n'
+  if (metricsPath) out += 'Metrics file: ' + metricsPath + ' (it holds the measured churn, complexity and cycles for every file; read it instead of running the metrics script)\n\n'
   out += 'Always fill every verdict field. refuted = true iff, under your lens, this finding should be dropped. confidence = your confidence in refuted. evidenceAccurate = false only when a cited fact is actually wrong (then explain the correction in correctedEvidence; leave correctedEvidence empty when the evidence is accurate). adjustedSeverity = your own severity per the rubric (may equal, raise, or lower the reported one). alreadyTrackedId = the id of a backlog entry that substantially already covers this finding — if the backlog list above is not conclusive, run an items_read search (select="search", query=<the finding\'s title keywords>) to check; leave it the empty string when nothing already covers this finding. rationale = a short justification for your verdict.\n\n'
   return out
 }
@@ -692,29 +919,17 @@ function buildProposal(kept, triage, plan) {
   return { rootId: plan.items.rootId, container, items, batches, observations }
 }
 
-/** runAudit(plan, deps{agent, parallel, pipeline, phase, log}) -> audit/result-v2; Measure(opt) -> Scope(opt) -> Review -> Gaps -> Merge -> Verify -> Synthesize -> Triage(opt) */
+/** runAudit(plan, deps{agent, parallel, pipeline, phase, log}) -> audit/result-v2; Scope(opt) -> Review -> Gaps -> Merge -> Verify -> Synthesize -> Triage(opt) */
 async function runAudit(plan, deps) {
   const { agent, parallel, pipeline, phase, log } = deps
   const S = schemas(plan)
   const projected = projectAgents(plan)
   log('projected ' + projected.total + ' agents')
 
-  phase('Measure')
-  let metricsPath = null
-  let digest = ''
-  if (!plan.scriptsDir) {
-    log('measure skipped: no scriptsDir')
-  } else {
-    const measured = await agent(buildMeasurePrompt(plan), agentOpts(plan, 'measure', { label: 'measure', phase: 'Measure', schema: S.MEASURE }))
-    if (measured && measured.metricsWritten === true) {
-      metricsPath = trimDir(plan.workDir) + '/metrics.json'
-      digest = formatMetricsDigest(measured, { metricsPath, since: shiftMonths(plan.date, -12), recent: shiftMonths(plan.date, -3) })
-    } else if (measured) {
-      log('WARNING: measure wrote no metrics file; continuing without measurements' + ((measured.notes || []).length ? ' (' + measured.notes.join('; ') + ')' : ''))
-    } else {
-      log('WARNING: measure returned no result; continuing without measurements')
-    }
-  }
+  const measured = plan.measured
+  const metricsPath = measured && typeof measured.metricsPath === 'string' && measured.metricsPath ? measured.metricsPath : null
+  const fullDigest = measured ? formatMetricsDigest(measured, measuredCtx(measured)) : ''
+  if (!measured) log('no measured input')
 
   phase('Scope')
   let reviewers = plan.scope.reviewers
@@ -727,7 +942,7 @@ async function runAudit(plan, deps) {
     const bugCats = (plan.categories || []).filter((c) => plan.classMap && plan.classMap[c] === 'bug')
     const scopeResult = await agent(
       'READ-ONLY. Determine the review scope for an audit. Repository root: ' + plan.repo.root + '. Candidate paths: ' + plan.scope.paths.join(', ') + '.\n\n' +
-        (digest ? digest + '\n\n' : '') +
+        (fullDigest ? fullDigest + '\n\n' : '') +
         'Cut the slices where the code costs the most to change: where complexity, coupling, duplication or drift concentrate, using any measurements above to place them. Frame every slice focus as a question about that cost, not as a defect hunt' +
         (bugCats.length ? '; defects in the categories ' + bugCats.join(', ') + ' stay reportable inside any slice, but no slice is built around hunting them' : '') + '. ' +
         'Propose up to ' + promptBudget + ' reviewer slices (key, label, focus, paths) and cross-cutting lenses (key, label, focus) in total: lenses count against that number' + (reserveLens ? '; an architecture lens is added automatically, so do not propose one' : '') + '. ' +
@@ -738,7 +953,7 @@ async function runAudit(plan, deps) {
     if (!scopeResult) {
       return {
         contract: 'audit/result-v2', started: true, runId: plan.runId,
-        stats: { reviewers: 0, gaps: 0, raw: 0, merged: 0, kept: 0, confirmed: 0, plausible: 0, unverified: 0, refuted: 0, missing: ['scope'], projectedAgents: projected.total, droppedGaps: [], unverifiedByCap: 0 },
+        stats: { reviewers: 0, gaps: 0, raw: 0, merged: 0, kept: 0, confirmed: 0, plausible: 0, unverified: 0, refuted: 0, missing: ['scope'], projectedAgents: projected.total, droppedGaps: [], unverifiedByCap: 0, metricsPending: 0, mergeAgents: 0 },
         report: null, kept: [], refuted: [], proposal: null, metricsPath, date: plan.date,
       }
     }
@@ -759,8 +974,10 @@ async function runAudit(plan, deps) {
 
   phase('Review')
   const docsInRun = reviewers.concat(lenses).some((x) => sliceKind(x) === 'docs')
-  const reviewItems = reviewers.map((r) => ({ key: r.key, label: r.label, kind: sliceKind(r), dispatchKey: 'review', prompt: buildReviewerPrompt(plan, r, docsInRun, digest) }))
-    .concat(lenses.map((l) => ({ key: l.key, label: l.label, kind: sliceKind(l), dispatchKey: l.key === ARCHITECTURE_LENS.key ? 'review-architecture' : 'review', prompt: buildLensPrompt(plan, l, docsInRun, digest) })))
+  const scopeDigest = measured ? sliceDigest(measured, plan.scope.paths) : ''
+  const lensDigest = (l) => (!measured ? '' : l.key === ARCHITECTURE_LENS.key ? fullDigest : scopeDigest)
+  const reviewItems = reviewers.map((r) => ({ key: r.key, label: r.label, kind: sliceKind(r), dispatchKey: 'review', prompt: buildReviewerPrompt(plan, r, docsInRun, measured ? sliceDigest(measured, r.paths) : '') }))
+    .concat(lenses.map((l) => ({ key: l.key, label: l.label, kind: sliceKind(l), dispatchKey: l.key === ARCHITECTURE_LENS.key ? 'review-architecture' : 'review', prompt: buildLensPrompt(plan, l, docsInRun, lensDigest(l)) })))
   const reviewed = await parallel(reviewItems.map((it) => () =>
     agent(it.prompt, agentOpts(plan, it.dispatchKey, { label: 'review:' + it.key, phase: 'Review', schema: S.FINDINGS })).then((r) => (r ? Object.assign({}, r, { key: it.key, label: it.label, kind: it.kind }) : null))))
   const slices = reviewed.filter(Boolean)
@@ -787,7 +1004,7 @@ async function runAudit(plan, deps) {
     droppedGaps = gapList.slice(plan.gaps.max).map((g) => g.label)
     if (droppedGaps.length) log('critic proposed ' + gapList.length + ' gaps; running first ' + plan.gaps.max + ', dropped: ' + droppedGaps.join('; '))
     const gapRun = await parallel(runGaps.map((g, i) => () =>
-      agent(buildGapPrompt(plan, g, docsInRun, digest), agentOpts(plan, 'review', { label: 'gap:' + (i + 1), phase: 'Gaps', schema: S.FINDINGS })).then((r) => (r ? Object.assign({}, r, { key: 'gap' + (i + 1), label: 'Gap: ' + g.label, kind: sliceKind(g) }) : null))))
+      agent(buildGapPrompt(plan, g, docsInRun, scopeDigest), agentOpts(plan, 'review', { label: 'gap:' + (i + 1), phase: 'Gaps', schema: S.FINDINGS })).then((r) => (r ? Object.assign({}, r, { key: 'gap' + (i + 1), label: 'Gap: ' + g.label, kind: sliceKind(g) }) : null))))
     gapResults = gapRun.filter(Boolean)
     log('gap reviews: ' + gapResults.length + ' run')
   }
@@ -797,41 +1014,48 @@ async function runAudit(plan, deps) {
   phase('Merge')
   const all = flattenFindings(allSlices)
   let merged = []
+  let mergeAgents = 0
   if (all.length > 0) {
-    const digestText = all.map((f) => f.id + ' | ' + f.severity + ' | ' + f.category + ' | ' + f.title + ' | ' + (f.locations || []).slice(0, 4).join(', ') + ' | ' + f.evidence.slice(0, 300).replace(/\n/g, ' ')).join('\n')
-    const dd = await agent(
-      'READ-ONLY. You are deduplicating findings from an audit of ' + plan.repo.root + '. Group findings describing the SAME underlying problem (same root cause and remedy); every id below must appear in exactly one group (singletons are groups with an empty duplicateIds). canonicalId = the best-evidenced member. mergedTitle = a precise merged title. Do not read files; work only from the digest below.\n\nDIGEST (id | severity | category | title | locations | evidence excerpt):\n' + digestText,
-      agentOpts(plan, 'merge', { label: 'merge', phase: 'Merge', schema: S.DEDUP }),
-    )
-    merged = mergeFindings(all, (dd && dd.groups) || [])
+    const pre = preCluster(all, measured)
+    const rowsById = {}
+    all.forEach((f) => { rowsById[f.id] = f })
+    mergeAgents = pre.batches.length
+    const batchResults = await parallel(pre.batches.map((batch, i) => () =>
+      agent(buildMergePrompt(plan, rowsById, batch), agentOpts(plan, 'merge', { label: 'merge:' + (i + 1), phase: 'Merge', schema: S.DEDUP }))))
+    merged = mergeFindings(all, applyMergeGroups(pre, batchResults))
     log(all.length + ' raw findings -> ' + merged.length + ' after dedup')
   }
 
   phase('Verify')
   let capResult = { verify: [], unverified: [] }
   let verdicts = []
+  let metricsPendingRows = []
   if (all.length > 0) {
-    capResult = capVerification(merged, plan.verify.maxFindings)
+    const marked = markMetricsPending(merged)
+    metricsPendingRows = marked.pending
+    capResult = capVerification(marked.rest, plan.verify.maxFindings)
     if (capResult.unverified.length) log(capResult.unverified.length + ' findings unverified by cap')
     verdicts = await parallel(capResult.verify.map((f) => async () => {
       const lensKeys = verifyPlan(f, plan.verify)
       const verifyKey = SEVERITY_RANK[f.severity] >= 3 ? 'verify-high' : 'verify'
       const findingText = JSON.stringify({ id: f.id, title: f.title, severity: f.severity, category: f.category, locations: f.locations, evidence: f.evidence, impact: f.impact, recommendation: f.recommendation })
       const votes = await parallel(lensKeys.map((l) => () =>
-        agent(verifierPreamble(plan) + verifyLensText(l, f.category, fromDocsSlice(f, docsKeys)) + '\n\nFINDING:\n' + findingText,
+        agent(verifierPreamble(plan, metricsPath || '') + verifyLensText(l, f.category, fromDocsSlice(f, docsKeys)) + '\n\nFINDING:\n' + findingText,
           agentOpts(plan, verifyKey, { label: 'verify:' + f.id + ':' + l, phase: 'Verify', schema: S.VERDICT }))))
-      return Object.assign({}, f, decideVerdict(votes, lensKeys, f.severity))
+      return Object.assign({}, f, decideVerdict(votes, lensKeys, f.severity), { verifiedBy: votes.some(Boolean) ? 'agents' : 'none' })
     }))
   }
-  const cappedUnverified = capResult.unverified.map((f) => Object.assign({}, f, { verdict: 'UNVERIFIED', dropped: false, finalSeverity: f.severity, trackedId: '', correctedEvidence: '' }))
+  const cappedUnverified = capResult.unverified.map((f) => Object.assign({}, f, { verdict: 'UNVERIFIED', dropped: false, finalSeverity: f.severity, trackedId: '', correctedEvidence: '', verifiedBy: 'none' }))
   const cappedIds = new Set(capResult.unverified.map((f) => f.id))
   const allVerdicts = verdicts.concat(cappedUnverified)
-  const keptRaw = allVerdicts.filter((v) => !v.dropped)
+  const keptVerified = allVerdicts.filter((v) => !v.dropped)
   const refutedRaw = allVerdicts.filter((v) => v.dropped)
+  const keptRaw = keptVerified.concat(metricsPendingRows)
+  const stable = stableIds(keptRaw.concat(refutedRaw))
   log('verification: ' + keptRaw.length + ' kept, ' + refutedRaw.length + ' refuted')
 
   phase('Synthesize')
-  const keptPayload = keptRaw.map((k) => ({ findingId: k.id, title: k.title, severity: k.finalSeverity, rating: k.rating, category: k.category, locations: k.locations, evidence: k.evidence, correctedEvidence: k.correctedEvidence, impact: k.impact, recommendation: k.recommendation, effort: k.effort, verdict: k.verdict, trackedId: k.trackedId, metrics: k.metrics }))
+  const keptPayload = keptRaw.map((k) => ({ findingId: k.id, title: k.title, severity: k.finalSeverity, rating: k.rating, category: k.category, locations: k.locations, evidence: k.evidence, correctedEvidence: k.correctedEvidence, impact: k.impact, recommendation: k.recommendation, effort: k.effort, verdict: k.verdict, trackedId: k.trackedId, basis: k.basis, measuredClaim: k.measuredClaim }))
   const refutedPayload = refutedRaw.map((d) => ({ findingId: d.id, title: d.title }))
   const slicePayload = allSlices.map((s) => ({ key: s.key, label: s.label, summary: s.sliceSummary, strengths: s.strengths }))
   const criticLine = criticState(plan, critic) === 'disabled' ? 'GAP CRITIC: disabled for this run.'
@@ -840,7 +1064,7 @@ async function runAudit(plan, deps) {
   const synth = await agent(
     'You are the lead architect summarising the results of an audit of ' + plan.repo.root + ' run on ' + plan.date + '. ' + slices.length +
       ' reviewer(s) examined subsystem slices and cross-cutting lenses' + (gapResults.length ? ' plus ' + gapResults.length + ' gap follow-up(s)' : '') +
-      '; their findings were deduplicated and adversarially verified. Verdicts: CONFIRMED = survived every verifier; PLAUSIBLE = kept, but at least one verifier objected (say so in the finding); UNVERIFIED = no verifier returned, or the finding fell beyond the verification cap. Use finalSeverity (verifier-adjusted), not the originally reported severity. Apply correctedEvidence: drop or fix any evidence a verifier showed to be wrong. You may open source files to make the architecture map accurate, but do NOT re-litigate verdicts and do NOT add new findings.\n\n' +
+      '; their findings were deduplicated and adversarially verified. Verdicts: CONFIRMED = survived every verifier; PLAUSIBLE = kept, but at least one verifier objected (say so in the finding); UNVERIFIED = no verifier returned, the finding fell beyond the verification cap, or (unverifiedReason metrics-pending) it rests on a measured claim a script checks after this run; keep it, do not judge that claim yourself. Use finalSeverity (verifier-adjusted), not the originally reported severity. Apply correctedEvidence: drop or fix any evidence a verifier showed to be wrong. You may open source files to make the architecture map accurate, but do NOT re-litigate verdicts and do NOT add new findings.\n\n' +
       'HARD RULES: READ-ONLY. Do not create, edit, or delete any file. Do not run any command that mutates repository or environment state. Do not call any write tool. Do not prefix bash commands with cd. You write no report file; the report is the structured data you return.\n\n' +
       'Return: healthVerdict (one sentence); executiveSummary (<=150 words, balanced: strengths and problems); themes (systemic themes grouping findings by root cause, each with the report ids it explains and the structural remedy in its summary); strengths (the strengths to preserve, deduplicated and specific); findingIndex (assign report ids R01, R02, ... ordered by finalSeverity, critical first, then by leverage, and map every report id to its findingId); roadmap (now/next/later, short strings referencing report ids); method (one short paragraph: reviewers, lenses, dedup, verification, counts); notExamined (areas the audit did not cover, one string each).\n\n' +
       'SLICE SUMMARIES & STRENGTHS:\n' + JSON.stringify(slicePayload) + '\n\nKEPT FINDINGS (' + keptPayload.length + '):\n' + JSON.stringify(keptPayload) +
@@ -849,18 +1073,19 @@ async function runAudit(plan, deps) {
     agentOpts(plan, 'synth', { label: 'synthesis', phase: 'Synthesize', schema: S.SYNTH }),
   )
   const ridMap = reportIds(synth)
-  const keptOut = keptRaw.map((k) => {
+  const keptOut = keptRaw.map((k, ki) => {
     const row = {
       findingId: k.id, reportId: ridMap[k.id] || '', title: k.title, severity: k.finalSeverity, verdict: k.verdict, category: k.category, effort: k.effort,
       locations: (k.locations || []).slice(0, 4), trackedId: k.trackedId || '',
       evidence: k.evidence + (k.correctedEvidence ? '\n\nVerifier correction: ' + k.correctedEvidence : ''),
       impact: k.impact, recommendation: k.recommendation, confidence: k.confidence, rating: k.rating || 'watch', sliceKey: (k.sources || [])[0],
+      stableId: stable[ki], basis: k.basis || 'judgement', verifiedBy: k.verdict === 'UNVERIFIED' ? 'none' : 'agents',
     }
-    if (k.metrics) row.metrics = k.metrics
-    if (k.verdict === 'UNVERIFIED') row.unverifiedReason = cappedIds.has(k.id) ? 'cap' : 'no-verifier'
+    if (k.basis === 'measured' && k.measuredClaim) row.measuredClaim = k.measuredClaim
+    if (k.verdict === 'UNVERIFIED') row.unverifiedReason = k.unverifiedReason || (cappedIds.has(k.id) ? 'cap' : 'no-verifier')
     return row
   })
-  const refutedOut = refutedRaw.map((d) => ({ findingId: d.id, title: d.title }))
+  const refutedOut = refutedRaw.map((d, ri) => ({ findingId: d.id, title: d.title, category: d.category, locations: (d.locations || []).slice(0, 4), stableId: stable[keptRaw.length + ri], basis: d.basis || 'judgement', verifiedBy: 'agents' }))
   const report = synth ? {
     reportPath: plan.reportPath, healthVerdict: synth.healthVerdict, executiveSummary: synth.executiveSummary, themes: synth.themes,
     strengths: synth.strengths, roadmap: synth.roadmap, method: synth.method,
@@ -898,6 +1123,7 @@ async function runAudit(plan, deps) {
     confirmed: keptRaw.filter((k) => k.verdict === 'CONFIRMED').length, plausible: keptRaw.filter((k) => k.verdict === 'PLAUSIBLE').length,
     unverified: keptRaw.filter((k) => k.verdict === 'UNVERIFIED').length, refuted: refutedOut.length, missing,
     projectedAgents: projected.total, droppedGaps, unverifiedByCap: capResult.unverified.length,
+    metricsPending: metricsPendingRows.length, mergeAgents,
   }
   return { contract: 'audit/result-v2', started: true, runId: plan.runId, stats, report, kept: keptOut, refuted: refutedOut, proposal, metricsPath, date: plan.date }
 }

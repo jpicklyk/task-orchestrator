@@ -50,15 +50,14 @@ State the `reportPath` and that items will cite it, then show the two tables bel
 
 | Preset | Reviewers | Gap reviewers | Verify cap | Projected agents | Projected agents, no project root |
 |--------|-----------|---------------|------------|------------------|-----------------------------------|
-| quick | 4 | 1 | 20 | 34 | 30 |
+| quick | 4 | 1 | 20 | 33 | 29 |
 | standard | 8 | 2 | 40 | 143 | 135 |
-| full | 16 | 4 | 100 | 341 | 325 |
+| full | 16 | 4 | 100 | 343 | 327 |
 
 ### Dispatch
 
 | Phase key | Class |
 |-----------|-------|
-| measure | audit-measure |
 | scope | research |
 | review | audit-review |
 | review-architecture | review |
