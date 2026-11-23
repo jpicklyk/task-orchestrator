@@ -12,7 +12,7 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigViolation
 import io.github.jpicklyk.mcptask.current.application.config.ParseMode
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.ConfigAppend
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStoreProvider
 import io.github.jpicklyk.mcptask.current.model.config.ConfigAppendOutcome
 import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
 import io.github.jpicklyk.mcptask.current.model.config.ConfigVersion
@@ -55,7 +55,7 @@ import java.util.UUID
  * migration copied all parse in [ParseMode.MIGRATION], which never rejects.
  */
 class ConfigService(
-    private val repositoryProvider: RepositoryProvider,
+    private val repositoryProvider: ConfigStoreProvider,
     private val parser: ConfigDocumentParser,
     /** The transaction boundary: each write ([push], [rollback], [reset]) is ONE write unit. */
     private val unitOfWork: UnitOfWork,

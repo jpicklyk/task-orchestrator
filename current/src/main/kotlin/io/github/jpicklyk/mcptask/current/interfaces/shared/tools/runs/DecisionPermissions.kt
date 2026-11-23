@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
 import io.github.jpicklyk.mcptask.current.application.decision.DecisionCaller
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -50,7 +50,7 @@ internal object DecisionLoader {
      * `forbidden` (never `not_found`), and an ambiguous prefix keeps only the candidates whose root [ScopeGuard] admits.
      */
     suspend fun resolveId(
-        stores: RepositoryProvider,
+        stores: RunStoreProvider,
         scope: AccessScope,
         ref: IdRef
     ): Outcome<UUID> {
@@ -86,7 +86,7 @@ internal object DecisionLoader {
      * unknown decision is `forbidden` too.
      */
     suspend fun load(
-        stores: RepositoryProvider,
+        stores: RunStoreProvider,
         ctx: CallContext,
         ref: IdRef
     ): Outcome<DecisionRequest> {

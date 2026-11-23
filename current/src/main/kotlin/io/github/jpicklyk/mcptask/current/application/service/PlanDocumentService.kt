@@ -2,7 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.knowledge.document.DocumentService
 import io.github.jpicklyk.mcptask.current.application.knowledge.document.PlanSlugs
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.KnowledgeStoreProvider
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -31,7 +31,7 @@ import java.util.UUID
  * step; nothing is written on failure.
  */
 class PlanDocumentService(
-    private val repositoryProvider: RepositoryProvider,
+    private val repositoryProvider: KnowledgeStoreProvider,
     /** The transaction boundary: the root check and the stash run in ONE write unit. */
     private val unitOfWork: UnitOfWork,
 ) {

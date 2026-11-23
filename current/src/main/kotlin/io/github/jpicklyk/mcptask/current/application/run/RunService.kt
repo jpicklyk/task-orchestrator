@@ -3,10 +3,10 @@ package io.github.jpicklyk.mcptask.current.application.run
 import io.github.jpicklyk.mcptask.current.application.config.RunsConfig
 import io.github.jpicklyk.mcptask.current.application.port.AssigneeHolder
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.RunDecisionPort
 import io.github.jpicklyk.mcptask.current.application.port.RunSeatPort
 import io.github.jpicklyk.mcptask.current.application.port.RunStore
+import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
@@ -66,7 +66,7 @@ import java.util.UUID
  * `RunLimits`.
  */
 class RunService(
-    private val repositoryProvider: RepositoryProvider,
+    private val repositoryProvider: RunStoreProvider,
     private val unitOfWork: UnitOfWork,
     private val claimService: ClaimService,
     private val runsConfig: suspend (UUID) -> RunsConfig,

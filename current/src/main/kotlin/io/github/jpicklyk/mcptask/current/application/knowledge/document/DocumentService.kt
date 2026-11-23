@@ -3,7 +3,7 @@
 package io.github.jpicklyk.mcptask.current.application.knowledge.document
 
 import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.KnowledgeStoreProvider
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -40,7 +40,7 @@ import java.util.UUID
  * Every write appends a `document_versions` row (version 1 included); `documents` holds the current body.
  */
 class DocumentService(
-    private val repositoryProvider: RepositoryProvider,
+    private val repositoryProvider: KnowledgeStoreProvider,
     /** The transaction boundary; each write operation is one unit (joining an ambient unit when there is one). */
     private val unitOfWork: UnitOfWork,
 ) {

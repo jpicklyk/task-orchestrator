@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.api.docs
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.knowledge.document.PlanSlugs
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
+import io.github.jpicklyk.mcptask.current.application.port.KnowledgeStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
@@ -380,7 +381,7 @@ object DocHandlers {
      * `invalid_request` for an item that is not a depth-0 root. A restricted scope never learns whether a root exists.
      */
     private suspend fun admitRoot(
-        stores: RepositoryProvider,
+        stores: KnowledgeStoreProvider,
         ctx: CallContext,
         ref: IdRef
     ): Outcome<UUID> {
@@ -414,7 +415,7 @@ object DocHandlers {
 
     /** Resolves [ref] under the call's scope by the one rule every tool uses ([ScopedIds.resolve]). */
     private suspend fun resolveScoped(
-        stores: RepositoryProvider,
+        stores: KnowledgeStoreProvider,
         ctx: CallContext,
         ref: IdRef,
         field: String
@@ -422,7 +423,7 @@ object DocHandlers {
 
     /** Resolves [ref] to an item the call's scope admits: `not_found` / `ambiguous_id` / `forbidden`. */
     private suspend fun admitItem(
-        stores: RepositoryProvider,
+        stores: KnowledgeStoreProvider,
         ctx: CallContext,
         ref: IdRef
     ): Outcome<UUID> {
@@ -439,7 +440,7 @@ object DocHandlers {
 
     /** document id -> id of the item that adopted it, for the documents of [docIds] whose adopter the scope admits. */
     private suspend fun adopters(
-        stores: RepositoryProvider,
+        stores: KnowledgeStoreProvider,
         ctx: CallContext,
         docIds: List<UUID>
     ): Map<UUID, UUID> {

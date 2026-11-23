@@ -3,7 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 import io.github.jpicklyk.mcptask.current.application.api.RunRefs
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunBudgetRequest
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -26,14 +26,14 @@ internal object RunsSupport {
 
     /** Resolves a run id as the caller wrote it, under [scope]: [RunRefs.resolveRunId] (the rule lives in the application layer). */
     suspend fun resolveRunId(
-        stores: RepositoryProvider,
+        stores: RunStoreProvider,
         scope: AccessScope,
         ref: IdRef
     ): Outcome<UUID> = RunRefs.resolveRunId(stores, scope, ref)
 
     /** Resolves and loads the run [ref] under the call scope: [RunRefs.loadRun]. */
     suspend fun loadRun(
-        stores: RepositoryProvider,
+        stores: RunStoreProvider,
         ctx: CallContext,
         ref: IdRef
     ): Outcome<Run> = RunRefs.loadRun(stores, ctx.scope, ref)
@@ -45,14 +45,14 @@ internal object RunsSupport {
      */
     suspend fun view(
         env: ToolExecutionContext,
-        stores: RepositoryProvider,
+        stores: RunStoreProvider,
         run: Run,
         scope: AccessScope
     ): JsonObject = view(stores, run, scope, env.clock.now())
 
     /** [view] at the instant [now]. */
     suspend fun view(
-        stores: RepositoryProvider,
+        stores: RunStoreProvider,
         run: Run,
         scope: AccessScope,
         now: Instant

@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.api
 
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -15,7 +15,7 @@ import java.util.UUID
 
 /**
  * Run id resolution under an access scope (the `runs_read get` rule), shared by the `runs_*` handlers and the run
- * rollup. Every function reads [RepositoryProvider] stores inside the caller's unit.
+ * rollup. Every function reads [RunStoreProvider] stores inside the caller's unit.
  */
 object RunRefs {
     private const val UUID_LENGTH = 36
@@ -30,7 +30,7 @@ object RunRefs {
      * resolves, two or more is `ambiguous_id` listing only those). Whether a full UUID names a run is the loader question.
      */
     suspend fun resolveRunId(
-        stores: RepositoryProvider,
+        stores: RunStoreProvider,
         scope: AccessScope,
         ref: IdRef
     ): Outcome<UUID> {
@@ -66,7 +66,7 @@ object RunRefs {
      * unknown run is `forbidden` too.
      */
     suspend fun loadRun(
-        stores: RepositoryProvider,
+        stores: RunStoreProvider,
         scope: AccessScope,
         ref: IdRef
     ): Outcome<Run> {
