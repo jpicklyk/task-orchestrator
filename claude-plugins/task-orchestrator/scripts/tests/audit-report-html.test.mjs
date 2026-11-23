@@ -785,6 +785,7 @@ test('T9 S14 compareResults returns the exact new, persisting and resolved sets,
       { stableId: 'F-A1', title: 'U-A1-gone', severity: 'medium' },
       { stableId: 'F-a0', title: 'U-a0-gone', severity: 'high' },
     ],
+    refutedNow: [],
   })
 })
 
@@ -825,7 +826,7 @@ test('T9 S14 the lib throws TypeError when either input has no kept[]', () => {
 
 test('T9 S15 a previous result without stable ids is not comparable: the contract note and three empty lists', () => {
   const current = res([stable('F-0001', 'U1', 'low', 'R01')])
-  const expected = { comparable: false, note: 'previous run has no stable ids', new: [], persisting: [], resolved: [] }
+  const expected = { comparable: false, note: 'previous run has no stable ids', new: [], persisting: [], resolved: [], refutedNow: [] }
   assert.deepEqual(compareResults(current, res([row({ title: 'old' }), row({ title: 'older', stableId: '' })])), expected)
   assert.deepEqual(compareResults(current, res([])), expected)
   // control: with one stable id the same call is comparable
@@ -1172,4 +1173,53 @@ test('T9 S21 a refuted list entry adds " - <rationale>" only when it has one, es
   assert.ok(text.includes('RefWithReason - measured value differs: churn claimed 40, measured 60'), text)
   assert.ok(text.includes('RefNoReason') && !text.includes('RefNoReason -'))
   assert.ok(sec.includes('&lt;b&gt;why&lt;/b&gt;') && !sec.includes('<b>why</b>'))
+})
+
+// -- item b5617eb3: refuted rows anchored in Coverage, and the Refuted now list ---------------------------
+
+test('AC3 a metrics-refuted report id is linked from the summary, anchored once in Coverage and labelled', () => {
+  const r = clone(RESULT)
+  r.report.executiveSummary = 'Open items: R77 first.'
+  r.refuted = [{ findingId: 'rf-7', reportId: 'R77', title: 'RefMeasured', verifiedBy: 'metrics', rationale: 'measured value differs' }]
+  const html = renderAuditReport(r, METRICS)
+  assert.ok(html.includes('<a href="#r77">R77</a>'), 'linked')
+  assert.equal(count(html, 'id="r77"'), 1)
+  assert.ok(section(html, 'coverage').includes('id="r77"'), 'anchor sits in Coverage')
+  assert.ok(textOf(html).includes('RefMeasured (refuted by metrics) - measured value differs'))
+})
+
+test('AC3 a refuted report id equal to a kept id adds no second id; an agent-refuted row has no metrics label', () => {
+  const r = clone(RESULT)
+  const keptId = r.kept.find((k) => k.reportId).reportId
+  r.refuted = [
+    { findingId: 'rf-a', reportId: keptId, title: 'Clash', verifiedBy: 'metrics' },
+    { findingId: 'rf-b', reportId: 'R88', title: 'ByAgents', verifiedBy: 'agents' },
+  ]
+  const html = renderAuditReport(r, METRICS)
+  assert.equal(count(html, `id="${keptId.toLowerCase()}"`), 1, 'only the kept card owns the id')
+  assert.equal(count(html, 'id="r88"'), 1)
+  assert.ok(!textOf(html).includes('ByAgents (refuted by metrics)'))
+})
+
+test('AC6 a previous kept stableId that is refuted now is listed under Refuted now, not Resolved', () => {
+  const previous = res([stable('F-1', 'Was open', 'high', 'R01'), stable('F-2', 'Plain gone', 'low', 'R02')])
+  const current = res([stable('F-3', 'Fresh', 'low', 'R03')], {
+    refuted: [{ findingId: 'rf-1', stableId: 'F-1', reportId: 'R09', title: 'now title', verifiedBy: 'metrics' }],
+  })
+  assert.deepEqual(compareResults(current, previous).refutedNow, [{ stableId: 'F-1', reportId: 'R09', title: 'Was open', severity: 'high' }])
+  assert.deepEqual(compareResults(current, previous).resolved, [{ stableId: 'F-2', title: 'Plain gone', severity: 'low' }])
+  const sec = sinceSection(renderAuditReport(current, null, previous))
+  assert.ok(sec.includes('<h3>Refuted now (1)</h3>'))
+  assert.ok(sec.indexOf('<h3>Resolved (1)</h3>') < sec.indexOf('<h3>Refuted now (1)</h3>'))
+  assert.match(sec, /<li>R09 Was open \(high\)<\/li>|<li><a href="#r09">R09<\/a> Was open \(high\)<\/li>/)
+})
+
+test('AC6 without a refuted-now row there is no Refuted now heading, and Hot set follows Refuted now', () => {
+  const { previous, current } = sincePair()
+  assert.ok(!sinceSection(renderAuditReport(current, null, previous)).includes('Refuted now'))
+  const prev = res([stable('F-1', 'Was open', 'high', 'R01')], { hotSet: ['a.kt'] })
+  const cur = res([], { hotSet: ['b.kt'], refuted: [{ findingId: 'x', stableId: 'F-1', title: 't' }] })
+  const sec = sinceSection(renderAuditReport(cur, null, prev))
+  assert.ok(sec.indexOf('<h3>Refuted now (1)</h3>') < sec.indexOf('<h3>Hot set</h3>'))
+  assert.equal(compareResults(cur, prev).refutedNow[0].reportId, undefined)
 })

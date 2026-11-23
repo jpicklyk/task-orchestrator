@@ -114,6 +114,7 @@ export function confirmMeasured(input, metrics) {
         verifiedBy: 'metrics',
         rationale,
       };
+      if (typeof row.reportId === 'string' && row.reportId !== '') out.reportId = row.reportId;
       if (m) out.metrics = m;
       refuted.push(out);
       refutedIds.add(row.findingId);
@@ -143,6 +144,7 @@ export function confirmMeasured(input, metrics) {
   // by final state, so a second pass over its own output leaves them unchanged
   stats.confirmedByMetrics = count((k) => k.verdict === 'CONFIRMED' && k.verifiedBy === 'metrics');
   stats.refutedByMetrics = refuted.filter((r) => r && r.verifiedBy === 'metrics').length;
+  stats.metricsPending = count((k) => k.unverifiedReason === 'metrics-pending');
   res.stats = stats;
   const report = res.report;
   if (isObj(report) && isObj(report.coverage)) {

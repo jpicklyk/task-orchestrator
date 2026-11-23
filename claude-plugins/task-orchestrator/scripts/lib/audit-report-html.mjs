@@ -187,8 +187,10 @@ function severityChange(now, was) {
 }
 
 /**
- * compareResults(current, previous) -> {comparable, note?, new, persisting, resolved, hotSetDelta?}. Findings are matched by
- * stableId over the kept rows only; each list is sorted by stableId. A previous result without a stable id is not comparable.
+ * compareResults(current, previous) -> {comparable, note?, new, persisting, resolved, refutedNow, hotSetDelta?}. Findings are
+ * matched by stableId over the kept rows; each list is sorted by stableId. A previous kept stableId that is absent from the
+ * current kept rows but is the stableId of a current refuted row goes to refutedNow {stableId, reportId of the refuted row,
+ * title and severity of the previous row} and not to resolved. A previous result without a stable id is not comparable.
  * hotSetDelta {entered, left} appears only when both results carry a hotSet array.
  */
 export function compareResults(current, previous) {
@@ -196,9 +198,13 @@ export function compareResults(current, previous) {
   const prev = normalizeInput(previous);
   const now = stableMap(cur);
   const was = stableMap(prev);
-  if (was.size === 0) return { comparable: false, note: 'previous run has no stable ids', new: [], persisting: [], resolved: [] };
+  if (was.size === 0) return { comparable: false, note: 'previous run has no stable ids', new: [], persisting: [], resolved: [], refutedNow: [] };
   const ids = (m) => [...m.keys()].sort(cmp);
-  const out = { comparable: true, new: [], persisting: [], resolved: [] };
+  const out = { comparable: true, new: [], persisting: [], resolved: [], refutedNow: [] };
+  const refutedBy = new Map();
+  for (const r of arr(cur.refuted)) {
+    if (r && typeof r.stableId === 'string' && r.stableId !== '' && !refutedBy.has(r.stableId)) refutedBy.set(r.stableId, r);
+  }
   for (const id of ids(now)) {
     const k = now.get(id);
     if (!was.has(id)) {
@@ -218,7 +224,11 @@ export function compareResults(current, previous) {
   for (const id of ids(was)) {
     if (!now.has(id)) {
       const p = was.get(id);
-      out.resolved.push({ stableId: id, title: p.title, severity: p.severity });
+      if (refutedBy.has(id)) {
+        out.refutedNow.push({ stableId: id, reportId: refutedBy.get(id).reportId, title: p.title, severity: p.severity });
+      } else {
+        out.resolved.push({ stableId: id, title: p.title, severity: p.severity });
+      }
     }
   }
   if (Array.isArray(cur.hotSet) && Array.isArray(prev.hotSet)) {
@@ -258,9 +268,17 @@ export function renderAuditReport(input, metrics = null, previous = null) {
   }));
   const keptIds = new Set(kept.filter((k) => k.reportId).map((k) => String(k.reportId).toLowerCase()));
 
+  // a refuted row's report id is anchored in Coverage unless a kept row already owns it
+  const refutedAnchors = new Set(
+    arr(res.refuted)
+      .filter((r) => r && typeof r.reportId === 'string' && r.reportId !== '')
+      .map((r) => r.reportId.toLowerCase())
+      .filter((id) => !keptIds.has(id)),
+  );
+
   const link = (text) =>
     e(text).replace(/\bR\d+\b/g, (tok) =>
-      keptIds.has(tok.toLowerCase()) ? `<a href="#${tok.toLowerCase()}">${tok}</a>` : tok,
+      keptIds.has(tok.toLowerCase()) || refutedAnchors.has(tok.toLowerCase()) ? `<a href="#${tok.toLowerCase()}">${tok}</a>` : tok,
     );
   const list = (items) => `<ul>${items.map((x) => `<li>${link(x)}</li>`).join('')}</ul>`;
 
@@ -426,7 +444,7 @@ export function renderAuditReport(input, metrics = null, previous = null) {
     out.push(architectureSection(m));
   }
 
-  out.push(coverageSection(res, report, m !== null, link, diff !== null && !diff.comparable ? diff.note : null));
+  out.push(coverageSection(res, report, m !== null, link, diff !== null && !diff.comparable ? diff.note : null, refutedAnchors));
 
   out.push('</main>');
   out.push(`<script>\n${SCRIPT}\n</script>`);
@@ -541,7 +559,7 @@ function architectureSection(m) {
   return parts.join('\n');
 }
 
-function coverageSection(res, report, hasMetrics, link, sinceNote) {
+function coverageSection(res, report, hasMetrics, link, sinceNote, refutedAnchors) {
   const parts = ['<section id="coverage"><h2>Coverage</h2>'];
   if (!hasMetrics) parts.push('<p>Metrics were not available for this run.</p>');
   if (sinceNote) parts.push(`<p>Since last audit: ${e(sinceNote)}.</p>`);
@@ -570,7 +588,18 @@ function coverageSection(res, report, hasMetrics, link, sinceNote) {
   }
   const refuted = arr(res.refuted);
   if (refuted.length) {
-    parts.push(`<h3>Refuted findings</h3><ul>${refuted.map((r) => `<li>${e(r && r.title)}${r && r.rationale ? ` - ${e(r.rationale)}` : ''}</li>`).join('')}</ul>`);
+    const seen = new Set();
+    const refutedItem = (r) => {
+      const rid = r && typeof r.reportId === 'string' ? r.reportId : '';
+      const lid = rid.toLowerCase();
+      const anchored = refutedAnchors.has(lid) && !seen.has(lid);
+      if (anchored) seen.add(lid);
+      const idAttr = anchored ? ` id="${e(lid)}"` : '';
+      const head = rid !== '' ? `${e(rid)} ` : '';
+      const tag = r && r.verifiedBy === 'metrics' ? ' (refuted by metrics)' : '';
+      return `<li${idAttr}>${head}${e(r && r.title)}${tag}${r && r.rationale ? ` - ${e(r.rationale)}` : ''}</li>`;
+    };
+    parts.push(`<h3>Refuted findings</h3><ul>${refuted.map(refutedItem).join('')}</ul>`);
   }
   const stats = res.stats && typeof res.stats === 'object' ? res.stats : null;
   if (stats && (stats.raw !== undefined || stats.merged !== undefined)) {
@@ -615,6 +644,9 @@ function sinceSection(diff) {
     `<h3>Resolved (${diff.resolved.length})</h3>`,
     list(diff.resolved, (x) => `<li>${e(x.title)} (${e(x.severity)})</li>`),
   );
+  if (diff.refutedNow.length) {
+    parts.push(`<h3>Refuted now (${diff.refutedNow.length})</h3>`, list(diff.refutedNow, (x) => item(x, e(x.severity))));
+  }
   if (diff.hotSetDelta) {
     const paths = (l) => (l.length ? l.map((p) => `<code>${e(p)}</code>`).join(', ') : 'none');
     parts.push('<h3>Hot set</h3>', `<p>Entered: ${paths(diff.hotSetDelta.entered)}</p>`, `<p>Left: ${paths(diff.hotSetDelta.left)}</p>`);
