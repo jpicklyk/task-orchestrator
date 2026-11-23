@@ -14,9 +14,10 @@ const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 /**
  * primaryPath(locations) -> string: the first location reduced by one grammar: trim; cut at the earliest of a whitespace character other than a space,
  * a run of 2 or more whitespace characters, ' (', ' - ' and an em dash (a single space does not end the path); trim the end; backslashes to '/';
- * leading './' stripped; then exactly one trailing suffix removed, tried in this order: '#L5', '#L5-L9', '#L5-9'; '(12)', '(12,5)', '(12-30)'; a ':' suffix
- * that holds no '/' (':12', ':12-30', ':Foo.bar', ':1:2', a bare ':'; a drive letter stays). Limit: a path that itself contains ' (', ' - ' or an em dash
- * is cut there. '' with no location, an empty string or a non-string. A copy of the workflow's primaryPath
+ * leading './' stripped; then trailing suffixes removed repeatedly until none matches, each pass trying in this order: '#L5', '#L5-L9', '#L5-9'; '(12)',
+ * '(12,5)', '(12-30)'; a ':' suffix that holds no '/' (':12', ':12-30', ':Foo.bar', ':1:2', a bare ':'; a drive letter stays), so 'src/a.kt:parse(12)' is
+ * 'src/a.kt'. The end of a numeric suffix (':12', ':12-30', '(12)', '#L12') that is followed by whitespace also ends the path ('a.kt:12 see b/c.kt' is 'a.kt').
+ * Limit: a path that itself contains ' (', ' - ' or an em dash is cut there. '' with no location, an empty string or a non-string. A copy of the workflow's primaryPath
  * (workflows/deep-codebase-audit.js parseLocation); a workflow cannot import, so a test pins the two together.
  */
 export function primaryPath(locations) {
@@ -28,11 +29,19 @@ export function primaryPath(locations) {
     const hit = re.exec(text);
     if (hit && hit.index < cut) cut = hit.index;
   }
+  const numeric = /(?::\d+(?:[-:,]\d+)*|#L\d+(?:-L?\d+)?|\(\d[\d,-]*\))(?=\s)/.exec(text);
+  if (numeric && numeric.index + numeric[0].length < cut) cut = numeric.index + numeric[0].length;
   let out = text.slice(0, cut).trimEnd().split(String.fromCharCode(92)).join('/');
   while (out.indexOf('./') === 0) out = out.slice(2);
-  for (const re of [/#L\d+(?:-L?\d+)?$/, /\(\d[\d,-]*\)$/, /:[^/]*$/]) {
-    const m = re.exec(out);
-    if (m) return out.slice(0, m.index);
+  for (let again = true; again;) {
+    again = false;
+    for (const re of [/#L\d+(?:-L?\d+)?$/, /\(\d[\d,-]*\)$/, /:[^/]*$/]) {
+      const m = re.exec(out);
+      if (!m) continue;
+      out = out.slice(0, m.index);
+      again = true;
+      break;
+    }
   }
   return out;
 }

@@ -48,7 +48,7 @@ const CORE_NAMES = [
   'SEVERITY_RANK', 'LENS_KEYS', 'PRESETS', 'CATEGORIES', 'DEFAULT_CLASS_MAP', 'TYPE_MAP_KEY', 'DEFAULT_METHOD_SKILL',
   'DOCS_METHOD_SKILL', 'FOCUS_VALUES', 'sliceKind', 'inFocus', 'methodSkillOf', 'VERIFY_LENS_INSTRUCTIONS',
   'DISPATCH_CLASSES', 'FAN_OUT_KEYS', 'RATINGS', 'ITEM_POLICIES', 'ARCHITECTURE_LENS', 'testPathsOf',
-  'formatMetricsDigest', 'sliceDigest', 'markMetricsPending', 'preCluster', 'primaryPath', 'fnv1a32', 'stableIds',
+  'formatMetricsDigest', 'sliceDigest', 'markMetricsPending', 'preCluster', 'parseLocation', 'primaryPath', 'fnv1a32', 'stableIds',
   'criticState', 'agentOpts', 'dispatchTag',
   'assignedCandidates', 'packVerifyGroups', 'groupVotes', 'buildCandidatePrompt', 'buildVerifyGroupPrompt',
 ]
@@ -4899,6 +4899,27 @@ test('A4: the workflow location grammar removes one #L or (digits) suffix', () =
   }
   assert.equal(CORE.primaryPath(['src/a.kt (12)']), 'src/a.kt', 'a space before the parenthesis makes it a note')
   assert.equal(CORE.primaryPath(['src/foo()/a.kt']), 'src/foo()/a.kt', 'an empty pair is not a suffix')
+})
+
+test('A4b: the workflow location grammar strips every trailing suffix and keeps the first numeric line', () => {
+  assert.deepEqual(CORE.parseLocation(['src/a.kt:parse(12)']), { path: 'src/a.kt', line: 12 })
+  assert.deepEqual(CORE.parseLocation(['src/a.kt:parse:12']), { path: 'src/a.kt', line: 0 })
+  assert.deepEqual(CORE.parseLocation(['src/a.kt:12']), { path: 'src/a.kt', line: 12 })
+  assert.equal(CORE.primaryPath(['src/a.kt:Foo.bar(1)']), 'src/a.kt')
+  assert.deepEqual(CORE.parseLocation(['src/a.kt(12):5']), { path: 'src/a.kt', line: 5 }, 'the first suffix removed from the end gives the line')
+})
+
+test('A4c: a numeric suffix followed by whitespace ends the path, and a single space with no such suffix survives', () => {
+  assert.deepEqual(CORE.parseLocation(['a.kt:12 see b/c.kt']), { path: 'a.kt', line: 12 })
+  assert.deepEqual(CORE.parseLocation(['a.kt(12) see b/c.kt']), { path: 'a.kt', line: 12 })
+  assert.deepEqual(CORE.parseLocation(['a.kt#L12 see b/c.kt']), { path: 'a.kt', line: 12 })
+  assert.deepEqual(CORE.parseLocation(['a.kt:12-30 see b/c.kt']), { path: 'a.kt', line: 12 })
+  assert.deepEqual(CORE.parseLocation(['my dir/a.kt:3']), { path: 'my dir/a.kt', line: 3 })
+})
+
+test('A4d: parseLocation returns the first line of a range or pair suffix', () => {
+  assert.deepEqual(CORE.parseLocation(['p.kt#L5-L9']), { path: 'p.kt', line: 5 })
+  assert.deepEqual(CORE.parseLocation(['p.kt(12,5)']), { path: 'p.kt', line: 12 })
 })
 
 test('A5: stableIds orders a (7) suffix before a #L30 suffix by line', () => {

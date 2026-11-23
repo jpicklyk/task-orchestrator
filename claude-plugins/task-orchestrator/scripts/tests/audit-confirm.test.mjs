@@ -674,6 +674,7 @@ test('S13 primaryPath equals the workflow core on a probe list', () => {
     ['src/a.kt:12'], ['src/a.kt:12-30'], ['src/a.kt:Foo.bar'], ['src/a.kt (note)'], ['src/a.kt:12 (note)'],
     [''], [null], [42], ['  ./x.kt:3 (n)'], ['src/a.kt	vs src/b.kt'], ['src/a.kt  vs src/b.kt'], ['c:' + String.fromCharCode(92) + 'x' + String.fromCharCode(92) + 'y.kt:9'],['C:/x/y.kt/'], ['x.kt:'], [':'],
     ['my dir/a b.kt:12'], ['my dir/a b.kt (note)'], ['src/a.kt:3 - see b/c.kt'], ['src/a.kt:3 ' + String.fromCharCode(0x2014) + ' note'], ['src/a.kt(12)'], ['src/a.kt(12,5)'], ['src/a.kt(12-30)'], ['src/a.kt#L5'], ['src/a.kt#L5-L9'], ['src/a.kt#L5-9'], ['src/a.kt (12)'], ['src/foo()/a.kt'],
+    ['src/a.kt:parse(12)'], ['src/a.kt:parse:12'], ['src/a.kt:Foo.bar(1)'], ['a.kt:12 see b/c.kt'], ['a.kt(12) see b/c.kt'], ['a.kt#L12 see b/c.kt'], ['a.kt:12-30 see b/c.kt'], ['my dir/a.kt:3'],
   ]
   for (const p of probes) assert.equal(primaryPath(p), WF.primaryPath(p), JSON.stringify(p))
 })
@@ -822,3 +823,14 @@ test('A3 / A4 primaryPath (lib copy): one #L or (digits) suffix is removed, a si
   assert.equal(primaryPath(['src/a.kt:3 ' + String.fromCharCode(0x2014) + ' note']), 'src/a.kt');
   assert.equal(primaryPath(['src/a.kt (12)']), 'src/a.kt');
 });
+
+test('FA1 / FA2 primaryPath (lib copy): every trailing suffix is stripped, a numeric suffix before whitespace ends the path', () => {
+  assert.equal(primaryPath(['src/a.kt:parse(12)']), 'src/a.kt')
+  assert.equal(primaryPath(['src/a.kt:parse:12']), 'src/a.kt')
+  assert.equal(primaryPath(['src/a.kt:12']), 'src/a.kt')
+  assert.equal(primaryPath(['src/a.kt:Foo.bar(1)']), 'src/a.kt')
+  assert.equal(primaryPath(['a.kt:12 see b/c.kt']), 'a.kt')
+  assert.equal(primaryPath(['a.kt(12) see b/c.kt']), 'a.kt')
+  assert.equal(primaryPath(['a.kt#L12 see b/c.kt']), 'a.kt')
+  assert.equal(primaryPath(['my dir/a.kt:3']), 'my dir/a.kt')
+})
