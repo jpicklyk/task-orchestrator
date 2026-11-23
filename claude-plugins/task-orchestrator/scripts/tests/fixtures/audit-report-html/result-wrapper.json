@@ -86,8 +86,8 @@
       "method": "Seven reviewers read four slices and three lenses; every finding was merged, then one agent tried to refute it where the cap allowed.",
       "coverage": {
         "reviewers": [
-          "application-support",
-          "domain-core-services",
+          {"key": "application-support", "label": "Application support", "kind": "code"},
+          {"key": "domain-core-services", "label": "Domain core services", "kind": "code"},
           "interfaces-bootstrap"
         ],
         "notExamined": [

@@ -21,11 +21,11 @@ const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const arr = (v) => (Array.isArray(v) ? v : []);
 const fmt = (v) => (v === null || v === undefined ? '-' : String(v));
 const label = (x) =>
-  x !== null && typeof x === 'object' ? (x.name ?? x.sliceKey ?? x.key ?? x.id ?? '') : x;
+  x !== null && typeof x === 'object' ? (x.label ?? x.name ?? x.sliceKey ?? x.key ?? x.id ?? '') : x;
 
 const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low'];
 const VERDICT_ORDER = ['CONFIRMED', 'PLAUSIBLE', 'UNVERIFIED'];
-const CLASS_ORDER = ['act-now', 'plan-it', 'watch'];
+const CLASS_ORDER = ['bug', 'tech-debt', 'observation'];
 const RATING_ORDER = ['act-now', 'plan-it', 'watch'];
 
 const CSS = `:root{--bg:#f7f6f3;--surface:#ffffff;--ink:#1d1c1a;--muted:#6b6862;--line:#e4e1da;--accent:#2f5d8a;--code:#f0eee9;--hi:#a3231a;--hi-bg:#fbe5e2;--med:#a35a00;--med-bg:#fdf0de;--low:#4f6070;--low-bg:#e9eef3;--ok:#1f6b45;--ok-bg:#e2f2e8;--un:#6b6862;--un-bg:#eeece7;--shadow:0 1px 2px rgba(0,0,0,.05)}
@@ -442,7 +442,7 @@ function architectureSection(m) {
       ),
     );
   }
-  parts.push(`<p>Unresolved imports: ${isNum(mods.unresolved) ? mods.unresolved : 'not reported'}</p>`);
+  parts.push(`<p>Unresolved imports: ${isNum(mods.unresolved) ? `${mods.unresolved} (includes imports of external libraries)` : 'not reported'}</p>`);
 
   const unrec = m.languages && m.languages.unrecognised && typeof m.languages.unrecognised === 'object' ? m.languages.unrecognised : {};
   const exts = Object.keys(unrec).sort(cmp);
