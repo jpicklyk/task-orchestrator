@@ -128,21 +128,33 @@ function underPath(x, p) {
 
 /**
  * parseLocation(locations) -> {path, line}: the first location reduced by one grammar, identical to lib/audit-confirm.mjs primaryPath (a workflow cannot
- * import, so a test pins the two together): trim, keep the text before the first whitespace, backslashes to '/', leading './' stripped, then a final ':'
- * suffix that holds no '/' removed (':12', ':12-30', ':Foo.bar', ':1:2', a bare ':'; a drive letter stays). line is the digits directly after the removed
- * colon, or 0 when there are none; path is '' with no location, an empty string or a non-string.
+ * import, so a test pins the two together): trim; cut at the earliest of a whitespace character other than a space, a run of 2 or more whitespace
+ * characters, ' (', ' - ' and an em dash (a single space does not end the path, so 'my dir/a b.kt' survives); trim the end; backslashes to '/'; leading
+ * './' stripped; then exactly one trailing suffix removed, tried in this order: '#L5', '#L5-L9', '#L5-9'; '(12)', '(12,5)', '(12-30)'; a ':' suffix that holds
+ * no '/' (':12', ':12-30', ':Foo.bar', ':1:2', a bare ':'; a drive letter stays). Limit: a path that itself contains ' (', ' - ' or an em dash is cut there.
+ * line is the first digits of the removed suffix (digits directly after the colon for a ':' suffix), or 0 when there are none; path is '' with no location,
+ * an empty string or a non-string.
  */
 function parseLocation(locations) {
   const first = Array.isArray(locations) && locations.length ? locations[0] : null
   if (typeof first !== 'string') return { path: '', line: 0 }
-  const word = first.trim().split(/\s/)[0]
+  const text = first.trim()
+  let cut = text.length
+  for (const re of [/[^\S ]/, /\s{2,}/, / \(/, / - /, /\u2014/]) {
+    const hit = re.exec(text)
+    if (hit && hit.index < cut) cut = hit.index
+  }
+  const word = text.slice(0, cut).trimEnd()
   if (!word) return { path: '', line: 0 }
   let out = word.split(String.fromCharCode(92)).join('/')
   while (out.indexOf('./') === 0) out = out.slice(2)
-  const m = /:([^/]*)$/.exec(out)
-  if (!m) return { path: out, line: 0 }
-  const d = /^\d+/.exec(m[1])
-  return { path: out.slice(0, m.index), line: d ? Number(d[0]) : 0 }
+  for (const re of [/#L(\d+)(?:-L?\d+)?$/, /\((\d[\d,-]*)\)$/, /:([^/]*)$/]) {
+    const m = re.exec(out)
+    if (!m) continue
+    const d = /^\d+/.exec(m[1])
+    return { path: out.slice(0, m.index), line: d ? Number(d[0]) : 0 }
+  }
+  return { path: out, line: 0 }
 }
 
 /** primaryPath(locations) -> string: the path of parseLocation; '' with no location */
@@ -300,9 +312,12 @@ function markMetricsPending(rows) {
  * by an equal non-empty primaryPath, by one 'cycle' of measured.cycles (every unit whose module is in that cycle), and by one measured.coupling pair
  * (a unit on entry.path with a unit on a partner.path whose count is at least COUPLING_LINK_MIN; no same-module filter) - never by measured.candidates, which
  * the preset caps (a unit's module is the longest known module id M, from the hot set, top complexity, cycles and unstable modules,
- * with its primaryPath under M). clusters: [{k (1-based), ids (every finding id in the cluster), units: [{canonicalId, ids}], needsAgent (2 or more units)}].
- * batches: arrays of the needsAgent clusters, packed in order while their findings total at most MERGE_BATCH_MAX; a cluster is never split, and
- * a cluster over the limit is a batch of its own.
+ * with its primaryPath under M). After the unions, a cluster with more than MERGE_BATCH_MAX findings is split into parts: its units are grouped by path in
+ * first-appearance order and whole path groups are packed next-fit up to MERGE_BATCH_MAX; a single path over the limit is one part (a single path is never
+ * split, and no path's findings land in two parts). Each part is an ordinary cluster. clusters: [{k (1-based, renumbered after the split), ids (every
+ * finding id in the cluster), units: [{canonicalId, ids}], needsAgent (2 or more units)}].
+ * batches: arrays of the needsAgent clusters, packed in order while their findings total at most MERGE_BATCH_MAX; a cluster over the limit (one path) is
+ * a batch of its own.
  */
 function preCluster(all, measured = null) {
   const rows = all || []
@@ -344,6 +359,8 @@ function preCluster(all, measured = null) {
   ;(mz.cycles || []).forEach((c) => (c || []).forEach((id) => known.add(normPathText(id))))
   ;(mz.unstableModules || []).forEach((u) => { if (u && u.id) known.add(normPathText(u.id)) })
   known.delete('')
+  // moduleOf keeps the longest known prefix: a finding in a nested module (m/a under m) takes the nested id, so a cycle through m alone does not link it.
+  // The cost is a missed cross-module merge candidate, never a wrong merge; a digest-side fix was declined (06adc357 feature-summary).
   const moduleOf = (path) => {
     let best = ''
     for (const id of known) if (underPath(path, id) && id.length > best.length) best = id
@@ -371,7 +388,30 @@ function preCluster(all, measured = null) {
     if (!byRoot.has(r)) byRoot.set(r, [])
     byRoot.get(r).push(u)
   })
-  const clusters = Array.from(byRoot.values()).sort((a, b) => a[0].first - b[0].first).map((us, i) => {
+  const unitCount = (us) => us.reduce((n, u) => n + u.ids.length, 0)
+  // a union can grow a cluster past MERGE_BATCH_MAX; split it after the unions into parts: group its units by path in first-appearance order and pack whole
+  // path groups next-fit, so one path's findings never land in two parts; a single path over the limit is emitted alone (a single path is never split)
+  const splitParts = (us) => {
+    if (unitCount(us) <= MERGE_BATCH_MAX) return [us]
+    const groups = new Map()
+    us.forEach((u) => {
+      const key = u.path || u.first // a number never equals a path string: a unit with no path is its own group: nothing links it to another by path
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key).push(u)
+    })
+    const parts = []
+    let curUs = []
+    for (const g of groups.values()) {
+      if (curUs.length && unitCount(curUs) + unitCount(g) > MERGE_BATCH_MAX) { parts.push(curUs); curUs = [] }
+      curUs = curUs.concat(g)
+      if (unitCount(curUs) > MERGE_BATCH_MAX) { parts.push(curUs); curUs = [] }
+    }
+    if (curUs.length) parts.push(curUs)
+    return parts
+  }
+  const parts = []
+  Array.from(byRoot.values()).sort((a, b) => a[0].first - b[0].first).forEach((us) => splitParts(us).forEach((p) => parts.push(p)))
+  const clusters = parts.map((us, i) => {
     const ids = []
     us.forEach((u) => u.ids.forEach((id) => ids.push(id)))
     ids.sort((a, b) => order.get(a) - order.get(b))
@@ -633,7 +673,7 @@ function flattenFindings(slices) {
   return all
 }
 
-/** mergeFindings(all, groups) -> merged[] (grouped elements in groups order, then ungrouped singletons in input order) */
+/** mergeFindings(all, groups) -> merged[] (grouped elements in groups order, then ungrouped singletons in input order); a group's members are ordered by (category, primaryPath, first location, input index) and every member-ordered field follows that order */
 function mergeFindings(all, groups) {
   const byId = {}
   all.forEach((f, i) => { byId[f.id] = { f, idx: i } })
@@ -643,7 +683,14 @@ function mergeFindings(all, groups) {
     const ids = [g.canonicalId].concat(g.duplicateIds || []).filter((id) => byId[id] && !seen.has(id))
     if (!ids.length) continue
     ids.forEach((id) => seen.add(id))
-    ids.sort((a, b) => byId[a].idx - byId[b].idx)
+    const cmp = (x, y) => (x < y ? -1 : x > y ? 1 : 0) // code-unit order, '' first
+    const keyOf = (id) => { const f = byId[id].f; return [f.category, primaryPath(f.locations), typeof (f.locations || [])[0] === 'string' ? f.locations[0] : ''] }
+    // the canonical member must not depend on reviewer order: least (category, primaryPath, raw first location), then input index
+    ids.sort((a, b) => {
+      const ka = keyOf(a)
+      const kb = keyOf(b)
+      return cmp(ka[0], kb[0]) || cmp(ka[1], kb[1]) || cmp(ka[2], kb[2]) || byId[a].idx - byId[b].idx
+    })
     const members = ids.map((id) => byId[id].f)
     const canon = members[0]
     const maxSev = members.reduce((acc, m) => (SEVERITY_RANK[m.severity] > SEVERITY_RANK[acc] ? m.severity : acc), canon.severity)

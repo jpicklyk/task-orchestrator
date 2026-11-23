@@ -858,7 +858,7 @@ test('S3: ungrouped findings are appended, in input order, after grouped element
   assert.deepEqual(merged.map((m) => m.id), ['y', 'x', 'z'])
 })
 
-test('S3: canonical member is the first in input order; severity is the max across members', () => {
+test('S3: canonical member is the least (category, primaryPath, first location); severity is the max across members', () => {
   const all = [
     rawFinding('p1', 's1', { severity: 'low' }),
     rawFinding('p2', 's2', { severity: 'critical' }),
@@ -867,7 +867,7 @@ test('S3: canonical member is the first in input order; severity is the max acro
   const groups = [{ canonicalId: 'p2', duplicateIds: ['p1', 'p3'], mergedTitle: 'M' }]
   const merged = CORE.mergeFindings(all, groups)
   assert.equal(merged.length, 1)
-  // canonical = FIRST MEMBER IN INPUT ORDER, not the group's stated canonicalId field
+  // canonical = least (category, primaryPath, first location), not the group's stated canonicalId field (the default locations loc-<id>-a make key order equal input order)
   assert.equal(merged[0].id, 'p1')
   assert.equal(merged[0].severity, 'critical')
 })
@@ -3912,7 +3912,7 @@ test('S51 / probe (batch boundary): clusters of 20 and 20 share one agent (40 fi
   const over = await clusterRun({ sA: manyOn('src/a.kt', 21), sB: manyOn('src/b.kt', 20) })
   assert.deepEqual(over.mergeCalls.map((c) => c.label), ['merge:1', 'merge:2'])
   const oversize = await clusterRun({ sA: manyOn('src/a.kt', 41) })
-  assert.deepEqual(oversize.mergeCalls.map((c) => c.label), ['merge:1'], 'an oversize cluster is never split')
+  assert.deepEqual(oversize.mergeCalls.map((c) => c.label), ['merge:1'], 'a single-path cluster over the limit is never split')
   assert.ok(mentions(oversize.mergeCalls[0].prompt, 'sA-41'))
   const behind = await clusterRun({ sA: manyOn('src/a.kt', 41), sB: manyOn('src/b.kt', 2) })
   assert.deepEqual(behind.mergeCalls.map((c) => c.label), ['merge:1', 'merge:2'], 'a small cluster does not join an oversize one')
@@ -4847,4 +4847,109 @@ test('S8 (T11): the reviewer preamble and the review, gap and candidate prompts 
     assert.ok(matching.length > 0, 'fixture must run a ' + prefix + ' agent')
     for (const c of matching) assert.ok(c.prompt.includes(LOCATION_SENTENCE), c.label)
   }
+})
+
+// ── item 4f4001e9: oversized clusters split by path, location suffix forms, stable merged rows ──────────
+
+const E_DASH = String.fromCharCode(0x2014)
+
+test('A1: a cycle-linked cluster over 40 findings splits by path into more than one merge agent; no path is in two batches', async () => {
+  const { mergeCalls, result } = await clusterRun(
+    { sA: manyOn('m/a/1.kt', 25), sB: manyOn('m/b/2.kt', 20), sC: manyOn('m/a/3.kt', 10) },
+    { measured: measuredFixture({ cycles: [['m/a', 'm/b']], hotSet: [], topComplexity: [], unstableModules: [], coupling: [], candidates: [] }) }
+  )
+  assert.deepEqual(mergeCalls.map((c) => c.label), ['merge:1', 'merge:2'])
+  assert.ok(mentions(mergeCalls[0].prompt, 'sA-1') && mentions(mergeCalls[0].prompt, 'sA-25'))
+  assert.equal(mentions(mergeCalls[0].prompt, 'sB-1'), false)
+  assert.equal(mentions(mergeCalls[0].prompt, 'sC-1'), false)
+  assert.ok(mentions(mergeCalls[1].prompt, 'sB-1') && mentions(mergeCalls[1].prompt, 'sC-10'))
+  assert.equal(mentions(mergeCalls[1].prompt, 'sA-1'), false)
+  assert.equal(result.stats.mergeAgents, 2)
+})
+
+test('A2: preCluster splits a cycle cluster of 45 + 5 findings on two paths: a single path stays whole, k is renumbered, no path is in two batches', () => {
+  const rows = []
+  for (let i = 1; i <= 45; i++) rows.push(rawFinding('a' + i, 's1', { locations: ['m/a/1.kt:' + i] }))
+  for (let i = 1; i <= 5; i++) rows.push(rawFinding('b' + i, 's2', { locations: ['m/b/2.kt:' + i] }))
+  const { clusters, batches } = CORE.preCluster(rows, { cycles: [['m/a', 'm/b']], hotSet: [{ module: 'm/a' }, { module: 'm/b' }] })
+  assert.deepEqual(clusters.map((c) => c.k), [1, 2])
+  assert.deepEqual(clusters.map((c) => c.ids.length), [45, 5])
+  assert.equal(batches.length, 2)
+  const pathsSeen = new Map()
+  const byId = Object.fromEntries(rows.map((r) => [r.id, r]))
+  batches.forEach((batch, bi) => {
+    const ids = batch.flatMap((c) => c.ids)
+    const paths = new Set(ids.map((id) => CORE.primaryPath(byId[id].locations)))
+    assert.ok(ids.length <= 40 || paths.size === 1, 'a batch over 40 holds one path')
+    for (const p of paths) { assert.equal(pathsSeen.has(p), false, p + ' is in one batch'); pathsSeen.set(p, bi) }
+  })
+})
+
+test('A3: the workflow location grammar keeps a single space and cuts at a note separator', () => {
+  assert.equal(CORE.primaryPath(['my dir/a b.kt:12']), 'my dir/a b.kt')
+  assert.equal(CORE.primaryPath(['my dir/a b.kt (note)']), 'my dir/a b.kt')
+  assert.equal(CORE.primaryPath(['src/a.kt:3 - see b/c.kt']), 'src/a.kt')
+  assert.equal(CORE.primaryPath(['src/a.kt:3 ' + E_DASH + ' note']), 'src/a.kt')
+  assert.equal(CORE.primaryPath(['src/a.kt:12 (7)']), 'src/a.kt', 'the note separator wins over a suffix')
+})
+
+test('A4: the workflow location grammar removes one #L or (digits) suffix', () => {
+  for (const loc of ['src/a.kt(12)', 'src/a.kt(12,5)', 'src/a.kt(12-30)', 'src/a.kt#L5', 'src/a.kt#L5-L9', 'src/a.kt#L5-9']) {
+    assert.equal(CORE.primaryPath([loc]), 'src/a.kt', loc)
+  }
+  assert.equal(CORE.primaryPath(['src/a.kt (12)']), 'src/a.kt', 'a space before the parenthesis makes it a note')
+  assert.equal(CORE.primaryPath(['src/foo()/a.kt']), 'src/foo()/a.kt', 'an empty pair is not a suffix')
+})
+
+test('A5: stableIds orders a (7) suffix before a #L30 suffix by line', () => {
+  const ids = CORE.stableIds([
+    { category: 'coupling', locations: ['a.kt#L30'] },
+    { category: 'coupling', locations: ['a.kt(7)'] },
+  ])
+  const base = stableIdOf('coupling', 'a.kt')
+  assert.deepEqual(ids, [base + '-2', base])
+})
+
+test('A6: mergeFindings picks the canonical member by (category, primaryPath, first location), not by input order', () => {
+  const x = rawFinding('x', 's1', { locations: ['src/z.kt:5'] })
+  const y = rawFinding('y', 's2', { locations: ['src/a.kt:1'] })
+  const group = [{ canonicalId: 'x', duplicateIds: ['y'], mergedTitle: '' }]
+  const one = CORE.mergeFindings([x, y], group)[0]
+  const two = CORE.mergeFindings([y, x], group)[0]
+  for (const m of [one, two]) {
+    assert.equal(m.id, 'y')
+    assert.equal(m.locations[0], 'src/a.kt:1')
+    assert.equal(m.sources[0], 's2')
+    assert.deepEqual(m.memberIds, ['y', 'x'])
+  }
+  assert.deepEqual(CORE.stableIds([one]), CORE.stableIds([two]))
+  const l = rawFinding('l', 's1', { category: 'layering', locations: ['a.kt:1'] })
+  const c = rawFinding('c', 's2', { category: 'coupling', locations: ['z.kt:1'] })
+  const byCat = CORE.mergeFindings([l, c], [{ canonicalId: 'l', duplicateIds: ['c'], mergedTitle: '' }])[0]
+  assert.equal(byCat.id, 'c', 'coupling sorts before layering')
+  assert.equal(byCat.category, 'coupling')
+})
+
+test('A7: two reviewer orderings of one merged group give the same findingId, first location and stableId', async () => {
+  const measured = measuredFixture({ cycles: [], hotSet: [], topComplexity: [], unstableModules: [], candidates: [], coupling: [{ path: 'x.kt', partners: [{ path: 'y.kt', count: 4 }] }] })
+  const specs = { s1: [{ locations: ['y.kt:1'] }], s2: [{ locations: ['x.kt:1'] }] }
+  const mergeFor = () => dedupResult({ groups: [{ canonicalId: 's1-1', duplicateIds: ['s2-1'], mergedTitle: 'Merged' }] })
+  for (const keys of [['s1', 's2'], ['s2', 's1']]) {
+    const { result } = await clusterRun(specs, { measured, mergeFor, keys })
+    assert.equal(result.kept.length, 1, keys.join())
+    assert.equal(result.kept[0].findingId, 's2-1', keys.join())
+    assert.equal(result.kept[0].locations[0], 'x.kt:1', keys.join())
+    assert.equal(result.kept[0].stableId, stableIdOf('coupling', 'x.kt'), keys.join())
+  }
+})
+
+test('A8: a finding in a nested module takes the nested id, so a cycle through the outer module alone does not link it', async () => {
+  const measured = measuredFixture({ cycles: [['m', 'x']], hotSet: [], topComplexity: [], unstableModules: [{ id: 'm/a' }], coupling: [], candidates: [] })
+  const { mergeCalls } = await clusterRun(
+    { s1: [{ locations: ['m/a/1.kt:1'] }], s2: [{ locations: ['x/2.kt:1'] }], s3: [{ locations: ['m/3.kt:1'] }] },
+    { measured }
+  )
+  assert.equal(mergeCalls.length, 1)
+  assert.ok(mentions(mergeCalls[0].prompt, 's2-1') && mentions(mergeCalls[0].prompt, 's3-1'))
+  assert.equal(mentions(mergeCalls[0].prompt, 's1-1'), false)
 })

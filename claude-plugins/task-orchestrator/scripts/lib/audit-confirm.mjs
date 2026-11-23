@@ -12,17 +12,29 @@ const arr = (v) => (Array.isArray(v) ? v : []);
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 /**
- * primaryPath(locations) -> string: the first location reduced by one grammar: trim, keep the text before the first whitespace,
- * backslashes to '/', leading './' stripped, then a final ':' suffix that holds no '/' removed (':12', ':12-30', ':Foo.bar', ':1:2',
- * a bare ':'; a drive letter stays); '' with no location, an empty string or a non-string. A copy of the workflow's primaryPath
+ * primaryPath(locations) -> string: the first location reduced by one grammar: trim; cut at the earliest of a whitespace character other than a space,
+ * a run of 2 or more whitespace characters, ' (', ' - ' and an em dash (a single space does not end the path); trim the end; backslashes to '/';
+ * leading './' stripped; then exactly one trailing suffix removed, tried in this order: '#L5', '#L5-L9', '#L5-9'; '(12)', '(12,5)', '(12-30)'; a ':' suffix
+ * that holds no '/' (':12', ':12-30', ':Foo.bar', ':1:2', a bare ':'; a drive letter stays). Limit: a path that itself contains ' (', ' - ' or an em dash
+ * is cut there. '' with no location, an empty string or a non-string. A copy of the workflow's primaryPath
  * (workflows/deep-codebase-audit.js parseLocation); a workflow cannot import, so a test pins the two together.
  */
 export function primaryPath(locations) {
   const first = Array.isArray(locations) && locations.length ? locations[0] : null;
   if (typeof first !== 'string') return '';
-  let out = first.trim().split(/\s/)[0].split(String.fromCharCode(92)).join('/');
+  const text = first.trim();
+  let cut = text.length;
+  for (const re of [/[^\S ]/, /\s{2,}/, / \(/, / - /, /\u2014/]) {
+    const hit = re.exec(text);
+    if (hit && hit.index < cut) cut = hit.index;
+  }
+  let out = text.slice(0, cut).trimEnd().split(String.fromCharCode(92)).join('/');
   while (out.indexOf('./') === 0) out = out.slice(2);
-  return out.replace(/:[^/]*$/, '');
+  for (const re of [/#L\d+(?:-L?\d+)?$/, /\(\d[\d,-]*\)$/, /:[^/]*$/]) {
+    const m = re.exec(out);
+    if (m) return out.slice(0, m.index);
+  }
+  return out;
 }
 
 /** validClaim(c): the workflow's rule for a measuredClaim (field in CLAIM_FIELDS; a finite value, or for cycle a non-empty string array) */

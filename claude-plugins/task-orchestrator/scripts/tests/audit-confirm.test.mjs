@@ -673,6 +673,7 @@ test('S13 primaryPath equals the workflow core on a probe list', () => {
     ['https://h/x.kt:9'], ['a:b/c.kt:7'], ['x.kt:1:2'], ['./.hidden:4'], ['./'],
     ['src/a.kt:12'], ['src/a.kt:12-30'], ['src/a.kt:Foo.bar'], ['src/a.kt (note)'], ['src/a.kt:12 (note)'],
     [''], [null], [42], ['  ./x.kt:3 (n)'], ['src/a.kt	vs src/b.kt'], ['src/a.kt  vs src/b.kt'], ['c:' + String.fromCharCode(92) + 'x' + String.fromCharCode(92) + 'y.kt:9'],['C:/x/y.kt/'], ['x.kt:'], [':'],
+    ['my dir/a b.kt:12'], ['my dir/a b.kt (note)'], ['src/a.kt:3 - see b/c.kt'], ['src/a.kt:3 ' + String.fromCharCode(0x2014) + ' note'], ['src/a.kt(12)'], ['src/a.kt(12,5)'], ['src/a.kt(12-30)'], ['src/a.kt#L5'], ['src/a.kt#L5-L9'], ['src/a.kt#L5-9'], ['src/a.kt (12)'], ['src/foo()/a.kt'],
   ]
   for (const p of probes) assert.equal(primaryPath(p), WF.primaryPath(p), JSON.stringify(p))
 })
@@ -706,7 +707,7 @@ test('S12 primaryPath D1 edges (lib copy)', () => {
   for (const [loc, want] of cases) assert.equal(primaryPath([loc]), want, JSON.stringify(loc))
 })
 
-test('S12 / probe: a tab or a double space ends the path like a single space; the first whitespace decides', () => {
+test('S12 / probe: a tab or a run of two or more whitespace characters ends the path; a single space does not', () => {
   assert.equal(primaryPath(['src/a.kt	vs src/b.kt']), 'src/a.kt')
   assert.equal(primaryPath(['src/a.kt  vs src/b.kt']), 'src/a.kt')
   assert.equal(primaryPath(['	 src/a.kt:5 	(x)']), 'src/a.kt')
@@ -724,6 +725,7 @@ test('S13 / probe: both copies agree on every D1 form, edge and probe input', ()
     ['src/a.kt:12'], ['src/a.kt:12-30'], ['src/a.kt:Foo.bar'], ['src/a.kt (note)'], ['src/a.kt:12 (note)'],
     ['C:' + BSL + 'x' + BSL + 'y.kt:9'], ['  ./x.kt:3 (n)'], ['x.kt:'], ['x.kt:1:2'], ['a:b/c.kt:7'], ['plain.kt'],
     ['src/a.kt	vs src/b.kt'], ['src/a.kt  vs src/b.kt'], ['././x.kt:1'], ['c:/x/y.kt:9'], ['C:/x/y/'], [''], [null], [42], [], [':'],
+    ['my dir/a b.kt:12'], ['my dir/a b.kt (note)'], ['src/a.kt:3 - see b/c.kt'], ['src/a.kt:3 ' + String.fromCharCode(0x2014) + ' note'], ['src/a.kt(12)'], ['src/a.kt(12,5)'], ['src/a.kt(12-30)'], ['src/a.kt#L5'], ['src/a.kt#L5-L9'], ['src/a.kt#L5-9'], ['src/a.kt (12)'], ['src/foo()/a.kt'],
   ]
   for (const p of inputs) assert.equal(primaryPath(p), WF.primaryPath(p), JSON.stringify(p))
 })
@@ -811,3 +813,12 @@ test('AC1 the re-gated proposal equals the workflow buildProposal over the confi
   assert.ok(out.proposal.batches[0].childRefs.includes(clean.findingId))
   assert.ok(!out.proposal.batches.some((b) => b.childRefs.includes(tracked.findingId)))
 })
+
+test('A3 / A4 primaryPath (lib copy): one #L or (digits) suffix is removed, a single space survives, a note separator cuts', () => {
+  for (const loc of ['src/a.kt(12)', 'src/a.kt(12,5)', 'src/a.kt(12-30)', 'src/a.kt#L5', 'src/a.kt#L5-L9', 'src/a.kt#L5-9']) assert.equal(primaryPath([loc]), 'src/a.kt', loc);
+  assert.equal(primaryPath(['my dir/a b.kt:12']), 'my dir/a b.kt');
+  assert.equal(primaryPath(['my dir/a b.kt (note)']), 'my dir/a b.kt');
+  assert.equal(primaryPath(['src/a.kt:3 - see b/c.kt']), 'src/a.kt');
+  assert.equal(primaryPath(['src/a.kt:3 ' + String.fromCharCode(0x2014) + ' note']), 'src/a.kt');
+  assert.equal(primaryPath(['src/a.kt (12)']), 'src/a.kt');
+});
