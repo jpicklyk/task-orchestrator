@@ -1167,7 +1167,7 @@ class SchemaGatedLifecycleTest {
                 0
             }
         val item = WorkItem(title = title, type = type, parentId = parentId, depth = depth, properties = properties)
-        return (ctx.workItemRepository().create(item)!!)
+        return (ctx.workItemRepository().create(item))
     }
 
     private suspend fun createNoteIn(

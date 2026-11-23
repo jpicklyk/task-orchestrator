@@ -91,7 +91,7 @@ class ScopeGuardTest {
         required: String
     ) {
         assertTrue(this is Outcome.Err, "expected an Err but was $this")
-        val error: DomainError = (this as Outcome.Err).error
+        val error: DomainError = this.error
         assertEquals(ErrorCode.FORBIDDEN, error.code)
         val detail = error.detail as ErrorDetail.Forbidden
         assertEquals(scope, detail.scope)

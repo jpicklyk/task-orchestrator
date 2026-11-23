@@ -63,7 +63,7 @@ class RulePointerOnlyGoldenTest {
         private const val REPO_CONFIG_RESOURCE = "$GOLDEN_RESOURCE_DIR/fixtures/repo-config.yaml"
         private const val GLOBAL_CONFIG_RESOURCE = "$GOLDEN_RESOURCE_DIR/fixtures/global-config.yaml"
 
-        private val compactJson = Json { }
+        private val compactJson = Json
 
         /** Distinctive marker strings for the two stashed rule bodies -- used to grep captured JSON for a leak. */
         private const val RULE_MARKER_SPEC_QUALITY = "S5-MARKER-SPEC-QUALITY-RULE-BODY-MUST-NEVER-LEAK-INTO-SCHEMA"
@@ -105,12 +105,10 @@ class RulePointerOnlyGoldenTest {
             repo
                 .workItemRepository()
                 .create(WorkItem(id = ROOT_ID, title = "A3 S5 golden root", type = "project", depth = 0))
-                ?: error("fixture: root item creation failed")
 
             repo
                 .configStore()
                 .upsert(ROOT_ID, classpathResourceText(REPO_CONFIG_RESOURCE))
-                ?: error("fixture: per-root config push failed")
 
             repo
                 .workItemRepository()
@@ -124,7 +122,7 @@ class RulePointerOnlyGoldenTest {
                         rootId = ROOT_ID,
                         depth = 1,
                     ),
-                ) ?: error("fixture: feature-task item creation failed")
+                )
 
             repo
                 .workItemRepository()
@@ -138,7 +136,7 @@ class RulePointerOnlyGoldenTest {
                         rootId = ROOT_ID,
                         depth = 1,
                     ),
-                ) ?: error("fixture: bug-fix item creation failed")
+                )
         }
 
         // This item's addition: stash the two rule/ documents these skill pointers name.

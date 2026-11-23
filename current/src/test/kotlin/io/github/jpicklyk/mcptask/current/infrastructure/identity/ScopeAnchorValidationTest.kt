@@ -266,7 +266,7 @@ class ScopeAnchorValidationTest {
 
     private fun Outcome<Unit>.assertForbiddenRoot() {
         assertTrue(this is Outcome.Err, "expected an Err but was $this")
-        val error = (this as Outcome.Err).error
+        val error = this.error
         assertEquals(ErrorCode.FORBIDDEN, error.code)
         assertEquals(ForbiddenScope.ROOT, (error.detail as ErrorDetail.Forbidden).scope)
     }

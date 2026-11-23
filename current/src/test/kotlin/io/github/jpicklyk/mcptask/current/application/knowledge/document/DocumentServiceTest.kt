@@ -73,7 +73,7 @@ class DocumentServiceTest {
         title: String,
         parent: UUID? = null,
         depth: Int = 0
-    ): UUID = provider.workItemRepository().create(WorkItem(title = title, parentId = parent, depth = depth))!!.id
+    ): UUID = provider.workItemRepository().create(WorkItem(title = title, parentId = parent, depth = depth)).id
 
     private fun <T> Outcome<T>.value(): T =
         when (this) {

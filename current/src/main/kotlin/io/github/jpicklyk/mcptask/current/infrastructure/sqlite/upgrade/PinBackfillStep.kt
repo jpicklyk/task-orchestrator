@@ -82,7 +82,7 @@ class PinBackfillStep(
         ) { rs ->
             if (rs.next()) {
                 server =
-                    headOf(uuidType.valueFromDB(rs.getObject("vid")!!) as UUID, rs.getString("config_yaml"), "server head config")
+                    headOf(uuidType.valueFromDB(rs.getObject("vid")!!), rs.getString("config_yaml"), "server head config")
             }
         }
         if (server == null && Files.isRegularFile(globalConfigPath)) {
@@ -98,7 +98,7 @@ class PinBackfillStep(
                 val root = rs.getString("root")
                 roots[root] =
                     headOf(
-                        uuidType.valueFromDB(rs.getObject("vid")!!) as UUID,
+                        uuidType.valueFromDB(rs.getObject("vid")!!),
                         rs.getString("config_yaml"),
                         "head config version for root $root"
                     )

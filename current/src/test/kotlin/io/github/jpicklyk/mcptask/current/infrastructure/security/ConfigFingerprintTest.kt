@@ -131,7 +131,7 @@ class ConfigFingerprintTest {
             val stored = projectConfigRepository.get(rootItemId)
             assertNotNull(stored)
             val config = stored
-            assertEquals(crlfBomBody, config?.configYaml, "stored body must be byte-for-byte unchanged")
+            assertEquals(crlfBomBody, config.configYaml, "stored body must be byte-for-byte unchanged")
 
             val lfFingerprint = projectConfigRepository.computeFingerprint(lfVariant)
             val relation = projectConfigRepository.classifyFingerprint(rootItemId, lfFingerprint)
@@ -178,7 +178,7 @@ class ConfigFingerprintTest {
             val afterRePush = projectConfigRepository.get(rootItemId)
             assertNotNull(afterRePush)
             val storedFingerprintHistory = afterRePush
-            assertEquals(crlfBody, storedFingerprintHistory?.configYaml, "stored body must remain byte-for-byte unchanged")
+            assertEquals(crlfBody, storedFingerprintHistory.configYaml, "stored body must remain byte-for-byte unchanged")
 
             val relationAfterRePush = projectConfigRepository.classifyFingerprint(rootItemId, rawFingerprint)
             assertNotNull(relationAfterRePush)

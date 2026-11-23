@@ -27,7 +27,7 @@ import io.ktor.server.request.header
 import io.ktor.server.request.receiveChannel
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.post
-import io.ktor.utils.io.readRemaining
+import io.ktor.utils.io.readBuffer
 import kotlinx.io.readByteArray
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -213,7 +213,7 @@ private suspend fun readBounded(call: ApplicationCall): Read {
     val max = MAX_JSON_WRITE_BODY_BYTES
     val declared = call.request.contentLength()
     if (declared != null && declared > max) return Read.TooLarge(declared)
-    val bytes = call.receiveChannel().readRemaining(max.toLong() + 1).readByteArray()
+    val bytes = call.receiveChannel().readBuffer(max.toLong() + 1).readByteArray()
     if (bytes.size > max) return Read.TooLarge(bytes.size.toLong())
     return Read.Body(bytes.decodeToString())
 }

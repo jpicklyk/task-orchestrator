@@ -7,6 +7,7 @@ import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.constructor.SafeConstructor
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -79,8 +80,8 @@ class ConfigDocumentParseTest {
     fun `S5 status_labels with an explicit null trigger value is a present key mapped to null`() {
         val doc = parse("status_labels:\n  start: null\n")
         assertNotNull(doc.statusLabels)
-        assertTrue(doc.statusLabels!!.containsKey("start"))
-        assertNull(doc.statusLabels!!["start"])
+        assertTrue(doc.statusLabels.containsKey("start"))
+        assertNull(doc.statusLabels["start"])
     }
 
     @Test
@@ -150,8 +151,7 @@ class ConfigDocumentParseTest {
     @Test
     fun `S12 blank yaml parses to the EMPTY document with a null rawRoot`() {
         val outcome = YamlConfigDocumentParser.parse("", warnOnMissingSchemas = true)
-        assertTrue(outcome is ConfigDocumentParser.Outcome.Parsed)
-        val parsed = outcome as ConfigDocumentParser.Outcome.Parsed
+        val parsed = assertIs<ConfigDocumentParser.Outcome.Parsed>(outcome)
         assertEquals(ConfigDocument.EMPTY, parsed.document)
         assertNull(parsed.rawRoot)
     }
@@ -172,10 +172,9 @@ class ConfigDocumentParseTest {
     fun `S12 a valid document parses with the raw root map populated`() {
         val yaml = "work_item_schemas:\n  default:\n    notes: []\n"
         val outcome = YamlConfigDocumentParser.parse(yaml, warnOnMissingSchemas = true)
-        assertTrue(outcome is ConfigDocumentParser.Outcome.Parsed)
-        val parsed = outcome as ConfigDocumentParser.Outcome.Parsed
+        val parsed = assertIs<ConfigDocumentParser.Outcome.Parsed>(outcome)
         assertNotNull(parsed.rawRoot)
-        assertTrue(parsed.rawRoot!!.containsKey("work_item_schemas"))
+        assertTrue(parsed.rawRoot.containsKey("work_item_schemas"))
         assertEquals(setOf("default"), parsed.document.workItemSchemas.keys)
     }
 

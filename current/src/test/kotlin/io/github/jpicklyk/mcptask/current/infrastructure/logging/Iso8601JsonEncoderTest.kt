@@ -88,7 +88,7 @@ class Iso8601JsonEncoderTest {
             )
         val mdcObj = json["mdc"] as? JsonObject
         assertTrue(mdcObj != null, "mdc object must be present")
-        assertEquals("manage_items", mdcObj!!["tool"]?.jsonPrimitive?.content)
+        assertEquals("manage_items", mdcObj["tool"]?.jsonPrimitive?.content)
         assertEquals("abc-123", mdcObj["requestId"]?.jsonPrimitive?.content)
     }
 

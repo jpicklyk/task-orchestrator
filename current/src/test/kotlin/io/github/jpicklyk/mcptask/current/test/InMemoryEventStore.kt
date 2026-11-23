@@ -100,7 +100,7 @@ class InMemoryEventStore(
                     .filter { it.type in types }
                     .filter { since == null || !it.occurredAt.isBefore(since) }
                     .filter { until == null || !it.occurredAt.isAfter(until) }
-                    .filter { scope.rootIds == null || it.rootId in scope.rootIds!! }
+                    .filter { scope.rootIds == null || it.rootId in scope.rootIds }
                     .filter { row ->
                         scope.tagsInclude.isEmpty() ||
                             itemTags(row.entityId)

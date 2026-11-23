@@ -161,7 +161,7 @@ traits:
                 .workItemRepository()
                 .create(
                     WorkItem(id = ROOT_ID, title = "A1b seat-serving root", type = "project", depth = 0),
-                ) ?: error("fixture: root item creation failed")
+                )
 
             repo
                 .workItemRepository()
@@ -175,7 +175,7 @@ traits:
                         rootId = ROOT_ID,
                         depth = 1,
                     ),
-                ) ?: error("fixture: seat-aware WORK item creation failed")
+                )
 
             repo
                 .workItemRepository()
@@ -189,7 +189,7 @@ traits:
                         rootId = ROOT_ID,
                         depth = 1,
                     ),
-                ) ?: error("fixture: seat-aware TERMINAL item creation failed")
+                )
 
             repo
                 .workItemRepository()
@@ -203,7 +203,7 @@ traits:
                         rootId = ROOT_ID,
                         depth = 1,
                     ),
-                ) ?: error("fixture: seat-aware QUEUE item creation failed")
+                )
 
             repo
                 .workItemRepository()
@@ -217,7 +217,7 @@ traits:
                         rootId = ROOT_ID,
                         depth = 1,
                     ),
-                ) ?: error("fixture: seat-less WORK item creation failed")
+                )
 
             repo
                 .workItemRepository()
@@ -231,7 +231,7 @@ traits:
                         rootId = ROOT_ID,
                         depth = 1,
                     ),
-                ) ?: error("fixture: unowned-note WORK item creation failed")
+                )
         }
 
         return composition.toolContext

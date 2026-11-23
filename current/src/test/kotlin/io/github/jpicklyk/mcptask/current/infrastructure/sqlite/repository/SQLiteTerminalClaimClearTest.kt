@@ -94,9 +94,9 @@ class SQLiteTerminalClaimClearTest {
             val reFetched = repositoryProvider.workItemRepository().getById(item.id)
             val persisted = reFetched
             assertNull(persisted!!.claimedBy, "claimedBy must be null on the re-fetched row")
-            assertNull(persisted!!.claimedAt, "claimedAt must be null on the re-fetched row")
-            assertNull(persisted!!.claimExpiresAt, "claimExpiresAt must be null on the re-fetched row")
-            assertNull(persisted!!.originalClaimedAt, "originalClaimedAt must be null on the re-fetched row")
+            assertNull(persisted.claimedAt, "claimedAt must be null on the re-fetched row")
+            assertNull(persisted.claimExpiresAt, "claimExpiresAt must be null on the re-fetched row")
+            assertNull(persisted.originalClaimedAt, "originalClaimedAt must be null on the re-fetched row")
         }
 
     @Test
@@ -144,8 +144,8 @@ class SQLiteTerminalClaimClearTest {
             val reFetched = repositoryProvider.workItemRepository().getById(item.id)
             val persisted = reFetched
             assertNull(persisted!!.claimedBy)
-            assertNull(persisted!!.claimedAt)
-            assertNull(persisted!!.claimExpiresAt)
-            assertNull(persisted!!.originalClaimedAt)
+            assertNull(persisted.claimedAt)
+            assertNull(persisted.claimExpiresAt)
+            assertNull(persisted.originalClaimedAt)
         }
 }

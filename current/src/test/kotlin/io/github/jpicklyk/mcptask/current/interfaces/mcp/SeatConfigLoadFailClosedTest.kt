@@ -67,7 +67,7 @@ class SeatConfigLoadFailClosedTest {
         val repo = db.repositoryProvider()
         val rootId =
             runBlocking {
-                (repo.workItemRepository().create(WorkItem(title = "Push Root", type = "project"))!!).id
+                (repo.workItemRepository().create(WorkItem(title = "Push Root", type = "project"))).id
             }
         return ToolExecutionContext(repo, unitOfWork = db.unitOfWork()) to rootId
     }

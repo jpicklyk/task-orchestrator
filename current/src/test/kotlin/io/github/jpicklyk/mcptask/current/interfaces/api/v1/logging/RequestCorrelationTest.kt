@@ -46,7 +46,7 @@ class RequestCorrelationTest {
                 logbackLogger.addAppender(it)
             }
         val savedLevel = logbackLogger.level
-        logbackLogger.level = Level.ALL
+        logbackLogger.level = Level.TRACE
         try {
             block()
             return appender.snapshots.toList()
@@ -142,7 +142,7 @@ class RequestCorrelationTest {
         // MdcValues.bounded truncates to 256 chars, then appends the "...[truncated]" marker (14
         // chars) — the capped result is therefore 270 chars, not <=256 (see MdcValuesTest L12/L13
         // for the same fixed-overhead shape).
-        assertEquals(270, httpPath!!.length, "capped httpPath must be exactly max(256) + marker(14) chars")
+        assertEquals(270, httpPath.length, "capped httpPath must be exactly max(256) + marker(14) chars")
         assertTrue(httpPath.endsWith("...[truncated]"), "An over-long path must carry the truncation marker")
     }
 

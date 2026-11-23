@@ -8,7 +8,6 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.SqliteUnitOfWork
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertSame
 
@@ -37,6 +36,5 @@ class ServerCompositionUnitOfWorkTest {
         assertIs<SqliteUnitOfWork>(composition.unitOfWork, "CompositionResult.unitOfWork must be the SQLite unit of work")
         assertIs<SqliteUnitOfWork>(composition.toolContext.unitOfWork, "ToolExecutionContext must get the SQLite unit of work")
         assertSame(composition.unitOfWork, composition.toolContext.unitOfWork, "one unit of work instance is shared")
-        assertFalse(composition.toolContext.unitOfWork is UnscopedUnitOfWork, "the no-transaction default must not be wired")
     }
 }

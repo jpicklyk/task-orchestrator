@@ -430,7 +430,7 @@ class EventActorRootIdTest {
             val events = bus.drainDelivered("s3f", flow)
             val ev = events.one(ApiEventType.ITEM_CREATED, item.id)
             assertEquals(ActorClaimDto(id = "agent-p", kind = "subagent", parent = null), ev.actor)
-            val encoded = Json { explicitNulls = false }.encodeToString(ApiEvent.serializer(), ev)
+            val encoded = omitNullsJson.encodeToString(ApiEvent.serializer(), ev)
             assertFalse(encoded.contains("SECRET-PROOF-TOKEN"), "proof value leaked: $encoded")
             assertFalse(encoded.contains("proof"), "a proof key leaked: $encoded")
             assertFalse(encoded.contains("verification"), "a verification key leaked: $encoded")
@@ -847,3 +847,5 @@ class EventActorRootIdTest {
             assertEquals(itemId.toString(), snapshot[0].rootId)
         }
 }
+
+private val omitNullsJson = Json { explicitNulls = false }

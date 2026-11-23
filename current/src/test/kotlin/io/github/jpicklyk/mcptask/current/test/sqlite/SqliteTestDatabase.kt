@@ -64,7 +64,7 @@ class SqliteTestDatabase private constructor(
         }
 
     /** The Exposed database; pass it to every `transaction(db = database)`. */
-    val database: Database get() = databaseManager.getDatabase()
+    val database: Database get() = databaseManager.writer()
 
     private var provider: DefaultRepositoryProvider? = null
 

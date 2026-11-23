@@ -110,8 +110,7 @@ class TagScopeSseEventsTest {
             tags: String?,
         ): WorkItem {
             val item = WorkItem(id = UUID.randomUUID(), parentId = null, title = "tag-scope-fixture", depth = 0, tags = tags)
-            val result = provider.workItemRepository().create(item)
-            check(result != null) { "fixture item create failed: $result" }
+            provider.workItemRepository().create(item)
             return item
         }
 
@@ -660,7 +659,7 @@ class TagScopeSseEventsTest {
                     launch {
                         bus.awaitSubscribers()
                         val deleteResult = provider.workItemRepository().delete(itemA.id)
-                        check(deleteResult != null) { "fixture delete failed: $deleteResult" }
+                        check(deleteResult) { "fixture delete failed: $deleteResult" }
                         bus.emit(ApiEventType.ITEM_DELETED, itemId = itemA.id)
                     }
                     sseClient.sse(

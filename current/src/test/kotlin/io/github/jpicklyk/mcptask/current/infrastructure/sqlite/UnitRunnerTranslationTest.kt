@@ -182,7 +182,7 @@ class UnitRunnerTranslationTest {
             assertEquals(ErrorCode.DUPLICATE, err.code)
             assertIs<ErrorDetail.Duplicate>(err.detail)
             assertNull(
-                (err.detail as ErrorDetail.Duplicate).existingId,
+                err.detail.existingId,
                 "a raw constraint translation cannot know the existing id (carry-in 1)"
             )
             assertTrue("constraint" in err.message.lowercase(), "carry-in 9a: the innermost SQL message is kept, got: ${err.message}")

@@ -157,7 +157,7 @@ class McpOperationAdapterMdcTest {
         val appender = MdcSnapshotAppender().also { it.start() }
         logbackLogger.addAppender(appender)
         val savedLevel = logbackLogger.level
-        logbackLogger.level = Level.ALL
+        logbackLogger.level = Level.TRACE
         try {
             val result = block()
             return result to appender.snapshots.toList()

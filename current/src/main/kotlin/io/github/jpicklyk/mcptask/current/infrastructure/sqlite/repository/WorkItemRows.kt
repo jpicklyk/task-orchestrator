@@ -178,10 +178,7 @@ internal fun <T> JdbcTransaction.rawQuery(
 }
 
 /** Reads a BLOB `id` column value back into a [UUID]. */
-internal fun uuidOf(raw: Any): UUID {
-    @Suppress("UNCHECKED_CAST")
-    return UUIDColumnType().valueFromDB(raw) as UUID
-}
+internal fun uuidOf(raw: Any): UUID = UUIDColumnType().valueFromDB(raw)
 
 /** The one parent_id traversal: bounded, cycle-safe, shared by descendants and scope resolution. */
 internal object HierarchyTraversal {

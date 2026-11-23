@@ -268,15 +268,23 @@ tasks.register<Test>("regenerateApiReference") {
 
 kotlin {
     jvmToolchain(21)
+    // Every compiler warning fails the build, main and test alike, so a warning cannot pass the implementer's
+    // compile self-check, the orchestrator's wave build or CI unnoticed. Silence one only at its site, with a reason.
+    compilerOptions {
+        allWarningsAsErrors.set(true)
+    }
 }
 
 // Store/claim writes are confined by compiler opt-in markers (WriteConfinement.kt, WriteConfinementTest).
 // ~185 tests call store writes directly, so TEST compilation opts in; main compilation never does.
+// Tests also build in-memory MCP client/server pairs (ChannelTransport.createLinkedPair, buildCallToolRequest),
+// which the SDK marks @ExperimentalMcpApi; production code must still opt in explicitly.
 tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileTestKotlin") {
     compilerOptions {
         optIn.addAll(
             "io.github.jpicklyk.mcptask.current.application.port.StoreWrite",
             "io.github.jpicklyk.mcptask.current.application.port.ClaimWrite",
+            "io.modelcontextprotocol.kotlin.sdk.ExperimentalMcpApi",
         )
     }
 }

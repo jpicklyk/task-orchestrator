@@ -89,7 +89,7 @@ class SeatPerRootResolverTest {
         runBlocking {
             composition.toolContext.repositoryProvider
                 .workItemRepository()
-                .create(WorkItem(title = title, type = "project", depth = 0))!!
+                .create(WorkItem(title = title, type = "project", depth = 0))
                 .id
         }
 
@@ -102,7 +102,6 @@ class SeatPerRootResolverTest {
             composition.toolContext.repositoryProvider
                 .configStore()
                 .upsert(rootId, yaml)
-                ?: error("fixture: per-root push failed for $rootId")
         }
     }
 
@@ -126,7 +125,7 @@ class SeatPerRootResolverTest {
                         depth = 1,
                         traits = traits,
                     ),
-                )!!
+                )
         }
 
     private fun schemaByType(
@@ -137,7 +136,7 @@ class SeatPerRootResolverTest {
         // The type-schema builder items_read(select=schema) serves (query_items was removed in Q19).
         val data = runBlocking { ItemSchemaView.buildTypeSchemaJson(type, rootId, composition.toolContext.configResolver) }
         assertTrue(data != null, "expected a schema for type '$type'")
-        return data!!
+        return data
     }
 
     private fun getContextData(

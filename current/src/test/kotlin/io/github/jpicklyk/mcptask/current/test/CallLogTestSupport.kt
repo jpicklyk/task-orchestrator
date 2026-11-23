@@ -145,7 +145,7 @@ class LogCapture : AppenderBase<ILoggingEvent>() {
     fun attach(loggerName: String = Logger.ROOT_LOGGER_NAME): LogCapture {
         val logger = LoggerFactory.getLogger(loggerName) as Logger
         savedLevel = logger.level
-        logger.level = Level.ALL
+        logger.level = Level.TRACE
         start()
         logger.addAppender(this)
         attachedTo = logger

@@ -630,7 +630,7 @@ class ItemsReadRelatedTelemetryTest {
             rig.rig.raw
                 .workItemRepository()
                 .getById(item.id)
-        ).version.toLong()
+        ).version
 
     @Test
     fun `S17 a page of three hits records the signals that contributed zeros kept and the total as the result count`(): Unit =

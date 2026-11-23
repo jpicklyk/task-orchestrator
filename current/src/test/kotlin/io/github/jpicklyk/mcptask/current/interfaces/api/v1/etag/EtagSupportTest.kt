@@ -36,7 +36,7 @@ class EtagSupportTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "ETag stable", depth = 0))!!
+                    repo.workItemRepository().create(WorkItem(title = "ETag stable", depth = 0))
                 }
             application {
                 configureTestApp { itemRoutes(repo) }
@@ -62,7 +62,7 @@ class EtagSupportTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "ETag cache test", depth = 0))!!
+                    repo.workItemRepository().create(WorkItem(title = "ETag cache test", depth = 0))
                 }
             application {
                 configureTestApp { itemRoutes(repo) }
@@ -88,7 +88,7 @@ class EtagSupportTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Stale ETag test", depth = 0))!!
+                    repo.workItemRepository().create(WorkItem(title = "Stale ETag test", depth = 0))
                 }
             application {
                 configureTestApp { itemRoutes(repo) }

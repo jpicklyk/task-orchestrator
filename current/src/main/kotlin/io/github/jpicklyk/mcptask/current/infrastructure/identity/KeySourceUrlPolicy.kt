@@ -1,7 +1,23 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.identity
 
 import java.net.MalformedURLException
+import java.net.URI
+import java.net.URISyntaxException
 import java.net.URL
+
+/**
+ * Parses [raw] as an absolute URL through [URI] (the `URL(String)` constructor is deprecated since Java 20). Every
+ * rejection surfaces as a [MalformedURLException]: a syntax error, a relative reference, or an unknown protocol. URI
+ * parsing is stricter than the old constructor (an unescaped space, for example, is now rejected).
+ */
+internal fun parseAbsoluteUrl(raw: String): URL =
+    try {
+        URI(raw).toURL()
+    } catch (e: URISyntaxException) {
+        throw MalformedURLException(e.message)
+    } catch (e: IllegalArgumentException) {
+        throw MalformedURLException(e.message)
+    }
 
 /**
  * True when [host] is a literal loopback address: `localhost` (case-insensitive), an IPv4
@@ -40,7 +56,7 @@ internal fun requireHttpsOrLoopbackKeySource(
 ) {
     val url =
         try {
-            URL(raw)
+            parseAbsoluteUrl(raw)
         } catch (e: MalformedURLException) {
             throw IllegalArgumentException("$label '$raw' is not a valid URL: ${e.message}")
         }
