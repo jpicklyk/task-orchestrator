@@ -1,7 +1,7 @@
 export const meta = {
   name: 'deep-codebase-audit',
   description: 'Barrier-per-phase codebase audit: a measurement pass, reviewers that each follow the method skill of their own slice, gap critic, stratified adversarial verify, structured synthesis, and a triage-derived findings proposal.',
-  whenToUse: 'Rare and expensive: a broad multi-agent pass over existing code and documentation, by slice (focus picks which). Presets quick|standard|full trade reviewer/verifier fan-out for cost; runId, date, and reportPath are required args; scriptsDir and workDir (optional, together) turn on the Measure phase, and items.policy (gated, bugs or all) picks which findings the proposal selects; models and efforts override the default model and effort per phase key; focus (optional: code, docs or all; default all) limits the audit to code slices, documentation slices or both; methodSkill (optional) replaces the method skill of code slices, and a slice or lens may carry its own methodSkill. quick fits the default maxAgents (60); standard and full project well past 60 agents and need allowLarge:true or a raised maxAgents. full runs roughly 90 minutes and about 30M tokens — prefer quick or standard for routine sweeps.',
+  whenToUse: 'Rare and expensive: a broad multi-agent pass over existing code and documentation, by slice (focus picks which). Presets quick|standard|full trade reviewer/verifier fan-out for cost; runId, date, and reportPath are required args; scriptsDir and workDir (optional, together) turn on the Measure phase, and items.policy (gated, bugs or all) picks which findings the proposal selects; dispatchClasses (required: the classes of dispatch-policy.json) gives each phase key its model and effort, and models and efforts override them per phase key; focus (optional: code, docs or all; default all) limits the audit to code slices, documentation slices or both; methodSkill (optional) replaces the method skill of code slices, and a slice or lens may carry its own methodSkill. quick fits the default maxAgents (60); standard and full project well past 60 agents and need allowLarge:true or a raised maxAgents. full runs roughly 90 minutes and about 30M tokens — prefer quick or standard for routine sweeps.',
   phases: [
     { title: 'Measure' }, { title: 'Scope' }, { title: 'Review' }, { title: 'Gaps' }, { title: 'Merge' },
     { title: 'Verify' }, { title: 'Synthesize' }, { title: 'Triage' },
@@ -19,17 +19,17 @@ const RATINGS = ['act-now', 'plan-it', 'watch']
 const RATING_RANK = { 'act-now': 3, 'plan-it': 2, watch: 1 }
 const ITEM_POLICIES = ['gated', 'bugs', 'all']
 
-const DEFAULT_DISPATCH = {
-  measure: { model: 'haiku', effort: 'low' },
-  scope: { model: 'sonnet', effort: 'medium' },
-  review: { model: 'sonnet', effort: 'high' },
-  'review-architecture': { model: 'opus', effort: 'high' },
-  critic: { model: 'sonnet', effort: 'medium' },
-  merge: { model: 'sonnet', effort: 'low' },
-  verify: { model: 'sonnet', effort: 'medium' },
-  'verify-high': { model: 'opus', effort: 'medium' },
-  synth: { model: 'opus', effort: 'medium' },
-  triage: { model: 'sonnet', effort: 'low' },
+const DISPATCH_CLASSES = {
+  measure: 'audit-measure',
+  scope: 'research',
+  review: 'audit-review',
+  'review-architecture': 'review',
+  critic: 'research',
+  merge: 'extraction',
+  verify: 'research',
+  'verify-high': 'audit-verify-high',
+  synth: 'audit-synthesis',
+  triage: 'extraction',
 }
 const FAN_OUT_KEYS = ['review', 'verify', 'verify-high', 'triage', 'merge', 'measure']
 
@@ -244,19 +244,31 @@ function normalizeArgs(raw) {
   if (A.scriptsDir != null && A.workDir == null) return { ok: false, reason: 'invalid args: workDir required when scriptsDir is set' }
   if (ITEM_POLICIES.indexOf(items.policy) === -1) return { ok: false, reason: 'invalid args: items.policy must be gated, bugs or all' }
 
+  const dc = A.dispatchClasses
+  if (!dc || typeof dc !== 'object' || Array.isArray(dc)) return { ok: false, reason: 'invalid args: dispatchClasses required' }
   const dispatch = {}
-  for (const k of Object.keys(DEFAULT_DISPATCH)) dispatch[k] = { model: DEFAULT_DISPATCH[k].model, effort: DEFAULT_DISPATCH[k].effort }
+  for (const k of Object.keys(DISPATCH_CLASSES)) {
+    const cls = DISPATCH_CLASSES[k]
+    const c = dc[cls]
+    if (!c || typeof c !== 'object' || typeof c.model !== 'string' || !c.model || typeof c.effort !== 'string' || !c.effort) {
+      return { ok: false, reason: 'invalid args: dispatchClasses.' + cls + ' must have a model and an effort' }
+    }
+    dispatch[k] = { model: c.model, effort: c.effort }
+  }
   for (const field of ['models', 'efforts']) {
     const given = A[field]
     if (given == null || typeof given !== 'object') continue
     const prop = field === 'models' ? 'model' : 'effort'
     for (const k of Object.keys(given)) {
-      if (!Object.prototype.hasOwnProperty.call(DEFAULT_DISPATCH, k)) return { ok: false, reason: 'invalid args: unknown dispatch key ' + field + '.' + k }
+      if (!Object.prototype.hasOwnProperty.call(DISPATCH_CLASSES, k)) return { ok: false, reason: 'invalid args: unknown dispatch key ' + field + '.' + k }
       const v = given[k]
       if (typeof v !== 'string' || !v.trim()) return { ok: false, reason: 'invalid args: ' + field + '.' + k + ' must be a non-empty string' }
       if (field === 'models' && FAN_OUT_KEYS.indexOf(k) !== -1 && /fable/i.test(v)) return { ok: false, reason: 'invalid args: fable is not allowed for fan-out phase ' + k }
       dispatch[k][prop] = v
     }
+  }
+  for (const k of FAN_OUT_KEYS) {
+    if (/fable/i.test(dispatch[k].model)) return { ok: false, reason: 'invalid args: fable is not allowed for fan-out phase ' + k }
   }
 
   const gaps = Object.assign({}, preset.gaps, A.gaps || {})

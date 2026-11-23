@@ -15,7 +15,11 @@
     "review-high-stakes": { "model": "fable", "effort": "high", "use": "Review of high-stakes changes" },
     "research": { "model": "sonnet", "effort": "medium", "use": "Read-only research and exploration" },
     "bulk": { "model": "haiku", "effort": "medium", "use": "Bulk writes and other checkable mechanical work" },
-    "extraction": { "model": "sonnet", "effort": "low", "use": "Extractors and retrospective data pulls" }
+    "extraction": { "model": "sonnet", "effort": "low", "use": "Extractors and retrospective data pulls" },
+    "audit-measure": { "model": "haiku", "effort": "low", "use": "Deep-codebase-audit Measure: run the metrics script, return its digest" },
+    "audit-review": { "model": "sonnet", "effort": "high", "use": "Deep-codebase-audit slice and gap reviewers (fan-out)" },
+    "audit-verify-high": { "model": "opus", "effort": "medium", "use": "Deep-codebase-audit verification of high and critical findings" },
+    "audit-synthesis": { "model": "opus", "effort": "medium", "use": "Deep-codebase-audit report synthesis" }
   },
   "tiers": {
     "thresholds": { "directMaxFiles": 2, "delegatedMaxFiles": 10 },
