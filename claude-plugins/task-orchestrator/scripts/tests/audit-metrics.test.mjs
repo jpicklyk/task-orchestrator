@@ -1312,6 +1312,8 @@ function buildFixtureTrees() {
         'lib/a/x.mjs': "import { y } from '../b/y.mjs';\nexport const x = y;\n",
         'lib/b/y.mjs': 'export const y = 1;\n',
         'lib/b/fixtures.mjs': 'export const f = 1;\n',
+        // A file named exactly fixtures is not a fixture tree: only a directory segment marks one.
+        'lib/b/fixtures': 'plain text\n',
         'tests/fixtures/proj/src/p/q.mjs': "import { r } from '../r/r.mjs';\nexport const q = r;\n",
         'tests/fixtures/proj/src/r/r.mjs': 'export const r = 1;\n',
         'tests/__Fixtures__/z.mjs': "import { x } from '../../lib/a/x.mjs';\nexport const z = x;\n",
@@ -1343,13 +1345,14 @@ test('S16: files under a fixtures or __fixtures__ directory stay in files with m
   assert.deepEqual(nodeIds(m), ['lib/a', 'lib/b', 'tests']);
   assert.deepEqual(edgeKeys(m), ['lib/a -> lib/b x1', 'tests -> lib/a x1', 'tests -> lib/b x1']);
   assert.equal(m.unresolved, 0);
-  assert.deepEqual(Object.fromEntries(m.nodes.map((n) => [n.id, n.files])), { 'lib/a': 1, 'lib/b': 2, tests: 1 });
-  assert.equal(json.files.length, 7);
+  assert.deepEqual(Object.fromEntries(m.nodes.map((n) => [n.id, n.files])), { 'lib/a': 1, 'lib/b': 3, tests: 1 });
+  assert.equal(json.files.length, 8);
   const f = byPath(json);
   for (const p of ['tests/fixtures/proj/src/p/q.mjs', 'tests/fixtures/proj/src/r/r.mjs', 'tests/__Fixtures__/z.mjs']) {
     assert.equal(f[p].module, null, p);
   }
   assert.equal(f['lib/b/fixtures.mjs'].module, 'lib/b');
+  assert.equal(f['lib/b/fixtures'].module, 'lib/b');
 });
 
 // S17: a failed or empty `git rev-parse --show-toplevel` refuses; it never reads as the working directory.
