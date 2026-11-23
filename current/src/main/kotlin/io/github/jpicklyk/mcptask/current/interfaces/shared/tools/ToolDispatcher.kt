@@ -64,8 +64,8 @@ data class Dispatched(
 
 /**
  * Runs one call of a 4.0 tool, transport-neutral, so MCP ([McpOperationAdapter][io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter])
- * and REST (`POST /api/v1/ops/{tool}`, Q6) produce the same body for the same arguments. [specs] are the tools it will
- * serve: construction throws when a select or op of one declares a services holder the dispatcher's registry lacks.
+ * and REST (`POST /api/v1/ops/{tool}`, Q6) produce the same body for the same arguments. [specs] are the tools it validates at
+ * construction (a call may name any spec): construction throws when a select or op of one declares a services holder the dispatcher's registry lacks.
  *
  * Order (task-scope D2):
  * 0. **Principal** (R14). The transport passes a [CallAccess]; one without a principal is answered `unauthenticated`

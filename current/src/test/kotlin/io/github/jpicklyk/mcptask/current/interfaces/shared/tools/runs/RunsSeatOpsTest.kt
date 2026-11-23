@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
 import io.github.jpicklyk.mcptask.current.application.port.ServerDecision
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.BaselineDataset
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
@@ -33,6 +32,7 @@ import io.github.jpicklyk.mcptask.current.platform.tool.visibleNames
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -277,7 +277,7 @@ internal class SeatWorld private constructor(
     init {
         val adapter =
             McpOperationAdapter(
-                buildToolDispatcher(rig.ctx),
+                testToolDispatcher(rig.ctx),
                 access = { _ -> who?.let { parityAccess(it) } ?: CallAccess.unauthenticated() },
                 callLog = writer
             )

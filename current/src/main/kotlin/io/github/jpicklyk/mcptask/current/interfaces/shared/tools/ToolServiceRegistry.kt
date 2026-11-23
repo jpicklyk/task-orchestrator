@@ -23,7 +23,7 @@ import kotlin.reflect.KClass
  * building it touches no store. It never serves the [ToolExecutionContext] itself, so no production select or op can take the
  * whole context; a test that needs it for a fixture spec passes the dispatcher its own [ToolServiceLookup].
  *
- * Not shared: a [ToolDispatcher] builds its own over its context, and holds it for its life. The one production
+ * Not shared: a [ToolDispatcher] defaults to its own over its context (a test may pass another lookup), and holds it for its life. The one production
  * dispatcher is the only consumer, and neither [DecisionService] nor [RunLimits] holds mutable state, so a second
  * registry over the same context only builds second instances of the same services; no process-wide memo is needed.
  */

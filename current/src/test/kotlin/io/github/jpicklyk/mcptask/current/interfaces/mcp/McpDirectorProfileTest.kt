@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.bootstrap.Reason
 import io.github.jpicklyk.mcptask.current.bootstrap.Started
 import io.github.jpicklyk.mcptask.current.bootstrap.StartupOutcome
 import io.github.jpicklyk.mcptask.current.bootstrap.buildProfileServer
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
@@ -27,6 +26,7 @@ import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import io.github.jpicklyk.mcptask.current.platform.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -140,7 +140,7 @@ class McpDirectorProfileTest {
     private fun newServers(): Servers {
         val rig = EventLogRig.build(db.db, dir, EventLogRig.GATED_CONFIG)
         val registry = ToolRegistry(buildToolSpecs())
-        val adapter = McpOperationAdapter(buildToolDispatcher(rig.ctx))
+        val adapter = McpOperationAdapter(testToolDispatcher(rig.ctx))
 
         fun server(profile: ToolProfile): Server =
             buildProfileServer(

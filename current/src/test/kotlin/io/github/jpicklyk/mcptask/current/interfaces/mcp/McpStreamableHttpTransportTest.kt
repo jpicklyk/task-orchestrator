@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
@@ -9,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -67,7 +67,7 @@ class McpStreamableHttpTransportTest {
                     ),
             )
         val context = ToolExecutionContext(provider, unitOfWork = db.unitOfWork())
-        McpOperationAdapter(buildToolDispatcher(context)).register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
+        McpOperationAdapter(testToolDispatcher(context)).register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
         return server
     }
 

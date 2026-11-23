@@ -20,9 +20,8 @@ import java.util.UUID
  * Depends only on domain repositories ([PlanDocumentStore], [WorkItemRepository]) -- no
  * infrastructure import -- so the `config` tool's `rules` op (MCP and `POST /api/v1/ops/config`) can share
  * one instance without violating the `domain -> application -> infrastructure -> interfaces`
- * layering rule ([io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext] hands
- * out `RepositoryProvider`-backed domain-repository instances, never the provider or the
- * infrastructure types themselves).
+ * layering rule ([io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext] exposes the
+ * `RepositoryProvider` port and its domain-repository instances, never an infrastructure type).
  *
  * Pipeline for both [get] and [list]: root exists -> root is depth-0 -> (for [get]) document
  * exists at `rule/<key>`. Callers resolving a skill-pointer (item mode) resolve the item's

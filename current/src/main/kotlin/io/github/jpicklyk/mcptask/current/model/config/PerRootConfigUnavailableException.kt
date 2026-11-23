@@ -8,8 +8,8 @@ import java.util.UUID
  * threw) AND there is no last-known-good cached parse to serve instead.
  *
  * This is deliberately an unchecked exception rather than a new arm on a sealed result type: the
- * per-root config resolvers (`PerRootConfigService`, `ToolExecutionContext`) have roughly fifteen
- * call sites across application and interface code, and none of their public signatures change
+ * per-root config readers (`PerRootConfigService` and the `EffectiveConfigResolver` over it) have roughly
+ * fifteen call sites across application and interface code, and none of their public signatures change
  * because of this failure mode. Callers that need to convert this into a specific tool/HTTP outcome
  * catch it explicitly at their own boundary (the shared fault classification maps it to the envelope
  * code `unavailable`); callers that don't catch it simply propagate

@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -14,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.platform.tool.knowledge
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureToolServices
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -121,7 +121,7 @@ class McpOperationAdapterConfigSessionTest {
             ToolExecutionContext(repositoryProvider = db.repositoryProvider(), perRootConfigService = source, unitOfWork = db.unitOfWork())
         val server = Server(serverInfo = Implementation(name = "session-server", version = "1.0.0"), options = inMemoryTestServerOptions())
         McpOperationAdapter(
-            buildToolDispatcher(env, services = FixtureToolServices(env))
+            testToolDispatcher(env, services = FixtureToolServices(env))
         ).register(server, ToolRegistry(listOf(probeTool(rootId))), ToolProfile.ORCHESTRATION)
         val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()
         val client =

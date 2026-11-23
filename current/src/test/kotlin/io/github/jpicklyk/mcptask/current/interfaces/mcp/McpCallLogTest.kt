@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
@@ -19,6 +18,7 @@ import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureToolServices
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -102,7 +102,7 @@ class McpCallLogTest {
     /** A server with the production registry and the [FixtureTools] registry, both through one [McpOperationAdapter] on [sink]. */
     private suspend fun connect(sink: CallLogSink): Pair<Client, Server> {
         val srv = Server(serverInfo = Implementation(name = "p10-server", version = "1.0.0"), options = inMemoryTestServerOptions())
-        val adapter = McpOperationAdapter(buildToolDispatcher(rig.ctx, services = FixtureToolServices(rig.ctx)), callLog = sink)
+        val adapter = McpOperationAdapter(testToolDispatcher(rig.ctx, services = FixtureToolServices(rig.ctx)), callLog = sink)
         adapter.register(srv, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
         adapter.register(srv, fixtures.registry, ToolProfile.ORCHESTRATION)
         val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()

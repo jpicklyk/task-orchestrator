@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.test
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.service.NoteUpsertCommand
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
@@ -11,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.model.note.Note
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
 import io.github.jpicklyk.mcptask.current.platform.tool.CallAccess
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -59,7 +59,7 @@ suspend fun ToolExecutionContext.putNote(
     }
 
 /**
- * One 4.0 tool call through the real [buildToolDispatcher] at MCP surface, in [profile] (orchestration by default; a
+ * One 4.0 tool call through the real [testToolDispatcher] at MCP surface, in [profile] (orchestration by default; a
  * director-only tool such as `report` needs DIRECTOR); returns the envelope body. With the default [access], a top-level
  * `actor` fixture in [arguments] selects the caller and is removed first ([liftTestActor]).
  */
@@ -71,7 +71,7 @@ suspend fun ToolExecutionContext.callTool(
 ): JsonObject {
     val spec = checkNotNull(ToolRegistry(buildToolSpecs())[tool]) { "no 4.0 tool named $tool" }
     val (args, effective) = if (access === CallAccess.LOCAL) liftTestActor(arguments) else arguments to access
-    return buildToolDispatcher(this).dispatch(spec, profile, args, "testreq0", "mcp", effective).envelope.body
+    return testToolDispatcher(this).dispatch(spec, profile, args, "testreq0", "mcp", effective).envelope.body
 }
 
 /** A top-level `actor` argument. */

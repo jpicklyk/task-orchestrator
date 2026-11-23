@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import ch.qos.logback.classic.Level
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
@@ -13,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.test.LogSnapshot
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureToolServices
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -87,7 +87,7 @@ class McpCallLogLineTest {
     private suspend fun connect(sink: CallLogSink = CallLogSink.NONE): Client {
         val server =
             Server(serverInfo = Implementation(name = "df10-line-server", version = "1.0.0"), options = inMemoryTestServerOptions())
-        val adapter = McpOperationAdapter(buildToolDispatcher(rig.ctx, services = FixtureToolServices(rig.ctx)), callLog = sink)
+        val adapter = McpOperationAdapter(testToolDispatcher(rig.ctx, services = FixtureToolServices(rig.ctx)), callLog = sink)
         adapter.register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
         adapter.register(server, fixtures.registry, ToolProfile.ORCHESTRATION)
         val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()

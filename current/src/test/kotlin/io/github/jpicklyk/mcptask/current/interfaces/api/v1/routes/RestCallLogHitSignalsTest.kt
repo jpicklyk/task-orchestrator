@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.knowledge.document.DocumentService
 import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
@@ -29,6 +28,7 @@ import io.github.jpicklyk.mcptask.current.parity.installParityRestApp
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -293,7 +293,7 @@ class RestCallLogHitSignalsTest {
 
             val serverInfo = Implementation(name = "df10-rest-server", version = "1.0.0")
             val server = Server(serverInfo = serverInfo, options = inMemoryTestServerOptions())
-            McpOperationAdapter(buildToolDispatcher(rig.ctx), callLog = writer)
+            McpOperationAdapter(testToolDispatcher(rig.ctx), callLog = writer)
                 .register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
             val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()
             val mcp =

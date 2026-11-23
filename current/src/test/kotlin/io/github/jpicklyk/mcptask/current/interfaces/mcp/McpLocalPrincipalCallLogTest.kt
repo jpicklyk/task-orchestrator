@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_PRINCIPAL
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
@@ -28,6 +27,7 @@ import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureToolServices
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -166,7 +166,7 @@ class McpLocalPrincipalCallLogTest {
     ): Client {
         val server = Server(serverInfo = Implementation(name = "local-server", version = "1.0.0"), options = inMemoryTestServerOptions())
         val adapter =
-            McpOperationAdapter(buildToolDispatcher(rig.ctx, services = FixtureToolServices(rig.ctx)), access = access, callLog = writer)
+            McpOperationAdapter(testToolDispatcher(rig.ctx, services = FixtureToolServices(rig.ctx)), access = access, callLog = writer)
         adapter.register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
         if (fx != null) adapter.register(server, fx.registry, ToolProfile.ORCHESTRATION)
         val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()

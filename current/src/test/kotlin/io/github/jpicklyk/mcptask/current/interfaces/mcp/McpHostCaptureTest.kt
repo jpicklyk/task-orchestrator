@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.api.BatchRunner
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
@@ -18,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.test.CollectingSink
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureToolServices
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -137,7 +137,7 @@ class McpHostCaptureTest {
     private fun serverProd(): Server =
         bareServer().also {
             McpOperationAdapter(
-                buildToolDispatcher(rig.ctx),
+                testToolDispatcher(rig.ctx),
                 callLog = writer
             ).register(it, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
         }
@@ -552,7 +552,7 @@ class McpHostCaptureTest {
                     options = ServerOptions(capabilities = ServerCapabilities(tools = ServerCapabilities.Tools(listChanged = true)))
                 )
             servers += server
-            McpOperationAdapter(buildToolDispatcher(rig.ctx), callLog = writer)
+            McpOperationAdapter(testToolDispatcher(rig.ctx), callLog = writer)
                 .register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
             application { installMcpStreamableHttp(server, appConfig = AppConfig.fromEnv { null }, mcpAuth = McpAuthMode.Local) }
 

@@ -5,7 +5,6 @@ import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.AppenderBase
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -19,6 +18,7 @@ import io.github.jpicklyk.mcptask.current.platform.tool.knowledge
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.testAccess
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureToolServices
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -105,7 +105,7 @@ class McpOperationAdapterMdcTest {
         val env = ToolExecutionContext(repositoryProvider = db.repositoryProvider(), unitOfWork = db.unitOfWork())
         val server = Server(serverInfo = Implementation(name = "mdc-server", version = "1.0.0"), options = inMemoryTestServerOptions())
         McpOperationAdapter(
-            buildToolDispatcher(env, services = FixtureToolServices(env)),
+            testToolDispatcher(env, services = FixtureToolServices(env)),
             access = access
         ).register(server, ToolRegistry(listOf(probeTool(hopTo))), ToolProfile.ORCHESTRATION)
         val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()
