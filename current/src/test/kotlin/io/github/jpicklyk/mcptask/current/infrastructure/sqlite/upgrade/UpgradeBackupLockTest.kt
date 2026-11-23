@@ -2,13 +2,13 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade
 
 import ch.qos.logback.classic.Level
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.BackupOutcome
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.SchemaStartupOutcome
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.FlywayDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.MigrationChain
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.at
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.captureLogs
+import io.github.jpicklyk.mcptask.current.platform.sqlite.BackupOutcome
+import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.platform.sqlite.SchemaStartupOutcome
+import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.FlywayDatabaseSchemaManager
+import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.MigrationChain
+import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.SchemaTestSupport.at
+import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.SchemaTestSupport.captureLogs
 import io.mockk.every
 import io.mockk.spyk
 import io.mockk.verify

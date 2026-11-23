@@ -85,7 +85,7 @@ class P5bWriteUnitGuardsTest {
                 "infrastructure/sqlite/repository/SqliteHierarchyStore.kt",
                 "infrastructure/sqlite/repository/SqliteClaimStore.kt",
                 "infrastructure/sqlite/knowledge/search/SqliteSearchEngine.kt",
-                "infrastructure/sqlite/repository/WorkItemRows.kt",
+                "platform/sqlite/repository/WorkItemRows.kt",
                 "infrastructure/sqlite/repository/SQLiteResourceLeaseRepository.kt",
                 "interfaces/api/v1/routes/ItemRoutes.kt"
             )
@@ -101,7 +101,8 @@ class P5bWriteUnitGuardsTest {
          * The ratchet file at base 4df201d1 (git show 4df201d1:current/src/test/resources/architecture/cancellation-safety-baseline.txt),
          * less the entries of the files Q32 deleted (the 3.x tool layer and its adapter), which no baseline line can name again,
          * and with CurrentMcpServer.kt at its Q32 path (moved from interfaces/mcp to bootstrap, unchanged),
-         * and with the six identity files re-keyed to their R1 paths under infrastructure/identity (moved unchanged, counts unchanged).
+         * and with the six identity files re-keyed to their R1 paths under infrastructure/identity (moved unchanged, counts unchanged),
+         * and with the five SQLite engine, schema and helper files re-keyed to their paths under platform/sqlite (moved unchanged, counts unchanged).
          */
         val PRE_P5B_BASELINE: Map<String, Int> =
             """
@@ -116,11 +117,11 @@ class P5bWriteUnitGuardsTest {
             infrastructure/identity/jwt/JwksKeySetProvider.kt 5
             infrastructure/config/YamlConfigDocumentParser.kt 1
             infrastructure/config/YamlStatusLabelService.kt 1
-            infrastructure/sqlite/DatabaseManager.kt 5
-            infrastructure/sqlite/StartupCompaction.kt 1
-            infrastructure/sqlite/StartupIntegrity.kt 1
-            infrastructure/sqlite/schema/management/FlywayDatabaseSchemaManager.kt 4
-            infrastructure/sqlite/repository/ProofClaimsSerialization.kt 1
+            platform/sqlite/DatabaseManager.kt 5
+            platform/sqlite/StartupCompaction.kt 1
+            platform/sqlite/StartupIntegrity.kt 1
+            platform/sqlite/schema/management/FlywayDatabaseSchemaManager.kt 4
+            platform/sqlite/repository/ProofClaimsSerialization.kt 1
             infrastructure/sqlite/repository/SQLiteNoteRepository.kt 1
             infrastructure/sqlite/repository/SQLiteResourceLeaseRepository.kt 6
             infrastructure/sqlite/repository/SQLiteWorkItemRepository.kt 10

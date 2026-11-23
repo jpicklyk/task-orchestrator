@@ -49,7 +49,7 @@ in code but is invisible to clients.
 
 The project uses Exposed ORM with SQLite. Key patterns to be aware of:
 - Repository code opens no transaction itself. It goes through `readTx` / `writeTx`
-  (`infrastructure/sqlite/repository/TransactionHelper.kt`), which join the ambient unit
+  (`platform/sqlite/repository/TransactionHelper.kt`), which join the ambient unit
   of work or run an implicit one, and which handle suspend callers. Only `TransactionHelper`
   and `UnitRunner` open Exposed transactions (`TransactionOpenerTest`).
 - Repository and route tests run on a real, file-backed SQLite database (the `SqliteTestDatabase`
@@ -59,7 +59,7 @@ The project uses Exposed ORM with SQLite. Key patterns to be aware of:
 
 Storage ports (`*Store`, plus `WorkItemRepository`) live in `application/port/` and their SQLite
 implementations in `infrastructure/sqlite/repository/`. SQLite and Exposed code (`org.sqlite`, `org.jetbrains.exposed`,
-dialect SQL tokens in string literals) stays under `infrastructure/sqlite/` (`DialectNeutralityTest`). Adding a method to a port requires
+dialect SQL tokens in string literals) stays under `infrastructure/sqlite/` and `platform/sqlite/` (`DialectNeutralityTest`). Adding a method to a port requires
 updating the implementation, and any mocks in test files that use that repository.
 Search for `mockk<RepositoryName>` across test files to find affected mocks.
 

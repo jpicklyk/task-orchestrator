@@ -4,7 +4,7 @@ import io.github.jpicklyk.mcptask.current.bootstrap.CurrentMcpServer
 import io.github.jpicklyk.mcptask.current.bootstrap.Started
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.UtcTimestamp
+import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.UtcTimestamp
 import io.mockk.every
 import io.mockk.spyk
 import io.mockk.unmockkAll

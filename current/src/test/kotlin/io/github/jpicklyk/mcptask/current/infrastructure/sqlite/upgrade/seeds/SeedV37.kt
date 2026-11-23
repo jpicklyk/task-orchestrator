@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.seeds
 
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.StartupIntegrity
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.BaselineDataset
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.MigrationSeed
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.UpgradeHarness
+import io.github.jpicklyk.mcptask.current.platform.sqlite.StartupIntegrity
 import java.sql.Connection
 import java.sql.SQLException
 import java.util.UUID

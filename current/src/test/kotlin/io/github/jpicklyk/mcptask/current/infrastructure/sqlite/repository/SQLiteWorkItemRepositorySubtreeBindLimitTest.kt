@@ -21,7 +21,7 @@ import kotlin.test.assertNotNull
  * The bundled SQLite build allows 250,000 bound variables, so a realistic tree never hits the real
  * limit. These tests lower SQLITE_LIMIT_VARIABLE_NUMBER on the transaction's own connection (the
  * limit dies with that connection) to a value below the tree size but at or above
- * [SQL_IN_CHUNK_SIZE], and run the repository calls inside that same transaction (nested
+ * `SQL_IN_CHUNK_SIZE`, and run the repository calls inside that same transaction (nested
  * repository transactions join the outer one, so they reuse the limited connection).
  */
 class SQLiteWorkItemRepositorySubtreeBindLimitTest {
