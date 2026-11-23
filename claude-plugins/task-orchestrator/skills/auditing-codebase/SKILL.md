@@ -42,7 +42,7 @@ Report each as a candidate with the sites found. Fixing vocabulary is usually ch
 One candidate per line or short block, in rank order, each proposable as a single work item:
 
 - **Rank and rating:** Act now, Plan it or Watch.
-- **Location:** file or directory, and symbol where it helps.
+- **Location:** the file or directory as `path` or `path:line`; name a symbol in the evidence, not in the location.
 - **What and why:** the signal or catalog entry, and the concrete cost with its evidence (change count over a period, files that change together, duplicate sites).
 - **Numbers:** churn over the long and the recent window, complexity, and the hot-spot score, copied from the measurements and never recomputed or rounded. Write `estimated` beside any number made by hand; omit the field when there are none.
 - **Basis:** `measured` or `judgement`, as defined in [measuring](references/measuring.md). A claim that restates a measurement is measured; every other claim, and any claim resting on an `estimated` number, is judgement.
