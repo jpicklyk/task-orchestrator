@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.service.ok
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
@@ -25,6 +24,7 @@ import io.github.jpicklyk.mcptask.current.test.relatesDep
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import io.github.jpicklyk.mcptask.current.test.tools.ToolSurfaceChecks
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.github.jpicklyk.mcptask.current.test.upsert
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
@@ -916,7 +916,7 @@ class ItemsReadContextTest {
         irApp(db.db, dir, yaml = CTX_YAML) { rig ->
             val item = rig.vwMake("Knowledge probe")
             val spec = checkNotNull(registry[ItemsReadTool.NAME])
-            val dispatcher = buildToolDispatcher(rig.ctx)
+            val dispatcher = testToolDispatcher(rig.ctx)
 
             suspend fun knowledge(args: JsonObject) =
                 dispatcher

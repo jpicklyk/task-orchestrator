@@ -20,9 +20,10 @@ import kotlin.reflect.KClass
  * The [ToolServiceLookup] over one [ToolExecutionContext]: builds each per-slice services holder from the context on
  * first lookup, and builds the [DecisionService] and [RunLimits] the run holder carries (here in the tool layer, since
  * the context cannot reference the decision package). A holder takes the context's lazy services as [Lazy] values, so
- * building it touches no store. It also serves [ToolExecutionContext] itself, for test fixture specs only.
+ * building it touches no store. It never serves the [ToolExecutionContext] itself, so no production select or op can take the
+ * whole context; a test that needs it for a fixture spec passes the dispatcher its own [ToolServiceLookup].
  *
- * Not shared: a [ToolDispatcher] builds its own over its context, and holds it for its life. The one production
+ * Not shared: a [ToolDispatcher] defaults to its own over its context (a test may pass another lookup), and holds it for its life. The one production
  * dispatcher is the only consumer, and neither [DecisionService] nor [RunLimits] holds mutable state, so a second
  * registry over the same context only builds second instances of the same services; no process-wide memo is needed.
  */
@@ -44,7 +45,6 @@ class ToolServiceRegistry(
 
     private val holders: Map<KClass<*>, Lazy<Any>> =
         mapOf(
-            ToolExecutionContext::class to lazyOf(tec),
             ItemToolServices::class to lazy { item() },
             EventToolServices::class to lazy { event() },
             WorkflowToolServices::class to lazy { workflow() },

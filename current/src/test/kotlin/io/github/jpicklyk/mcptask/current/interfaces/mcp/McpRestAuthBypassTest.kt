@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.config.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
@@ -106,7 +105,6 @@ class McpRestAuthBypassTest {
                     toolContext =
                         ToolExecutionContext(
                             provider,
-                            statusLabelService = NoOpStatusLabelService,
                             perRootConfigService = PerRootConfigService(provider.configStore()),
                             unitOfWork = db.unitOfWork()
                         ),

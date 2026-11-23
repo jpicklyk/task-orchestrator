@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config
 
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
@@ -14,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.parity.parityAccess
 import io.github.jpicklyk.mcptask.current.platform.port.EventRecord
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.dispatchAsTestActor
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -180,7 +180,7 @@ internal class CfgKit(
         atomic: Boolean = false,
         actor: JsonObject? = null
     ): JsonObject =
-        buildToolDispatcher(rig.ctx)
+        testToolDispatcher(rig.ctx)
             .dispatchAsTestActor(spec, ToolProfile.ORCHESTRATION, args(ops, atomic, actor), "k7f3q9ab", "mcp")
             .envelope.body
 

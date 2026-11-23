@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
@@ -13,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.model.proof.ProofClaims
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationStatus
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -51,7 +51,7 @@ class ProofEvidenceRestTest {
     /** The note resource reads (GET /items/{id}/notes), over the production registry and dispatcher, default redaction. */
     private fun Route.notesRoutes(repo: DefaultRepositoryProvider) {
         val toolContext = ToolExecutionContext(repo, unitOfWork = db.unitOfWork())
-        noteResourceRoutes(ToolRegistry(buildToolSpecs()), buildToolDispatcher(toolContext))
+        noteResourceRoutes(ToolRegistry(buildToolSpecs()), testToolDispatcher(toolContext))
     }
 
     private fun makeItemAndEvidenceNote(

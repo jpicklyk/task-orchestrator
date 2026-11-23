@@ -24,7 +24,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 
 /**
- * DB-backed integration test proving [ToolExecutionContext.resolveSchema] actually layers a
+ * DB-backed integration test proving `configResolver.resolveSchema` actually layers a
  * REAL [PerRootConfigService] (backed by a real `project_config` row via
  * [SqliteConfigStore]) over a real global server config document — as opposed to the
  * sibling [ToolExecutionContextResolveSchemaTest], which mocks [PerRootConfigService] itself and
@@ -114,7 +114,7 @@ class ToolExecutionContextPerRootIntegrationTest {
         runBlocking {
             val item = makeItem(rootId = rootWithConfig)
 
-            val result = context.resolveSchema(item)
+            val result = context.configResolver.resolveSchema(item)
 
             assertNotNull(result)
             assertEquals(1, result.notes.size)
@@ -126,7 +126,7 @@ class ToolExecutionContextPerRootIntegrationTest {
         runBlocking {
             val item = makeItem(rootId = rootWithoutConfig)
 
-            val result = context.resolveSchema(item)
+            val result = context.configResolver.resolveSchema(item)
 
             assertEquals(globalSchema, result, "No config row for this root — must fall through to the global schema untouched")
         }
@@ -136,7 +136,7 @@ class ToolExecutionContextPerRootIntegrationTest {
         runBlocking {
             val item = makeItem(rootId = null)
 
-            val result = context.resolveSchema(item)
+            val result = context.configResolver.resolveSchema(item)
 
             assertEquals(globalSchema, result)
         }

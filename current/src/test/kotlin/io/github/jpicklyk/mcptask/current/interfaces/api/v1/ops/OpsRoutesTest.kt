@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops
 
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
@@ -30,7 +29,9 @@ import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.FixtureToolServices
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -503,7 +504,7 @@ class OpsRoutesTest {
             assertTrue(fx.seen.isEmpty(), "the refused call never reached the handler")
 
             // the same body through the dispatcher's MCP path is refused the same way
-            val dispatcher = buildToolDispatcher(rig.composition.toolContext)
+            val dispatcher = testToolDispatcher(rig.composition.toolContext, services = FixtureToolServices(rig.composition.toolContext))
             val mcp = dispatcher.dispatch(fx.writeTool, ToolProfile.ORCHESTRATION, obj(body), "k7f3q9ab", "mcp").envelope.body
             assertTrue(mcp.toString().contains("unknown_parameter"), mcp.toString())
             assertTrue(fx.seen.isEmpty())

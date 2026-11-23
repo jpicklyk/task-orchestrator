@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.SelectToolSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.declaredServices
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.FixtureToolServices
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
 import io.mockk.mockk
 import kotlinx.serialization.serializer
@@ -131,6 +132,46 @@ class ToolServiceRegistryTest {
             }
         assertContains(failure.message.orEmpty(), "fx_orphan.orphan")
         assertContains(failure.message.orEmpty(), UnregisteredServices::class.qualifiedName.orEmpty())
+    }
+
+    @Test
+    fun `the production registry never serves the whole context`() {
+        val registry = ToolServiceRegistry(sqliteContext())
+        assertFalse(registry.isRegistered(ToolExecutionContext::class), "the registry must not hand out the whole ToolExecutionContext")
+        val failure = assertFailsWith<IllegalStateException> { registry.get(ToolExecutionContext::class) }
+        assertContains(failure.message.orEmpty(), ToolExecutionContext::class.qualifiedName.orEmpty())
+    }
+
+    @Test
+    fun `a dispatcher over the production registry refuses a spec naming the whole context`() {
+        val env = sqliteContext()
+        val wholeContextSpecs = FixtureTools().registry.tools
+        assertTrue(
+            wholeContextSpecs.flatMap { it.declaredServices() }.any { it.second == ToolExecutionContext::class },
+            "the fixture tools include a member that names the whole context"
+        )
+        val failure =
+            assertFailsWith<IllegalArgumentException> {
+                ToolDispatcher(RequestDecoder(), BatchRunner(env.unitOfWork, env.idempotency), env, buildToolSpecs() + wholeContextSpecs)
+            }
+        assertContains(failure.message.orEmpty(), ToolExecutionContext::class.qualifiedName.orEmpty())
+    }
+
+    @Test
+    fun `the test-only fixture lookup serves the whole context on top of the production holders`() {
+        val env = sqliteContext()
+        val services = FixtureToolServices(env)
+        assertSame(env, services.get(ToolExecutionContext::class))
+        declared().map { it.second }.distinct().forEach { type ->
+            assertTrue(services.isRegistered(type), "${type.simpleName} stays served beside the whole context")
+        }
+        ToolDispatcher(
+            RequestDecoder(),
+            BatchRunner(env.unitOfWork, env.idempotency),
+            env,
+            buildToolSpecs() + FixtureTools().registry.tools,
+            services
+        )
     }
 
     @Test

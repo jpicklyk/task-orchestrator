@@ -109,7 +109,11 @@ abstract class WorkflowIntegrationScenarios(
                 unblockAt = unblockAt
             )
         // Orchestrator sweep repair [33e96efd]: create() is now suspend; helper stays non-suspend.
-        return runBlocking { seed("WorkflowIntegration.createDependency") { context.dependencyRepository().create(dep) } }
+        return runBlocking {
+            seed(
+                "WorkflowIntegration.createDependency"
+            ) { context.repositoryProvider.dependencyRepository().create(dep) }
+        }
     }
 
     /** Seeds a fixture inside one write unit, so the FAIL-policy run accepts it. */

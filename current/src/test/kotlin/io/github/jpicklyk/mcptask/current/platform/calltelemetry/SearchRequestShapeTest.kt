@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.platform.calltelemetry
 
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
@@ -18,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -101,7 +101,7 @@ class SearchRequestShapeTest {
 
     private suspend fun connect(rig: Rig): Pair<Client, Server> {
         val server = Server(serverInfo = Implementation(name = "s13-server", version = "1.0.0"), options = inMemoryTestServerOptions())
-        McpOperationAdapter(buildToolDispatcher(rig.rig.ctx), callLog = rig.writer)
+        McpOperationAdapter(testToolDispatcher(rig.rig.ctx), callLog = rig.writer)
             .register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
         val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()
         val client =

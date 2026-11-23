@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.platform.envelope
 
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.bootstrap.buildProfileServer
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
@@ -30,6 +29,7 @@ import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.platform.tool.visibleNames
 import io.github.jpicklyk.mcptask.current.test.EnvelopeConformance
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -173,7 +173,7 @@ class SurfaceConformanceTest {
 
     private fun Application.productionApp(rig: EventLogRig) {
         val registry = ToolRegistry(buildToolSpecs())
-        val dispatcher = buildToolDispatcher(rig.composition.toolContext)
+        val dispatcher = testToolDispatcher(rig.composition.toolContext)
         val server = buildProfileServer(ToolProfile.ORCHESTRATION, "conformance", "1.0.0", registry, McpOperationAdapter(dispatcher))
         val config = appConfig()
         installMcpStreamableHttp(server, config, mcpAuth = McpAuthMode.Local)
@@ -458,7 +458,7 @@ class SurfaceConformanceTest {
         runBlocking {
             val rig = seededRig()
             val registry = ToolRegistry(buildToolSpecs())
-            val dispatcher = buildToolDispatcher(rig.composition.toolContext)
+            val dispatcher = testToolDispatcher(rig.composition.toolContext)
             var checked = 0
             for (spec in registry.tools) {
                 for (profile in ToolProfile.entries) {

@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.bootstrap.buildProfileServer
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpAuthMode
@@ -28,7 +27,9 @@ import io.github.jpicklyk.mcptask.current.platform.tool.visibleOps
 import io.github.jpicklyk.mcptask.current.platform.tool.visibleSelects
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.ApiReferenceDocs
+import io.github.jpicklyk.mcptask.current.test.tools.FixtureToolServices
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -240,7 +241,7 @@ class RestOnlyMemberContractTest {
 
     private fun newServers(): Servers {
         val rig = EventLogRig.build(db.db, dir, EventLogRig.GATED_CONFIG)
-        val adapter = McpOperationAdapter(buildToolDispatcher(rig.ctx))
+        val adapter = McpOperationAdapter(testToolDispatcher(rig.ctx, services = FixtureToolServices(rig.ctx)))
 
         fun server(profile: ToolProfile): Server =
             buildProfileServer(

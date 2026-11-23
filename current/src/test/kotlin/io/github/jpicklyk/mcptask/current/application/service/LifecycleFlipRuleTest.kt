@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.P7Raw
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.orFail
@@ -26,6 +25,7 @@ import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.relatesDep
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.strings
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.github.jpicklyk.mcptask.current.test.updateOp
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -179,7 +179,7 @@ class LifecycleFlipRuleTest {
                     put("actor", IW_ACTOR)
                     put("ops", JsonArray(listOf(element)))
                 }
-            return buildToolDispatcher(rig.ctx).dispatchAsTestActor(spec, ToolProfile.ORCHESTRATION, args, "k7f3q9ab", "mcp").envelope.body
+            return testToolDispatcher(rig.ctx).dispatchAsTestActor(spec, ToolProfile.ORCHESTRATION, args, "k7f3q9ab", "mcp").envelope.body
         }
 
         fun column(

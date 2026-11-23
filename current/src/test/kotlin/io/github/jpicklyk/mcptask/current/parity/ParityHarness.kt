@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
@@ -49,6 +48,8 @@ import io.github.jpicklyk.mcptask.current.test.inUnit
 import io.github.jpicklyk.mcptask.current.test.liftTestActor
 import io.github.jpicklyk.mcptask.current.test.pushConfig
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.FixtureToolServices
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -400,7 +401,7 @@ internal fun Application.installParityRestApp(
         toolContext = rig.composition.toolContext,
         callLog = callLog,
         toolRegistry = registry,
-        toolDispatcher = buildToolDispatcher(rig.composition.toolContext),
+        toolDispatcher = testToolDispatcher(rig.composition.toolContext, registry, FixtureToolServices(rig.composition.toolContext)),
         appConfig = AppConfig.fromEnv { null }
     )
 }
@@ -446,7 +447,7 @@ internal suspend fun callMcp(
     args: JsonObject,
     profile: ToolProfile = ToolProfile.ORCHESTRATION
 ): McpResult {
-    val dispatcher = buildToolDispatcher(toolContext)
+    val dispatcher = testToolDispatcher(toolContext, registry, FixtureToolServices(toolContext))
     // No access given: the MCP default path, where a top-level `actor` fixture selects the caller (liftTestActor) and
     // the call otherwise runs as the local principal. The server itself never reads a body `actor` since R14.
     val (callArgs, lifted) = if (access == null) liftTestActor(args) else args to null

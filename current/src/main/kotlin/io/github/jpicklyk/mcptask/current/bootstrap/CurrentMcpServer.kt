@@ -313,9 +313,10 @@ class CurrentMcpServer(
             val serverName = appConfig.mcpServerName
 
             // The tools (ToolSpec registry), served by profile.
-            val registry = ToolRegistry(buildToolSpecs())
             // ONE dispatcher serves MCP and REST (`POST /api/v1/ops/{tool}`), so both produce the same bytes.
-            val toolDispatcher = buildToolDispatcher(toolContext)
+            val served = buildServedTools(toolContext)
+            val registry = served.registry
+            val toolDispatcher = served.dispatcher
             // HTTP: a tool call runs as the principal its session is bound to (McpBearerAuth binds it). Stdio: the local principal.
             val sdkSessions = ServerSdkSessions()
             val sessionPrincipals = newSessionPrincipals(appConfig, sdkSessions)
@@ -484,8 +485,8 @@ class CurrentMcpServer(
         mcpAuth: McpAuthMode,
         sessionPrincipals: McpSessionPrincipals,
         callLog: CallLogSink = CallLogSink.NONE,
-        toolRegistry: ToolRegistry = ToolRegistry(buildToolSpecs()),
-        toolDispatcher: ToolDispatcher = buildToolDispatcher(toolContext),
+        toolRegistry: ToolRegistry,
+        toolDispatcher: ToolDispatcher,
         onReady: () -> Unit = {},
     ): StartupOutcome {
         val host = appConfig.mcpHttpHost
@@ -690,13 +691,35 @@ internal fun buildProfileServer(
     return server
 }
 
-/** The one [ToolDispatcher] over [toolContext], shared by the MCP adapter and `POST /api/v1/ops/{tool}`. */
-internal fun buildToolDispatcher(toolContext: ToolExecutionContext): ToolDispatcher =
+/** The [registry] the server serves and the one [dispatcher] over its specs; see [buildServedTools]. */
+internal class ServedTools(
+    val registry: ToolRegistry,
+    val dispatcher: ToolDispatcher
+)
+
+/**
+ * The tool registry and the dispatcher over it, built together so the dispatcher validates the very list the registry
+ * serves. The composition builds this once and passes both to the MCP adapter and to the REST routes.
+ */
+internal fun buildServedTools(toolContext: ToolExecutionContext): ServedTools {
+    val registry = ToolRegistry(buildToolSpecs())
+    return ServedTools(registry, buildToolDispatcher(toolContext, registry))
+}
+
+/**
+ * The one [ToolDispatcher] over [toolContext], shared by the MCP adapter and `POST /api/v1/ops/{tool}`. It validates the
+ * specs [registry] serves, so the dispatcher and the registry never hold two lists. [registry] has no default: every
+ * caller passes the registry it serves from.
+ */
+internal fun buildToolDispatcher(
+    toolContext: ToolExecutionContext,
+    registry: ToolRegistry
+): ToolDispatcher =
     ToolDispatcher(
         RequestDecoder(),
         BatchRunner(toolContext.unitOfWork, toolContext.idempotency),
         toolContext,
-        buildToolSpecs()
+        registry.tools
     )
 
 /**
@@ -862,7 +885,7 @@ internal fun Application.installRestApiRoutes(
     appConfig: AppConfig,
     callLog: CallLogSink = CallLogSink.NONE,
     toolRegistry: ToolRegistry = ToolRegistry(buildToolSpecs()),
-    toolDispatcher: ToolDispatcher = buildToolDispatcher(toolContext),
+    toolDispatcher: ToolDispatcher = buildToolDispatcher(toolContext, toolRegistry),
 ) {
     if (apiConfig is ApiAuthConfig.Disabled) return
 

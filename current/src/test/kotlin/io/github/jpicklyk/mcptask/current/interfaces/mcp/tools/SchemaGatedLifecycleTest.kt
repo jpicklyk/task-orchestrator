@@ -171,7 +171,7 @@ class SchemaGatedLifecycleTest {
         body: String = "Filled content for $key"
     ): Note {
         val note = Note(itemId = itemId, key = key, role = role.name.lowercase(), body = body)
-        val result = context.noteRepository().upsert(note)
+        val result = context.repositoryProvider.noteRepository().upsert(note)
         return result
     }
 
@@ -1179,7 +1179,7 @@ class SchemaGatedLifecycleTest {
         role: Role
     ) {
         val note = Note(itemId = itemId, key = key, role = role.name.lowercase(), body = "Filled")
-        ctx.noteRepository().upsert(note)
+        ctx.repositoryProvider.noteRepository().upsert(note)
     }
 
     private suspend fun getItemIn(

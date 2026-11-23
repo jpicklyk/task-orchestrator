@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
 import io.github.jpicklyk.mcptask.current.application.port.CallLogStore
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
@@ -18,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.sampleCallLogRecord
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -193,7 +193,7 @@ class CallLogLatencyBench {
                 } else {
                     null
                 }
-            val adapter = McpOperationAdapter(buildToolDispatcher(context), callLog = writer ?: CallLogSink.NONE)
+            val adapter = McpOperationAdapter(testToolDispatcher(context), callLog = writer ?: CallLogSink.NONE)
             val latenciesNs = java.util.Collections.synchronizedList(mutableListOf<Long>())
             var failed = 0
             runBlocking {

@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
@@ -10,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.parity.ParityCoverage
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -73,7 +73,7 @@ class ItemsReadRegistryTest {
         runBlocking {
             val rig = EventLogRig.build(db.db, dir)
             val server = Server(serverInfo = Implementation(name = "ir-server", version = "1.0.0"), options = inMemoryTestServerOptions())
-            McpOperationAdapter(buildToolDispatcher(rig.ctx)).register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
+            McpOperationAdapter(testToolDispatcher(rig.ctx)).register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
             val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()
             val client =
                 Client(

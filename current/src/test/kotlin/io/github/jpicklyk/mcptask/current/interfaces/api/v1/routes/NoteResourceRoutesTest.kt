@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
@@ -18,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.parity.installParityRestApp
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.github.jpicklyk.mcptask.current.test.upsertNoteVia
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -498,7 +498,7 @@ class NoteResourceRoutesTest {
         testApplication {
             application {
                 configureTestApp {
-                    noteResourceRoutes(ToolRegistry(buildToolSpecs()), buildToolDispatcher(toolContext), redactNoteAttribution = false)
+                    noteResourceRoutes(ToolRegistry(buildToolSpecs()), testToolDispatcher(toolContext), redactNoteAttribution = false)
                 }
             }
             val response =
@@ -524,7 +524,7 @@ class NoteResourceRoutesTest {
         testApplication {
             application {
                 configureTestApp {
-                    noteResourceRoutes(ToolRegistry(buildToolSpecs()), buildToolDispatcher(toolContext), redactNoteAttribution = true)
+                    noteResourceRoutes(ToolRegistry(buildToolSpecs()), testToolDispatcher(toolContext), redactNoteAttribution = true)
                 }
             }
             val asReader =

@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.platform.tool.ToolSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.knowledge
 import io.github.jpicklyk.mcptask.current.platform.tool.orchestration
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.FixtureToolServices
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -58,7 +59,7 @@ class ToolDescriberTest {
     }
 
     private val dispatcher: ToolDispatcher by lazy {
-        ToolDispatcher(RequestDecoder(), BatchRunner(env.unitOfWork, env.idempotency), env, buildToolSpecs())
+        ToolDispatcher(RequestDecoder(), BatchRunner(env.unitOfWork, env.idempotency), env, buildToolSpecs(), FixtureToolServices(env))
     }
 
     private fun obj(text: String): JsonObject = Json.parseToJsonElement(text).jsonObject

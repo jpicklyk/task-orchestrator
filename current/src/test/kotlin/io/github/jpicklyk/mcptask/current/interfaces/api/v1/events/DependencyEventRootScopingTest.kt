@@ -227,7 +227,7 @@ class DependencyEventRootScopingTest {
 
             assertNull(received.await(), "a rolled-back dependency create must publish zero dependency.added events")
             assertNull(
-                provider.dependencyRepository().findById(depId),
+                provider.repositoryProvider.dependencyRepository().findById(depId),
                 "a rolled-back dependency create must not persist",
             )
             bus.unsubscribe("s4-sub-all")

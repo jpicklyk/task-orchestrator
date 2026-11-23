@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.config.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
@@ -147,7 +146,6 @@ class SseAuthFullWiringTest {
             toolContext =
                 ToolExecutionContext(
                     provider,
-                    statusLabelService = NoOpStatusLabelService,
                     perRootConfigService = PerRootConfigService(provider.configStore()),
                     unitOfWork = db.unitOfWork()
                 ),

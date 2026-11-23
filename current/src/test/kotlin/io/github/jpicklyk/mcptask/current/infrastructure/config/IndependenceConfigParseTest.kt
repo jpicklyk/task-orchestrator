@@ -149,7 +149,7 @@ class IndependenceConfigParseTest {
     // per-root push (orchestrator arbitration, 59a0d98e round: the prior FakeGlobalLookup test
     // double violated the Public-API/Harness rule -- replaced with the real path, mirroring
     // SeatPerRootResolverTest's buildComposition/createRoot/pushPerRoot pattern, asserted through
-    // ToolExecutionContext.resolveIndependencePolicy(rootId) -- a public resolver method, not a
+    // configResolver.resolveIndependencePolicy(rootId) -- a public resolver method, not a
     // hand-built replica).
     // ──────────────────────────────────────────────
 
@@ -217,7 +217,7 @@ class IndependenceConfigParseTest {
                 """.trimIndent()
             val composition = buildComposition(tempDir, globalYaml)
             val root = createRoot(composition, "S12a root")
-            val policy = composition.toolContext.resolveIndependencePolicy(root)
+            val policy = composition.toolContext.configResolver.resolveIndependencePolicy(root)
             assertEquals(IndependencePolicy(IndependenceMode.REJECT, requireVerified = true), policy)
         }
 
@@ -251,11 +251,11 @@ class IndependenceConfigParseTest {
             pushPerRoot(composition, pushedRoot, perRootYaml)
             val controlRoot = createRoot(composition, "S12b control root (no push)")
 
-            val pushedPolicy = composition.toolContext.resolveIndependencePolicy(pushedRoot)
+            val pushedPolicy = composition.toolContext.configResolver.resolveIndependencePolicy(pushedRoot)
             assertEquals(IndependencePolicy(IndependenceMode.REJECT, requireVerified = false), pushedPolicy)
 
             // Control root: no push at all -- must still see the global policy unchanged.
-            val controlPolicy = composition.toolContext.resolveIndependencePolicy(controlRoot)
+            val controlPolicy = composition.toolContext.configResolver.resolveIndependencePolicy(controlRoot)
             assertEquals(IndependencePolicy(IndependenceMode.OFF, requireVerified = true), controlPolicy)
             assertFalse(pushedPolicy == controlPolicy, "the pushed root's policy must differ from the un-pushed control root's")
         }

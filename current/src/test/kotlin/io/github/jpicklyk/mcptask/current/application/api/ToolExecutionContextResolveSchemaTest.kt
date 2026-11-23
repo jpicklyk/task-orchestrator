@@ -23,7 +23,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Unit tests for [ToolExecutionContext.resolveSchema] and [ToolExecutionContext.resolveHasReviewPhase] over a real
+ * Unit tests for `configResolver.resolveSchema` and `configResolver.resolveHasReviewPhase` over a real
  * server config document ([MutableServerConfig]) and, where relevant, a per-root layer.
  *
  * Verifies the one precedence rule: per-root exact type -> server exact type -> per-root `"default"` -> server
@@ -99,7 +99,7 @@ class ToolExecutionContextResolveSchemaTest {
             server.schemas["feature-task"] = expected
             server.schemas["some-tag"] = schemaWithoutReview("some-tag")
 
-            assertEquals(expected, context.resolveSchema(makeItem(type = "feature-task", tags = "some-tag")))
+            assertEquals(expected, context.configResolver.resolveSchema(makeItem(type = "feature-task", tags = "some-tag")))
         }
 
     @Test
@@ -107,7 +107,10 @@ class ToolExecutionContextResolveSchemaTest {
         runBlocking {
             server.schemas["feature-task"] = schemaWithReview("feature-task")
 
-            assertNull(context.resolveSchema(makeItem(type = "unknown-type", tags = "feature-task")), "tags never select a schema")
+            assertNull(
+                context.configResolver.resolveSchema(makeItem(type = "unknown-type", tags = "feature-task")),
+                "tags never select a schema"
+            )
         }
 
     @Test
@@ -115,13 +118,13 @@ class ToolExecutionContextResolveSchemaTest {
         runBlocking {
             server.schemas["feature-task"] = schemaWithReview("feature-task")
 
-            assertNull(context.resolveSchema(makeItem(type = null, tags = "feature-task")))
+            assertNull(context.configResolver.resolveSchema(makeItem(type = null, tags = "feature-task")))
         }
 
     @Test
     fun `resolveSchema returns null for schema-free item with no type and no tags`(): Unit =
         runBlocking {
-            assertNull(context.resolveSchema(makeItem(type = null, tags = null)))
+            assertNull(context.configResolver.resolveSchema(makeItem(type = null, tags = null)))
         }
 
     @Test
@@ -130,7 +133,7 @@ class ToolExecutionContextResolveSchemaTest {
             val defaultSchema = WorkItemSchema(type = "default", notes = listOf(workEntry()))
             server.schemas["default"] = defaultSchema
 
-            val result = context.resolveSchema(makeItem(type = null, tags = "unmatched-tag"))
+            val result = context.configResolver.resolveSchema(makeItem(type = null, tags = "unmatched-tag"))
             assertNotNull(result)
             assertEquals("default", result.type)
             assertEquals(defaultSchema.notes, result.notes)
@@ -142,7 +145,7 @@ class ToolExecutionContextResolveSchemaTest {
             val defaultSchema = WorkItemSchema(type = "default", notes = listOf(workEntry()))
             server.schemas["default"] = defaultSchema
 
-            assertEquals(defaultSchema, context.resolveSchema(makeItem(type = "unknown-type")))
+            assertEquals(defaultSchema, context.configResolver.resolveSchema(makeItem(type = "unknown-type")))
         }
 
     // ──────────────────────────────────────────────
@@ -153,20 +156,20 @@ class ToolExecutionContextResolveSchemaTest {
     fun `resolveHasReviewPhase returns true when schema has review phase`(): Unit =
         runBlocking {
             server.schemas["feature-task"] = schemaWithReview("feature-task")
-            assertTrue(context.resolveHasReviewPhase(makeItem(type = "feature-task")))
+            assertTrue(context.configResolver.resolveHasReviewPhase(makeItem(type = "feature-task")))
         }
 
     @Test
     fun `resolveHasReviewPhase returns false when schema has no review phase`(): Unit =
         runBlocking {
             server.schemas["simple-task"] = schemaWithoutReview("simple-task")
-            assertFalse(context.resolveHasReviewPhase(makeItem(type = "simple-task")))
+            assertFalse(context.configResolver.resolveHasReviewPhase(makeItem(type = "simple-task")))
         }
 
     @Test
     fun `resolveHasReviewPhase returns false when no schema matches`(): Unit =
         runBlocking {
-            assertFalse(context.resolveHasReviewPhase(makeItem(type = null, tags = null)))
+            assertFalse(context.configResolver.resolveHasReviewPhase(makeItem(type = null, tags = null)))
         }
 
     // ──────────────────────────────────────────────
@@ -197,7 +200,7 @@ class ToolExecutionContextResolveSchemaTest {
                 WorkItemSchema(type = "feature-task", notes = listOf(workEntry()), defaultTraits = listOf("needs-security-review"))
             server.traits["needs-security-review"] = listOf(traitEntry("security-assessment"))
 
-            val result = context.resolveSchema(makeItem(type = "feature-task"))!!
+            val result = context.configResolver.resolveSchema(makeItem(type = "feature-task"))!!
 
             assertEquals(2, result.notes.size)
             assertEquals("work-note", result.notes[0].key)
@@ -216,7 +219,7 @@ class ToolExecutionContextResolveSchemaTest {
             server.traits["my-trait"] =
                 listOf(NoteSchemaEntry(key = "shared-key", role = Role.REVIEW, required = true, description = "trait"))
 
-            val result = context.resolveSchema(makeItem(type = "feature-task"))!!
+            val result = context.configResolver.resolveSchema(makeItem(type = "feature-task"))!!
 
             assertEquals(1, result.notes.size)
             assertEquals("base", result.notes[0].description)
@@ -230,7 +233,7 @@ class ToolExecutionContextResolveSchemaTest {
             server.schemas["feature-task"] =
                 WorkItemSchema(type = "feature-task", notes = listOf(workEntry()), defaultTraits = listOf("nonexistent-trait"))
 
-            val result = context.resolveSchema(makeItem(type = "feature-task"))!!
+            val result = context.configResolver.resolveSchema(makeItem(type = "feature-task"))!!
 
             assertEquals(1, result.notes.size)
             assertEquals("work-note", result.notes[0].key)
@@ -243,7 +246,7 @@ class ToolExecutionContextResolveSchemaTest {
             server.traits["needs-perf-review"] = listOf(traitEntry("performance-baseline", Role.QUEUE))
 
             val item = makeItemWithProperties(type = "feature-task", traits = listOf("needs-perf-review"))
-            val result = context.resolveSchema(item)!!
+            val result = context.configResolver.resolveSchema(item)!!
 
             assertEquals(2, result.notes.size)
             assertEquals("performance-baseline", result.notes[1].key)
@@ -258,7 +261,7 @@ class ToolExecutionContextResolveSchemaTest {
             server.traits["trait-b"] = listOf(traitEntry("note-b"))
 
             val item = makeItemWithProperties(type = "feature-task", traits = listOf("trait-b", "trait-a"))
-            val result = context.resolveSchema(item)!!
+            val result = context.configResolver.resolveSchema(item)!!
 
             assertEquals(listOf("work-note", "note-b", "note-a"), result.notes.map { it.key })
         }
@@ -269,7 +272,7 @@ class ToolExecutionContextResolveSchemaTest {
             val baseSchema = WorkItemSchema(type = "feature-task", notes = listOf(workEntry()))
             server.schemas["feature-task"] = baseSchema
 
-            assertEquals(baseSchema, context.resolveSchema(makeItem(type = "feature-task")))
+            assertEquals(baseSchema, context.configResolver.resolveSchema(makeItem(type = "feature-task")))
         }
 
     @Test
@@ -279,7 +282,7 @@ class ToolExecutionContextResolveSchemaTest {
                 WorkItemSchema(type = "feature-task", notes = listOf(workEntry()), defaultTraits = listOf("needs-review-trait"))
             server.traits["needs-review-trait"] = listOf(traitEntry("review-from-trait", Role.REVIEW))
 
-            assertTrue(context.resolveHasReviewPhase(makeItem(type = "feature-task")))
+            assertTrue(context.configResolver.resolveHasReviewPhase(makeItem(type = "feature-task")))
         }
 
     @Test
@@ -292,7 +295,7 @@ class ToolExecutionContextResolveSchemaTest {
             server.traits["trait-b"] =
                 listOf(NoteSchemaEntry(key = "duplicate-key", role = Role.QUEUE, required = false, description = "from trait-b"))
 
-            val result = context.resolveSchema(makeItem(type = "feature-task"))!!
+            val result = context.configResolver.resolveSchema(makeItem(type = "feature-task"))!!
 
             assertEquals(2, result.notes.size)
             assertEquals("from trait-a", result.notes[1].description)
@@ -310,7 +313,7 @@ class ToolExecutionContextResolveSchemaTest {
                     defaultTraits = listOf("some-trait")
                 )
 
-            val result = context.resolveSchema(makeItem(type = null, tags = "bug,tools-layer"))
+            val result = context.configResolver.resolveSchema(makeItem(type = null, tags = "bug,tools-layer"))
             assertNotNull(result, "Should return a schema (default fallback)")
             assertEquals("default", result.type)
             assertEquals(LifecycleMode.MANUAL, result.lifecycleMode)
@@ -330,7 +333,7 @@ class ToolExecutionContextResolveSchemaTest {
             server.schemas["feature-task"] = schemaWithoutReview("feature-task")
             val ctx = contextWith(perRootWith(rootId, schemasDoc("feature-task" to perRootSchema)))
 
-            assertEquals(perRootSchema, ctx.resolveSchema(makeItem(type = "feature-task", rootId = rootId)))
+            assertEquals(perRootSchema, ctx.configResolver.resolveSchema(makeItem(type = "feature-task", rootId = rootId)))
         }
 
     @Test
@@ -341,7 +344,7 @@ class ToolExecutionContextResolveSchemaTest {
             val globalSchema = schemaWithReview("feature-task")
             server.schemas["feature-task"] = globalSchema
 
-            assertEquals(globalSchema, contextWith(perRoot).resolveSchema(makeItem(type = "feature-task", rootId = rootId)))
+            assertEquals(globalSchema, contextWith(perRoot).configResolver.resolveSchema(makeItem(type = "feature-task", rootId = rootId)))
             // Exactly ONE per-root fetch for the whole resolveSchema call.
             coVerify(exactly = 1) { perRoot.layer(rootId) }
         }
@@ -355,7 +358,7 @@ class ToolExecutionContextResolveSchemaTest {
             server.schemas["feature-task"] = globalSchema
             val ctx = contextWith(perRootWith(rootId, schemasDoc("default" to perRootDefault)))
 
-            assertEquals(globalSchema, ctx.resolveSchema(makeItem(type = "feature-task", rootId = rootId)))
+            assertEquals(globalSchema, ctx.configResolver.resolveSchema(makeItem(type = "feature-task", rootId = rootId)))
         }
 
     @Test
@@ -365,7 +368,7 @@ class ToolExecutionContextResolveSchemaTest {
             server.schemas["default"] = WorkItemSchema(type = "default", notes = listOf(workEntry()))
             val ctx = contextWith(perRootWith(rootId, schemasDoc("default" to WorkItemSchema(type = "default", notes = emptyList()))))
 
-            val result = ctx.resolveSchema(makeItem(type = "feature-task", rootId = rootId))
+            val result = ctx.configResolver.resolveSchema(makeItem(type = "feature-task", rootId = rootId))
 
             assertNotNull(result)
             assertTrue(result.notes.isEmpty(), "the per-root default beats the server default")
@@ -380,7 +383,7 @@ class ToolExecutionContextResolveSchemaTest {
 
             assertEquals(
                 globalDefault,
-                contextWith(perRootWith(rootId, null)).resolveSchema(makeItem(type = "feature-task", rootId = rootId))
+                contextWith(perRootWith(rootId, null)).configResolver.resolveSchema(makeItem(type = "feature-task", rootId = rootId))
             )
         }
 
@@ -391,7 +394,7 @@ class ToolExecutionContextResolveSchemaTest {
             val globalSchema = schemaWithReview("feature-task")
             server.schemas["feature-task"] = globalSchema
 
-            assertEquals(globalSchema, contextWith(perRoot).resolveSchema(makeItem(type = "feature-task", rootId = null)))
+            assertEquals(globalSchema, contextWith(perRoot).configResolver.resolveSchema(makeItem(type = "feature-task", rootId = null)))
             coVerify(exactly = 0) { perRoot.layer(any()) }
         }
 
@@ -411,7 +414,10 @@ class ToolExecutionContextResolveSchemaTest {
                         )
                 )
 
-            val result = contextWith(perRootWith(rootId, perRootDoc)).resolveSchema(makeItem(type = "feature-task", rootId = rootId))!!
+            val result =
+                contextWith(
+                    perRootWith(rootId, perRootDoc)
+                ).configResolver.resolveSchema(makeItem(type = "feature-task", rootId = rootId))!!
 
             assertEquals(listOf("work-note", "performance-baseline-per-root"), result.notes.map { it.key })
         }
@@ -424,7 +430,7 @@ class ToolExecutionContextResolveSchemaTest {
             server.schemas["default"] = schemaWithReview("default")
             val ctx = contextWith(perRootWith(rootId, schemasDoc("default" to perRootDefault)))
 
-            assertEquals(perRootDefault, ctx.resolveSchema(makeItem(type = null, tags = "unmatched-tag", rootId = rootId)))
+            assertEquals(perRootDefault, ctx.configResolver.resolveSchema(makeItem(type = null, tags = "unmatched-tag", rootId = rootId)))
         }
 
     @Test
@@ -433,19 +439,22 @@ class ToolExecutionContextResolveSchemaTest {
             val globalSchema = schemaWithReview("feature-task")
             server.schemas["feature-task"] = globalSchema
 
-            assertEquals(globalSchema, contextWith(null).resolveSchema(makeItem(type = "feature-task", rootId = UUID.randomUUID())))
+            assertEquals(
+                globalSchema,
+                contextWith(null).configResolver.resolveSchema(makeItem(type = "feature-task", rootId = UUID.randomUUID()))
+            )
         }
 
     @Test
     fun `the default context resolver has no server config`(): Unit =
         runBlocking {
             val ctx = ToolExecutionContext(mockk<RepositoryProvider>(relaxed = true))
-            assertNull(ctx.resolveSchema(makeItem(type = "feature-task")))
+            assertNull(ctx.configResolver.resolveSchema(makeItem(type = "feature-task")))
             assertNull(ctx.configResolver.global.fingerprint())
         }
 
     // ──────────────────────────────────────────────
-    // resolveNoteLimitsMode / resolveStatusLabel (per-root layering)
+    // resolveNoteLimitsMode / resolveStatusLabels (per-root layering)
     // ──────────────────────────────────────────────
 
     @Test
@@ -454,7 +463,7 @@ class ToolExecutionContextResolveSchemaTest {
             val perRoot = mockk<PerRootConfigService>()
             server.noteLimitsMode = "reject"
 
-            assertEquals("reject", contextWith(perRoot).resolveNoteLimitsMode(null))
+            assertEquals("reject", contextWith(perRoot).configResolver.resolveNoteLimitsMode(null))
             coVerify(exactly = 0) { perRoot.layer(any()) }
         }
 
@@ -464,7 +473,7 @@ class ToolExecutionContextResolveSchemaTest {
             val rootId = UUID.randomUUID()
             server.noteLimitsMode = "reject"
 
-            assertEquals("reject", contextWith(perRootWith(rootId, schemasDoc())).resolveNoteLimitsMode(rootId))
+            assertEquals("reject", contextWith(perRootWith(rootId, schemasDoc())).configResolver.resolveNoteLimitsMode(rootId))
         }
 
     @Test
@@ -473,43 +482,43 @@ class ToolExecutionContextResolveSchemaTest {
             val rootId = UUID.randomUUID()
             val ctx = contextWith(perRootWith(rootId, schemasDoc().copy(noteLimitsMode = "reject")))
 
-            assertEquals("reject", ctx.resolveNoteLimitsMode(rootId))
+            assertEquals("reject", ctx.configResolver.resolveNoteLimitsMode(rootId))
         }
 
     @Test
-    fun `resolveStatusLabel falls through to the server when rootId is null`(): Unit =
+    fun `resolveStatusLabels for one trigger falls through to the server when rootId is null`(): Unit =
         runBlocking {
             val perRoot = mockk<PerRootConfigService>()
             server.statusLabels = mapOf("start" to "in-progress")
 
-            assertEquals("in-progress", contextWith(perRoot).resolveStatusLabel("start", null))
+            assertEquals("in-progress", contextWith(perRoot).configResolver.resolveStatusLabels(listOf("start"), null)["start"])
             coVerify(exactly = 0) { perRoot.layer(any()) }
         }
 
     @Test
-    fun `resolveStatusLabel falls through to the server per-trigger when the per-root map is partial`(): Unit =
+    fun `resolveStatusLabels for one trigger falls through to the server per-trigger when the per-root map is partial`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
             server.statusLabels = mapOf("complete" to "done")
             val ctx = contextWith(perRootWith(rootId, schemasDoc().copy(statusLabels = mapOf("start" to "root-started"))))
 
-            assertEquals("root-started", ctx.resolveStatusLabel("start", rootId))
+            assertEquals("root-started", ctx.configResolver.resolveStatusLabels(listOf("start"), rootId)["start"])
             assertEquals(
                 "done",
-                ctx.resolveStatusLabel("complete", rootId),
+                ctx.configResolver.resolveStatusLabels(listOf("complete"), rootId)["complete"],
                 "A trigger absent from the partial per-root map must fall through"
             )
         }
 
     @Test
-    fun `resolveStatusLabel honors an explicit null per-root label without falling through`(): Unit =
+    fun `resolveStatusLabels for one trigger honors an explicit null per-root label without falling through`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
             server.statusLabels = mapOf("complete" to "done")
             val ctx = contextWith(perRootWith(rootId, schemasDoc().copy(statusLabels = mapOf("complete" to null))))
 
             assertNull(
-                ctx.resolveStatusLabel("complete", rootId),
+                ctx.configResolver.resolveStatusLabels(listOf("complete"), rootId)["complete"],
                 "An explicit null value for a present trigger key must win over the server label, not fall through"
             )
         }
@@ -521,7 +530,7 @@ class ToolExecutionContextResolveSchemaTest {
             server.statusLabels = mapOf("cascade" to "done")
             val perRoot = perRootWith(rootId, schemasDoc().copy(statusLabels = mapOf("start" to "root-started")))
 
-            val resolved = contextWith(perRoot).resolveStatusLabels(setOf("start", "cascade"), rootId)
+            val resolved = contextWith(perRoot).configResolver.resolveStatusLabels(setOf("start", "cascade"), rootId)
 
             assertEquals("root-started", resolved["start"])
             assertEquals("done", resolved["cascade"])

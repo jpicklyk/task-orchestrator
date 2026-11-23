@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.opsRoutes
@@ -24,6 +23,7 @@ import io.github.jpicklyk.mcptask.current.test.setup
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.text
 import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
@@ -124,7 +124,7 @@ class PreviewMissingNotesConsistencyTest {
             val d = P11Driver(EventLogRig.build(db.db, dir, P11_BASE_YAML))
             val ctx = d.rig.ctx
             application {
-                configureTestApp(makeWriteAuthConfig()) { opsRoutes(ToolRegistry(buildToolSpecs()), buildToolDispatcher(ctx)) }
+                configureTestApp(makeWriteAuthConfig()) { opsRoutes(ToolRegistry(buildToolSpecs()), testToolDispatcher(ctx)) }
             }
             for (state in P11MatrixState.all()) {
                 val (item, holder) = d.setup(state)
@@ -200,7 +200,7 @@ class PreviewMissingNotesConsistencyTest {
             val d = P11Driver(EventLogRig.build(db.db, dir, seatConfig))
             val ctx = d.rig.ctx
             application {
-                configureTestApp(makeWriteAuthConfig()) { opsRoutes(ToolRegistry(buildToolSpecs()), buildToolDispatcher(ctx)) }
+                configureTestApp(makeWriteAuthConfig()) { opsRoutes(ToolRegistry(buildToolSpecs()), testToolDispatcher(ctx)) }
             }
             val item = d.item("seat item", Role.QUEUE, type = "h3-seat")
             d.note(item, "diagnosis", "queue")
@@ -298,7 +298,7 @@ class PreviewMissingNotesConsistencyTest {
         val f = raceFixture(hideFirstRead)
         application {
             configureTestApp(makeWriteAuthConfig()) {
-                opsRoutes(ToolRegistry(buildToolSpecs()), buildToolDispatcher(f.ctx))
+                opsRoutes(ToolRegistry(buildToolSpecs()), testToolDispatcher(f.ctx))
             }
         }
         val gate = gateOf(client, f.item.id.toString(), label)

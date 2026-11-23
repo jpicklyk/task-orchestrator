@@ -64,8 +64,8 @@ data class Dispatched(
 
 /**
  * Runs one call of a 4.0 tool, transport-neutral, so MCP ([McpOperationAdapter][io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter])
- * and REST (`POST /api/v1/ops/{tool}`, Q6) produce the same body for the same arguments. [specs] are the tools it will
- * serve: construction throws when a select or op of one declares a services holder the dispatcher's registry lacks.
+ * and REST (`POST /api/v1/ops/{tool}`, Q6) produce the same body for the same arguments. [specs] are the tools it validates at
+ * construction (a call may name any spec): construction throws when a select or op of one declares a services holder the dispatcher's registry lacks.
  *
  * Order (task-scope D2):
  * 0. **Principal** (R14). The transport passes a [CallAccess]; one without a principal is answered `unauthenticated`
@@ -102,12 +102,12 @@ class ToolDispatcher(
     private val decoder: RequestDecoder,
     private val batchRunner: BatchRunner,
     private val env: ToolExecutionContext,
-    specs: List<ToolSpec>
+    /** The tools this dispatcher validates at construction; the composition passes the list its [ToolRegistry] serves. */
+    val specs: List<ToolSpec>,
+    /** The services holders a select or op takes as `env`; production uses the one over [env], a test may pass its own. */
+    private val services: ToolServiceLookup = ToolServiceRegistry(env)
 ) {
     private val logger = LoggerFactory.getLogger(ToolDispatcher::class.java)
-
-    /** The services holders a select or op takes as `env`, built over [env]; this dispatcher's own registry, held for its life. */
-    private val services: ToolServiceLookup = ToolServiceRegistry(env)
 
     init {
         // A holder nobody registered is a wiring mistake: fail here, naming the select or op, not as an `internal` call outcome.

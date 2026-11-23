@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.test.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadTool
@@ -15,7 +14,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * A call to `items_read` select `context` (or `next` / `blocked`) through the production [buildToolDispatcher] and tool
+ * A call to `items_read` select `context` (or `next` / `blocked`) through the production [testToolDispatcher] and tool
  * registry, for tests that used the removed 3.x `get_context` / `get_next_item` / `get_blocked_items` as a probe of the
  * state under test (Q22). Never a production shim: it adds nothing the dispatcher does not do.
  *
@@ -36,7 +35,7 @@ class ItemContextProbe(
     ): JsonObject {
         val spec = checkNotNull(registry[ItemsReadTool.NAME]) { "items_read is not registered" }
         val arguments = JsonObject(args + ("select" to JsonPrimitive(select)))
-        return buildToolDispatcher(context)
+        return testToolDispatcher(context)
             .dispatch(spec, ToolProfile.ORCHESTRATION, arguments, "probe-req", CallLogRecord.SURFACE_MCP, access)
             .envelope.body
     }

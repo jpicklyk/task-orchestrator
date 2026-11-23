@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.platform.call
 
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
@@ -14,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.platform.rest.ops.toCallAccess
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -115,7 +115,7 @@ class ScopedIdsTest {
                 proofStatus = ProofStatus.ISSUED
             )
         val body =
-            buildToolDispatcher(ctx)
+            testToolDispatcher(ctx)
                 .dispatch(
                     checkNotNull(registry[tool]),
                     ToolProfile.ORCHESTRATION,

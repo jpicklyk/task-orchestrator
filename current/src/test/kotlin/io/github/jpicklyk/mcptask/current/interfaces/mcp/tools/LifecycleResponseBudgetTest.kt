@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.model.item.LifecycleMode
@@ -18,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.test.itemsWrite
 import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.github.jpicklyk.mcptask.current.test.transitionOp
 import io.github.jpicklyk.mcptask.current.test.upsertNoteVia
 import kotlinx.coroutines.runBlocking
@@ -161,7 +161,7 @@ class LifecycleResponseBudgetTest {
     ): JsonObject {
         val spec = checkNotNull(ToolRegistry(buildToolSpecs())["runs_read"]) { "runs_read is not registered" }
         val body =
-            buildToolDispatcher(context)
+            testToolDispatcher(context)
                 .dispatch(spec, ToolProfile.ORCHESTRATION, params, "probe-req", CallLogRecord.SURFACE_MCP, CallAccess.LOCAL)
                 .envelope.body
         assertTrue(body["ok"]?.jsonPrimitive?.content == "true", "runs_read must answer ok: $body")

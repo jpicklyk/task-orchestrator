@@ -21,8 +21,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Unit tests for [ToolExecutionContext.resolveResourceRequirements] and
- * [ToolExecutionContext.resolveResourceRegistry] — the resource-declaration resolution layer (T4).
+ * Unit tests for `configResolver.resolveResourceRequirements` and
+ * `configResolver.resolveResourceRegistry` — the resource-declaration resolution layer (T4).
  * No enforcement/leasing is exercised here (that's a follow-on task); these tests only verify the
  * config-merge algorithm.
  */
@@ -77,7 +77,7 @@ class ToolExecutionContextResourceMergeTest {
                     traits = listOf("trait-a", "trait-b")
                 )
 
-            val result = context.resolveResourceRequirements(item)
+            val result = context.configResolver.resolveResourceRequirements(item)
 
             assertEquals(2, result.size)
             assertEquals(setOf("resource-a", "resource-b"), result.map { it.key }.toSet())
@@ -98,7 +98,7 @@ class ToolExecutionContextResourceMergeTest {
 
             val item = makeItem(type = "feature-task")
 
-            val result = context.resolveResourceRequirements(item)
+            val result = context.configResolver.resolveResourceRequirements(item)
 
             assertEquals(1, result.size)
             assertEquals("shared-resource", result[0].key)
@@ -125,7 +125,7 @@ class ToolExecutionContextResourceMergeTest {
 
             val item = makeItem(type = "feature-task")
 
-            val result = context.resolveResourceRequirements(item)
+            val result = context.configResolver.resolveResourceRequirements(item)
 
             assertEquals(1, result.size)
             assertEquals(ResourceMode.EXCLUSIVE, result[0].mode)
@@ -148,7 +148,7 @@ class ToolExecutionContextResourceMergeTest {
 
             val item = makeItem(type = "feature-task")
 
-            val result = context.resolveResourceRequirements(item)
+            val result = context.configResolver.resolveResourceRequirements(item)
 
             assertEquals(1, result.size)
             assertEquals(ResourceMode.EXCLUSIVE, result[0].mode)
@@ -171,7 +171,7 @@ class ToolExecutionContextResourceMergeTest {
                     traits = listOf("needs-staging-db")
                 )
 
-            val result = context.resolveResourceRequirements(item)
+            val result = context.configResolver.resolveResourceRequirements(item)
 
             assertEquals(1, result.size)
             assertEquals("staging-db-credential", result[0].key)
@@ -183,7 +183,7 @@ class ToolExecutionContextResourceMergeTest {
             val item = makeItem(type = "feature-task")
             server.schemas["feature-task"] = WorkItemSchema(type = "feature-task", notes = emptyList(), defaultTraits = emptyList())
 
-            val result = context.resolveResourceRequirements(item)
+            val result = context.configResolver.resolveResourceRequirements(item)
 
             assertTrue(result.isEmpty())
         }
@@ -227,7 +227,7 @@ class ToolExecutionContextResourceMergeTest {
             val ctx = ToolExecutionContext(repoProvider, perRootConfigService = perRoot, configResolver = server.resolver(perRoot))
 
             val item = makeItem(type = "feature-task", rootId = rootId)
-            val result = ctx.resolveResourceRequirements(item)
+            val result = ctx.configResolver.resolveResourceRequirements(item)
 
             assertEquals(1, result.size)
             assertEquals("per-root-resource", result[0].key)
@@ -267,7 +267,7 @@ class ToolExecutionContextResourceMergeTest {
             val ctx = ToolExecutionContext(repoProvider, perRootConfigService = perRoot, configResolver = server.resolver(perRoot))
 
             val item = makeItem(type = "feature-task", rootId = rootId)
-            val result = ctx.resolveResourceRequirements(item)
+            val result = ctx.configResolver.resolveResourceRequirements(item)
 
             assertEquals(1, result.size)
             assertEquals("global-resource", result[0].key)
@@ -301,7 +301,7 @@ class ToolExecutionContextResourceMergeTest {
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
             val ctx = ToolExecutionContext(repoProvider, perRootConfigService = perRoot, configResolver = server.resolver(perRoot))
 
-            val result = ctx.resolveResourceRegistry(rootId)
+            val result = ctx.configResolver.resolveResourceRegistry(rootId)
 
             assertEquals(setOf("global-only"), result.keys, "a per-root resources registry is never honored")
         }
@@ -333,7 +333,7 @@ class ToolExecutionContextResourceMergeTest {
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
             val ctx = ToolExecutionContext(repoProvider, perRootConfigService = perRoot, configResolver = server.resolver(perRoot))
 
-            val result = ctx.resolveResourceRegistry(rootId)
+            val result = ctx.configResolver.resolveResourceRegistry(rootId)
 
             assertEquals(1, result.size)
             assertEquals(globalDef, result["shared-key"], "Global definition must win over the per-root one on collision")
@@ -348,7 +348,7 @@ class ToolExecutionContextResourceMergeTest {
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
             val ctx = ToolExecutionContext(repoProvider, perRootConfigService = perRoot, configResolver = server.resolver(perRoot))
 
-            val result = ctx.resolveResourceRegistry(null)
+            val result = ctx.configResolver.resolveResourceRegistry(null)
 
             assertEquals(setOf("global-only"), result.keys)
         }

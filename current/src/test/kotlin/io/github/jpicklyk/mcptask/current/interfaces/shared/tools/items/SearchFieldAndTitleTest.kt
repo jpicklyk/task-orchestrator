@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.note.Note
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -56,11 +56,12 @@ class SearchFieldAndTitleTest {
         item: WorkItem,
         key: String,
         body: String,
-    ): Note = assertNotNull(context.noteRepository().upsert(Note(itemId = item.id, key = key, role = "work", body = body)))
+    ): Note =
+        assertNotNull(context.repositoryProvider.noteRepository().upsert(Note(itemId = item.id, key = key, role = "work", body = body)))
 
     /** One `items_read` call through the production dispatcher (query_items/query_notes search were removed in Q19). */
     private suspend fun itemsRead(args: JsonObject): JsonObject =
-        buildToolDispatcher(context)
+        testToolDispatcher(context)
             .dispatch(ItemsReadTool.spec, ToolProfile.ORCHESTRATION, args, "search-field-test", "mcp")
             .envelope
             .body

@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteHandlers
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
@@ -20,6 +19,7 @@ import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.callTool
 import io.github.jpicklyk.mcptask.current.test.putNote
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -126,7 +126,7 @@ class NotesWriteSurfaceAndConfigTest {
     ): JsonObject {
         val spec = checkNotNull(ToolRegistry(buildToolSpecs())["notes_write"])
         return run {
-            buildToolDispatcher(ctx).dispatch(spec, ToolProfile.ORCHESTRATION, arguments, "r2req000", surface)
+            testToolDispatcher(ctx).dispatch(spec, ToolProfile.ORCHESTRATION, arguments, "r2req000", surface)
         }.envelope.body
     }
 

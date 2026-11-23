@@ -2,9 +2,9 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.github.jpicklyk.mcptask.current.test.tools.testToolDispatcher
 import io.ktor.server.routing.Route
 
 /**
@@ -13,5 +13,5 @@ import io.ktor.server.routing.Route
  * work), so a route test that only has a repository provider mounts the same production routes.
  */
 fun Route.itemRoutes(provider: RepositoryProvider) {
-    itemRoutes(ToolRegistry(buildToolSpecs()), buildToolDispatcher(ToolExecutionContext(provider)))
+    itemRoutes(ToolRegistry(buildToolSpecs()), testToolDispatcher(ToolExecutionContext(provider)))
 }

@@ -212,7 +212,7 @@ class EventActorRootIdTest {
                 .note
 
         suspend fun deleteNote(id: UUID) {
-            val note = checkNotNull(ctx.noteRepository().getById(id)) { "no note $id to delete" }
+            val note = checkNotNull(ctx.repositoryProvider.noteRepository().getById(id)) { "no note $id to delete" }
             ctx.noteCommandService.delete(note.itemId, note.key, caller = null).value()
         }
 
