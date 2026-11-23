@@ -40,19 +40,19 @@ Build one `audit/args-v2` object:
 | `backlog` | `items_read` `list` with `ancestorId` the root id, `tags` `["bug", "tech-debt", "audit"]`, `limit` 200; drop terminal rows; map each to `{id: <short id>, title}`. First page only: the workflow's triage step still searches unscoped |
 | `dispatchClasses` | the `classes` object of `<scriptsDir>/../dispatch-policy.json`, passed unchanged |
 
-`models` and `efforts` are set only for a per-phase-key override the user names. Set `allowLarge: true` only for `standard` or `full`, and only after the user confirms the projected agent count. Never write a model or effort value in this skill or invent one: they come from `dispatchClasses`.
+`models` and `efforts` are set only for a per-phase-key override the user names. Set `allowLarge: true` only for `full`, and only after the user confirms the projected agent count. Never write a model or effort value in this skill or invent one: they come from `dispatchClasses`.
 
 ## Step 3 - Confirm before launch
 
-State the `reportPath` and that items will cite it, then show the two tables below, with the model and effort of each class filled from the `dispatchClasses` just read, and wait for the user's confirmation. The default `maxAgents` is 60; `quick` fits it.
+State the `reportPath` and that items will cite it, then show the two tables below, with the model and effort of each class filled from the `dispatchClasses` just read, and wait for the user's confirmation. The default `maxAgents` is 60; `quick` and `standard` fit it. The projections below assume a measured digest with enough candidates to fill the preset's candidate reviewers.
 
 ### Presets
 
 | Preset | Reviewers | Gap reviewers | Verify cap | Projected agents | Projected agents, no project root |
 |--------|-----------|---------------|------------|------------------|-----------------------------------|
-| quick | 4 | 1 | 20 | 33 | 29 |
-| standard | 8 | 2 | 40 | 143 | 135 |
-| full | 16 | 4 | 100 | 343 | 327 |
+| quick | 4 | 1 | 20 | 24 | 17 |
+| standard | 8 | 2 | 40 | 60 | 47 |
+| full | 16 | 4 | 100 | 128 | 102 |
 
 ### Dispatch
 
@@ -60,11 +60,12 @@ State the `reportPath` and that items will cite it, then show the two tables bel
 |-----------|-------|
 | scope | research |
 | review | audit-review |
+| review-candidate | audit-review |
 | review-architecture | review |
 | critic | research |
 | merge | extraction |
-| verify | research |
-| verify-high | audit-verify-high |
+| verify-group | research |
+| verify-group-high | audit-verify-high |
 | synth | audit-synthesis |
 | triage | extraction |
 

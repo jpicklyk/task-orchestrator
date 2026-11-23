@@ -1,7 +1,7 @@
 export const meta = {
   name: 'deep-codebase-audit',
   description: 'Barrier-per-phase codebase audit: reviewers that each follow the method skill of their own slice, gap critic, stratified adversarial verify, structured synthesis, and a triage-derived findings proposal.',
-  whenToUse: 'Rare and expensive: a broad multi-agent pass over existing code and documentation, by slice (focus picks which). Presets quick|standard|full trade reviewer/verifier fan-out for cost; runId, date, and reportPath are required args; measured (optional: an audit/digest-v1 object the run-audit skill measured before launch) puts the measured structure into reviewer prompts, and items.policy (gated, bugs or all) picks which findings the proposal selects; dispatchClasses (required: the classes of dispatch-policy.json) gives each phase key its model and effort, and models and efforts override them per phase key; focus (optional: code, docs or all; default all) limits the audit to code slices, documentation slices or both; methodSkill (optional) replaces the method skill of code slices, and a slice or lens may carry its own methodSkill. quick fits the default maxAgents (60); standard and full project well past 60 agents and need allowLarge:true or a raised maxAgents. full runs roughly 90 minutes and about 30M tokens — prefer quick or standard for routine sweeps.',
+  whenToUse: 'Rare and expensive: a broad multi-agent pass over existing code and documentation, by slice (focus picks which). Presets quick|standard|full trade reviewer/verifier fan-out for cost; runId, date, and reportPath are required args; measured (optional: an audit/digest-v1 object the run-audit skill measured before launch) puts the measured structure into reviewer prompts, and items.policy (gated, bugs or all) picks which findings the proposal selects; dispatchClasses (required: the classes of dispatch-policy.json) gives each phase key its model and effort, and models and efforts override them per phase key; focus (optional: code, docs or all; default all) limits the audit to code slices, documentation slices or both; methodSkill (optional) replaces the method skill of code slices, and a slice or lens may carry its own methodSkill. quick and standard fit the default maxAgents (60); full projects past it and needs allowLarge:true or a raised maxAgents. scope.candidateCount sets how many measured candidates get their own reviewer, and verify.groupSize how many findings one verifier call judges. full runs roughly 90 minutes and about 30M tokens — prefer quick or standard for routine sweeps.',
   phases: [
     { title: 'Scope' }, { title: 'Review' }, { title: 'Gaps' }, { title: 'Merge' },
     { title: 'Verify' }, { title: 'Synthesize' }, { title: 'Triage' },
@@ -22,15 +22,16 @@ const ITEM_POLICIES = ['gated', 'bugs', 'all']
 const DISPATCH_CLASSES = {
   scope: 'research',
   review: 'audit-review',
+  'review-candidate': 'audit-review',
   'review-architecture': 'review',
   critic: 'research',
   merge: 'extraction',
-  verify: 'research',
-  'verify-high': 'audit-verify-high',
+  'verify-group': 'research',
+  'verify-group-high': 'audit-verify-high',
   synth: 'audit-synthesis',
   triage: 'extraction',
 }
-const FAN_OUT_KEYS = ['review', 'verify', 'verify-high', 'triage', 'merge']
+const FAN_OUT_KEYS = ['review', 'review-candidate', 'verify-group', 'verify-group-high', 'triage', 'merge']
 
 const ARCHITECTURE_LENS = {
   key: 'architecture', label: 'Architecture', kind: 'code',
@@ -38,9 +39,9 @@ const ARCHITECTURE_LENS = {
 }
 
 const PRESETS = {
-  quick: { reviewerCount: 4, gaps: { enabled: true, max: 1 }, verify: { highLenses: ['combined'], defaultLenses: ['combined'], maxFindings: 20 } },
-  standard: { reviewerCount: 8, gaps: { enabled: true, max: 2 }, verify: { highLenses: ['evidence', 'significance', 'consequence'], defaultLenses: ['combined'], maxFindings: 40 } },
-  full: { reviewerCount: 16, gaps: { enabled: true, max: 4 }, verify: { highLenses: ['evidence', 'significance', 'consequence'], defaultLenses: ['combined'], maxFindings: 100 } },
+  quick: { reviewerCount: 4, candidateCount: 3, gaps: { enabled: true, max: 1 }, verify: { highLenses: ['combined'], defaultLenses: ['combined'], maxFindings: 20, groupSize: 5 } },
+  standard: { reviewerCount: 8, candidateCount: 6, gaps: { enabled: true, max: 2 }, verify: { highLenses: ['evidence', 'significance', 'consequence'], defaultLenses: ['combined'], maxFindings: 40, groupSize: 5 } },
+  full: { reviewerCount: 16, candidateCount: 12, gaps: { enabled: true, max: 4 }, verify: { highLenses: ['evidence', 'significance', 'consequence'], defaultLenses: ['combined'], maxFindings: 100, groupSize: 5 } },
 }
 
 const CATEGORIES = [
@@ -154,7 +155,8 @@ function fnv1a32(text) {
 
 /**
  * stableIds(rows) -> string[] aligned with rows: 'F-' + fnv1a32(category + '|' + primaryPath(locations)). Rows that share an id take
- * '-2', '-3' and so on in the order of the line of their first location (a row with no line first, ties by position), so the ids do not depend on row order.
+ * '-2', '-3' and so on in the order of the line of their first location (a row with no line first), then of the raw first-location string in code-unit order,
+ * then by position, so the ids do not depend on row order unless two rows are identical in all three.
  */
 function stableIds(rows) {
   const list = rows || []
@@ -162,12 +164,13 @@ function stableIds(rows) {
     const m = /:(\d+)(-\d+)?$/.exec(Array.isArray(r.locations) && typeof r.locations[0] === 'string' ? r.locations[0] : '')
     return m ? Number(m[1]) : 0
   }
+  const rawOf = (r) => (Array.isArray(r.locations) && typeof r.locations[0] === 'string' ? r.locations[0] : '')
   const bases = list.map((r) => 'F-' + fnv1a32(r.category + '|' + primaryPath(r.locations)))
   const out = new Array(list.length)
   const byBase = new Map()
   bases.forEach((b, i) => { if (!byBase.has(b)) byBase.set(b, []); byBase.get(b).push(i) })
   for (const [b, idxs] of byBase) {
-    idxs.sort((x, y) => (lineOf(list[x]) - lineOf(list[y])) || (x - y))
+    idxs.sort((x, y) => (lineOf(list[x]) - lineOf(list[y])) || (rawOf(list[x]) < rawOf(list[y]) ? -1 : rawOf(list[x]) > rawOf(list[y]) ? 1 : 0) || (x - y))
     idxs.forEach((i, n) => { out[i] = n === 0 ? b : b + '-' + (n + 1) })
   }
   return out
@@ -460,10 +463,14 @@ function normalizeArgs(raw) {
     highLenses: verifyIn.highLenses || preset.verify.highLenses,
     defaultLenses: verifyIn.defaultLenses || preset.verify.defaultLenses,
     maxFindings: verifyIn.maxFindings != null ? verifyIn.maxFindings : preset.verify.maxFindings,
+    groupSize: verifyIn.groupSize != null ? verifyIn.groupSize : preset.verify.groupSize,
   }
   for (const k of verify.highLenses.concat(verify.defaultLenses)) {
     if (LENS_KEYS.indexOf(k) === -1) return { ok: false, reason: 'invalid args: unknown verify lens ' + k }
   }
+  if (!Number.isInteger(verify.groupSize) || verify.groupSize < 1) return { ok: false, reason: 'invalid args: verify.groupSize must be a positive integer' }
+  const candidateCount = scopeIn.candidateCount != null ? scopeIn.candidateCount : preset.candidateCount
+  if (!Number.isInteger(candidateCount) || candidateCount < 0) return { ok: false, reason: 'invalid args: scope.candidateCount must be a non-negative integer' }
 
   const itemsIn = A.items || {}
   const items = Object.assign({ enabled: false, rootId: '', materializeMin: 'high', typeMap: {}, policy: 'gated' }, itemsIn)
@@ -538,7 +545,7 @@ function normalizeArgs(raw) {
   const gaps = Object.assign({}, preset.gaps, A.gaps || {})
   const plan = {
     contract: A.contract, runId: A.runId, date: A.date, repo: A.repo, preset: presetName,
-    scope: { paths: scopeIn.paths, reviewers: scopeIn.reviewers || null, lenses: scopeIn.lenses || [], reviewerCount: scopeIn.reviewerCount || preset.reviewerCount },
+    scope: { paths: scopeIn.paths, reviewers: scopeIn.reviewers || null, lenses: scopeIn.lenses || [], reviewerCount: scopeIn.reviewerCount || preset.reviewerCount, candidateCount },
     rubric: A.rubric || null, categories: A.categories || CATEGORIES, backlog: A.backlog || [], gaps, verify,
     dispatch, measured: A.measured != null ? A.measured : null, scriptsDir: A.scriptsDir != null ? A.scriptsDir : null, workDir: A.workDir != null ? A.workDir : null, reportPath: A.reportPath, items,
     maxAgents: A.maxAgents != null ? A.maxAgents : 60, allowLarge: !!A.allowLarge, title: A.title || A.runId, focus,
@@ -553,22 +560,45 @@ function addsArchitectureLens(plan, lenses) {
   return plan.focus !== 'docs' && !(lenses || []).some((l) => l && l.key === ARCHITECTURE_LENS.key)
 }
 
-/** projectAgents(plan) -> {total, scope, review, gaps, merge, verify, synth, triage} (upper-bound cost projection; merge = max(1, ceil(est / 40))) */
+/**
+ * assignedCandidates(plan) -> candidate[]: the measured candidates that get their own reviewer, the one source for the run and the projection.
+ * [] when plan.measured is null, focus is docs or candidateCount is 0; else measured.candidates in order, skipping a non-object, a candidate whose
+ * candidateId is not a non-empty string and a repeated candidateId, cut to candidateCount. Each is returned with its subject as an array ([] when it was not one).
+ */
+function assignedCandidates(plan) {
+  const m = plan.measured
+  if (!m || plan.focus === 'docs' || !(plan.scope.candidateCount > 0) || !Array.isArray(m.candidates)) return []
+  const seen = new Set()
+  const out = []
+  for (const c of m.candidates) {
+    if (out.length >= plan.scope.candidateCount) break
+    if (!c || typeof c !== 'object' || Array.isArray(c) || typeof c.candidateId !== 'string' || !c.candidateId || seen.has(c.candidateId)) continue
+    seen.add(c.candidateId)
+    out.push(Object.assign({}, c, { subject: Array.isArray(c.subject) ? c.subject : [] }))
+  }
+  return out
+}
+
+/**
+ * projectAgents(plan) -> {total, scope, review, candidates, gaps, merge, verify, synth, triage} (upper-bound cost projection; est = (R + gaps.max + candidates) * 8;
+ * merge = max(1, ceil(est / 40)); verify = ceil(min(est, maxFindings) / groupSize) * the larger lens count)
+ */
 function projectAgents(plan) {
   const reviewersGiven = !!(plan.scope.reviewers && plan.scope.reviewers.length)
   const lensesGiven = plan.scope.lenses || []
   const R = reviewersGiven ? plan.scope.reviewers.length + lensesGiven.length + (addsArchitectureLens(plan, lensesGiven) ? 1 : 0) : plan.scope.reviewerCount
   const scope = reviewersGiven ? 0 : 1
   const review = R
+  const candidates = assignedCandidates(plan).length
   const gapsEnabled = !!plan.gaps.enabled
   const gaps = gapsEnabled ? 1 + plan.gaps.max : 0
-  const est = (R + (gapsEnabled ? plan.gaps.max : 0)) * 8
+  const est = (R + (gapsEnabled ? plan.gaps.max : 0) + candidates) * 8
   const nV = Math.min(est, plan.verify.maxFindings)
-  const verify = nV * Math.max(plan.verify.highLenses.length, plan.verify.defaultLenses.length)
+  const verify = Math.ceil(nV / plan.verify.groupSize) * Math.max(plan.verify.highLenses.length, plan.verify.defaultLenses.length)
   const merge = Math.max(1, Math.ceil(est / MERGE_BATCH_MAX))
   const synth = 1
   const triage = plan.items.enabled ? Math.ceil(est / 10) : 0
-  return { total: scope + review + gaps + merge + verify + synth + triage, scope, review, gaps, merge, verify, synth, triage }
+  return { total: scope + review + candidates + gaps + merge + verify + synth + triage, scope, review, candidates, gaps, merge, verify, synth, triage }
 }
 
 /** sizeGuard(plan) -> null | {reason} (refuses when projection > maxAgents and !allowLarge) */
@@ -687,6 +717,39 @@ function capVerification(merged, maxFindings) {
   return { verify: selected.map((x) => x.f), unverified: merged.filter((f, i) => !chosen.has(i)) }
 }
 
+/**
+ * packVerifyGroups(rows, clusters, groupSize) -> rows[][]: rows (the capVerification selection) in a stable order, then consecutive chunks of groupSize
+ * (exactly ceil(n / groupSize) groups). The order is the k of the preCluster cluster holding row.id (none: after every cluster), then the first index in rows of the
+ * row's primaryPath, then the index in rows, so a path's rows stay together and a cluster's paths stay together. rows is not mutated.
+ */
+function packVerifyGroups(rows, clusters, groupSize) {
+  const list = rows || []
+  const kOf = new Map()
+  for (const c of clusters || []) for (const id of c.ids || []) if (!kOf.has(id)) kOf.set(id, c.k)
+  const firstOfPath = new Map()
+  const paths = list.map((r, i) => {
+    const p = primaryPath(r.locations)
+    if (!firstOfPath.has(p)) firstOfPath.set(p, i)
+    return p
+  })
+  const order = list.map((r, i) => i).sort((a, b) => {
+    const ka = kOf.has(list[a].id) ? kOf.get(list[a].id) : Infinity
+    const kb = kOf.has(list[b].id) ? kOf.get(list[b].id) : Infinity
+    if (ka !== kb) return ka < kb ? -1 : 1
+    return (firstOfPath.get(paths[a]) - firstOfPath.get(paths[b])) || (a - b)
+  })
+  const size = Math.max(1, groupSize)
+  const groups = []
+  for (let i = 0; i < order.length; i += size) groups.push(order.slice(i, i + size).map((j) => list[j]))
+  return groups
+}
+
+/** groupVotes(answer, group) -> (vote | null)[] aligned with group: the first answer.verdicts entry whose findingId is the member's id; null for a missing id, a null answer or a non-array verdicts */
+function groupVotes(answer, group) {
+  const list = answer && Array.isArray(answer.verdicts) ? answer.verdicts : []
+  return group.map((f) => list.find((v) => v && v.findingId === f.id) || null)
+}
+
 /** criticState(plan, critic) -> 'disabled' | 'no-result' | 'ran' (disabled unless gaps are enabled with max > 0; no-result when the critic returned null) */
 function criticState(plan, critic) {
   if (!(plan.gaps.enabled && plan.gaps.max > 0)) return 'disabled'
@@ -701,7 +764,7 @@ function reportIds(synth) {
   return out
 }
 
-/** schemas(plan) -> {SCOPE, FINDINGS, CRITIC, DEDUP, VERDICT, SYNTH, TRIAGE} StructuredOutput JSON Schemas; FINDINGS.category enum = plan.categories */
+/** schemas(plan) -> {SCOPE, FINDINGS, CRITIC, DEDUP, VERDICT, VERDICTS, SYNTH, TRIAGE} StructuredOutput JSON Schemas; FINDINGS.category enum = plan.categories */
 function schemas(plan) {
   const str = { type: 'string' }
   const SCOPE = {
@@ -758,6 +821,11 @@ function schemas(plan) {
     },
     required: ['refuted', 'confidence', 'evidenceAccurate', 'correctedEvidence', 'adjustedSeverity', 'alreadyTrackedId', 'rationale'],
   }
+  const VERDICTS = {
+    type: 'object',
+    properties: { verdicts: { type: 'array', items: { type: 'object', properties: Object.assign({ findingId: { type: 'string' } }, VERDICT.properties), required: ['findingId'].concat(VERDICT.required) } } },
+    required: ['verdicts'],
+  }
   const SYNTH = {
     type: 'object',
     properties: {
@@ -787,7 +855,7 @@ function schemas(plan) {
     },
     required: ['results'],
   }
-  return { SCOPE, FINDINGS, CRITIC, DEDUP, VERDICT, SYNTH, TRIAGE }
+  return { SCOPE, FINDINGS, CRITIC, DEDUP, VERDICT, VERDICTS, SYNTH, TRIAGE }
 }
 
 /**
@@ -814,7 +882,9 @@ function reviewerPreamble(plan, slice = {}, docsInRun = false, digest = '') {
     'Where the method and this prompt disagree, this prompt wins: the HARD RULES, the slice, and the structured findings you return in place of the method\'s own report. ' +
     'Write each candidate as one finding: its move as recommendation, its evidence and any decision record it touches in evidence, its confidence as confidence, its severity per the rubric below, and as category the one from the output schema\'s list that fits it best. ' +
     'Rate each finding by payback: act-now when the cost recurs on every change and the fix is cheap or urgent, plan-it when it is worth a scheduled change, watch when it is worth recording but not acting on yet. ' +
-    'Set basis on each finding: measured when the finding rests on a number from the MEASURED STRUCTURE below (churn, complexity, hotspot score or a dependency cycle), judgement when it rests on your reading of the code or documents. For a measured finding give measuredClaim: the field (churn, churnRecent, complexity, hotspotScore or cycle) and the number you rely on, or for cycle the module ids; a script checks that claim against the measurements after the run, so quote the figure as it appears there and never estimate one.\n\n'
+    (digest
+      ? 'Set basis on each finding: measured when the finding rests on a number from the MEASURED STRUCTURE below (churn, complexity, hotspot score or a dependency cycle), judgement when it rests on your reading of the code or documents. For a measured finding give measuredClaim: the field (churn, churnRecent, complexity, hotspotScore or cycle) and the number you rely on, or for cycle the module ids; a script checks that claim against the measurements after the run, so quote the figure as it appears there and never estimate one.\n\n'
+      : 'Set basis to judgement on every finding and give no measuredClaim: no measurements come with this slice.\n\n')
   if (sliceKind(slice) === 'docs') {
     out += 'DOCUMENTATION SLICE: audit only the document files in your scope; comments inside source files belong to the code slices.\n\n'
   } else if (docsInRun) {
@@ -826,17 +896,17 @@ function reviewerPreamble(plan, slice = {}, docsInRun = false, digest = '') {
   return out + 'YOUR SLICE:\n'
 }
 
-/** verifierPreamble(plan, metricsPath = '') -> string (shared READ-ONLY preamble for adversarial verifiers: backlog, rubric, the metrics file line when metricsPath is set, and VERDICT field semantics incl. alreadyTrackedId derivation) */
+/** verifierPreamble(plan, metricsPath = '') -> string (shared READ-ONLY preamble for adversarial verifiers of a group of findings: backlog, rubric, the metrics file line when metricsPath is set, and VERDICT field semantics incl. alreadyTrackedId derivation) */
 function verifierPreamble(plan, metricsPath = '') {
   const backlog = (plan.backlog || []).map((b) => '- ' + b.id + ' — ' + b.title).join('\n')
   const rubric = plan.rubric ? JSON.stringify(plan.rubric) : 'critical/high/medium/low, standard severity practice'
-  let out = 'You are an ADVERSARIAL VERIFIER for ONE finding from an audit of the repository at ' + plan.repo.root
+  let out = 'You are an ADVERSARIAL VERIFIER for a GROUP of findings from an audit of the repository at ' + plan.repo.root
   if (plan.repo.description) out += ' (' + plan.repo.description + ')'
-  out += '.\n\nHARD RULES: READ-ONLY. Do not create, edit, or delete any file. Do not run any command that mutates repository or environment state. Do not call any write tool. Do not prefix bash commands with cd. Default stance: skeptical — the finding must earn its place.\n\n'
+  out += '.\n\nHARD RULES: READ-ONLY. Do not create, edit, or delete any file. Do not run any command that mutates repository or environment state. Do not call any write tool. Do not prefix bash commands with cd. Default stance: skeptical — each finding must earn its place. Judge every finding on its own.\n\n'
   out += 'Severity rubric: ' + rubric + '\n\n'
   if (backlog) out += 'ALREADY-TRACKED BACKLOG (open items; use these, and a search, to judge alreadyTrackedId):\n' + backlog + '\n\n'
   if (metricsPath) out += 'Metrics file: ' + metricsPath + ' (it holds the measured churn, complexity and cycles for every file; read it instead of running the metrics script)\n\n'
-  out += 'Always fill every verdict field. refuted = true iff, under your lens, this finding should be dropped. confidence = your confidence in refuted. evidenceAccurate = false only when a cited fact is actually wrong (then explain the correction in correctedEvidence; leave correctedEvidence empty when the evidence is accurate). adjustedSeverity = your own severity per the rubric (may equal, raise, or lower the reported one). alreadyTrackedId = the id of a backlog entry that substantially already covers this finding — if the backlog list above is not conclusive, run an items_read search (select="search", query=<the finding\'s title keywords>) to check; leave it the empty string when nothing already covers this finding. rationale = a short justification for your verdict.\n\n'
+  out += 'Return one verdict per finding in the FINDINGS list below, with findingId = the id given for it; a finding with no verdict counts as unverified. Always fill every verdict field. refuted = true iff, under your lens, this finding should be dropped. confidence = your confidence in refuted. evidenceAccurate = false only when a cited fact is actually wrong (then explain the correction in correctedEvidence; leave correctedEvidence empty when the evidence is accurate). adjustedSeverity = your own severity per the rubric (may equal, raise, or lower the reported one). alreadyTrackedId = the id of a backlog entry that substantially already covers this finding — if the backlog list above is not conclusive, run an items_read search (select="search", query=<the finding\'s title keywords>) to check; leave it the empty string when nothing already covers this finding. rationale = a short justification for your verdict.\n\n'
   return out
 }
 
@@ -853,6 +923,27 @@ function buildLensPrompt(plan, l, docsInRun = false, digest = '') {
 /** buildGapPrompt(plan, gap, docsInRun = false, digest = '') -> string */
 function buildGapPrompt(plan, g, docsInRun = false, digest = '') {
   return reviewerPreamble(plan, g, docsInRun, digest) + 'FOCUS: ' + g.prompt
+}
+
+/** buildCandidatePrompt(plan, candidate, docsInRun = false, digest = '') -> string: the reviewer preamble, then one measured candidate (id, kind, subject, facts) and the cost-of-change question */
+function buildCandidatePrompt(plan, c, docsInRun = false, digest = '') {
+  const subject = Array.isArray(c.subject) ? c.subject : []
+  return reviewerPreamble(plan, { kind: 'code' }, docsInRun, digest) + 'MEASURED CANDIDATE ' + c.candidateId + ' (kind ' + c.kind + ').\nSUBJECT: ' + subject.join(', ') +
+    '.\nFACTS: ' + JSON.stringify(c.facts) +
+    '\n\nQuestion: is this evidence a cost-of-change problem in the code, why, and what should be done about it? Read the subject and what surrounds it before you answer. Return no finding when it is not a problem worth the cost of changing.'
+}
+
+/** isDocsFinding(f, docsKeys) -> true when the finding came from a docs slice or is in a documentation category */
+function isDocsFinding(f, docsKeys) {
+  return fromDocsSlice(f, docsKeys) || DOCS_CATEGORIES.indexOf(f.category) !== -1
+}
+
+/** buildVerifyGroupPrompt(plan, group, lensKey, docsKeys, metricsPath = '') -> string: the verifier preamble, the lens, the documentation rule once when any member is a docs finding, then FINDINGS: a JSON array in group order */
+function buildVerifyGroupPrompt(plan, group, lensKey, docsKeys, metricsPath = '') {
+  const anyDocs = group.some((f) => isDocsFinding(f, docsKeys))
+  const lens = verifyLensText(lensKey, '', anyDocs) + (anyDocs ? '\n\nThe documentation rule applies to the findings marked documentation: true below, and to no other.' : '')
+  const list = group.map((f) => ({ id: f.id, title: f.title, severity: f.severity, category: f.category, locations: f.locations, evidence: f.evidence, impact: f.impact, recommendation: f.recommendation, documentation: isDocsFinding(f, docsKeys) }))
+  return verifierPreamble(plan, metricsPath) + lens + '\n\nFINDINGS:\n' + JSON.stringify(list)
 }
 
 /** normalizeObsPath(location) -> string (strips trailing ':line', backslash -> forward slash) */
@@ -925,6 +1016,7 @@ async function runAudit(plan, deps) {
   const S = schemas(plan)
   const projected = projectAgents(plan)
   log('projected ' + projected.total + ' agents')
+  const candidates = assignedCandidates(plan)
 
   const measured = plan.measured
   const metricsPath = measured && typeof measured.metricsPath === 'string' && measured.metricsPath ? measured.metricsPath : null
@@ -945,6 +1037,7 @@ async function runAudit(plan, deps) {
         (fullDigest ? fullDigest + '\n\n' : '') +
         'Cut the slices where the code costs the most to change: where complexity, coupling, duplication or drift concentrate, using any measurements above to place them. Frame every slice focus as a question about that cost, not as a defect hunt' +
         (bugCats.length ? '; defects in the categories ' + bugCats.join(', ') + ' stay reportable inside any slice, but no slice is built around hunting them' : '') + '. ' +
+        (candidates.length ? 'MEASURED CANDIDATES ALREADY ASSIGNED (each has its own reviewer, so build no slice around them):\n' + candidates.map((c) => c.candidateId + ' (' + c.subject.join(', ') + ')').join('\n') + '\n\n' : '') +
         'Propose up to ' + promptBudget + ' reviewer slices (key, label, focus, paths) and cross-cutting lenses (key, label, focus) in total: lenses count against that number' + (reserveLens ? '; an architecture lens is added automatically, so do not propose one' : '') + '. ' +
         'Give every slice and lens a kind: docs for document files (READMEs, guides, user docs, agent instruction files about the project such as CLAUDE.md or AGENTS.md, generated reference pages), code for source files, their comments included, and for text shipped to drive an agent (skill files and their references, agent definitions, rules, prompt strings); a docs slice and a code slice never share a path.' + focusSentence +
         (testPaths.length ? '\n\nTEST CODE: these scoped paths are test code: ' + testPaths.join(', ') + '. Make one code slice focused on test quality: what the tests pin, setup copied between tests, and tests that could not fail.' : ''),
@@ -953,7 +1046,7 @@ async function runAudit(plan, deps) {
     if (!scopeResult) {
       return {
         contract: 'audit/result-v2', started: true, runId: plan.runId,
-        stats: { reviewers: 0, gaps: 0, raw: 0, merged: 0, kept: 0, confirmed: 0, plausible: 0, unverified: 0, refuted: 0, missing: ['scope'], projectedAgents: projected.total, droppedGaps: [], unverifiedByCap: 0, metricsPending: 0, mergeAgents: 0 },
+        stats: { reviewers: 0, candidateReviewers: 0, verifyAgents: 0, gaps: 0, raw: 0, merged: 0, kept: 0, confirmed: 0, plausible: 0, unverified: 0, refuted: 0, missing: ['scope'], projectedAgents: projected.total, droppedGaps: [], unverifiedByCap: 0, metricsPending: 0, mergeAgents: 0 },
         report: null, kept: [], refuted: [], proposal: null, metricsPath, date: plan.date,
       }
     }
@@ -976,10 +1069,11 @@ async function runAudit(plan, deps) {
   const docsInRun = reviewers.concat(lenses).some((x) => sliceKind(x) === 'docs')
   const scopeDigest = measured ? sliceDigest(measured, plan.scope.paths) : ''
   const lensDigest = (l) => (!measured ? '' : l.key === ARCHITECTURE_LENS.key ? fullDigest : scopeDigest)
-  const reviewItems = reviewers.map((r) => ({ key: r.key, label: r.label, kind: sliceKind(r), dispatchKey: 'review', prompt: buildReviewerPrompt(plan, r, docsInRun, measured ? sliceDigest(measured, r.paths) : '') }))
-    .concat(lenses.map((l) => ({ key: l.key, label: l.label, kind: sliceKind(l), dispatchKey: l.key === ARCHITECTURE_LENS.key ? 'review-architecture' : 'review', prompt: buildLensPrompt(plan, l, docsInRun, lensDigest(l)) })))
+  const reviewItems = reviewers.map((r) => ({ key: r.key, label: r.label, kind: sliceKind(r), origin: 'territory', agentLabel: 'review:' + r.key, dispatchKey: 'review', prompt: buildReviewerPrompt(plan, r, docsInRun, measured ? sliceDigest(measured, r.paths) : '') }))
+    .concat(lenses.map((l) => ({ key: l.key, label: l.label, kind: sliceKind(l), origin: 'lens', agentLabel: 'review:' + l.key, dispatchKey: l.key === ARCHITECTURE_LENS.key ? 'review-architecture' : 'review', prompt: buildLensPrompt(plan, l, docsInRun, lensDigest(l)) })))
+    .concat(candidates.map((c) => ({ key: c.candidateId, label: 'Candidate: ' + c.candidateId, kind: 'code', origin: 'candidate', agentLabel: 'candidate:' + c.candidateId, dispatchKey: 'review-candidate', prompt: buildCandidatePrompt(plan, c, docsInRun, sliceDigest(measured, c.subject)) })))
   const reviewed = await parallel(reviewItems.map((it) => () =>
-    agent(it.prompt, agentOpts(plan, it.dispatchKey, { label: 'review:' + it.key, phase: 'Review', schema: S.FINDINGS })).then((r) => (r ? Object.assign({}, r, { key: it.key, label: it.label, kind: it.kind }) : null))))
+    agent(it.prompt, agentOpts(plan, it.dispatchKey, { label: it.agentLabel, phase: 'Review', schema: S.FINDINGS })).then((r) => (r ? Object.assign({}, r, { key: it.key, label: it.label, kind: it.kind, origin: it.origin }) : null))))
   const slices = reviewed.filter(Boolean)
   const missing = reviewItems.filter((it) => !slices.find((s) => s.key === it.key)).map((it) => it.key)
   if (missing.length) log('WARNING: reviewers with no result: ' + missing.join(', '))
@@ -1004,7 +1098,7 @@ async function runAudit(plan, deps) {
     droppedGaps = gapList.slice(plan.gaps.max).map((g) => g.label)
     if (droppedGaps.length) log('critic proposed ' + gapList.length + ' gaps; running first ' + plan.gaps.max + ', dropped: ' + droppedGaps.join('; '))
     const gapRun = await parallel(runGaps.map((g, i) => () =>
-      agent(buildGapPrompt(plan, g, docsInRun, scopeDigest), agentOpts(plan, 'review', { label: 'gap:' + (i + 1), phase: 'Gaps', schema: S.FINDINGS })).then((r) => (r ? Object.assign({}, r, { key: 'gap' + (i + 1), label: 'Gap: ' + g.label, kind: sliceKind(g) }) : null))))
+      agent(buildGapPrompt(plan, g, docsInRun, scopeDigest), agentOpts(plan, 'review', { label: 'gap:' + (i + 1), phase: 'Gaps', schema: S.FINDINGS })).then((r) => (r ? Object.assign({}, r, { key: 'gap' + (i + 1), label: 'Gap: ' + g.label, kind: sliceKind(g), origin: 'gap' }) : null))))
     gapResults = gapRun.filter(Boolean)
     log('gap reviews: ' + gapResults.length + ' run')
   }
@@ -1015,8 +1109,9 @@ async function runAudit(plan, deps) {
   const all = flattenFindings(allSlices)
   let merged = []
   let mergeAgents = 0
+  let pre = { clusters: [] }
   if (all.length > 0) {
-    const pre = preCluster(all, measured)
+    pre = preCluster(all, measured)
     const rowsById = {}
     all.forEach((f) => { rowsById[f.id] = f })
     mergeAgents = pre.batches.length
@@ -1030,20 +1125,28 @@ async function runAudit(plan, deps) {
   let capResult = { verify: [], unverified: [] }
   let verdicts = []
   let metricsPendingRows = []
+  let verifyAgents = 0
   if (all.length > 0) {
     const marked = markMetricsPending(merged)
     metricsPendingRows = marked.pending
     capResult = capVerification(marked.rest, plan.verify.maxFindings)
     if (capResult.unverified.length) log(capResult.unverified.length + ' findings unverified by cap')
-    verdicts = await parallel(capResult.verify.map((f) => async () => {
-      const lensKeys = verifyPlan(f, plan.verify)
-      const verifyKey = SEVERITY_RANK[f.severity] >= 3 ? 'verify-high' : 'verify'
-      const findingText = JSON.stringify({ id: f.id, title: f.title, severity: f.severity, category: f.category, locations: f.locations, evidence: f.evidence, impact: f.impact, recommendation: f.recommendation })
-      const votes = await parallel(lensKeys.map((l) => () =>
-        agent(verifierPreamble(plan, metricsPath || '') + verifyLensText(l, f.category, fromDocsSlice(f, docsKeys)) + '\n\nFINDING:\n' + findingText,
-          agentOpts(plan, verifyKey, { label: 'verify:' + f.id + ':' + l, phase: 'Verify', schema: S.VERDICT }))))
-      return Object.assign({}, f, decideVerdict(votes, lensKeys, f.severity), { verifiedBy: votes.some(Boolean) ? 'agents' : 'none' })
+    const groups = packVerifyGroups(capResult.verify, pre.clusters, plan.verify.groupSize)
+    const groupRuns = await parallel(groups.map((group, gi) => async () => {
+      const top = group.reduce((acc, f) => (SEVERITY_RANK[f.severity] > SEVERITY_RANK[acc] ? f.severity : acc), group[0].severity)
+      const lensKeys = verifyPlan({ severity: top }, plan.verify)
+      const verifyKey = SEVERITY_RANK[top] >= 3 ? 'verify-group-high' : 'verify-group'
+      const answers = await parallel(lensKeys.map((l) => () =>
+        agent(buildVerifyGroupPrompt(plan, group, l, docsKeys, metricsPath || ''),
+          agentOpts(plan, verifyKey, { label: 'verify:g' + (gi + 1) + ':' + l, phase: 'Verify', schema: S.VERDICTS }))))
+      verifyAgents += lensKeys.length
+      const byLens = answers.map((a) => groupVotes(a, group))
+      return group.map((f, mi) => {
+        const votes = lensKeys.map((l, li) => byLens[li][mi])
+        return Object.assign({}, f, decideVerdict(votes, lensKeys, f.severity), { verifiedBy: votes.some(Boolean) ? 'agents' : 'none' })
+      })
     }))
+    verdicts = groupRuns.reduce((acc, rows) => acc.concat(rows), [])
   }
   const cappedUnverified = capResult.unverified.map((f) => Object.assign({}, f, { verdict: 'UNVERIFIED', dropped: false, finalSeverity: f.severity, trackedId: '', correctedEvidence: '', verifiedBy: 'none' }))
   const cappedIds = new Set(capResult.unverified.map((f) => f.id))
@@ -1079,18 +1182,18 @@ async function runAudit(plan, deps) {
       locations: (k.locations || []).slice(0, 4), trackedId: k.trackedId || '',
       evidence: k.evidence + (k.correctedEvidence ? '\n\nVerifier correction: ' + k.correctedEvidence : ''),
       impact: k.impact, recommendation: k.recommendation, confidence: k.confidence, rating: k.rating || 'watch', sliceKey: (k.sources || [])[0],
-      stableId: stable[ki], basis: k.basis || 'judgement', verifiedBy: k.verdict === 'UNVERIFIED' ? 'none' : 'agents',
+      stableId: stable[ki], basis: k.basis || 'judgement', verifiedBy: k.verifiedBy,
     }
     if (k.basis === 'measured' && k.measuredClaim) row.measuredClaim = k.measuredClaim
     if (k.verdict === 'UNVERIFIED') row.unverifiedReason = k.unverifiedReason || (cappedIds.has(k.id) ? 'cap' : 'no-verifier')
     return row
   })
-  const refutedOut = refutedRaw.map((d, ri) => ({ findingId: d.id, title: d.title, category: d.category, locations: (d.locations || []).slice(0, 4), stableId: stable[keptRaw.length + ri], basis: d.basis || 'judgement', verifiedBy: 'agents' }))
+  const refutedOut = refutedRaw.map((d, ri) => ({ findingId: d.id, title: d.title, category: d.category, locations: (d.locations || []).slice(0, 4), stableId: stable[keptRaw.length + ri], basis: d.basis || 'judgement', verifiedBy: d.verifiedBy }))
   const report = synth ? {
     reportPath: plan.reportPath, healthVerdict: synth.healthVerdict, executiveSummary: synth.executiveSummary, themes: synth.themes,
     strengths: synth.strengths, roadmap: synth.roadmap, method: synth.method,
     coverage: {
-      reviewers: allSlices.map((s) => ({ key: s.key, label: s.label, kind: s.kind })),
+      reviewers: allSlices.map((s) => ({ key: s.key, label: s.label, kind: s.kind, origin: s.origin })),
       notExamined: missing.map((k) => 'slice ' + k + ': no result').concat(droppedGaps.map((l) => 'gap not run: ' + l)).concat(synth.notExamined || []),
       critic: criticState(plan, critic),
       verification: {
@@ -1119,7 +1222,7 @@ async function runAudit(plan, deps) {
 
   const proposal = buildProposal(keptOut, triageMap, plan)
   const stats = {
-    reviewers: slices.length, gaps: gapResults.length, raw: all.length, merged: merged.length, kept: keptOut.length,
+    reviewers: slices.filter((s) => s.origin !== 'candidate').length, candidateReviewers: slices.filter((s) => s.origin === 'candidate').length, verifyAgents, gaps: gapResults.length, raw: all.length, merged: merged.length, kept: keptOut.length,
     confirmed: keptRaw.filter((k) => k.verdict === 'CONFIRMED').length, plausible: keptRaw.filter((k) => k.verdict === 'PLAUSIBLE').length,
     unverified: keptRaw.filter((k) => k.verdict === 'UNVERIFIED').length, refuted: refutedOut.length, missing,
     projectedAgents: projected.total, droppedGaps, unverifiedByCap: capResult.unverified.length,
