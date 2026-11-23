@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { spawnSync } from 'node:child_process'
 
-import { renderAuditReport, escapeHtml } from '../lib/audit-report-html.mjs'
+import { renderAuditReport, escapeHtml, compareResults } from '../lib/audit-report-html.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const CLI = join(HERE, '..', 'audit-report-html.mjs')
@@ -42,7 +42,7 @@ function textOf(html) {
     .replace(/\s+/g, ' ')
 }
 
-const SECTION_ORDER = ['summary', 'strengths', 'themes', 'findings', 'roadmap', 'hotspots', 'architecture', 'coverage']
+const SECTION_ORDER = ['summary', 'since', 'strengths', 'themes', 'findings', 'roadmap', 'hotspots', 'architecture', 'coverage']
 // The slice of the page from section `id` up to the next later section id (D8 order) or the end.
 function section(html, id) {
   const start = html.indexOf(`id="${id}"`)
@@ -721,4 +721,455 @@ test('S10 a non-finite part is dropped while the finite part stays', () => {
 
 test('S10 the fixture rows carry no metrics, so the checked-in page has no Measured line', () => {
   assert.equal(FULL.includes('Measured:'), false)
+})
+
+// -- Item 53c1c970 (T9): compareResults, the Since-last-audit section and the D12 lines --------------------
+// Scenario ids S14-S21 match that item's `test-plan` note; the names carry "T9" so they do not collide with
+// the S-ids above. Oracles: the item's task-scope decisions D9-D12 and the carry-in contract C7; nothing here
+// was read from the implementation.
+
+const stable = (stableId, title, severity, reportId, over = {}) => row({ stableId, title, severity, reportId, ...over })
+
+// ── S14 compareResults sets, order and severity change (D9) ─────────────────────────────────────
+
+function comparePair() {
+  const previous = res(
+    [
+      stable('F-0001', 'U1', 'high', 'R01'),
+      stable('F-0002', 'U2', 'medium', 'R02'),
+      stable('F-0003', 'U3', 'high', 'R03'),
+      stable('F-0004', 'U4-gone', 'low', 'R04'),
+      stable('F-0005', 'U5', 'low', 'R05'),
+      stable('F-a0', 'U-a0-gone', 'high', 'R06'),
+      stable('F-A1', 'U-A1-gone', 'medium', 'R07'),
+      row({ title: 'prev without a stable id' }),
+      stable('', 'prev with an empty stable id', 'low', 'R08'),
+      stable(5, 'prev with a numeric stable id', 'low', 'R09'),
+    ],
+    { refuted: [{ findingId: 'x', stableId: 'F-9999', title: 'Refuted before', severity: 'high' }] },
+  )
+  const current = res([
+    stable('F-0007', 'N7', 'medium', 'R17'),
+    stable('F-9999', 'N9999', 'high', 'R19'),
+    stable('F-0001', 'U1', 'high', 'R21'),
+    stable('F-0002', 'U2', 'high', 'R22'),
+    stable('F-0003', 'U3', 'medium', 'R23'),
+    stable('F-0005', 'U5', 'weird', 'R25'),
+    stable('F-0006', 'N6', 'low', 'R16'),
+    stable('F-dup', 'D1', 'low', 'R30'),
+    stable('F-dup', 'D2', 'high', 'R31'),
+    row({ title: 'cur without a stable id' }),
+    stable('', 'cur with an empty stable id', 'low', 'R32'),
+  ])
+  return { previous, current }
+}
+
+test('T9 S14 compareResults returns the exact new, persisting and resolved sets, each sorted by stableId in code-unit order', () => {
+  const { previous, current } = comparePair()
+  assert.deepEqual(compareResults(current, previous), {
+    comparable: true,
+    new: [
+      { stableId: 'F-0006', reportId: 'R16', title: 'N6', severity: 'low' },
+      { stableId: 'F-0007', reportId: 'R17', title: 'N7', severity: 'medium' },
+      { stableId: 'F-9999', reportId: 'R19', title: 'N9999', severity: 'high' },
+      { stableId: 'F-dup', reportId: 'R30', title: 'D1', severity: 'low' },
+    ],
+    persisting: [
+      { stableId: 'F-0001', reportId: 'R21', title: 'U1', severity: 'high', previousSeverity: 'high', severityChange: 'unchanged' },
+      { stableId: 'F-0002', reportId: 'R22', title: 'U2', severity: 'high', previousSeverity: 'medium', severityChange: 'raised' },
+      { stableId: 'F-0003', reportId: 'R23', title: 'U3', severity: 'medium', previousSeverity: 'high', severityChange: 'lowered' },
+      { stableId: 'F-0005', reportId: 'R25', title: 'U5', severity: 'weird', previousSeverity: 'low', severityChange: 'changed' },
+    ],
+    resolved: [
+      { stableId: 'F-0004', title: 'U4-gone', severity: 'low' },
+      { stableId: 'F-A1', title: 'U-A1-gone', severity: 'medium' },
+      { stableId: 'F-a0', title: 'U-a0-gone', severity: 'high' },
+    ],
+  })
+})
+
+test('T9 S14 a refuted row of the previous run does not count as persisting; wrapper and bare inputs compare the same', () => {
+  const { previous, current } = comparePair()
+  const out = compareResults(current, previous)
+  assert.ok(out.new.some((n) => n.stableId === 'F-9999'), 'F-9999 was only refuted before, so it is new now')
+  assert.ok(!out.persisting.some((p) => p.stableId === 'F-9999'))
+  assert.deepEqual(compareResults({ result: current }, { summary: 's', result: previous }), out)
+})
+
+test('T9 S14 severity change: raised and lowered across the whole scale, equal is unchanged, an unknown value on either side is changed', () => {
+  const sev = ['critical', 'high', 'medium', 'low']
+  const prev = res(sev.map((s, i) => stable(`F-p${i}`, `P${i}`, s, `R${i + 1}`)))
+  for (let c = 0; c < sev.length; c += 1) {
+    for (let p = 0; p < sev.length; p += 1) {
+      const cur = res([stable(`F-p${p}`, `P${p}`, sev[c], 'R50')])
+      const got = compareResults(cur, prev).persisting[0].severityChange
+      const want = c === p ? 'unchanged' : c < p ? 'raised' : 'lowered'
+      assert.equal(got, want, `${sev[p]} -> ${sev[c]}`)
+    }
+  }
+  const odd = compareResults(res([stable('F-p0', 'P0', 'urgent', 'R50')]), prev).persisting[0]
+  assert.equal(odd.severityChange, 'changed')
+  assert.equal(compareResults(res([stable('F-p0', 'P0', 'urgent', 'R50')]), res([stable('F-p0', 'P0', 'urgent', 'R50')])).persisting[0].severityChange, 'unchanged')
+  assert.equal(compareResults(res([stable('F-p0', 'P0', 'urgent', 'R50')]), res([stable('F-p0', 'P0', 'severe', 'R50')])).persisting[0].severityChange, 'changed')
+})
+
+test('T9 S14 the lib throws TypeError when either input has no kept[]', () => {
+  const ok = res([stable('F-0001', 'U1', 'low', 'R01')])
+  assert.throws(() => compareResults({}, ok), TypeError)
+  assert.throws(() => compareResults(ok, {}), TypeError)
+  assert.throws(() => compareResults(ok, { result: {} }), TypeError)
+  assert.throws(() => compareResults({ kept: 'nope' }, ok), TypeError)
+})
+
+// ── S15 a previous run without stable ids (D9, C7) ──────────────────────────────────────────────
+
+test('T9 S15 a previous result without stable ids is not comparable: the contract note and three empty lists', () => {
+  const current = res([stable('F-0001', 'U1', 'low', 'R01')])
+  const expected = { comparable: false, note: 'previous run has no stable ids', new: [], persisting: [], resolved: [] }
+  assert.deepEqual(compareResults(current, res([row({ title: 'old' }), row({ title: 'older', stableId: '' })])), expected)
+  assert.deepEqual(compareResults(current, res([])), expected)
+  // control: with one stable id the same call is comparable
+  assert.equal(compareResults(current, res([stable('F-0001', 'U1', 'low', 'R01')])).comparable, true)
+})
+
+// ── S16 hot set delta (D9) ──────────────────────────────────────────────────────────────────────
+
+test('T9 S16 hotSetDelta lists entered and left paths sorted by code unit when both results carry a hotSet array', () => {
+  const cur = res([stable('F-0001', 'U1', 'low', 'R01')], { hotSet: ['b.kt', 'a.kt', 'same.kt', 'B.kt'] })
+  const prev = res([stable('F-0001', 'U1', 'low', 'R01')], { hotSet: ['same.kt', 'z.kt', 'd.kt'] })
+  assert.deepEqual(compareResults(cur, prev).hotSetDelta, { entered: ['B.kt', 'a.kt', 'b.kt'], left: ['d.kt', 'z.kt'] })
+  const same = res([stable('F-0001', 'U1', 'low', 'R01')], { hotSet: [] })
+  assert.deepEqual(compareResults(same, same).hotSetDelta, { entered: [], left: [] }, 'empty arrays are present arrays')
+})
+
+test('T9 S16 hotSetDelta is absent when either side has no hotSet array', () => {
+  const withSet = (hotSet) => res([stable('F-0001', 'U1', 'low', 'R01')], hotSet === undefined ? {} : { hotSet })
+  for (const [c, p] of [[undefined, ['a']], [['a'], undefined], [undefined, undefined], [null, ['a']], [['a'], null]]) {
+    assert.equal('hotSetDelta' in compareResults(withSet(c), withSet(p)), false, `${JSON.stringify(c)} vs ${JSON.stringify(p)}`)
+  }
+})
+
+// ── S17 the Since last audit section and card status (D10, D11) ─────────────────────────────────
+
+function sincePair() {
+  const previous = res([
+    stable('F-0001', 'Alpha', 'high', 'R01'),
+    stable('F-0002', 'Beta', 'medium', 'R02'),
+    stable('F-0005', 'Epsilon', 'low', 'R05'),
+  ])
+  const current = res([
+    stable('F-0001', 'Alpha', 'high', 'R01'),
+    stable('F-0002', 'Beta', 'high', 'R02'),
+    stable('F-0003', 'Gamma', 'low', 'R03'),
+    stable('F-0004', 'Delta', 'medium', undefined),
+  ])
+  return { previous, current }
+}
+const sinceSection = (html) => section(html, 'since')
+
+test('T9 S17 the Since section lists New, Persisting and Resolved with counts, links, severities and the changed-severity suffix', () => {
+  const { previous, current } = sincePair()
+  const html = renderAuditReport(current, null, previous)
+  const sec = sinceSection(html)
+  const at = (needle) => {
+    const i = sec.indexOf(needle)
+    assert.notEqual(i, -1, `${needle} present`)
+    return i
+  }
+  assert.ok(at('<h3>New (2)</h3>') < at('<h3>Persisting (2)</h3>') && at('<h3>Persisting (2)</h3>') < at('<h3>Resolved (1)</h3>'))
+  assert.match(sec, /<li[^>]*><a href="#r03">R03<\/a> Gamma \(low\)<\/li>/)
+  assert.match(sec, /<li[^>]*>Delta \(medium\)<\/li>/, 'no reportId, no link')
+  assert.match(sec, /<li[^>]*><a href="#r01">R01<\/a> Alpha \(high\)<\/li>/, 'unchanged severity has no suffix')
+  assert.match(sec, /<li[^>]*><a href="#r02">R02<\/a> Beta \(high, was medium\)<\/li>/)
+  assert.match(sec, /<li[^>]*>Epsilon \(low\)<\/li>/)
+  assert.ok(!sec.includes('Hot set'), 'no hotSetDelta, no Hot set block')
+})
+
+test('T9 S17 the Since section sits after Summary in the page and in the nav, with the nav label', () => {
+  const r = clone(RESULT)
+  r.kept.forEach((k, i) => { k.stableId = `F-${String(i).padStart(4, '0')}` })
+  const prev = clone(r)
+  prev.kept = prev.kept.slice(2)
+  prev.kept.push({ ...clone(r.kept[0]), stableId: 'F-9999', title: 'Gone', reportId: 'R99' })
+  const html = renderAuditReport(r, METRICS, prev)
+  const idx = (n) => html.indexOf(n)
+  assert.ok(idx('id="summary"') !== -1 && idx('id="summary"') < idx('id="since"') && idx('id="since"') < idx('id="strengths"'))
+  assert.ok(idx('href="#summary"') !== -1 && idx('href="#summary"') < idx('href="#since"') && idx('href="#since"') < idx('href="#strengths"'))
+  assert.ok(textOf(html).includes('Since last audit'))
+  assert.equal(count(html, 'id="since"'), 1)
+})
+
+test('T9 S17 an empty list reads None. and the three lists can be empty independently', () => {
+  const same = res([stable('F-0001', 'Alpha', 'high', 'R01')])
+  const sec = sinceSection(renderAuditReport(same, null, same))
+  assert.ok(sec.includes('<h3>New (0)</h3>') && sec.includes('<h3>Persisting (1)</h3>') && sec.includes('<h3>Resolved (0)</h3>'))
+  assert.equal(count(sec, '<p class="none">None.</p>'), 2)
+})
+
+test('T9 S17 the Hot set block shows Entered and Left as code paths, none when empty', () => {
+  const cur = res([stable('F-0001', 'Alpha', 'high', 'R01')], { hotSet: ['x/new.kt', 'x/same.kt'] })
+  const prev = res([stable('F-0001', 'Alpha', 'high', 'R01')], { hotSet: ['x/same.kt'] })
+  const sec = sinceSection(renderAuditReport(cur, null, prev))
+  assert.ok(sec.includes('<h3>Hot set</h3>'))
+  assert.ok(sec.indexOf('<h3>Resolved') < sec.indexOf('<h3>Hot set</h3>'))
+  assert.ok(sec.includes('<code>x/new.kt</code>'))
+  const text = textOf(sec)
+  assert.ok(text.includes('Entered: x/new.kt'), text)
+  assert.ok(text.includes('Left: none'), text)
+  assert.ok(!sec.includes('<code>x/same.kt</code>'))
+  const prev2 = res([stable('F-0001', 'Alpha', 'high', 'R01')], { hotSet: ['x/same.kt', 'x/old.kt'] })
+  const text2 = textOf(sinceSection(renderAuditReport(cur, null, prev2)))
+  assert.ok(text2.includes('Entered: x/new.kt') && text2.includes('Left: x/old.kt'))
+  const cur3 = res([stable('F-0001', 'Alpha', 'high', 'R01')], { hotSet: ['x/same.kt'] })
+  assert.ok(textOf(sinceSection(renderAuditReport(cur3, null, prev))).includes('Entered: none'))
+})
+
+test('T9 S17 each card carries data-status after data-class and a last status badge; the status chips follow the class chips', () => {
+  const { previous, current } = sincePair()
+  current.kept[0] = stable('F-0001', 'Alpha', 'high', 'R01', { verdict: 'PLAUSIBLE', rating: 'watch', findingId: 'x1' })
+  current.proposal = { items: [{ findingId: 'x1', class: 'bug' }] }
+  const html = renderAuditReport(current, null, previous)
+  const cs = cards(html)
+  const alpha = cs.find((c) => c.html.includes('Alpha'))
+  assert.equal(alpha.open, '<details class="card" id="r01" data-sev="high" data-verdict="PLAUSIBLE" data-rating="watch" data-class="bug" data-status="persisting">')
+  const status = (title) => (/ data-status="([^"]*)"/.exec(cs.find((c) => c.html.includes(title)).open) || [])[1]
+  assert.equal(status('Beta'), 'persisting')
+  assert.equal(status('Gamma'), 'new')
+  assert.equal(status('Delta'), 'new')
+  // the badge is the last badge of the card
+  const lastBadge = (title) => {
+    const all = [...cs.find((c) => c.html.includes(title)).html.matchAll(/<span class="(b[^"]*)">[^<]*<\/span>/g)]
+    return all.length ? all[all.length - 1][1] : undefined
+  }
+  assert.equal(lastBadge('Gamma'), 'b st-new')
+  assert.equal(lastBadge('Alpha'), 'b st-persisting')
+  assert.ok(cs.find((c) => c.html.includes('Gamma')).html.includes('<span class="b st-new">new</span>'))
+  assert.ok(cs.find((c) => c.html.includes('Beta')).html.includes('<span class="b st-persisting">persisting</span>'))
+  // chips: a status group, new before persisting, counts from the cards, after the class group
+  const st = chips(html).filter((c) => c.g === 'status')
+  assert.deepEqual(st.map((c) => [c.f, c.label, c.n]), [['new', 'new', 2], ['persisting', 'persisting', 2]])
+  assert.ok(html.lastIndexOf('data-g="class"') < html.indexOf('data-g="status"'))
+  assert.ok(html.includes('data-status'), 'the filter script reads the data-status attribute')
+})
+
+test('T9 S17 a status with no cards gets no chip', () => {
+  const prev = res([stable('F-0001', 'Alpha', 'high', 'R01')])
+  const cur = res([stable('F-0001', 'Alpha', 'high', 'R01'), stable('F-0002', 'Beta', 'low', 'R02')])
+  assert.deepEqual(chips(renderAuditReport(cur, null, prev)).filter((c) => c.g === 'status').map((c) => [c.f, c.n]), [['new', 1], ['persisting', 1]])
+  const onlyNew = res([stable('F-0003', 'Gamma', 'low', 'R03')])
+  assert.deepEqual(chips(renderAuditReport(onlyNew, null, prev)).filter((c) => c.g === 'status').map((c) => [c.f, c.n]), [['new', 1]])
+})
+
+// ── S18 previous without stable ids: a note and nothing else (D11) ──────────────────────────────
+
+test('T9 S18 a previous result without stable ids adds one Coverage line and no section, nav entry, status or chip', () => {
+  const { current } = sincePair()
+  const note = '<p>Since last audit: previous run has no stable ids.</p>'
+  for (const previous of [res([row({ title: 'old' })]), res([])]) {
+    const html = renderAuditReport(current, null, previous)
+    assert.ok(section(html, 'coverage').includes(note))
+    assert.equal(count(html, note), 1)
+    assert.ok(!html.includes('id="since"') && !html.includes('href="#since"'))
+    assert.ok(!html.includes(' data-status="') && !html.includes('<span class="b st-'))
+    assert.equal(chips(html).filter((c) => c.g === 'status').length, 0)
+  }
+  // controls: the line is absent without a previous result and with a comparable one, so the assertion above can fail
+  assert.ok(!renderAuditReport(current).includes('Since last audit'))
+  assert.ok(!renderAuditReport(current, null, null).includes('Since last audit: previous run'))
+  const comparable = renderAuditReport(current, null, sincePair().previous)
+  assert.ok(!comparable.includes('previous run has no stable ids'))
+})
+
+// ── S19 determinism with --previous and its failures (AC6) ──────────────────────────────────────
+
+test('T9 S19 two renders with the same previous are equal; a null previous equals an omitted one', () => {
+  const { previous, current } = sincePair()
+  assert.equal(renderAuditReport(current, null, previous), renderAuditReport(current, null, previous))
+  assert.equal(renderAuditReport(current, METRICS, previous), renderAuditReport(current, METRICS, previous))
+  assert.equal(renderAuditReport(WRAPPER, METRICS, null), renderAuditReport(WRAPPER, METRICS))
+  assert.equal(renderAuditReport({ result: current }, null, { result: previous }), renderAuditReport(current, null, previous))
+  assert.ok(!renderAuditReport(current, null, previous).includes('\r'))
+})
+
+test('T9 S19 the lib throws TypeError for a previous without kept[]', () => {
+  const { current } = sincePair()
+  assert.throws(() => renderAuditReport(current, null, {}), TypeError)
+  assert.throws(() => renderAuditReport(current, null, { kept: 'nope' }), TypeError)
+})
+
+test('T9 S19 the CLI --previous output equals the lib render, with and without metrics, and is byte-identical across runs', (t) => {
+  const dir = scratch(t)
+  const { previous, current } = sincePair()
+  const curPath = join(dir, 'cur.json')
+  const prevPath = join(dir, 'prev.json')
+  writeFileSync(curPath, JSON.stringify(current))
+  writeFileSync(prevPath, JSON.stringify({ summary: 'wrapper', result: previous }))
+  for (const withMetrics of [false, true]) {
+    const o1 = join(dir, `a-${withMetrics}.html`)
+    const o2 = join(dir, `b-${withMetrics}.html`)
+    const args = ['--result', curPath, '--previous', prevPath, ...(withMetrics ? ['--metrics', METRICS_PATH] : [])]
+    assert.equal(runCli([...args, '--out', o1]).status, 0)
+    assert.equal(runCli([...args, '--out', o2]).status, 0)
+    assert.ok(readFileSync(o1).equals(readFileSync(o2)))
+    assert.equal(readFileSync(o1, 'utf8'), renderAuditReport(current, withMetrics ? METRICS : null, previous))
+  }
+  // without --previous the page is the no-comparison page
+  const plain = join(dir, 'plain.html')
+  assert.equal(runCli(['--result', curPath, '--out', plain]).status, 0)
+  assert.equal(readFileSync(plain, 'utf8'), renderAuditReport(current))
+  assert.ok(!readFileSync(plain, 'utf8').includes('id="since"'))
+})
+
+test('T9 S19 a bad --previous exits 2 with INVALID:, names the cause and leaves --out untouched', (t) => {
+  const dir = scratch(t)
+  const { current } = sincePair()
+  const curPath = join(dir, 'cur.json')
+  writeFileSync(curPath, JSON.stringify(current))
+  const junk = join(dir, 'junk.json')
+  writeFileSync(junk, 'not json at all')
+  const nokept = join(dir, 'nokept.json')
+  writeFileSync(nokept, '{}')
+  const SENT = 'SENTINEL-DO-NOT-OVERWRITE'
+  const out = join(dir, 'out.html')
+  const cases = {
+    unreadable: { args: ['--previous', join(dir, 'nope.json')], names: [/--previous/, /nope\.json/] },
+    'not JSON': { args: ['--previous', junk], names: [/junk\.json/] },
+    'no kept[]': { args: ['--previous', nokept], names: [] },
+    'missing value': { args: ['--previous'], names: [/--previous/], last: true },
+  }
+  for (const [name, { args, names, last }] of Object.entries(cases)) {
+    writeFileSync(out, SENT)
+    const r = runCli(last ? ['--result', curPath, '--out', out, ...args] : ['--result', curPath, ...args, '--out', out])
+    assert.equal(r.status, 2, `${name}: exit code (stderr: ${r.stderr})`)
+    assert.ok(r.stderr.startsWith('INVALID: '), `${name}: ${r.stderr}`)
+    for (const re of names) assert.match(r.stderr, re, `${name}: names its cause`)
+    assert.equal(readFileSync(out, 'utf8'), SENT, `${name}: --out untouched`)
+  }
+})
+
+// ── S20 escaping in the comparison section (D10) ────────────────────────────────────────────────
+
+test('T9 S20 markup in a new, persisting or resolved row, a severity or a hot-set path renders escaped; the page keeps one script', () => {
+  const evil = '<script>alert(1)</script>'
+  const prev = res(
+    [stable('F-0001', 'Stays', '<i>old</i>', 'R01'), stable('F-0002', evil + ' gone', 'low', 'R02'), stable('F-0003', '<img src=x onerror=1>', '<u>sev</u>', 'R03')],
+    { hotSet: ['<b>left</b>.kt'] },
+  )
+  const cur = res(
+    [stable('F-0001', 'Stays', '<s>new</s>', 'R01'), stable('F-0004', evil + ' fresh', 'high', 'R04')],
+    { hotSet: ['<em>in</em>.kt'] },
+  )
+  const html = renderAuditReport(cur, null, prev)
+  const sec = sinceSection(html)
+  assert.ok(sec.includes('&lt;script&gt;alert(1)&lt;/script&gt; fresh'), 'new row title')
+  assert.ok(sec.includes('&lt;script&gt;alert(1)&lt;/script&gt; gone'), 'resolved row title')
+  assert.ok(sec.includes('&lt;img src=x onerror=1&gt;'))
+  assert.ok(sec.includes('&lt;u&gt;sev&lt;/u&gt;'), 'resolved severity')
+  assert.ok(sec.includes('&lt;s&gt;new&lt;/s&gt;') && sec.includes('&lt;i&gt;old&lt;/i&gt;'), 'persisting severities')
+  assert.ok(sec.includes('&lt;em&gt;in&lt;/em&gt;.kt') && sec.includes('&lt;b&gt;left&lt;/b&gt;.kt'), 'hot-set paths')
+  for (const raw of ['<script>alert(1)', '<img', '<i>old', '<s>new', '<u>sev', '<em>in', '<b>left']) assert.ok(!html.includes(raw), raw)
+  assert.equal(count(html, '<script'), 1)
+  assert.equal(count(html, '</script>'), 1)
+})
+
+// ── S21 the D12 card and Coverage lines, on any input ───────────────────────────────────────────
+
+const cardText = (html, title) => textOf(cards(html).find((c) => c.html.includes(title)).html)
+
+test('T9 S21 a card shows Basis with its claim, then Verified by, after the Measured line', () => {
+  const html = renderAuditReport(
+    res([
+      row({ title: 'T-num', metrics: { churn: 12, complexity: 340 }, basis: 'measured', measuredClaim: { field: 'churn', value: 40 }, verifiedBy: 'metrics' }),
+      row({ title: 'T-frac', basis: 'measured', measuredClaim: { field: 'hotspotScore', value: 0.82 }, verifiedBy: 'agents' }),
+      row({ title: 'T-cyc', basis: 'measured', measuredClaim: { field: 'cycle', modules: ['a', 'b'] }, verifiedBy: 'none' }),
+      row({ title: 'T-bare', basis: 'judgement' }),
+      row({ title: 'T-nothing' }),
+    ]),
+  )
+  const num = cards(html).find((c) => c.html.includes('T-num')).html
+  assert.ok(num.indexOf('Measured:') !== -1 && num.indexOf('Measured:') < num.indexOf('Basis:') && num.indexOf('Basis:') < num.indexOf('Verified by:'))
+  assert.ok(cardText(html, 'T-num').includes('Basis: measured (churn 40)'))
+  assert.ok(cardText(html, 'T-num').includes('Verified by: metrics'))
+  assert.ok(cardText(html, 'T-frac').includes('Basis: measured (hotspotScore 0.82)'))
+  assert.ok(cardText(html, 'T-frac').includes('Verified by: agents'))
+  assert.ok(cardText(html, 'T-cyc').includes('Basis: measured (cycle a, b)'))
+  assert.ok(cardText(html, 'T-cyc').includes('Verified by: none'))
+  const bare = cardText(html, 'T-bare')
+  assert.ok(bare.includes('Basis: judgement') && !bare.includes('Basis: judgement ('), 'no claim, no parentheses')
+  assert.ok(!bare.includes('Verified by'))
+  const nothing = cardText(html, 'T-nothing')
+  assert.ok(!nothing.includes('Basis:') && !nothing.includes('Verified by:') && !nothing.includes('Slice:'))
+})
+
+test('T9 S21 the Slice line needs a coverage.reviewers object with that key and a string origin', () => {
+  const r = clone(RESULT)
+  r.kept = [
+    row({ title: 'T-hit', sliceKey: 'k-hit' }),
+    row({ title: 'T-noorigin', sliceKey: 'k-noorigin' }),
+    row({ title: 'T-numorigin', sliceKey: 'k-numorigin' }),
+    row({ title: 'T-nokey', sliceKey: 'k-unknown' }),
+    row({ title: 'T-noslice' }),
+  ]
+  r.report.coverage.reviewers = [
+    { key: 'k-hit', label: 'Hit label', kind: 'code', origin: 'territory' },
+    { key: 'k-noorigin', label: 'No origin', kind: 'code' },
+    { key: 'k-numorigin', label: 'Num origin', kind: 'code', origin: 7 },
+    'plain-string-reviewer',
+  ]
+  const html = renderAuditReport(r, METRICS)
+  assert.ok(cardText(html, 'T-hit').includes('Slice: k-hit (territory)'))
+  // a card may still name its slice key; the origin in parentheses needs a reviewers object with a string origin
+  for (const [t, key] of [['T-noorigin', 'k-noorigin'], ['T-numorigin', 'k-numorigin'], ['T-nokey', 'k-unknown']]) {
+    assert.ok(!cardText(html, t).includes(`Slice: ${key} (`), t)
+  }
+  assert.ok(!cardText(html, 'T-noslice').includes('Slice:'))
+})
+
+test('T9 S21 the unverified reasons metrics-pending and no-metrics read as Unverified lines', () => {
+  const html = renderAuditReport(
+    res([
+      row({ title: 'T-pending', verdict: 'UNVERIFIED', unverifiedReason: 'metrics-pending' }),
+      row({ title: 'T-nometrics', verdict: 'UNVERIFIED', unverifiedReason: 'no-metrics' }),
+      row({ title: 'T-plain', verdict: 'UNVERIFIED' }),
+    ]),
+  )
+  assert.ok(cardText(html, 'T-pending').includes('Unverified: metrics pending'))
+  assert.ok(cardText(html, 'T-nometrics').includes('Unverified: no metrics'))
+  assert.ok(!cardText(html, 'T-plain').includes('Unverified: '))
+})
+
+test('T9 S21 Coverage adds the no-metrics count and the metrics confirm and refute counts only when they are numbers', () => {
+  const r = clone(RESULT)
+  r.report.coverage.verification = { confirmed: 5, refuted: 6, unverifiedByCap: 7, unverifiedNoVerifier: 8, unverifiedNoMetrics: 4 }
+  r.stats = { ...r.stats, confirmedByMetrics: 3, refutedByMetrics: 2 }
+  const text = textOf(section(renderAuditReport(r, METRICS), 'coverage'))
+  for (const line of ['Unverified (no metrics): 4', 'Confirmed by metrics: 3', 'Refuted by metrics: 2', 'Confirmed: 5', 'Refuted: 6']) assert.ok(text.includes(line), line)
+  // zero is a number
+  r.report.coverage.verification.unverifiedNoMetrics = 0
+  r.stats.confirmedByMetrics = 0
+  r.stats.refutedByMetrics = 0
+  const zero = textOf(section(renderAuditReport(r, METRICS), 'coverage'))
+  for (const line of ['Unverified (no metrics): 0', 'Confirmed by metrics: 0', 'Refuted by metrics: 0']) assert.ok(zero.includes(line), line)
+  // a non-number or an absent key adds nothing
+  r.report.coverage.verification.unverifiedNoMetrics = '4'
+  r.stats.confirmedByMetrics = 'x'
+  delete r.stats.refutedByMetrics
+  const none = textOf(section(renderAuditReport(r, METRICS), 'coverage'))
+  for (const line of ['Unverified (no metrics)', 'Confirmed by metrics', 'Refuted by metrics']) assert.ok(!none.includes(line), line)
+  assert.ok(!textOf(section(FULL, 'coverage')).includes('by metrics'), 'the fixture carries none of these keys')
+})
+
+test('T9 S21 a refuted list entry adds " - <rationale>" only when it has one, escaped', () => {
+  const r = clone(RESULT)
+  r.refuted = [
+    { findingId: 'rf1', title: 'RefWithReason', rationale: 'measured value differs: churn claimed 40, measured 60' },
+    { findingId: 'rf2', title: 'RefNoReason' },
+    { findingId: 'rf3', title: 'RefEvil', rationale: '<b>why</b>' },
+  ]
+  const html = renderAuditReport(r, METRICS)
+  const sec = section(html, 'coverage')
+  const text = textOf(sec)
+  assert.ok(text.includes('RefWithReason - measured value differs: churn claimed 40, measured 60'), text)
+  assert.ok(text.includes('RefNoReason') && !text.includes('RefNoReason -'))
+  assert.ok(sec.includes('&lt;b&gt;why&lt;/b&gt;') && !sec.includes('<b>why</b>'))
 })

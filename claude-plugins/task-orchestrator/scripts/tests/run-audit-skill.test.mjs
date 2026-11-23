@@ -76,13 +76,13 @@ function total(preset, withRoot) {
 
 test('S1 Presets rows equal the workflow presets and projections', () => {
   const expected = Object.entries(CORE.PRESETS).map(([key, p]) => [
-    key, String(p.reviewerCount), String(p.gaps.max), String(p.verify.maxFindings),
+    key, String(p.reviewerCount), String(p.gaps.max), String(p.candidateCount), String(p.verify.maxFindings),
     String(total(key, true)), String(total(key, false)),
   ])
   assert.equal(expected.length, 3)
   assert.deepEqual(tableRows('Presets'), expected)
   // the projections by hand (task-orchestrator D15, AC8): with items / without items, 12 candidates measured
-  assert.deepEqual(expected.map((r) => r.slice(4)), [['24', '17'], ['60', '47'], ['128', '102']])
+  assert.deepEqual(expected.map((r) => r.slice(5)), [['24', '17'], ['60', '47'], ['128', '102']])
 })
 
 test('S2 Dispatch rows equal the workflow phase-key map in order', () => {
@@ -95,6 +95,20 @@ test('S3 the skill names its contract, workflow, policy file and renderer', () =
   for (const needle of [
     'task-orchestrator:deep-codebase-audit', 'audit/args-v2', 'dispatch-policy.json', 'audit-report-html.mjs',
   ]) {
+    assert.ok(SKILL.includes(needle), `names ${needle}`)
+  }
+})
+
+// T9 S22/S23 (D13): the Presets table gained a Candidates column (the edit to S1 above), and the skill names the
+// measuring and comparison steps. Oracles: task-scope D13 and the C5 candidate counts (quick 3, standard 6, full 12).
+
+test('S22 the Candidates column holds 3, 6 and 12 for quick, standard and full', () => {
+  const rows = tableRows('Presets')
+  assert.deepEqual(Object.fromEntries(rows.map((r) => [r[0], r[3]])), { quick: '3', standard: '6', full: '12' })
+})
+
+test('S23 the skill names the confirm and metrics scripts, the digest and candidate flags and the previous-result comparison', () => {
+  for (const needle of ['audit-confirm.mjs', 'audit-metrics.mjs', '--digest-out', '--candidates', '--previous']) {
     assert.ok(SKILL.includes(needle), `names ${needle}`)
   }
 })
