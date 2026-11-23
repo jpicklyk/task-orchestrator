@@ -140,7 +140,7 @@ const TOP_LEVEL_KEYS = [
 ];
 const FILE_KEYS = [
   'path', 'lang', 'loc', 'churn', 'churnRecent', 'indentComplexity', 'maxNesting',
-  'branchComplexity', 'topFunctions', 'hotspotScore',
+  'branchComplexity', 'topFunctions', 'hotspotScore', 'module',
 ];
 
 // ---------------------------------------------------------------- fixtures
