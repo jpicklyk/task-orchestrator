@@ -143,6 +143,23 @@ function matchRelative(index, spec, importerDir, exts) {
   return hit ? { kind: 'hit', file: hit, scoped: index.scoped.has(hit) } : { kind: 'unresolved' };
 }
 
+/**
+ * Dotted relative match (Python 'from .b import x', 'from ..pkg import y'): {kind: 'hit', file, scoped} | {kind: 'unresolved'}.
+ * A directory hit names the directory's representative file.
+ */
+function matchDotted(index, spec, importerDir) {
+  const dots = /^\.+/.exec(spec);
+  let base = importerDir;
+  for (let i = 1; i < dots[0].length; i++) base = dirOf(base);
+  const rest = segs(spec.slice(dots[0].length).split('.').join('/'));
+  const target = [...segs(base), ...rest].join('/');
+  const file = index.noextToFile.get(target);
+  if (file) return { kind: 'hit', file, scoped: index.scoped.has(file) };
+  const d = index.dirs.get(target);
+  if (d) return { kind: 'hit', file: d.rep, scoped: d.scoped };
+  return { kind: 'unresolved' };
+}
+
 const packagePartsOf = (cl, spec) => {
   const parts = spec.split(cl.separator).filter((s) => s !== '');
   while (parts.length && parts[parts.length - 1] === '*') parts.pop();
@@ -183,7 +200,11 @@ export function deriveBases({ importers, universe, scoped }) {
         const m = matchRelative(index, spec, importerDir, cl.extensions);
         if (m.kind === 'hit' && m.scoped && m.file !== imp.path) union(imp.path, m.file);
       } else if (cl.importKind === 'package') {
-        if (/^\.+/.test(spec) && cl.separator === '.') continue;
+        if (/^\.+/.test(spec) && cl.separator === '.') {
+          const m = matchDotted(index, spec, importerDir);
+          if (m.kind === 'hit' && m.scoped && m.file !== imp.path) union(imp.path, m.file);
+          continue;
+        }
         const parts = packagePartsOf(cl, spec);
         if (parts.length === 0) continue;
         const m = matchPackage(index, parts, segs(importerDir));
@@ -220,7 +241,6 @@ export function deriveBases({ importers, universe, scoped }) {
  */
 export function resolveGraph({ importers, universe, scoped, moduleOf }) {
   const index = buildIndex(universe, scoped);
-  const { noextToFile, dirs } = index;
   const edges = new Map();
   let unresolved = 0;
   const cache = new Map();
@@ -244,17 +264,10 @@ export function resolveGraph({ importers, universe, scoped, moduleOf }) {
       return resolveRelative(spec, importerDir, cl.extensions);
     }
     if (cl.importKind !== 'package') return 'unresolved';
-    const dots = /^\.+/.exec(spec);
-    if (dots && cl.separator === '.') {
-      let base = importerDir;
-      for (let i = 1; i < dots[0].length; i++) base = dirOf(base);
-      const rest = segs(spec.slice(dots[0].length).split('.').join('/'));
-      const target = [...segs(base), ...rest].join('/');
-      const file = noextToFile.get(target);
-      if (file) return scoped.has(file) ? moduleOf(file) : 'outside';
-      const d = dirs.get(target);
-      if (d) return d.scoped ? moduleOf(d.rep) : 'outside';
-      return 'unresolved';
+    if (/^\.+/.test(spec) && cl.separator === '.') {
+      const m = matchDotted(index, spec, importerDir);
+      if (m.kind !== 'hit') return 'unresolved';
+      return m.scoped ? moduleOf(m.file) : 'outside';
     }
     const parts = packagePartsOf(cl, spec);
     if (parts.length === 0) return 'unresolved';

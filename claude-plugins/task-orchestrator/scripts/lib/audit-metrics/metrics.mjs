@@ -6,6 +6,7 @@ import { analyzeText } from './complexity.mjs';
 import { deriveBases, extractImports, findCycles, makeModuleOf, resolveGraph } from './deps.mjs';
 import { cmp, commitsByPath, computeChurn, couplingFor, fetchFrom, inWindow, isBulk, logArgs, parseLog, pickTrendCommits } from './churn.mjs';
 import { extOf, loadLanguageTable } from './languages.mjs';
+import { FIXTURE_NAMES } from '../audit-scope.mjs';
 
 const round = (x, places) => Math.round(x * 10 ** places) / 10 ** places;
 
@@ -14,6 +15,9 @@ export function normalizeEntry(p) {
   const s = p.replace(/\\/g, '/').replace(/^(?:\.\/)+/, '').replace(/\/+$/, '');
   return s === '.' ? '' : s;
 }
+
+/** True when a directory segment of the path (the basename excluded) names a fixture tree. */
+const inFixtureTree = (path) => path.split('/').slice(0, -1).some((s) => FIXTURE_NAMES.has(s.toLowerCase()));
 
 const inEntry = (path, entry) => entry === '' || path === entry || path.startsWith(entry + '/');
 
@@ -140,14 +144,17 @@ export function collectMetrics(options, io) {
   });
 
   // Modules.
-  const scopes = entries.map((e) => ({ entry: e, files: scoped.filter((p) => inEntry(p, e)) }));
-  const importers = scoped.filter((p) => info.get(p).lang).map((p) => ({ path: p, lang: info.get(p).lang, specs: info.get(p).specs }));
-  const bases = deriveBases({ importers, universe, scoped: scopedSet });
+  // Fixture-tree files stay in the files table but are not part of the module graph.
+  const graphFiles = scoped.filter((p) => !inFixtureTree(p));
+  const graphSet = new Set(graphFiles);
+  const scopes = entries.map((e) => ({ entry: e, files: graphFiles.filter((p) => inEntry(p, e)) }));
+  const importers = graphFiles.filter((p) => info.get(p).lang).map((p) => ({ path: p, lang: info.get(p).lang, specs: info.get(p).specs }));
+  const bases = deriveBases({ importers, universe, scoped: graphSet });
   const moduleOf = makeModuleOf(scopes, moduleDepth, bases);
-  const graph = resolveGraph({ importers, universe, scoped: scopedSet, moduleOf });
-  for (const row of files) row.module = moduleOf(row.path);
+  const graph = resolveGraph({ importers, universe, scoped: graphSet, moduleOf });
+  for (const row of files) row.module = graphSet.has(row.path) ? moduleOf(row.path) : null;
   const nodeMap = new Map();
-  for (const p of scoped) {
+  for (const p of graphFiles) {
     const id = moduleOf(p);
     const node = nodeMap.get(id) || { id, files: 0, loc: 0, fanIn: 0, fanOut: 0, instability: 0 };
     node.files += 1;

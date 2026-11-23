@@ -1,7 +1,7 @@
 // scopePaths: the --paths list of a codebase audit, from the tracked files and the paths the user named.
 // Pure: no filesystem or git access.
 const TEST_NAMES = new Set(['test', 'tests', '__tests__', 'spec', 'specs']);
-const FIXTURE_NAMES = new Set(['fixtures', '__fixtures__']);
+export const FIXTURE_NAMES = new Set(['fixtures', '__fixtures__']);
 
 const byUnit = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 const segs = (p) => p.split('/').filter((s) => s !== '');

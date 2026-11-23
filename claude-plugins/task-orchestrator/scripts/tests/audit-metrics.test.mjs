@@ -511,7 +511,7 @@ test('S2: bulk commits count toward churn but not coupling; exactly max is not b
     { path: 'f.txt', commits: 0, partners: [] },
   ]);
   // R14: a note counts the 2 bulk commits excluded from coupling
-  assert.ok(json.notes.some((n) => /bulk/i.test(n) && /\b2\b/.test(n)), JSON.stringify(json.notes));
+  assert.ok(json.notes.includes('2 bulk commit(s) naming more than 4 paths excluded from coupling'), JSON.stringify(json.notes));
 });
 
 test('S2b: the default --max-commit-files (40) keeps every commit in coupling', () => {
@@ -643,7 +643,7 @@ test('S9: a --paths entry without files gives a note naming it; others still sco
   const repo = once('scope', buildScope);
   const { json } = metrics(repo, { paths: 'src,nopath' });
   assert.deepEqual(paths(json.files), ['src/a.txt', 'src/sub/c.txt']);
-  assert.ok(json.notes.some((n) => n.includes('nopath')), JSON.stringify(json.notes));
+  assert.ok(json.notes.includes('--paths entry "nopath" matches no files'), JSON.stringify(json.notes));
 });
 
 test('S9b: scores are normalised over the whole repository; hot sets follow R9', () => {
@@ -859,8 +859,8 @@ test('S11: --since after the last commit gives zero churn, empty sets and a note
   assert.deepEqual(json.hotSet, []);
   assert.deepEqual(json.coupling, []);
   assert.deepEqual(json.trend, []);
-  // R14: the note for a window without commits mentions the commits.
-  assert.ok(json.notes.some((n) => /commit/i.test(n)), JSON.stringify(json.notes));
+  // R14: the note for a window without commits names the window start.
+  assert.ok(json.notes.includes('no commits on or after 2026-12-01'), JSON.stringify(json.notes));
 });
 
 test('S11b: a repository without commits exits 0, headSha null, a note (R14)', () => {
@@ -871,8 +871,8 @@ test('S11b: a repository without commits exits 0, headSha null, a note (R14)', (
   assert.deepEqual(json.generatedFrom, { headSha: null });
   assert.deepEqual(json.files, []);
   assert.deepEqual(json.hotSet, []);
-  // R14: the note for a repository without commits mentions the commits.
-  assert.ok(json.notes.some((n) => /commit/i.test(n)), JSON.stringify(json.notes));
+  // R14: the note for a repository without commits.
+  assert.ok(json.notes.includes('repository has no commits'), JSON.stringify(json.notes));
 });
 
 test('S12: hot-set cut is churn x 3 >= R, boundary inclusive (R9)', () => {
@@ -1281,4 +1281,73 @@ test('probe: the module graph does not depend on how the same tree is named in -
   const app = metrics(repo, { paths: 'app' }).json.modules;
   assert.deepEqual(app.cycles, all.cycles);
   assert.deepEqual(nodeIds(app), nodeIds(all));
+});
+
+// ------------------------------------------- dotted Python imports and fixture trees (item c32d302b)
+//
+// Oracle: the item's task-scope decisions 1 and 2, hand-derived on each fixture. A dotted import
+// ('from .b import x') joins the connected-group bases like a JS relative import; a file with a fixtures or
+// __fixtures__ directory segment (any case) is kept in files with module null and stays out of the graph.
+
+function buildPythonDotted() {
+  return makeRepo('pydotted', [
+    {
+      date: '2026-02-01',
+      files: {
+        'svc/core/pkg/a.py': 'from .b import x\nfrom ..util import y\n',
+        'svc/core/pkg/b.py': 'x = 1\n',
+        'svc/core/util.py': 'y = 2\n',
+        'svc/core/pkg2/c.py': 'from ..pkg import b\n',
+        'docs/x.md': 'docs\n  notes\n',
+      },
+    },
+  ]);
+}
+
+function buildFixtureTrees() {
+  return makeRepo('fixtrees', [
+    {
+      date: '2026-02-01',
+      files: {
+        'lib/a/x.mjs': "import { y } from '../b/y.mjs';\nexport const x = y;\n",
+        'lib/b/y.mjs': 'export const y = 1;\n',
+        'lib/b/fixtures.mjs': 'export const f = 1;\n',
+        'tests/fixtures/proj/src/p/q.mjs': "import { r } from '../r/r.mjs';\nexport const q = r;\n",
+        'tests/fixtures/proj/src/r/r.mjs': 'export const r = 1;\n',
+        'tests/__Fixtures__/z.mjs': "import { x } from '../../lib/a/x.mjs';\nexport const z = x;\n",
+        'tests/t.test.mjs':
+          "import { x } from '../lib/a/x.mjs';\nimport { q } from './fixtures/proj/src/p/q.mjs';\nimport { f } from '../lib/b/fixtures.mjs';\nexport const t = [x, q, f];\n",
+      },
+    },
+  ]);
+}
+
+test('S15: dotted Python imports join the connected-group bases', () => {
+  const repo = once('pydotted', buildPythonDotted);
+  const { json } = metrics(repo, { paths: '.' });
+  const m = json.modules;
+  assert.deepEqual(nodeIds(m), ['docs', 'svc/core', 'svc/core/pkg', 'svc/core/pkg2']);
+  assert.deepEqual(edgeKeys(m), ['svc/core/pkg -> svc/core x1', 'svc/core/pkg2 -> svc/core/pkg x1']);
+  assert.equal(m.unresolved, 0);
+  const f = byPath(json);
+  assert.equal(f['svc/core/pkg/a.py'].module, 'svc/core/pkg');
+  assert.equal(f['svc/core/pkg/b.py'].module, 'svc/core/pkg');
+  assert.equal(f['svc/core/pkg2/c.py'].module, 'svc/core/pkg2');
+  assert.equal(f['svc/core/util.py'].module, 'svc/core');
+});
+
+test('S16: files under a fixtures or __fixtures__ directory stay in files with module null and out of the graph', () => {
+  const repo = once('fixtrees', buildFixtureTrees);
+  const { json } = metrics(repo, { paths: '.' });
+  const m = json.modules;
+  assert.deepEqual(nodeIds(m), ['lib/a', 'lib/b', 'tests']);
+  assert.deepEqual(edgeKeys(m), ['lib/a -> lib/b x1', 'tests -> lib/a x1', 'tests -> lib/b x1']);
+  assert.equal(m.unresolved, 0);
+  assert.deepEqual(Object.fromEntries(m.nodes.map((n) => [n.id, n.files])), { 'lib/a': 1, 'lib/b': 2, tests: 1 });
+  assert.equal(json.files.length, 7);
+  const f = byPath(json);
+  for (const p of ['tests/fixtures/proj/src/p/q.mjs', 'tests/fixtures/proj/src/r/r.mjs', 'tests/__Fixtures__/z.mjs']) {
+    assert.equal(f[p].module, null, p);
+  }
+  assert.equal(f['lib/b/fixtures.mjs'].module, 'lib/b');
 });

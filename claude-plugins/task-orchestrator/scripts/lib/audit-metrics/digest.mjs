@@ -59,13 +59,13 @@ export function buildDigest(metrics, { top = 10, candidates = DEFAULT_CANDIDATES
       kind: 'hot-file',
       subject: [r.path],
       facts: {
-        churn: r.churn,
-        churnRecent: r.churnRecent,
-        complexity: r.indentComplexity,
+        churn: (f || r).churn,
+        churnRecent: (f || r).churnRecent,
+        complexity: (f || r).indentComplexity,
         branchComplexity: f ? f.branchComplexity : null,
-        hotspotScore: r.hotspotScore,
+        hotspotScore: (f || r).hotspotScore,
       },
-      score: r.hotspotScore,
+      score: (f || r).hotspotScore,
     });
   }
   for (const ids of cycles) {

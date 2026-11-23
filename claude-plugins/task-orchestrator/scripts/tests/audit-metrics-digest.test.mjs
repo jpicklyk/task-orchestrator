@@ -25,10 +25,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDigest, serializeDigest, DIGEST_CONTRACT, DEFAULT_CANDIDATES } from '../lib/audit-metrics/digest.mjs';
 import { coChangePairs } from '../lib/audit-metrics/churn.mjs';
+import { loadCoreNamed } from './workflow-harness-ext.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scriptsDir = path.resolve(here, '..');
 const CLI = path.join(scriptsDir, 'audit-metrics.mjs');
+const WORKFLOW = path.join(scriptsDir, '..', 'workflows', 'deep-codebase-audit.js');
 
 const workRoot = mkdtempSync(path.join(tmpdir(), 'audit-digest-test-'));
 after(() => {
@@ -645,6 +647,12 @@ test('S6: --digest-out writes one compact line with the resolved metrics path; a
   // the digest is the library digest of the metrics file with metricsPath set, top 10 and candidates 12 by default
   const expected = serializeDigest({ ...buildDigest(first.metrics, { top: 10, candidates: 12 }), metricsPath: expectedPath });
   assert.equal(first.digestText, expected);
+  // hand-derived on the fixture: a and b both have 4 commits, a wins the tie by path; c has 2
+  assert.deepEqual(first.digest.hotSet.map((h) => h.path), ['src/x/a.mjs', 'src/y/b.mjs', 'src/z/c.mjs']);
+  assert.deepEqual(first.digest.candidates.map((c) => c.candidateId), [
+    'hot-file:src/x/a.mjs', 'cycle:src/x', 'unstable-module:src/y', 'co-change:src/x/a.mjs',
+    'hot-file:src/y/b.mjs', 'unstable-module:src/x', 'hot-file:src/z/c.mjs',
+  ]);
   // replay: the same arguments again give byte-identical files
   const firstBytes = readFileSync(s.dig);
   const firstMetrics = readFileSync(s.out);
@@ -667,6 +675,10 @@ test('S6b: a relative --out is resolved against the working directory for metric
   assert.equal(digest.metricsPath, path.resolve(cwd, 'rel', 'm.json').replace(/\\/g, '/'));
   const metrics = JSON.parse(readFileSync(path.join(cwd, 'rel', 'm.json'), 'utf8'));
   assert.deepEqual(digest, { ...buildDigest(metrics, { top: 1, candidates: 12 }), metricsPath: digest.metricsPath });
+  assert.deepEqual(digest.hotSet.map((h) => h.path), ['src/x/a.mjs']);
+  assert.deepEqual(digest.candidates.map((c) => c.candidateId), [
+    'hot-file:src/x/a.mjs', 'cycle:src/x', 'unstable-module:src/y', 'co-change:src/x/a.mjs',
+  ]);
   assert.equal(digest.topComplexity.length, 1);
   assert.equal(digest.unstableModules.length, 1);
 });
@@ -867,4 +879,27 @@ test('S16 (T11): with one kind only the list is score desc then candidateId, cut
 test('S4 / probe (T11): candidates 0 gives an empty list; building the digest twice gives identical text', () => {
   assert.deepEqual(buildDigest(m5(), { candidates: 0 }).candidates, []);
   assert.equal(serializeDigest(buildDigest(m5(), { candidates: 3 })), serializeDigest(buildDigest(m5(), { candidates: 3 })));
+});
+
+test('S18: hot-file facts and score come from the files row; a hot-set row without a files row is the fallback', () => {
+  const m = m5();
+  m.hotSet = [
+    { path: 'a/x.kt', churn: 99, churnRecent: 9, indentComplexity: 9, hotspotScore: 0.9 },
+    { path: 'gone.kt', churn: 3, churnRecent: 1, indentComplexity: 2, hotspotScore: 0.3 },
+  ];
+  const hot = buildDigest(m, { candidates: 99 }).candidates.filter((c) => c.kind === 'hot-file');
+  const byId = Object.fromEntries(hot.map((c) => [c.candidateId, c]));
+  assert.deepEqual(byId['hot-file:a/x.kt'].facts, { churn: 10, churnRecent: 4, complexity: 8, branchComplexity: 5, hotspotScore: 0.8 });
+  assert.equal(byId['hot-file:a/x.kt'].score, 0.8);
+  assert.deepEqual(byId['hot-file:gone.kt'].facts, { churn: 3, churnRecent: 1, complexity: 2, branchComplexity: null, hotspotScore: 0.3 });
+  assert.equal(byId['hot-file:gone.kt'].score, 0.3);
+});
+
+test('S19: the workflow digest formatter prints "none" for a hot file without partners and the count for one with', () => {
+  const { formatMetricsDigest } = loadCoreNamed(WORKFLOW, ['formatMetricsDigest']);
+  const text = formatMetricsDigest({
+    hotSet: [], topComplexity: [], cycles: [], unstableModules: [], trend: [],
+    coupling: [{ path: 'x.kt', partners: [] }, { path: 'y.kt', partners: [{ path: 'z.kt', count: 4 }] }],
+  });
+  assert.ok(text.includes('Change coupling:\n- x.kt: none\n- y.kt: z.kt (4)'), text);
 });
