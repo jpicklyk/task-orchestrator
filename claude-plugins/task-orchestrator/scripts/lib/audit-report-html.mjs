@@ -77,6 +77,8 @@ td svg circle{fill:var(--accent)}
 .sev-critical,.sev-high{background:var(--hi-bg);color:var(--hi);font-weight:600}
 .sev-medium{background:var(--med-bg);color:var(--med);font-weight:600}
 .sev-low{background:var(--low-bg);color:var(--low)}
+.st-new{background:var(--ok-bg);color:var(--ok);font-weight:600}
+.st-persisting{background:var(--low-bg);color:var(--low)}
 .v-CONFIRMED{background:var(--ok-bg);color:var(--ok);font-weight:600}
 .card[open] summary{border-bottom:1px solid var(--line)}
 .cb{padding:12px 14px 4px}
@@ -87,7 +89,7 @@ details.card:target{outline:2px solid var(--accent);outline-offset:1px}`;
 // Static page script: filters, search, expand-all, report-id links. It reads data- attributes and
 // card text from the DOM, so no input data is ever embedded here.
 const SCRIPT = `(function(){
-var attr={verdict:'verdict',severity:'sev',rating:'rating',class:'class'};
+var attr={verdict:'verdict',severity:'sev',rating:'rating',class:'class',status:'status'};
 var cards=[].slice.call(document.querySelectorAll('#findings details.card'));
 var chips=[].slice.call(document.querySelectorAll('.chip'));
 var box=document.getElementById('q');
@@ -166,12 +168,83 @@ function chipValues(rows, key, known) {
   return first.concat(others).map((v) => [v, counts.get(v)]);
 }
 
-export function renderAuditReport(input, metrics = null) {
+const pathOf = (h) => (typeof h === 'string' ? h : h && typeof h.path === 'string' ? h.path : null);
+
+function stableMap(res) {
+  const map = new Map();
+  for (const k of res.kept) {
+    if (k && typeof k.stableId === 'string' && k.stableId !== '' && !map.has(k.stableId)) map.set(k.stableId, k);
+  }
+  return map;
+}
+
+function severityChange(now, was) {
+  if (now === was) return 'unchanged';
+  const a = SEVERITY_ORDER.indexOf(now);
+  const b = SEVERITY_ORDER.indexOf(was);
+  if (a >= 0 && b >= 0) return a < b ? 'raised' : 'lowered';
+  return 'changed';
+}
+
+/**
+ * compareResults(current, previous) -> {comparable, note?, new, persisting, resolved, hotSetDelta?}. Findings are matched by
+ * stableId over the kept rows only; each list is sorted by stableId. A previous result without a stable id is not comparable.
+ * hotSetDelta {entered, left} appears only when both results carry a hotSet array.
+ */
+export function compareResults(current, previous) {
+  const cur = normalizeInput(current);
+  const prev = normalizeInput(previous);
+  const now = stableMap(cur);
+  const was = stableMap(prev);
+  if (was.size === 0) return { comparable: false, note: 'previous run has no stable ids', new: [], persisting: [], resolved: [] };
+  const ids = (m) => [...m.keys()].sort(cmp);
+  const out = { comparable: true, new: [], persisting: [], resolved: [] };
+  for (const id of ids(now)) {
+    const k = now.get(id);
+    if (!was.has(id)) {
+      out.new.push({ stableId: id, reportId: k.reportId, title: k.title, severity: k.severity });
+    } else {
+      const p = was.get(id);
+      out.persisting.push({
+        stableId: id,
+        reportId: k.reportId,
+        title: k.title,
+        severity: k.severity,
+        previousSeverity: p.severity,
+        severityChange: severityChange(k.severity, p.severity),
+      });
+    }
+  }
+  for (const id of ids(was)) {
+    if (!now.has(id)) {
+      const p = was.get(id);
+      out.resolved.push({ stableId: id, title: p.title, severity: p.severity });
+    }
+  }
+  if (Array.isArray(cur.hotSet) && Array.isArray(prev.hotSet)) {
+    const a = new Set(cur.hotSet.map(pathOf).filter((x) => x !== null));
+    const b = new Set(prev.hotSet.map(pathOf).filter((x) => x !== null));
+    out.hotSetDelta = {
+      entered: [...a].filter((x) => !b.has(x)).sort(cmp),
+      left: [...b].filter((x) => !a.has(x)).sort(cmp),
+    };
+  }
+  return out;
+}
+
+export function renderAuditReport(input, metrics = null, previous = null) {
   const res = normalizeInput(input);
   if (metrics !== null && metrics !== undefined && (typeof metrics !== 'object' || metrics.contract !== METRICS_CONTRACT)) {
     throw new TypeError(`metrics contract must be ${METRICS_CONTRACT}`);
   }
   const m = metrics === undefined ? null : metrics;
+  const diff = previous === null || previous === undefined ? null : compareResults(res, previous);
+  const comparable = diff !== null && diff.comparable;
+  const statusOf = new Map();
+  if (comparable) {
+    for (const x of diff.new) statusOf.set(x.stableId, 'new');
+    for (const x of diff.persisting) statusOf.set(x.stableId, 'persisting');
+  }
 
   const kept = orderedKept(res.kept);
   const classOf = rowClasses(res.proposal);
@@ -181,6 +254,7 @@ export function renderAuditReport(input, metrics = null) {
     severity: k.severity,
     rating: k.rating,
     class: classOf.get(k.findingId),
+    status: comparable && typeof k.stableId === 'string' ? statusOf.get(k.stableId) : undefined,
   }));
   const keptIds = new Set(kept.filter((k) => k.reportId).map((k) => String(k.reportId).toLowerCase()));
 
@@ -202,6 +276,7 @@ export function renderAuditReport(input, metrics = null) {
   );
   const sections = [
     ['summary', 'Summary', true],
+    ['since', 'Since last audit', comparable],
     ['strengths', 'Strengths', strengths.length > 0],
     ['themes', 'Themes', themes.length > 0],
     ['findings', 'Findings', true],
@@ -253,6 +328,8 @@ export function renderAuditReport(input, metrics = null) {
   }
   out.push('</section>');
 
+  if (comparable) out.push(sinceSection(diff));
+
   if (strengths.length) {
     out.push(`<section id="strengths"><h2>Strengths</h2>${list(strengths)}</section>`);
   }
@@ -283,6 +360,7 @@ export function renderAuditReport(input, metrics = null) {
       ['severity', 'severity', SEVERITY_ORDER],
       ['rating', 'rating', RATING_ORDER],
       ['class', 'class', CLASS_ORDER],
+      ...(comparable ? [['status', 'status', ['new', 'persisting']]] : []),
     ]) {
       for (const [v, n] of chipValues(rows, key, known)) {
         chips.push(`<button class="chip" data-g="${group}" data-f="${e(v)}">${e(v)} <b>${n}</b></button>`);
@@ -300,7 +378,8 @@ export function renderAuditReport(input, metrics = null) {
         (k.reportId ? ` id="${e(String(k.reportId).toLowerCase())}"` : '') +
         ` data-sev="${e(k.severity)}" data-verdict="${e(k.verdict)}"` +
         (k.rating ? ` data-rating="${e(k.rating)}"` : '') +
-        (r.class ? ` data-class="${e(r.class)}"` : '');
+        (r.class ? ` data-class="${e(r.class)}"` : '') +
+        (r.status ? ` data-status="${e(r.status)}"` : '');
       const badges = [];
       if (k.severity) badges.push(`<span class="b sev-${e(k.severity)}">${e(k.severity)}</span>`);
       if (k.verdict) badges.push(`<span class="b v-${e(k.verdict)}">${e(k.verdict)}</span>`);
@@ -308,6 +387,7 @@ export function renderAuditReport(input, metrics = null) {
       if (k.effort) badges.push(`<span class="b">${e(k.effort)}</span>`);
       if (k.category) badges.push(`<span class="b">${e(k.category)}</span>`);
       if (k.trackedId) badges.push(`<span class="b">tracked ${e(k.trackedId)}</span>`);
+      if (r.status) badges.push(`<span class="b st-${e(r.status)}">${e(r.status)}</span>`);
       const body = [];
       const locs = arr(k.locations);
       if (locs.length) body.push(`<p class="src">${locs.map((l) => `<code>${e(l)}</code>`).join('<br>')}</p>`);
@@ -320,9 +400,13 @@ export function renderAuditReport(input, metrics = null) {
       const mt = k.metrics && typeof k.metrics === 'object' ? k.metrics : {};
       const measured = [['churn', mt.churn], ['complexity', mt.complexity]].filter(([, v]) => typeof v === 'number' && Number.isFinite(v));
       if (measured.length) body.push(`<p class="src">Measured: ${measured.map(([n, v]) => `${n} ${e(v)}`).join(', ')}</p>`);
-      if (k.sliceKey) body.push(`<p class="src">Slice: ${e(k.sliceKey)}</p>`);
+      if (k.basis) body.push(`<p class="src">Basis: ${e(k.basis)}${claimText(k.measuredClaim)}</p>`);
+      if (k.verifiedBy) body.push(`<p class="src">Verified by: ${e(k.verifiedBy)}</p>`);
+      if (k.sliceKey) body.push(`<p class="src">Slice: ${e(k.sliceKey)}${originText(report, k.sliceKey)}</p>`);
       if (k.unverifiedReason === 'cap') body.push('<p class="src">Unverified: cap</p>');
       else if (k.unverifiedReason === 'no-verifier') body.push('<p class="src">Unverified: no verifier</p>');
+      else if (k.unverifiedReason === 'metrics-pending') body.push('<p class="src">Unverified: metrics pending</p>');
+      else if (k.unverifiedReason === 'no-metrics') body.push('<p class="src">Unverified: no metrics</p>');
       out.push(
         `<details class="card"${attrs}><summary><span class="num">${e(k.reportId)}</span><span class="ct">${e(k.title)}</span>` +
           `<span class="badges">${badges.join('')}</span></summary><div class="cb">${body.join('')}</div></details>`,
@@ -342,7 +426,7 @@ export function renderAuditReport(input, metrics = null) {
     out.push(architectureSection(m));
   }
 
-  out.push(coverageSection(res, report, m !== null, link));
+  out.push(coverageSection(res, report, m !== null, link, diff !== null && !diff.comparable ? diff.note : null));
 
   out.push('</main>');
   out.push(`<script>\n${SCRIPT}\n</script>`);
@@ -457,9 +541,10 @@ function architectureSection(m) {
   return parts.join('\n');
 }
 
-function coverageSection(res, report, hasMetrics, link) {
+function coverageSection(res, report, hasMetrics, link, sinceNote) {
   const parts = ['<section id="coverage"><h2>Coverage</h2>'];
   if (!hasMetrics) parts.push('<p>Metrics were not available for this run.</p>');
+  if (sinceNote) parts.push(`<p>Since last audit: ${e(sinceNote)}.</p>`);
   if (report && report.method) parts.push(`<h3>Method</h3><p>${link(report.method)}</p>`);
   const cov = report && report.coverage && typeof report.coverage === 'object' ? report.coverage : null;
   if (cov) {
@@ -476,12 +561,16 @@ function coverageSection(res, report, hasMetrics, link) {
       lines.push(`Refuted: ${fmt(v.refuted)}`);
       lines.push(`Unverified (cap): ${fmt(v.unverifiedByCap)}`);
       lines.push(`Unverified (no verifier): ${fmt(v.unverifiedNoVerifier)}`);
+      if (isNum(v.unverifiedNoMetrics)) lines.push(`Unverified (no metrics): ${v.unverifiedNoMetrics}`);
     }
+    const st = res.stats && typeof res.stats === 'object' ? res.stats : {};
+    if (isNum(st.confirmedByMetrics)) lines.push(`Confirmed by metrics: ${st.confirmedByMetrics}`);
+    if (isNum(st.refutedByMetrics)) lines.push(`Refuted by metrics: ${st.refutedByMetrics}`);
     if (lines.length) parts.push(`<h3>Verification</h3>${lines.map((l) => `<p>${e(l)}</p>`).join('')}`);
   }
   const refuted = arr(res.refuted);
   if (refuted.length) {
-    parts.push(`<h3>Refuted findings</h3><ul>${refuted.map((r) => `<li>${e(r && r.title)}</li>`).join('')}</ul>`);
+    parts.push(`<h3>Refuted findings</h3><ul>${refuted.map((r) => `<li>${e(r && r.title)}${r && r.rationale ? ` - ${e(r.rationale)}` : ''}</li>`).join('')}</ul>`);
   }
   const stats = res.stats && typeof res.stats === 'object' ? res.stats : null;
   if (stats && (stats.raw !== undefined || stats.merged !== undefined)) {
@@ -489,6 +578,46 @@ function coverageSection(res, report, hasMetrics, link) {
     if (stats.raw !== undefined) sl.push(`Raw findings: ${fmt(stats.raw)}`);
     if (stats.merged !== undefined) sl.push(`After merge: ${fmt(stats.merged)}`);
     parts.push(`<h3>Counts</h3>${sl.map((l) => `<p>${e(l)}</p>`).join('')}`);
+  }
+  parts.push('</section>');
+  return parts.join('\n');
+}
+
+function claimText(c) {
+  if (!c || typeof c !== 'object') return '';
+  if (c.field === 'cycle') return Array.isArray(c.modules) ? ` (cycle ${c.modules.map((x) => e(x)).join(', ')})` : '';
+  return c.field !== undefined && c.value !== undefined ? ` (${e(c.field)} ${e(c.value)})` : '';
+}
+
+function originText(report, key) {
+  const rv = report && report.coverage && typeof report.coverage === 'object' ? report.coverage.reviewers : null;
+  let entry = null;
+  if (Array.isArray(rv)) entry = rv.find((r) => r && r.key === key) || null;
+  else if (rv && typeof rv === 'object') entry = rv[key] || null;
+  return entry && typeof entry.origin === 'string' ? ` (${e(entry.origin)})` : '';
+}
+
+function sinceSection(diff) {
+  const item = (x, extra) => {
+    const head = x.reportId ? `<a href="#${e(String(x.reportId).toLowerCase())}">${e(x.reportId)}</a> ` : '';
+    return `<li>${head}${e(x.title)} (${extra})</li>`;
+  };
+  const list = (rows, render) => (rows.length ? `<ul>${rows.map(render).join('')}</ul>` : '<p class="none">None.</p>');
+  const parts = ['<section id="since"><h2>Since last audit</h2>'];
+  parts.push(`<h3>New (${diff.new.length})</h3>`, list(diff.new, (x) => item(x, e(x.severity))));
+  parts.push(
+    `<h3>Persisting (${diff.persisting.length})</h3>`,
+    list(diff.persisting, (x) =>
+      item(x, x.severityChange === 'unchanged' ? e(x.severity) : `${e(x.severity)}, was ${e(x.previousSeverity)}`),
+    ),
+  );
+  parts.push(
+    `<h3>Resolved (${diff.resolved.length})</h3>`,
+    list(diff.resolved, (x) => `<li>${e(x.title)} (${e(x.severity)})</li>`),
+  );
+  if (diff.hotSetDelta) {
+    const paths = (l) => (l.length ? l.map((p) => `<code>${e(p)}</code>`).join(', ') : 'none');
+    parts.push('<h3>Hot set</h3>', `<p>Entered: ${paths(diff.hotSetDelta.entered)}</p>`, `<p>Left: ${paths(diff.hotSetDelta.left)}</p>`);
   }
   parts.push('</section>');
   return parts.join('\n');
