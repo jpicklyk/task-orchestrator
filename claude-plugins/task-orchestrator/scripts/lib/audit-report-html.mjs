@@ -317,6 +317,9 @@ export function renderAuditReport(input, metrics = null) {
       if (k.confidence !== undefined && k.confidence !== null && k.confidence !== '') {
         body.push(`<p class="src">Confidence: ${e(k.confidence)}</p>`);
       }
+      const mt = k.metrics && typeof k.metrics === 'object' ? k.metrics : {};
+      const measured = [['churn', mt.churn], ['complexity', mt.complexity]].filter(([, v]) => typeof v === 'number' && Number.isFinite(v));
+      if (measured.length) body.push(`<p class="src">Measured: ${measured.map(([n, v]) => `${n} ${e(v)}`).join(', ')}</p>`);
       if (k.sliceKey) body.push(`<p class="src">Slice: ${e(k.sliceKey)}</p>`);
       if (k.unverifiedReason === 'cap') body.push('<p class="src">Unverified: cap</p>');
       else if (k.unverifiedReason === 'no-verifier') body.push('<p class="src">Unverified: no verifier</p>');

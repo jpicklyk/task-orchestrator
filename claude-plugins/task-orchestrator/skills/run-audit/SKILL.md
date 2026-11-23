@@ -16,7 +16,7 @@ Run only in the main session with the `Workflow` tool callable. The director gua
 
 Resolve `<scriptsDir>` once and reuse it:
 
-1. Try `${CLAUDE_PLUGIN_ROOT}/scripts`. Confirm the literal string `${CLAUDE_PLUGIN_ROOT}` did not survive into the path, and that `<scriptsDir>/audit-report-html.mjs` and `<scriptsDir>/audit-metrics.mjs` both exist.
+1. Try `${CLAUDE_PLUGIN_ROOT}/scripts`. Confirm the literal string `${CLAUDE_PLUGIN_ROOT}` did not survive into the path, and that `<scriptsDir>/audit-report-html.mjs`, `<scriptsDir>/audit-metrics.mjs` and `<scriptsDir>/audit-scope.mjs` all exist.
 2. Otherwise use `<git toplevel>/claude-plugins/task-orchestrator/scripts` when that directory exists.
 3. Otherwise stop and tell the user to refresh the plugin cache (`claude-plugins/CLAUDE.md`, "Plugin Discovery and Cache Refresh"). Every plugin file reaches an installed session only through that forced refresh.
 
@@ -30,7 +30,7 @@ Build one `audit/args-v2` object:
 | `runId` | `a-<YYYYMMDDHHmm>` (must start with `a-`) |
 | `date` | today, `YYYY-MM-DD` |
 | `repo.root` | the git toplevel |
-| `scope.paths` | the user's paths; else `["."]` plus every tracked directory prefix that ends in a segment named `test`, `tests`, `__tests__`, `spec` or `specs` (from `git ls-files`, deduplicated) |
+| `scope.paths` | the JSON array printed by `node "<scriptsDir>/audit-scope.mjs" --root <git toplevel>`, with `--paths <the user's paths, comma-separated>` when the user names paths; a non-zero exit stops the skill with its message |
 | `preset` | `--preset`, default `quick` |
 | `focus` | only when `--focus` is given |
 | `scriptsDir` | Step 1 |
@@ -86,7 +86,7 @@ On the completion notification:
 node "<scriptsDir>/audit-report-html.mjs" --result <file> --out <reportPath>
 ```
 
-Add `--metrics <result.metricsPath>` only when `metricsPath` is non-null.
+Add `--metrics <result.metricsPath>` only when `metricsPath` is non-null and that file exists; without it the report says metrics were not available.
 
 - Exit 0: send the report file with `SendUserFile` when the host has it, else give its absolute path.
 - Exit 2: report the `INVALID` line and stop; do not go on to Step 6.

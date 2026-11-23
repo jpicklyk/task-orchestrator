@@ -1,4 +1,4 @@
-// Dependency graph for audit-metrics: import extraction, resolution to files, module rollup, cycles.
+// Dependency graph for audit-metrics: import extraction, module base derivation, resolution to files, module rollup, cycles.
 // Pure: no filesystem or git access. Unresolved imports are counted, never guessed.
 import { posix } from 'node:path';
 import { compileLang } from './languages.mjs';
@@ -29,29 +29,40 @@ export function extractImports(counted, lang) {
 const dirOf = (p) => p.slice(0, Math.max(p.lastIndexOf('/'), 0));
 const segs = (p) => p.split('/').filter((s) => s !== '');
 
-/**
- * Module id of every scoped file. base(entry) = longest common directory of the scoped files under that
- * --paths entry; a module is base + the first `depth` directory segments below it.
- * @param {{entry: string, files: string[]}[]} scopes entry '' means the whole repository
- */
-export function makeModuleOf(scopes, depth) {
-  const bases = scopes.map((s) => {
-    let common = null;
-    for (const f of s.files) {
-      const d = segs(dirOf(f));
-      if (common === null) common = d;
-      else {
-        let i = 0;
-        while (i < common.length && i < d.length && common[i] === d[i]) i++;
-        common = common.slice(0, i);
-      }
+const commonDir = (files) => {
+  let common = null;
+  for (const f of files) {
+    const d = segs(dirOf(f));
+    if (common === null) common = d;
+    else {
+      let i = 0;
+      while (i < common.length && i < d.length && common[i] === d[i]) i++;
+      common = common.slice(0, i);
     }
-    return { entry: s.entry, base: common || [] };
-  });
+  }
+  return common || [];
+};
+
+const isUnder = (dirSegs, baseSegs) => baseSegs.length <= dirSegs.length && baseSegs.every((s, i) => dirSegs[i] === s);
+
+/**
+ * Module id of every scoped file. base(file) = the deepest of `groupBases` (see deriveBases) that is an
+ * ancestor-or-self of the file's directory, else the longest common directory of the scoped files under the
+ * file's --paths entry; a module is base + the first `depth` directory segments below it.
+ * @param {{entry: string, files: string[]}[]} scopes entry '' means the whole repository
+ * @param {number} depth
+ * @param {string[][]} [groupBases] base directories as segment arrays
+ */
+export function makeModuleOf(scopes, depth, groupBases = []) {
+  const entryBases = scopes.map((s) => commonDir(s.files));
+  const ordered = [...groupBases].sort((a, b) => b.length - a.length);
   return (path) => {
-    const owner = scopes.findIndex((s) => s.entry === '' || path === s.entry || path.startsWith(s.entry + '/'));
-    const base = bases[Math.max(owner, 0)].base;
     const dir = segs(dirOf(path));
+    let base = ordered.find((b) => isUnder(dir, b));
+    if (!base) {
+      const owner = scopes.findIndex((s) => s.entry === '' || path === s.entry || path.startsWith(s.entry + '/'));
+      base = entryBases[Math.max(owner, 0)] || [];
+    }
     return [...base, ...dir.slice(base.length, base.length + depth)].join('/');
   };
 }
@@ -62,12 +73,8 @@ function commonPrefixLength(a, b) {
   return i;
 }
 
-/**
- * Resolves the imports of the scoped files and rolls them up per module.
- * @param {{importers: {path: string, lang: object, specs: string[]}[], universe: string[], scoped: Set<string>, moduleOf: (p: string) => string}} args
- * @returns {{edges: {from: string, to: string, count: number}[], unresolved: number}}
- */
-export function resolveGraph({ importers, universe, scoped, moduleOf }) {
+/** Lookup tables over the universe shared by base derivation and graph resolution. */
+function buildIndex(universe, scoped) {
   const byLast = new Map();
   const noextToFile = new Map();
   const dirs = new Map();
@@ -94,46 +101,139 @@ export function resolveGraph({ importers, universe, scoped, moduleOf }) {
       }
     }
   }
+  return { byLast, noextToFile, dirs, universeSet, scoped };
+}
+
+function pick(cands, importerSegs) {
+  if (cands.length === 1) return cands[0];
+  let best = null;
+  let bestLen = -1;
+  let tied = false;
+  for (const c of cands) {
+    const n = commonPrefixLength(segs(c.path), importerSegs);
+    if (n > bestLen) {
+      best = c;
+      bestLen = n;
+      tied = false;
+    } else if (n === bestLen) tied = true;
+  }
+  return tied ? null : best;
+}
+
+/** Qualified-name match by path suffix: {kind: 'hit', chosen, suffix} | {kind: 'outside'} | {kind: 'unresolved'}. */
+function matchPackage(index, parts, importerSegs) {
+  for (let len = parts.length; len >= Math.min(2, parts.length); len--) {
+    const suffix = '/' + parts.slice(0, len).join('/');
+    const cands = (index.byLast.get(parts[len - 1]) || []).filter((e) => e.full.endsWith(suffix));
+    if (cands.length === 0) continue;
+    const inScope = cands.filter((e) => e.scoped);
+    if (inScope.length === 0) return { kind: 'outside' };
+    const chosen = pick(inScope, importerSegs);
+    return chosen ? { kind: 'hit', chosen, suffix } : { kind: 'unresolved' };
+  }
+  return { kind: 'unresolved' };
+}
+
+/** Relative-path match: {kind: 'hit', file, scoped} | {kind: 'unresolved'}. */
+function matchRelative(index, spec, importerDir, exts) {
+  const target = posix.normalize(posix.join(importerDir, spec));
+  if (target.startsWith('..')) return { kind: 'unresolved' };
+  const tries = [target, ...exts.map((x) => target + x), ...exts.map((x) => `${target}/index${x}`)];
+  const hit = tries.find((t) => index.universeSet.has(t));
+  return hit ? { kind: 'hit', file: hit, scoped: index.scoped.has(hit) } : { kind: 'unresolved' };
+}
+
+const packagePartsOf = (cl, spec) => {
+  const parts = spec.split(cl.separator).filter((s) => s !== '');
+  while (parts.length && parts[parts.length - 1] === '*') parts.pop();
+  return parts;
+};
+
+/**
+ * Module base directories derived from the resolved imports of the scoped files.
+ * Package languages: an import whose qualified name matches the end of a scoped target's path gives a source
+ * root (the target path minus that suffix); the scoped package-language files under the deepest such root form
+ * a group. Relative languages: a connected component (size >= 2) of the resolved relative imports between
+ * scoped files forms a group. A group's base is the longest common directory of its files.
+ * @param {{importers: {path: string, lang: object, specs: string[]}[], universe: string[], scoped: Set<string>}} args
+ * @returns {string[][]} base directories as segment arrays, deduplicated
+ */
+export function deriveBases({ importers, universe, scoped }) {
+  const index = buildIndex(universe, scoped);
+  const roots = new Set();
+  const parent = new Map();
+  const find = (x) => {
+    let r = x;
+    while (parent.get(r) !== r) r = parent.get(r);
+    return r;
+  };
+  const union = (a, b) => {
+    if (!parent.has(a)) parent.set(a, a);
+    if (!parent.has(b)) parent.set(b, b);
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+  for (const imp of importers) {
+    const cl = compileLang(imp.lang);
+    const importerDir = dirOf(imp.path);
+    for (const spec of imp.specs) {
+      if (cl.importKind === 'relative') {
+        if (!spec.startsWith('.')) continue;
+        const m = matchRelative(index, spec, importerDir, cl.extensions);
+        if (m.kind === 'hit' && m.scoped && m.file !== imp.path) union(imp.path, m.file);
+      } else if (cl.importKind === 'package') {
+        if (/^\.+/.test(spec) && cl.separator === '.') continue;
+        const parts = packagePartsOf(cl, spec);
+        if (parts.length === 0) continue;
+        const m = matchPackage(index, parts, segs(importerDir));
+        if (m.kind === 'hit') roots.add(m.chosen.full.slice(0, m.chosen.full.length - m.suffix.length).replace(/^\//, ''));
+      }
+    }
+  }
+  const groups = new Map();
+  const addTo = (key, file) => {
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(file);
+  };
+  const rootList = [...roots].map((r) => ({ r, s: segs(r) })).sort((a, b) => b.s.length - a.s.length);
+  for (const imp of importers) {
+    if (compileLang(imp.lang).importKind !== 'package') continue;
+    const dir = segs(dirOf(imp.path));
+    const owner = rootList.find((x) => isUnder(dir, x.s));
+    if (owner) addTo(`p\0${owner.r}`, imp.path);
+  }
+  for (const f of parent.keys()) addTo(`r\0${find(f)}`, f);
+  const bases = new Map();
+  for (const [key, files] of groups) {
+    if (key.startsWith('r\0') && files.length < 2) continue;
+    const base = commonDir(files);
+    bases.set(base.join('/'), base);
+  }
+  return [...bases.values()];
+}
+
+/**
+ * Resolves the imports of the scoped files and rolls them up per module.
+ * @param {{importers: {path: string, lang: object, specs: string[]}[], universe: string[], scoped: Set<string>, moduleOf: (p: string) => string}} args
+ * @returns {{edges: {from: string, to: string, count: number}[], unresolved: number}}
+ */
+export function resolveGraph({ importers, universe, scoped, moduleOf }) {
+  const index = buildIndex(universe, scoped);
+  const { noextToFile, dirs } = index;
   const edges = new Map();
   let unresolved = 0;
   const cache = new Map();
 
-  const pick = (cands, importerSegs) => {
-    if (cands.length === 1) return cands[0];
-    let best = null;
-    let bestLen = -1;
-    let tied = false;
-    for (const c of cands) {
-      const n = commonPrefixLength(segs(c.path), importerSegs);
-      if (n > bestLen) {
-        best = c;
-        bestLen = n;
-        tied = false;
-      } else if (n === bestLen) tied = true;
-    }
-    return tied ? null : best;
-  };
-
   const resolvePackage = (parts, importerSegs) => {
-    for (let len = parts.length; len >= Math.min(2, parts.length); len--) {
-      const suffix = '/' + parts.slice(0, len).join('/');
-      const cands = (byLast.get(parts[len - 1]) || []).filter((e) => e.full.endsWith(suffix));
-      if (cands.length === 0) continue;
-      const inScope = cands.filter((e) => e.scoped);
-      if (inScope.length === 0) return 'outside';
-      const chosen = pick(inScope, importerSegs);
-      return chosen ? moduleOf(chosen.rep) : 'unresolved';
-    }
-    return 'unresolved';
+    const m = matchPackage(index, parts, importerSegs);
+    return m.kind === 'hit' ? moduleOf(m.chosen.rep) : m.kind;
   };
 
   const resolveRelative = (spec, importerDir, exts) => {
-    const target = posix.normalize(posix.join(importerDir, spec));
-    if (target.startsWith('..')) return 'unresolved';
-    const tries = [target, ...exts.map((x) => target + x), ...exts.map((x) => `${target}/index${x}`)];
-    const hit = tries.find((t) => universeSet.has(t));
-    if (!hit) return 'unresolved';
-    return scoped.has(hit) ? moduleOf(hit) : 'outside';
+    const m = matchRelative(index, spec, importerDir, exts);
+    if (m.kind !== 'hit') return 'unresolved';
+    return m.scoped ? moduleOf(m.file) : 'outside';
   };
 
   const resolveOne = (imp, spec) => {
@@ -156,8 +256,7 @@ export function resolveGraph({ importers, universe, scoped, moduleOf }) {
       if (d) return d.scoped ? moduleOf(d.rep) : 'outside';
       return 'unresolved';
     }
-    const parts = spec.split(cl.separator).filter((s) => s !== '');
-    while (parts.length && parts[parts.length - 1] === '*') parts.pop();
+    const parts = packagePartsOf(cl, spec);
     if (parts.length === 0) return 'unresolved';
     return resolvePackage(parts, segs(importerDir));
   };

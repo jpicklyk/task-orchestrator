@@ -3,7 +3,7 @@
 //   io.readFile(rel) -> Buffer, or null when the file cannot be read
 // Branch-based numbers (branchComplexity, topFunctions) are approximate.
 import { analyzeText } from './complexity.mjs';
-import { extractImports, findCycles, makeModuleOf, resolveGraph } from './deps.mjs';
+import { deriveBases, extractImports, findCycles, makeModuleOf, resolveGraph } from './deps.mjs';
 import { cmp, commitsByPath, computeChurn, couplingFor, fetchFrom, inWindow, isBulk, logArgs, parseLog, pickTrendCommits } from './churn.mjs';
 import { extOf, loadLanguageTable } from './languages.mjs';
 
@@ -141,8 +141,9 @@ export function collectMetrics(options, io) {
 
   // Modules.
   const scopes = entries.map((e) => ({ entry: e, files: scoped.filter((p) => inEntry(p, e)) }));
-  const moduleOf = makeModuleOf(scopes, moduleDepth);
   const importers = scoped.filter((p) => info.get(p).lang).map((p) => ({ path: p, lang: info.get(p).lang, specs: info.get(p).specs }));
+  const bases = deriveBases({ importers, universe, scoped: scopedSet });
+  const moduleOf = makeModuleOf(scopes, moduleDepth, bases);
   const graph = resolveGraph({ importers, universe, scoped: scopedSet, moduleOf });
   const nodeMap = new Map();
   for (const p of scoped) {

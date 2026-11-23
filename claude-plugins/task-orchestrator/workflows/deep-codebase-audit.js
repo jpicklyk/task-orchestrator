@@ -129,17 +129,48 @@ function trimDir(dir) {
   return out
 }
 
-/** formatMetricsDigest(m) -> the 'MEASURED STRUCTURE' text injected into prompts: first 15 hot-set paths, 10 top-complexity paths, 10 cycles, 10 least stable modules */
-function formatMetricsDigest(m) {
+const DIGEST_MAX_CHARS = 8000
+const DIGEST_CUT_NOTE = '(digest cut at ' + DIGEST_MAX_CHARS + ' characters; the full numbers are in the metrics file)'
+
+/**
+ * formatMetricsDigest(m, ctx = {}) -> the 'MEASURED STRUCTURE' text injected into prompts: first 15 hot-set paths, 10 top-complexity paths,
+ * 10 cycles (8 ids each), 10 least stable modules, 5 coupling entries, 5 complexity trends; the text is capped at DIGEST_MAX_CHARS at a line break,
+ * then ctx.since/ctx.recent and ctx.metricsPath add the window and file lines after the cap
+ */
+function formatMetricsDigest(m, ctx = {}) {
   const list = (a, n, f) => (a || []).slice(0, n).map(f)
   const section = (title, lines) => title + ':\n' + (lines.length ? lines.join('\n') : '- (none)')
-  return [
+  const num = (v) => (typeof v === 'number' && isFinite(v) ? String(v) : '-')
+  const cycleLine = (c) => {
+    const ids = c || []
+    return '- ' + ids.slice(0, 8).join(' -> ') + (ids.length > 8 ? ' (+' + (ids.length - 8) + ' more)' : '')
+  }
+  const trendLine = (t) => {
+    const xs = (t.complexities || []).filter((x) => typeof x === 'number')
+    if (!xs.length) return '- ' + t.path + ': -'
+    const first = xs[0]
+    const last = xs[xs.length - 1]
+    return '- ' + t.path + ': ' + xs.join(' -> ') + ' (' + (last > first ? 'rising' : last < first ? 'falling' : 'flat') + ')'
+  }
+  let text = [
     'MEASURED STRUCTURE (approximate; churn from version history, complexity from the source text):',
-    section('Hot set (churn x complexity)', list(m.hotSet, 15, (h) => '- ' + h.path + ' (churn ' + h.churn + ', complexity ' + h.complexity + ')')),
+    section('Hot set (churn x complexity)', list(m.hotSet, 15, (h) => '- ' + h.path + ' (churn ' + num(h.churn) + ', recent ' + num(h.churnRecent) + ', complexity ' + num(h.complexity) + ', score ' + num(h.hotspotScore) + ')')),
     section('Highest complexity', list(m.topComplexity, 10, (c) => '- ' + c.path + ' (complexity ' + c.complexity + ')')),
-    section('Dependency cycles', list(m.cycles, 10, (c) => '- ' + (c || []).join(' -> '))),
+    section('Dependency cycles', list(m.cycles, 10, cycleLine)),
     section('Least stable modules', list(m.unstableModules, 10, (u) => '- ' + u.id + ' (instability ' + u.instability + ')')),
+    section('Change coupling', list(m.coupling, 5, (c) => {
+      const partners = (c.partners || []).slice(0, 3).map((p) => p.path + ' (' + p.count + ')')
+      return '- ' + c.path + ': ' + (partners.length ? partners.join(', ') : 'none')
+    })),
+    section('Complexity trend', list(m.trend, 5, trendLine)),
   ].join('\n')
+  if (text.length > DIGEST_MAX_CHARS) {
+    const cut = text.lastIndexOf('\n', DIGEST_MAX_CHARS)
+    text = text.slice(0, cut > 0 ? cut : DIGEST_MAX_CHARS) + '\n' + DIGEST_CUT_NOTE
+  }
+  if (ctx.since) text += '\nWindows: long since ' + ctx.since + ', recent since ' + ctx.recent
+  if (ctx.metricsPath) text += '\nMetrics file: ' + ctx.metricsPath + ' (every number above comes from it; read it instead of running the metrics script)'
+  return text
 }
 
 /** buildMeasurePrompt(plan) -> string, the Measure agent's prompt: one metrics command, one file written under workDir */
@@ -149,7 +180,7 @@ function buildMeasurePrompt(plan) {
   const cmd = 'node "' + S + '/audit-metrics.mjs" --root "' + plan.repo.root + '" --paths "' + plan.scope.paths.join(',') + '" --since ' + shiftMonths(plan.date, -12) + ' --recent ' + shiftMonths(plan.date, -3) + ' --out "' + W + '/metrics.json"'
   return 'READ-ONLY with one exception: the command below writes ' + W + '/metrics.json, the only file written. Do not create, edit, or delete any other file, run no other command that mutates repository or environment state, and do not prefix bash commands with cd.\n\n' +
     'Run this command once:\n' + cmd + '\n\n' +
-    'Then read ' + W + '/metrics.json and return its digest as structured data: hotSet (from hotSet: path, churn, and complexity taken from indentComplexity), topComplexity (the ten files with the highest indentComplexity: path, complexity), cycles (modules.cycles, each a list of module ids), unstableModules (the ten modules with the highest instability in modules.nodes: id, instability) and notes (its notes, plus anything that kept the command from running). If the command fails, return empty lists and say why in notes.'
+    'Then read ' + W + '/metrics.json and return its digest as structured data: metricsWritten (true only when the command exited 0 and you read the file; otherwise false), hotSet (from hotSet: path, churn, churnRecent, hotspotScore, and complexity taken from indentComplexity), topComplexity (the ten files with the highest indentComplexity: path, complexity), cycles (modules.cycles, each a list of module ids), unstableModules (the ten modules with the highest instability in modules.nodes: id, instability) coupling (the first five entries of coupling: path and up to three partners, each path and count), trend (the first five entries of trend: path and complexities, the indentComplexity of its samples in order) and notes (its notes, plus anything that kept the command from running). If the command fails or the file is not written, return metricsWritten false and empty lists and say why in notes.'
 }
 
 /** sliceKind(s) -> 'docs' | 'code' (a slice, lens or gap without a kind is code) */
@@ -442,13 +473,16 @@ function schemas(plan) {
   const MEASURE = {
     type: 'object',
     properties: {
-      hotSet: { type: 'array', items: { type: 'object', properties: { path: str, churn: { type: 'number' }, complexity: { type: 'number' } }, required: ['path', 'churn', 'complexity'] } },
+      metricsWritten: { type: 'boolean' },
+      hotSet: { type: 'array', items: { type: 'object', properties: { path: str, churn: { type: 'number' }, churnRecent: { type: 'number' }, complexity: { type: 'number' }, hotspotScore: { type: 'number' } }, required: ['path', 'churn', 'churnRecent', 'complexity', 'hotspotScore'] } },
       topComplexity: { type: 'array', items: { type: 'object', properties: { path: str, complexity: { type: 'number' } }, required: ['path', 'complexity'] } },
       cycles: { type: 'array', items: { type: 'array', items: str } },
       unstableModules: { type: 'array', items: { type: 'object', properties: { id: str, instability: { type: 'number' } }, required: ['id', 'instability'] } },
+      coupling: { type: 'array', items: { type: 'object', properties: { path: str, partners: { type: 'array', items: { type: 'object', properties: { path: str, count: { type: 'number' } }, required: ['path', 'count'] } } }, required: ['path', 'partners'] } },
+      trend: { type: 'array', items: { type: 'object', properties: { path: str, complexities: { type: 'array', items: { type: 'number' } } }, required: ['path', 'complexities'] } },
       notes: { type: 'array', items: str },
     },
-    required: ['hotSet', 'topComplexity', 'cycles', 'unstableModules', 'notes'],
+    required: ['metricsWritten', 'hotSet', 'topComplexity', 'cycles', 'unstableModules', 'coupling', 'trend', 'notes'],
   }
   const SCOPE = {
     type: 'object',
@@ -672,9 +706,11 @@ async function runAudit(plan, deps) {
     log('measure skipped: no scriptsDir')
   } else {
     const measured = await agent(buildMeasurePrompt(plan), agentOpts(plan, 'measure', { label: 'measure', phase: 'Measure', schema: S.MEASURE }))
-    if (measured) {
+    if (measured && measured.metricsWritten === true) {
       metricsPath = trimDir(plan.workDir) + '/metrics.json'
-      digest = formatMetricsDigest(measured)
+      digest = formatMetricsDigest(measured, { metricsPath, since: shiftMonths(plan.date, -12), recent: shiftMonths(plan.date, -3) })
+    } else if (measured) {
+      log('WARNING: measure wrote no metrics file; continuing without measurements' + ((measured.notes || []).length ? ' (' + measured.notes.join('; ') + ')' : ''))
     } else {
       log('WARNING: measure returned no result; continuing without measurements')
     }
@@ -703,7 +739,7 @@ async function runAudit(plan, deps) {
       return {
         contract: 'audit/result-v2', started: true, runId: plan.runId,
         stats: { reviewers: 0, gaps: 0, raw: 0, merged: 0, kept: 0, confirmed: 0, plausible: 0, unverified: 0, refuted: 0, missing: ['scope'], projectedAgents: projected.total, droppedGaps: [], unverifiedByCap: 0 },
-        report: null, kept: [], refuted: [], proposal: null, metricsPath,
+        report: null, kept: [], refuted: [], proposal: null, metricsPath, date: plan.date,
       }
     }
     const proposedR = scopeResult.reviewers || []
@@ -795,7 +831,7 @@ async function runAudit(plan, deps) {
   log('verification: ' + keptRaw.length + ' kept, ' + refutedRaw.length + ' refuted')
 
   phase('Synthesize')
-  const keptPayload = keptRaw.map((k) => ({ findingId: k.id, title: k.title, severity: k.finalSeverity, rating: k.rating, category: k.category, locations: k.locations, evidence: k.evidence, correctedEvidence: k.correctedEvidence, impact: k.impact, recommendation: k.recommendation, effort: k.effort, verdict: k.verdict, trackedId: k.trackedId }))
+  const keptPayload = keptRaw.map((k) => ({ findingId: k.id, title: k.title, severity: k.finalSeverity, rating: k.rating, category: k.category, locations: k.locations, evidence: k.evidence, correctedEvidence: k.correctedEvidence, impact: k.impact, recommendation: k.recommendation, effort: k.effort, verdict: k.verdict, trackedId: k.trackedId, metrics: k.metrics }))
   const refutedPayload = refutedRaw.map((d) => ({ findingId: d.id, title: d.title }))
   const slicePayload = allSlices.map((s) => ({ key: s.key, label: s.label, summary: s.sliceSummary, strengths: s.strengths }))
   const criticLine = criticState(plan, critic) === 'disabled' ? 'GAP CRITIC: disabled for this run.'
@@ -820,6 +856,7 @@ async function runAudit(plan, deps) {
       evidence: k.evidence + (k.correctedEvidence ? '\n\nVerifier correction: ' + k.correctedEvidence : ''),
       impact: k.impact, recommendation: k.recommendation, confidence: k.confidence, rating: k.rating || 'watch', sliceKey: (k.sources || [])[0],
     }
+    if (k.metrics) row.metrics = k.metrics
     if (k.verdict === 'UNVERIFIED') row.unverifiedReason = cappedIds.has(k.id) ? 'cap' : 'no-verifier'
     return row
   })
@@ -862,7 +899,7 @@ async function runAudit(plan, deps) {
     unverified: keptRaw.filter((k) => k.verdict === 'UNVERIFIED').length, refuted: refutedOut.length, missing,
     projectedAgents: projected.total, droppedGaps, unverifiedByCap: capResult.unverified.length,
   }
-  return { contract: 'audit/result-v2', started: true, runId: plan.runId, stats, report, kept: keptOut, refuted: refutedOut, proposal, metricsPath }
+  return { contract: 'audit/result-v2', started: true, runId: plan.runId, stats, report, kept: keptOut, refuted: refutedOut, proposal, metricsPath, date: plan.date }
 }
 
 // @core-end

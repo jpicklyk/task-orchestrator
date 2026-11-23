@@ -2,6 +2,9 @@
 // audit-metrics: churn, complexity, change coupling and module graph for the codebase audit.
 //   node audit-metrics.mjs --root <repo> --paths <p1,p2,...> --since <YYYY-MM-DD> --recent <YYYY-MM-DD> --out <file.json>
 //        [--module-depth N] [--top N] [--lang-table <json>] [--max-commit-files N]
+// A module is a base directory plus up to --module-depth directory segments below it. A base is a source root derived from
+// resolved package imports, or the common directory of a connected group of relative imports; a file with none uses the
+// common directory of its --paths entry.
 // Read-only on the repository (git log, ls-files, show, and file reads); writes only --out.
 // Exit 0 on success, 2 on a usage error or a --root that is not a git work tree.
 import { spawnSync } from 'node:child_process';
