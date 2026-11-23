@@ -596,7 +596,7 @@ test('S16 the page is self-contained, responsive and dark-aware', () => {
     assert.ok(!html.includes('href="http'))
     assert.equal(count(html, '<script'), 1)
     assert.ok(html.includes('<meta name="viewport"'))
-    assert.match(html, /@media (prefers-color-scheme:s*dark)/) // CSS whitespace after the colon is insignificant (S16 ambiguity)
+    assert.match(html, /@media \(prefers-color-scheme:\s*dark\)/) // CSS whitespace after the colon is insignificant (S16 ambiguity)
     assert.ok(html.includes(':root'))
   }
   assert.ok(textOf(pages[1]).includes('https://x.example'))
