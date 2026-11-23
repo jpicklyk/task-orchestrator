@@ -1,5 +1,65 @@
 {
   "tools": {
+    "audit-scope.mjs": {
+      "ops": [
+        "run"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "exit:2",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "audit-metrics.mjs": {
+      "ops": [
+        "run"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "exit:2",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "audit-confirm.mjs": {
+      "ops": [
+        "run"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "exit:2",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
+    "audit-report-html.mjs": {
+      "ops": [
+        "run"
+      ],
+      "codes": [
+        "exit:0",
+        "exit:1",
+        "exit:2",
+        "Error",
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError"
+      ]
+    },
     "config-sync.mjs": {
       "ops": [
         "SessionStart",

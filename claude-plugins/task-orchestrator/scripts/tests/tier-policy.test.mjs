@@ -610,7 +610,7 @@ describe('S13 policy without tiers', () => {
   test('the shipped policy still loads and classes are unchanged in shape', () => {
     // Literals from the pre-existing dispatch-policy.test.mjs (committed before this item).
     assert.doesNotThrow(() => loadPolicy());
-    assert.equal(classNames().length, 11);
+    assert.equal(classNames().length, 14);
     assert.deepEqual(loadPolicy().models, ['opus', 'sonnet', 'haiku', 'fable']);
     assert.deepEqual(forClass('review'), { model: 'opus', effort: 'high' });
     assert.deepEqual(forClass('implementation'), { model: 'sonnet', effort: 'medium' });

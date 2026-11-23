@@ -1,0 +1,184 @@
+{
+  "contract": "audit/metrics-v1",
+  "root": ".",
+  "paths": [
+    "current/src/main/kotlin"
+  ],
+  "window": {
+    "since": "2025-11-22",
+    "recent": "2026-08-22"
+  },
+  "generatedFrom": {
+    "headSha": "0000000"
+  },
+  "files": [
+    {
+      "path": "current/src/main/kotlin/AdvanceService.kt",
+      "lang": "kotlin",
+      "loc": 1489,
+      "churn": 84,
+      "churnRecent": 31,
+      "indentComplexity": 2410,
+      "maxNesting": 7,
+      "branchComplexity": 310,
+      "topFunctions": [],
+      "hotspotScore": 0.92
+    },
+    {
+      "path": "current/src/main/kotlin/YamlSchemaParser.kt",
+      "lang": "kotlin",
+      "loc": 900,
+      "churn": 51,
+      "churnRecent": 12,
+      "indentComplexity": 1500,
+      "maxNesting": 6,
+      "branchComplexity": null,
+      "topFunctions": null,
+      "hotspotScore": 0.71
+    },
+    {
+      "path": "current/src/main/kotlin/CurrentMcpServer.kt",
+      "lang": "kotlin",
+      "loc": 700,
+      "churn": 40,
+      "churnRecent": 15,
+      "indentComplexity": 900,
+      "maxNesting": 5,
+      "branchComplexity": 120,
+      "topFunctions": [],
+      "hotspotScore": 0.44
+    },
+    {
+      "path": "current/src/main/kotlin/UnitRunner.kt",
+      "lang": "kotlin",
+      "loc": 120,
+      "churn": 9,
+      "churnRecent": 2,
+      "indentComplexity": 80,
+      "maxNesting": 3,
+      "branchComplexity": 11,
+      "topFunctions": [],
+      "hotspotScore": 0.05
+    },
+    {
+      "path": "current/src/main/kotlin/notes.txt",
+      "lang": null,
+      "loc": 20,
+      "churn": 1,
+      "churnRecent": 0,
+      "indentComplexity": 10,
+      "maxNesting": 1,
+      "branchComplexity": null,
+      "topFunctions": null,
+      "hotspotScore": 0.01
+    }
+  ],
+  "repoHotSet": [],
+  "hotSet": [
+    "current/src/main/kotlin/YamlSchemaParser.kt",
+    "current/src/main/kotlin/AdvanceService.kt",
+    {
+      "path": "current/src/main/kotlin/CurrentMcpServer.kt"
+    }
+  ],
+  "coupling": [],
+  "trend": [
+    {
+      "path": "current/src/main/kotlin/AdvanceService.kt",
+      "samples": [
+        {
+          "sha": "a1b2c3d",
+          "date": "2026-02-01",
+          "indentComplexity": 1800
+        },
+        {
+          "sha": "b2c3d4e",
+          "date": "2026-05-01",
+          "indentComplexity": 2100
+        },
+        {
+          "sha": "c3d4e5f",
+          "date": "2026-08-01",
+          "indentComplexity": 2410
+        }
+      ]
+    },
+    {
+      "path": "current/src/main/kotlin/YamlSchemaParser.kt",
+      "samples": [
+        {
+          "sha": "d4e5f60",
+          "date": "2026-06-01",
+          "indentComplexity": 1500
+        }
+      ]
+    }
+  ],
+  "modules": {
+    "depth": 2,
+    "nodes": [
+      {
+        "id": "application/service",
+        "files": 30,
+        "loc": 6000,
+        "fanIn": 12,
+        "fanOut": 9,
+        "instability": 0.43
+      },
+      {
+        "id": "domain",
+        "files": 40,
+        "loc": 5000,
+        "fanIn": 20,
+        "fanOut": 0,
+        "instability": 0
+      },
+      {
+        "id": "interfaces/shared",
+        "files": 25,
+        "loc": 4000,
+        "fanIn": 3,
+        "fanOut": 8,
+        "instability": 0.73
+      },
+      {
+        "id": "mcp",
+        "files": 10,
+        "loc": 1500,
+        "fanIn": 2,
+        "fanOut": 6,
+        "instability": 0.75
+      }
+    ],
+    "edges": [
+      {
+        "from": "interfaces/shared",
+        "to": "mcp",
+        "count": 4
+      },
+      {
+        "from": "mcp",
+        "to": "interfaces/shared",
+        "count": 2
+      }
+    ],
+    "cycles": [
+      [
+        "interfaces/shared",
+        "mcp"
+      ]
+    ],
+    "unresolved": 17
+  },
+  "languages": {
+    "recognised": {
+      ".kt": 4
+    },
+    "unrecognised": {
+      ".txt": 1
+    }
+  },
+  "notes": [
+    "Synthetic fixture: values are hand-written, not measured."
+  ]
+}

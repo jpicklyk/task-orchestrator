@@ -1,0 +1,417 @@
+{
+  "summary": "Fixture reduced from a real audit run",
+  "agentCount": 30,
+  "logs": [
+    "7/7 reviewers returned",
+    "verification: 65 kept, 3 refuted"
+  ],
+  "result": {
+    "contract": "audit/result-v2",
+    "runId": "a-server-backend-2026-11-22",
+    "date": "2026-11-22",
+    "stats": {
+      "reviewers": 7,
+      "gaps": 0,
+      "raw": 77,
+      "merged": 68,
+      "kept": 65,
+      "confirmed": 17,
+      "plausible": 0,
+      "unverified": 48,
+      "refuted": 3,
+      "missing": [],
+      "projectedAgents": 27,
+      "droppedGaps": [],
+      "unverifiedByCap": 48
+    },
+    "report": {
+      "reportPath": "plans/server-backend-audit-2026-11-22.html",
+      "healthVerdict": "The core (transactions, state machine, credentials) is well built and fails closed. Its defects sit at the edges: inconsistent fault classification, scope enforcement by convention, incomplete cascade side-effects, and a few hot-spot files every feature edits. Nothing found is critical or high.",
+      "executiveSummary": "Seven reviewers (4 slices, 3 lenses) kept 65 findings: 19 medium, 46 low, none critical or high. 17 are CONFIRMED and 48 UNVERIFIED; 3 were refuted. Strengths: a single transaction owner (UnitRunner), a data-driven state machine with a pure gate order, hash-only fail-closed credentials, scope that never reveals whether an item exists, and one dispatcher for MCP and REST. Problems: faults are classified in several places that disagree, and some INTERNAL outcomes are never logged (R04, R05, R13-R16). Scope is enforced per handler, with one confirmed SSE leak (R01). Run and cascade side-effects are incomplete (R02, R08, R22). Fail-open defaults pass the compiler (R20, R24, R27, R29). AdvanceService, YamlSchemaParser and CurrentMcpServer are hot spots (R09, R10, R50). Do first: R01, R02, R04, R05, R06, R07, R03, and verify R11 and R28.",
+      "themes": [
+        {
+          "name": "T1 Fault classification has no single owner",
+          "summary": "PersistenceFaults, LegacyFaults, ScopeGuard's catch-all and ApiStatusPages classify the same faults differently, some INTERNAL outcomes go unlogged, and config-fault capture is copied by hand. Remedy: one FaultTranslator port, one logging point, config exceptions passed through UnitRunner, a per-element catch in BatchRunner.",
+          "reportIds": [
+            "R04",
+            "R05",
+            "R13",
+            "R14",
+            "R15",
+            "R16",
+            "R34",
+            "R40",
+            "R45",
+            "R48"
+          ]
+        },
+        {
+          "name": "T2 Scope enforcement is a per-handler convention",
+          "summary": "Capability is declared on the spec and checked centrally; root and tag scope is applied by hand in about 70 handlers, the SSE loop and the direct routes. Remedy: a scope rule declared on every SelectSpec and OpSpec, a registry-wide restricted-scope sweep test, and a JWKS default that denies by scope.",
+          "reportIds": [
+            "R01",
+            "R11",
+            "R12",
+            "R30",
+            "R31",
+            "R35"
+          ]
+        },
+        {
+          "name": "T3 Fail-open defaults on wiring parameters",
+          "summary": "Security-relevant constructor and dispatch parameters default to off, LOCAL or a fresh instance, so leaving one unwired still compiles. Remedy: no defaults in production constructors; named constants and test builders for the off cases.",
+          "reportIds": [
+            "R20",
+            "R24",
+            "R27",
+            "R29"
+          ]
+        }
+      ],
+      "strengths": [
+        "A single transaction owner keeps writes atomic (see R04 for the batch edge).",
+        "Credentials are stored as hashes and fail closed."
+      ],
+      "roadmap": {
+        "now": [
+          "Close the SSE scope leak (R01) and the fail-open defaults (R20)."
+        ],
+        "next": [
+          "One fault translator for every route (R15, R04)."
+        ],
+        "later": [
+          "Split AdvanceService by concern (R09)."
+        ]
+      },
+      "method": "Seven reviewers read four slices and three lenses; every finding was merged, then one agent tried to refute it where the cap allowed.",
+      "coverage": {
+        "reviewers": [
+          {"key": "application-support", "label": "Application support", "kind": "code"},
+          {"key": "domain-core-services", "label": "Domain core services", "kind": "code"},
+          "interfaces-bootstrap"
+        ],
+        "notExamined": [
+          "Gradle build scripts"
+        ],
+        "critic": "disabled",
+        "verification": {
+          "confirmed": 17,
+          "refuted": 3,
+          "unverifiedByCap": 48,
+          "unverifiedNoVerifier": 0
+        }
+      }
+    },
+    "kept": [
+      {
+        "findingId": "application-support-1",
+        "reportId": "R03",
+        "title": "Type-only schema view omits the type's default_traits notes and seats, disagreeing with what an item of that type is gated on",
+        "severity": "medium",
+        "verdict": "CONFIRMED",
+        "category": "api-design",
+        "effort": "S",
+        "locations": [
+          "current/src/main/kotlin/io/github/jpicklyk/mcptask/current/application/config/EffectiveConfigResolver.kt:174-178 (resolveTypeSchema)",
+          "current/src/main/kotlin/io/github/jpicklyk/mcptask/current/application/config/LayeredConfig.kt:70 (resolveTypeSchema = resolveBaseSchema)"
+        ],
+        "trackedId": "91710fb6",
+        "evidence": "Resolving a type-only schema view returns fewer notes than the schema an item of that type is gated on.",
+        "impact": "Callers that read the type schema to prepare an item miss the default_traits notes and seats, then hit a gate they were never told about.",
+        "recommendation": "Resolve the type view through the same trait merge the item view uses, and add a test that both views agree.",
+        "confidence": "high",
+        "rating": "act-now",
+        "sliceKey": "application-support"
+      },
+      {
+        "findingId": "infrastructure-persistence-2",
+        "reportId": "R07",
+        "title": "Integer env vars parse silently with no range check; API_SSE_AUTH_CHECK_INTERVAL_SECONDS <= 0 busy-spins a thread per SSE connection",
+        "severity": "medium",
+        "verdict": "CONFIRMED",
+        "category": "error-handling",
+        "effort": "S",
+        "locations": [
+          "current/src/main/kotlin/io/github/jpicklyk/mcptask/current/infrastructure/config/AppConfig.kt:170-206 (fromEnv: MCP_HTTP_PORT, DATABASE_MAX_CONNECTIONS, API_SSE_AUTH_CHECK_INTERVAL_SECONDS, API_SSE_BUFFER_SIZE, CORS_MAX_AGE_SECONDS)",
+          "current/src/main/kotlin/io/github/jpicklyk/mcptask/current/interfaces/api/v1/routes/EventRoutes.kt:520-536 (partner: token-expiry loop)"
+        ],
+        "trackedId": "f3bbf583",
+        "evidence": "Integer environment variables are parsed without a range check; a zero or negative SSE auth interval is accepted.",
+        "impact": "A zero interval makes each SSE connection spin a thread, so one misconfigured variable degrades the whole server.",
+        "recommendation": "Parse integers through one bounded helper that rejects values outside a documented range at startup.",
+        "confidence": "high",
+        "rating": "plan-it",
+        "sliceKey": "infrastructure-persistence"
+      },
+      {
+        "findingId": "error-handling-contracts-1",
+        "reportId": "R04",
+        "title": "Per-element batch: a non-persistence exception in element N turns the whole call into internal after elements 0..N-1 committed",
+        "severity": "medium",
+        "verdict": "CONFIRMED",
+        "category": "transactions",
+        "effort": "S",
+        "locations": [
+          "current/src/main/kotlin/io/github/jpicklyk/mcptask/current/application/api/BatchRunner.kt:runPerElement",
+          "current/src/main/kotlin/io/github/jpicklyk/mcptask/current/infrastructure/sqlite/UnitRunner.kt:119-123"
+        ],
+        "trackedId": "",
+        "evidence": "BatchRunner catches only persistence faults per element, so any other exception escapes after earlier elements committed.",
+        "impact": "A caller sees an internal error for the whole call although part of the batch was applied.",
+        "recommendation": "Catch per element and report the failing index with the partial results.",
+        "confidence": "high",
+        "rating": "plan-it",
+        "sliceKey": "error-handling-contracts"
+      },
+      {
+        "findingId": "domain-core-services-2",
+        "reportId": "R09",
+        "title": "AdvanceService hot spot: one 1,489-line class owns policy mapping, apply, cascades, leases, typed-block validation and legacy messages",
+        "severity": "medium",
+        "verdict": "CONFIRMED",
+        "category": "cohesion",
+        "effort": "M",
+        "locations": [
+          "current/src/main/kotlin/io/github/jpicklyk/mcptask/current/application/service/AdvanceService.kt"
+        ],
+        "trackedId": "",
+        "evidence": "AdvanceService is one class of roughly fifteen hundred lines that mixes policy mapping, apply, cascades and leases.",
+        "impact": "Every feature that touches transitions edits this file, which raises merge conflicts and review cost.",
+        "recommendation": "Extract cascade and lease handling behind the existing service seam, one concern per step.",
+        "confidence": "medium",
+        "rating": "plan-it",
+        "sliceKey": "domain-core-services"
+      },
+      {
+        "findingId": "domain-core-services-3",
+        "reportId": "R20",
+        "title": "Fail-open constructor defaults on AdvanceService silently disable seat enforcement, leases and pins when a parameter is not wired",
+        "severity": "low",
+        "verdict": "CONFIRMED",
+        "category": "security-architecture",
+        "effort": "S",
+        "locations": [
+          "current/src/main/kotlin/io/github/jpicklyk/mcptask/current/application/service/AdvanceService.kt:339-358",
+          "current/src/main/kotlin/io/github/jpicklyk/mcptask/current/application/service/TransitionSnapshotLoader.kt:108-118"
+        ],
+        "trackedId": "",
+        "evidence": "Constructor parameters for seat enforcement, leases and pins default to off.",
+        "impact": "A new construction site that omits a parameter compiles and silently disables the check.",
+        "recommendation": "Make the parameters required, or default them to the enforcing value.",
+        "confidence": "high",
+        "rating": "act-now",
+        "sliceKey": "domain-core-services"
+      },
+      {
+        "findingId": "interfaces-bootstrap-1",
+        "reportId": "R01",
+        "title": "SSE tag-scope cache is never refreshed when ?types= drops item.* events, so access lost through a tag change keeps streaming",
+        "severity": "medium",
+        "verdict": "CONFIRMED",
+        "category": "security-architecture",
+        "effort": "S",
+        "locations": [
+          "current/src/main/kotlin/io/github/jpicklyk/mcptask/current/interfaces/api/v1/routes/EventRoutes.kt:551-566 (flow.collect: typeFilter check before isEventVisibleToTagScope)",
+          "current/src/main/kotlin/io/github/jpicklyk/mcptask/current/interfaces/api/v1/routes/EventRoutes.kt:648-663 (bypassCache only for item.*/scope.* events)"
+        ],
+        "trackedId": "",
+        "evidence": "The SSE loop caches tag scope once and never refreshes it when item events are filtered out.",
+        "impact": "A consumer that lost access through a tag change keeps receiving events.",
+        "recommendation": "Refresh the scope cache on a timer independent of the event filter.",
+        "confidence": "high",
+        "rating": "act-now",
+        "sliceKey": "interfaces-bootstrap"
+      },
+      {
+        "findingId": "security-authz-2",
+        "reportId": "R11",
+        "title": "A JWT without to_scope is unrestricted across every project root",
+        "severity": "medium",
+        "verdict": "UNVERIFIED",
+        "category": "security-architecture",
+        "effort": "S",
+        "locations": [
+          "current/src/main/kotlin/io/github/jpicklyk/mcptask/current/infrastructure/identity/ScopeClaimParser.kt:parse",
+          "current/src/main/kotlin/io/github/jpicklyk/mcptask/current/infrastructure/identity/jwt/JwksApiVerifier.kt (claim mapping, lines ~56-58, 193-297)"
+        ],
+        "trackedId": "",
+        "evidence": "A token without a scope claim is treated as unrestricted across every project root.",
+        "impact": "Any issuer that omits the claim grants cross-project access.",
+        "recommendation": "Deny by default when the claim is absent, behind a documented setting.",
+        "confidence": "medium",
+        "rating": "plan-it",
+        "sliceKey": "security-authz",
+        "unverifiedReason": "cap"
+      },
+      {
+        "findingId": "security-authz-3",
+        "reportId": "R12",
+        "title": "Root/tag scope enforcement relies on each tool handler calling ScopeGuard, with no registry-wide guard",
+        "severity": "medium",
+        "verdict": "UNVERIFIED",
+        "category": "security-architecture",
+        "effort": "M",
+        "locations": [
+          "current/src/main/kotlin/io/github/jpicklyk/mcptask/current/application/support/ScopeGuard.kt (KDoc: 'Tool handlers call it for every item an op touches (the dispatcher cannot...)')",
+          "current/src/main/kotlin/io/github/jpicklyk/mcptask/current/interfaces/shared/tools/ToolDispatcher.kt:dispatch (capability checked centrally, scope only passed through as CallContext.scope)"
+        ],
+        "trackedId": "",
+        "evidence": "Root and tag scope checks depend on each handler calling the guard.",
+        "impact": "A new handler that forgets the call ships without scope enforcement and no test fails.",
+        "recommendation": "Declare a scope rule on every operation spec and sweep the registry in one test.",
+        "confidence": "medium",
+        "rating": "plan-it",
+        "sliceKey": "security-authz",
+        "unverifiedReason": "cap"
+      },
+      {
+        "findingId": "interfaces-bootstrap-7",
+        "reportId": "R15",
+        "title": "REST routes outside the dispatcher do not translate persistence faults: a busy database is 500 internal there but retryable unavailable on /ops",
+        "severity": "medium",
+        "verdict": "UNVERIFIED",
+        "category": "error-handling",
+        "effort": "S",
+        "locations": [
+          "current/src/main/kotlin/io/github/jpicklyk/mcptask/current/interfaces/api/v1/error/ApiStatusPages.kt (else -> EnvelopeEncoder.internal)",
+          "current/src/main/kotlin/io/github/jpicklyk/mcptask/current/interfaces/api/v1/routes/ResourceLeaseRoutes.kt (claimService.activeLeases/forceReleaseLease/leaseHistory called directly)"
+        ],
+        "trackedId": "",
+        "evidence": "Routes outside the dispatcher do not translate persistence faults.",
+        "impact": "A busy database is a 500 on those routes but a retryable error on the dispatcher.",
+        "recommendation": "Route every fault through the one translator.",
+        "confidence": "medium",
+        "rating": "plan-it",
+        "sliceKey": "interfaces-bootstrap",
+        "unverifiedReason": "cap"
+      },
+      {
+        "findingId": "domain-core-services-8",
+        "reportId": "R37",
+        "title": "Start and reopen cascades climb only one level, leaving a terminal grandparent with an active descendant",
+        "severity": "low",
+        "verdict": "UNVERIFIED",
+        "category": "consistency",
+        "effort": "S",
+        "locations": [
+          "current/src/main/kotlin/io/github/jpicklyk/mcptask/current/domain/lifecycle/TransitionPolicy.kt:456-471 (followUps: only User triggers emit Start/Reopen cascades)",
+          "current/src/main/kotlin/io/github/jpicklyk/mcptask/current/domain/lifecycle/TransitionPolicy.kt:490-499 (closedParent: a terminal AUTO parent takes no new children)"
+        ],
+        "trackedId": "",
+        "evidence": "Start and reopen cascades climb a single level.",
+        "impact": "A terminal grandparent can keep an active descendant.",
+        "recommendation": "Walk the ancestor chain until a non-terminal parent is found.",
+        "confidence": "medium",
+        "rating": "watch",
+        "sliceKey": "domain-core-services",
+        "unverifiedReason": "cap"
+      },
+      {
+        "findingId": "application-support-11",
+        "reportId": "R63",
+        "title": "RunFrontierQueries kdoc says a BLOCKED member waits as manual, but the code reports its typed reason",
+        "severity": "low",
+        "verdict": "UNVERIFIED",
+        "category": "documentation-drift",
+        "effort": "S",
+        "locations": [
+          "current/src/main/kotlin/io/github/jpicklyk/mcptask/current/application/read/RunFrontierQueries.kt:80-81 vs 150-160"
+        ],
+        "trackedId": "",
+        "evidence": "A comment says a blocked member waits as manual, but the code reports its typed reason.",
+        "impact": "Readers trust the comment and misread the frontier output.",
+        "recommendation": "Correct the comment to match the code.",
+        "confidence": "high",
+        "rating": "watch",
+        "sliceKey": "application-support",
+        "unverifiedReason": "cap"
+      },
+      {
+        "findingId": "interfaces-bootstrap-12",
+        "reportId": "R28",
+        "title": "Public-prefix auth bypass matches the raw path with startsWith while the director check is normalization-strict",
+        "severity": "low",
+        "verdict": "UNVERIFIED",
+        "category": "security-architecture",
+        "effort": "S",
+        "locations": [
+          "current/src/main/kotlin/io/github/jpicklyk/mcptask/current/interfaces/api/v1/auth/AuthenticationPlugin.kt (publicPrefixes '/.well-known/' via path.startsWith)"
+        ],
+        "trackedId": "",
+        "evidence": "The public-prefix check matches the raw path while the director check normalises it.",
+        "impact": "A path with dot segments could be judged public by one check and not by the other.",
+        "recommendation": "Normalise once before both checks.",
+        "confidence": "medium",
+        "rating": "watch",
+        "sliceKey": "interfaces-bootstrap",
+        "unverifiedReason": "cap"
+      }
+    ],
+    "refuted": [
+      {
+        "findingId": "domain-core-services-6",
+        "title": "complete from WORK skips the review phase of a schema that has one"
+      },
+      {
+        "findingId": "application-support-6",
+        "title": "LegacyFaults puts raw SQL exception text into client-facing error messages"
+      },
+      {
+        "findingId": "interfaces-bootstrap-2",
+        "title": "MCP-over-HTTP tool calls run under the principal snapshot from the session's first bind, not the credential presented on the current request"
+      }
+    ],
+    "proposal": {
+      "items": [
+        {
+          "findingId": "application-support-1",
+          "class": "bug"
+        },
+        {
+          "findingId": "infrastructure-persistence-2",
+          "class": "tech-debt"
+        },
+        {
+          "findingId": "error-handling-contracts-1",
+          "class": "tech-debt"
+        },
+        {
+          "findingId": "domain-core-services-2",
+          "class": "tech-debt"
+        },
+        {
+          "findingId": "domain-core-services-3",
+          "class": "bug"
+        },
+        {
+          "findingId": "interfaces-bootstrap-1",
+          "class": "bug"
+        },
+        {
+          "findingId": "security-authz-2",
+          "class": "tech-debt"
+        },
+        {
+          "findingId": "security-authz-3",
+          "class": "tech-debt"
+        },
+        {
+          "findingId": "interfaces-bootstrap-7",
+          "class": "tech-debt"
+        },
+        {
+          "findingId": "domain-core-services-8",
+          "class": "tech-debt"
+        },
+        {
+          "findingId": "application-support-11",
+          "class": "tech-debt"
+        },
+        {
+          "findingId": "interfaces-bootstrap-12",
+          "class": "tech-debt"
+        }
+      ]
+    }
+  }
+}
