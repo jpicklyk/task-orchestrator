@@ -70,3 +70,19 @@ export function compileLang(lang) {
   compiled.set(lang, c);
   return c;
 }
+
+/**
+ * Compiles every language of a parsed table now, so a bad regex source surfaces before any file is read.
+ * @param {object} obj parsed languages.json
+ * @throws {Error} naming the language whose patterns do not compile
+ */
+export function validateLanguageTable(obj) {
+  const languages = Array.isArray(obj && obj.languages) ? obj.languages : [];
+  for (const lang of languages) {
+    try {
+      compileLang(lang);
+    } catch (e) {
+      throw new Error(`language ${lang && lang.name}: ${e.message}`);
+    }
+  }
+}

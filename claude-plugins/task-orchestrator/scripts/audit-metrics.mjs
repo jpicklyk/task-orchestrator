@@ -8,6 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { validateLanguageTable } from './lib/audit-metrics/languages.mjs';
 import { collectMetrics } from './lib/audit-metrics/metrics.mjs';
 
 const VALUE_FLAGS = new Set(['root', 'paths', 'since', 'recent', 'out', 'module-depth', 'top', 'lang-table', 'max-commit-files']);
@@ -80,8 +81,9 @@ function main(argv) {
   const tablePath = flags['lang-table'] || join(dirname(fileURLToPath(import.meta.url)), 'lib', 'audit-metrics', 'languages.json');
   try {
     langTable = JSON.parse(readFileSync(tablePath, 'utf8'));
+    validateLanguageTable(langTable);
   } catch (e) {
-    throw new UsageError(`cannot read the language table ${tablePath}: ${e.message}`);
+    throw new UsageError(`--lang-table ${tablePath} is not a usable language table: ${e.message}`);
   }
   const result = collectMetrics({ root: root.replace(/\\/g, '/'), paths, since, recent, moduleDepth, top, maxCommitFiles, langTable }, io);
   mkdirSync(dirname(resolve(flags.out)), { recursive: true });
