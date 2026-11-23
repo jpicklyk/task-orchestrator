@@ -5,10 +5,10 @@ import io.github.jpicklyk.mcptask.current.application.api.notes.NoteDeleteReques
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteHandlers
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteUpsertRequest
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteWriteOutcome
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
+import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import kotlinx.serialization.serializer
 
 /** `notes_write upsert`: create or replace the note at (item, key). */

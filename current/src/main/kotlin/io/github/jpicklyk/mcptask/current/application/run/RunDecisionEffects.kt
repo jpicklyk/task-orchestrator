@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.application.run
 
 import io.github.jpicklyk.mcptask.current.application.port.DecisionEffects
-import io.github.jpicklyk.mcptask.current.domain.error.DomainError
-import io.github.jpicklyk.mcptask.current.domain.error.Outcome
-import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequest
-import io.github.jpicklyk.mcptask.current.domain.model.RunLimitDecisions
+import io.github.jpicklyk.mcptask.current.model.error.DomainError
+import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.model.run.DecisionRequest
+import io.github.jpicklyk.mcptask.current.model.run.RunLimitDecisions
 
 /**
  * The server-class answer effects (plan section 3.9, R27), run inside the answer's unit:

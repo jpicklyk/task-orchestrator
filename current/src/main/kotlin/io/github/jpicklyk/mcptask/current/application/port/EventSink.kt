@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
-import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
+import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
 
 /**
  * Where a unit of work records its typed [DomainEvent]s ([WriteScope.events]). Each call appends one `events`

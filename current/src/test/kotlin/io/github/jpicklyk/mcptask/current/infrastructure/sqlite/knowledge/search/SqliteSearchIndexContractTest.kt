@@ -13,10 +13,10 @@ import io.github.jpicklyk.mcptask.current.application.port.SearchHit
 import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
 import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.application.port.TextQuery
-import io.github.jpicklyk.mcptask.current.domain.model.Note
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.P7Raw
+import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.model.note.Note
 import io.github.jpicklyk.mcptask.current.test.sqlite.CycleTriggers
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -1302,10 +1302,10 @@ class SqliteSearchIndexRelatedContractTest {
             ): UUID =
                 when (
                     val outcome =
-                        documents.write(host.id, io.github.jpicklyk.mcptask.current.domain.model.DocumentKind.PLAN, slug, body)
+                        documents.write(host.id, io.github.jpicklyk.mcptask.current.model.knowledge.DocumentKind.PLAN, slug, body)
                 ) {
-                    is io.github.jpicklyk.mcptask.current.domain.error.Outcome.Ok -> outcome.value.id
-                    is io.github.jpicklyk.mcptask.current.domain.error.Outcome.Err -> kotlin.test.fail("fixture: ${outcome.error.message}")
+                    is io.github.jpicklyk.mcptask.current.model.error.Outcome.Ok -> outcome.value.id
+                    is io.github.jpicklyk.mcptask.current.model.error.Outcome.Err -> kotlin.test.fail("fixture: ${outcome.error.message}")
                 }
             val both = write("both", "zorvathalpha and zorvathbeta here")
             val onlyA = write("only-a", "zorvathalpha only")

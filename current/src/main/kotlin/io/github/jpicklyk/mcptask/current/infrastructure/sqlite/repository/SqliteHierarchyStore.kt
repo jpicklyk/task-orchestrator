@@ -5,12 +5,12 @@ import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.HierarchyStore
 import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
 import io.github.jpicklyk.mcptask.current.application.port.unitNow
-import io.github.jpicklyk.mcptask.current.domain.model.AncestorChain
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.UtcTimestamp
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
+import io.github.jpicklyk.mcptask.current.model.item.AncestorChain
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import org.jetbrains.exposed.v1.core.IntegerColumnType
 import org.jetbrains.exposed.v1.core.VarCharColumnType
 import org.jetbrains.exposed.v1.core.eq

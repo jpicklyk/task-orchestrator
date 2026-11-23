@@ -1,14 +1,14 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.domain.model.IndependenceConstraint
-import io.github.jpicklyk.mcptask.current.domain.model.IndependenceMode
-import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
-import io.github.jpicklyk.mcptask.current.domain.model.IndependenceViolation
-import io.github.jpicklyk.mcptask.current.domain.model.Note
-import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.note.Note
+import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.model.proof.VerificationStatus
+import io.github.jpicklyk.mcptask.current.model.schema.IndependenceConstraint
+import io.github.jpicklyk.mcptask.current.model.schema.IndependenceMode
+import io.github.jpicklyk.mcptask.current.model.schema.IndependencePolicy
+import io.github.jpicklyk.mcptask.current.model.schema.IndependenceViolation
+import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
 
 /**
  * Pure, JSON-free gate-check predicate shared by the MCP advance tool and the REST advance route.
@@ -124,7 +124,7 @@ object GatePredicate {
      * [roleFilter] when non-null) whose note is filled -- (1) N actor-less -> missing_actor;
      * (2) requireVerified and N not VERIFIED -> unverified; then for each seat S in N's
      * independentOf (duplicates collapsed, first wins) with at least one FILLED note owned by S
-     * ([io.github.jpicklyk.mcptask.current.domain.model.OwningSeat]; excluding N itself) --
+     * ([io.github.jpicklyk.mcptask.current.model.note.OwningSeat]; excluding N itself) --
      * (3) any S-note actor-less -> missing_actor (conflictingSeat=S);
      * (4) N has an actor and any S-note's identity equals N's identity -> same_actor
      * (conflictingSeat=S, waiver applied here); (5) requireVerified and any S-note not VERIFIED ->
@@ -196,7 +196,7 @@ object GatePredicate {
     }
 
     /**
-     * Every FILLED note owned by [seat] ([io.github.jpicklyk.mcptask.current.domain.model.OwningSeat]), excluding the
+     * Every FILLED note owned by [seat] ([io.github.jpicklyk.mcptask.current.model.note.OwningSeat]), excluding the
      * note keyed [excludeKey].
      */
     private fun filledNotesForSeat(

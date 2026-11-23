@@ -2,16 +2,16 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.knowledge.docum
 
 import io.github.jpicklyk.mcptask.current.application.port.DocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
-import io.github.jpicklyk.mcptask.current.domain.model.Document
-import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
-import io.github.jpicklyk.mcptask.current.domain.model.DocumentSummary
-import io.github.jpicklyk.mcptask.current.domain.model.DocumentVersion
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQL_IN_CHUNK_SIZE
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.readTx
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.writeTx
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.DocumentVersionsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.DocumentsTable
+import io.github.jpicklyk.mcptask.current.model.knowledge.Document
+import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentKind
+import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentSummary
+import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentVersion
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder

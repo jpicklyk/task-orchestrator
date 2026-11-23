@@ -3,7 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.api.advance
 import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.api.IsoInstantSerializer
 import io.github.jpicklyk.mcptask.current.application.support.IdRef
-import io.github.jpicklyk.mcptask.current.domain.model.BlockedReason
+import io.github.jpicklyk.mcptask.current.model.item.BlockedReason
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.time.Instant

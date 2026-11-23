@@ -9,8 +9,8 @@ import io.github.jpicklyk.mcptask.current.application.port.UnitElement
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.EventRecorder
-import io.github.jpicklyk.mcptask.current.domain.error.DomainError
-import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.model.error.DomainError
+import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import java.time.Instant
 import kotlin.coroutines.coroutineContext
 

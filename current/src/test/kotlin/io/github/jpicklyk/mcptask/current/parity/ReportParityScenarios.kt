@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.parity
 import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.report.ReportKit
-import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.report.R11Json
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.report.R12Json
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
@@ -11,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDescriber
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.test.tools.ToolGoldens
 import io.github.jpicklyk.mcptask.current.test.tools.ToolSurfaceChecks
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson

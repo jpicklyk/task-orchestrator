@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
-import io.github.jpicklyk.mcptask.current.domain.model.ConfigAppendOutcome
-import io.github.jpicklyk.mcptask.current.domain.model.ConfigHead
-import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
-import io.github.jpicklyk.mcptask.current.domain.model.ConfigVersion
-import io.github.jpicklyk.mcptask.current.domain.model.ConfigVersionSource
-import io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation
+import io.github.jpicklyk.mcptask.current.model.config.ConfigAppendOutcome
+import io.github.jpicklyk.mcptask.current.model.config.ConfigHead
+import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
+import io.github.jpicklyk.mcptask.current.model.config.ConfigVersion
+import io.github.jpicklyk.mcptask.current.model.config.ConfigVersionSource
+import io.github.jpicklyk.mcptask.current.model.config.FingerprintRelation
 import java.time.Instant
 import java.util.UUID
 

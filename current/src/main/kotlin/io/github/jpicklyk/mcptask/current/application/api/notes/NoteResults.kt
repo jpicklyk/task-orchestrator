@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.api.notes
 
 import io.github.jpicklyk.mcptask.current.application.service.NoteLengthWarning
-import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
-import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
+import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
+import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
 import java.time.Instant
 import java.util.UUID
 

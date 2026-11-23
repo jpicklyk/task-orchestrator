@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
-import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
-import io.github.jpicklyk.mcptask.current.domain.model.Note
-import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
+import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
+import io.github.jpicklyk.mcptask.current.model.note.Note
+import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
 import java.time.Instant
 import java.util.UUID
 
@@ -29,7 +29,7 @@ data class NoteSummary(
     val modifiedAt: Instant,
     val actorClaim: ActorClaim?,
     val verification: VerificationResult?,
-    /** The owner's seat ([io.github.jpicklyk.mcptask.current.domain.model.Note.ownerSeat]); null for a principal-level owner. */
+    /** The owner's seat ([io.github.jpicklyk.mcptask.current.model.note.Note.ownerSeat]); null for a principal-level owner. */
     val ownerSeat: String? = null
 )
 

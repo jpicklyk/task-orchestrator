@@ -1,0 +1,27 @@
+package io.github.jpicklyk.mcptask.current.model.config
+
+/**
+ * Classifies a caller-supplied fingerprint against a root's stored config state — the
+ * fast-forward push guard's core signal. Computed by
+ * [io.github.jpicklyk.mcptask.current.application.port.ConfigStore.classifyFingerprint]
+ * and consumed by [io.github.jpicklyk.mcptask.current.application.service.ConfigService.push]
+ * (rejects a push classified [SUPERSEDED] unless `force: true`) and surfaced read-side by
+ * the `config` tool's `get` op with a `fingerprint`.
+ */
+enum class FingerprintRelation {
+    /** Matches the root's current stored fingerprint — the caller's local copy is up to date. */
+    CURRENT,
+
+    /**
+     * Present in the root's fingerprint history but not current — the caller's local copy predates
+     * a later push made from elsewhere. Pushing it would silently revert that later change.
+     */
+    SUPERSEDED,
+
+    /**
+     * Neither current nor found in history: no config row exists yet for the root, the row's
+     * history is NULL (a pre-V11 row, or the root's very first push), or the fingerprint simply has
+     * no relation on record (e.g. a divergent edit). Treated as safe to push, not blocked.
+     */
+    UNKNOWN
+}

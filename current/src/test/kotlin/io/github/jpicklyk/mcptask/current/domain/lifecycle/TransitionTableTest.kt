@@ -2,13 +2,13 @@ package io.github.jpicklyk.mcptask.current.domain.lifecycle
 
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionTable.Cell
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionTable.Resolution
-import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.Role.BLOCKED
-import io.github.jpicklyk.mcptask.current.domain.model.Role.QUEUE
-import io.github.jpicklyk.mcptask.current.domain.model.Role.REVIEW
-import io.github.jpicklyk.mcptask.current.domain.model.Role.TERMINAL
-import io.github.jpicklyk.mcptask.current.domain.model.Role.WORK
+import io.github.jpicklyk.mcptask.current.model.item.LifecycleMode
+import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.item.Role.BLOCKED
+import io.github.jpicklyk.mcptask.current.model.item.Role.QUEUE
+import io.github.jpicklyk.mcptask.current.model.item.Role.REVIEW
+import io.github.jpicklyk.mcptask.current.model.item.Role.TERMINAL
+import io.github.jpicklyk.mcptask.current.model.item.Role.WORK
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals

@@ -3,7 +3,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 import io.github.jpicklyk.mcptask.current.application.port.IdempotencyRecord
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.Fingerprint
-import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive

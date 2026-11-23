@@ -3,11 +3,11 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SchemaFacts
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionTable
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
-import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.StatusGraphDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.StatusGraphTypeDto
+import io.github.jpicklyk.mcptask.current.model.item.LifecycleMode
+import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
 
 /**
  * Derives the static status-transition graph from registered work-item schemas.

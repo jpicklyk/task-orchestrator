@@ -16,11 +16,6 @@ import io.github.jpicklyk.mcptask.current.bootstrap.Failed
 import io.github.jpicklyk.mcptask.current.bootstrap.Reason
 import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition
 import io.github.jpicklyk.mcptask.current.bootstrap.StartupOutcome
-import io.github.jpicklyk.mcptask.current.domain.model.ConfigAppendOutcome
-import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
-import io.github.jpicklyk.mcptask.current.domain.model.ConfigVersionSource
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.NetworkntConfigStructuralValidator
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
@@ -35,6 +30,11 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configureTestApp
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeWriteAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.serviceRoutes
+import io.github.jpicklyk.mcptask.current.model.config.ConfigAppendOutcome
+import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
+import io.github.jpicklyk.mcptask.current.model.config.ConfigVersionSource
+import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.test.StrictConfigCases
 import io.github.jpicklyk.mcptask.current.test.callTool
 import io.github.jpicklyk.mcptask.current.test.errorAt

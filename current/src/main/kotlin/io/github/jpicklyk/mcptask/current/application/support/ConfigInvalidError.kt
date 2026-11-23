@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.application.support
 
-import io.github.jpicklyk.mcptask.current.domain.error.ConfigViolation
-import io.github.jpicklyk.mcptask.current.domain.error.DomainError
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
-import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
+import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigInvalidException
+import io.github.jpicklyk.mcptask.current.model.error.ConfigViolation
+import io.github.jpicklyk.mcptask.current.model.error.DomainError
+import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
 
 /**
  * The 4.0 envelope error of an unloadable config head: `config_invalid` (permanent, never `internal`, never absence)

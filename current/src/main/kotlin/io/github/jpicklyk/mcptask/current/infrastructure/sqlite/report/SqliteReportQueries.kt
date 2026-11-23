@@ -27,14 +27,14 @@ import io.github.jpicklyk.mcptask.current.application.port.UsageRow
 import io.github.jpicklyk.mcptask.current.application.port.WasteCount
 import io.github.jpicklyk.mcptask.current.application.port.WasteCounts
 import io.github.jpicklyk.mcptask.current.application.port.WasteQuery
-import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
-import io.github.jpicklyk.mcptask.current.domain.model.BlockedReason
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.TagAllowlistSql
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.WorkViewSql
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.readTx
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.selectSql
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.UtcTimestamp
+import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
+import io.github.jpicklyk.mcptask.current.model.item.BlockedReason
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import org.jetbrains.exposed.v1.core.IColumnType

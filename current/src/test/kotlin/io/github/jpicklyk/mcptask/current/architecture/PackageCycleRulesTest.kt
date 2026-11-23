@@ -66,13 +66,13 @@ class PackageCycleRulesTest {
     fun `S2 a file outside application and the application root file are out of scope`() {
         assertEquals(emptyList(), edgesOf("interfaces/mcp/A.kt", imports = listOf("$app.api.X")))
         assertEquals(emptyList(), edgesOf("application/BuildInfo.kt", imports = listOf("$app.api.X")))
-        assertEquals(emptyList(), edgesOf("domain/model/A.kt", imports = listOf("$app.api.X")))
+        assertEquals(emptyList(), edgesOf("model/item/A.kt", imports = listOf("$app.api.X")))
     }
 
     @Test
     fun `S2 a look-alike package prefix and other layers are not edges`() {
         assertEquals(emptyList(), edgesOf("application/port/A.kt", imports = listOf("$root.applicationx.api.X")))
-        assertEquals(emptyList(), edgesOf("application/port/A.kt", imports = listOf("$root.domain.model.X")))
+        assertEquals(emptyList(), edgesOf("application/port/A.kt", imports = listOf("$root.model.item.X")))
         assertEquals(emptyList(), edgesOf("application/port/A.kt", imports = listOf("kotlinx.serialization.json.JsonObject")))
     }
 

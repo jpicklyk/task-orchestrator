@@ -5,9 +5,9 @@ package io.github.jpicklyk.mcptask.current.architecture
  * out) so [LayeringRulesTest] can prove each rule on synthetic input without a Konsist scan.
  *
  * Layer model (CONTRIBUTING.md, CLAUDE.md): `domain -> application -> infrastructure -> interfaces`; an outer layer may
- * depend on an inner one, the reverse is forbidden.
+ * depend on an inner one, the reverse is forbidden. The shared `model` tree is innermost, beside `domain`.
  *
- * - R1: `domain` must not import from `application`, `infrastructure` or `interfaces`.
+ * - R1: `domain` and `model` (the shared model) must not import from `application`, `infrastructure` or `interfaces`.
  * - R2: `application` must not import from `infrastructure` or `interfaces`.
  * - R3: `infrastructure` must not import from `interfaces`.
  * - R4: `domain` and `application` must not import the transport frameworks, `io.modelcontextprotocol` or `io.ktor`
@@ -53,7 +53,7 @@ object LayeringRules {
     fun forbiddenPrefixesFor(path: String): List<String> {
         val p = path.replace('\\', '/')
         return when {
-            p.startsWith("domain/") -> listOf(APPLICATION, INFRASTRUCTURE, INTERFACES, BOOTSTRAP) + TRANSPORTS
+            p.startsWith("domain/") || p.startsWith("model/") -> listOf(APPLICATION, INFRASTRUCTURE, INTERFACES, BOOTSTRAP) + TRANSPORTS
             p.startsWith("application/") -> listOf(INFRASTRUCTURE, INTERFACES, BOOTSTRAP) + TRANSPORTS
             p.startsWith("infrastructure/") -> listOf(INTERFACES, BOOTSTRAP)
             p.startsWith("interfaces/") -> listOf(BOOTSTRAP)

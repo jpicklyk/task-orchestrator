@@ -2,12 +2,12 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
-import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
-import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
+import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
+import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.getFingerprint
 import io.github.jpicklyk.mcptask.current.test.rootItemId
@@ -123,7 +123,7 @@ class PerRootConfigLayerTest {
         runBlocking {
             // The ConfigTestSupport shim stores NULL canonical_json for YAML that does not parse.
             repository.upsert(rootItemId, "work_item_schemas: [\ninvalid yaml: :\n  - broken")
-            assertFailsWith<io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException> { service.layer(rootItemId) }
+            assertFailsWith<io.github.jpicklyk.mcptask.current.model.config.PerRootConfigInvalidException> { service.layer(rootItemId) }
         }
 
     @Test

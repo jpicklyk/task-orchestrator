@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.application.run
 
-import io.github.jpicklyk.mcptask.current.domain.model.Run
-import io.github.jpicklyk.mcptask.current.domain.model.RunBudget
-import io.github.jpicklyk.mcptask.current.domain.model.RunInFlight
-import io.github.jpicklyk.mcptask.current.domain.model.RunReleased
-import io.github.jpicklyk.mcptask.current.domain.model.RunTerminalReason
+import io.github.jpicklyk.mcptask.current.model.run.Run
+import io.github.jpicklyk.mcptask.current.model.run.RunBudget
+import io.github.jpicklyk.mcptask.current.model.run.RunInFlight
+import io.github.jpicklyk.mcptask.current.model.run.RunReleased
+import io.github.jpicklyk.mcptask.current.model.run.RunTerminalReason
 import java.util.UUID
 
 /**

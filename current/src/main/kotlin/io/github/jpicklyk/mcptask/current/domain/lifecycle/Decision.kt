@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.domain.lifecycle
 
-import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.graph.UnsatisfiedBlocker
-import io.github.jpicklyk.mcptask.current.domain.model.IndependenceViolation
-import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.model.error.DomainError
+import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.schema.IndependenceViolation
 import java.util.UUID
 
 /** The gate that rejected a transition. */

@@ -8,8 +8,8 @@ import java.util.UUID
 
 /**
  * Server-enforced TTL lease store for shared external resources (see
- * [io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement] /
- * [io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition]). Mirrors
+ * [io.github.jpicklyk.mcptask.current.model.lease.ResourceRequirement] /
+ * [io.github.jpicklyk.mcptask.current.model.lease.ResourceDefinition]). Mirrors
  * `V15__Resource_Leases.sql` exactly.
  *
  * `(resource_key, holder_item_id)` is unique — deliberately NOT unique on [resourceKey] alone, so

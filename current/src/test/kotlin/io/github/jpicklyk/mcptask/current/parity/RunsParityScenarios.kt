@@ -2,14 +2,14 @@ package io.github.jpicklyk.mcptask.current.parity
 
 import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
-import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestAnswerers
-import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestSeverity
-import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestStatus
-import io.github.jpicklyk.mcptask.current.domain.model.RunPauseReason
-import io.github.jpicklyk.mcptask.current.domain.model.RunStatus
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestAnswerers
+import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestSeverity
+import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestStatus
+import io.github.jpicklyk.mcptask.current.model.run.RunPauseReason
+import io.github.jpicklyk.mcptask.current.model.run.RunStatus
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray

@@ -19,7 +19,7 @@ import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallRoot
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallSearchHitMix
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallSearchShape
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
-import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.model.item.Role
 import java.security.MessageDigest
 import java.util.Locale
 import java.util.UUID

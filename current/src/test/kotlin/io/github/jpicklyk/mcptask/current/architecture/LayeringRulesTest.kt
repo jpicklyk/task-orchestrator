@@ -33,7 +33,7 @@ class LayeringRulesTest {
             listOf("io.ktor.server.application.ApplicationCall"),
             imports("application/service/X.kt", "io.ktor.server.application.ApplicationCall")
         )
-        assertEquals(listOf("io.ktor.http.HttpStatusCode"), imports("domain/model/X.kt", "io.ktor.http.HttpStatusCode"))
+        assertEquals(listOf("io.ktor.http.HttpStatusCode"), imports("model/item/X.kt", "io.ktor.http.HttpStatusCode"))
     }
 
     @Test
@@ -63,7 +63,7 @@ class LayeringRulesTest {
     @Test
     fun `S3 R5 flags every layer importing bootstrap but not the root package or bootstrap itself`() {
         val composition = "$root.bootstrap.ServerComposition"
-        for (layer in listOf("domain/model", "application/api", "infrastructure/config", "interfaces/api/v1/routes")) {
+        for (layer in listOf("model/item", "application/api", "infrastructure/config", "interfaces/api/v1/routes")) {
             assertEquals(listOf(composition), imports("$layer/X.kt", composition), layer)
         }
         assertEquals(emptyList(), imports("CurrentMain.kt", composition))
@@ -74,9 +74,11 @@ class LayeringRulesTest {
 
     @Test
     fun `S4 R1 to R3 flag inward-to-outward edges and allow the outward-to-inward ones`() {
-        assertEquals(listOf("$root.application.api.X"), imports("domain/model/A.kt", "$root.application.api.X"))
-        assertEquals(listOf("$root.infrastructure.sqlite.X"), imports("domain/model/A.kt", "$root.infrastructure.sqlite.X"))
-        assertEquals(listOf("$root.interfaces.mcp.X"), imports("domain/model/A.kt", "$root.interfaces.mcp.X"))
+        assertEquals(listOf("$root.application.api.X"), imports("model/item/A.kt", "$root.application.api.X"))
+        assertEquals(listOf("$root.infrastructure.sqlite.X"), imports("model/item/A.kt", "$root.infrastructure.sqlite.X"))
+        assertEquals(listOf("$root.interfaces.mcp.X"), imports("model/item/A.kt", "$root.interfaces.mcp.X"))
+        assertEquals(listOf("$root.application.api.X"), imports("domain/lifecycle/A.kt", "$root.application.api.X"))
+        assertEquals(listOf("$root.infrastructure.sqlite.X"), imports("domain/lifecycle/A.kt", "$root.infrastructure.sqlite.X"))
         assertEquals(listOf("$root.infrastructure.sqlite.X"), imports("application/service/A.kt", "$root.infrastructure.sqlite.X"))
         assertEquals(listOf("$root.interfaces.api.v1.X"), imports("application/service/A.kt", "$root.interfaces.api.v1.X"))
         assertEquals(listOf("$root.interfaces.api.v1.X"), imports("infrastructure/config/A.kt", "$root.interfaces.api.v1.X"))
@@ -86,13 +88,13 @@ class LayeringRulesTest {
             imports("infrastructure/config/A.kt", "$root.application.port.X"),
             "infrastructure -> application is allowed"
         )
-        assertEquals(emptyList(), imports("application/service/A.kt", "$root.domain.model.X"))
+        assertEquals(emptyList(), imports("application/service/A.kt", "$root.model.item.X"))
         assertEquals(
             emptyList(),
-            imports("interfaces/api/v1/A.kt", "$root.infrastructure.config.X", "$root.application.api.X", "$root.domain.model.X")
+            imports("interfaces/api/v1/A.kt", "$root.infrastructure.config.X", "$root.application.api.X", "$root.model.item.X")
         )
-        assertEquals(emptyList(), imports("domain/model/A.kt", "$root.domain.error.X"))
-        assertEquals(emptyList(), imports("domain/model/A.kt", "$root.applicationx.X"), "a prefix match needs a package boundary")
+        assertEquals(emptyList(), imports("model/item/A.kt", "$root.model.error.X"))
+        assertEquals(emptyList(), imports("model/item/A.kt", "$root.applicationx.X"), "a prefix match needs a package boundary")
     }
 
     // ------------------------------------------------------------------ S5 baseline diff

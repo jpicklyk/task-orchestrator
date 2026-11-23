@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.test
 
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.model.error.Outcome
 
 /**
  * Test stand-in for the removed `WorkItemRepository.inTransaction`: runs [block] as ONE write unit. The unit

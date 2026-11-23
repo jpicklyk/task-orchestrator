@@ -5,12 +5,6 @@ import io.github.jpicklyk.mcptask.current.application.service.CLAIM_T
 import io.github.jpicklyk.mcptask.current.application.service.ClaimRig
 import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
 import io.github.jpicklyk.mcptask.current.application.service.ok
-import io.github.jpicklyk.mcptask.current.domain.error.Outcome
-import io.github.jpicklyk.mcptask.current.domain.model.Dependency
-import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
-import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.P7Raw
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findByFilters
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.StatusGraphDto
@@ -25,6 +19,12 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.CfgKit
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.effectiveOp
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.list
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.obj
+import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
+import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
+import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.model.item.LifecycleMode
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.parity.AdvanceParityScenarios
 import io.github.jpicklyk.mcptask.current.parity.callMcp
 import io.github.jpicklyk.mcptask.current.test.SettableClock

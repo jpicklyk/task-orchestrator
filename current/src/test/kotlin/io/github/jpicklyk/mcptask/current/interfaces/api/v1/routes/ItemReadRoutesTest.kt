@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.orFail
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.patchOf
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.Reply
@@ -9,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.irRestAp
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.make
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.str
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.titles
+import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout

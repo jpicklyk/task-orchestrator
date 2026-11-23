@@ -13,7 +13,7 @@ import kotlin.test.assertTrue
  */
 class ClaimPredicateConfinementTest {
     companion object {
-        val ALLOWED = setOf("domain/model/ClaimState.kt", "infrastructure/sqlite/repository/SqliteClaimStore.kt")
+        val ALLOWED = setOf("model/claim/ClaimState.kt", "infrastructure/sqlite/repository/SqliteClaimStore.kt")
         const val BASELINE = "claim-predicate-baseline.txt"
 
         private val FIELD = Regex("""claimExpiresAt|claim_expires_at""")

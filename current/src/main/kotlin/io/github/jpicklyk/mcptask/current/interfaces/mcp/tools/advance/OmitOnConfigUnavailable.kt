@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance
 
-import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
+import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
 
 /**
  * Runs [block] and, on [PerRootConfigUnavailableException], logs one WARN naming [what] and [id]

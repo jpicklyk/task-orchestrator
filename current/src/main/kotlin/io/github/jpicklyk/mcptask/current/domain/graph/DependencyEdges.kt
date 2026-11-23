@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.domain.graph
 
-import io.github.jpicklyk.mcptask.current.domain.model.Dependency
-import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
-import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
+import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
+import io.github.jpicklyk.mcptask.current.model.item.Role
 import java.util.UUID
 
 /** The result of [DependencyEdges.normalize]: blocking edges and relates links, in first-appearance order. */

@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
+import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.test.P11Driver
 import io.github.jpicklyk.mcptask.current.test.P11MatrixState
 import io.github.jpicklyk.mcptask.current.test.P11_BASE_YAML
@@ -49,11 +49,11 @@ class PreviewAdvanceParityTest {
 
     private fun driver(dir: Path) = P11Driver(EventLogRig.build(db.db, dir, P11_BASE_YAML))
 
-    private suspend fun P11Driver.gate(item: io.github.jpicklyk.mcptask.current.domain.model.WorkItem): JsonObject =
+    private suspend fun P11Driver.gate(item: io.github.jpicklyk.mcptask.current.model.item.WorkItem): JsonObject =
         contextData(item)["gateStatus"]!!.jsonObject
 
     /** `data` of `items_read select=context` for [item] (the removed `get_context` item mode and `get_next_status`). */
-    private suspend fun P11Driver.contextData(item: io.github.jpicklyk.mcptask.current.domain.model.WorkItem): JsonObject =
+    private suspend fun P11Driver.contextData(item: io.github.jpicklyk.mcptask.current.model.item.WorkItem): JsonObject =
         rig.call(ItemContextProbe(), "itemId" to JsonPrimitive(item.id.toString()))["data"]!!.jsonObject
 
     @Test

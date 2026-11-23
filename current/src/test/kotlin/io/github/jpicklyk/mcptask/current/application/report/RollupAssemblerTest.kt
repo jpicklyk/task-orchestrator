@@ -5,8 +5,8 @@ import io.github.jpicklyk.mcptask.current.application.port.DecisionCounts
 import io.github.jpicklyk.mcptask.current.application.port.RunHeader
 import io.github.jpicklyk.mcptask.current.application.port.StalledSeat
 import io.github.jpicklyk.mcptask.current.application.port.StalledSeats
-import io.github.jpicklyk.mcptask.current.domain.model.RunStatus
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.report.rollupJson
+import io.github.jpicklyk.mcptask.current.model.run.RunStatus
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive

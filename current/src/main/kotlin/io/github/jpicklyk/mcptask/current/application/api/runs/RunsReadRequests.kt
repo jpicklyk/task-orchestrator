@@ -3,7 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.api.runs
 import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.api.IsoInstantSerializer
 import io.github.jpicklyk.mcptask.current.application.support.IdRef
-import io.github.jpicklyk.mcptask.current.domain.model.RunStatus
+import io.github.jpicklyk.mcptask.current.model.run.RunStatus
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.time.Instant

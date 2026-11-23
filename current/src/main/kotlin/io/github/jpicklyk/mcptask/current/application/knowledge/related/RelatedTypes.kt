@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.knowledge.related
 
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
-import io.github.jpicklyk.mcptask.current.domain.model.EntityRef
+import io.github.jpicklyk.mcptask.current.model.knowledge.EntityRef
 import java.util.UUID
 
 /**

@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config
 
-import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.detail
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.str
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.wholeError
+import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
 import io.github.jpicklyk.mcptask.current.test.StrictConfigCases
 import io.github.jpicklyk.mcptask.current.test.errorAt
 import io.github.jpicklyk.mcptask.current.test.okResult

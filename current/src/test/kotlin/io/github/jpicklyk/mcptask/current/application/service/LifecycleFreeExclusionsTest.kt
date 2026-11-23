@@ -1,9 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
-import io.github.jpicklyk.mcptask.current.domain.model.Priority
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.orFail
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
@@ -18,6 +15,9 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.titles
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.treeItems
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.twComplete
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.twIds
+import io.github.jpicklyk.mcptask.current.model.item.Priority
+import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.test.blocksDep
 import io.github.jpicklyk.mcptask.current.test.dispatchAsTestActor
 import io.github.jpicklyk.mcptask.current.test.okResult

@@ -8,13 +8,13 @@ import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.PageRequest
 import io.github.jpicklyk.mcptask.current.application.port.unitNow
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ResourceLeaseHistoryTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ResourceLeasesTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.UtcTimestamp
 import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
+import io.github.jpicklyk.mcptask.current.model.lease.ResourceLease
+import io.github.jpicklyk.mcptask.current.model.lease.ResourceLeaseInterval
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
@@ -52,7 +52,7 @@ class SQLiteResourceLeaseRepository(
 ) : LeaseStore {
     /**
      * v1 hard cap on concurrent active holders per resource key. Matches
-     * [io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition.maxHolders]'s own
+     * [io.github.jpicklyk.mcptask.current.model.lease.ResourceDefinition.maxHolders]'s own
      * config-load-time hard cap (a config value > 1 is rejected as a load ERROR — see that
      * property's KDoc). This repository does not read config; a future fan-in ("semaphore")
      * enforcement mode would resolve the caller's actual `maxHolders` and compare against that

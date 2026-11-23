@@ -6,7 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.api.docs.DocLinkEntry
 import io.github.jpicklyk.mcptask.current.application.api.docs.DocListEntry
 import io.github.jpicklyk.mcptask.current.application.api.docs.DocView
 import io.github.jpicklyk.mcptask.current.application.api.docs.DocWriteOutcome
-import io.github.jpicklyk.mcptask.current.domain.model.EntityRef
+import io.github.jpicklyk.mcptask.current.model.knowledge.EntityRef
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject

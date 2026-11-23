@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
-import io.github.jpicklyk.mcptask.current.domain.model.Document
-import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
-import io.github.jpicklyk.mcptask.current.domain.model.DocumentSummary
-import io.github.jpicklyk.mcptask.current.domain.model.DocumentVersion
+import io.github.jpicklyk.mcptask.current.model.knowledge.Document
+import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentKind
+import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentSummary
+import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentVersion
 import java.time.Instant
 import java.util.UUID
 

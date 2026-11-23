@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.support
 
 import io.github.jpicklyk.mcptask.current.application.port.HierarchyStore
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import java.util.UUID
 
 /**

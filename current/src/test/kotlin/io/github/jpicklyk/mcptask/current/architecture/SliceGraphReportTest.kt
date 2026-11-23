@@ -329,10 +329,7 @@ class SliceGraphReportTest {
                 "bootstrap/" to "server",
                 "application/BuildInfo.kt" to "server",
                 // model
-                "domain/model/" to MODEL,
-                "domain/event/" to MODEL,
-                "domain/error/" to MODEL,
-                "domain/validation/" to MODEL,
+                "model/" to MODEL,
                 "domain/lifecycle/" to "lifecycle",
                 "domain/lifecycle/Trigger.kt" to MODEL,
                 "domain/lifecycle/SeatFacts.kt" to MODEL,
