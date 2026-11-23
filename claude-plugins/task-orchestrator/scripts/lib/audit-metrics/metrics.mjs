@@ -145,6 +145,7 @@ export function collectMetrics(options, io) {
   const bases = deriveBases({ importers, universe, scoped: scopedSet });
   const moduleOf = makeModuleOf(scopes, moduleDepth, bases);
   const graph = resolveGraph({ importers, universe, scoped: scopedSet, moduleOf });
+  for (const row of files) row.module = moduleOf(row.path);
   const nodeMap = new Map();
   for (const p of scoped) {
     const id = moduleOf(p);

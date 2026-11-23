@@ -80,3 +80,29 @@ export function pickTrendCommits(fileCommitsNewestFirst) {
   for (let i = 0; i <= 5; i++) picks.push(oldest[Math.round((i * (k - 1)) / 5)]);
   return picks;
 }
+
+/**
+ * Cross-module co-change: for each hot file's coupling entry, the partners that live in another scoped module and changed
+ * with it at least minCount times. moduleOf(path) gives a scoped file's module or null (partners outside the scope are dropped).
+ * An unordered pair already kept under an earlier entry is skipped; an entry with no kept partner is omitted.
+ * @returns {{path: string, commits: number, partners: {path: string, module: string, count: number}[]}[]}
+ */
+export function coChangePairs(coupling, moduleOf, minCount = 3) {
+  const seen = new Set();
+  const out = [];
+  for (const entry of coupling) {
+    const own = moduleOf(entry.path);
+    if (own === null || own === undefined) continue;
+    const partners = [];
+    for (const q of entry.partners) {
+      const m = moduleOf(q.path);
+      if (m === null || m === undefined || m === own || q.count < minCount) continue;
+      const key = [entry.path, q.path].sort(cmp).join('\0');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      partners.push({ path: q.path, module: m, count: q.count });
+    }
+    if (partners.length > 0) out.push({ path: entry.path, commits: entry.commits, partners });
+  }
+  return out;
+}
