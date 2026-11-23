@@ -1,12 +1,8 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps
 
-import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepDirection
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepsListRequest
-import io.github.jpicklyk.mcptask.current.application.port.ListPage
-import io.github.jpicklyk.mcptask.current.application.port.PageRequest
-import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.director
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
@@ -14,6 +10,10 @@ import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.platform.call.CallContext
+import io.github.jpicklyk.mcptask.current.platform.port.ListPage
+import io.github.jpicklyk.mcptask.current.platform.port.PageRequest
+import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.serializer
 import java.util.UUID

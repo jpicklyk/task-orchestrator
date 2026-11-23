@@ -102,7 +102,8 @@ class P5bWriteUnitGuardsTest {
          * less the entries of the files Q32 deleted (the 3.x tool layer and its adapter), which no baseline line can name again,
          * and with CurrentMcpServer.kt at its Q32 path (moved from interfaces/mcp to bootstrap, unchanged),
          * and with the six identity files re-keyed to their R1 paths under infrastructure/identity (moved unchanged, counts unchanged),
-         * and with the five SQLite engine, schema and helper files re-keyed to their paths under platform/sqlite (moved unchanged, counts unchanged).
+         * and with the five SQLite engine, schema and helper files re-keyed to their paths under platform/sqlite (moved unchanged, counts unchanged),
+         * and with ShutdownCoordinator.kt re-keyed to its path under platform/shutdown (moved unchanged, count unchanged).
          */
         val PRE_P5B_BASELINE: Map<String, Int> =
             """
@@ -125,7 +126,7 @@ class P5bWriteUnitGuardsTest {
             infrastructure/sqlite/repository/SQLiteNoteRepository.kt 1
             infrastructure/sqlite/repository/SQLiteResourceLeaseRepository.kt 6
             infrastructure/sqlite/repository/SQLiteWorkItemRepository.kt 10
-            infrastructure/shutdown/ShutdownCoordinator.kt 1
+            platform/shutdown/ShutdownCoordinator.kt 1
             infrastructure/identity/bearer/BearerTokenStore.kt 2
             infrastructure/identity/jwt/JwksApiVerifier.kt 6
             interfaces/api/v1/mapping/Mappers.kt 1

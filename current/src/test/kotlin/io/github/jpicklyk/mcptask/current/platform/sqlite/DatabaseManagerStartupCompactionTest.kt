@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.platform.sqlite
 
-import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
+import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test

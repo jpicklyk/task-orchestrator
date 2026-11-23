@@ -2,6 +2,8 @@ package io.github.jpicklyk.mcptask.current.application.port
 
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceLease
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceLeaseInterval
+import io.github.jpicklyk.mcptask.current.platform.port.ClaimWrite
+import io.github.jpicklyk.mcptask.current.platform.port.PageRequest
 import java.time.Instant
 import java.util.UUID
 
@@ -195,7 +197,7 @@ interface LeaseStore {
     ): Int = throw UnsupportedOperationException("This LeaseStore does not support retention pruning")
 }
 
-/** One page of lease history: [items] plus the [total] of all rows matching the read (mirrors [EventPage]). */
+/** One page of lease history: [items] plus the [total] of all rows matching the read (mirrors `EventPage`). */
 data class LeaseIntervalPage(
     val items: List<ResourceLeaseInterval>,
     val total: Int

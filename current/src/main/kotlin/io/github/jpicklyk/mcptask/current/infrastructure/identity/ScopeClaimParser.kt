@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.identity
 
-import io.github.jpicklyk.mcptask.current.application.port.AccessScope
+import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 import java.util.UUID
 
 /**

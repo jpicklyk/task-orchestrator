@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import io.github.jpicklyk.mcptask.current.application.config.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.config.StatusLabelService
+import io.github.jpicklyk.mcptask.current.platform.yaml.YamlLoaders
 import org.slf4j.LoggerFactory
 import java.io.FileReader
 import java.nio.file.Path

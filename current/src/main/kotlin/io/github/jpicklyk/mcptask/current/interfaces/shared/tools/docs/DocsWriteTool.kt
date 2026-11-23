@@ -1,16 +1,16 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.docs
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.docs.DocAttachRequest
 import io.github.jpicklyk.mcptask.current.application.api.docs.DocDeleteRequest
 import io.github.jpicklyk.mcptask.current.application.api.docs.DocHandlers
 import io.github.jpicklyk.mcptask.current.application.api.docs.DocStateRequest
 import io.github.jpicklyk.mcptask.current.application.api.docs.DocUpsertRequest
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCodec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.idempotency.IdempotencyCodec
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.serializer

@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.domain.graph.BlockingEdge
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
 import io.github.jpicklyk.mcptask.current.model.knowledge.BacklinkRow
+import io.github.jpicklyk.mcptask.current.platform.port.StoreWrite
 import java.util.UUID
 
 /**

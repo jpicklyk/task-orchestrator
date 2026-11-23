@@ -1,12 +1,9 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.report
 
-import io.github.jpicklyk.mcptask.current.application.api.CallContext
-import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.ContentionKind
 import io.github.jpicklyk.mcptask.current.application.port.ContentionPage
 import io.github.jpicklyk.mcptask.current.application.port.ContentionQuery
 import io.github.jpicklyk.mcptask.current.application.port.ContentionRow
-import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.GateDimension
 import io.github.jpicklyk.mcptask.current.application.port.GateRow
 import io.github.jpicklyk.mcptask.current.application.port.GatesPage
@@ -31,7 +28,6 @@ import io.github.jpicklyk.mcptask.current.application.report.ReportGroupBy
 import io.github.jpicklyk.mcptask.current.application.report.ReportKit
 import io.github.jpicklyk.mcptask.current.application.report.ReportNotesRequest
 import io.github.jpicklyk.mcptask.current.application.report.ReportUsageRequest
-import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.report.noteItem
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
@@ -39,6 +35,10 @@ import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.platform.call.CallContext
+import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
+import io.github.jpicklyk.mcptask.current.platform.port.EventRecord
+import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -551,7 +551,7 @@ internal class R11Events(
 /**
  * Independent contract tests (test-author seat, item 82397512, R11) for `ReportQueries.gates`, `contention` and
  * `eventsRetainedSince` over the real SQLite database: the store-level half of scenarios S1 to S5 and S10 to S13 of the frozen
- * test-plan (all NEW-SURFACE). Events are appended through the production [io.github.jpicklyk.mcptask.current.application.port.EventStore]
+ * test-plan (all NEW-SURFACE). Events are appended through the production [io.github.jpicklyk.mcptask.current.platform.port.EventStore]
  * and the port is reached as production reaches it, `repositoryProvider().reportQueries()` inside a read unit.
  *
  * Oracles (task-scope AC1 to AC8, none read from a run): gates count `transition.rejected` rows in `[since, until)`; noteKey,

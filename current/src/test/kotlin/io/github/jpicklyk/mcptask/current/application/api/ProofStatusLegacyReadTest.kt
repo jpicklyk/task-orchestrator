@@ -9,6 +9,8 @@ import io.github.jpicklyk.mcptask.current.model.proof.ProofVocabulary
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationStatus
 import io.github.jpicklyk.mcptask.current.model.proof.proofWire
+import io.github.jpicklyk.mcptask.current.platform.call.ProofStatus
+import io.github.jpicklyk.mcptask.current.platform.call.proofStatus
 import io.github.jpicklyk.mcptask.current.test.envelopeOk
 import io.github.jpicklyk.mcptask.current.test.getNoteVia
 import io.github.jpicklyk.mcptask.current.test.listNotesVia

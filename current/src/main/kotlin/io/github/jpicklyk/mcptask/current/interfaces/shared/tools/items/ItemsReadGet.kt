@@ -1,14 +1,14 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.api.Doc
-import io.github.jpicklyk.mcptask.current.application.support.IdRef
-import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallRoot
-import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.director
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.recordCallRoot
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.recordCallTargetVersion
+import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -22,7 +22,7 @@ import kotlinx.serialization.serializer
  * The view carries the item's pin (`schemaVersion`, and `stale: true` when either pinned config version is no longer
  * the head) when it is pinned.
  *
- * Order: resolve the id under the caller's scope (D2), then [ScopeGuard][io.github.jpicklyk.mcptask.current.application.support.ScopeGuard]
+ * Order: resolve the id under the caller's scope (D2), then [ScopeGuard][io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard]
  * (so an out-of-scope id is `forbidden` before any not-found or `ifVersion` answer), then read. `ifVersion` equal to
  * the stored version answers `{unchanged: true, version}` instead of the view. `fields` adds the three timestamps
  * and/or `ancestors` (compact, root-first, scope-truncated: D3).

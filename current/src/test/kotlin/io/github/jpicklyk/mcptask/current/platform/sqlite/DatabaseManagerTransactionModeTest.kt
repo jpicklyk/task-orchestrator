@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.platform.sqlite
 
-import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
+import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.readTx
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.writeTx
 import kotlinx.coroutines.runBlocking

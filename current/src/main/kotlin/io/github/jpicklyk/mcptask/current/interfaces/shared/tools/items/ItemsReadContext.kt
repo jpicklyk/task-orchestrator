@@ -3,8 +3,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.ClaimStatusCounts
-import io.github.jpicklyk.mcptask.current.application.port.PageRequest
-import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.application.read.ContextScope
 import io.github.jpicklyk.mcptask.current.application.read.ContextView
 import io.github.jpicklyk.mcptask.current.application.service.GatePredicate
@@ -17,10 +15,6 @@ import io.github.jpicklyk.mcptask.current.application.service.buildSeatsJson
 import io.github.jpicklyk.mcptask.current.application.service.computeMissingBySeat
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.service.putSkillExtras
-import io.github.jpicklyk.mcptask.current.application.support.IdRef
-import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallResultCounts
-import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallRoot
-import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.RejectContext
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
@@ -40,6 +34,12 @@ import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceMode
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestStatus
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.recordCallResultCounts
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.recordCallRoot
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.recordCallTargetVersion
+import io.github.jpicklyk.mcptask.current.platform.port.PageRequest
+import io.github.jpicklyk.mcptask.current.platform.port.unitNow
+import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -113,7 +113,7 @@ object ItemsReadContext {
 
     private suspend fun itemMode(
         env: ToolExecutionContext,
-        ctx: io.github.jpicklyk.mcptask.current.application.api.CallContext,
+        ctx: io.github.jpicklyk.mcptask.current.platform.call.CallContext,
         req: Request,
         itemRef: IdRef
     ): Outcome<JsonObject> {
@@ -218,7 +218,7 @@ object ItemsReadContext {
     /** The unsatisfied blockers of a rejected dependency gate the caller may see (decision D-e): `{id, role?, threshold}`. */
     private suspend fun dependencyBlockers(
         env: ToolExecutionContext,
-        ctx: io.github.jpicklyk.mcptask.current.application.api.CallContext,
+        ctx: io.github.jpicklyk.mcptask.current.platform.call.CallContext,
         decision: Decision.Reject
     ): List<JsonObject> {
         val unsatisfied = (decision.context as? RejectContext.Dependency)?.unsatisfied ?: return emptyList()
@@ -297,7 +297,7 @@ object ItemsReadContext {
      */
     private suspend fun resourceLeases(
         env: ToolExecutionContext,
-        ctx: io.github.jpicklyk.mcptask.current.application.api.CallContext,
+        ctx: io.github.jpicklyk.mcptask.current.platform.call.CallContext,
         item: WorkItem
     ): JsonArray? {
         val declared = env.resolveResourceRequirements(item)
@@ -338,7 +338,7 @@ object ItemsReadContext {
 
     private suspend fun healthMode(
         env: ToolExecutionContext,
-        ctx: io.github.jpicklyk.mcptask.current.application.api.CallContext,
+        ctx: io.github.jpicklyk.mcptask.current.platform.call.CallContext,
         req: Request
     ): Outcome<JsonObject> {
         val page =

@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt
 
 import com.nimbusds.jose.jwk.JWKSet
-import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.EgressGuard
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.requireHttpsOrLoopbackKeySource
+import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.cio.CIO

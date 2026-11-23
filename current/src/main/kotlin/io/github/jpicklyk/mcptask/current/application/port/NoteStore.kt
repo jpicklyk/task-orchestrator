@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.port
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.note.Note
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
+import io.github.jpicklyk.mcptask.current.platform.port.StoreWrite
 import java.time.Instant
 import java.util.UUID
 

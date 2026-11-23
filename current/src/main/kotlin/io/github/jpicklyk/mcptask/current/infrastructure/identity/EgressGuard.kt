@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.identity
 
-import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
 import io.ktor.http.Url
 import java.net.Inet4Address
 import java.net.Inet6Address

@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.RunStore
-import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.model.run.Run
 import io.github.jpicklyk.mcptask.current.model.run.RunBudget
 import io.github.jpicklyk.mcptask.current.model.run.RunPauseReason
@@ -13,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.readTx
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.writeTx
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.RunItemsTable
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.RunsTable
+import io.github.jpicklyk.mcptask.current.platform.support.runCatchingNonCancellation
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive

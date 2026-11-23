@@ -1,16 +1,16 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging
 
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
-import io.github.jpicklyk.mcptask.current.application.port.Clock
-import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
-import io.github.jpicklyk.mcptask.current.application.telemetry.CallLogFields
-import io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetry
-import io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetryFactory
-import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
-import io.github.jpicklyk.mcptask.current.infrastructure.logging.MdcValues
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
-import io.github.jpicklyk.mcptask.current.interfaces.shared.auth.auditClaim
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.Dispatched
+import io.github.jpicklyk.mcptask.current.platform.call.auditClaim
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallLogFields
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallTelemetry
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallTelemetryFactory
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.ReqId
+import io.github.jpicklyk.mcptask.current.platform.logging.MdcValues
+import io.github.jpicklyk.mcptask.current.platform.port.Clock
+import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
 import io.ktor.http.HttpHeaders
 import io.ktor.http.content.OutgoingContent
 import io.ktor.server.application.Application

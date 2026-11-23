@@ -116,7 +116,7 @@ export function makeDeadline(budgetMs, startedAt, { now = Date.now, callImpl = c
  * then replaces every CRLF (`\r\n`) with LF (`\n`). Nothing else is touched — a lone `\r`,
  * trailing-newline presence/count, trailing whitespace, a non-leading U+FEFF, and a second leading
  * BOM are all left as-is. Mirrors the Kotlin server's `normalizeConfigForFingerprint`
- * (`infrastructure/security/Sha256Hex.kt`) exactly; the two implementations must never diverge.
+ * (`platform/security/Sha256Hex.kt`) exactly; the two implementations must never diverge.
  * Does not mutate `buf` — decodes to a string, transforms, and re-encodes.
  */
 export function normalizeForFingerprint(buf) {

@@ -5,9 +5,9 @@ import io.github.jpicklyk.mcptask.current.bootstrap.Failed
 import io.github.jpicklyk.mcptask.current.bootstrap.Reason
 import io.github.jpicklyk.mcptask.current.bootstrap.Started
 import io.github.jpicklyk.mcptask.current.bootstrap.StartupOutcome
-import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
+import io.github.jpicklyk.mcptask.current.platform.shutdown.ShutdownCoordinator
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject

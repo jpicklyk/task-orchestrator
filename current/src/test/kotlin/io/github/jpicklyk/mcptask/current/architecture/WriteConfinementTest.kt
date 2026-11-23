@@ -17,7 +17,8 @@ import kotlin.test.assertTrue
  * caller opts in. This guard confines where the marker may be named, opted into or suppressed, so the compiler guarantee
  * cannot be quietly widened:
  *  - the marker names (USE as an annotation) appear only in their allow-lists (service and knowledge dirs, the port dir, the
- *    SQLite impl dirs for StoreWrite; ClaimService.kt, the port dir and three SQLite impl files for ClaimWrite);
+ *    SQLite impl dirs for StoreWrite; ClaimService.kt, the port dir and three SQLite impl files for ClaimWrite; both also
+ *    in `platform/port/WriteConfinement.kt`, the file that declares them);
  *  - an OPT-IN of a marker (`@OptIn`, `@file:OptIn`, `@kotlin.OptIn`, any argument layout) is narrower: StoreWrite only in the
  *    service and knowledge dirs, ClaimWrite only in ClaimService.kt, so a port or SQLite store file can never opt in to its
  *    own marker and unlock an unmarked default or helper method;
@@ -68,6 +69,10 @@ internal class WriteConfinementTest {
         const val STORE_WRITE = "StoreWrite"
         const val CLAIM_WRITE = "ClaimWrite"
         const val PORT_DIR = "application/port/"
+
+        /** The file declaring both marker annotations; it lives in the shared platform port folder, outside [PORT_DIR]. */
+        const val MARKER_FILE = "platform/port/WriteConfinement.kt"
+
         const val CLAIM_SERVICE = "application/service/ClaimService.kt"
 
         private val STORE_OWNER_DIRS = listOf("application/service/", "application/knowledge/")
@@ -109,12 +114,15 @@ internal class WriteConfinementTest {
         /** Marker USE (a bare annotation on a declaration) and mentions: ports, impl dirs and owner dirs. Opt-ins are narrower. */
         fun storeWriteAllowed(path: String): Boolean {
             val p = norm(path)
-            return STORE_OWNER_DIRS.any { p.startsWith(it) } || p.startsWith(PORT_DIR) || IMPL_DIRS.any { p.startsWith(it) }
+            return STORE_OWNER_DIRS.any { p.startsWith(it) } ||
+                p.startsWith(PORT_DIR) ||
+                p == MARKER_FILE ||
+                IMPL_DIRS.any { p.startsWith(it) }
         }
 
         fun claimWriteAllowed(path: String): Boolean {
             val p = norm(path)
-            return p == CLAIM_SERVICE || p.startsWith(PORT_DIR) || p in CLAIM_IMPL_FILES
+            return p == CLAIM_SERVICE || p.startsWith(PORT_DIR) || p == MARKER_FILE || p in CLAIM_IMPL_FILES
         }
 
         // ---------------------------------------------------------------------------------------------------------
@@ -676,7 +684,7 @@ internal class WriteConfinementTest {
     private val storePortPath = "application/port/ItemStore.kt"
     private val storeImplPath = "infrastructure/sqlite/repository/SqliteItemStore.kt"
     private val claimImplPath = "infrastructure/sqlite/repository/SqliteClaimStore.kt"
-    private val portPackage = "io.github.jpicklyk.mcptask.current.application.port"
+    private val portPackage = "io.github.jpicklyk.mcptask.current.platform.port"
 
     // =========================================================================================================
     // Real-tree scans
@@ -724,9 +732,9 @@ internal class WriteConfinementTest {
         val cleaned = sources.associate { GuardSupport.normalizedPath(it.path) to clean(it.text, keepStrings = false) }
 
         fun declaresAnnotation(marker: String) =
-            cleaned.any { (p, c) -> p.startsWith(PORT_DIR) && Regex("""annotation\s+class\s+$marker\b""").containsMatchIn(c) }
-        assertTrue(declaresAnnotation(STORE_WRITE), "control: the StoreWrite annotation class is declared under $PORT_DIR")
-        assertTrue(declaresAnnotation(CLAIM_WRITE), "control: the ClaimWrite annotation class is declared under $PORT_DIR")
+            cleaned.any { (p, c) -> p == MARKER_FILE && Regex("""annotation\s+class\s+$marker\b""").containsMatchIn(c) }
+        assertTrue(declaresAnnotation(STORE_WRITE), "control: the StoreWrite annotation class is declared in $MARKER_FILE")
+        assertTrue(declaresAnnotation(CLAIM_WRITE), "control: the ClaimWrite annotation class is declared in $MARKER_FILE")
 
         val storeUsers = cleaned.filter { (p, c) -> p.startsWith("application/service/") && mentions(c, STORE_WRITE) > 0 }
         assertTrue(storeUsers.size >= 2, "control: service files opt in to StoreWrite; saw ${storeUsers.keys}")
@@ -759,7 +767,7 @@ internal class WriteConfinementTest {
     @Test
     fun `S6 the marker matcher flags every spelling of a marker mention outside the allow-list`() {
         val denied = "application/tools/X.kt"
-        val port = "io.github.jpicklyk.mcptask.current.application.port"
+        val port = "io.github.jpicklyk.mcptask.current.platform.port"
         listOf(
             "@OptIn(StoreWrite::class)\nclass A",
             "@file:OptIn(ClaimWrite::class)\npackage x",

@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.model.knowledge.Document
 import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentKind
 import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentSummary
 import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentVersion
+import io.github.jpicklyk.mcptask.current.platform.port.StoreWrite
 import java.time.Instant
 import java.util.UUID
 

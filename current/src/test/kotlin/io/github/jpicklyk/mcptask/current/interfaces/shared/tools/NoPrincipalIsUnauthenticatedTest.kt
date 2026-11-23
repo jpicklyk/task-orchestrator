@@ -48,7 +48,7 @@ import kotlin.test.assertTrue
  * KDoc may still say what was removed) and is paired with a synthetic positive control so the matcher cannot be vacuous.
  *
  * Domain invariants satisfied by construction: titles are plain strings the fixture `create` op accepts; principals come from the
- * test-support builder (`testAccess`), which satisfies [io.github.jpicklyk.mcptask.current.application.api.Principal] by type.
+ * test-support builder (`testAccess`), which satisfies [io.github.jpicklyk.mcptask.current.platform.call.Principal] by type.
  */
 @Timeout(value = 120, unit = TimeUnit.SECONDS)
 class NoPrincipalIsUnauthenticatedTest {

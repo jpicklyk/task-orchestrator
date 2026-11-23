@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.knowledge.link
 
-import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentKind
+import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 
 /** One `[[...]]` reference found in a body. */
 sealed interface LinkTarget {

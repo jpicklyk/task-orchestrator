@@ -13,7 +13,7 @@ import com.nimbusds.jose.jwk.OctetKeyPair
 import com.nimbusds.jose.jwk.RSAKey
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
-import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.time.Clock

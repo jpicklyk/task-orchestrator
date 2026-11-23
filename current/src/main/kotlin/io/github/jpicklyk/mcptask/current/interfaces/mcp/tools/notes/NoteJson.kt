@@ -1,16 +1,16 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.notes
 
-import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteGetResult
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteListEntry
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteOwner
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteView
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteWriteOutcome
-import io.github.jpicklyk.mcptask.current.application.api.proofStatus
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCodec
 import io.github.jpicklyk.mcptask.current.application.service.NoteLengthWarning
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
+import io.github.jpicklyk.mcptask.current.platform.call.ProofStatus
+import io.github.jpicklyk.mcptask.current.platform.call.proofStatus
+import io.github.jpicklyk.mcptask.current.platform.idempotency.IdempotencyCodec
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean

@@ -336,7 +336,7 @@ reads and writes are ops of the `config` tool (`POST /ops/config`, section 20a),
 present, then every CRLF (`\r\n`) is replaced with LF (`\n`) - nothing else. The stored/served `configYaml` bytes
 are never rewritten; only the value fed into the SHA-256 fingerprint is normalized. A CRLF/BOM checkout (e.g.
 `core.autocrlf=true` on Windows) of byte-identical content therefore produces the same fingerprint as an LF, BOM-less
-checkout. See `infrastructure/security/Sha256Hex.kt`'s `configFingerprint` for the canonical implementation.
+checkout. See `platform/security/Sha256Hex.kt`'s `configFingerprint` for the canonical implementation.
 
 ---
 

@@ -5,11 +5,6 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.support.UnitResult
-import io.github.jpicklyk.mcptask.current.application.support.eventRootOf
-import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
@@ -26,6 +21,14 @@ import io.github.jpicklyk.mcptask.current.model.note.Note
 import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
 import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.platform.eventrecording.noteDeletedEvent
+import io.github.jpicklyk.mcptask.current.platform.eventrecording.noteOwnershipTransferredEvent
+import io.github.jpicklyk.mcptask.current.platform.eventrecording.noteUpsertedEvent
+import io.github.jpicklyk.mcptask.current.platform.port.StoreWrite
+import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.platform.support.UnitResult
+import io.github.jpicklyk.mcptask.current.platform.support.eventRootOf
+import io.github.jpicklyk.mcptask.current.platform.support.writeUnit
 import java.util.UUID
 
 /**

@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.contention
 
-import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
+import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.platform.sqlite.OutsideUnitPolicy
 import io.github.jpicklyk.mcptask.current.test.P11Driver

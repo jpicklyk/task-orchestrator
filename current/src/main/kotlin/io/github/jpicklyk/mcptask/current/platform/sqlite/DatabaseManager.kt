@@ -2,14 +2,14 @@ package io.github.jpicklyk.mcptask.current.platform.sqlite
 
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
-import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
-import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
-import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
+import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.readTxBlocking
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.DatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.FlywayDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.MigrationLock
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.SchemaMode
+import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.platform.support.runCatchingNonCancellation
 import org.jetbrains.exposed.v1.core.DatabaseConfig
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager

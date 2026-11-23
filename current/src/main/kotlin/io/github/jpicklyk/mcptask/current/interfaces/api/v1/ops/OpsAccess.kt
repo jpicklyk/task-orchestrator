@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
-import io.github.jpicklyk.mcptask.current.application.api.Principal
-import io.github.jpicklyk.mcptask.current.interfaces.shared.auth.toCallPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.call.Principal
+import io.github.jpicklyk.mcptask.current.platform.call.toCallPrincipal
 
 /**
  * The [CallAccess] a call runs under on every transport (REST, `/mcp` over HTTP, stdio): the transport principal as

@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.application.api.RequestDecoder
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
-import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
@@ -13,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.CollectingSink
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -597,7 +597,7 @@ class McpHostCaptureTest {
     @Test
     fun `S14 the scan patterns match what they must and ignore what they must`() {
         assertTrue(constructorCall.containsMatchIn("val t = CallTelemetry(reqId = r, surface = s, sessionId = null)"))
-        assertTrue(constructorCall.containsMatchIn("x = io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetry (a, b, c)"))
+        assertTrue(constructorCall.containsMatchIn("x = io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallTelemetry (a, b, c)"))
         assertTrue(constructorReference.containsMatchIn("val make = ::CallTelemetry"))
         assertTrue(!constructorCall.containsMatchIn("CallTelemetryFactory.mcp(reqId, sessionId, name)"), "the factory is not a constructor")
         assertTrue(!constructorCall.containsMatchIn("val x = MyCallTelemetry(1)"), "a different class")

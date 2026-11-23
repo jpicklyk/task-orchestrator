@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade
 
 import ch.qos.logback.classic.Level
-import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
+import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import io.github.jpicklyk.mcptask.current.platform.sqlite.BackupOutcome
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.platform.sqlite.SchemaStartupOutcome

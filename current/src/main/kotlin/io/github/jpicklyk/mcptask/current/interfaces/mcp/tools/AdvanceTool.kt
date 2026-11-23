@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools
 
-import io.github.jpicklyk.mcptask.current.application.service.JsonElementCodec
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.claimOp
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.heartbeatOp
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.releaseOp
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.transitionOp
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
+import io.github.jpicklyk.mcptask.current.platform.idempotency.JsonElementCodec
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonObject
 

@@ -19,7 +19,7 @@ class PackageCycleTest {
         val sources = GuardSupport.productionSources()
         listOf("api", "config", "knowledge", "port", "read", "service", "support", "telemetry").forEach { sub ->
             assertTrue(
-                sources.any { it.path.startsWith("application/$sub/") },
+                sources.any { PackageCycleRules.nodeOfPath(it.path) == sub },
                 "Expected package 'application/$sub' to have at least one file in scope, found 0.",
             )
         }
