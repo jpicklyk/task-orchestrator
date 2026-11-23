@@ -221,7 +221,7 @@ tasks.test {
     finalizedBy("serialTest")
 }
 
-val serialTest by tasks.registering(Test::class) {
+tasks.register<Test>("serialTest") {
     description = "Runs the @Tag(\"serial\") timing-sensitive tests in a single fork."
     group = "verification"
     val testTask = tasks.test.get()
