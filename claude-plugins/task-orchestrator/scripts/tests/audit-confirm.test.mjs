@@ -768,6 +768,18 @@ test('AC2 a metrics-refuted row copies a non-empty reportId; an empty one leaves
   assert.equal('reportId' in byId(out.refuted, emptyId.findingId), false)
 })
 
+test('AC2 a row moves from kept to refuted with its report id: the two id sets of one run are disjoint', () => {
+  const gone = pend('q/e.kt', num('churn', 40))
+  const stays = pend('q/f.kt', num('churn', 40))
+  const plain = judged('q/g.kt')
+  const out = confirmMeasured(result([gone, stays, plain]), metricsOf([frow('q/e.kt', { churn: 60 }), frow('q/f.kt', { churn: 40 })]))
+  const keptIds = out.kept.map((r) => r.reportId)
+  const refutedIds = out.refuted.map((r) => r.reportId)
+  assert.deepEqual(refutedIds, [gone.reportId])
+  assert.deepEqual(keptIds.sort(), [stays.reportId, plain.reportId].sort())
+  assert.deepEqual(keptIds.filter((id) => refutedIds.includes(id)), [])
+})
+
 test('AC5 stats.metricsPending is recounted from the kept rows still pending, and a second pass gives the same value', () => {
   const rows = [pend('q/c.kt', num('churn', 10)), pend('q/d.kt', num('churn', 10))]
   const input = result(rows, { stats: { ...stats0, metricsPending: 2 } })

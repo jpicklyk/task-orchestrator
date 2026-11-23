@@ -225,6 +225,7 @@ export function compareResults(current, previous) {
     if (!now.has(id)) {
       const p = was.get(id);
       if (refutedBy.has(id)) {
+        // confirmMeasured moves a row (and its one-per-finding reportId) from kept to refuted, so the two id sets are disjoint
         out.refutedNow.push({ stableId: id, reportId: refutedBy.get(id).reportId, title: p.title, severity: p.severity });
       } else {
         out.resolved.push({ stableId: id, title: p.title, severity: p.severity });

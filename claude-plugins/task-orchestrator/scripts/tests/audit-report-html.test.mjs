@@ -1211,7 +1211,17 @@ test('AC6 a previous kept stableId that is refuted now is listed under Refuted n
   const sec = sinceSection(renderAuditReport(current, null, previous))
   assert.ok(sec.includes('<h3>Refuted now (1)</h3>'))
   assert.ok(sec.indexOf('<h3>Resolved (1)</h3>') < sec.indexOf('<h3>Refuted now (1)</h3>'))
-  assert.match(sec, /<li>R09 Was open \(high\)<\/li>|<li><a href="#r09">R09<\/a> Was open \(high\)<\/li>/)
+  assert.ok(sec.includes('<li><a href="#r09">R09</a> Was open (high)</li>'), 'a refuted row with a report id is linked')
+  assert.ok(!sec.includes('<li>R09 Was open'), 'and never rendered as plain text')
+  assert.equal(count(renderAuditReport(current, null, previous), 'id="r09"'), 1, 'the link resolves to the Coverage anchor')
+})
+
+test('AC6 a Refuted now item is unlinked when the refuted row has no report id', () => {
+  const previous = res([stable('F-1', 'Was open', 'high', 'R01')])
+  const current = res([], { refuted: [{ findingId: 'rf-1', stableId: 'F-1', title: 'now title', verifiedBy: 'agents' }] })
+  const sec = sinceSection(renderAuditReport(current, null, previous))
+  assert.ok(sec.includes('<li>Was open (high)</li>'), sec)
+  assert.ok(!sec.includes('<a href'), 'no link without a report id')
 })
 
 test('AC6 without a refuted-now row there is no Refuted now heading, and Hot set follows Refuted now', () => {
