@@ -136,7 +136,15 @@ class LayeringRulesTest {
         assertEquals(emptyList(), imports("infrastructure/config/A.kt", "$root.platform.sqlite.X"))
         assertTrue(
             LayeringRules.forbiddenPrefixesFor("infrastructure/config/A.kt").none { it.startsWith("$root.platform") },
-            "no table row names interfaces yet, so infrastructure forbids no platform folder"
+            "the shipped table has no interfaces row, so infrastructure forbids no platform folder"
+        )
+        val table = mapOf("sqlite" to "infrastructure", "web" to "interfaces")
+        val forbidden = LayeringRules.forbiddenPrefixesFor("infrastructure/config/A.kt", table)
+        assertTrue("$root.platform.web" in forbidden, "a folder that counts as interfaces is forbidden to infrastructure")
+        assertTrue("$root.platform.sqlite" !in forbidden, "a folder that counts as infrastructure is allowed to infrastructure")
+        assertTrue(
+            "$root.platform.web" in LayeringRules.forbiddenPrefixesFor("application/service/A.kt", table),
+            "application forbids it too"
         )
     }
 

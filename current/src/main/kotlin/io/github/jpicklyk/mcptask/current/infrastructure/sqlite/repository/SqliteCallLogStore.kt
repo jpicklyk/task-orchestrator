@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.CallLogStore
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.SQL_IN_CHUNK_SIZE
-import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.SqliteEventStore
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.writeTx
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.CallLogTable
 import org.jetbrains.exposed.v1.core.SortOrder
@@ -22,7 +21,7 @@ import java.time.Instant
  * SQLite implementation of [CallLogStore] over [CallLogTable].
  *
  * [append] inserts each row with `INSERT OR IGNORE`, so a duplicate `req_id` (40-bit keys can collide) drops only
- * that row and never fails or poisons the batch. It joins the ambient unit like [SqliteEventStore].
+ * that row and never fails or poisons the batch. It joins the ambient unit like `SqliteEventStore`.
  */
 class SqliteCallLogStore(
     private val databaseManager: DatabaseManager

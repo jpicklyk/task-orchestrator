@@ -8,7 +8,7 @@ import kotlin.test.assertTrue
 
 /**
  * Dialect-neutrality guard (item b094eb86, charter D20): SQLite and Exposed are confined to
- * `infrastructure/sqlite/` and `platform/sqlite/` (both until the slice stores leave `infrastructure/sqlite/`). Outside those prefixes, production code must not
+ * `infrastructure/sqlite/` and `platform/sqlite/` (both, until the slice stores leave the first). Outside them, production code must not
  * - R1: import or fully-qualify anything from `org.sqlite.` or `org.jetbrains.exposed.`, or
  * - R2: carry a SQLite-dialect token (or an `org.sqlite.` / `org.jetbrains.exposed.` reflection name) inside a string literal
  * Comments and KDoc are excluded. Violations are counted per file against the two-way ratcheted baseline
@@ -147,7 +147,7 @@ class DialectNeutralityTest {
     }
 
     @Test
-    fun `production code outside infrastructure sqlite matches the ratcheted dialect-neutrality baseline`() {
+    fun `production code outside infrastructure sqlite and platform sqlite matches the ratcheted dialect-neutrality baseline`() {
         val all = GuardSupport.productionSources()
         assertTrue(all.any { isExempt(it.path) }, "no infrastructure/sqlite or platform/sqlite sources in scope: misrooted Konsist scope")
         val actual = GuardSupport.countByFile(all.filterNot { isExempt(it.path) }) { violations(it.text) }

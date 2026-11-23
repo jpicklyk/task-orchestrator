@@ -59,8 +59,10 @@ object LayeringRules {
         val clean: Boolean get() = unbaselined.isEmpty() && stale.isEmpty()
     }
 
-    private fun platformFoldersCountingAs(vararg layers: String): List<String> =
-        PLATFORM_FOLDER_LAYER.filterValues { it in layers }.keys.map { "$PLATFORM.$it" }
+    private fun platformFoldersCountingAs(
+        folderLayer: Map<String, String>,
+        vararg layers: String
+    ): List<String> = folderLayer.filterValues { it in layers }.keys.map { "$PLATFORM.$it" }
 
     /** The `platform/` folder of [path] (the segment after `platform/`), or `""` for a file directly under it; null outside `platform/`. */
     private fun platformFolderOf(path: String): String? {
@@ -70,19 +72,29 @@ object LayeringRules {
     }
 
     /** The layer a file at [path] belongs to: its first folder, or for `platform/<folder>/` the layer its folder row names. */
-    private fun layerOf(path: String): String? {
+    private fun layerOf(
+        path: String,
+        folderLayer: Map<String, String>
+    ): String? {
         val p = path.replace('\\', '/')
         val platformFolder = platformFolderOf(p)
-        return if (platformFolder != null) PLATFORM_FOLDER_LAYER[platformFolder] else p.substringBefore('/', "")
+        return if (platformFolder != null) folderLayer[platformFolder] else p.substringBefore('/', "")
     }
 
-    /** The package prefixes a file at [path] (relative to the `current/` source root) must not reach. */
-    fun forbiddenPrefixesFor(path: String): List<String> =
-        when (layerOf(path)) {
+    /**
+     * The package prefixes a file at [path] (relative to the `current/` source root) must not reach. [folderLayer] is the
+     * `platform/` folder table, injectable so a test can prove a row the shipped table does not hold yet.
+     */
+    fun forbiddenPrefixesFor(
+        path: String,
+        folderLayer: Map<String, String> = PLATFORM_FOLDER_LAYER
+    ): List<String> =
+        when (layerOf(path, folderLayer)) {
             "domain", "model" -> listOf(APPLICATION, INFRASTRUCTURE, INTERFACES, BOOTSTRAP, PLATFORM) + TRANSPORTS
             "application" ->
-                listOf(INFRASTRUCTURE, INTERFACES, BOOTSTRAP) + platformFoldersCountingAs("infrastructure", "interfaces") + TRANSPORTS
-            "infrastructure" -> listOf(INTERFACES, BOOTSTRAP) + platformFoldersCountingAs("interfaces")
+                listOf(INFRASTRUCTURE, INTERFACES, BOOTSTRAP) +
+                    platformFoldersCountingAs(folderLayer, "infrastructure", "interfaces") + TRANSPORTS
+            "infrastructure" -> listOf(INTERFACES, BOOTSTRAP) + platformFoldersCountingAs(folderLayer, "interfaces")
             "interfaces" -> listOf(BOOTSTRAP)
             else -> emptyList()
         }
