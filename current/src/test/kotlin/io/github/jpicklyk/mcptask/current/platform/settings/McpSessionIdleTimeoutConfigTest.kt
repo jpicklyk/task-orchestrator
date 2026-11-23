@@ -1,6 +1,5 @@
-package io.github.jpicklyk.mcptask.current.infrastructure.config
+package io.github.jpicklyk.mcptask.current.platform.settings
 
-import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith

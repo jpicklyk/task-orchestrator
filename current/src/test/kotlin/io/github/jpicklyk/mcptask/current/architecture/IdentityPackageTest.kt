@@ -261,10 +261,11 @@ class IdentityPackageTest {
                 synthetic("platform/security/X.kt", "import $root.config.AppConfig"),
                 synthetic("platform/security/Y.kt", "val i = $root.identity.jwt.Z()"),
                 synthetic("platform/security/Z.kt", "// import $root.config.AppConfig"),
-                synthetic("platform/security/W.kt", "import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig")
+                synthetic("platform/security/W.kt", "import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig"),
+                synthetic("platform/security/V.kt", "import io.github.jpicklyk.mcptask.current.platform.yaml.YamlSupport")
             )
         assertEquals(
-            setOf("platform/security/X.kt", "platform/security/Y.kt", "platform/security/W.kt"),
+            setOf("platform/security/X.kt", "platform/security/Y.kt", "platform/security/W.kt", "platform/security/V.kt"),
             securityOffenders(seeded).toSet()
         )
     }
@@ -295,7 +296,10 @@ class IdentityPackageTest {
             assertTrue(services.any { GuardSupport.normalizedPath(it.path).startsWith(dir) }, "vacuity: $dir must hold production files")
         }
         val offenders = serviceImportingApi(sources)
-        assertTrue(offenders.isEmpty(), "application/service files reaching application.api (AR-58 edge 1): $offenders")
+        assertTrue(
+            offenders.isEmpty(),
+            "application/service files, platform/eventrecording, platform/idempotency and platform.call reaching application.api (AR-58 edge 1): $offenders"
+        )
     }
 
     @Test
