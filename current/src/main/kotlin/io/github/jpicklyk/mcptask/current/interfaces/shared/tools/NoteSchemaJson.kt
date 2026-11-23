@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
-import io.github.jpicklyk.mcptask.current.domain.model.IndependenceViolation
+import io.github.jpicklyk.mcptask.current.model.schema.IndependenceViolation
 import kotlinx.serialization.json.*
 
 /**

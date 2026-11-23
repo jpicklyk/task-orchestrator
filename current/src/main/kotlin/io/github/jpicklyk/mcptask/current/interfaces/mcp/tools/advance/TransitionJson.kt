@@ -6,7 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceCascadeEven
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceUnblockedItem
 import io.github.jpicklyk.mcptask.current.application.service.BlockerInfo
 import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
-import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.model.item.Role
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive

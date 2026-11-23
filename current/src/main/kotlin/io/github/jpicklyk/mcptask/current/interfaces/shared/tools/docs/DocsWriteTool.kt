@@ -7,10 +7,10 @@ import io.github.jpicklyk.mcptask.current.application.api.docs.DocHandlers
 import io.github.jpicklyk.mcptask.current.application.api.docs.DocStateRequest
 import io.github.jpicklyk.mcptask.current.application.api.docs.DocUpsertRequest
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCodec
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
+import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.serializer

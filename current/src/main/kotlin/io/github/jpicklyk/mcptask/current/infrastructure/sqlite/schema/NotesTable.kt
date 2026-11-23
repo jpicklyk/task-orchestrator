@@ -28,7 +28,7 @@ object NotesTable : IdTable<UUID>("notes") {
     /** V17: lowercase hex SHA-256 digest of the raw proof's UTF-8 bytes, when a proof was supplied. */
     val actorProofSha256 = text("actor_proof_sha256").nullable()
 
-    /** V17: JSON-encoded [io.github.jpicklyk.mcptask.current.domain.model.ProofClaims], populated
+    /** V17: JSON-encoded [io.github.jpicklyk.mcptask.current.model.proof.ProofClaims], populated
      *  only for a VERIFIED proof. */
     val actorProofClaims = text("actor_proof_claims").nullable()
     val verificationStatus = text("verification_status").nullable()

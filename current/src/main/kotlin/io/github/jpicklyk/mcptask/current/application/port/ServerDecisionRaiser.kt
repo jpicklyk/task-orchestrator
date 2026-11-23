@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
-import io.github.jpicklyk.mcptask.current.domain.error.Outcome
-import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequest
-import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestOption
+import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.model.run.DecisionRequest
+import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestOption
 import java.util.UUID
 
 /**

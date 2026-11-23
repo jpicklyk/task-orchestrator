@@ -8,17 +8,17 @@ import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStashOutc
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.application.support.sha256Hex
-import io.github.jpicklyk.mcptask.current.domain.model.Document
-import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
-import io.github.jpicklyk.mcptask.current.domain.model.DocumentVersion
-import io.github.jpicklyk.mcptask.current.domain.model.EntityRef
-import io.github.jpicklyk.mcptask.current.domain.model.Link
-import io.github.jpicklyk.mcptask.current.domain.model.LinkRelation
-import io.github.jpicklyk.mcptask.current.domain.model.PlanDocument
-import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
-import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentSummary
-import io.github.jpicklyk.mcptask.current.domain.model.RefKind
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.model.knowledge.Document
+import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentKind
+import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentVersion
+import io.github.jpicklyk.mcptask.current.model.knowledge.EntityRef
+import io.github.jpicklyk.mcptask.current.model.knowledge.Link
+import io.github.jpicklyk.mcptask.current.model.knowledge.LinkRelation
+import io.github.jpicklyk.mcptask.current.model.knowledge.PlanDocument
+import io.github.jpicklyk.mcptask.current.model.knowledge.PlanDocumentStatus
+import io.github.jpicklyk.mcptask.current.model.knowledge.PlanDocumentSummary
+import io.github.jpicklyk.mcptask.current.model.knowledge.RefKind
 import java.time.Instant
 import java.util.UUID
 

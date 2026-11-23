@@ -1,14 +1,14 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
-import io.github.jpicklyk.mcptask.current.domain.error.DomainError
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorFixtures
-import io.github.jpicklyk.mcptask.current.domain.error.Outcome
-import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
+import io.github.jpicklyk.mcptask.current.model.error.DomainError
+import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.model.error.ErrorFixtures
+import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
 import io.github.jpicklyk.mcptask.current.test.createOp
 import io.github.jpicklyk.mcptask.current.test.itemsWrite

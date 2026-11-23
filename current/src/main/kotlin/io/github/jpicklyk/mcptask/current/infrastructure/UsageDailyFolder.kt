@@ -3,7 +3,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure
 import io.github.jpicklyk.mcptask.current.application.port.CallLogFoldWatermark
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
-import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate

@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockingEdge
-import io.github.jpicklyk.mcptask.current.domain.model.BacklinkRow
-import io.github.jpicklyk.mcptask.current.domain.model.Dependency
-import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
+import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
+import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
+import io.github.jpicklyk.mcptask.current.model.knowledge.BacklinkRow
 import java.util.UUID
 
 /**

@@ -3,9 +3,9 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.application.config.ParseMode
-import io.github.jpicklyk.mcptask.current.domain.model.LaneOutput
-import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
-import io.github.jpicklyk.mcptask.current.domain.model.ReviewLane
+import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.model.schema.LaneOutput
+import io.github.jpicklyk.mcptask.current.model.schema.ReviewLane
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject

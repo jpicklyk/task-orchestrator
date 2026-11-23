@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.application.decision
 
 import io.github.jpicklyk.mcptask.current.application.config.DecisionClassConfig
-import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequest
-import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestAnswerers
-import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestSeverity
-import io.github.jpicklyk.mcptask.current.domain.model.RunLimitDecisions
+import io.github.jpicklyk.mcptask.current.model.run.DecisionRequest
+import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestAnswerers
+import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestSeverity
+import io.github.jpicklyk.mcptask.current.model.run.RunLimitDecisions
 
 /**
  * One effective decision class: who may answer ([answerers]), the default [severity], the expiry in seconds

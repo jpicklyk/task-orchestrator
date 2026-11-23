@@ -10,8 +10,6 @@ import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
 import io.github.jpicklyk.mcptask.current.application.port.ScopeFilter
 import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
 import io.github.jpicklyk.mcptask.current.application.port.TextQuery
-import io.github.jpicklyk.mcptask.current.domain.model.EntityRef
-import io.github.jpicklyk.mcptask.current.domain.model.RefKind
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.LikeLiteral
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.TagAllowlistSql
@@ -19,6 +17,8 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.rawQu
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.readTx
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.uuidOf
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
+import io.github.jpicklyk.mcptask.current.model.knowledge.EntityRef
+import io.github.jpicklyk.mcptask.current.model.knowledge.RefKind
 import org.jetbrains.exposed.v1.core.ColumnType
 import org.jetbrains.exposed.v1.core.IntegerColumnType
 import org.jetbrains.exposed.v1.core.VarCharColumnType

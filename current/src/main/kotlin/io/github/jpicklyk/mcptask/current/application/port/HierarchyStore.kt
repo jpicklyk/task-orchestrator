@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
-import io.github.jpicklyk.mcptask.current.domain.model.AncestorChain
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.model.item.AncestorChain
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import java.util.UUID
 
 /**

@@ -1,18 +1,18 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.run.RunOpenCommand
-import io.github.jpicklyk.mcptask.current.domain.error.DomainError
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
-import io.github.jpicklyk.mcptask.current.domain.error.Outcome
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.Run
-import io.github.jpicklyk.mcptask.current.domain.model.RunStatus
-import io.github.jpicklyk.mcptask.current.domain.model.RunTerminalReason
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.orFail
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.patchOf
+import io.github.jpicklyk.mcptask.current.model.error.DomainError
+import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
+import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.model.run.Run
+import io.github.jpicklyk.mcptask.current.model.run.RunStatus
+import io.github.jpicklyk.mcptask.current.model.run.RunTerminalReason
 import io.github.jpicklyk.mcptask.current.test.deleteOp
 import io.github.jpicklyk.mcptask.current.test.errorAt
 import io.github.jpicklyk.mcptask.current.test.itemsWrite

@@ -8,19 +8,19 @@ import io.github.jpicklyk.mcptask.current.application.service.ConfigService
 import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.support.toDomainError
-import io.github.jpicklyk.mcptask.current.domain.error.DomainError
-import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
-import io.github.jpicklyk.mcptask.current.domain.error.Outcome
-import io.github.jpicklyk.mcptask.current.domain.model.ConfigVersion
-import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
-import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.config.productionConfigValidator
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.checkItemScope
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.resolveItemId
+import io.github.jpicklyk.mcptask.current.model.config.ConfigVersion
+import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigInvalidException
+import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
+import io.github.jpicklyk.mcptask.current.model.error.DomainError
+import io.github.jpicklyk.mcptask.current.model.error.EntityKind
+import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
+import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -28,7 +28,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.util.UUID
 import io.github.jpicklyk.mcptask.current.application.config.ConfigViolation as AppViolation
-import io.github.jpicklyk.mcptask.current.domain.error.ConfigViolation as ErrorViolation
+import io.github.jpicklyk.mcptask.current.model.error.ConfigViolation as ErrorViolation
 
 /** The one documentation source of each field two or more `config` ops share (a shared name has one schema). */
 internal object ConfigDocs {

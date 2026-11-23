@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval
+import io.github.jpicklyk.mcptask.current.model.lease.ResourceLease
+import io.github.jpicklyk.mcptask.current.model.lease.ResourceLeaseInterval
 import java.time.Instant
 import java.util.UUID
 
@@ -41,8 +41,8 @@ sealed class LeaseReleaseResult {
 
 /**
  * Persists server-enforced TTL leases on shared external resources (see
- * [io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement] /
- * [io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition] and
+ * [io.github.jpicklyk.mcptask.current.model.lease.ResourceRequirement] /
+ * [io.github.jpicklyk.mcptask.current.model.lease.ResourceDefinition] and
  * [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ResourceLeasesTable]).
  *
  * This is the storage + concurrency primitive only — no gate enforcement and no MCP tool surface.

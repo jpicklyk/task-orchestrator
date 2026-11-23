@@ -6,13 +6,13 @@ import io.github.jpicklyk.mcptask.current.application.port.InFlightSeat
 import io.github.jpicklyk.mcptask.current.application.port.RunSeatStore
 import io.github.jpicklyk.mcptask.current.application.port.SeatTokenMatch
 import io.github.jpicklyk.mcptask.current.application.port.unitNow
-import io.github.jpicklyk.mcptask.current.domain.model.RunSeat
-import io.github.jpicklyk.mcptask.current.domain.model.RunSeatLink
-import io.github.jpicklyk.mcptask.current.domain.model.RunSeatOutcome
-import io.github.jpicklyk.mcptask.current.domain.model.RunSeatStatus
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.RunSeatsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.RunsTable
+import io.github.jpicklyk.mcptask.current.model.run.RunSeat
+import io.github.jpicklyk.mcptask.current.model.run.RunSeatLink
+import io.github.jpicklyk.mcptask.current.model.run.RunSeatOutcome
+import io.github.jpicklyk.mcptask.current.model.run.RunSeatStatus
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject

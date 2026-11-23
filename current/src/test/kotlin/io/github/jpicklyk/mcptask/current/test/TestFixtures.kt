@@ -1,7 +1,11 @@
 package io.github.jpicklyk.mcptask.current.test
 
 import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
-import io.github.jpicklyk.mcptask.current.domain.model.*
+import io.github.jpicklyk.mcptask.current.model.claim.*
+import io.github.jpicklyk.mcptask.current.model.dependency.*
+import io.github.jpicklyk.mcptask.current.model.item.*
+import io.github.jpicklyk.mcptask.current.model.note.*
+import io.github.jpicklyk.mcptask.current.model.proof.*
 import kotlinx.serialization.json.*
 import java.util.UUID
 import kotlin.test.assertTrue

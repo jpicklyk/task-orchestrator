@@ -1,15 +1,15 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
-import io.github.jpicklyk.mcptask.current.domain.model.BlockedReason
-import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
-import io.github.jpicklyk.mcptask.current.domain.model.PinLayer
-import io.github.jpicklyk.mcptask.current.domain.model.Priority
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.SchemaPin
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ItemTraitsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
+import io.github.jpicklyk.mcptask.current.model.item.BlockedReason
+import io.github.jpicklyk.mcptask.current.model.item.LifecycleMode
+import io.github.jpicklyk.mcptask.current.model.item.Priority
+import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.model.schema.PinLayer
+import io.github.jpicklyk.mcptask.current.model.schema.SchemaPin
 import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.ColumnType
 import org.jetbrains.exposed.v1.core.Op

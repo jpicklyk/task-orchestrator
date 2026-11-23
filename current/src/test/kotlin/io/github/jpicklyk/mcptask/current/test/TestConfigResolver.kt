@@ -6,8 +6,8 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
-import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
 import io.mockk.coEvery
 import io.mockk.spyk
 

@@ -1,13 +1,13 @@
 package io.github.jpicklyk.mcptask.current.application.knowledge.related
 
 import io.github.jpicklyk.mcptask.current.application.knowledge.document.DocumentService
-import io.github.jpicklyk.mcptask.current.domain.error.Outcome
-import io.github.jpicklyk.mcptask.current.domain.model.Document
-import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
-import io.github.jpicklyk.mcptask.current.domain.model.EntityRef
-import io.github.jpicklyk.mcptask.current.domain.model.Note
-import io.github.jpicklyk.mcptask.current.domain.model.RefKind
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.model.knowledge.Document
+import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentKind
+import io.github.jpicklyk.mcptask.current.model.knowledge.EntityRef
+import io.github.jpicklyk.mcptask.current.model.knowledge.RefKind
+import io.github.jpicklyk.mcptask.current.model.note.Note
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test

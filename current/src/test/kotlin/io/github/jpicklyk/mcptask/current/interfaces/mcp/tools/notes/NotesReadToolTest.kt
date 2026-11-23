@@ -1,13 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.notes
 
 import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
-import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
-import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
-import io.github.jpicklyk.mcptask.current.domain.model.Note
-import io.github.jpicklyk.mcptask.current.domain.model.ProofClaims
-import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
-import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.toCallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
@@ -15,6 +8,13 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
+import io.github.jpicklyk.mcptask.current.model.claim.ActorKind
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.model.note.Note
+import io.github.jpicklyk.mcptask.current.model.proof.ProofClaims
+import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
+import io.github.jpicklyk.mcptask.current.model.proof.VerificationStatus
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.test.actorArg
 import io.github.jpicklyk.mcptask.current.test.callTool

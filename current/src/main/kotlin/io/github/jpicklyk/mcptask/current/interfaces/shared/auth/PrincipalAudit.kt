@@ -3,10 +3,10 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.auth
 import io.github.jpicklyk.mcptask.current.application.api.CallPrincipal
 import io.github.jpicklyk.mcptask.current.application.api.Principal
 import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
-import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
-import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
-import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
-import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
+import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
+import io.github.jpicklyk.mcptask.current.model.claim.ActorKind
+import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
+import io.github.jpicklyk.mcptask.current.model.proof.VerificationStatus
 
 /**
  * The audited actor of a call, ALWAYS synthesized server-side from the [Principal] the transport established (the

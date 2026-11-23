@@ -1,12 +1,12 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
-import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
-import io.github.jpicklyk.mcptask.current.domain.model.SkillMode
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.lease.ResourceRequirement
+import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.model.schema.DispatchProfile
+import io.github.jpicklyk.mcptask.current.model.schema.SeatDefinition
+import io.github.jpicklyk.mcptask.current.model.schema.SkillMode
+import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
 import kotlinx.serialization.json.*
 
 /**
@@ -238,7 +238,7 @@ fun buildSeatsJson(seats: List<SeatDefinition>): JsonArray? {
 /**
  * Builds the FLAT per-seat `dispatchBySeat` JSON for a SINGLE phase's profile map used by
  * `items_read` `select=context` item mode (current phase only): `{<seat>: {agent?, model?, effort?}}`. A profile
- * with every field resolving to null (an explicit clear via [io.github.jpicklyk.mcptask.current.domain.model.SeatDispatchOverride])
+ * with every field resolving to null (an explicit clear via [io.github.jpicklyk.mcptask.current.model.run.SeatDispatchOverride])
  * still emits `{}` for that seat, never omits it. Returns null — never an empty object — when
  * [profiles] is empty; callers omit the `dispatchBySeat` key entirely in that case.
  */

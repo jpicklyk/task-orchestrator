@@ -4,10 +4,10 @@ import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionPolicy
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
-import io.github.jpicklyk.mcptask.current.domain.model.IndependenceViolation
-import io.github.jpicklyk.mcptask.current.domain.model.Note
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.model.note.Note
+import io.github.jpicklyk.mcptask.current.model.schema.IndependenceViolation
+import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
 
 /**
  * The wire name of the gate that rejected this decision (`"table"`, `"dependency"`, `"note"`, `"lease"`;

@@ -10,7 +10,7 @@ indent_size = 4
 
 [*.{kt,kts}]
 # Allow wildcard imports for heavily-used packages
-ij_kotlin_packages_to_use_import_on_demand = kotlinx.serialization.json.*,io.github.jpicklyk.mcptask.current.domain.model.*,io.github.jpicklyk.mcptask.current.application.tools.*,io.mockk.*,io.modelcontextprotocol.kotlin.sdk.types.*,kotlin.test.*,org.junit.jupiter.api.Assertions.*
+ij_kotlin_packages_to_use_import_on_demand = kotlinx.serialization.json.*,io.github.jpicklyk.mcptask.current.model.**,io.github.jpicklyk.mcptask.current.application.tools.*,io.mockk.*,io.modelcontextprotocol.kotlin.sdk.types.*,kotlin.test.*,org.junit.jupiter.api.Assertions.*
 
 # Disable trailing comma enforcement (codebase doesn't use them)
 ktlint_standard_trailing-comma-on-call-site = disabled

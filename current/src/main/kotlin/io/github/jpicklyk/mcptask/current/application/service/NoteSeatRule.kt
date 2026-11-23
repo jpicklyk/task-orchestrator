@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
-import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
-import io.github.jpicklyk.mcptask.current.domain.model.OwningSeat
-import io.github.jpicklyk.mcptask.current.domain.model.RunSeat
-import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
+import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.model.note.OwningSeat
+import io.github.jpicklyk.mcptask.current.model.run.RunSeat
+import io.github.jpicklyk.mcptask.current.model.schema.SeatDefinition
 import java.util.UUID
 
 /**

@@ -2,14 +2,14 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.RunStore
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
-import io.github.jpicklyk.mcptask.current.domain.model.Run
-import io.github.jpicklyk.mcptask.current.domain.model.RunBudget
-import io.github.jpicklyk.mcptask.current.domain.model.RunPauseReason
-import io.github.jpicklyk.mcptask.current.domain.model.RunStatus
-import io.github.jpicklyk.mcptask.current.domain.model.RunTerminalReason
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.RunItemsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.RunsTable
+import io.github.jpicklyk.mcptask.current.model.run.Run
+import io.github.jpicklyk.mcptask.current.model.run.RunBudget
+import io.github.jpicklyk.mcptask.current.model.run.RunPauseReason
+import io.github.jpicklyk.mcptask.current.model.run.RunStatus
+import io.github.jpicklyk.mcptask.current.model.run.RunTerminalReason
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive

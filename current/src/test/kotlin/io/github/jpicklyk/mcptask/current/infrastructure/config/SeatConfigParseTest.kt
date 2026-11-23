@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
-import io.github.jpicklyk.mcptask.current.domain.model.SeatDispatchOverride
+import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.run.SeatDispatchOverride
+import io.github.jpicklyk.mcptask.current.model.schema.SeatDefinition
 import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.constructor.SafeConstructor

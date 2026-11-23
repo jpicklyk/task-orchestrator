@@ -7,7 +7,7 @@ import io.github.jpicklyk.mcptask.current.application.service.ClaimRig
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
 import io.github.jpicklyk.mcptask.current.application.service.ExpirySweep
 import io.github.jpicklyk.mcptask.current.application.service.ok
-import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.delay

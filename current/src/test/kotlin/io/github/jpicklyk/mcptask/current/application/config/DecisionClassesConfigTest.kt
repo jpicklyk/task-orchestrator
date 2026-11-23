@@ -2,12 +2,12 @@ package io.github.jpicklyk.mcptask.current.application.config
 
 import io.github.jpicklyk.mcptask.current.application.decision.DecisionClass
 import io.github.jpicklyk.mcptask.current.application.decision.DecisionClasses
-import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
-import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequest
-import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestAnswerers
-import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestSeverity
 import io.github.jpicklyk.mcptask.current.infrastructure.config.NetworkntConfigStructuralValidator
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
+import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
+import io.github.jpicklyk.mcptask.current.model.run.DecisionRequest
+import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestAnswerers
+import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestSeverity
 import io.github.jpicklyk.mcptask.current.test.StrictConfigCases
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import kotlinx.coroutines.runBlocking

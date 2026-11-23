@@ -7,17 +7,17 @@ import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.support.eventRootOf
-import io.github.jpicklyk.mcptask.current.domain.error.DomainError
-import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
-import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
-import io.github.jpicklyk.mcptask.current.domain.error.Outcome
-import io.github.jpicklyk.mcptask.current.domain.event.DeleteCause
 import io.github.jpicklyk.mcptask.current.domain.graph.CycleDetector
 import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
-import io.github.jpicklyk.mcptask.current.domain.model.Dependency
-import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
+import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
+import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
+import io.github.jpicklyk.mcptask.current.model.error.DomainError
+import io.github.jpicklyk.mcptask.current.model.error.EntityKind
+import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
+import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
+import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.model.event.DeleteCause
 import java.util.UUID
 
 /**

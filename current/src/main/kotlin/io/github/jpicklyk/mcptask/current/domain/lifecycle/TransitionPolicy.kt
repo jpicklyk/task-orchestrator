@@ -1,24 +1,24 @@
 package io.github.jpicklyk.mcptask.current.domain.lifecycle
 
-import io.github.jpicklyk.mcptask.current.domain.error.Blocker
-import io.github.jpicklyk.mcptask.current.domain.error.DomainError
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
-import io.github.jpicklyk.mcptask.current.domain.error.GateViolation
-import io.github.jpicklyk.mcptask.current.domain.error.MissingNote
-import io.github.jpicklyk.mcptask.current.domain.error.ResourceRef
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockerEvaluator
 import io.github.jpicklyk.mcptask.current.domain.graph.UnsatisfiedBlocker
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger.Cascade
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger.Structural
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger.User
-import io.github.jpicklyk.mcptask.current.domain.model.IndependenceMode
-import io.github.jpicklyk.mcptask.current.domain.model.IndependenceViolation
-import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.RunSeat
-import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
+import io.github.jpicklyk.mcptask.current.model.error.Blocker
+import io.github.jpicklyk.mcptask.current.model.error.DomainError
+import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
+import io.github.jpicklyk.mcptask.current.model.error.GateViolation
+import io.github.jpicklyk.mcptask.current.model.error.MissingNote
+import io.github.jpicklyk.mcptask.current.model.error.ResourceRef
+import io.github.jpicklyk.mcptask.current.model.item.LifecycleMode
+import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.lease.ResourceMode
+import io.github.jpicklyk.mcptask.current.model.run.RunSeat
+import io.github.jpicklyk.mcptask.current.model.schema.IndependenceMode
+import io.github.jpicklyk.mcptask.current.model.schema.IndependenceViolation
+import io.github.jpicklyk.mcptask.current.model.schema.SeatDefinition
 import java.util.UUID
 
 /** What a [TransitionGate] sees: the snapshot, the trigger, and the table resolution for it. */

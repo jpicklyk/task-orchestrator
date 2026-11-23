@@ -6,13 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.SchemaMatch
 import io.github.jpicklyk.mcptask.current.application.config.TraitDescriptor
 import io.github.jpicklyk.mcptask.current.application.support.IdRef
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
-import io.github.jpicklyk.mcptask.current.domain.error.Outcome
-import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
-import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.SkillMode
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DispatchProfileDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.EffectiveConfigDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.EffectiveSchemaDto
@@ -22,6 +15,13 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.TraitDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.StatusGraphBuilder
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
+import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.lease.ResourceRequirement
+import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.model.schema.DispatchProfile
+import io.github.jpicklyk.mcptask.current.model.schema.SkillMode
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement

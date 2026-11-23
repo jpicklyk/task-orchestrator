@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
-import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
+import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test

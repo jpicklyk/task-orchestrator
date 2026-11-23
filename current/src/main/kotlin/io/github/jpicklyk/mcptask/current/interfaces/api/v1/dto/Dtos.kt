@@ -38,7 +38,7 @@ data class NoteSchemaEntryDto(
  * DTO for a dispatch routing profile — who/what should pick up a phase: `{agent?, model?,
  * effort?}`. Declared per trait per phase under `traits.<name>.dispatch.<phase>:` in
  * `.taskorchestrator/config.yaml`. See
- * [io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile].
+ * [io.github.jpicklyk.mcptask.current.model.schema.DispatchProfile].
  */
 @Serializable
 data class DispatchProfileDto(
@@ -49,7 +49,7 @@ data class DispatchProfileDto(
 
 /**
  * DTO for a trait's declared shared-resource requirement: `{key, mode, ttlSeconds?}`. See
- * [io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement].
+ * [io.github.jpicklyk.mcptask.current.model.lease.ResourceRequirement].
  */
 @Serializable
 data class ResourceRequirementDto(

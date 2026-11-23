@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.domain.lifecycle
 
-import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
+import io.github.jpicklyk.mcptask.current.model.schema.SeatDefinition
 import java.util.UUID
 
 /**

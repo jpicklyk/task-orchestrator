@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
+import io.github.jpicklyk.mcptask.current.model.lease.ResourceMode
 import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.constructor.SafeConstructor

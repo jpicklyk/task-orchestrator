@@ -4,14 +4,14 @@ import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.AssigneeHolder
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockerEvaluator
-import io.github.jpicklyk.mcptask.current.domain.model.BlockedReason
-import io.github.jpicklyk.mcptask.current.domain.model.ClaimState
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.Run
-import io.github.jpicklyk.mcptask.current.domain.model.RunLiveness
-import io.github.jpicklyk.mcptask.current.domain.model.RunSeat
-import io.github.jpicklyk.mcptask.current.domain.model.RunStatus
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.model.claim.ClaimState
+import io.github.jpicklyk.mcptask.current.model.item.BlockedReason
+import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.model.run.Run
+import io.github.jpicklyk.mcptask.current.model.run.RunLiveness
+import io.github.jpicklyk.mcptask.current.model.run.RunSeat
+import io.github.jpicklyk.mcptask.current.model.run.RunStatus
 import java.time.Instant
 import java.util.UUID
 

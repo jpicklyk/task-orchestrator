@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.PIN_ROOT_DEFAULT_YAML
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.PIN_ROOT_EXACT_YAML
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.PIN_SERVER_YAML
@@ -10,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.resolveG
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.sqlRows
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.orFail
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.test.itemsWrite
 import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase

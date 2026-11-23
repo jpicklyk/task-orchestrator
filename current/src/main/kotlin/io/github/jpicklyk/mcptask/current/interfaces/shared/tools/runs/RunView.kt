@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
 import io.github.jpicklyk.mcptask.current.application.run.RunEndedSnapshot
-import io.github.jpicklyk.mcptask.current.domain.model.Run
-import io.github.jpicklyk.mcptask.current.domain.model.RunBudget
-import io.github.jpicklyk.mcptask.current.domain.model.RunLiveness
-import io.github.jpicklyk.mcptask.current.domain.model.RunSeat
-import io.github.jpicklyk.mcptask.current.domain.model.RunStatus
+import io.github.jpicklyk.mcptask.current.model.run.Run
+import io.github.jpicklyk.mcptask.current.model.run.RunBudget
+import io.github.jpicklyk.mcptask.current.model.run.RunLiveness
+import io.github.jpicklyk.mcptask.current.model.run.RunSeat
+import io.github.jpicklyk.mcptask.current.model.run.RunStatus
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray

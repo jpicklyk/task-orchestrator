@@ -13,16 +13,16 @@ import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.application.port.SortDirection
 import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallFields
-import io.github.jpicklyk.mcptask.current.domain.error.DomainError
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
-import io.github.jpicklyk.mcptask.current.domain.error.Outcome
-import io.github.jpicklyk.mcptask.current.domain.model.ClaimStatus
-import io.github.jpicklyk.mcptask.current.domain.model.Priority
-import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
+import io.github.jpicklyk.mcptask.current.model.claim.ClaimStatus
+import io.github.jpicklyk.mcptask.current.model.error.DomainError
+import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
+import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.model.item.Priority
+import io.github.jpicklyk.mcptask.current.model.item.Role
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
@@ -348,6 +348,6 @@ internal fun itemNotFound(id: UUID): DomainError =
     DomainError(
         code = ErrorCode.NOT_FOUND,
         message = "No item matches $id.",
-        detail = ErrorDetail.NotFound(io.github.jpicklyk.mcptask.current.domain.error.EntityKind.ITEM, id.toString()),
+        detail = ErrorDetail.NotFound(io.github.jpicklyk.mcptask.current.model.error.EntityKind.ITEM, id.toString()),
         fixArgs = mapOf("kind" to "item", "id" to id.toString())
     )

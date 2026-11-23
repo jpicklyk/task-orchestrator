@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.domain.graph
 
-import io.github.jpicklyk.mcptask.current.domain.model.Dependency
-import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
+import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
+import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
 import java.util.UUID
 
 /** Fixed, ordered ids so UUID tie-break expectations are written down, not computed. a < b < c < d < x1 < x2. */

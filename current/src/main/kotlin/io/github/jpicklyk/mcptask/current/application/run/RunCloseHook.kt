@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.run
 
-import io.github.jpicklyk.mcptask.current.domain.model.Run
+import io.github.jpicklyk.mcptask.current.model.run.Run
 
 /**
  * Called once per run close, inside the close's unit, after the cascade and before `run.ended` is recorded. [run] is

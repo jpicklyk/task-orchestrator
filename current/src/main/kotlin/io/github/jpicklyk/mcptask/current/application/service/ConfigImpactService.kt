@@ -8,8 +8,8 @@ import io.github.jpicklyk.mcptask.current.application.config.LayeredConfig
 import io.github.jpicklyk.mcptask.current.application.config.TraitResolver
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import java.util.UUID
 
 /** One schema side of an impact comparison: the base schema's key and layer (null = schema-free), lifecycle and gate notes. */

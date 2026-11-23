@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.telemetry
 
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
-import io.github.jpicklyk.mcptask.current.domain.model.Dependency
+import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json

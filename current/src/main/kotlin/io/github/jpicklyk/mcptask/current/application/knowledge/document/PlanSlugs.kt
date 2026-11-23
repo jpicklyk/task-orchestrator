@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.knowledge.document
 
-import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
+import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentKind
 
 /** A document address within one root: its kind and its slug. */
 data class KindAndSlug(

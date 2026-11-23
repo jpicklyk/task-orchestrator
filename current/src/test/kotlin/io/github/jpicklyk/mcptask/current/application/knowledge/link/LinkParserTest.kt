@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.knowledge.link
 
-import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
+import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentKind
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs

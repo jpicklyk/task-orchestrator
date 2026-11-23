@@ -9,9 +9,9 @@ import io.github.jpicklyk.mcptask.current.application.api.docs.DocsGetRequest
 import io.github.jpicklyk.mcptask.current.application.api.docs.DocsHistoryRequest
 import io.github.jpicklyk.mcptask.current.application.api.docs.DocsLinksRequest
 import io.github.jpicklyk.mcptask.current.application.api.docs.DocsListRequest
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
+import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import kotlinx.serialization.serializer
 
 private val READ_ERRORS = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN)

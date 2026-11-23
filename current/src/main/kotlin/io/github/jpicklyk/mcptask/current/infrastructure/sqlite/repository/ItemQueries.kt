@@ -4,10 +4,10 @@ import io.github.jpicklyk.mcptask.current.application.port.ItemFilter
 import io.github.jpicklyk.mcptask.current.application.port.ItemSort
 import io.github.jpicklyk.mcptask.current.application.port.ItemSortField
 import io.github.jpicklyk.mcptask.current.application.port.SortDirection
-import io.github.jpicklyk.mcptask.current.domain.model.ClaimStatus
-import io.github.jpicklyk.mcptask.current.domain.model.Priority
-import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
+import io.github.jpicklyk.mcptask.current.model.claim.ClaimStatus
+import io.github.jpicklyk.mcptask.current.model.item.Priority
+import io.github.jpicklyk.mcptask.current.model.item.Role
 import org.jetbrains.exposed.v1.core.Case
 import org.jetbrains.exposed.v1.core.Expression
 import org.jetbrains.exposed.v1.core.IntegerColumnType

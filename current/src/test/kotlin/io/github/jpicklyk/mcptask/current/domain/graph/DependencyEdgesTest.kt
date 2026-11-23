@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.domain.graph
 
-import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.model.item.Role
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith

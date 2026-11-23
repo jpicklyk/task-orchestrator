@@ -1,7 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools
 
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.CfgKit
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.effectiveOp
@@ -10,6 +8,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.pushOp
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.violations
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.make
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.str
+import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.test.callTool
 import io.github.jpicklyk.mcptask.current.test.errorAt
 import io.github.jpicklyk.mcptask.current.test.okResult

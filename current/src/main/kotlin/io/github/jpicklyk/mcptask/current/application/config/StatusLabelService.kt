@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
-import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.model.item.Role
 
 /**
  * Provides trigger-to-label mappings for status labels on role transitions.

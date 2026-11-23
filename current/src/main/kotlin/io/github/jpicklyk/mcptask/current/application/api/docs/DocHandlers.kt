@@ -14,18 +14,18 @@ import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallRoot
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
-import io.github.jpicklyk.mcptask.current.domain.error.DomainError
-import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
-import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
-import io.github.jpicklyk.mcptask.current.domain.error.Outcome
-import io.github.jpicklyk.mcptask.current.domain.model.Document
-import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
-import io.github.jpicklyk.mcptask.current.domain.model.EntityRef
-import io.github.jpicklyk.mcptask.current.domain.model.Link
-import io.github.jpicklyk.mcptask.current.domain.model.LinkRelation
-import io.github.jpicklyk.mcptask.current.domain.model.RefKind
+import io.github.jpicklyk.mcptask.current.model.error.DomainError
+import io.github.jpicklyk.mcptask.current.model.error.EntityKind
+import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
+import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
+import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.model.knowledge.Document
+import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentKind
+import io.github.jpicklyk.mcptask.current.model.knowledge.EntityRef
+import io.github.jpicklyk.mcptask.current.model.knowledge.Link
+import io.github.jpicklyk.mcptask.current.model.knowledge.LinkRelation
+import io.github.jpicklyk.mcptask.current.model.knowledge.RefKind
 import java.util.UUID
 
 /**

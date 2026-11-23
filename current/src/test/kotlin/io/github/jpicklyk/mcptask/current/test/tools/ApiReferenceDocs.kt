@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.test.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ErrorDetailDocs
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
@@ -10,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolView
+import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray

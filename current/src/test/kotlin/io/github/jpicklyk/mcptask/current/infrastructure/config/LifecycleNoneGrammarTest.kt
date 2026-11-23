@@ -5,8 +5,8 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigValidationRes
 import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
 import io.github.jpicklyk.mcptask.current.application.config.GlobalConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.ParseMode
-import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
-import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
+import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
+import io.github.jpicklyk.mcptask.current.model.item.LifecycleMode
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs

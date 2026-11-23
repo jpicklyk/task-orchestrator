@@ -8,17 +8,17 @@ import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.EventStore
 import io.github.jpicklyk.mcptask.current.application.service.EventRecorder
-import io.github.jpicklyk.mcptask.current.domain.event.DeleteCause
-import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
-import io.github.jpicklyk.mcptask.current.domain.event.ReparentSide
-import io.github.jpicklyk.mcptask.current.domain.event.TransitionOrigin
-import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
-import io.github.jpicklyk.mcptask.current.domain.model.ConfigVersionSource
-import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
+import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
+import io.github.jpicklyk.mcptask.current.model.config.ConfigVersionSource
+import io.github.jpicklyk.mcptask.current.model.event.DeleteCause
+import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
+import io.github.jpicklyk.mcptask.current.model.event.ReparentSide
+import io.github.jpicklyk.mcptask.current.model.event.TransitionOrigin
+import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentKind
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.header
@@ -397,7 +397,7 @@ class EventReplayProjectionTest {
             assertEquals(
                 ApiEventType.ITEM_UPDATED,
                 projectedOf(
-                    DomainEvent.ClaimReleased(itemId, rootId, io.github.jpicklyk.mcptask.current.domain.event.ClaimReleaseReason.CLEARED)
+                    DomainEvent.ClaimReleased(itemId, rootId, io.github.jpicklyk.mcptask.current.model.event.ClaimReleaseReason.CLEARED)
                 )!!.event,
             )
 
@@ -426,9 +426,9 @@ class EventReplayProjectionTest {
             val at = Instant.parse("2026-01-02T03:04:05.678Z")
             val feed = EventFeed(store)
             val actor =
-                io.github.jpicklyk.mcptask.current.domain.model.ActorClaim(
+                io.github.jpicklyk.mcptask.current.model.claim.ActorClaim(
                     id = "agent-x",
-                    kind = io.github.jpicklyk.mcptask.current.domain.model.ActorKind.SUBAGENT,
+                    kind = io.github.jpicklyk.mcptask.current.model.claim.ActorKind.SUBAGENT,
                     parent = "orch-1",
                 )
 

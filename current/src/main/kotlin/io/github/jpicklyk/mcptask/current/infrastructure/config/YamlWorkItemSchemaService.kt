@@ -2,11 +2,11 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.WorkItemSchemaService
-import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
-import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.lease.ResourceRequirement
+import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.model.schema.DispatchProfile
+import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
 import java.nio.file.Path
 
 /**

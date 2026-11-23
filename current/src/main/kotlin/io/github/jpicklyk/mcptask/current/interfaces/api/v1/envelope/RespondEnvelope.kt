@@ -2,11 +2,11 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope
 
 import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
 import io.github.jpicklyk.mcptask.current.application.telemetry.currentReqId
-import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.ENVELOPE_ERROR_CODE
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.REQ_ID_HEADER
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EncodedEnvelope
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
+import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall

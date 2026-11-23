@@ -164,7 +164,7 @@ class IdentityPackageTest {
             }
         }
 
-    private val formerDirs = listOf("infrastructure/config/", "interfaces/api/v1/auth/", "domain/model/")
+    private val formerDirs = listOf("infrastructure/config/", "interfaces/api/v1/auth/", "model/")
 
     /** Former-location paths still occupied by a file bearing one of the moved file names. */
     private fun leftBehind(sources: List<GuardSupport.Source>): List<String> {
@@ -195,13 +195,13 @@ class IdentityPackageTest {
             listOf(
                 synthetic("infrastructure/config/JwksApiVerifier.kt", "package p"),
                 synthetic("interfaces/api/v1/auth/CredentialResolver.kt", "package p"),
-                synthetic("domain/model/BearerTokenStore.kt", "package p")
+                synthetic("model/BearerTokenStore.kt", "package p")
             )
         assertEquals(
             setOf(
                 "infrastructure/config/JwksApiVerifier.kt",
                 "interfaces/api/v1/auth/CredentialResolver.kt",
-                "domain/model/BearerTokenStore.kt"
+                "model/BearerTokenStore.kt"
             ),
             leftBehind(seeded).toSet()
         )

@@ -3,14 +3,14 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
-import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
-import io.github.jpicklyk.mcptask.current.domain.event.PinReason
-import io.github.jpicklyk.mcptask.current.domain.event.PinRef
-import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
-import io.github.jpicklyk.mcptask.current.domain.model.PinLayer
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.SchemaPin
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
+import io.github.jpicklyk.mcptask.current.model.event.PinReason
+import io.github.jpicklyk.mcptask.current.model.event.PinRef
+import io.github.jpicklyk.mcptask.current.model.item.LifecycleMode
+import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.model.schema.PinLayer
+import io.github.jpicklyk.mcptask.current.model.schema.SchemaPin
 import java.time.Instant
 import java.util.UUID
 

@@ -4,12 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
 import io.github.jpicklyk.mcptask.current.application.port.ServerDecision
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
-import io.github.jpicklyk.mcptask.current.domain.error.Outcome
-import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestOption
-import io.github.jpicklyk.mcptask.current.domain.model.RunLimitDecisions
-import io.github.jpicklyk.mcptask.current.domain.model.RunPauseReason
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.BaselineDataset
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
@@ -26,6 +20,12 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.visibleNames
+import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestOption
+import io.github.jpicklyk.mcptask.current.model.run.RunLimitDecisions
+import io.github.jpicklyk.mcptask.current.model.run.RunPauseReason
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.parity.callMcp
 import io.github.jpicklyk.mcptask.current.parity.parityAccess

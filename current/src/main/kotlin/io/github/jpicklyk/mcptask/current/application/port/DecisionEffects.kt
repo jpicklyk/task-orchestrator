@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
-import io.github.jpicklyk.mcptask.current.domain.error.DomainError
-import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequest
+import io.github.jpicklyk.mcptask.current.model.error.DomainError
+import io.github.jpicklyk.mcptask.current.model.run.DecisionRequest
 
 /**
  * Called once per answer, inside the answer's unit, after the answered row is stored and before `decision.answered` is

@@ -1,16 +1,16 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.RunStatus
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.str
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.Reply
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.SeatWorld
+import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
+import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.model.run.RunStatus
 import io.github.jpicklyk.mcptask.current.parity.ParitySeeder
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.test.P11Driver
@@ -460,7 +460,7 @@ class AdvanceGateOrderTest {
             val provider = db.repositoryProvider()
             val item =
                 provider.workItemRepository().create(
-                    io.github.jpicklyk.mcptask.current.domain.model
+                    io.github.jpicklyk.mcptask.current.model.item
                         .WorkItem(title = "t", role = Role.QUEUE)
                 )
             val service =

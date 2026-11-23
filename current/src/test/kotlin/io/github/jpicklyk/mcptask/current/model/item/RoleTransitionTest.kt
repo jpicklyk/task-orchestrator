@@ -1,0 +1,136 @@
+package io.github.jpicklyk.mcptask.current.model.item
+
+import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
+import io.github.jpicklyk.mcptask.current.model.claim.ActorKind
+import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
+import io.github.jpicklyk.mcptask.current.model.proof.VerificationStatus
+import java.util.UUID
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class RoleTransitionTest {
+    private val testItemId = UUID.randomUUID()
+
+    // --- Valid creation ---
+
+    @Test
+    fun `valid creation with required fields`() {
+        val transition =
+            RoleTransition(
+                itemId = testItemId,
+                fromRole = "queue",
+                toRole = "work",
+                trigger = "start"
+            )
+        assertEquals(testItemId, transition.itemId)
+        assertEquals("queue", transition.fromRole)
+        assertEquals("work", transition.toRole)
+        assertEquals("start", transition.trigger)
+        assertEquals(null, transition.summary)
+        assertEquals(null, transition.fromStatusLabel)
+        assertEquals(null, transition.toStatusLabel)
+    }
+
+    @Test
+    fun `valid creation with all fields`() {
+        val id = UUID.randomUUID()
+        val transition =
+            RoleTransition(
+                id = id,
+                itemId = testItemId,
+                fromRole = "work",
+                toRole = "review",
+                fromStatusLabel = "in-progress",
+                toStatusLabel = "in-review",
+                trigger = "complete",
+                summary = "Task implementation done"
+            )
+        assertEquals(id, transition.id)
+        assertEquals("work", transition.fromRole)
+        assertEquals("review", transition.toRole)
+        assertEquals("in-progress", transition.fromStatusLabel)
+        assertEquals("in-review", transition.toStatusLabel)
+        assertEquals("complete", transition.trigger)
+        assertEquals("Task implementation done", transition.summary)
+    }
+
+    @Test
+    fun `creation with block trigger`() {
+        val transition =
+            RoleTransition(
+                itemId = testItemId,
+                fromRole = "work",
+                toRole = "blocked",
+                trigger = "block"
+            )
+        assertEquals("block", transition.trigger)
+    }
+
+    @Test
+    fun `creation with hold trigger`() {
+        val transition =
+            RoleTransition(
+                itemId = testItemId,
+                fromRole = "work",
+                toRole = "blocked",
+                trigger = "hold"
+            )
+        assertEquals("hold", transition.trigger)
+    }
+
+    @Test
+    fun `creation with resume trigger`() {
+        val transition =
+            RoleTransition(
+                itemId = testItemId,
+                fromRole = "blocked",
+                toRole = "work",
+                trigger = "resume"
+            )
+        assertEquals("resume", transition.trigger)
+    }
+
+    @Test
+    fun `creation with cancel trigger`() {
+        val transition =
+            RoleTransition(
+                itemId = testItemId,
+                fromRole = "work",
+                toRole = "terminal",
+                trigger = "cancel"
+            )
+        assertEquals("cancel", transition.trigger)
+    }
+
+    // --- Actor attribution ---
+
+    @Test
+    fun `valid creation with actor claim and verification`() {
+        val actor =
+            ActorClaim(
+                id = "agent-42",
+                kind = ActorKind.SUBAGENT,
+                parent = "orchestrator-1",
+                proof = "tok"
+            )
+        val verification =
+            VerificationResult(
+                status = VerificationStatus.UNCHECKED,
+                verifier = "noop"
+            )
+        val transition =
+            RoleTransition(
+                itemId = testItemId,
+                fromRole = "queue",
+                toRole = "work",
+                trigger = "start",
+                actorClaim = actor,
+                verification = verification
+            )
+        assertEquals(actor, transition.actorClaim)
+        assertEquals(verification, transition.verification)
+        assertEquals("agent-42", transition.actorClaim!!.id)
+        assertEquals(ActorKind.SUBAGENT, transition.actorClaim.kind)
+        assertEquals(VerificationStatus.UNCHECKED, transition.verification!!.status)
+    }
+}

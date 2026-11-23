@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
-import io.github.jpicklyk.mcptask.current.domain.model.RunSeat
-import io.github.jpicklyk.mcptask.current.domain.model.RunSeatLink
-import io.github.jpicklyk.mcptask.current.domain.model.RunSeatOutcome
+import io.github.jpicklyk.mcptask.current.model.run.RunSeat
+import io.github.jpicklyk.mcptask.current.model.run.RunSeatLink
+import io.github.jpicklyk.mcptask.current.model.run.RunSeatOutcome
 import java.time.Instant
 import java.util.UUID
 

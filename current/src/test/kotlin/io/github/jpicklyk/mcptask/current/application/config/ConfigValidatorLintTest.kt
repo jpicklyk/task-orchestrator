@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
-import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.infrastructure.config.NetworkntConfigStructuralValidator
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
+import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -24,7 +24,7 @@ import kotlin.test.assertTrue
  * paired with a twin that differs only in the fixture condition that would produce the finding.
  *
  * Domain invariants satisfied by construction: at most one `enters: true` seat per schema, every note `seat` names a seat the
- * schema or one of its traits declares, every note role is a real [io.github.jpicklyk.mcptask.current.domain.model.Role].
+ * schema or one of its traits declares, every note role is a real [io.github.jpicklyk.mcptask.current.model.item.Role].
  *
  * Forbidden-construct declaration: none. No assumeTrue, no @Disabled, no swallowed assertions, no disjunctive assertions.
  */

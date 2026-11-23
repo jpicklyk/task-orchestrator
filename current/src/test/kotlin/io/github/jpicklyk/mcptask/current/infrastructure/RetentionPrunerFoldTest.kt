@@ -5,10 +5,10 @@ import io.github.jpicklyk.mcptask.current.application.port.CallLogFoldWatermark
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.EventStore
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.infrastructure.config.RetentionSettings
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.CallRow
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.UsageFoldKit
+import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.test.LogCapture
 import io.github.jpicklyk.mcptask.current.test.RetentionRows
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase

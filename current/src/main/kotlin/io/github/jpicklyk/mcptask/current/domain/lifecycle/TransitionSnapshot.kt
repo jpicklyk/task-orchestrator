@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.domain.lifecycle
 
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockingEdge
-import io.github.jpicklyk.mcptask.current.domain.model.IndependenceMode
-import io.github.jpicklyk.mcptask.current.domain.model.IndependenceViolation
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
-import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.lease.ResourceMode
+import io.github.jpicklyk.mcptask.current.model.schema.IndependenceMode
+import io.github.jpicklyk.mcptask.current.model.schema.IndependenceViolation
 import java.util.UUID
 
 /**

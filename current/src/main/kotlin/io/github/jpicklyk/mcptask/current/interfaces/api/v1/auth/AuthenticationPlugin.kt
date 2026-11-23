@@ -3,10 +3,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth
 import io.github.jpicklyk.mcptask.current.application.api.Principal
 import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.telemetry.HostName
-import io.github.jpicklyk.mcptask.current.domain.error.DomainError
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
-import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.CredentialResolver
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.DIRECTOR_CREDENTIAL_PROFILE
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_PRINCIPAL
@@ -18,6 +14,10 @@ import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashByt
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelopeError
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.CLIENT_HOST_HEADER
+import io.github.jpicklyk.mcptask.current.model.error.DomainError
+import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
+import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
 import io.ktor.http.HttpHeaders
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.createApplicationPlugin

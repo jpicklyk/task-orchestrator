@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.api.docs
 
-import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
-import io.github.jpicklyk.mcptask.current.domain.model.EntityRef
-import io.github.jpicklyk.mcptask.current.domain.model.LinkRelation
+import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentKind
+import io.github.jpicklyk.mcptask.current.model.knowledge.EntityRef
+import io.github.jpicklyk.mcptask.current.model.knowledge.LinkRelation
 import java.time.Instant
 import java.util.UUID
 

@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.api
 
 import io.github.jpicklyk.mcptask.current.application.port.AccessScope
-import io.github.jpicklyk.mcptask.current.domain.model.ProofVocabulary
-import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
+import io.github.jpicklyk.mcptask.current.model.proof.ProofVocabulary
+import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
 
 /**
  * Who a caller is, as established by a credential: the request-scoped identity of an authenticated REST caller.

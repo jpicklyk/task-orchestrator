@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
 
 /**
  * A resolved [WorkItemSchema] together with which layer ([source]) supplied its BASE schema (the

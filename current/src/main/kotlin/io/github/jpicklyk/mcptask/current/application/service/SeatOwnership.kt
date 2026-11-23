@@ -1,13 +1,13 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.domain.model.OwningSeat
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.model.note.OwningSeat
+import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
 
 /**
  * Reserved seat-bucket name for a required note with no owning seat (DEC-11): a note whose
- * [io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry.seat] is null, names a seat the
+ * [io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry.seat] is null, names a seat the
  * schema does not declare, or names a non-orchestrator seat declared for a DIFFERENT phase than the note's own
- * [io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry.role]. A seat may never be named
+ * [io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry.role]. A seat may never be named
  * this (a load-time structural error — `YamlSchemaParser.parseRoot`'s F3 check).
  */
 const val UNOWNED_SEAT_BUCKET = "unowned"

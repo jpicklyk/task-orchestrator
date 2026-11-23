@@ -4,8 +4,10 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.model.item.*
+import io.github.jpicklyk.mcptask.current.model.note.*
+import io.github.jpicklyk.mcptask.current.model.schema.*
 import io.github.jpicklyk.mcptask.current.test.MutableServerConfig
 import io.mockk.coEvery
 import io.mockk.coVerify

@@ -5,15 +5,15 @@ import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigReso
 import io.github.jpicklyk.mcptask.current.application.config.GlobalConfigLookup
 import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
-import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
-import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
-import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
-import io.github.jpicklyk.mcptask.current.domain.model.SeatDispatchOverride
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.lease.ResourceDefinition
+import io.github.jpicklyk.mcptask.current.model.lease.ResourceRequirement
+import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.model.run.SeatDispatchOverride
+import io.github.jpicklyk.mcptask.current.model.schema.DispatchProfile
+import io.github.jpicklyk.mcptask.current.model.schema.IndependencePolicy
+import io.github.jpicklyk.mcptask.current.model.schema.SeatDefinition
+import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
 
 /**
  * A server config a test fills in AFTER building its context (e.g. a context built once in `@BeforeEach`, with each

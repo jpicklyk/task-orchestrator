@@ -150,26 +150,26 @@ class KnowledgeBoundaryTest {
             "import io.github.jpicklyk.mcptask.current.domain.lifecycle.*",
             "import io.github.jpicklyk.mcptask.current.domain.lifecycle.SomethingElseEntirely",
             "import io.github.jpicklyk.mcptask.current.application.service.ClaimService",
-            "import io.github.jpicklyk.mcptask.current.domain.model.SeatOwnership",
-            "import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition",
+            "import io.github.jpicklyk.mcptask.current.model.item.SeatOwnership",
+            "import io.github.jpicklyk.mcptask.current.model.item.RoleTransition",
             "import io.github.jpicklyk.mcptask.current.application.service.AdvanceService",
             "import io.github.jpicklyk.mcptask.current.application.run.RunService",
-            "import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequest",
+            "import io.github.jpicklyk.mcptask.current.model.run.DecisionRequest",
             "import io.github.jpicklyk.mcptask.current.application.port.DecisionRequestStore",
             "import io.github.jpicklyk.mcptask.current.application.service.AdvanceService as Adv",
             "val s = io.github.jpicklyk.mcptask.current.application.service.ClaimService(x)",
             "val t = io.github.jpicklyk.mcptask.current.domain.lifecycle.RoleTable.lookup(r)",
-            "fun f(t: io.github.jpicklyk.mcptask.current.domain.model.TransitionRow) = t"
+            "fun f(t: io.github.jpicklyk.mcptask.current.model.item.TransitionRow) = t"
         ).forEach { assertEquals(1, violations(it).size, "not flagged: $it") }
     }
 
     @Test
     fun `the matcher ignores allowed types comments strings and kdoc`() {
         listOf(
-            "import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim",
-            "import io.github.jpicklyk.mcptask.current.domain.model.ProofClaims",
-            "import io.github.jpicklyk.mcptask.current.domain.model.Role",
-            "import io.github.jpicklyk.mcptask.current.domain.model.Link",
+            "import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim",
+            "import io.github.jpicklyk.mcptask.current.model.proof.ProofClaims",
+            "import io.github.jpicklyk.mcptask.current.model.item.Role",
+            "import io.github.jpicklyk.mcptask.current.model.knowledge.Link",
             "import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider",
             "import io.github.jpicklyk.mcptask.current.application.knowledge.document.DocumentService",
             "import io.github.jpicklyk.mcptask.current.domain.lifecycleish.NotLifecycle",

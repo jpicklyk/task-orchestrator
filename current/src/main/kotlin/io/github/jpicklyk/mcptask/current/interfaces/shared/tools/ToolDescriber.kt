@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject

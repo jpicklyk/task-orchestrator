@@ -1,12 +1,12 @@
 package io.github.jpicklyk.mcptask.current.application.report
 
-import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
-import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestSeverity
-import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestStatus
-import io.github.jpicklyk.mcptask.current.domain.model.Run
-import io.github.jpicklyk.mcptask.current.domain.model.RunStatus
-import io.github.jpicklyk.mcptask.current.domain.model.RunTerminalReason
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.P7Raw
+import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
+import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestSeverity
+import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestStatus
+import io.github.jpicklyk.mcptask.current.model.run.Run
+import io.github.jpicklyk.mcptask.current.model.run.RunStatus
+import io.github.jpicklyk.mcptask.current.model.run.RunTerminalReason
 import io.github.jpicklyk.mcptask.current.parity.ParitySeeder
 import io.github.jpicklyk.mcptask.current.test.inUnit
 import java.time.Duration

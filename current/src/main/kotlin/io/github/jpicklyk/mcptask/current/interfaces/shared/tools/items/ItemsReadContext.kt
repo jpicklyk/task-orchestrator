@@ -21,18 +21,9 @@ import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallResultCounts
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallRoot
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
-import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
-import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.RejectContext
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
-import io.github.jpicklyk.mcptask.current.domain.model.ClaimState
-import io.github.jpicklyk.mcptask.current.domain.model.DecisionRequestStatus
-import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.StatusGraphBuilder
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.AdvanceSupport
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.NoteSchemaJson
@@ -40,6 +31,15 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidFields
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.DecisionView
+import io.github.jpicklyk.mcptask.current.model.claim.ClaimState
+import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
+import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
+import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.model.lease.ResourceMode
+import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestStatus
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -241,7 +241,7 @@ object ItemsReadContext {
 
     /** The row of the status graph for [item] role under its resolved [schema]: trigger to target role, `resume` resolved to `previousRole`. */
     private fun transitions(
-        schema: io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema?,
+        schema: io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema?,
         item: WorkItem
     ): JsonObject =
         buildJsonObject {

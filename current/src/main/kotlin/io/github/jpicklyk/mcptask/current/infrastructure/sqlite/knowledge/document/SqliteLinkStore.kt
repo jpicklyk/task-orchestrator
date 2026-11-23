@@ -2,15 +2,15 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.knowledge.docum
 
 import io.github.jpicklyk.mcptask.current.application.port.LinkStore
 import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
-import io.github.jpicklyk.mcptask.current.domain.model.EntityRef
-import io.github.jpicklyk.mcptask.current.domain.model.Link
-import io.github.jpicklyk.mcptask.current.domain.model.LinkRelation
-import io.github.jpicklyk.mcptask.current.domain.model.RefKind
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQL_IN_CHUNK_SIZE
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.readTx
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.writeTx
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.LinksTable
+import io.github.jpicklyk.mcptask.current.model.knowledge.EntityRef
+import io.github.jpicklyk.mcptask.current.model.knowledge.Link
+import io.github.jpicklyk.mcptask.current.model.knowledge.LinkRelation
+import io.github.jpicklyk.mcptask.current.model.knowledge.RefKind
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and

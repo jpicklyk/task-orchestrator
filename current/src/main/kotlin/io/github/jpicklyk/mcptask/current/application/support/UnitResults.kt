@@ -2,9 +2,9 @@ package io.github.jpicklyk.mcptask.current.application.support
 
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
-import io.github.jpicklyk.mcptask.current.domain.error.DomainError
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
-import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.model.error.DomainError
+import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.model.error.Outcome
 
 /** What a [writeUnit] block decided: keep its writes ([Commit]) or discard them ([Rollback]), with a local result. */
 sealed interface UnitResult<out R> {

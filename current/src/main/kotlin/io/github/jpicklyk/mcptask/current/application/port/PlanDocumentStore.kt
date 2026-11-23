@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
-import io.github.jpicklyk.mcptask.current.domain.model.PlanDocument
-import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
-import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentSummary
+import io.github.jpicklyk.mcptask.current.model.knowledge.PlanDocument
+import io.github.jpicklyk.mcptask.current.model.knowledge.PlanDocumentStatus
+import io.github.jpicklyk.mcptask.current.model.knowledge.PlanDocumentSummary
 import java.util.UUID
 
 /** Outcome of [PlanDocumentStore.stash]. */
@@ -41,7 +41,7 @@ sealed class PlanDocumentAdoptOutcome {
 /**
  * The 3.x per-root plan-document view. Since 4.0 it is a facade over [DocumentStore] and [LinkStore]: a `rule/<key>`
  * slug addresses the RULE-kind document `<key>`, every other slug the PLAN-kind document of the same slug, and
- * [io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus] is derived from an `adopted_by` link
+ * [io.github.jpicklyk.mcptask.current.model.knowledge.PlanDocumentStatus] is derived from an `adopted_by` link
  * (ADOPTED iff one exists; [PlanDocument.adoptedByItemId] is that link's target). Each [stash] appends a document
  * version.
  *

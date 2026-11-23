@@ -15,7 +15,7 @@ object DocumentsTable : Table("documents") {
     val id = javaUuidSqlite("id")
     val rootItemId = javaUuidSqlite("root_item_id")
 
-    /** Raw [io.github.jpicklyk.mcptask.current.domain.model.DocumentKind] value: `plan`, `rule` or `page`. */
+    /** Raw [io.github.jpicklyk.mcptask.current.model.knowledge.DocumentKind] value: `plan`, `rule` or `page`. */
     val kind = text("kind")
     val slug = text("slug")
     val title = text("title").nullable()

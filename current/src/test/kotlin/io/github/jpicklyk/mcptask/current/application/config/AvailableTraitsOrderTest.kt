@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
-import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.infrastructure.config.GlobalConfigFile
+import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
