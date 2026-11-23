@@ -1,6 +1,8 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import ch.qos.logback.classic.Level
+import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
+import io.github.jpicklyk.mcptask.current.platform.settings.FtsIntegrityMode
 import io.github.jpicklyk.mcptask.current.platform.sqlite.StartupIntegrity
 import io.github.jpicklyk.mcptask.current.platform.sqlite.StartupIntegrityException
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.SchemaTestSupport.at

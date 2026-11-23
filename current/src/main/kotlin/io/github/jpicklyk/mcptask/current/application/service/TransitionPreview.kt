@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionPolicy
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
@@ -8,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.note.Note
 import io.github.jpicklyk.mcptask.current.model.schema.IndependenceViolation
 import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 
 /**
  * The wire name of the gate that rejected this decision (`"table"`, `"dependency"`, `"note"`, `"lease"`;

@@ -1,13 +1,13 @@
 package io.github.jpicklyk.mcptask.current.application.decision
 
 import io.github.jpicklyk.mcptask.current.application.api.AnswerProvenance
-import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
-import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequest
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestAnswerers
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestOption
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestSeverity
 import io.github.jpicklyk.mcptask.current.model.run.RunSeatLink
+import io.github.jpicklyk.mcptask.current.platform.call.PrincipalKind
+import io.github.jpicklyk.mcptask.current.platform.call.ProofStatus
 import java.util.UUID
 
 /**

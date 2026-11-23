@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.platform.sqlite.repository
 
-import io.github.jpicklyk.mcptask.current.application.port.AccessScope
-import io.github.jpicklyk.mcptask.current.application.port.EventRecord
-import io.github.jpicklyk.mcptask.current.application.port.EventStore
-import io.github.jpicklyk.mcptask.current.application.port.PageRequest
 import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
+import io.github.jpicklyk.mcptask.current.platform.port.EventRecord
+import io.github.jpicklyk.mcptask.current.platform.port.EventStore
+import io.github.jpicklyk.mcptask.current.platform.port.PageRequest
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test

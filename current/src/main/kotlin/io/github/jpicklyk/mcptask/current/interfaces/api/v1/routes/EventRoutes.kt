@@ -1,12 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
-import io.github.jpicklyk.mcptask.current.application.api.Principal
-import io.github.jpicklyk.mcptask.current.application.api.configName
-import io.github.jpicklyk.mcptask.current.application.api.grants
-import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_PRINCIPAL
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.TrustDecision
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
@@ -27,6 +21,12 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventType
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
 import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.call.Principal
+import io.github.jpicklyk.mcptask.current.platform.call.configName
+import io.github.jpicklyk.mcptask.current.platform.call.grants
+import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
+import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
 import io.ktor.server.application.createRouteScopedPlugin

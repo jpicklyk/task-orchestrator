@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
-import io.github.jpicklyk.mcptask.current.application.service.EventRecorder
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.model.item.Role
@@ -11,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceMode
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.platform.eventrecording.EventRecorder
 import io.github.jpicklyk.mcptask.current.platform.sqlite.SqliteUnitOfWork
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.actorJson

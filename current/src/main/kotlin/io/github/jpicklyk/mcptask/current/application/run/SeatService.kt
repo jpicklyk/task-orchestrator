@@ -7,10 +7,7 @@ import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.RunSeatPort
 import io.github.jpicklyk.mcptask.current.application.port.RunSeatStore
 import io.github.jpicklyk.mcptask.current.application.port.SeatTokenMatch
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
-import io.github.jpicklyk.mcptask.current.application.support.sha256Hex
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -24,6 +21,9 @@ import io.github.jpicklyk.mcptask.current.model.run.RunSeat
 import io.github.jpicklyk.mcptask.current.model.run.RunSeatLink
 import io.github.jpicklyk.mcptask.current.model.run.RunSeatOutcome
 import io.github.jpicklyk.mcptask.current.model.run.RunStatus
+import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
+import io.github.jpicklyk.mcptask.current.platform.support.sha256Hex
 import java.security.SecureRandom
 import java.time.Duration
 import java.time.Instant

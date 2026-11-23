@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import java.util.UUID

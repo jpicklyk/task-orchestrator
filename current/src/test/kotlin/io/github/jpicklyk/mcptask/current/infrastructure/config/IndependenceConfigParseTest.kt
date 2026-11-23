@@ -4,12 +4,13 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.ConfigPushResult
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.schema.IndependenceMode
 import io.github.jpicklyk.mcptask.current.model.schema.IndependencePolicy
+import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
+import io.github.jpicklyk.mcptask.current.platform.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase

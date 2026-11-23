@@ -4,21 +4,12 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.config.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.config.statusLabelKey
-import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
-import io.github.jpicklyk.mcptask.current.application.port.ReadScope
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.port.WriteScope
-import io.github.jpicklyk.mcptask.current.application.port.unitNow
-import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
-import io.github.jpicklyk.mcptask.current.application.support.eventRootOf
-import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockerEvaluator
 import io.github.jpicklyk.mcptask.current.domain.graph.UnsatisfiedBlocker
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
@@ -56,6 +47,16 @@ import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
 import io.github.jpicklyk.mcptask.current.model.schema.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.model.schema.IndependenceViolation
 import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.platform.eventrecording.recordRejection
+import io.github.jpicklyk.mcptask.current.platform.port.Clock
+import io.github.jpicklyk.mcptask.current.platform.port.ReadScope
+import io.github.jpicklyk.mcptask.current.platform.port.StoreWrite
+import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
+import io.github.jpicklyk.mcptask.current.platform.port.unitNow
+import io.github.jpicklyk.mcptask.current.platform.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.platform.support.eventRootOf
+import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
 import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.util.UUID
@@ -307,7 +308,7 @@ data class AdvanceResult(
  * 2. **Snapshot** — [TransitionSnapshotLoader] loads the facts the policy reads.
  * 3. **Policy** — [TransitionPolicy.evaluate]: OWNERSHIP, TABLE, WARRANT, HOLD, DEPENDENCY, NOTE, LEASE
  *    in that order. A rejection records its `transition.rejected` / `lease.rejected` row through
- *    [io.github.jpicklyk.mcptask.current.application.port.EventSink.recordRejection] (it survives the
+ *    [io.github.jpicklyk.mcptask.current.platform.port.EventSink.recordRejection] (it survives the
  *    rollback) and returns the mapped [AdvanceFailure].
  * 4. **Apply** — exclusive leases, the item row, the `item.transitioned` event
  *    (the audit record), and the lease release on a WORK exit.

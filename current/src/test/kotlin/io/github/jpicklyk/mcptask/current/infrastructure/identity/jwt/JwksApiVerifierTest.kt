@@ -10,9 +10,9 @@ import com.nimbusds.jose.jwk.gen.ECKeyGenerator
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
-import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.call.ProofStatus
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.every

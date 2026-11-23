@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.upgrade
 
-import io.github.jpicklyk.mcptask.current.application.port.WriteScope
+import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
 
 /**
  * The fixed phases of the data-step runner (plan section 3.7). Declaration order IS run order. Later work items

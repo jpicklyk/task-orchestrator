@@ -4,10 +4,10 @@ import io.github.jpicklyk.mcptask.current.application.knowledge.document.Documen
 import io.github.jpicklyk.mcptask.current.application.knowledge.document.PlanSlugs
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
-import io.github.jpicklyk.mcptask.current.application.support.legacyReadFault
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.knowledge.PlanDocument
+import io.github.jpicklyk.mcptask.current.platform.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.platform.support.legacyReadFault
 import java.time.Instant
 import java.util.UUID
 

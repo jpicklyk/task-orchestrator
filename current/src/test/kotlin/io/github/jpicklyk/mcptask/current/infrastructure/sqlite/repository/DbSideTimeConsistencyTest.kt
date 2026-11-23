@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.EligibilityQuery
-import io.github.jpicklyk.mcptask.current.application.port.ReadScope
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.LeaseInput
@@ -14,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionPolicy
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.platform.port.ReadScope
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking

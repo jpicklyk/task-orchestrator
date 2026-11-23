@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.parity
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.TwinResult
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
@@ -10,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.note.Note
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
 import io.github.jpicklyk.mcptask.current.test.rawCount
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase

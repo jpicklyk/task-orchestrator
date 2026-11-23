@@ -1,9 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.api
 
-import io.github.jpicklyk.mcptask.current.application.port.Clock
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCodec
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.model.error.BatchSummary
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -11,6 +7,10 @@ import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.model.error.ErrorFixtures
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.platform.idempotency.IdempotencyCodec
+import io.github.jpicklyk.mcptask.current.platform.idempotency.IdempotencyService
+import io.github.jpicklyk.mcptask.current.platform.port.Clock
+import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement

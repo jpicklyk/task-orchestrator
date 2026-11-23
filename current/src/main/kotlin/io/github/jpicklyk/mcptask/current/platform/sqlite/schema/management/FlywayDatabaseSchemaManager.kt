@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management
 
-import io.github.jpicklyk.mcptask.current.infrastructure.config.FtsIntegrityMode
+import io.github.jpicklyk.mcptask.current.platform.settings.FtsIntegrityMode
 import io.github.jpicklyk.mcptask.current.platform.sqlite.StartupIntegrity
 import org.flywaydb.core.Flyway
 import org.flywaydb.core.api.FlywayException
@@ -32,7 +32,7 @@ import java.util.UUID
  *
  * @param jdbcUrl The JDBC URL for the database connection.
  * @param repair Whether to run Flyway repair instead of migrate. Sourced from the FLYWAY_REPAIR
- *   env var via [io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig]; defaults to
+ *   env var via [io.github.jpicklyk.mcptask.current.platform.settings.AppConfig]; defaults to
  *   reading the env directly (via the shared [EnvBoolean] vocabulary) so standalone construction
  *   keeps the prior behavior.
  * @param busyTimeoutMs busy_timeout for Flyway's own connection and the integrity connection.
@@ -40,7 +40,7 @@ import java.util.UUID
  * @param lockTimeoutMs how long to wait for the migration lock before failing startup (default [LOCK_TIMEOUT_MS]).
  * @param lockAttempt one non-blocking lock attempt on the lock file's channel (default [FileChannel.tryLock]); a seam
  *   so the IOException policy can be exercised.
- * @param ftsIntegrity `FTS_INTEGRITY` from [io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig]:
+ * @param ftsIntegrity `FTS_INTEGRITY` from [io.github.jpicklyk.mcptask.current.platform.settings.AppConfig]:
  *   [FtsIntegrityMode.OFF] skips only the startup FTS5 integrity check (the inventory check still runs).
  */
 class FlywayDatabaseSchemaManager(

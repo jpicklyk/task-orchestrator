@@ -7,8 +7,9 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Context-safety guard for the application layer (item 9343ad8d, S10): code under the application package must not block a
- * thread or escape structured concurrency. A code line matching [PATTERN] is a violation. Oracle: task-scope
+ * Context-safety guard for the application layer (item 9343ad8d, S10; the layer is `application/` plus the `platform/`
+ * folders that count as application in [LayeringRules]): code in it must not block a thread or escape structured
+ * concurrency. A code line matching [PATTERN] is a violation. Oracle: task-scope
  * section 7 (ContextSafetyTest) and carry-in 3: two-way ratcheted baseline
  * `context-safety-baseline.txt` (`<path> <count>`), seeded from the 7 `runBlocking` bridge files that P9 deletes.
  */
@@ -27,7 +28,7 @@ class ContextSafetyTest {
 
     @Test
     fun `application code matches the ratcheted context-safety baseline`() {
-        val sources = GuardSupport.productionSources().filter { it.path.startsWith("application/") }
+        val sources = GuardSupport.productionSources().filter { LayeringRules.layerOf(it.path) == "application" }
         assertTrue(sources.isNotEmpty(), "no application sources in scope: misrooted Konsist scope")
         val actual = GuardSupport.countByFile(sources) { violations(it.text) }
         val message = GuardSupport.ratchet(actual, GuardSupport.readBaseline("context-safety-baseline.txt"), "context-safety-baseline.txt")

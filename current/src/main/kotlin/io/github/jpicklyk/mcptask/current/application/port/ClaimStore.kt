@@ -4,6 +4,8 @@ import io.github.jpicklyk.mcptask.current.model.item.NextItemOrder
 import io.github.jpicklyk.mcptask.current.model.item.Priority
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
+import io.github.jpicklyk.mcptask.current.platform.port.ClaimWrite
 import java.time.Instant
 import java.util.UUID
 
@@ -95,7 +97,7 @@ sealed class ReleaseResult {
  * claim-aware query. The ONLY writer of the claim columns (`claimed_by`, `claimed_at`,
  * `claim_expires_at`, `original_claimed_at`), and the only place claim freshness is decided in SQL.
  *
- * "Now" is always the ambient unit's instant (see [unitNow]); nothing reads the database clock. A
+ * "Now" is always the ambient unit's instant (see `unitNow`); nothing reads the database clock. A
  * claim is active while its expiry is strictly after "now": an expiry equal to "now" is expired.
  * Claim writes do not bump the item `version`.
  */

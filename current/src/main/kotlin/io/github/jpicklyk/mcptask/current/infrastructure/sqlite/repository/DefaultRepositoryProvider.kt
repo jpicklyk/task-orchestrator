@@ -1,13 +1,10 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.CallLogStore
-import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.DecisionRequestStore
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.DocumentStore
-import io.github.jpicklyk.mcptask.current.application.port.EventStore
-import io.github.jpicklyk.mcptask.current.application.port.IdempotencyStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.LinkStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
@@ -23,10 +20,13 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.knowledge.docume
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.knowledge.document.SqliteLinkStore
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.knowledge.search.SqliteSearchEngine
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.report.SqliteReportQueries
-import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
+import io.github.jpicklyk.mcptask.current.platform.port.Clock
+import io.github.jpicklyk.mcptask.current.platform.port.EventStore
+import io.github.jpicklyk.mcptask.current.platform.port.IdempotencyStore
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.SqliteEventStore
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.SqliteIdempotencyStore
+import io.github.jpicklyk.mcptask.current.platform.time.SystemClock
 
 /**
  * Default repository provider backed by SQLite database implementations.

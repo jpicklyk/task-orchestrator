@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
 import io.github.jpicklyk.mcptask.current.application.port.ConfigAppend
 import io.github.jpicklyk.mcptask.current.application.port.ConfigFileSource
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
-import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepException
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepKind
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepPhase
@@ -13,7 +12,6 @@ import io.github.jpicklyk.mcptask.current.application.upgrade.steps.ServerConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.NetworkntConfigStructuralValidator
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
-import io.github.jpicklyk.mcptask.current.infrastructure.security.configFingerprint
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.str
 import io.github.jpicklyk.mcptask.current.model.config.ConfigAppendOutcome
 import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
@@ -21,6 +19,8 @@ import io.github.jpicklyk.mcptask.current.model.config.ConfigVersionSource
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.platform.port.EventRecord
+import io.github.jpicklyk.mcptask.current.platform.security.configFingerprint
 import io.github.jpicklyk.mcptask.current.test.StrictConfigCases
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking

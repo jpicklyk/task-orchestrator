@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.knowledge.document
 
 import io.github.jpicklyk.mcptask.current.application.port.DocumentStore
-import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.model.knowledge.Document
 import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentKind
 import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentSummary
 import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentVersion
+import io.github.jpicklyk.mcptask.current.platform.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.SQL_IN_CHUNK_SIZE
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.readTx

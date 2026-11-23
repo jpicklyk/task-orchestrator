@@ -1,12 +1,12 @@
 package io.github.jpicklyk.mcptask.current.application.knowledge.search
 
-import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.Corpus
 import io.github.jpicklyk.mcptask.current.application.port.FTS_CANDIDATE_ROWS
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.application.port.SearchResult
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test

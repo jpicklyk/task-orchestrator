@@ -1,16 +1,11 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
-import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.api.of
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
 import io.github.jpicklyk.mcptask.current.application.service.TreeCompletionResult
 import io.github.jpicklyk.mcptask.current.application.service.TreeCompletionService
 import io.github.jpicklyk.mcptask.current.application.service.TreeItemOutcome
-import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.AdvanceSupport
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.TransitionJson
@@ -22,6 +17,11 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.call.CallContext
+import io.github.jpicklyk.mcptask.current.platform.call.of
+import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
+import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive

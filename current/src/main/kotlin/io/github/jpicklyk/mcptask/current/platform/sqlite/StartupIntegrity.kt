@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.platform.sqlite
 
-import io.github.jpicklyk.mcptask.current.infrastructure.config.FtsIntegrityMode
+import io.github.jpicklyk.mcptask.current.platform.settings.FtsIntegrityMode
 import org.slf4j.LoggerFactory
 import java.sql.Connection
 import java.sql.SQLException

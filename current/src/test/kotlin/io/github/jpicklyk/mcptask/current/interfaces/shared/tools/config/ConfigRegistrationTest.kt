@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDescriber
@@ -15,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.parity.ProductionParity
 import io.github.jpicklyk.mcptask.current.parity.installParityRestApp
 import io.github.jpicklyk.mcptask.current.parity.parityAuthConfig
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.ToolSurfaceChecks
 import io.ktor.client.request.delete

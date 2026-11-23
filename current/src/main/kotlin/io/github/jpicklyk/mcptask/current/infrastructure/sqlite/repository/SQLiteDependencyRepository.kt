@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
-import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockingEdge
 import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
@@ -9,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
 import io.github.jpicklyk.mcptask.current.model.error.DuplicateDependencyException
 import io.github.jpicklyk.mcptask.current.model.error.ValidationException
 import io.github.jpicklyk.mcptask.current.model.knowledge.BacklinkRow
+import io.github.jpicklyk.mcptask.current.platform.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.SQL_IN_CHUNK_SIZE
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.readTx

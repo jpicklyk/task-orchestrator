@@ -13,7 +13,7 @@ import java.util.UUID
  *
  * @property parentId Direct children of this item.
  * @property ancestorId The subtree rooted at this item, the item itself included. AND-ed with the
- *   caller's [AccessScope] root restriction, never a replacement for it.
+ *   caller's `AccessScope` root restriction, never a replacement for it.
  * @property tagsAny The item carries at least one of these tags: each one trimmed and lower-cased,
  *   matched against the comma-separated `tags` column at element boundaries. Null or empty means no
  *   tag condition.

@@ -3,10 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.application.knowledge.document.DocumentService
 import io.github.jpicklyk.mcptask.current.application.knowledge.document.PlanSlugs
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
-import io.github.jpicklyk.mcptask.current.application.support.UnitResult
-import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -15,6 +11,10 @@ import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.knowledge.PlanDocument
 import io.github.jpicklyk.mcptask.current.model.knowledge.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.model.knowledge.PlanDocumentSummary
+import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.platform.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.platform.support.UnitResult
+import io.github.jpicklyk.mcptask.current.platform.support.writeUnit
 import java.util.UUID
 
 /**
@@ -42,7 +42,7 @@ class PlanDocumentService(
      * [PlanDocumentStashResult] for the possible outcomes.
      *
      * The 64KB body cap mirrors the `bodyFromFile` cap of `notes_write`
-     * ([io.github.jpicklyk.mcptask.current.application.port.BodySource.MAX_FILE_BYTES]) - kept
+     * ([io.github.jpicklyk.mcptask.current.platform.port.BodySource.MAX_FILE_BYTES]) - kept
      * code-side (not a SQL CHECK) for consistency with how note bodies are capped elsewhere. A
      * `slug` starting with [RuleService.RULE_SLUG_PREFIX] (`rule/`) is capped tighter, at
      * [RuleService.MAX_RULE_BODY_BYTES] — the single enforcement point for every

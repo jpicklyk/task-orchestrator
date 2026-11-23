@@ -12,8 +12,8 @@ import com.nimbusds.jose.jwk.gen.OctetKeyPairGenerator
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
-import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.platform.call.PrincipalKind
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify

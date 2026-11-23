@@ -125,6 +125,59 @@ class PackageCycleRulesTest {
         assertEquals(setOf("application/port/A.kt -> $fq"), result.map { it.key() }.toSet())
     }
 
+    // ------------------------------------------------------------------ S4b interim platform folders
+
+    private val platform = "$root.platform"
+
+    private val platformNodes =
+        mapOf(
+            "port" to "port",
+            "call" to "api",
+            "support" to "support",
+            "calltelemetry" to "telemetry",
+            "eventrecording" to "service",
+            "idempotency" to "service"
+        )
+
+    @Test
+    fun `S4b a platform folder that holds application files is the node of its legacy sub-package, as a source path`() {
+        platformNodes.forEach { (folder, node) ->
+            assertEquals(node, PackageCycleRules.nodeOfPath("platform/$folder/A.kt"), "platform/$folder")
+            val result = edgesOf("platform/$folder/A.kt", imports = listOf("$app.config.X"))
+            assertEquals(listOf(node), result.map { it.from }, "source path platform/$folder")
+            assertEquals(listOf("config"), result.map { it.to }, "source path platform/$folder")
+        }
+    }
+
+    @Test
+    fun `S4b a platform folder that holds application files is the node of its legacy sub-package, as an imported reference`() {
+        platformNodes.forEach { (folder, node) ->
+            val result = edgesOf("application/read/A.kt", imports = listOf("$platform.$folder.X"))
+            assertEquals(listOf(node), result.map { it.to }, "import of platform.$folder")
+            assertEquals(listOf("$platform.$folder.X"), result.map { it.importedFqName }, "import of platform.$folder")
+            val inline = edgesOf("application/read/A.kt", text = "val x: $platform.$folder.X = TODO()")
+            assertEquals(listOf(node), inline.map { it.to }, "code-line reference to platform.$folder")
+        }
+    }
+
+    @Test
+    fun `S4b a platform folder reaching its own legacy node is not an edge`() {
+        platformNodes.forEach { (folder, node) ->
+            assertEquals(emptyList(), edgesOf("platform/$folder/A.kt", imports = listOf("$app.$node.X")), "platform/$folder")
+        }
+    }
+
+    @Test
+    fun `S4b a platform folder that counts as infrastructure or sits directly under platform is out of scope`() {
+        listOf("sqlite", "settings", "yaml", "retention", "health", "logging", "security", "shutdown", "time").forEach { folder ->
+            assertEquals(null, PackageCycleRules.nodeOfPath("platform/$folder/A.kt"), "platform/$folder")
+            assertEquals(emptyList(), edgesOf("platform/$folder/A.kt", imports = listOf("$app.api.X")), "source platform/$folder")
+            assertEquals(emptyList(), edgesOf("application/read/A.kt", imports = listOf("$platform.$folder.X")), "target platform.$folder")
+        }
+        assertEquals(null, PackageCycleRules.nodeOfPath("platform/A.kt"))
+        assertEquals(emptyList(), edgesOf("application/read/A.kt", imports = listOf("$platform.port")), "a bare folder name is no edge")
+    }
+
     // ------------------------------------------------------------------ edge probes
 
     @Test

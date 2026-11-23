@@ -258,7 +258,7 @@ internal sealed interface ResolvedScope {
 
 internal object ScopeResolver {
     /**
-     * Resolve a PRINCIPAL scope's root set (an [io.github.jpicklyk.mcptask.current.application.port.AccessScope]'s
+     * Resolve a PRINCIPAL scope's root set (an [io.github.jpicklyk.mcptask.current.platform.port.AccessScope]'s
      * `rootIds`) into a scope filter: `root_id IN (rootIds)`, or [ResolvedScope.Empty] for an empty set. Never
      * traverses. A listed id is a project root by contract (anchor validation); V9 stamps every item with the id of
      * its depth-0 ancestor, so `{x : x.root_id = R}` is the whole tree of R. An id that is not a root simply admits

@@ -11,15 +11,12 @@ import io.github.jpicklyk.mcptask.current.application.knowledge.document.Documen
 import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
 import io.github.jpicklyk.mcptask.current.application.knowledge.related.RelatedService
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
-import io.github.jpicklyk.mcptask.current.application.port.BodySource
-import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.DecisionEffects
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.RunDecisionPort
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.read.WorkViewQueries
 import io.github.jpicklyk.mcptask.current.application.run.RunDecisionEffects
@@ -30,14 +27,12 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFact
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
 import io.github.jpicklyk.mcptask.current.application.service.DependencyCommandService
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandService
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
 import io.github.jpicklyk.mcptask.current.application.service.PlanDocumentService
 import io.github.jpicklyk.mcptask.current.application.service.SchemaPinService
 import io.github.jpicklyk.mcptask.current.application.service.TransitionPreview
-import io.github.jpicklyk.mcptask.current.application.service.UnscopedUnitOfWork
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceDefinition
@@ -45,6 +40,11 @@ import io.github.jpicklyk.mcptask.current.model.lease.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.model.schema.DispatchProfile
 import io.github.jpicklyk.mcptask.current.model.schema.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.platform.eventrecording.UnscopedUnitOfWork
+import io.github.jpicklyk.mcptask.current.platform.idempotency.IdempotencyService
+import io.github.jpicklyk.mcptask.current.platform.port.BodySource
+import io.github.jpicklyk.mcptask.current.platform.port.Clock
+import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import java.util.UUID
 
 /**

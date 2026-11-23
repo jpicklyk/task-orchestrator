@@ -10,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
+import io.github.jpicklyk.mcptask.current.platform.eventrecording.withEventActor
 import java.util.UUID
 
 /** How one item of a tree completion ended, in processing order. */

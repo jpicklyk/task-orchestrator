@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.notes
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.toCallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
@@ -16,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.model.proof.ProofClaims
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationStatus
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.test.actorArg
 import io.github.jpicklyk.mcptask.current.test.callTool
 import io.github.jpicklyk.mcptask.current.test.envelopeOk

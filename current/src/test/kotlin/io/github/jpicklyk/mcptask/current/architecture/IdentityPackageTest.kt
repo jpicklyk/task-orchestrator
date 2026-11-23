@@ -214,18 +214,21 @@ class IdentityPackageTest {
 
     private val jwksKeyCache = Regex("""\bJwksKeyCache\b""")
     private val securityForbiddenImport =
-        Regex("""io\.github\.jpicklyk\.mcptask\.current\.infrastructure\.(?:config|identity)\b""")
+        Regex("""io\.github\.jpicklyk\.mcptask\.current\.(?:infrastructure\.(?:config|identity)|platform\.(?:settings|yaml))\b""")
 
     private fun securityOffenders(sources: List<GuardSupport.Source>): List<String> =
         sources
-            .filter { GuardSupport.normalizedPath(it.path).startsWith("infrastructure/security/") }
+            .filter { GuardSupport.normalizedPath(it.path).startsWith("platform/security/") }
             .filter { it.hasCodeMatch(securityForbiddenImport) }
             .map { it.path }
 
     @Test
     fun `S6 JwksKeyCache is gone and no production code line mentions it`() {
         val sources = GuardSupport.productionSources()
-        assertFalse(sources.any { it.path == "infrastructure/security/JwksKeyCache.kt" }, "JwksKeyCache.kt must be deleted")
+        assertFalse(
+            sources.any { it.path == "infrastructure/security/JwksKeyCache.kt" || it.path == "platform/security/JwksKeyCache.kt" },
+            "JwksKeyCache.kt must be deleted"
+        )
         val mentions = sources.filter { it.hasCodeMatch(jwksKeyCache) }.map { it.path }
         assertTrue(mentions.isEmpty(), "code lines still mention JwksKeyCache: $mentions")
         val replacement = Regex("""\bDefaultJwksKeySetProvider\b""")
@@ -245,21 +248,25 @@ class IdentityPackageTest {
     }
 
     @Test
-    fun `S6 infrastructure security files do not depend on infrastructure config or identity`() {
+    fun `S6 platform security files do not depend on infrastructure config or identity or platform settings`() {
         val sources = GuardSupport.productionSources()
-        val security = sources.filter { GuardSupport.normalizedPath(it.path).startsWith("infrastructure/security/") }
-        assertTrue(security.isNotEmpty(), "vacuity: infrastructure/security/ must hold production files")
+        val security = sources.filter { GuardSupport.normalizedPath(it.path).startsWith("platform/security/") }
+        assertTrue(security.isNotEmpty(), "vacuity: platform/security/ must hold production files")
         val offenders = securityOffenders(sources)
-        assertTrue(offenders.isEmpty(), "infrastructure/security must not reach config/identity: $offenders")
+        assertTrue(offenders.isEmpty(), "platform/security must not reach config/identity/settings: $offenders")
 
         val root = "io.github.jpicklyk.mcptask.current.infrastructure"
         val seeded =
             listOf(
-                synthetic("infrastructure/security/X.kt", "import $root.config.AppConfig"),
-                synthetic("infrastructure/security/Y.kt", "val i = $root.identity.jwt.Z()"),
-                synthetic("infrastructure/security/Z.kt", "// import $root.config.AppConfig")
+                synthetic("platform/security/X.kt", "import $root.config.AppConfig"),
+                synthetic("platform/security/Y.kt", "val i = $root.identity.jwt.Z()"),
+                synthetic("platform/security/Z.kt", "// import $root.config.AppConfig"),
+                synthetic("platform/security/W.kt", "import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig")
             )
-        assertEquals(setOf("infrastructure/security/X.kt", "infrastructure/security/Y.kt"), securityOffenders(seeded).toSet())
+        assertEquals(
+            setOf("platform/security/X.kt", "platform/security/Y.kt", "platform/security/W.kt"),
+            securityOffenders(seeded).toSet()
+        )
     }
 
     // endregion
@@ -267,19 +274,26 @@ class IdentityPackageTest {
     // region S7 application service stays below application api
 
     private val currentRoot = "io\\.github\\.jpicklyk\\.mcptask\\.current"
-    private val applicationApi = Regex("""(?<![A-Za-z0-9_])$currentRoot\.application\.api\b""")
+    private val applicationApi = Regex("""(?<![A-Za-z0-9_])$currentRoot\.(?:application\.api|platform\.call)\b""")
+
+    /** The legacy `application/service` node: its own folder and the `platform/` folders that took its files. */
+    private val serviceNodePaths = listOf("application/service/", "platform/eventrecording/", "platform/idempotency/")
+
+    private fun isServiceNode(path: String): Boolean = serviceNodePaths.any { GuardSupport.normalizedPath(path).startsWith(it) }
 
     private fun serviceImportingApi(sources: List<GuardSupport.Source>): List<String> =
         sources
-            .filter { GuardSupport.normalizedPath(it.path).startsWith("application/service/") }
+            .filter { isServiceNode(it.path) }
             .filter { it.hasCodeMatch(applicationApi) }
             .map { it.path }
 
     @Test
     fun `S7 no application service file imports or references application api`() {
         val sources = GuardSupport.productionSources()
-        val services = sources.filter { GuardSupport.normalizedPath(it.path).startsWith("application/service/") }
-        assertTrue(services.isNotEmpty(), "vacuity: application/service/ must hold production files")
+        val services = sources.filter { isServiceNode(it.path) }
+        serviceNodePaths.forEach { dir ->
+            assertTrue(services.any { GuardSupport.normalizedPath(it.path).startsWith(dir) }, "vacuity: $dir must hold production files")
+        }
         val offenders = serviceImportingApi(sources)
         assertTrue(offenders.isEmpty(), "application/service files reaching application.api (AR-58 edge 1): $offenders")
     }
@@ -287,6 +301,7 @@ class IdentityPackageTest {
     @Test
     fun `S7 the application api matcher flags an import and a FQN use and ignores KDoc and prefix traps`() {
         val api = "io.github.jpicklyk.mcptask.current.application.api"
+        val call = "io.github.jpicklyk.mcptask.current.platform.call"
         val seeded =
             listOf(
                 synthetic("application/service/A.kt", "import $api.ActorAware"),
@@ -294,10 +309,19 @@ class IdentityPackageTest {
                 synthetic("application/service/C.kt", "val p = $api.ActorParseResult"),
                 synthetic("application/service/D.kt", " * [$api.ActorAware]"),
                 synthetic("application/service/E.kt", "import ${api}x.Other"),
-                synthetic("application/other/F.kt", "import $api.ActorAware")
+                synthetic("application/other/F.kt", "import $api.ActorAware"),
+                synthetic("platform/eventrecording/G.kt", "import $call.CallContext"),
+                synthetic("platform/idempotency/H.kt", "val p = $call.Principal"),
+                synthetic("platform/port/I.kt", "import $call.Principal")
             )
         assertEquals(
-            setOf("application/service/A.kt", "application/service/B.kt", "application/service/C.kt"),
+            setOf(
+                "application/service/A.kt",
+                "application/service/B.kt",
+                "application/service/C.kt",
+                "platform/eventrecording/G.kt",
+                "platform/idempotency/H.kt"
+            ),
             serviceImportingApi(seeded).toSet()
         )
     }
@@ -328,7 +352,7 @@ class IdentityPackageTest {
     // region S8 fromEnv confinement and the appConfig default
 
     private val fromEnvCall = Regex("""\bfromEnv\s*\(""")
-    private val fromEnvAllowed = setOf("CurrentMain.kt", "infrastructure/config/AppConfig.kt")
+    private val fromEnvAllowed = setOf("CurrentMain.kt", "platform/settings/AppConfig.kt")
 
     private fun fromEnvOutsideAllowed(sources: List<GuardSupport.Source>): List<String> =
         sources.filter { it.path !in fromEnvAllowed && it.hasCodeMatch(fromEnvCall) }.map { it.path }
@@ -341,7 +365,7 @@ class IdentityPackageTest {
 
         val main = assertNotNull(sources.firstOrNull { it.path == "CurrentMain.kt" }, "CurrentMain.kt must be in the production scope")
         assertTrue(main.hasCodeMatch(Regex("""\bAppConfig\s*\.\s*fromEnv\s*\(""")), "CurrentMain must call AppConfig.fromEnv(...)")
-        val appConfig = assertNotNull(sources.firstOrNull { it.path == "infrastructure/config/AppConfig.kt" }, "AppConfig.kt must exist")
+        val appConfig = assertNotNull(sources.firstOrNull { it.path == "platform/settings/AppConfig.kt" }, "AppConfig.kt must exist")
         assertTrue(appConfig.hasCodeMatch(Regex("""\bfun\s+fromEnv\s*\(""")), "AppConfig must still define fromEnv")
     }
 

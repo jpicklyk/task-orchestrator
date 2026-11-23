@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.test
 
-import io.github.jpicklyk.mcptask.current.application.port.Clock
+import io.github.jpicklyk.mcptask.current.platform.port.Clock
 import java.time.Duration
 import java.time.Instant
 import java.time.temporal.ChronoUnit

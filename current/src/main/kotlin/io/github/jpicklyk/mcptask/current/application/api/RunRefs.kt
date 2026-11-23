@@ -1,15 +1,16 @@
 package io.github.jpicklyk.mcptask.current.application.api
 
-import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.support.IdRef
-import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.run.Run
+import io.github.jpicklyk.mcptask.current.platform.call.ScopedIds
+import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
+import io.github.jpicklyk.mcptask.current.platform.support.IdRef
+import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
 import java.util.UUID
 
 /**

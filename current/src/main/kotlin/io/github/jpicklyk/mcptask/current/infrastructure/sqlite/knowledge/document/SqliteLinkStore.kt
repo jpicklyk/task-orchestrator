@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.knowledge.document
 
 import io.github.jpicklyk.mcptask.current.application.port.LinkStore
-import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.model.knowledge.EntityRef
 import io.github.jpicklyk.mcptask.current.model.knowledge.Link
 import io.github.jpicklyk.mcptask.current.model.knowledge.LinkRelation
 import io.github.jpicklyk.mcptask.current.model.knowledge.RefKind
+import io.github.jpicklyk.mcptask.current.platform.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.SQL_IN_CHUNK_SIZE
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.readTx

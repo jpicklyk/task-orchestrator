@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.read
 
-import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.parity.PARITY_NOW
 import io.github.jpicklyk.mcptask.current.parity.ParitySeeder
+import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.inUnit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase

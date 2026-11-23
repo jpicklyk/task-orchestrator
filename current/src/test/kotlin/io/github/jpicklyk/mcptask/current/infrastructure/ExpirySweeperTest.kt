@@ -1,13 +1,13 @@
 package io.github.jpicklyk.mcptask.current.infrastructure
 
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.CLAIM_T
 import io.github.jpicklyk.mcptask.current.application.service.ClaimRig
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
 import io.github.jpicklyk.mcptask.current.application.service.ExpirySweep
 import io.github.jpicklyk.mcptask.current.application.service.ok
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.delay

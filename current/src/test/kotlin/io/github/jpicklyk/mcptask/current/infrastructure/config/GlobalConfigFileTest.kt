@@ -3,7 +3,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
-import io.github.jpicklyk.mcptask.current.infrastructure.security.configFingerprint
+import io.github.jpicklyk.mcptask.current.platform.security.configFingerprint
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File

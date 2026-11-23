@@ -1,5 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
+import io.github.jpicklyk.mcptask.current.platform.port.EventStore
+import io.github.jpicklyk.mcptask.current.platform.port.IdempotencyStore
+
 /**
  * Provides access to all repository implementations.
  * Used for dependency injection across the application layer.
@@ -47,7 +50,7 @@ interface RepositoryProvider {
 
     /**
      * The append-only domain-event log (`events`). Write services append to it through the unit's
-     * [WriteScope.events] sink, never directly.
+     * `WriteScope.events` sink, never directly.
      */
     fun eventStore(): EventStore
 

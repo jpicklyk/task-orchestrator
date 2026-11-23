@@ -4,9 +4,6 @@ package io.github.jpicklyk.mcptask.current.application.knowledge.document
 
 import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -22,6 +19,9 @@ import io.github.jpicklyk.mcptask.current.model.knowledge.EntityRef
 import io.github.jpicklyk.mcptask.current.model.knowledge.Link
 import io.github.jpicklyk.mcptask.current.model.knowledge.LinkRelation
 import io.github.jpicklyk.mcptask.current.model.knowledge.RefKind
+import io.github.jpicklyk.mcptask.current.platform.port.StoreWrite
+import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
 import java.security.MessageDigest
 import java.util.UUID
 

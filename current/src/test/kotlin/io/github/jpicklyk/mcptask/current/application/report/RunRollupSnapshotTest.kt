@@ -1,10 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.report
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
-import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
 import io.github.jpicklyk.mcptask.current.application.port.AttemptCounts
 import io.github.jpicklyk.mcptask.current.application.port.RunHeader
-import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.Opened
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.SEAT_WORLD_CONFIG
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.SeatWorld
@@ -13,6 +10,9 @@ import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.model.run.RunStatus
 import io.github.jpicklyk.mcptask.current.model.run.RunTerminalReason
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.call.PrincipalKind
+import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking

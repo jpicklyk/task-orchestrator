@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.CredentialResolver
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.test.resolveOrNull
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals

@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.bootstrap
 
-import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
+import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
+import io.github.jpicklyk.mcptask.current.platform.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.mockk.every
 import io.mockk.mockkConstructor
@@ -47,7 +47,7 @@ import kotlin.test.assertTrue
  *   deterministically without risking a hung or flaky CI test is out of scope for this suite. The
  *   *parsing* precondition behind S7 (that `"HTTP"` and `"STDIO"` resolve identically to their
  *   lowercase form) is covered directly against [AppConfig]. S2 (marker cleared on clean shutdown)
- *   and S10 (unwritable readiness dir) are covered at the [io.github.jpicklyk.mcptask.current.infrastructure.health.ReadinessMarker]
+ *   and S10 (unwritable readiness dir) are covered at the [io.github.jpicklyk.mcptask.current.platform.health.ReadinessMarker]
  *   unit level in `ReadinessMarkerTest`, which does not need a live transport either.
  * - S6 (`main()` maps `Failed` to a thrown [StartupFailedException], never `exitProcess`) is
  *   covered at the exception-contract level: constructing [StartupFailedException] from a [Failed]

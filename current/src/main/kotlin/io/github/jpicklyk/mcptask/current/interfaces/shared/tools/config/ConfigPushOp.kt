@@ -1,16 +1,16 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.config.evictConfigSession
 import io.github.jpicklyk.mcptask.current.application.service.ConfigPushResult
-import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement

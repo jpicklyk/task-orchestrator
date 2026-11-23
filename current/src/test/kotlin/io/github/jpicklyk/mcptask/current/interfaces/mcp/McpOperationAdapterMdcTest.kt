@@ -6,7 +6,6 @@ import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.AppenderBase
 import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
@@ -16,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.ReqId
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.testAccess
 import io.modelcontextprotocol.kotlin.sdk.client.Client

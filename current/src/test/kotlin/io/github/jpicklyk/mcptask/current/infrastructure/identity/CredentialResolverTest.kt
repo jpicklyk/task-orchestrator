@@ -7,9 +7,6 @@ import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
-import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
-import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
@@ -17,6 +14,9 @@ import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.CacheState
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksResult
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.call.PrincipalKind
+import io.github.jpicklyk.mcptask.current.platform.call.ProofStatus
 import io.github.jpicklyk.mcptask.current.test.resolveOrNull
 import io.mockk.Runs
 import io.mockk.coEvery

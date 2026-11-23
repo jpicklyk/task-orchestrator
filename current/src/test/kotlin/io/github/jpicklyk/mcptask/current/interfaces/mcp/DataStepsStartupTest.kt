@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
-import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepException
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepKind
@@ -10,9 +9,10 @@ import io.github.jpicklyk.mcptask.current.bootstrap.Failed
 import io.github.jpicklyk.mcptask.current.bootstrap.Reason
 import io.github.jpicklyk.mcptask.current.bootstrap.RepairCompleted
 import io.github.jpicklyk.mcptask.current.bootstrap.StartupOutcome
-import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.UpgradeHarness
+import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
+import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
+import io.github.jpicklyk.mcptask.current.platform.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.mockk.every
 import io.mockk.mockkConstructor

@@ -1,21 +1,21 @@
 package io.github.jpicklyk.mcptask.current.application.report
 
 import io.github.jpicklyk.mcptask.current.application.config.RunsConfig
-import io.github.jpicklyk.mcptask.current.application.port.ReadScope
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.run.RunCloseHook
 import io.github.jpicklyk.mcptask.current.application.run.RunEndedSnapshot
 import io.github.jpicklyk.mcptask.current.application.run.RunOpenCommand
 import io.github.jpicklyk.mcptask.current.application.run.RunService
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
 import io.github.jpicklyk.mcptask.current.application.service.ok
-import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.run.Run
 import io.github.jpicklyk.mcptask.current.model.run.RunStatus
 import io.github.jpicklyk.mcptask.current.model.run.RunTerminalReason
+import io.github.jpicklyk.mcptask.current.platform.port.ReadScope
+import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking

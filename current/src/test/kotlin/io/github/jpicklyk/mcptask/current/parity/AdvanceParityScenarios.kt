@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.parity
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
-import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
 import io.github.jpicklyk.mcptask.current.model.item.Role
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.call.PrincipalKind
 import java.util.UUID
 
 /**

@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.application.upgrade
 
-import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.DataStepStore
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.platform.port.Clock
+import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
 import org.slf4j.LoggerFactory
 
 /** What one [DataStepRunner.run] did: once steps applied now, once steps skipped as already applied, every-boot steps run. */

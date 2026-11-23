@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.knowledge.document.Documen
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchRequest
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchValidationException
-import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.Analyzer
 import io.github.jpicklyk.mcptask.current.application.port.Candidate
 import io.github.jpicklyk.mcptask.current.application.port.Corpus
@@ -20,6 +19,7 @@ import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.knowledge.Document
 import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentKind
 import io.github.jpicklyk.mcptask.current.model.note.Note
+import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test

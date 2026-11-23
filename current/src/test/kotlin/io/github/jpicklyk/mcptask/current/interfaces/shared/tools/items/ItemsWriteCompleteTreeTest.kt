@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.Dispatched
@@ -12,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.test.deleteOp
 import io.github.jpicklyk.mcptask.current.test.dispatchAsTestActor
 import io.github.jpicklyk.mcptask.current.test.errorAt

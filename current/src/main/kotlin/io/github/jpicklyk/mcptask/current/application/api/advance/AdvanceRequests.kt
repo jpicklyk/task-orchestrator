@@ -2,8 +2,8 @@ package io.github.jpicklyk.mcptask.current.application.api.advance
 
 import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.api.IsoInstantSerializer
-import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import io.github.jpicklyk.mcptask.current.model.item.BlockedReason
+import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.time.Instant

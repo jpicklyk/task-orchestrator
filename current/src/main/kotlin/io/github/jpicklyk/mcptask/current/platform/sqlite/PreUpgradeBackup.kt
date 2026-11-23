@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.platform.sqlite
 
-import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
-import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
+import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.platform.support.runCatchingNonCancellation
 import org.slf4j.LoggerFactory
 import java.io.File
 import java.nio.file.FileAlreadyExistsException

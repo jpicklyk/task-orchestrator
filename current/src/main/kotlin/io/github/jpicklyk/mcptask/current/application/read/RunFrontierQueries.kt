@@ -1,8 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.read
 
-import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.AssigneeHolder
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockerEvaluator
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimState
 import io.github.jpicklyk.mcptask.current.model.item.BlockedReason
@@ -12,6 +10,8 @@ import io.github.jpicklyk.mcptask.current.model.run.Run
 import io.github.jpicklyk.mcptask.current.model.run.RunLiveness
 import io.github.jpicklyk.mcptask.current.model.run.RunSeat
 import io.github.jpicklyk.mcptask.current.model.run.RunStatus
+import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
+import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import java.time.Instant
 import java.util.UUID
 

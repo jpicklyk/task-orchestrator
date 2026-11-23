@@ -1,16 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
-import io.github.jpicklyk.mcptask.current.application.api.Principal
-import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
-import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
-import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
-import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
@@ -18,6 +12,12 @@ import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashByt
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpAuthMode
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.call.Principal
+import io.github.jpicklyk.mcptask.current.platform.call.PrincipalKind
+import io.github.jpicklyk.mcptask.current.platform.call.ProofStatus
+import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
+import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.plugins.sse.sse

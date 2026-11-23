@@ -5,7 +5,8 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.GlobalConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.ConfigFileSource
-import io.github.jpicklyk.mcptask.current.infrastructure.security.configFingerprint
+import io.github.jpicklyk.mcptask.current.platform.security.configFingerprint
+import io.github.jpicklyk.mcptask.current.platform.yaml.YamlLoaders
 import org.slf4j.LoggerFactory
 import java.nio.file.Path
 

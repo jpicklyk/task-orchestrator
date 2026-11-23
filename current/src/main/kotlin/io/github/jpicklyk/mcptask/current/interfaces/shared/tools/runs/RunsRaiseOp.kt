@@ -1,18 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
-import io.github.jpicklyk.mcptask.current.application.api.CallContext
-import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.api.of
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsRaiseRequest
 import io.github.jpicklyk.mcptask.current.application.decision.DecisionRaiseCommand
-import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.BlockInput
-import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
-import io.github.jpicklyk.mcptask.current.application.support.eventRootOf
-import io.github.jpicklyk.mcptask.current.application.support.toDomainError
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.AdvanceSupport
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
@@ -28,6 +20,14 @@ import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestOption
 import io.github.jpicklyk.mcptask.current.model.run.Run
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.call.CallContext
+import io.github.jpicklyk.mcptask.current.platform.call.ScopedIds
+import io.github.jpicklyk.mcptask.current.platform.call.of
+import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
+import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
+import io.github.jpicklyk.mcptask.current.platform.support.eventRootOf
+import io.github.jpicklyk.mcptask.current.platform.support.toDomainError
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull

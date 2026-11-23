@@ -1,12 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
-import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.Doc
-import io.github.jpicklyk.mcptask.current.application.api.Principal
-import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
-import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
-import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
@@ -23,6 +17,12 @@ import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.parity.installParityRestApp
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.call.CallContext
+import io.github.jpicklyk.mcptask.current.platform.call.Principal
+import io.github.jpicklyk.mcptask.current.platform.call.PrincipalKind
+import io.github.jpicklyk.mcptask.current.platform.call.ProofStatus
+import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header

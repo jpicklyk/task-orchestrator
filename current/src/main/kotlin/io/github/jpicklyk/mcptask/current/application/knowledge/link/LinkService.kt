@@ -3,10 +3,6 @@
 package io.github.jpicklyk.mcptask.current.application.knowledge.link
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.support.IdRef
-import io.github.jpicklyk.mcptask.current.application.support.eventRootOf
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -20,6 +16,10 @@ import io.github.jpicklyk.mcptask.current.model.knowledge.EntityRef
 import io.github.jpicklyk.mcptask.current.model.knowledge.Link
 import io.github.jpicklyk.mcptask.current.model.knowledge.LinkRelation
 import io.github.jpicklyk.mcptask.current.model.knowledge.RefKind
+import io.github.jpicklyk.mcptask.current.platform.port.StoreWrite
+import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.platform.support.IdRef
+import io.github.jpicklyk.mcptask.current.platform.support.eventRootOf
 import java.time.Instant
 import java.util.UUID
 

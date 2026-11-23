@@ -8,7 +8,6 @@ import com.nimbusds.jose.jwk.RSAKey
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
-import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
@@ -17,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVer
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksResult
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.KeySetUnavailableException
+import io.github.jpicklyk.mcptask.current.platform.call.ProofStatus
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.every

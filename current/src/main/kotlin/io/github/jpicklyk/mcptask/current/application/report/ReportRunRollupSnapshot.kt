@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.report
 
-import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.port.failSoftReads
 import io.github.jpicklyk.mcptask.current.application.run.RunRollupSnapshot
-import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.platform.port.Clock
+import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.platform.port.failSoftReads
+import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
 import kotlinx.serialization.SerializationException
 import org.slf4j.LoggerFactory
 import java.sql.SQLException

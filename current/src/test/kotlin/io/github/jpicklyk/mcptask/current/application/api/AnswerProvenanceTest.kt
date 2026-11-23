@@ -1,12 +1,19 @@
 package io.github.jpicklyk.mcptask.current.application.api
 
-import io.github.jpicklyk.mcptask.current.application.port.AccessScope
-import io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetry
-import io.github.jpicklyk.mcptask.current.interfaces.shared.auth.toCallPrincipal
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.claim.ActorKind
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationStatus
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.call.CallContext
+import io.github.jpicklyk.mcptask.current.platform.call.CallPrincipal
+import io.github.jpicklyk.mcptask.current.platform.call.Principal
+import io.github.jpicklyk.mcptask.current.platform.call.PrincipalKind
+import io.github.jpicklyk.mcptask.current.platform.call.ProofStatus
+import io.github.jpicklyk.mcptask.current.platform.call.proofStatus
+import io.github.jpicklyk.mcptask.current.platform.call.toCallPrincipal
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallTelemetry
+import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.Test

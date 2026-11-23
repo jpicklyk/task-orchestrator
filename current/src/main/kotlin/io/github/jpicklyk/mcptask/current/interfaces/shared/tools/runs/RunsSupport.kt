@@ -1,12 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
-import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.RunRefs
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunBudgetRequest
-import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -15,6 +12,9 @@ import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.run.Run
 import io.github.jpicklyk.mcptask.current.model.run.RunBudget
+import io.github.jpicklyk.mcptask.current.platform.call.CallContext
+import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
+import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import kotlinx.serialization.json.JsonObject
 import java.time.Instant
 import java.util.UUID

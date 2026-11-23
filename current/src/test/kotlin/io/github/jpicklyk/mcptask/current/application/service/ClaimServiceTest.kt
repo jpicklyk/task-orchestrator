@@ -1,11 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
-import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.ReleaseResult
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.str
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
@@ -13,6 +11,8 @@ import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.platform.port.EventRecord
+import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking

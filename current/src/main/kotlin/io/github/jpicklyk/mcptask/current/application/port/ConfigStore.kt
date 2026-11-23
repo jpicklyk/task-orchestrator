@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
 import io.github.jpicklyk.mcptask.current.model.config.ConfigVersion
 import io.github.jpicklyk.mcptask.current.model.config.ConfigVersionSource
 import io.github.jpicklyk.mcptask.current.model.config.FingerprintRelation
+import io.github.jpicklyk.mcptask.current.platform.port.StoreWrite
 import java.time.Instant
 import java.util.UUID
 

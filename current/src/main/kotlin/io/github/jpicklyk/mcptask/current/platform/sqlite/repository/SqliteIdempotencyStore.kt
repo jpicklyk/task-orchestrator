@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.platform.sqlite.repository
 
-import io.github.jpicklyk.mcptask.current.application.port.IdempotencyRecord
-import io.github.jpicklyk.mcptask.current.application.port.IdempotencyStore
+import io.github.jpicklyk.mcptask.current.platform.port.IdempotencyRecord
+import io.github.jpicklyk.mcptask.current.platform.port.IdempotencyStore
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.IdempotencyRecordsTable
 import org.jetbrains.exposed.v1.core.ResultRow

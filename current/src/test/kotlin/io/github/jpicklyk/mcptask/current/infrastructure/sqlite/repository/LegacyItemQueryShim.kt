@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
-import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.ItemFetchResult
 import io.github.jpicklyk.mcptask.current.application.port.ItemFilter
 import io.github.jpicklyk.mcptask.current.application.port.ItemPage
@@ -12,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.model.claim.ClaimStatus
 import io.github.jpicklyk.mcptask.current.model.item.Priority
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 import java.time.Instant
 import java.util.UUID
 

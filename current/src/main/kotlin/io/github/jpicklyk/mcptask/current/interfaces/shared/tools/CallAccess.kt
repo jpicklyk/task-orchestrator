@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
-import io.github.jpicklyk.mcptask.current.application.api.CallPrincipal
-import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.LOCAL_PRINCIPAL
-import io.github.jpicklyk.mcptask.current.interfaces.shared.auth.toCallPrincipal
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.call.CallPrincipal
+import io.github.jpicklyk.mcptask.current.platform.call.toCallPrincipal
+import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 
 /**
  * What a transport established about a call before the dispatcher runs: who made it ([principal]), what it may see

@@ -282,8 +282,8 @@ kotlin {
 tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileTestKotlin") {
     compilerOptions {
         optIn.addAll(
-            "io.github.jpicklyk.mcptask.current.application.port.StoreWrite",
-            "io.github.jpicklyk.mcptask.current.application.port.ClaimWrite",
+            "io.github.jpicklyk.mcptask.current.platform.port.StoreWrite",
+            "io.github.jpicklyk.mcptask.current.platform.port.ClaimWrite",
             "io.modelcontextprotocol.kotlin.sdk.ExperimentalMcpApi",
         )
     }

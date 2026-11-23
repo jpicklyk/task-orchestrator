@@ -2,13 +2,13 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.bootstrap.CompositionResult
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
-import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.make
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.HttpClient

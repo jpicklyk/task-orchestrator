@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.application.config.ConfigViolation
 import io.github.jpicklyk.mcptask.current.application.config.ParseMode
+import io.github.jpicklyk.mcptask.current.platform.yaml.YamlLoaders
 
 /**
  * Shared [ConfigDocumentParser] implementation for attacker-reachable (pushed) per-root config

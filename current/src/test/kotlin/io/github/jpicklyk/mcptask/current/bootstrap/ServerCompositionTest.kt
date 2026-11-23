@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.bootstrap
 
-import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
+import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
+import io.github.jpicklyk.mcptask.current.platform.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension

@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.service.ConfigPushResult
 import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
@@ -12,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.model.item.LifecycleMode
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.schema.PinLayer
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.test.P11Driver
 import io.github.jpicklyk.mcptask.current.test.P11_BASE_YAML
 import io.github.jpicklyk.mcptask.current.test.breakConfigReads

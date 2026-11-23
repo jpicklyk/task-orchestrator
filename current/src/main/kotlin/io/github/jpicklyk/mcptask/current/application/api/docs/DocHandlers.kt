@@ -1,19 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.api.docs
 
-import io.github.jpicklyk.mcptask.current.application.api.CallContext
-import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.knowledge.document.PlanSlugs
-import io.github.jpicklyk.mcptask.current.application.port.BodySource
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
-import io.github.jpicklyk.mcptask.current.application.port.ListPage
-import io.github.jpicklyk.mcptask.current.application.port.PageRequest
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.port.WriteScope
-import io.github.jpicklyk.mcptask.current.application.support.IdRef
-import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
-import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallRoot
-import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -26,6 +16,16 @@ import io.github.jpicklyk.mcptask.current.model.knowledge.EntityRef
 import io.github.jpicklyk.mcptask.current.model.knowledge.Link
 import io.github.jpicklyk.mcptask.current.model.knowledge.LinkRelation
 import io.github.jpicklyk.mcptask.current.model.knowledge.RefKind
+import io.github.jpicklyk.mcptask.current.platform.call.CallContext
+import io.github.jpicklyk.mcptask.current.platform.call.ScopedIds
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.recordCallRoot
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.recordCallTargetVersion
+import io.github.jpicklyk.mcptask.current.platform.port.BodySource
+import io.github.jpicklyk.mcptask.current.platform.port.ListPage
+import io.github.jpicklyk.mcptask.current.platform.port.PageRequest
+import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
+import io.github.jpicklyk.mcptask.current.platform.support.IdRef
+import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
 import java.util.UUID
 
 /**

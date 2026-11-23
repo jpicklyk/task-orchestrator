@@ -1,13 +1,13 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
-import io.github.jpicklyk.mcptask.current.application.api.Principal
-import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
-import io.github.jpicklyk.mcptask.current.application.api.ProofStatus
-import io.github.jpicklyk.mcptask.current.application.port.AccessScope
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlLoaders
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.DIRECTOR_CREDENTIAL_PROFILE
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.ScopeClaimParser
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.call.Principal
+import io.github.jpicklyk.mcptask.current.platform.call.PrincipalKind
+import io.github.jpicklyk.mcptask.current.platform.call.ProofStatus
+import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
+import io.github.jpicklyk.mcptask.current.platform.yaml.YamlLoaders
 import org.slf4j.LoggerFactory
 import java.io.FileReader
 import java.time.Instant

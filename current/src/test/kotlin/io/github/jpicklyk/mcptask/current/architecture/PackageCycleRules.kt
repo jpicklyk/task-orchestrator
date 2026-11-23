@@ -10,6 +10,11 @@ package io.github.jpicklyk.mcptask.current.architecture
  * and string literals are stripped before scanning. Files outside `application/` and application-root files are out of
  * scope, and `q` must be a lowercase-initial segment followed by a further segment.
  *
+ * Interim, until the package reorganisation retires the legacy packages: a folder under `platform/` that holds files
+ * from an `application/<sub>` package counts as that legacy node ([PLATFORM_NODE]), as a path and as a
+ * `<root>.platform.<folder>.` reference, so the checked graph is the one the files had before they moved. Folders
+ * that count as the infrastructure layer stay out of scope, as `infrastructure/` always was.
+ *
  * Ratchet (feedback-arc-set model): a non-baselined edge `u -> v` is unbaselined iff `v` reaches `u` over non-baselined
  * edges only, so every package cycle must contain at least one baselined edge. A baseline key is stale when it matches
  * no current edge, or when its `u -> v` no longer lies on any cycle of the full graph. Accepted limitation: a new edge
@@ -17,7 +22,23 @@ package io.github.jpicklyk.mcptask.current.architecture
  */
 object PackageCycleRules {
     private const val APPLICATION = "${LayeringRules.CURRENT_ROOT}.application"
-    private val FQN = Regex("(?<![A-Za-z0-9_.])" + Regex.escape("$APPLICATION.") + "[A-Za-z0-9_*]+(\\.[A-Za-z0-9_*]+)*")
+    private const val PLATFORM = "${LayeringRules.CURRENT_ROOT}.platform"
+
+    /** Interim table: each `platform/` folder that holds application files and the `application/<sub>` node it still counts as. */
+    private val PLATFORM_NODE =
+        mapOf(
+            "port" to "port",
+            "call" to "api",
+            "support" to "support",
+            "calltelemetry" to "telemetry",
+            "eventrecording" to "service",
+            "idempotency" to "service"
+        )
+    private val FQN =
+        Regex(
+            "(?<![A-Za-z0-9_.])(?:" + Regex.escape("$APPLICATION.") + "|" + Regex.escape("$PLATFORM.") + ")" +
+                "[A-Za-z0-9_*]+(\\.[A-Za-z0-9_*]+)*"
+        )
 
     /** One file-level reference: [path] (relative to the `current/` source root) reaches [importedFqName]. */
     data class Edge(
@@ -30,12 +51,20 @@ object PackageCycleRules {
         fun key(): String = "${path.replace('\\', '/')} -> $importedFqName"
     }
 
-    private fun sourcePackage(path: String): String? {
+    /** The legacy `application/<sub>` node a production file at [path] belongs to, or null when it is out of scope. */
+    fun nodeOfPath(path: String): String? {
         val parts = path.replace('\\', '/').split('/')
-        return if (parts.size >= 3 && parts[0] == "application") parts[1] else null
+        if (parts.size < 3) return null
+        return when (parts[0]) {
+            "application" -> parts[1]
+            "platform" -> PLATFORM_NODE[parts[1]]
+            else -> null
+        }
     }
 
     private fun targetPackage(fqn: String): String? {
+        val platformRest = fqn.takeIf { it.startsWith("$PLATFORM.") }?.removePrefix("$PLATFORM.")?.split('.')
+        if (platformRest != null) return if (platformRest.size < 2) null else PLATFORM_NODE[platformRest[0]]
         if (!fqn.startsWith("$APPLICATION.")) return null
         val rest = fqn.removePrefix("$APPLICATION.").split('.')
         if (rest.size < 2) return null
@@ -48,7 +77,7 @@ object PackageCycleRules {
         imports: List<String>,
         text: String
     ): List<Edge> {
-        val from = sourcePackage(path) ?: return emptyList()
+        val from = nodeOfPath(path) ?: return emptyList()
         val names = LinkedHashSet<String>()
         names += imports
         text

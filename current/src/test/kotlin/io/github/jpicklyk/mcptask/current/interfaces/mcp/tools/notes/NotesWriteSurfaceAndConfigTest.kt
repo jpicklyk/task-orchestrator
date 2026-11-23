@@ -1,11 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.notes
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteHandlers
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
-import io.github.jpicklyk.mcptask.current.application.port.BodySource
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
@@ -17,6 +15,8 @@ import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.parity.installParityRestApp
 import io.github.jpicklyk.mcptask.current.parity.parityAuthConfig
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.port.BodySource
 import io.github.jpicklyk.mcptask.current.test.callTool
 import io.github.jpicklyk.mcptask.current.test.putNote
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase

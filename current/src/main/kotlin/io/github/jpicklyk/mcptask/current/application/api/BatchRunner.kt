@@ -1,17 +1,17 @@
 package io.github.jpicklyk.mcptask.current.application.api
 
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.Fingerprint
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCodec
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
-import io.github.jpicklyk.mcptask.current.application.service.IdempotentRequest
 import io.github.jpicklyk.mcptask.current.model.error.BatchResult
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.platform.idempotency.IdempotencyCodec
+import io.github.jpicklyk.mcptask.current.platform.idempotency.IdempotencyService
+import io.github.jpicklyk.mcptask.current.platform.idempotency.IdempotentRequest
+import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put

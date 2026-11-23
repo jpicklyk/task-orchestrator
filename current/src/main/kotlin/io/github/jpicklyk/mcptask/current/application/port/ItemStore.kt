@@ -4,6 +4,8 @@ import io.github.jpicklyk.mcptask.current.model.item.BlockedReason
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.schema.SchemaPin
+import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
+import io.github.jpicklyk.mcptask.current.platform.port.StoreWrite
 import java.util.UUID
 
 /**

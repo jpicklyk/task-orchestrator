@@ -1,8 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops
 
-import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
-import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
-import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.apiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.OPS_CALL_INFO
@@ -19,6 +16,9 @@ import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.ReqId
+import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
+import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.server.application.ApplicationCall

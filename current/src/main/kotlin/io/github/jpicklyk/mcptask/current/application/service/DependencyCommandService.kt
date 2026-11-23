@@ -3,10 +3,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.port.WriteScope
-import io.github.jpicklyk.mcptask.current.application.support.eventRootOf
 import io.github.jpicklyk.mcptask.current.domain.graph.CycleDetector
 import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
@@ -18,6 +14,12 @@ import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.event.DeleteCause
+import io.github.jpicklyk.mcptask.current.platform.eventrecording.dependencyAddedEvent
+import io.github.jpicklyk.mcptask.current.platform.eventrecording.dependencyRemovedEvent
+import io.github.jpicklyk.mcptask.current.platform.port.StoreWrite
+import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
+import io.github.jpicklyk.mcptask.current.platform.support.eventRootOf
 import java.util.UUID
 
 /**

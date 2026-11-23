@@ -2,16 +2,16 @@ package io.github.jpicklyk.mcptask.current.perf
 
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchRequest
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
-import io.github.jpicklyk.mcptask.current.application.port.AccessScope
-import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.Corpus
 import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
-import io.github.jpicklyk.mcptask.current.application.service.UnscopedUnitOfWork
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.knowledge.Document
 import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentKind
 import io.github.jpicklyk.mcptask.current.model.note.Note
+import io.github.jpicklyk.mcptask.current.platform.eventrecording.UnscopedUnitOfWork
+import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
+import io.github.jpicklyk.mcptask.current.platform.port.Clock
 import io.github.jpicklyk.mcptask.current.platform.sqlite.SqliteUnitOfWork
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking

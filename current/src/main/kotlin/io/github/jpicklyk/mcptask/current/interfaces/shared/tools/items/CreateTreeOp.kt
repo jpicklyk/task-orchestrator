@@ -1,11 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
-import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepType
-import io.github.jpicklyk.mcptask.current.application.api.of
-import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
 import io.github.jpicklyk.mcptask.current.application.service.RuleService
 import io.github.jpicklyk.mcptask.current.application.service.TreeAnchorInput
@@ -16,8 +12,6 @@ import io.github.jpicklyk.mcptask.current.application.service.TreeRootInput
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeRequest
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeService
-import io.github.jpicklyk.mcptask.current.application.support.IdRef
-import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidFields
@@ -25,6 +19,12 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.call.CallContext
+import io.github.jpicklyk.mcptask.current.platform.call.of
+import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
+import io.github.jpicklyk.mcptask.current.platform.support.IdRef
+import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put

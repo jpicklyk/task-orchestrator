@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade
 
-import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepKind
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepPhase
+import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File

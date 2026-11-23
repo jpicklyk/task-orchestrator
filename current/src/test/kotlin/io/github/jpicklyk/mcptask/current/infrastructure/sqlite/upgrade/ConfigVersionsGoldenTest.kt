@@ -1,13 +1,13 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
-import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
 import io.github.jpicklyk.mcptask.current.model.config.ConfigVersionSource
 import io.github.jpicklyk.mcptask.current.model.config.FingerprintRelation
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigInvalidException
+import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test

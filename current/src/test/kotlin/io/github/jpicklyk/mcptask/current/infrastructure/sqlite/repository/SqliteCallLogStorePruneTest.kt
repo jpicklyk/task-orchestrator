@@ -19,7 +19,7 @@ import kotlin.test.assertEquals
  *
  * Oracle (frozen task-scope decision D5 and the W6 brief delete SQL): deletes at most [batch] rows with `at < cutoff`
  * (strict) and returns the number deleted. The fold-watermark gate is the pruner's job and is tested in
- * [io.github.jpicklyk.mcptask.current.infrastructure.RetentionPrunerTest]. Every expected value is an input this test chose.
+ * [io.github.jpicklyk.mcptask.current.platform.retention.RetentionPrunerTest]. Every expected value is an input this test chose.
  *
  * Forbidden-construct declaration: none.
  */

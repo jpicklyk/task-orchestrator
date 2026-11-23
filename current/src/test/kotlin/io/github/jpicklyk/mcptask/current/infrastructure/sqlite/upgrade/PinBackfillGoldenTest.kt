@@ -6,10 +6,10 @@ import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepKind
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepPhase
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepReport
 import io.github.jpicklyk.mcptask.current.bootstrap.ServerComposition
-import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.LifecycleMode
+import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
+import io.github.jpicklyk.mcptask.current.platform.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test

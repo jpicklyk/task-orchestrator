@@ -2,8 +2,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging
 
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
-import io.github.jpicklyk.mcptask.current.application.port.Clock
-import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.ReqId
+import io.github.jpicklyk.mcptask.current.platform.port.Clock
 import io.github.jpicklyk.mcptask.current.test.CollectingSink
 import io.github.jpicklyk.mcptask.current.test.LogCapture
 import io.ktor.client.request.get

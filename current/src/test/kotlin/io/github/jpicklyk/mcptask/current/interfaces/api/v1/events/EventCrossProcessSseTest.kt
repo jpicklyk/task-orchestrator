@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
-import io.github.jpicklyk.mcptask.current.application.port.Clock
-import io.github.jpicklyk.mcptask.current.application.port.EventRecord
-import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
+import io.github.jpicklyk.mcptask.current.platform.port.Clock
+import io.github.jpicklyk.mcptask.current.platform.port.EventRecord
+import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.platform.sqlite.OutsideUnitPolicy
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase

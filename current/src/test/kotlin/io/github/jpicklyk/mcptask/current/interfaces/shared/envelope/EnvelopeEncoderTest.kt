@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.envelope
 
 import io.github.jpicklyk.mcptask.current.application.api.BatchExecution
-import io.github.jpicklyk.mcptask.current.application.port.ListPage
 import io.github.jpicklyk.mcptask.current.model.error.BatchResult
 import io.github.jpicklyk.mcptask.current.model.error.ConfigViolation
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
@@ -14,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.model.error.MissingNote
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.error.ResourceRef
+import io.github.jpicklyk.mcptask.current.platform.port.ListPage
 import io.github.jpicklyk.mcptask.current.test.EnvelopeConformance
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray

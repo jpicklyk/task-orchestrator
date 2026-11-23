@@ -1,13 +1,12 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.ChildPlacement
-import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.HierarchyStore
 import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
-import io.github.jpicklyk.mcptask.current.application.port.unitNow
-import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
 import io.github.jpicklyk.mcptask.current.model.item.AncestorChain
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.platform.port.Clock
+import io.github.jpicklyk.mcptask.current.platform.port.unitNow
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.HierarchyTraversal
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.WorkItemRows
@@ -15,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.readTx
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.writeTx
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.UtcTimestamp
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.WorkItemsTable
+import io.github.jpicklyk.mcptask.current.platform.time.SystemClock
 import org.jetbrains.exposed.v1.core.IntegerColumnType
 import org.jetbrains.exposed.v1.core.VarCharColumnType
 import org.jetbrains.exposed.v1.core.eq

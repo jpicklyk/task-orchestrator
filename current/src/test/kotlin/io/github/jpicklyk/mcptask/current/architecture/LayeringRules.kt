@@ -37,7 +37,24 @@ object LayeringRules {
     private const val PLATFORM = "$CURRENT_ROOT.platform"
 
     /** Interim table: each `platform/` folder and the legacy layer it still counts as; a step that adds a folder adds its row. */
-    private val PLATFORM_FOLDER_LAYER = mapOf("sqlite" to "infrastructure")
+    private val PLATFORM_FOLDER_LAYER =
+        mapOf(
+            "sqlite" to "infrastructure",
+            "port" to "application",
+            "call" to "application",
+            "calltelemetry" to "application",
+            "eventrecording" to "application",
+            "idempotency" to "application",
+            "support" to "application",
+            "settings" to "infrastructure",
+            "yaml" to "infrastructure",
+            "retention" to "infrastructure",
+            "health" to "infrastructure",
+            "logging" to "infrastructure",
+            "security" to "infrastructure",
+            "shutdown" to "infrastructure",
+            "time" to "infrastructure"
+        )
     private val TRANSPORTS = listOf("io.modelcontextprotocol", "io.ktor")
 
     /** One forbidden dependency: the file [path] (relative to the `current/` source root) reaches [importedFqName]. */
@@ -72,9 +89,9 @@ object LayeringRules {
     }
 
     /** The layer a file at [path] belongs to: its first folder, or for `platform/<folder>/` the layer its folder row names. */
-    private fun layerOf(
+    fun layerOf(
         path: String,
-        folderLayer: Map<String, String>
+        folderLayer: Map<String, String> = PLATFORM_FOLDER_LAYER
     ): String? {
         val p = path.replace('\\', '/')
         val platformFolder = platformFolderOf(p)

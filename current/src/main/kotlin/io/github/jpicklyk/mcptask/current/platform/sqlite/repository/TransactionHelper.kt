@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.platform.sqlite.repository
 
-import io.github.jpicklyk.mcptask.current.application.port.ActiveUnit
-import io.github.jpicklyk.mcptask.current.application.port.FailSoftReads
-import io.github.jpicklyk.mcptask.current.application.port.UnitElement
-import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.platform.port.ActiveUnit
+import io.github.jpicklyk.mcptask.current.platform.port.FailSoftReads
+import io.github.jpicklyk.mcptask.current.platform.port.UnitElement
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
 import org.jetbrains.exposed.v1.jdbc.JdbcTransaction
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction

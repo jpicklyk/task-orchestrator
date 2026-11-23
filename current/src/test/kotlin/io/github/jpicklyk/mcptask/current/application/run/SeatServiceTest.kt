@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.application.run
 
 import io.github.jpicklyk.mcptask.current.application.port.AssigneeHolder
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
-import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.InFlightSeat
 import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
@@ -27,6 +26,7 @@ import io.github.jpicklyk.mcptask.current.model.run.RunSeatStatus
 import io.github.jpicklyk.mcptask.current.model.run.RunStatus
 import io.github.jpicklyk.mcptask.current.model.run.RunTerminalReason
 import io.github.jpicklyk.mcptask.current.parity.ParitySeeder
+import io.github.jpicklyk.mcptask.current.platform.port.EventRecord
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking

@@ -1,8 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
-import io.github.jpicklyk.mcptask.current.application.api.CallContext
-import io.github.jpicklyk.mcptask.current.application.api.ScopedIds
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.advance.ClaimRequest
 import io.github.jpicklyk.mcptask.current.application.api.advance.ClaimSelect
@@ -11,11 +8,9 @@ import io.github.jpicklyk.mcptask.current.application.api.advance.SelectPriority
 import io.github.jpicklyk.mcptask.current.application.api.advance.SelectRole
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.DisplacedClaim
-import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
 import io.github.jpicklyk.mcptask.current.application.service.FenceGuard
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
-import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
@@ -25,6 +20,11 @@ import io.github.jpicklyk.mcptask.current.model.item.NextItemOrder
 import io.github.jpicklyk.mcptask.current.model.item.Priority
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.call.CallContext
+import io.github.jpicklyk.mcptask.current.platform.call.ScopedIds
+import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
+import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive

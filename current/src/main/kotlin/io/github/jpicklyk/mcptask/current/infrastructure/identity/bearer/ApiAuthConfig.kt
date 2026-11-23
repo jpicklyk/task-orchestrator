@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer
 
-import io.github.jpicklyk.mcptask.current.infrastructure.security.ConstantTimeCompare
+import io.github.jpicklyk.mcptask.current.platform.security.ConstantTimeCompare
 
 // Sealed configuration for the REST API authentication layer.
 // Loaded once at startup by ApiAuthConfigLoader from environment variables and

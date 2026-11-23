@@ -17,7 +17,6 @@ import io.github.jpicklyk.mcptask.current.application.config.NoOpStatusLabelServ
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
-import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.CredentialResolver
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
@@ -34,6 +33,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.FROM_START
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.emit
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpAuthHttpFixture
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpAuthMode
+import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.get

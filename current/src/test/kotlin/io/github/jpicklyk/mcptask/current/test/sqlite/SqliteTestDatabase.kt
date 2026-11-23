@@ -1,13 +1,13 @@
 package io.github.jpicklyk.mcptask.current.test.sqlite
 
-import io.github.jpicklyk.mcptask.current.application.port.Clock
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
+import io.github.jpicklyk.mcptask.current.platform.port.Clock
+import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.platform.sqlite.OutsideUnitPolicy
 import io.github.jpicklyk.mcptask.current.platform.sqlite.SqliteUnitOfWork
+import io.github.jpicklyk.mcptask.current.platform.time.SystemClock
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.extension.BeforeAllCallback

@@ -5,11 +5,11 @@
          controlled only by the root logger below (${LOG_LEVEL:-INFO}); no ThresholdFilter here. -->
     <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
         <target>System.err</target>
-        <encoder class="io.github.jpicklyk.mcptask.current.infrastructure.logging.Iso8601JsonEncoder"/>
+        <encoder class="io.github.jpicklyk.mcptask.current.platform.logging.Iso8601JsonEncoder"/>
     </appender>
 
     <!-- Root logger: stderr only. Opt-in file logging (LOG_FILE) is attached PROGRAMMATICALLY by
-         io.github.jpicklyk.mcptask.current.infrastructure.logging.LogFileAppenderInstaller, called
+         io.github.jpicklyk.mcptask.current.platform.logging.LogFileAppenderInstaller, called
          from CurrentMain — see that class's KDoc for why (a logback-core 1.5.32 Joran quirk makes
          the Janino-free <if><condition class="..."> XML form silently never attach the appender
          even with the property correctly set). Nothing here ever targets stdout. -->

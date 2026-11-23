@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps
 
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCodec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
+import io.github.jpicklyk.mcptask.current.platform.idempotency.IdempotencyCodec
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 

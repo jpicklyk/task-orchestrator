@@ -1,7 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
-import io.github.jpicklyk.mcptask.current.application.api.PrincipalKind
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advanceTool
@@ -16,6 +14,8 @@ import io.github.jpicklyk.mcptask.current.parity.ParitySeeder
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.parity.installParityRestApp
 import io.github.jpicklyk.mcptask.current.parity.parityAuthConfig
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.call.PrincipalKind
 import io.github.jpicklyk.mcptask.current.test.P11Driver
 import io.github.jpicklyk.mcptask.current.test.P11Driver.Companion.rejections
 import io.github.jpicklyk.mcptask.current.test.SettableClock

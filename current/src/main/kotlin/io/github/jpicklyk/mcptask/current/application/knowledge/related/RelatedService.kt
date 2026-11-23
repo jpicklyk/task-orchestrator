@@ -6,25 +6,25 @@ import io.github.jpicklyk.mcptask.current.application.port.Analyzer
 import io.github.jpicklyk.mcptask.current.application.port.Candidate
 import io.github.jpicklyk.mcptask.current.application.port.Corpus
 import io.github.jpicklyk.mcptask.current.application.port.FTS_CANDIDATE_ROWS
-import io.github.jpicklyk.mcptask.current.application.port.ReadScope
 import io.github.jpicklyk.mcptask.current.application.port.ScopeFilter
 import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
 import io.github.jpicklyk.mcptask.current.application.port.TextOp
 import io.github.jpicklyk.mcptask.current.application.port.TextQuery
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
-import io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetry
-import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallHitSignals
-import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallRelatedSignals
-import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallResultCounts
-import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallRoot
-import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentSummary
 import io.github.jpicklyk.mcptask.current.model.knowledge.EntityRef
 import io.github.jpicklyk.mcptask.current.model.knowledge.RefKind
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallTelemetry
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.recordCallHitSignals
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.recordCallRelatedSignals
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.recordCallResultCounts
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.recordCallRoot
+import io.github.jpicklyk.mcptask.current.platform.calltelemetry.recordCallTargetVersion
+import io.github.jpicklyk.mcptask.current.platform.port.ReadScope
+import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
 import java.util.UUID
 
 /**

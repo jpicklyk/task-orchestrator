@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.port
 import io.github.jpicklyk.mcptask.current.model.knowledge.EntityRef
 import io.github.jpicklyk.mcptask.current.model.knowledge.Link
 import io.github.jpicklyk.mcptask.current.model.knowledge.LinkRelation
+import io.github.jpicklyk.mcptask.current.platform.port.StoreWrite
 import java.util.UUID
 
 /**

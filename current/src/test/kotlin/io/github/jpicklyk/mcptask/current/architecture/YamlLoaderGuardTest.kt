@@ -7,7 +7,7 @@ import kotlin.test.assertTrue
 
 /**
  * Independent guard (test-author seat, item 8847d8fa, scenario S16): production code constructs a SnakeYAML
- * `Yaml` or `LoaderOptions` in exactly one file, `infrastructure/config/YamlLoaders.kt`. A plain ban with a fixed
+ * `Yaml` or `LoaderOptions` in exactly one file, `platform/yaml/YamlLoaders.kt`. A plain ban with a fixed
  * allow-list and no ratchet baseline (the EnvAccessTest model): any code line outside that file that calls
  * `LoaderOptions(`, calls `Yaml(` (including the no-arg unsafe-constructor form) or imports `LoaderOptions` fails
  * with the file:line list.
@@ -17,7 +17,7 @@ import kotlin.test.assertTrue
  * must not hit). Every "no hit" below is paired with a spelling that does hit.
  */
 class YamlLoaderGuardTest {
-    private val factoryFile = "infrastructure/config/YamlLoaders.kt"
+    private val factoryFile = "platform/yaml/YamlLoaders.kt"
 
     private val construction =
         Regex("""\b(?:LoaderOptions|Yaml)\s*\(|import\s+org\.yaml\.snakeyaml\.LoaderOptions""")
@@ -46,7 +46,7 @@ class YamlLoaderGuardTest {
 
         assertTrue(
             offenders.isEmpty(),
-            "Yaml( / LoaderOptions( outside infrastructure/config/YamlLoaders.kt, use YamlLoaders.strict() or tolerant():\n" +
+            "Yaml( / LoaderOptions( outside platform/yaml/YamlLoaders.kt, use YamlLoaders.strict() or tolerant():\n" +
                 offenders.entries.joinToString("\n") { (path, lines) -> "  $path: lines $lines" }
         )
     }

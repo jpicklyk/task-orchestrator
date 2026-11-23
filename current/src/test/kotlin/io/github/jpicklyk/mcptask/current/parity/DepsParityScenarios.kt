@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.parity
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import java.util.UUID
 
 /**

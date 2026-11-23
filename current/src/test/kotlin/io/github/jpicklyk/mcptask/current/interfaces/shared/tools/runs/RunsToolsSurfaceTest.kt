@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.PlannedSurfaceChecks
@@ -20,6 +19,7 @@ import io.github.jpicklyk.mcptask.current.parity.RunsParityScenarios
 import io.github.jpicklyk.mcptask.current.parity.callMcp
 import io.github.jpicklyk.mcptask.current.parity.parityAccess
 import io.github.jpicklyk.mcptask.current.parity.parityCoordinatorToken
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.ToolGoldens
 import io.github.jpicklyk.mcptask.current.test.tools.ToolSurfaceChecks

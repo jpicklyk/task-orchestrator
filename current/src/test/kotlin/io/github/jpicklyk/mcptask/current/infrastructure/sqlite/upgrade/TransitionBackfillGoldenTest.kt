@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade
 
-import io.github.jpicklyk.mcptask.current.application.port.EventStore
+import io.github.jpicklyk.mcptask.current.platform.port.EventStore
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull

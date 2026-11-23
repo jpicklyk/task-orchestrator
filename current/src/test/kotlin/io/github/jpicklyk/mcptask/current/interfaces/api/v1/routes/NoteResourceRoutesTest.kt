@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.api.ApiCapability
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
@@ -17,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.model.proof.VerificationResult
 import io.github.jpicklyk.mcptask.current.model.proof.VerificationStatus
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.parity.installParityRestApp
+import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.upsertNoteVia
 import io.ktor.client.request.delete

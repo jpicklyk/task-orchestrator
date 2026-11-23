@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
-import io.github.jpicklyk.mcptask.current.application.port.ReadScope
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockingEdge
 import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
@@ -29,6 +28,7 @@ import io.github.jpicklyk.mcptask.current.model.note.Note
 import io.github.jpicklyk.mcptask.current.model.schema.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.model.schema.IndependenceViolation
 import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.platform.port.ReadScope
 import java.time.Duration
 import java.util.UUID
 

@@ -7,8 +7,8 @@ import kotlin.test.assertTrue
 
 /**
  * Independent guard (test-author seat, item ad684e46 / Q17, scenario S11): production code reads the process environment in
- * exactly three files, `infrastructure/config/AppConfig.kt`, `infrastructure/config/EnvBoolean.kt` and
- * `infrastructure/logging/LogFileAppenderInstaller.kt`. A plain ban with a fixed allow-list and no ratchet baseline (decision
+ * exactly three files, `platform/settings/AppConfig.kt`, `platform/settings/EnvBoolean.kt` and
+ * `platform/logging/LogFileAppenderInstaller.kt`. A plain ban with a fixed allow-list and no ratchet baseline (decision
  * D11): any code line outside those files that mentions `System.getenv` or `System::getenv` fails with the file list.
  *
  * Oracle: task-scope section 1.7 ("Production `System.getenv` / `System::getenv` survives only in ..."), the guard description
@@ -28,9 +28,9 @@ import kotlin.test.assertTrue
 class EnvAccessTest {
     private val allowListed =
         setOf(
-            "infrastructure/config/AppConfig.kt",
-            "infrastructure/config/EnvBoolean.kt",
-            "infrastructure/logging/LogFileAppenderInstaller.kt"
+            "platform/settings/AppConfig.kt",
+            "platform/settings/EnvBoolean.kt",
+            "platform/logging/LogFileAppenderInstaller.kt"
         )
 
     private val envAccess =
@@ -79,7 +79,7 @@ class EnvAccessTest {
 
         val appConfig =
             assertNotNull(
-                sources["infrastructure/config/AppConfig.kt"],
+                sources["platform/settings/AppConfig.kt"],
                 "AppConfig.kt must be among the production sources: ${sources.keys.filter { "AppConfig" in it }}"
             )
         assertTrue(hitLines(appConfig).isNotEmpty(), "AppConfig.kt reads the environment, so the matcher must find it")
@@ -152,7 +152,7 @@ class EnvAccessTest {
         assertTrue("architecture/EnvAccessTest.kt" in sources, "EnvAccessTest.kt missing from test scope: ${sources.keys.take(5)}")
         val appConfigTest =
             assertNotNull(
-                sources["infrastructure/config/AppConfigTest.kt"],
+                sources["platform/settings/AppConfigTest.kt"],
                 "AppConfigTest.kt must be among the test sources: ${sources.keys.filter { "AppConfig" in it }}"
             )
         val resolverCall = Regex("""\bfromEnv\s*\{""")

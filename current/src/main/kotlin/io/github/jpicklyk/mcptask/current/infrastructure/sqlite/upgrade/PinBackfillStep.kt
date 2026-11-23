@@ -2,8 +2,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.application.config.ParseMode
-import io.github.jpicklyk.mcptask.current.application.port.WriteScope
-import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepKind
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepPhase
@@ -12,7 +10,9 @@ import io.github.jpicklyk.mcptask.current.domain.lifecycle.SchemaFacts
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.model.item.LifecycleMode
 import io.github.jpicklyk.mcptask.current.model.schema.PinLayer
+import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.UtcTimestamp
+import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
 import org.jetbrains.exposed.v1.core.ColumnType
 import org.jetbrains.exposed.v1.core.LongColumnType
 import org.jetbrains.exposed.v1.core.TextColumnType

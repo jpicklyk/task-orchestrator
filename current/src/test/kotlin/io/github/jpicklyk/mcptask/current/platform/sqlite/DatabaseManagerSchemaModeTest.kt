@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.platform.sqlite
 
 import ch.qos.logback.classic.Level
-import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
+import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.SchemaMode
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.SchemaTestSupport.at
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.SchemaTestSupport.captureLogs

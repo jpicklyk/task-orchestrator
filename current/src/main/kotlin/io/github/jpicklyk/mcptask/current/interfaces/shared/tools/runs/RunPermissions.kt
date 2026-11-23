@@ -1,13 +1,13 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
-import io.github.jpicklyk.mcptask.current.application.api.CallContext
-import io.github.jpicklyk.mcptask.current.application.api.isHumanCaller
-import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.model.run.Run
 import io.github.jpicklyk.mcptask.current.model.run.RunSeat
+import io.github.jpicklyk.mcptask.current.platform.call.CallContext
+import io.github.jpicklyk.mcptask.current.platform.call.isHumanCaller
+import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
 
 /**
  * Who may do what to a run (plan section 3.2), one predicate per row. Every predicate runs AFTER the run's root passed

@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.port
 import io.github.jpicklyk.mcptask.current.model.knowledge.PlanDocument
 import io.github.jpicklyk.mcptask.current.model.knowledge.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.model.knowledge.PlanDocumentSummary
+import io.github.jpicklyk.mcptask.current.platform.port.StoreWrite
 import java.util.UUID
 
 /** Outcome of [PlanDocumentStore.stash]. */

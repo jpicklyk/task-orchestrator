@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.docs
 
-import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
+import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
