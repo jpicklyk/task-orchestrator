@@ -22,7 +22,8 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 
 import { scriptText, coreSlice, loadMeta, loadScript, fakeParallel } from './workflow-harness.mjs'
-import { RETIRED_3X_TOOLS } from '../lib/contract-checks.mjs'
+import { RETIRED_3X_TOOLS, dispatchLiteralsInLine } from '../lib/contract-checks.mjs'
+import { loadPolicy } from '../lib/dispatch-policy.mjs'
 import {
   loadCoreNamed,
   autoAgent,
@@ -46,7 +47,7 @@ const CORE_NAMES = [
   'normalizeObsPath', 'isObservation', 'buildProposal', 'runAudit',
   'SEVERITY_RANK', 'LENS_KEYS', 'PRESETS', 'CATEGORIES', 'DEFAULT_CLASS_MAP', 'TYPE_MAP_KEY', 'DEFAULT_METHOD_SKILL',
   'DOCS_METHOD_SKILL', 'FOCUS_VALUES', 'sliceKind', 'inFocus', 'methodSkillOf', 'VERIFY_LENS_INSTRUCTIONS',
-  'DEFAULT_DISPATCH', 'FAN_OUT_KEYS', 'RATINGS', 'ITEM_POLICIES', 'ARCHITECTURE_LENS', 'shiftMonths', 'testPathsOf',
+  'DISPATCH_CLASSES', 'FAN_OUT_KEYS', 'RATINGS', 'ITEM_POLICIES', 'ARCHITECTURE_LENS', 'shiftMonths', 'testPathsOf',
   'formatMetricsDigest', 'buildMeasurePrompt', 'criticState', 'agentOpts', 'dispatchTag',
 ]
 const CORE = loadCoreNamed(SCRIPT_PATH, CORE_NAMES)
@@ -61,9 +62,24 @@ function reviewerSpec(key, overrides = {}) {
   }
 }
 
+// E16 (A1): the seven dispatch classes the phase keys map to, at the D3 values (a test literal; never
+// read from the script). Rebuilt per call so no test can mutate another test's args.
+function classFixture() {
+  return {
+    'audit-measure': { model: 'haiku', effort: 'low' },
+    research: { model: 'sonnet', effort: 'medium' },
+    'audit-review': { model: 'sonnet', effort: 'high' },
+    review: { model: 'opus', effort: 'high' },
+    extraction: { model: 'sonnet', effort: 'low' },
+    'audit-verify-high': { model: 'opus', effort: 'medium' },
+    'audit-synthesis': { model: 'opus', effort: 'medium' },
+  }
+}
+
 function baseArgs(overrides = {}) {
   return {
     contract: 'audit/args-v1',
+    dispatchClasses: classFixture(),
     runId: 'a-test-0001',
     date: '2026-09-28',
     repo: { root: '/tmp/repo', description: 'test repo' },
@@ -2091,8 +2107,15 @@ test('S15: every call carries the D3 model and effort of its dispatch key, and a
   assert.deepEqual([...seenKeys].sort(), Object.keys(D3_DEFAULTS).sort(), 'fixture must exercise all ten dispatch keys')
 })
 
-test('S15: the constant tables equal the D3 literals; plan.dispatch is the default table and plan.models/efforts are gone', () => {
-  assert.deepEqual(JSON.parse(JSON.stringify(CORE.DEFAULT_DISPATCH)), D3_DEFAULTS)
+// E17 (A1): the phase-key -> dispatch-class map, a literal copy of A1 item 2 (class names only, no values).
+const CLASS_MAP = {
+  measure: 'audit-measure', scope: 'research', review: 'audit-review', 'review-architecture': 'review',
+  critic: 'research', merge: 'extraction', verify: 'research', 'verify-high': 'audit-verify-high',
+  synth: 'audit-synthesis', triage: 'extraction',
+}
+
+test('S15: DISPATCH_CLASSES and FAN_OUT_KEYS equal their literals; plan.dispatch is the dispatchClasses table and plan.models/efforts are gone', () => {
+  assert.deepEqual(JSON.parse(JSON.stringify(CORE.DISPATCH_CLASSES)), CLASS_MAP)
   assert.deepEqual([...CORE.FAN_OUT_KEYS].sort(), [...FAN_OUT].sort())
   const plan = buildPlan()
   assert.deepEqual(JSON.parse(JSON.stringify(plan.dispatch)), D3_DEFAULTS)
@@ -2775,4 +2798,237 @@ test('S5 / replay: two identical v2 runs with Measure, Gaps and Triage produce i
   const b = await run()
   assert.deepEqual(a, b)
   assert.ok(a.length > 10)
+})
+
+// -- Ruling A1 (fix cycle): dispatch values come from the dispatchClasses argument
+// Oracle: the item's amendments note A1 (items 1-4) and test-plan S34-S37; the class map literal CLASS_MAP
+// above and the D3 values in D3_DEFAULTS are copies of that text, never read from the script.
+
+const CLASS_REQUIRED = 'invalid args: dispatchClasses required'
+const classReason = (cls) => `invalid args: dispatchClasses.${cls} must have a model and an effort`
+const fableReason = (key) => `invalid args: fable is not allowed for fan-out phase ${key}`
+
+/** One distinct model and effort per class, so a wrong class lookup cannot match by accident. */
+function distinctClasses() {
+  const out = {}
+  for (const cls of Object.keys(classFixture())) out[cls] = { model: `m-${cls}`, effort: `e-${cls}` }
+  return out
+}
+
+function withoutClasses(...names) {
+  const c = classFixture()
+  for (const n of names) delete c[n]
+  return c
+}
+
+const normalizeReason = (o) => {
+  const r = CORE.normalizeArgs(baseArgs(o))
+  assert.equal(r.ok, false, `expected a refusal for ${JSON.stringify(o)}`)
+  return r.reason
+}
+
+test('S34: dispatchClasses absent, null, an array, a string, a number or a boolean is refused in both contracts, never inherited', () => {
+  for (const contract of ['audit/args-v1', 'audit/args-v2']) {
+    for (const bad of [undefined, null, [], [classFixture()], 'research', 3, true]) {
+      assert.equal(normalizeReason({ contract, dispatchClasses: bad }), CLASS_REQUIRED, `${contract} dispatchClasses=${JSON.stringify(bad)}`)
+    }
+  }
+  // the JSON-string form of the args drops an undefined field: the same refusal
+  const asString = CORE.normalizeArgs(JSON.stringify(baseArgs({ dispatchClasses: undefined })))
+  assert.equal(asString.ok, false)
+  assert.equal(asString.reason, CLASS_REQUIRED)
+})
+
+test('S34: a missing or incomplete class entry is refused naming that class, for each of the seven mapped classes', () => {
+  for (const cls of Object.keys(classFixture())) {
+    assert.equal(normalizeReason({ dispatchClasses: withoutClasses(cls) }), classReason(cls), `${cls} missing`)
+  }
+  const bads = [
+    null, 'sonnet', 3, {}, { model: 'sonnet' }, { effort: 'low' }, { model: '', effort: 'low' }, { model: 'sonnet', effort: '' },
+    { model: 3, effort: 'low' }, { model: 'sonnet', effort: null }, { model: ['sonnet'], effort: 'low' },
+  ]
+  for (const cls of Object.keys(classFixture())) {
+    for (const bad of bads) {
+      assert.equal(normalizeReason({ dispatchClasses: { ...classFixture(), [cls]: bad } }), classReason(cls), `${cls}=${JSON.stringify(bad)}`)
+    }
+  }
+})
+
+test('S34 / probe (order): classes are checked in the order of the phase-key map; the policy check comes first and the models check after', () => {
+  // map order: audit-measure, research, audit-review, review, (research), extraction, (research), audit-verify-high, audit-synthesis
+  assert.equal(normalizeReason({ dispatchClasses: withoutClasses('audit-synthesis', 'audit-measure') }), classReason('audit-measure'))
+  assert.equal(normalizeReason({ dispatchClasses: withoutClasses('audit-review', 'research') }), classReason('research'))
+  assert.equal(normalizeReason({ dispatchClasses: withoutClasses('review', 'audit-review') }), classReason('audit-review'))
+  assert.equal(normalizeReason({ dispatchClasses: withoutClasses('extraction', 'review') }), classReason('review'))
+  assert.equal(normalizeReason({ dispatchClasses: withoutClasses('audit-synthesis', 'extraction') }), classReason('extraction'))
+  assert.equal(normalizeReason({ dispatchClasses: withoutClasses('audit-synthesis', 'audit-verify-high') }), classReason('audit-verify-high'))
+  const policyBad = { enabled: true, rootId: 'r', policy: 'x' }
+  assert.equal(normalizeReason({ items: policyBad, dispatchClasses: undefined }), 'invalid args: items.policy must be gated, bugs or all')
+  assert.equal(normalizeReason({ scriptsDir: 3, dispatchClasses: undefined }), 'invalid args: scriptsDir must be a non-empty string')
+  assert.equal(normalizeReason({ scriptsDir: 'S', dispatchClasses: undefined }), 'invalid args: workDir required when scriptsDir is set')
+  assert.equal(normalizeReason({ focus: 'both', dispatchClasses: undefined }), 'invalid args: focus must be code, docs or all')
+  assert.equal(normalizeReason({ dispatchClasses: undefined, models: { bogus: 'x' } }), CLASS_REQUIRED)
+  assert.equal(normalizeReason({ dispatchClasses: withoutClasses('research'), efforts: { bogus: 'x' } }), classReason('research'))
+  assert.equal(normalizeReason({ dispatchClasses: classFixture(), models: { bogus: 'x' } }), 'invalid args: unknown dispatch key models.bogus')
+})
+
+test('S34: classes outside the map and fields other than model and effort are ignored; plan.dispatch holds exactly the ten keys with a model and an effort', () => {
+  const classes = {
+    ...classFixture(),
+    research: { model: 'sonnet', effort: 'medium', description: 'text', extra: 1 },
+    'unmapped-class': { model: 'opus', effort: 'max' },
+    implementation: 'not even an object',
+  }
+  const { ok, plan, reason } = CORE.normalizeArgs(baseArgs({ dispatchClasses: classes }))
+  assert.equal(ok, true, reason)
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.dispatch)), D3_DEFAULTS)
+  assert.deepEqual(Object.keys(plan.dispatch).sort(), Object.keys(D3_DEFAULTS).sort())
+  for (const key of Object.keys(plan.dispatch)) assert.deepEqual(Object.keys(plan.dispatch[key]).sort(), ['effort', 'model'], key)
+})
+
+test('S34: the entry sequence refuses a missing dispatchClasses before any agent runs', async () => {
+  const script = loadScript(SCRIPT_PATH)
+  let agentCalls = 0
+  const result = await script.run({
+    agent: async () => { agentCalls += 1; return null },
+    parallel: fakeParallel,
+    pipeline: fakePipeline,
+    phase: () => {},
+    log: () => {},
+    args: baseArgs({ contract: 'audit/args-v2', dispatchClasses: undefined }),
+  })
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { started: false, reason: CLASS_REQUIRED })
+  assert.equal(agentCalls, 0)
+})
+
+test('S34 / A1 item 4: meta.whenToUse names dispatchClasses as required, carries no repo path, and the workflow holds no dispatch literal', () => {
+  const meta = JSON.parse(JSON.stringify(loadMeta(SCRIPT_PATH)))
+  assert.ok(
+    meta.whenToUse.includes('dispatchClasses (required: the classes of dispatch-policy.json) gives each phase key its model and effort, and models and efforts override them per phase key'),
+  )
+  assert.equal(meta.whenToUse.includes('models and efforts override the default model and effort per phase key'), false, 'the old sentence is gone')
+  assert.equal(meta.whenToUse.includes('claude-plugins/'), false)
+  assert.deepEqual(
+    scriptText(SCRIPT_PATH).split('\n').flatMap((line) => dispatchLiteralsInLine(line)),
+    [],
+    'the workflow holds no model or effort literal of its own',
+  )
+})
+
+test('S35: each phase key takes the model and effort of its class from dispatchClasses; keys that share a class share its values', () => {
+  const classes = distinctClasses()
+  const { ok, plan, reason } = CORE.normalizeArgs(baseArgs({ dispatchClasses: classes }))
+  assert.equal(ok, true, reason)
+  assert.deepEqual(Object.keys(plan.dispatch).sort(), Object.keys(CLASS_MAP).sort())
+  for (const [key, cls] of Object.entries(CLASS_MAP)) {
+    assert.deepEqual(JSON.parse(JSON.stringify(plan.dispatch[key])), classes[cls], `${key} <- ${cls}`)
+  }
+  assert.deepEqual(plan.dispatch.scope, plan.dispatch.critic)
+  assert.deepEqual(plan.dispatch.scope, plan.dispatch.verify)
+  assert.deepEqual(plan.dispatch.merge, plan.dispatch.triage)
+  assert.notDeepEqual(plan.dispatch.review, plan.dispatch['review-architecture'])
+  // the plan holds copies: changing the plan's entry leaves the caller's class object alone
+  plan.dispatch.scope.model = 'changed'
+  assert.equal(classes.research.model, 'm-research')
+})
+
+test('S35: models and efforts override the class values per key and leave the other keys of the class alone', () => {
+  const classes = distinctClasses()
+  const { ok, plan, reason } = CORE.normalizeArgs(baseArgs({ dispatchClasses: classes, models: { review: 'm-over' }, efforts: { verify: 'e-over', synth: 'e-synth-over' } }))
+  assert.equal(ok, true, reason)
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.dispatch.review)), { model: 'm-over', effort: 'e-audit-review' })
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.dispatch.verify)), { model: 'm-research', effort: 'e-over' })
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.dispatch.synth)), { model: 'm-audit-synthesis', effort: 'e-synth-over' })
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.dispatch.scope)), classes.research, 'the same class under another key is untouched')
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.dispatch.critic)), classes.research)
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.dispatch['review-architecture'])), classes.review)
+})
+
+test('S35: a whole run carries each call the model and effort of its key class, with the [model/effort] tag', async () => {
+  const classes = distinctClasses()
+  const { calls } = await fullRun(fullArgs({ dispatchClasses: classes }), fullScopeOpts())
+  const seen = new Set()
+  for (const c of calls) {
+    const key = dispatchKeyOf(c.label, FULL_SEV)
+    seen.add(key)
+    const want = classes[CLASS_MAP[key]]
+    assert.equal(c.opts.model, want.model, `${c.label} model`)
+    assert.equal(c.opts.effort, want.effort, `${c.label} effort`)
+    assert.equal(c.opts.label, `${c.label} [${want.model}/${want.effort}]`, `${c.label} label tag`)
+  }
+  assert.deepEqual([...seen].sort(), Object.keys(CLASS_MAP).sort(), 'fixture must exercise all ten dispatch keys')
+})
+
+test('S36: a fable model in the class of a fan-out key is refused naming the first such key, in any casing or embedding', () => {
+  const cases = [
+    ['audit-review', 'review'], ['research', 'verify'], ['audit-verify-high', 'verify-high'],
+    ['extraction', 'triage'], ['audit-measure', 'measure'],
+  ]
+  for (const [cls, key] of cases) {
+    for (const model of ['fable', 'Fable', 'FABLE', 'claude-fable-x', 'my-fable-1']) {
+      assert.equal(
+        normalizeReason({ dispatchClasses: { ...classFixture(), [cls]: { model, effort: 'low' } } }),
+        fableReason(key),
+        `${cls}=${model}`,
+      )
+    }
+  }
+  // two fan-out classes at fable: the first fan-out key in the frozen order (review before measure)
+  assert.equal(
+    normalizeReason({ dispatchClasses: { ...classFixture(), 'audit-measure': { model: 'fable', effort: 'low' }, 'audit-review': { model: 'fable', effort: 'low' } } }),
+    fableReason('review'),
+  )
+  // an effort override does not lift the refusal
+  assert.equal(
+    normalizeReason({ dispatchClasses: { ...classFixture(), research: { model: 'Fable', effort: 'low' } }, efforts: { verify: 'high' } }),
+    fableReason('verify'),
+  )
+})
+
+test('S36: fable stays allowed where no fan-out key resolves to it; an inline models override replaces a class at fable', () => {
+  const single = { ...classFixture(), review: { model: 'fable', effort: 'high' }, 'audit-synthesis': { model: 'fable', effort: 'medium' } }
+  const a = CORE.normalizeArgs(baseArgs({ dispatchClasses: single }))
+  assert.equal(a.ok, true, a.reason)
+  assert.equal(a.plan.dispatch['review-architecture'].model, 'fable')
+  assert.equal(a.plan.dispatch.synth.model, 'fable')
+  const research = { ...classFixture(), research: { model: 'Fable', effort: 'medium' } }
+  const b = CORE.normalizeArgs(baseArgs({ dispatchClasses: research, models: { verify: 'sonnet' } }))
+  assert.equal(b.ok, true, b.reason)
+  assert.equal(b.plan.dispatch.verify.model, 'sonnet')
+  assert.equal(b.plan.dispatch.verify.effort, 'medium')
+  assert.equal(b.plan.dispatch.scope.model, 'Fable', 'scope and critic are single-agent keys and keep the class model')
+  assert.equal(b.plan.dispatch.critic.model, 'Fable')
+})
+
+test('S36 / probe (order): the inline fable check of models runs before the check on resolved class models', () => {
+  const classes = { ...classFixture(), 'audit-review': { model: 'fable', effort: 'high' } }
+  assert.equal(normalizeReason({ dispatchClasses: classes, models: { verify: 'fable' } }), fableReason('verify'))
+  assert.equal(normalizeReason({ dispatchClasses: classes }), fableReason('review'))
+})
+
+test('S37: the classes of dispatch-policy.json give the D3 table for both contracts, and none resolves to fable', () => {
+  const { classes } = loadPolicy()
+  for (const contract of ['audit/args-v1', 'audit/args-v2']) {
+    const { ok, plan, reason } = CORE.normalizeArgs(baseArgs({ contract, dispatchClasses: classes }))
+    assert.equal(ok, true, `${contract}: ${reason}`)
+    assert.deepEqual(JSON.parse(JSON.stringify(plan.dispatch)), D3_DEFAULTS, contract)
+    for (const [key, d] of Object.entries(plan.dispatch)) assert.equal(/fable/i.test(d.model), false, `${key} must not resolve to fable`)
+  }
+})
+
+test('S37: the four audit classes exist in the policy at the A1 values, and the reused classes carry the D3 values', () => {
+  const { classes } = loadPolicy()
+  const want = {
+    'audit-measure': { model: 'haiku', effort: 'low' },
+    'audit-review': { model: 'sonnet', effort: 'high' },
+    'audit-verify-high': { model: 'opus', effort: 'medium' },
+    'audit-synthesis': { model: 'opus', effort: 'medium' },
+    research: { model: 'sonnet', effort: 'medium' },
+    review: { model: 'opus', effort: 'high' },
+    extraction: { model: 'sonnet', effort: 'low' },
+  }
+  for (const [cls, v] of Object.entries(want)) {
+    assert.ok(classes[cls], `class ${cls} exists`)
+    assert.deepEqual({ model: classes[cls].model, effort: classes[cls].effort }, v, cls)
+  }
 })

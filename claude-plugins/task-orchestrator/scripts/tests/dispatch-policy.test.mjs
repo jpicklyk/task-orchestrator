@@ -12,8 +12,8 @@ function tmpPolicy(obj) {
   return p;
 }
 
-test('default policy loads with the eleven classes', () => {
-  assert.equal(classNames().length, 11);
+test('default policy loads with the fifteen classes', () => {
+  assert.equal(classNames().length, 15);
   assert.deepEqual(loadPolicy().models, ['opus', 'sonnet', 'haiku', 'fable']);
 });
 
