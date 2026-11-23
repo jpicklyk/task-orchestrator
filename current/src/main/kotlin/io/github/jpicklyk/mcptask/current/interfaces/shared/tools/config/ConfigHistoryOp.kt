@@ -28,11 +28,12 @@ data class ConfigHistoryRequest(
 )
 
 internal val configHistoryOp =
-    OpSpec<ConfigHistoryRequest, JsonElement>(
+    OpSpec<ConfigToolServices, ConfigHistoryRequest, JsonElement>(
         name = "history",
         doc = "List a root's config versions newest first, with metadata and no YAML. A root with no config returns no versions.",
         profiles = orchestration(),
         capability = ApiCapability.READ,
+        services = ConfigToolServices::class,
         request = serializer<ConfigHistoryRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         execute = { env, ctx, req ->

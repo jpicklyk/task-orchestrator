@@ -23,13 +23,14 @@ data class ConfigRollbackRequest(
 )
 
 internal val configRollbackOp =
-    OpSpec<ConfigRollbackRequest, JsonElement>(
+    OpSpec<ConfigToolServices, ConfigRollbackRequest, JsonElement>(
         name = "rollback",
         doc =
             "Append a copy of an earlier version as the new head (source rollback, history kept). Rolling back to the " +
                 "head's own content appends nothing (appended false). An absent version, or a root with no config, is not_found.",
         profiles = orchestration(),
         capability = ApiCapability.WRITE_CONFIG,
+        services = ConfigToolServices::class,
         request = serializer<ConfigRollbackRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.VERSION_CONFLICT),
         execute = { env, ctx, req ->

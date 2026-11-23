@@ -33,13 +33,14 @@ data class ConfigValidateRequest(
 )
 
 internal val configValidateOp =
-    OpSpec<ConfigValidateRequest, JsonElement>(
+    OpSpec<ConfigToolServices, ConfigValidateRequest, JsonElement>(
         name = "validate",
         doc =
             "Dry-run push: parse and validate a document and diff it against the head; nothing is stored. Problems are " +
                 "reported in the result (valid false, errors), not as an error.",
         profiles = orchestration(),
         capability = ApiCapability.READ,
+        services = ConfigToolServices::class,
         request = serializer<ConfigValidateRequest>(),
         errors =
             setOf(

@@ -1,0 +1,22 @@
+package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
+
+import io.github.jpicklyk.mcptask.current.application.port.ItemLookup
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.application.read.WorkViewQueries
+import io.github.jpicklyk.mcptask.current.application.service.SchemaPinService
+import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
+
+/**
+ * The services the item reads of `items_read` (`get`, `list`, `overview`) take as `env`. A lazy member stays unbuilt
+ * until a handler reads it, and building the holder touches no store.
+ */
+class ItemToolServices(
+    private val items: () -> WorkItemRepository,
+    val unitOfWork: UnitOfWork,
+    val workViewQueries: WorkViewQueries,
+    private val schemaPin: Lazy<SchemaPinService>
+) : ItemLookup {
+    val schemaPinService: SchemaPinService by schemaPin
+
+    override fun workItemRepository(): WorkItemRepository = items()
+}

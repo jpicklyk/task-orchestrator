@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 import io.github.jpicklyk.mcptask.current.application.read.BlockType
 import io.github.jpicklyk.mcptask.current.application.read.BlockedEntry
 import io.github.jpicklyk.mcptask.current.application.read.BlockedScope
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.LifecycleToolServices
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.recordCallResultCounts
@@ -45,13 +46,14 @@ object ItemsReadBlocked {
     )
 
     val select =
-        SelectSpec.Single<Request, JsonObject>(
+        SelectSpec.Single<LifecycleToolServices, Request, JsonObject>(
             name = "blocked",
             doc =
                 "A page of the blocked items (default limit 50, max 200): role blocked (blockType explicit) or open with an " +
                     "unsatisfied blocking dependency (dependency), each with its blockers (id, title, role, threshold, " +
                     "satisfied). fields: summary, ancestors.",
             profiles = orchestration() + director(),
+            services = LifecycleToolServices::class,
             request = serializer<Request>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.INVALID_CURSOR),
             handler = handler@{ env, ctx, req ->

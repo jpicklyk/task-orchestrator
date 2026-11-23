@@ -9,9 +9,10 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.FROM_START
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.awaitSubscribers
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolServiceRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.Reply
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.RunToolServices
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.SeatWorld
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.decisionService
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -162,7 +163,7 @@ decision_classes:
         val runA: UUID,
         val runB: UUID
     ) {
-        val svc get() = rig.ctx.decisionService
+        val svc get() = ToolServiceRegistry.of(rig.ctx).get(RunToolServices::class).decisionService
 
         fun options(vararg keys: String) = keys.map { DecisionRequestOption(key = it, label = "Label ${it.uppercase()}") }
 
@@ -2429,7 +2430,7 @@ class DecisionSseTest {
         val betaRoot: WorkItem,
         val betaItem: WorkItem
     ) {
-        val svc get() = rig.ctx.decisionService
+        val svc get() = ToolServiceRegistry.of(rig.ctx).get(RunToolServices::class).decisionService
 
         fun cmd(
             root: WorkItem,

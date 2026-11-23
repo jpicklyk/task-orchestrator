@@ -17,7 +17,7 @@ import kotlinx.serialization.serializer
  * `{value?, numerator, denominator, basis?}`, and `relatedFollowThrough` always holds `edges`, `links`, `tags`, `text`.
  */
 internal val reportWasteSelect =
-    SelectSpec.Single<ReportWasteRequest, WasteReport>(
+    SelectSpec.Single<ReportToolServices, ReportWasteRequest, WasteReport>(
         name = "waste",
         doc =
             "Waste signals over [since, until), default the 7 days before now, " +
@@ -27,6 +27,7 @@ internal val reportWasteSelect =
                 "(basis mcp_sessions); overFetch, emptyNext and lifecycleFreeRejections use both surfaces. data.window as " +
                 "usage. A tag-scoped credential is forbidden; a root-scoped one sees only rows of its roots.",
         profiles = director(),
+        services = ReportToolServices::class,
         request = serializer<ReportWasteRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         handler = { env, ctx, req -> ReportService(env.unitOfWork, env.clock).waste(ctx, req) },

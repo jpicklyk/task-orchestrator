@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsWithdrawRequest
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -15,7 +14,7 @@ import kotlinx.serialization.serializer
 
 /** runs_write withdraw: withdraw a pending decision. */
 internal val runsWithdrawOp =
-    OpSpec<RunsWithdrawRequest, JsonObject>(
+    OpSpec<RunToolServices, RunsWithdrawRequest, JsonObject>(
         name = "withdraw",
         doc =
             "Withdraw an open or acknowledged decision: its raiser (the same principal and seat) or the coordinator " +
@@ -23,6 +22,7 @@ internal val runsWithdrawOp =
                 "new decision. Returns the decision.",
         profiles = orchestration() + director(),
         capability = ApiCapability.RUNS,
+        services = RunToolServices::class,
         request = serializer<RunsWithdrawRequest>(),
         errors =
             setOf(
@@ -36,7 +36,7 @@ internal val runsWithdrawOp =
     )
 
 private suspend fun WriteScope.withdrawDecision(
-    env: ToolExecutionContext,
+    env: RunToolServices,
     ctx: CallContext,
     req: RunsWithdrawRequest
 ): Outcome<JsonObject> {

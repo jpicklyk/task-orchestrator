@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
+import io.github.jpicklyk.mcptask.current.application.api.docs.KnowledgeToolServices
 import io.github.jpicklyk.mcptask.current.application.knowledge.related.RelatedHit
 import io.github.jpicklyk.mcptask.current.application.knowledge.related.RelatedRequest
 import io.github.jpicklyk.mcptask.current.application.knowledge.related.RelatedService
@@ -40,12 +41,13 @@ object ItemsReadRelated {
     )
 
     val select =
-        SelectSpec.Paged<Request, JsonObject>(
+        SelectSpec.Paged<KnowledgeToolServices, Request, JsonObject>(
             name = "related",
             doc =
                 "Items and documents related to an item, ranked by dependencies, links, shared tags and similar text; " +
                     "each hit names its reasons.",
             profiles = knowledge(),
+            services = KnowledgeToolServices::class,
             request = serializer<Request>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.INVALID_CURSOR),
             handler = handler@{ env, ctx, req ->

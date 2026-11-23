@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepType
 import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
 import io.github.jpicklyk.mcptask.current.application.service.RuleService
@@ -42,13 +41,14 @@ internal object CreateTreeOp {
  * (`invalid_request`), then scope on the one anchor (`parentId`, `root.id`, or a new top-level root), then the plan,
  * then the writes. Every rejection precedes any write; a failed write rolls the whole tree back.
  */
-internal fun createTreeOp(): OpSpec<CreateTreeRequest, ItemWriteResult> =
+internal fun createTreeOp(): OpSpec<WorkflowToolServices, CreateTreeRequest, ItemWriteResult> =
     OpSpec(
         name = CreateTreeOp.NAME,
         doc = "Create a root (or attach to root.id) with children, dependencies and notes, all or nothing.",
         // Amendment U23: orchestration-only, like complete_tree (the knowledge profile hides it).
         profiles = orchestration(),
         capability = ApiCapability.WRITE_ITEMS,
+        services = WorkflowToolServices::class,
         request = serializer<CreateTreeRequest>(),
         errors =
             setOf(
@@ -69,7 +69,7 @@ internal fun createTreeOp(): OpSpec<CreateTreeRequest, ItemWriteResult> =
     )
 
 private suspend fun WriteScope.createTree(
-    env: ToolExecutionContext,
+    env: WorkflowToolServices,
     ctx: CallContext,
     req: CreateTreeRequest
 ): Outcome<ItemWriteResult> {
@@ -141,7 +141,7 @@ private suspend fun WriteScope.createTree(
 
 /** Resolves [ref] (under a restricted scope a miss is `forbidden`) and checks the scope admits it. */
 private suspend fun resolveInScope(
-    env: ToolExecutionContext,
+    env: WorkflowToolServices,
     ctx: CallContext,
     ref: IdRef,
     field: String
@@ -156,9 +156,9 @@ private suspend fun resolveInScope(
 }
 
 /** The tree service over the call's composed services. */
-internal fun workTreeService(env: ToolExecutionContext): WorkTreeService =
+internal fun workTreeService(env: WorkflowToolServices): WorkTreeService =
     WorkTreeService(
-        env.repositoryProvider,
+        env.stores,
         env.unitOfWork,
         env.configResolver,
         env.itemCommandService,

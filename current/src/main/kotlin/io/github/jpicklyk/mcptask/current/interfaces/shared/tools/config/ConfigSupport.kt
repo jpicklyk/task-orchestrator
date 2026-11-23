@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDelta
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDiff
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
@@ -48,8 +47,8 @@ internal object ConfigSupport {
      * The service wired at composition, or one built over the context's own stores (tests), with the SAME production
      * validator the composition root builds.
      */
-    fun service(env: ToolExecutionContext): ConfigService =
-        env.configService ?: ConfigService(env.repositoryProvider, YamlConfigDocumentParser, env.unitOfWork, productionConfigValidator())
+    fun service(env: ConfigToolServices): ConfigService =
+        env.configService ?: ConfigService(env.stores, YamlConfigDocumentParser, env.unitOfWork, productionConfigValidator())
 
     /**
      * Resolves [ref] to a depth-0 root the call's scope admits. Order: scope (an absent or ambiguous id under a
@@ -57,7 +56,7 @@ internal object ConfigSupport {
      * (`invalid_request` at `/rootId`).
      */
     suspend fun resolveRoot(
-        env: ToolExecutionContext,
+        env: ConfigToolServices,
         ctx: CallContext,
         ref: IdRef,
         field: String = "/rootId"

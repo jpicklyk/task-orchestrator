@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.service.RuleGetResult
 import io.github.jpicklyk.mcptask.current.application.service.RuleListResult
 import io.github.jpicklyk.mcptask.current.application.service.RuleService
@@ -42,7 +41,7 @@ data class ConfigRulesRequest(
 )
 
 internal val configRulesOp =
-    OpSpec<ConfigRulesRequest, JsonElement>(
+    OpSpec<ConfigToolServices, ConfigRulesRequest, JsonElement>(
         name = "rules",
         doc =
             "Read git-tracked rule text (rule/<key> plan documents). rootId alone lists {key, rulesVersion, updatedAt}; " +
@@ -50,11 +49,12 @@ internal val configRulesOp =
                 "under the item's root. Any other combination is invalid_request.",
         profiles = orchestration(),
         capability = ApiCapability.READ,
+        services = ConfigToolServices::class,
         request = serializer<ConfigRulesRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.CONFIG_INVALID),
         execute = { env, ctx, req ->
             shapeError(req)?.let { return@OpSpec Outcome.Err(it) }
-            val service = RuleService(env.repositoryProvider.planDocumentRepository(), env.workItemRepository())
+            val service = RuleService(env.stores.planDocumentRepository(), env.workItemRepository())
             ConfigSupport.guarded {
                 when {
                     req.itemId != null -> pointerGet(env, ctx, service, req.itemId, requireNotNull(req.noteKey))
@@ -93,7 +93,7 @@ private fun shapeError(req: ConfigRulesRequest): DomainError? {
 }
 
 private suspend fun list(
-    env: ToolExecutionContext,
+    env: ConfigToolServices,
     ctx: CallContext,
     service: RuleService,
     rootRef: IdRef
@@ -129,7 +129,7 @@ private suspend fun list(
 }
 
 private suspend fun directGet(
-    env: ToolExecutionContext,
+    env: ConfigToolServices,
     ctx: CallContext,
     service: RuleService,
     rootRef: IdRef,
@@ -144,7 +144,7 @@ private suspend fun directGet(
 }
 
 private suspend fun pointerGet(
-    env: ToolExecutionContext,
+    env: ConfigToolServices,
     ctx: CallContext,
     service: RuleService,
     itemRef: IdRef,
@@ -160,7 +160,7 @@ private suspend fun pointerGet(
     val rootId: UUID =
         if (item.depth == 0) item.id else item.rootId ?: return Outcome.Err(invalidField("/itemId", "has no resolvable root"))
     val entry =
-        env
+        env.configResolver
             .resolveSchema(item)
             ?.notes
             ?.firstOrNull { it.key == noteKey }

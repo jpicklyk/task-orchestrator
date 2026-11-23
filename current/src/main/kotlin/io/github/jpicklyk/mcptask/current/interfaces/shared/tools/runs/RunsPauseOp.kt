@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsPauseRequest
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -15,13 +14,14 @@ import kotlinx.serialization.serializer
 
 /** runs_write pause: a director or a human pauses an open run. */
 internal val runsPauseOp =
-    OpSpec<RunsPauseRequest, JsonObject>(
+    OpSpec<RunToolServices, RunsPauseRequest, JsonObject>(
         name = "pause",
         doc =
             "Pause an open run (reason manual). Director or a human only; the opener of a run may not pause it. A run " +
                 "that is not open is invalid_run_state. Returns the run.",
         profiles = director(),
         capability = ApiCapability.RUNS,
+        services = RunToolServices::class,
         request = serializer<RunsPauseRequest>(),
         errors =
             setOf(
@@ -35,7 +35,7 @@ internal val runsPauseOp =
     )
 
 private suspend fun WriteScope.pauseRun(
-    env: ToolExecutionContext,
+    env: RunToolServices,
     ctx: CallContext,
     req: RunsPauseRequest
 ): Outcome<JsonObject> {

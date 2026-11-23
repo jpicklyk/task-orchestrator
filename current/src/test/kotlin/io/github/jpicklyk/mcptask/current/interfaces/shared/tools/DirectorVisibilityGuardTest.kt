@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.request.Doc
@@ -69,10 +70,11 @@ class DirectorVisibilityGuardTest {
             tool,
             "Fixture.",
             members.map { (name, profiles) ->
-                SelectSpec.Single<MarkerReq, String>(
+                SelectSpec.Single<ToolExecutionContext, MarkerReq, String>(
                     name = name,
                     doc = "Doc.",
                     profiles = profiles,
+                    services = ToolExecutionContext::class,
                     request = serializer<MarkerReq>(),
                     handler = { _, _, _ -> Outcome.Ok("x") },
                     data = { JsonPrimitive(it) }
@@ -89,11 +91,12 @@ class DirectorVisibilityGuardTest {
             description = "Fixture.",
             ops =
                 members.map { (name, profiles) ->
-                    OpSpec<MarkerReq, String>(
+                    OpSpec<ToolExecutionContext, MarkerReq, String>(
                         name = name,
                         doc = "Doc.",
                         profiles = profiles,
                         capability = ApiCapability.WRITE_ITEMS,
+                        services = ToolExecutionContext::class,
                         request = serializer<MarkerReq>(),
                         execute = { _, _, _ -> Outcome.Ok("x") }
                     )

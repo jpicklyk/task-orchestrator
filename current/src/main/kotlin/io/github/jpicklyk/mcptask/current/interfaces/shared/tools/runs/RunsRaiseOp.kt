@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsRaiseRequest
 import io.github.jpicklyk.mcptask.current.application.decision.DecisionRaiseCommand
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
@@ -38,7 +37,7 @@ import java.util.UUID
 
 /** runs_write raise: raise a decision request for an answer. */
 internal val runsRaiseOp =
-    OpSpec<RunsRaiseRequest, JsonObject>(
+    OpSpec<RunToolServices, RunsRaiseRequest, JsonObject>(
         name = "raise",
         doc =
             "Raise a decision. Needs itemId, runId or rootId (a seat token supplies its run and item). The class sets " +
@@ -47,6 +46,7 @@ internal val runsRaiseOp =
                 "Payload at most 4096 bytes.",
         profiles = orchestration(),
         capability = ApiCapability.RUNS,
+        services = RunToolServices::class,
         request = serializer<RunsRaiseRequest>(),
         errors =
             setOf(
@@ -73,7 +73,7 @@ private val OPTION_MEMBERS = setOf(OPTION_KEY, OPTION_LABEL, OPTION_CONSEQUENCE)
  * (lifecycle, class, payload and dedupe rules).
  */
 private suspend fun WriteScope.raiseDecision(
-    env: ToolExecutionContext,
+    env: RunToolServices,
     ctx: CallContext,
     req: RunsRaiseRequest
 ): Outcome<JsonObject> {

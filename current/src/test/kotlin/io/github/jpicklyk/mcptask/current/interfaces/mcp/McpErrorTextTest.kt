@@ -84,10 +84,11 @@ class McpErrorTextTest {
             "lc_read",
             "Local read tool whose errors carry messages with a newline and non-ASCII text.",
             listOf(
-                SelectSpec.Single<FixtureTools.GetReq, String>(
+                SelectSpec.Single<ToolExecutionContext, FixtureTools.GetReq, String>(
                     name = "get",
                     doc = "Read one thing by id.",
                     profiles = knowledge(),
+                    services = ToolExecutionContext::class,
                     request = serializer<FixtureTools.GetReq>(),
                     errors = setOf(ErrorCode.NOT_FOUND),
                     handler = { _, _, req ->

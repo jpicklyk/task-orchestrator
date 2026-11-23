@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.application.read.ContextScope
 import io.github.jpicklyk.mcptask.current.application.read.ContextView
@@ -19,6 +18,7 @@ import io.github.jpicklyk.mcptask.current.domain.lifecycle.RejectContext
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.StatusGraphBuilder
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.AdvanceSupport
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.LifecycleToolServices
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.NoteSchemaJson
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.DecisionView
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimState
@@ -81,7 +81,7 @@ object ItemsReadContext {
     )
 
     val select =
-        SelectSpec.Single<Request, JsonObject>(
+        SelectSpec.Single<LifecycleToolServices, Request, JsonObject>(
             name = "context",
             doc =
                 "With itemId: the gate state of one item (canAdvance, blockedBy, blockers, missing notes, next, transitions, " +
@@ -89,6 +89,7 @@ object ItemsReadContext {
                     "claim summary " +
                     "(default limit 50, max 200; ancestorId scopes it). fields: ancestors.",
             profiles = orchestration(),
+            services = LifecycleToolServices::class,
             request = serializer<Request>(),
             errors =
                 setOf(
@@ -112,7 +113,7 @@ object ItemsReadContext {
     // ---- item mode ---------------------------------------------------------------------------------------
 
     private suspend fun itemMode(
-        env: ToolExecutionContext,
+        env: LifecycleToolServices,
         ctx: io.github.jpicklyk.mcptask.current.platform.call.CallContext,
         req: Request,
         itemRef: IdRef
@@ -148,7 +149,7 @@ object ItemsReadContext {
         val seats = role?.let { schema?.seatsForRole(it) } ?: emptyList()
         val dispatchBySeat =
             if (seats.isEmpty() || role == null) emptyMap() else env.configResolver.resolveDispatchBySeat(item, schema)[role] ?: emptyMap()
-        val dispatch = role?.let { env.resolveDispatchProfile(item, it, schema) }
+        val dispatch = role?.let { env.configResolver.resolveDispatchProfile(item, it, schema) }
         val blockers = if (decision is Decision.Reject) dependencyBlockers(env, ctx, decision) else emptyList()
         val chains = ancestorChains(env, listOf(item), "ancestors" in req.fields.orEmpty())
         val wire = role?.name?.lowercase()
@@ -217,7 +218,7 @@ object ItemsReadContext {
 
     /** The unsatisfied blockers of a rejected dependency gate the caller may see (decision D-e): `{id, role?, threshold}`. */
     private suspend fun dependencyBlockers(
-        env: ToolExecutionContext,
+        env: LifecycleToolServices,
         ctx: io.github.jpicklyk.mcptask.current.platform.call.CallContext,
         decision: Decision.Reject
     ): List<JsonObject> {
@@ -261,23 +262,26 @@ object ItemsReadContext {
      * `decisionRequestStore()` throws [UnsupportedOperationException], as the interface default does) has none.
      */
     private suspend fun decisions(
-        env: ToolExecutionContext,
+        env: LifecycleToolServices,
         item: WorkItem
     ): JsonArray? {
-        val store =
-            try {
-                env.repositoryProvider.decisionRequestStore()
-            } catch (e: UnsupportedOperationException) {
-                return null
-            }
         val shown = DecisionRequestStatus.entries.filterTo(HashSet()) { it != DecisionRequestStatus.WITHDRAWN }
-        val found = env.unitOfWork.read { store.list(itemId = item.id, statuses = shown) }
+        val found =
+            env.unitOfWork.read {
+                val store =
+                    try {
+                        stores.decisionRequestStore()
+                    } catch (e: UnsupportedOperationException) {
+                        return@read null
+                    }
+                store.list(itemId = item.id, statuses = shown)
+            } ?: return null
         return if (found.isEmpty()) null else JsonArray(found.map { DecisionView.contextEntry(it) })
     }
 
     /** Full claim detail: the only sanctioned disclosure of a claim identity (a diagnostic for stalled or expired claims). */
     private suspend fun claimDetail(
-        env: ToolExecutionContext,
+        env: LifecycleToolServices,
         item: WorkItem
     ): JsonObject? {
         val holder = item.claimedBy ?: return null
@@ -296,14 +300,14 @@ object ItemsReadContext {
      * is the sanctioned holder diagnostic, like [claimDetail]). Null when the item neither declares nor holds one.
      */
     private suspend fun resourceLeases(
-        env: ToolExecutionContext,
+        env: LifecycleToolServices,
         ctx: io.github.jpicklyk.mcptask.current.platform.call.CallContext,
         item: WorkItem
     ): JsonArray? {
-        val declared = env.resolveResourceRequirements(item)
+        val declared = env.configResolver.resolveResourceRequirements(item)
         val declaredKeys = declared.map { it.key }
         if (declaredKeys.isEmpty()) return null
-        val leases = env.repositoryProvider.resourceLeaseRepository()
+        val leases = env.stores.resourceLeaseRepository()
         val own = leases.findActiveForItem(item.id).associateBy { it.resourceKey }
         val anyHolder = leases.findActiveByKeys(declaredKeys).associateBy { it.resourceKey }
         val requirementByKey = declared.associateBy { it.key }
@@ -337,7 +341,7 @@ object ItemsReadContext {
     // ---- health mode -------------------------------------------------------------------------------------
 
     private suspend fun healthMode(
-        env: ToolExecutionContext,
+        env: LifecycleToolServices,
         ctx: io.github.jpicklyk.mcptask.current.platform.call.CallContext,
         req: Request
     ): Outcome<JsonObject> {
@@ -382,12 +386,12 @@ object ItemsReadContext {
      * each item from the config resolver.
      */
     private suspend fun stalledEntries(
-        env: ToolExecutionContext,
+        env: LifecycleToolServices,
         view: ContextView
     ): List<JsonObject> {
         val out = ArrayList<JsonObject>()
         for (item in view.active.items) {
-            val schema = env.resolveSchema(item) ?: continue
+            val schema = env.configResolver.resolveSchema(item) ?: continue
             val notes = view.notes[item.id].orEmpty().associateBy { it.key }
             val role = item.role ?: continue
             val phase = computePhaseNoteContext(role, schema, notes) ?: continue

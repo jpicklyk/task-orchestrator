@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsOpenRequest
 import io.github.jpicklyk.mcptask.current.application.run.RunOpenCommand
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -23,7 +22,7 @@ import java.util.UUID
 
 /** runs_write open: a run over a set of items of one root. */
 internal val runsOpenOp =
-    OpSpec<RunsOpenRequest, JsonObject>(
+    OpSpec<RunToolServices, RunsOpenRequest, JsonObject>(
         name = "open",
         doc =
             "Open a run on a root over up to 500 of its items. The caller is recorded as the opener. An item already in " +
@@ -32,6 +31,7 @@ internal val runsOpenOp =
                 "update, assign and close.",
         profiles = orchestration() + director(),
         capability = ApiCapability.RUNS,
+        services = RunToolServices::class,
         request = serializer<RunsOpenRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.DUPLICATE),
         execute = { env, ctx, req -> openRun(env, ctx, req) }
@@ -40,7 +40,7 @@ internal val runsOpenOp =
 private const val MAX_ITEMS = 500
 
 private suspend fun WriteScope.openRun(
-    env: ToolExecutionContext,
+    env: RunToolServices,
     ctx: CallContext,
     req: RunsOpenRequest
 ): Outcome<JsonObject> {

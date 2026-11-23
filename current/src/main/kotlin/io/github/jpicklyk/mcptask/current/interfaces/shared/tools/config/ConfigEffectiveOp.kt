@@ -38,13 +38,14 @@ data class ConfigEffectiveRequest(
 )
 
 internal val configEffectiveOp =
-    OpSpec<ConfigEffectiveRequest, JsonElement>(
+    OpSpec<ConfigToolServices, ConfigEffectiveRequest, JsonElement>(
         name = "effective",
         doc =
             "The resolved config view: every type's schema, the traits, the status graph and the layer fingerprints. With " +
                 "rootId it is that root's config layered over the server's; without it, the server config alone.",
         profiles = orchestration(),
         capability = ApiCapability.READ,
+        services = ConfigToolServices::class,
         request = serializer<ConfigEffectiveRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.CONFIG_INVALID),
         execute = { env, ctx, req ->

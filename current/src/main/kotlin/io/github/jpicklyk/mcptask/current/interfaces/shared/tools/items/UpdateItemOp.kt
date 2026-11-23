@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
 import io.github.jpicklyk.mcptask.current.application.service.ItemPatchCommand
@@ -53,12 +52,13 @@ internal object UpdateItemOp {
     const val NAME = "update"
 }
 
-internal fun updateItemOp(): OpSpec<UpdateItemRequest, ItemWriteResult> =
+internal fun updateItemOp(): OpSpec<WorkflowToolServices, UpdateItemRequest, ItemWriteResult> =
     OpSpec(
         name = UpdateItemOp.NAME,
         doc = "Update an item; absent or null keeps a value, clear nulls optional fields.",
         capability = ApiCapability.WRITE_ITEMS,
         profiles = knowledge(),
+        services = WorkflowToolServices::class,
         request = serializer<UpdateItemRequest>(),
         errors =
             setOf(
@@ -110,7 +110,7 @@ private fun wireName(field: ClearField): String =
     }
 
 private suspend fun WriteScope.updateItem(
-    env: ToolExecutionContext,
+    env: WorkflowToolServices,
     ctx: CallContext,
     req: UpdateItemRequest
 ): Outcome<ItemWriteResult> {

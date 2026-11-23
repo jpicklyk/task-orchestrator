@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsSeatsRequest
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -19,12 +18,13 @@ import java.util.UUID
 
 /** `runs_read seats`: the seat assignments of one run. Orchestration only (the director surface has no seats). */
 internal val runsSeatsSelect =
-    SelectSpec.Single<RunsSeatsRequest, JsonObject>(
+    SelectSpec.Single<RunToolServices, RunsSeatsRequest, JsonObject>(
         name = "seats",
         doc =
             "List the seat assignments of one run, oldest first: active ones, or every one with ended:true, " +
                 "optionally only those on one item. The coordinator pseudo-seat has no itemId. Tokens are never shown.",
         profiles = orchestration(),
+        services = RunToolServices::class,
         request = serializer<RunsSeatsRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         handler = { env, ctx, req -> listSeats(env, ctx, req) },
@@ -32,7 +32,7 @@ internal val runsSeatsSelect =
     )
 
 private suspend fun listSeats(
-    env: ToolExecutionContext,
+    env: RunToolServices,
     ctx: CallContext,
     req: RunsSeatsRequest
 ): Outcome<JsonObject> {

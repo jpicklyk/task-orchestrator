@@ -82,10 +82,11 @@ class McpOperationAdapterConfigSessionTest {
             "probe",
             "Config-session probe.",
             listOf(
-                SelectSpec.Single<ResolveReq, String>(
+                SelectSpec.Single<ToolExecutionContext, ResolveReq, String>(
                     name = "resolve",
                     doc = "Resolve one root's config.",
                     profiles = knowledge(),
+                    services = ToolExecutionContext::class,
                     request = serializer<ResolveReq>(),
                     handler = { env, _, req ->
                         repeat(req.times) { env.resolveTypeSchema("feature-task", rootId) }
@@ -93,10 +94,11 @@ class McpOperationAdapterConfigSessionTest {
                     },
                     data = { JsonPrimitive(it) }
                 ),
-                SelectSpec.Single<ResolveReq, String>(
+                SelectSpec.Single<ToolExecutionContext, ResolveReq, String>(
                     name = "throw",
                     doc = "Throw the per-root failure bare.",
                     profiles = knowledge(),
+                    services = ToolExecutionContext::class,
                     request = serializer<ResolveReq>(),
                     handler = {
                         _,

@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.api.docs
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.knowledge.document.PlanSlugs
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.KnowledgeStoreProvider
@@ -53,7 +52,7 @@ object DocHandlers {
 
     /** `docs_read get`. */
     suspend fun get(
-        env: ToolExecutionContext,
+        env: KnowledgeToolServices,
         ctx: CallContext,
         req: DocsGetRequest
     ): Outcome<DocGetResult> {
@@ -105,7 +104,7 @@ object DocHandlers {
      * whole filtered list; the cursor is built by [ListPage.of].
      */
     suspend fun list(
-        env: ToolExecutionContext,
+        env: KnowledgeToolServices,
         ctx: CallContext,
         req: DocsListRequest
     ): Outcome<ListPage<DocListEntry>> {
@@ -150,7 +149,7 @@ object DocHandlers {
 
     /** `docs_read history`: the versions of one document, oldest first. */
     suspend fun history(
-        env: ToolExecutionContext,
+        env: KnowledgeToolServices,
         ctx: CallContext,
         req: DocsHistoryRequest
     ): Outcome<ListPage<DocHistoryEntry>> {
@@ -187,7 +186,7 @@ object DocHandlers {
      * does not admit, or that no longer exist, drop their link before paging and are not counted.
      */
     suspend fun links(
-        env: ToolExecutionContext,
+        env: KnowledgeToolServices,
         ctx: CallContext,
         req: DocsLinksRequest
     ): Outcome<ListPage<DocLinkEntry>> {
@@ -225,7 +224,7 @@ object DocHandlers {
     /** `docs_write upsert`. */
     suspend fun upsert(
         scope: WriteScope,
-        env: ToolExecutionContext,
+        env: KnowledgeToolServices,
         ctx: CallContext,
         req: DocUpsertRequest
     ): Outcome<DocWriteOutcome> {
@@ -274,7 +273,7 @@ object DocHandlers {
     /** `docs_write archive` (when [archive]) or `unarchive`. */
     suspend fun setArchived(
         scope: WriteScope,
-        env: ToolExecutionContext,
+        env: KnowledgeToolServices,
         ctx: CallContext,
         req: DocStateRequest,
         archive: Boolean
@@ -308,7 +307,7 @@ object DocHandlers {
     /** `docs_write delete`. */
     suspend fun delete(
         scope: WriteScope,
-        env: ToolExecutionContext,
+        env: KnowledgeToolServices,
         ctx: CallContext,
         req: DocDeleteRequest
     ): Outcome<DocWriteOutcome> {
@@ -328,7 +327,7 @@ object DocHandlers {
     /** `docs_write attach`. */
     suspend fun attach(
         scope: WriteScope,
-        env: ToolExecutionContext,
+        env: KnowledgeToolServices,
         ctx: CallContext,
         req: DocAttachRequest
     ): Outcome<DocWriteOutcome> {
@@ -353,7 +352,7 @@ object DocHandlers {
     /** `docs_write detach`: not_found when the document is absent, else the number of attachments removed. */
     suspend fun detach(
         scope: WriteScope,
-        env: ToolExecutionContext,
+        env: KnowledgeToolServices,
         ctx: CallContext,
         req: DocAttachRequest
     ): Outcome<DocWriteOutcome> {

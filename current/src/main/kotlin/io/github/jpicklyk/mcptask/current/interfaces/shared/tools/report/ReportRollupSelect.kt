@@ -20,7 +20,7 @@ import kotlinx.serialization.serializer
  * non-zero). A null section is omitted.
  */
 internal val reportRollupSelect =
-    SelectSpec.Single<ReportRollupRequest, RollupReport>(
+    SelectSpec.Single<ReportToolServices, ReportRollupRequest, RollupReport>(
         name = "rollup",
         doc =
             "Exactly one of anchorId and runId. anchorId: one subtree (the item and every descendant, any depth). " +
@@ -42,6 +42,7 @@ internal val reportRollupSelect =
                 "Ids are 8-character short ids. A tag-scoped credential is forbidden; a root-scoped one counts " +
                 "only calls of its roots (anchorId) or sees only runs of its roots (runId).",
         profiles = director(),
+        services = ReportToolServices::class,
         request = serializer<ReportRollupRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         handler = { env, ctx, req -> ReportService(env.unitOfWork, env.clock).rollup(ctx, req) },

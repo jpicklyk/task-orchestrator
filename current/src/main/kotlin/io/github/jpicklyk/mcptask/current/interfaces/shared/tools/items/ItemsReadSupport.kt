@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.port.ItemLookup
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 import kotlinx.serialization.json.JsonArray
@@ -14,7 +14,7 @@ import java.util.UUID
 
 /** The ancestor chains (root-first, the item excluded) of [items] in one read; empty without a read when [wanted] is false or [items] is empty. */
 internal suspend fun ancestorChains(
-    env: ToolExecutionContext,
+    env: ItemLookup,
     items: Collection<WorkItem>,
     wanted: Boolean
 ): Map<UUID, List<WorkItem>> =

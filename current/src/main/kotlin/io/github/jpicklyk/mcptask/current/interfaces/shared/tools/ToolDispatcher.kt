@@ -33,6 +33,7 @@ import io.github.jpicklyk.mcptask.current.platform.tool.CallAccess
 import io.github.jpicklyk.mcptask.current.platform.tool.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.SelectToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolServiceLookup
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolView
 import io.github.jpicklyk.mcptask.current.platform.tool.invalidField
@@ -102,6 +103,9 @@ class ToolDispatcher(
 ) {
     private val logger = LoggerFactory.getLogger(ToolDispatcher::class.java)
 
+    /** The services holders a select or op takes as `env`, built over [env]. */
+    private val services: ToolServiceLookup = ToolServiceRegistry.of(env)
+
     suspend fun dispatch(
         spec: ToolSpec,
         profile: ToolView,
@@ -170,7 +174,7 @@ class ToolDispatcher(
                     val envelope =
                         when (val bound = select.decode(decoder, arguments)) {
                             is Outcome.Err -> EnvelopeEncoder.error(bound.error, reqId)
-                            is Outcome.Ok -> withEventActor(ctx.principal.claim) { withConfigSession { bound.value.run(env, ctx) } }
+                            is Outcome.Ok -> withEventActor(ctx.principal.claim) { withConfigSession { bound.value.run(services, ctx) } }
                         }
                     Dispatched(envelope, select.name, null)
                 }
@@ -293,7 +297,7 @@ class ToolDispatcher(
         spec: SelectToolSpec,
         profile: ToolView,
         arguments: JsonObject
-    ): Outcome<SelectSpec<*, *>> {
+    ): Outcome<SelectSpec<*, *, *>> {
         val raw = arguments[SELECT] ?: return Outcome.Err(invalidField("/$SELECT", "is required"))
         val visible = spec.visibleSelects(profile)
         val name = (raw as? JsonPrimitive)?.takeIf { it.isString }?.content
@@ -395,7 +399,7 @@ class ToolDispatcher(
                     batchRunner.run(spec.name, principalId, elements, atomic ?: false, spec.codec) { index, pending ->
                         when (pending) {
                             is Pending.Failed -> Outcome.Err(pending.error)
-                            is Pending.Bound -> rootHandlerFields(pending.op.run.invoke(this, env, ctx), index)
+                            is Pending.Bound -> rootHandlerFields(pending.op.run.invoke(this, services, ctx), index)
                         }
                     }
                 }

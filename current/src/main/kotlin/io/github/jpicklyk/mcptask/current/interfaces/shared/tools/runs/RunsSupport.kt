@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
 import io.github.jpicklyk.mcptask.current.application.api.RunRefs
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunBudgetRequest
 import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
@@ -44,7 +43,7 @@ internal object RunsSupport {
      * unrestricted scope reads nothing extra.
      */
     suspend fun view(
-        env: ToolExecutionContext,
+        env: RunToolServices,
         stores: RunStoreProvider,
         run: Run,
         scope: AccessScope

@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -40,12 +39,13 @@ internal object CreateItemOp {
     const val NAME = "create"
 }
 
-internal fun createItemOp(): OpSpec<CreateItemRequest, ItemWriteResult> =
+internal fun createItemOp(): OpSpec<WorkflowToolServices, CreateItemRequest, ItemWriteResult> =
     OpSpec(
         name = CreateItemOp.NAME,
         doc = "Create an item in queue.",
         capability = ApiCapability.WRITE_ITEMS,
         profiles = knowledge(),
+        services = WorkflowToolServices::class,
         request = serializer<CreateItemRequest>(),
         errors =
             setOf(
@@ -60,7 +60,7 @@ internal fun createItemOp(): OpSpec<CreateItemRequest, ItemWriteResult> =
     )
 
 private suspend fun WriteScope.createItem(
-    env: ToolExecutionContext,
+    env: WorkflowToolServices,
     ctx: CallContext,
     req: CreateItemRequest
 ): Outcome<ItemWriteResult> {

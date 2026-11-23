@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepType
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
@@ -40,15 +39,15 @@ internal object DepsSupport {
 
     /** Resolves [ref] to an item id under the call's scope ([ScopedIds.resolve]): never an existence oracle. */
     suspend fun resolve(
-        env: ToolExecutionContext,
+        env: DependencyToolServices,
         ctx: CallContext,
         ref: IdRef,
         field: String
-    ): Outcome<UUID> = ScopedIds.resolve(env.repositoryProvider.workItemRepository(), ctx.scope, ref, field)
+    ): Outcome<UUID> = ScopedIds.resolve(env.stores.workItemRepository(), ctx.scope, ref, field)
 
     /** Resolves every ref in order; the first failure wins. */
     suspend fun resolveAll(
-        env: ToolExecutionContext,
+        env: DependencyToolServices,
         ctx: CallContext,
         refs: List<IdRef>,
         field: String

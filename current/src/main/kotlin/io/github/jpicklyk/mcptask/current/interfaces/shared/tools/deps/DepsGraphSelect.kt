@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepsGraphRequest
 import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
 import io.github.jpicklyk.mcptask.current.domain.graph.TopoOrder
@@ -24,7 +23,7 @@ import java.util.UUID
 
 /** `deps_read graph`: the blocking graph reachable from one item, blockers first. */
 internal val depsGraphSelect =
-    SelectSpec.Paged<DepsGraphRequest, JsonObject>(
+    SelectSpec.Paged<DependencyToolServices, DepsGraphRequest, JsonObject>(
         name = "graph",
         doc =
             "The blocking graph around one item: every item connected to it by blocks edges in either direction, blockers " +
@@ -32,6 +31,7 @@ internal val depsGraphSelect =
                 "edges are ignored. Items outside the scope of the call are neither listed nor traversed. page.capped means " +
                 "the walk stopped at ${DepsSupport.MAX_GRAPH_NODES} items.",
         profiles = knowledge() + director(),
+        services = DependencyToolServices::class,
         request = serializer<DepsGraphRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         handler = { env, ctx, req -> graph(env, ctx, req) },
@@ -39,7 +39,7 @@ internal val depsGraphSelect =
     )
 
 private suspend fun graph(
-    env: ToolExecutionContext,
+    env: DependencyToolServices,
     ctx: CallContext,
     req: DepsGraphRequest
 ): Outcome<ListPage<JsonObject>> {

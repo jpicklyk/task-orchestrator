@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.advance.TransitionRequest
 import io.github.jpicklyk.mcptask.current.application.api.advance.TransitionTrigger
 import io.github.jpicklyk.mcptask.current.application.run.RunService
@@ -46,7 +45,7 @@ private val logger = LoggerFactory.getLogger("AdvanceTransitionOp")
  * and resource leases enforced on every surface (task-scope Q13 D2, D3).
  */
 internal val transitionOp =
-    OpSpec<TransitionRequest, JsonElement>(
+    OpSpec<LifecycleToolServices, TransitionRequest, JsonElement>(
         name = "transition",
         doc =
             "Move one item between phases with a trigger (start, complete, block, hold, resume, cancel, reopen). " +
@@ -54,6 +53,7 @@ internal val transitionOp =
                 "unblocked items and what the next phase expects.",
         profiles = orchestration(),
         capability = ApiCapability.ADVANCE,
+        services = LifecycleToolServices::class,
         request = serializer<TransitionRequest>(),
         errors =
             setOf(
@@ -74,7 +74,7 @@ internal val transitionOp =
     )
 
 private suspend fun WriteScope.runTransition(
-    env: ToolExecutionContext,
+    env: LifecycleToolServices,
     ctx: CallContext,
     req: TransitionRequest
 ): Outcome<JsonElement> {
@@ -157,7 +157,7 @@ private suspend fun WriteScope.runTransition(
  * unblocked entries outside the call's scope are echoed as `{itemId}` only.
  */
 private suspend fun WriteScope.element(
-    env: ToolExecutionContext,
+    env: LifecycleToolServices,
     ctx: CallContext,
     item: WorkItem,
     result: AdvanceResult
@@ -175,7 +175,7 @@ private suspend fun WriteScope.element(
     // The dispatch hint decorates a transition that already happened: a config read fault omits it (D7).
     val dispatch =
         omitOnConfigUnavailable(logger, "dispatch profile", item.id) {
-            env.resolveDispatchProfile(item, result.newRole, schema)
+            env.configResolver.resolveDispatchProfile(item, result.newRole, schema)
         }
 
     return buildJsonObject {

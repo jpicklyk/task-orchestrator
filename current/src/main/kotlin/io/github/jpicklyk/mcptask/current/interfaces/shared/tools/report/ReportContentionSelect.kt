@@ -19,7 +19,7 @@ import kotlinx.serialization.serializer
  * forceReleaseRate?}`; `data.window` follows `page`.
  */
 internal val reportContentionSelect =
-    SelectSpec.PagedWith<ReportContentionRequest, JsonObject>(
+    SelectSpec.PagedWith<ReportToolServices, ReportContentionRequest, JsonObject>(
         name = "contention",
         doc =
             "Claim and lease contention per resource over [since, until) (default the 7 days before now, " +
@@ -32,6 +32,7 @@ internal val reportContentionSelect =
                 "kind asc. data.window gives since, until, retainedSince (the oldest claim or lease event held), basis raw " +
                 "and truncatedByRetention. Visibility as for gates.",
         profiles = director(),
+        services = ReportToolServices::class,
         request = serializer<ReportContentionRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         handler = { env, ctx, req ->

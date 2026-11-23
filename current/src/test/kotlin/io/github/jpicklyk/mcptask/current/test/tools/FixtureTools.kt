@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.test.tools
 
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorFixtures
@@ -114,10 +115,11 @@ class FixtureTools {
     )
 
     val getSelect =
-        SelectSpec.Single<GetReq, String>(
+        SelectSpec.Single<ToolExecutionContext, GetReq, String>(
             name = "get",
             doc = "Read one thing by id.",
             profiles = knowledge(),
+            services = ToolExecutionContext::class,
             request = serializer<GetReq>(),
             errors = setOf(ErrorCode.NOT_FOUND),
             handler = { _, ctx, req ->
@@ -134,10 +136,11 @@ class FixtureTools {
         )
 
     val listSelect =
-        SelectSpec.Paged<ListReq, String>(
+        SelectSpec.Paged<ToolExecutionContext, ListReq, String>(
             name = "list",
             doc = "List things.",
             profiles = knowledge(),
+            services = ToolExecutionContext::class,
             request = serializer<ListReq>(),
             handler = { _, ctx, req ->
                 seen += ctx
@@ -151,10 +154,11 @@ class FixtureTools {
         )
 
     val auditSelect =
-        SelectSpec.Single<AuditReq, String>(
+        SelectSpec.Single<ToolExecutionContext, AuditReq, String>(
             name = "audit",
             doc = "Audit things.",
             profiles = orchestration(),
+            services = ToolExecutionContext::class,
             request = serializer<AuditReq>(),
             handler = { _, ctx, req ->
                 seen += ctx
@@ -164,21 +168,23 @@ class FixtureTools {
         )
 
     val peekSelect =
-        SelectSpec.Single<PeekReq, String>(
+        SelectSpec.Single<ToolExecutionContext, PeekReq, String>(
             name = "peek",
             doc = "Peek.",
             profiles = orchestration(),
+            services = ToolExecutionContext::class,
             request = serializer<PeekReq>(),
             handler = { _, _, req -> Outcome.Ok("peek:${req.what}") },
             data = { JsonPrimitive(it) }
         )
 
     val createOp =
-        OpSpec<CreateReq, String>(
+        OpSpec<ToolExecutionContext, CreateReq, String>(
             name = "create",
             doc = "Create a thing.",
             capability = ApiCapability.WRITE_ITEMS,
             profiles = knowledge(),
+            services = ToolExecutionContext::class,
             request = serializer<CreateReq>(),
             errors = setOf(ErrorCode.NOT_FOUND),
             execute = { _, ctx, req ->
@@ -193,11 +199,12 @@ class FixtureTools {
         )
 
     val renameOp =
-        OpSpec<RenameReq, String>(
+        OpSpec<ToolExecutionContext, RenameReq, String>(
             name = "rename",
             doc = "Rename a thing.",
             capability = ApiCapability.WRITE_ITEMS,
             profiles = knowledge(),
+            services = ToolExecutionContext::class,
             request = serializer<RenameReq>(),
             execute = { _, ctx, req ->
                 seen += ctx
@@ -206,12 +213,13 @@ class FixtureTools {
         )
 
     val purgeOp =
-        OpSpec<PurgeReq, String>(
+        OpSpec<ToolExecutionContext, PurgeReq, String>(
             name = "purge",
             doc = "Purge a thing.",
             profiles = orchestration(),
             destructive = true,
             capability = ApiCapability.WRITE_ITEMS,
+            services = ToolExecutionContext::class,
             request = serializer<PurgeReq>(),
             execute = { _, ctx, req ->
                 seen += ctx
@@ -220,11 +228,12 @@ class FixtureTools {
         )
 
     val resetOp =
-        OpSpec<ResetReq, String>(
+        OpSpec<ToolExecutionContext, ResetReq, String>(
             name = "reset",
             doc = "Reset.",
             profiles = orchestration(),
             capability = ApiCapability.WRITE_ITEMS,
+            services = ToolExecutionContext::class,
             request = serializer<ResetReq>(),
             execute = { _, _, req -> Outcome.Ok("reset:${req.reason}") }
         )

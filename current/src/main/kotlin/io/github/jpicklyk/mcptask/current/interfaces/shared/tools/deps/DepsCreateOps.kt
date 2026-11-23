@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepType
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepsCreateRequest
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepsFanInRequest
@@ -42,11 +41,12 @@ private val CREATE_ERRORS =
 
 /** deps_write create: one edge. */
 internal val depsCreateOp =
-    OpSpec<DepsCreateRequest, JsonObject>(
+    OpSpec<DependencyToolServices, DepsCreateRequest, JsonObject>(
         name = "create",
         doc = "Create one dependency edge: from blocks to (type blocks, the default) or relates_to. A duplicate or a cycle is rejected.",
         capability = ApiCapability.MANAGE_DEPENDENCIES,
         profiles = knowledge(),
+        services = DependencyToolServices::class,
         request = serializer<DepsCreateRequest>(),
         errors = CREATE_ERRORS,
         execute = { env, ctx, req ->
@@ -66,11 +66,12 @@ internal val depsCreateOp =
 
 /** deps_write linear: a chain. */
 internal val depsLinearOp =
-    OpSpec<DepsLinearRequest, JsonObject>(
+    OpSpec<DependencyToolServices, DepsLinearRequest, JsonObject>(
         name = "linear",
         doc = "Create a chain: each item in ids blocks the next. All edges are created together or none.",
         capability = ApiCapability.MANAGE_DEPENDENCIES,
         profiles = knowledge(),
+        services = DependencyToolServices::class,
         request = serializer<DepsLinearRequest>(),
         errors = CREATE_ERRORS,
         execute = { env, ctx, req ->
@@ -96,11 +97,12 @@ internal val depsLinearOp =
 
 /** deps_write fan_out: one source to many targets. */
 internal val depsFanOutOp =
-    OpSpec<DepsFanOutRequest, JsonObject>(
+    OpSpec<DependencyToolServices, DepsFanOutRequest, JsonObject>(
         name = "fan_out",
         doc = "Create from to each of toIds. All edges are created together or none.",
         capability = ApiCapability.MANAGE_DEPENDENCIES,
         profiles = knowledge(),
+        services = DependencyToolServices::class,
         request = serializer<DepsFanOutRequest>(),
         errors = CREATE_ERRORS,
         execute = { env, ctx, req ->
@@ -126,11 +128,12 @@ internal val depsFanOutOp =
 
 /** deps_write fan_in: many sources to one target. */
 internal val depsFanInOp =
-    OpSpec<DepsFanInRequest, JsonObject>(
+    OpSpec<DependencyToolServices, DepsFanInRequest, JsonObject>(
         name = "fan_in",
         doc = "Create each of fromIds to the to item. All edges are created together or none.",
         capability = ApiCapability.MANAGE_DEPENDENCIES,
         profiles = knowledge(),
+        services = DependencyToolServices::class,
         request = serializer<DepsFanInRequest>(),
         errors = CREATE_ERRORS,
         execute = { env, ctx, req ->
@@ -174,7 +177,7 @@ private fun shapeFaults(
  * caller ([ClaimHolder.resolve]).
  */
 private suspend fun WriteScope.createEdges(
-    env: ToolExecutionContext,
+    env: DependencyToolServices,
     ctx: CallContext,
     ids: List<UUID>,
     edges: List<Pair<UUID, UUID>>,

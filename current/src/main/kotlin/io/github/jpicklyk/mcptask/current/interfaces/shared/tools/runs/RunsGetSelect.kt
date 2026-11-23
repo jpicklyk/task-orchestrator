@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsGetRequest
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -13,12 +12,13 @@ import kotlinx.serialization.serializer
 
 /** `runs_read get`: one run. */
 internal val runsGetSelect =
-    SelectSpec.Single<RunsGetRequest, JsonObject>(
+    SelectSpec.Single<RunToolServices, RunsGetRequest, JsonObject>(
         name = "get",
         doc =
             "Read one run by id (a UUID or a hex prefix of 8 to 32 characters). A run whose root is outside the call " +
                 "scope is forbidden, not not_found.",
         profiles = orchestration() + director(),
+        services = RunToolServices::class,
         request = serializer<RunsGetRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         handler = { env, ctx, req -> getRun(env, ctx, req) },
@@ -26,7 +26,7 @@ internal val runsGetSelect =
     )
 
 private suspend fun getRun(
-    env: ToolExecutionContext,
+    env: RunToolServices,
     ctx: CallContext,
     req: RunsGetRequest
 ): Outcome<JsonObject> =

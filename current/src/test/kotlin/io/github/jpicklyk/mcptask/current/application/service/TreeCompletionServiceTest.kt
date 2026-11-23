@@ -1,6 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolServiceRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.WorkflowToolServices
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.treeCompletionService
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
@@ -55,7 +57,10 @@ class TreeCompletionServiceTest {
     ): Outcome<TreeCompletionResult> {
         var result: Outcome<TreeCompletionResult>? = null
         composition.unitOfWork.write("TreeCompletionServiceTest") {
-            val r = treeCompletionService(ctx).run(targets, root, trigger, null, null)
+            val r =
+                treeCompletionService(
+                    ToolServiceRegistry.of(ctx).get(WorkflowToolServices::class)
+                ).run(targets, root, trigger, null, null)
             result = r
             when (r) {
                 is Outcome.Ok -> Outcome.Ok(Unit)
@@ -97,7 +102,9 @@ class TreeCompletionServiceTest {
             tx.registerInterceptor(counter)
             val r =
                 try {
-                    treeCompletionService(rig.ctx).run(items, null, "complete", null, null)
+                    treeCompletionService(
+                        ToolServiceRegistry.of(rig.ctx).get(WorkflowToolServices::class)
+                    ).run(items, null, "complete", null, null)
                 } finally {
                     tx.unregisterInterceptor(counter)
                 }
@@ -221,7 +228,7 @@ class TreeCompletionServiceTest {
             val root = rig.seed("R")
             val a = rig.seed("A", root)
             val aa = rig.seed("AA", a)
-            val service = treeCompletionService(rig.ctx)
+            val service = treeCompletionService(ToolServiceRegistry.of(rig.ctx).get(WorkflowToolServices::class))
 
             val (withRoot, rootItem) = service.descendantTargets(root.id, includeRoot = true)!!
             assertEquals(setOf(a.id, aa.id), withRoot.map { it.id }.toSet())

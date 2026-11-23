@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.api.notes
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.NoteStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.NoteSummary
@@ -52,7 +51,7 @@ object NoteHandlers {
 
     /** `notes_read get`. */
     suspend fun get(
-        env: ToolExecutionContext,
+        env: NoteToolServices,
         ctx: CallContext,
         req: NotesGetRequest
     ): Outcome<NoteGetResult> {
@@ -61,7 +60,7 @@ object NoteHandlers {
             return Outcome.Err(invalid("/ifVersion", "must be at least 1", ifVersion.toString()))
         }
         val itemId =
-            when (val admitted = admit(env.repositoryProvider, ctx, req.itemId.raw, recordRoot = true)) {
+            when (val admitted = admit(env.stores, ctx, req.itemId.raw, recordRoot = true)) {
                 is Outcome.Err -> return admitted
                 is Outcome.Ok -> admitted.value
             }
@@ -79,7 +78,7 @@ object NoteHandlers {
      * encoding `offset + items.size` (built by [ListPage.of]).
      */
     suspend fun list(
-        env: ToolExecutionContext,
+        env: NoteToolServices,
         ctx: CallContext,
         req: NotesListRequest
     ): Outcome<ListPage<NoteListEntry>> {
@@ -93,7 +92,7 @@ object NoteHandlers {
                 is Outcome.Ok -> p.value
             }
         val itemId =
-            when (val admitted = admit(env.repositoryProvider, ctx, req.itemId.raw, recordRoot = true)) {
+            when (val admitted = admit(env.stores, ctx, req.itemId.raw, recordRoot = true)) {
                 is Outcome.Err -> return admitted
                 is Outcome.Ok -> admitted.value
             }
@@ -111,7 +110,7 @@ object NoteHandlers {
     /** `notes_write upsert`. */
     suspend fun upsert(
         scope: WriteScope,
-        env: ToolExecutionContext,
+        env: NoteToolServices,
         ctx: CallContext,
         req: NoteUpsertRequest
     ): Outcome<NoteWriteOutcome> {
@@ -190,7 +189,7 @@ object NoteHandlers {
     /** `notes_write delete`. */
     suspend fun delete(
         scope: WriteScope,
-        env: ToolExecutionContext,
+        env: NoteToolServices,
         ctx: CallContext,
         req: NoteDeleteRequest
     ): Outcome<NoteWriteOutcome> {

@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsAssignRequest
 import io.github.jpicklyk.mcptask.current.application.run.SeatAssignCommand
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
@@ -22,7 +21,7 @@ import kotlinx.serialization.serializer
 
 /** runs_write assign: the coordinator assigns a seat of a member item. */
 internal val runsAssignOp =
-    OpSpec<RunsAssignRequest, JsonObject>(
+    OpSpec<RunToolServices, RunsAssignRequest, JsonObject>(
         name = "assign",
         doc =
             "Assign a seat of a member item: a seat of the item's schema, or implementer or planner for an item with " +
@@ -34,6 +33,7 @@ internal val runsAssignOp =
                 "it is run_at_capacity (retry when a seat ends).",
         profiles = orchestration(),
         capability = ApiCapability.RUNS,
+        services = RunToolServices::class,
         request = serializer<RunsAssignRequest>(),
         errors =
             setOf(
@@ -52,7 +52,7 @@ internal val runsAssignOp =
 private const val CONFIG_RETRY_MS = 1000L
 
 private suspend fun WriteScope.assignSeat(
-    env: ToolExecutionContext,
+    env: RunToolServices,
     ctx: CallContext,
     req: RunsAssignRequest
 ): Outcome<JsonObject> {
