@@ -46,6 +46,8 @@ const CORE_NAMES = [
   'normalizeObsPath', 'isObservation', 'buildProposal', 'runAudit',
   'SEVERITY_RANK', 'LENS_KEYS', 'PRESETS', 'CATEGORIES', 'DEFAULT_CLASS_MAP', 'TYPE_MAP_KEY', 'DEFAULT_METHOD_SKILL',
   'DOCS_METHOD_SKILL', 'FOCUS_VALUES', 'sliceKind', 'inFocus', 'methodSkillOf', 'VERIFY_LENS_INSTRUCTIONS',
+  'DEFAULT_DISPATCH', 'FAN_OUT_KEYS', 'RATINGS', 'ITEM_POLICIES', 'ARCHITECTURE_LENS', 'shiftMonths', 'testPathsOf',
+  'formatMetricsDigest', 'buildMeasurePrompt', 'criticState', 'agentOpts', 'dispatchTag',
 ]
 const CORE = loadCoreNamed(SCRIPT_PATH, CORE_NAMES)
 
@@ -67,6 +69,7 @@ function baseArgs(overrides = {}) {
     repo: { root: '/tmp/repo', description: 'test repo' },
     reportPath: '/tmp/audit-report.md',
     preset: 'quick',
+    gaps: { enabled: false, max: 0 }, // E1: quick now enables the critic; most fixtures keep it off
     scope: {
       paths: ['claude-plugins/task-orchestrator/hooks'],
       reviewers: [reviewerSpec('r1'), reviewerSpec('r2')],
@@ -158,7 +161,7 @@ test('S10 / T-meta: meta is a pure literal; name and phases are exact per Append
   const meta = JSON.parse(JSON.stringify(loadMeta(SCRIPT_PATH)))
   assert.equal(meta.name, 'deep-codebase-audit')
   assert.deepEqual(meta.phases, [
-    { title: 'Scope' }, { title: 'Review' }, { title: 'Gaps' }, { title: 'Merge' },
+    { title: 'Measure' }, { title: 'Scope' }, { title: 'Review' }, { title: 'Gaps' }, { title: 'Merge' },
     { title: 'Verify' }, { title: 'Synthesize' }, { title: 'Triage' },
   ])
   // Appendix B freezes `name` and `phases` verbatim, but declares description/whenToUse as
@@ -244,7 +247,7 @@ function assertSchemaShapeValid(schema, path) {
 test('S12 / T-schema: every schemas(plan) sub-schema has required subset of properties, recursively', () => {
   const plan = buildPlan()
   const built = CORE.schemas(plan)
-  for (const name of ['SCOPE', 'FINDINGS', 'CRITIC', 'DEDUP', 'VERDICT', 'SYNTH', 'TRIAGE']) {
+  for (const name of ['MEASURE', 'SCOPE', 'FINDINGS', 'CRITIC', 'DEDUP', 'VERDICT', 'SYNTH', 'TRIAGE']) {
     assert.ok(built[name], `schemas(plan) must return ${name}`)
     assertSchemaShapeValid(built[name], name)
   }
@@ -252,15 +255,15 @@ test('S12 / T-schema: every schemas(plan) sub-schema has required subset of prop
   assert.deepEqual(built.FINDINGS.properties.findings.items.properties.category.enum, plan.categories)
 })
 
-test('S12: audit/result-v1 has exactly the documented top-level keys', async () => {
+test('S12: audit/result-v2 has exactly the documented top-level keys', async () => {
   const plan = buildPlan()
   const { agent } = autoAgent(standardResponder(plan))
   const result = await CORE.runAudit(plan, makeDeps({ agent }))
   assert.deepEqual(
     Object.keys(result).sort(),
-    ['contract', 'started', 'runId', 'stats', 'report', 'kept', 'refuted', 'proposal'].sort()
+    ['contract', 'started', 'runId', 'stats', 'report', 'kept', 'refuted', 'proposal', 'metricsPath'].sort()
   )
-  assert.equal(result.contract, 'audit/result-v1')
+  assert.equal(result.contract, 'audit/result-v2')
   assert.deepEqual(
     Object.keys(result.stats).sort(),
     [
@@ -296,10 +299,10 @@ test('S8: a JSON string is parsed the same as an object (W11)', () => {
   assert.deepEqual(asString.plan, asObject.plan)
 })
 
-test('S8: wrong/missing contract -> "invalid args: contract must be audit/args-v1"', () => {
+test('S8: wrong/missing contract -> "invalid args: contract must be audit/args-v2 or audit/args-v1"', () => {
   const { ok, reason } = CORE.normalizeArgs({})
   assert.equal(ok, false)
-  assert.equal(reason, 'invalid args: contract must be audit/args-v1')
+  assert.equal(reason, 'invalid args: contract must be audit/args-v2 or audit/args-v1')
 })
 
 test('S8: missing required fields fail in the frozen order runId, date, repo.root, reportPath', () => {
@@ -370,7 +373,7 @@ test('S8: items.materializeMin outside {high, medium} is rejected', () => {
 
 test('S8: preset expansion — quick/standard/full populate the frozen PRESETS fields, explicit fields override', () => {
   for (const [name, expected] of Object.entries(CORE.PRESETS)) {
-    const { ok, plan } = CORE.normalizeArgs(baseArgs({ preset: name, scope: { paths: ['x'] } }))
+    const { ok, plan } = CORE.normalizeArgs(baseArgs({ preset: name, scope: { paths: ['x'] }, gaps: undefined }))
     assert.equal(ok, true, `preset ${name} should normalize`)
     assert.equal(plan.gaps.enabled, expected.gaps.enabled)
     assert.equal(plan.gaps.max, expected.gaps.max)
@@ -394,9 +397,16 @@ test('S8: defaults — maxAgents 60, allowLarge false, items.materializeMin "hig
 
 // projectAgents / sizeGuard — formula from the frozen Appendix B paragraph, computed by hand
 // (independent of the implementation) rather than read from it.
+// E7 (D8): measure = scriptsDir ? 1 : 0; R = reviewers given ? reviewers + lenses + (D7 appends ? 1 : 0)
+// : reviewerCount; triage = items.enabled ? ceil(est / 10) : 0 (est uncapped); the other terms as before.
 function handComputeTotal(plan) {
   const reviewersGiven = Array.isArray(plan.scope.reviewers)
-  const R = reviewersGiven ? plan.scope.reviewers.length + (plan.scope.lenses || []).length : plan.scope.reviewerCount
+  const lenses = plan.scope.lenses || []
+  const appends = plan.focus !== 'docs' && !lenses.some((l) => l.key === 'architecture')
+  const R = reviewersGiven
+    ? plan.scope.reviewers.length + lenses.length + (appends ? 1 : 0)
+    : plan.scope.reviewerCount
+  const measure = plan.scriptsDir ? 1 : 0
   const scope = reviewersGiven ? 0 : 1
   const review = R
   const gaps = plan.gaps.enabled ? 1 + plan.gaps.max : 0
@@ -405,8 +415,11 @@ function handComputeTotal(plan) {
   const verify = nV * Math.max(plan.verify.highLenses.length, plan.verify.defaultLenses.length)
   const merge = 1
   const synth = 1
-  const triage = plan.items && plan.items.enabled ? Math.ceil(nV / 10) : 0
-  return { total: scope + review + gaps + merge + verify + synth + triage, scope, review, gaps, merge, verify, synth, triage }
+  const triage = plan.items && plan.items.enabled ? Math.ceil(est / 10) : 0
+  return {
+    total: measure + scope + review + gaps + merge + verify + synth + triage,
+    measure, scope, review, gaps, merge, verify, synth, triage,
+  }
 }
 
 test('S8: projectAgents matches the frozen formula, reviewers-absent estimate path', () => {
@@ -416,7 +429,7 @@ test('S8: projectAgents matches the frozen formula, reviewers-absent estimate pa
   const expected = handComputeTotal(plan)
   const actual = CORE.projectAgents(plan)
   assert.deepEqual(
-    { total: actual.total, scope: actual.scope, review: actual.review, gaps: actual.gaps, merge: actual.merge, verify: actual.verify, synth: actual.synth, triage: actual.triage },
+    { total: actual.total, measure: actual.measure, scope: actual.scope, review: actual.review, gaps: actual.gaps, merge: actual.merge, verify: actual.verify, synth: actual.synth, triage: actual.triage },
     expected
   )
 })
@@ -427,7 +440,7 @@ test('S8: projectAgents matches the frozen formula, reviewers-given path (scope=
   const actual = CORE.projectAgents(plan)
   assert.equal(actual.scope, 0)
   assert.deepEqual(
-    { total: actual.total, scope: actual.scope, review: actual.review, gaps: actual.gaps, merge: actual.merge, verify: actual.verify, synth: actual.synth, triage: actual.triage },
+    { total: actual.total, measure: actual.measure, scope: actual.scope, review: actual.review, gaps: actual.gaps, merge: actual.merge, verify: actual.verify, synth: actual.synth, triage: actual.triage },
     expected
   )
 })
@@ -953,7 +966,7 @@ test('S3 (integration, replay): fifo vs reverse autoAgent completion order yield
   }
   const fifoKept = await runOnce('fifo')
   const reverseKept = await runOnce('reverse')
-  assert.equal(fifoKept.length, 3)
+  assert.equal(fifoKept.length, 4) // E8: r1..r3 plus the architecture lens's finding
   assert.deepEqual(reverseKept, fifoKept)
 })
 
@@ -1140,7 +1153,7 @@ test('S6: every non-synthesis prompt is READ-ONLY and excludes write-tool names;
   assert.ok(calls.length > 0)
   for (const c of calls) {
     assert.equal(c.opts.isolation, undefined, `call ${c.label} must not set opts.isolation`)
-    if (c.label === 'synthesis') continue
+    // E9 (D12): the synthesis prompt is READ-ONLY too; it writes no file
     assert.match(c.prompt, /READ-ONLY/, `${c.label} prompt must contain READ-ONLY`)
     for (const forbidden of ['manage_items', 'manage_notes', 'advance_item', 'create_work_tree', 'items_write', 'notes_write', 'runs_write', 'docs_write']) {
       assert.equal(c.prompt.includes(forbidden), false, `${c.label} prompt must not mention ${forbidden}`)
@@ -1148,7 +1161,7 @@ test('S6: every non-synthesis prompt is READ-ONLY and excludes write-tool names;
   }
   const synth = calls.find((c) => c.label === 'synthesis')
   assert.ok(synth, 'synthesis must have been called')
-  assert.ok(synth.prompt.includes(plan.reportPath), 'synthesis prompt must name reportPath')
+  assert.equal(synth.prompt.includes(plan.reportPath), false, 'synthesis prompt must not name reportPath (D12)')
 })
 
 // 4.0 port (cac1bffa, AC2/AC11): no retired 3.x tool name may appear in any rendered audit prompt.
@@ -1347,12 +1360,33 @@ test('Follow-up O6: scope.reviewers: [] is treated as absent (Scope phase runs),
 // per-phase key is currently read as `models.synthesis` rather than plan §2.2's `synth`; test
 // (O10-1) is written to §2.2 regardless and reported red if it is red against HEAD.
 
-test('Follow-up (O10-1, corrected): args.models/args.efforts reach agent() opts as model/effort, keyed exactly review/critic/merge/verify/synth/triage per plan §2.2 — scope and gap:<n> reuse "review" (no dedicated scope/gaps key exists); an omitted key yields no model', async () => {
-  // plan §2.2: `models:{ review, critic, merge, verify, synth, triage }` — six keys only, no
-  // `scope` and no `gaps`. `args.models.verify` is deliberately left unset here to assert the
-  // omitted-key behavior distinctly from the "key present" behavior.
-  const MODELS = { review: 'm-review', critic: 'm-critic', merge: 'm-merge', synth: 'm-synth', triage: 'm-triage' }
-  const EFFORTS = { review: 'e-review', critic: 'e-critic', merge: 'e-merge', verify: 'e-verify', synth: 'e-synth', triage: 'e-triage' }
+// E10 (D3): the dispatch key map. scope -> scope, review:<key> and gap:<n> -> review, review:architecture
+// -> review-architecture, verify calls of a high or critical finding -> verify-high, else verify; an
+// omitted key yields its default entry (never inherit). The default table below is a literal copy of D3.
+const D3_DEFAULTS = {
+  measure: { model: 'haiku', effort: 'low' },
+  scope: { model: 'sonnet', effort: 'medium' },
+  review: { model: 'sonnet', effort: 'high' },
+  'review-architecture': { model: 'opus', effort: 'high' },
+  critic: { model: 'sonnet', effort: 'medium' },
+  merge: { model: 'sonnet', effort: 'low' },
+  verify: { model: 'sonnet', effort: 'medium' },
+  'verify-high': { model: 'opus', effort: 'medium' },
+  synth: { model: 'opus', effort: 'medium' },
+  triage: { model: 'sonnet', effort: 'low' },
+}
+
+test('Follow-up (O10-1, D3): args.models/args.efforts reach agent() opts per dispatch key; scope, review:architecture, gap and verify-high have their own keys; an omitted key yields its default entry', async () => {
+  // models.verify is deliberately omitted (a low finding reaches the plain verify key): the omitted
+  // key must read its D3 default, never inherit; efforts.verify IS given, so only the model defaults.
+  const MODELS = {
+    scope: 'm-scope', review: 'm-review', 'review-architecture': 'm-arch', critic: 'm-critic', merge: 'm-merge',
+    'verify-high': 'm-vhigh', synth: 'm-synth', triage: 'm-triage',
+  }
+  const EFFORTS = {
+    scope: 'e-scope', review: 'e-review', 'review-architecture': 'e-arch', critic: 'e-critic', merge: 'e-merge',
+    verify: 'e-verify', 'verify-high': 'e-vhigh', synth: 'e-synth', triage: 'e-triage',
+  }
   const plan = buildPlan({
     scope: { paths: ['claude-plugins/task-orchestrator/hooks'] }, // reviewers absent -> Scope runs
     gaps: { enabled: true, max: 1 },
@@ -1360,14 +1394,15 @@ test('Follow-up (O10-1, corrected): args.models/args.efforts reach agent() opts 
     models: MODELS,
     efforts: EFFORTS,
   })
+  const sevBySlice = { r1: 'high', r2: 'low', architecture: 'high', gap1: 'high' }
   const responder = async (label) => {
-    if (label === 'scope') return scopeResult({ reviewers: [reviewerSpec('r1')], lenses: [] })
-    if (label === 'review:r1') return findingsResult({ findings: [makeFinding()] })
+    if (label === 'scope') return scopeResult({ reviewers: [reviewerSpec('r1'), reviewerSpec('r2')], lenses: [] })
+    if (label.startsWith('review:')) return findingsResult({ findings: [makeFinding({ severity: sevBySlice[label.slice(7)] })] })
     if (label === 'critic') return criticResult({ gaps: [{ label: 'g1', prompt: 'p1' }] })
-    if (label === 'gap:1') return findingsResult({ findings: [makeFinding()] })
+    if (label === 'gap:1') return findingsResult({ findings: [makeFinding({ severity: sevBySlice.gap1 })] })
     if (label === 'merge') return dedupResult({ groups: [] })
     if (label.startsWith('verify:')) return verdictResult({ refuted: false })
-    if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
+    if (label === 'synthesis') return synthResult()
     if (label.startsWith('triage:')) return triageResult({ results: [] })
     throw new Error('models/efforts: unexpected label ' + label)
   }
@@ -1375,29 +1410,36 @@ test('Follow-up (O10-1, corrected): args.models/args.efforts reach agent() opts 
   const result = await CORE.runAudit(plan, makeDeps({ agent }))
   assert.equal(result.started, true)
 
+  const expected = (key) => ({
+    model: MODELS[key] === undefined ? D3_DEFAULTS[key].model : MODELS[key],
+    effort: EFFORTS[key] === undefined ? D3_DEFAULTS[key].effort : EFFORTS[key],
+  })
   const checkKey = (pred, key, desc) => {
     const matching = calls.filter(pred)
     assert.ok(matching.length > 0, `expected at least one call for ${desc}`)
+    const { model, effort } = expected(key)
     for (const c of matching) {
-      assert.equal(c.opts.model, MODELS[key], `${desc} model must be models.${key}`)
-      assert.equal(c.opts.effort, EFFORTS[key], `${desc} effort must be efforts.${key}`)
-      assert.equal(c.opts.label, `${c.label} [${MODELS[key]}/${EFFORTS[key]}]`, `${desc} label must carry the [model/effort] tag`)
+      assert.equal(c.opts.model, model, `${desc} model must come from dispatch key ${key}`)
+      assert.equal(c.opts.effort, effort, `${desc} effort must come from dispatch key ${key}`)
+      assert.equal(c.opts.label, `${c.label} [${model}/${effort}]`, `${desc} label must carry the [model/effort] tag`)
     }
   }
-  checkKey((c) => c.label === 'scope', 'review', 'scope (reuses "review" — no dedicated scope key)')
-  checkKey((c) => c.label.startsWith('review:'), 'review', 'review:<key>')
-  checkKey((c) => c.label.startsWith('gap:'), 'review', 'gap:<n> (reuses "review" — no dedicated gaps key)')
+  checkKey((c) => c.label === 'scope', 'scope', 'scope')
+  checkKey((c) => c.label.startsWith('review:') && c.label !== 'review:architecture', 'review', 'review:<key>')
+  checkKey((c) => c.label === 'review:architecture', 'review-architecture', 'review:architecture')
+  checkKey((c) => c.label.startsWith('gap:'), 'review', 'gap:<n> (reuses the review key)')
   checkKey((c) => c.label === 'critic', 'critic', 'critic')
   checkKey((c) => c.label === 'merge', 'merge', 'merge')
-  checkKey((c) => c.label === 'synthesis', 'synth', 'synthesis') // plan §2.2's key is `synth`
+  checkKey((c) => c.label === 'synthesis', 'synth', 'synthesis')
   checkKey((c) => c.label.startsWith('triage:'), 'triage', 'triage:<n>')
-
-  const verifyCalls = calls.filter((c) => c.label.startsWith('verify:'))
-  assert.ok(verifyCalls.length > 0, 'expected at least one verify:* call')
-  for (const c of verifyCalls) {
-    assert.equal(c.opts.model, undefined, 'args.models.verify was omitted -> no model in opts')
-    assert.equal(c.opts.effort, EFFORTS.verify, 'args.efforts.verify WAS provided -> effort is still set')
-    assert.equal(c.opts.label, `${c.label} [inherit/${EFFORTS.verify}]`, 'an unset model reads inherit in the label tag')
+  const verifySev = (c) => sevBySlice[c.label.split(':')[1].split('-')[0]]
+  checkKey((c) => c.label.startsWith('verify:') && (verifySev(c) === 'high' || verifySev(c) === 'critical'), 'verify-high', 'verify of a high finding')
+  const low = calls.filter((c) => c.label.startsWith('verify:') && verifySev(c) === 'low')
+  assert.ok(low.length > 0, 'fixture must reach the plain verify key (a low finding)')
+  for (const c of low) {
+    assert.equal(c.opts.model, D3_DEFAULTS.verify.model, 'models.verify omitted -> the D3 default model, never inherit')
+    assert.equal(c.opts.effort, EFFORTS.verify)
+    assert.equal(c.opts.label, `${c.label} [${D3_DEFAULTS.verify.model}/${EFFORTS.verify}]`)
   }
 })
 
@@ -1455,13 +1497,14 @@ test('Follow-up (O10-3): a Scope agent proposing more reviewers than reviewerCou
   assert.equal(reviewCalls.length, 4)
 })
 
-test('Follow-up (O10-4): triage:<n> call count equals ceil(min(kept, maxFindings)/10)', async () => {
+test('Follow-up (O10-4, D15): triage:<n> call count equals ceil(kept/10) - the unverified-by-cap tail is triaged too', async () => {
   const reviewers = Array.from({ length: 25 }, (_, i) => reviewerSpec(`r${i + 1}`))
   const plan = buildPlan({
     scope: { paths: ['claude-plugins/task-orchestrator/hooks'], reviewers, lenses: [] },
     verify: { highLenses: ['combined'], defaultLenses: ['combined'], maxFindings: 15 },
     gaps: { enabled: false, max: 0 },
     items: { enabled: true, rootId: 'root-test-0001', materializeMin: 'high' },
+    maxAgents: 100, // E11: the projection is now 64 (25 reviewers + the architecture lens)
   })
   const projected = CORE.projectAgents(plan)
   assert.ok(projected.total <= plan.maxAgents, 'fixture must stay within default maxAgents for this test to run without allowLarge')
@@ -1476,9 +1519,10 @@ test('Follow-up (O10-4): triage:<n> call count equals ceil(min(kept, maxFindings
   const { agent, calls } = autoAgent(responder)
   const result = await CORE.runAudit(plan, makeDeps({ agent }))
   assert.equal(result.started, true)
-  assert.equal(result.kept.length, 25, 'all 25 merged findings are kept (verified ones plus the unverified-by-cap tail)')
-  const expected = Math.ceil(Math.min(result.kept.length, plan.verify.maxFindings) / 10)
-  assert.equal(expected, 2, 'fixture must actually exercise the cap boundary for this test to mean anything')
+  assert.equal(result.kept.length, 26, 'all 26 merged findings are kept (25 reviewers + the architecture lens; verified ones plus the unverified-by-cap tail)')
+  const expected = Math.ceil(result.kept.length / 10)
+  assert.equal(expected, 3)
+  assert.notEqual(expected, Math.ceil(Math.min(result.kept.length, plan.verify.maxFindings) / 10), 'fixture must distinguish triage over every kept row from triage over the verified cap only')
   const triageCalls = calls.filter((c) => c.label.startsWith('triage:'))
   assert.equal(triageCalls.length, expected)
 })
@@ -1558,7 +1602,7 @@ test('Method skill: every reviewer, lens and gap prompt names the default skill 
   const { agent, calls } = autoAgent(methodRunResponder(plan))
   await CORE.runAudit(plan, makeDeps({ agent }))
   const reviewerCalls = calls.filter((c) => c.label.startsWith('review:') || c.label.startsWith('gap:'))
-  assert.deepEqual(reviewerCalls.map((c) => c.label).sort(), ['gap:1', 'review:l1', 'review:r1'])
+  assert.deepEqual(reviewerCalls.map((c) => c.label).sort(), ['gap:1', 'review:architecture', 'review:l1', 'review:r1'])
   for (const c of reviewerCalls) {
     assert.ok(c.prompt.includes(METHOD_DEFAULT), `${c.label} prompt must name the method skill`)
     assert.match(c.prompt, /Skill tool/, `${c.label} prompt must say how to load it`)
@@ -1574,7 +1618,7 @@ test('Method skill: a configured methodSkill replaces the default in every revie
   const { agent, calls } = autoAgent(methodRunResponder(plan))
   await CORE.runAudit(plan, makeDeps({ agent }))
   const reviewerCalls = calls.filter((c) => c.label.startsWith('review:') || c.label.startsWith('gap:'))
-  assert.equal(reviewerCalls.length, 3)
+  assert.equal(reviewerCalls.length, 4)
   for (const c of reviewerCalls) {
     assert.ok(c.prompt.includes('proj:area-audit'), `${c.label} prompt must name the configured skill`)
     assert.equal(c.prompt.includes(METHOD_DEFAULT), false, `${c.label} prompt must not name the default`)
@@ -1594,7 +1638,7 @@ test('Method skill: every reviewer, lens and gap prompt says the slice bounds co
   const { agent, calls } = autoAgent(methodRunResponder(plan))
   await CORE.runAudit(plan, makeDeps({ agent }))
   const reviewerCalls = calls.filter((c) => c.label.startsWith('review:') || c.label.startsWith('gap:'))
-  assert.equal(reviewerCalls.length, 3)
+  assert.equal(reviewerCalls.length, 4)
   const bugList = 'concurrency, transactions, error-handling, security-architecture, data-model'
   for (const c of reviewerCalls) {
     assert.match(c.prompt, /hot spots[^.]*only orders your attention inside the slice and never drops cold code from it/,
@@ -1762,8 +1806,8 @@ test('T4 planner slices are filtered by focus before the reviewerCount cap', asy
     await CORE.runAudit(plan, makeDeps({ agent }))
     return calls.filter((c) => c.label.startsWith('review:')).map((c) => c.label).sort()
   }
-  assert.deepEqual(await reviewLabels('all'), ['review:c1', 'review:d1', 'review:lc', 'review:ld'])
-  assert.deepEqual(await reviewLabels('code'), ['review:c1', 'review:lc'])
+  assert.deepEqual(await reviewLabels('all'), ['review:architecture', 'review:c1', 'review:d1', 'review:lc']) // B = 3: ld is dropped
+  assert.deepEqual(await reviewLabels('code'), ['review:architecture', 'review:c1', 'review:lc'])
   assert.deepEqual(await reviewLabels('docs'), ['review:d1', 'review:ld'])
 
   const plan = CORE.normalizeArgs(noReviewers({ focus: 'docs' })).plan
@@ -1830,7 +1874,7 @@ test('T8 a default run carries neither sentence and names the default skill', as
   const { agent, calls } = autoAgent(methodRunResponder(plan))
   await CORE.runAudit(plan, makeDeps({ agent }))
   const reviewerCalls = calls.filter((c) => c.label.startsWith('review:') || c.label.startsWith('gap:'))
-  assert.equal(reviewerCalls.length, 3)
+  assert.equal(reviewerCalls.length, 4)
   for (const c of reviewerCalls) {
     assert.equal(c.prompt.includes(CODE_SIDE), false)
     assert.equal(c.prompt.includes(DOCS_SIDE), false)
@@ -1936,4 +1980,799 @@ test('347bbfb3 verify: the docs rule may refute drift in a record and a generate
   assert.ok(c, 'a verifier ran')
   assert.ok(c.prompt.includes('when the finding claims drift in a record (a changelog, release notes, an accepted decision record)'), 'records are a refute ground')
   assert.ok(c.prompt.includes('a block a tool generates from the code and a check keeps current'), 'checked generated blocks are a refute ground')
+})
+
+// ── Audit upgrade (item 463fb596, test-author seat) ──────────────────────────
+// Blind test author: the oracle is the item's task-scope D1-D17 and test-plan S15-S33 (frozen before the
+// implementation); signatures come from the supplied declarations block. No implementation source was
+// opened. Literal tables below (D3_DEFAULTS above, FAN_OUT) are copied from D2/D3, never read from CORE.
+
+const FAN_OUT = ['review', 'verify', 'verify-high', 'triage', 'merge', 'measure']
+
+function v2Args(overrides = {}) {
+  return baseArgs({ contract: 'audit/args-v2', scriptsDir: 'S/', workDir: 'W\\', ...overrides })
+}
+
+function measureResult(overrides = {}) {
+  return {
+    hotSet: [{ path: 'hot/zz.kt', churn: 9, complexity: 30 }],
+    topComplexity: [{ path: 'cx/yy.kt', complexity: 44 }],
+    cycles: [['mod-aa', 'mod-bb']],
+    unstableModules: [{ id: 'mod-unstable', instability: 0.9 }],
+    notes: [],
+    ...overrides,
+  }
+}
+
+function synthV2(overrides = {}) {
+  return {
+    healthVerdict: 'ok', executiveSummary: 'summary', themes: [], strengths: ['a strength'], findingIndex: [],
+    roadmap: { now: [], next: [], later: [] }, method: 'method text', notExamined: [],
+    ...overrides,
+  }
+}
+
+/** A responder covering every label of a v2 run. `measure`/`critic`: pass null for a null agent result. */
+function runResponder({
+  measure = measureResult(), scope, critic = criticResult(), sevBySlice = {}, synth = synthV2(),
+  triageResults = [], verdictFor = () => verdictResult(), findingFor, nullFor = [],
+} = {}) {
+  const mk = (key) => (findingFor ? findingFor(key) : makeFinding({ severity: sevBySlice[key] || 'medium', rating: 'plan-it' }))
+  return async (label) => {
+    if (label === 'measure') return measure
+    if (label === 'scope') return scope
+    if (label === 'critic') return critic
+    if (nullFor.includes(label)) return null
+    if (label.startsWith('review:')) {
+      const f = mk(label.slice(7))
+      return findingsResult({ findings: f === null ? [] : [f] })
+    }
+    if (label.startsWith('gap:')) return findingsResult({ findings: [mk('gap' + label.slice(4))] })
+    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('verify:')) return verdictFor(label)
+    if (label === 'synthesis') return synth
+    if (label.startsWith('triage:')) return triageResult({ results: triageResults })
+    throw new Error('runResponder: unexpected label ' + label)
+  }
+}
+
+async function fullRun(args, responderOpts = {}, { order = 'fifo' } = {}) {
+  const { ok, plan, reason } = CORE.normalizeArgs(args)
+  assert.equal(ok, true, `normalizeArgs: ${reason}`)
+  const logLines = []
+  const phaseLog = []
+  const { agent, calls } = autoAgent(runResponder(responderOpts), { order })
+  const result = await CORE.runAudit(plan, makeDeps({ agent, logLines, phaseLog }))
+  return { plan, calls, result, logLines, phaseLog }
+}
+
+function dispatchKeyOf(label, sevBySlice) {
+  if (['measure', 'scope', 'critic', 'merge'].includes(label)) return label
+  if (label === 'synthesis') return 'synth'
+  if (label === 'review:architecture') return 'review-architecture'
+  if (label.startsWith('review:') || label.startsWith('gap:')) return 'review'
+  if (label.startsWith('triage:')) return 'triage'
+  if (label.startsWith('verify:')) {
+    const sev = sevBySlice[label.split(':')[1].split('-')[0]] || 'medium'
+    return sev === 'high' || sev === 'critical' ? 'verify-high' : 'verify'
+  }
+  throw new Error('dispatchKeyOf: unexpected label ' + label)
+}
+
+const FULL_SEV = { r1: 'critical', r2: 'low', l1: 'medium', architecture: 'high', gap1: 'medium' }
+
+function fullScopeOpts(extra = {}) {
+  return {
+    scope: scopeResult({ reviewers: [reviewerSpec('r1'), reviewerSpec('r2')], lenses: [{ key: 'l1', label: 'Lens l1', focus: 'f' }] }),
+    critic: criticResult({ gaps: [{ label: 'g1', prompt: 'p1' }] }),
+    sevBySlice: FULL_SEV,
+    ...extra,
+  }
+}
+
+function fullArgs(overrides = {}) {
+  // quick preset with the gaps default (critic enabled), the Scope phase running, Measure and Triage on
+  return v2Args({ gaps: undefined, scope: { paths: ['p'] }, items: { enabled: true, rootId: 'root-1' }, ...overrides })
+}
+
+// ── S15 / S16: dispatch (D3) ─────────────────────────────────────────────────
+
+test('S15: every call carries the D3 model and effort of its dispatch key, and a [model/effort] label tag', async () => {
+  const { calls } = await fullRun(fullArgs(), fullScopeOpts())
+  const seenKeys = new Set()
+  for (const c of calls) {
+    const key = dispatchKeyOf(c.label, FULL_SEV)
+    seenKeys.add(key)
+    const want = D3_DEFAULTS[key]
+    assert.equal(c.opts.model, want.model, `${c.label} model`)
+    assert.equal(c.opts.effort, want.effort, `${c.label} effort`)
+    assert.equal(c.opts.label, `${c.label} [${want.model}/${want.effort}]`, `${c.label} label tag`)
+  }
+  assert.deepEqual([...seenKeys].sort(), Object.keys(D3_DEFAULTS).sort(), 'fixture must exercise all ten dispatch keys')
+})
+
+test('S15: the constant tables equal the D3 literals; plan.dispatch is the default table and plan.models/efforts are gone', () => {
+  assert.deepEqual(JSON.parse(JSON.stringify(CORE.DEFAULT_DISPATCH)), D3_DEFAULTS)
+  assert.deepEqual([...CORE.FAN_OUT_KEYS].sort(), [...FAN_OUT].sort())
+  const plan = buildPlan()
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.dispatch)), D3_DEFAULTS)
+  assert.equal(plan.models, undefined)
+  assert.equal(plan.efforts, undefined)
+})
+
+test('S16: overrides reach their keys; scope, critic, review-architecture and synth accept fable; omitted keys keep the defaults', async () => {
+  const models = {
+    scope: 'fable', critic: 'fable', 'review-architecture': 'fable', synth: 'fable', review: 'm-review',
+    'verify-high': 'm-vh', verify: 'm-verify', merge: 'm-merge', triage: 'm-triage',
+  } // measure omitted
+  const efforts = { review: 'e-review', 'verify-high': 'e-vh', measure: 'e-measure' } // everything else omitted
+  const { calls, plan } = await fullRun(fullArgs({ models, efforts }), fullScopeOpts())
+  for (const c of calls) {
+    const key = dispatchKeyOf(c.label, FULL_SEV)
+    const model = models[key] === undefined ? D3_DEFAULTS[key].model : models[key]
+    const effort = efforts[key] === undefined ? D3_DEFAULTS[key].effort : efforts[key]
+    assert.equal(c.opts.model, model, `${c.label} model`)
+    assert.equal(c.opts.effort, effort, `${c.label} effort`)
+    assert.equal(c.opts.label, `${c.label} [${model}/${effort}]`)
+  }
+  assert.deepEqual(plan.dispatch.measure, { model: 'haiku', effort: 'e-measure' })
+  assert.deepEqual(plan.dispatch.review, { model: 'm-review', effort: 'e-review' })
+  assert.deepEqual(plan.dispatch['review-architecture'], { model: 'fable', effort: 'high' })
+})
+
+test('S16 / agentOpts: sets model, effort and the label suffix on a copy of the base options and never leaves a model unset', () => {
+  const plan = buildPlan({ models: { review: 'm-x' }, efforts: { review: 'e-x' } })
+  const opts = CORE.agentOpts(plan, 'review', { label: 'review:r1', phase: 'Review', schema: { type: 'object' } })
+  assert.equal(opts.model, 'm-x')
+  assert.equal(opts.effort, 'e-x')
+  assert.equal(opts.label, 'review:r1 [m-x/e-x]')
+  assert.equal(opts.phase, 'Review')
+  assert.deepEqual(opts.schema, { type: 'object' })
+  for (const key of Object.keys(D3_DEFAULTS)) {
+    const o = CORE.agentOpts(buildPlan(), key, { label: 'x' })
+    assert.equal(o.model, D3_DEFAULTS[key].model, `${key} default model`)
+    assert.equal(o.effort, D3_DEFAULTS[key].effort, `${key} default effort`)
+    assert.equal(o.label, `x [${D3_DEFAULTS[key].model}/${D3_DEFAULTS[key].effort}]`)
+  }
+})
+
+// ── S17 / S26 / S25: the Measure phase (D4, D5) ──────────────────────────────
+
+test('S17: Measure runs first with the D4 command, metricsPath is <W>/metrics.json, the digest reaches the scope and every reviewer, lens and gap prompt (reverse barrier)', async () => {
+  const m = measureResult()
+  const args = fullArgs({ date: '2026-11-22', scope: { paths: ['p1', 'p2'] } })
+  const { calls, result, phaseLog } = await fullRun(args, fullScopeOpts({ measure: m }), { order: 'reverse' })
+  assert.equal(phaseLog[0], 'Measure')
+  assert.equal(calls.filter((c) => c.label === 'measure').length, 1)
+  assertBarrier(calls, 'Measure', 'Scope')
+  const measure = calls.find((c) => c.label === 'measure')
+  assert.ok(
+    measure.prompt.includes('node "S/audit-metrics.mjs" --root "/tmp/repo" --paths "p1,p2" --since 2025-11-22 --recent 2026-08-22 --out "W/metrics.json"'),
+    'the measure prompt carries the exact D4 command'
+  )
+  assert.equal(result.metricsPath, 'W/metrics.json')
+  const digest = CORE.formatMetricsDigest(m)
+  const carriers = calls.filter((c) => c.label === 'scope' || c.label.startsWith('review:') || c.label.startsWith('gap:'))
+  assert.deepEqual(carriers.map((c) => c.label).sort(), ['gap:1', 'review:architecture', 'review:l1', 'review:r1', 'review:r2', 'scope'])
+  for (const c of carriers) {
+    assert.ok(c.prompt.includes(digest), `${c.label} prompt carries the digest verbatim`)
+    assert.ok(c.prompt.includes('hot/zz.kt'), `${c.label} prompt names a measured path`)
+    if (c.label !== 'scope') {
+      assert.ok(c.prompt.indexOf('MEASURED STRUCTURE') < c.prompt.indexOf('YOUR SLICE:'), `${c.label}: digest sits before YOUR SLICE:`)
+    }
+  }
+})
+
+test('S17 / probe (separators): trailing / and \\ are removed from scriptsDir and workDir; paths join with a comma; the dates shift with calendar clamping', () => {
+  const cases = [['S/', 'W\\', 'S', 'W'], ['S\\', 'W/', 'S', 'W'], ['S', 'W', 'S', 'W'], ['S//', 'W\\/', 'S', 'W'], ['D:\\tools\\scripts\\', 'D:/work/', 'D:\\tools\\scripts', 'D:/work']]
+  for (const [s, w, S, W] of cases) {
+    const plan = buildPlan({ scriptsDir: s, workDir: w, date: '2026-05-31', scope: { paths: ['a', 'b/c'], reviewers: [reviewerSpec('r1')] } })
+    const p = CORE.buildMeasurePrompt(plan)
+    const cmd = `node "${S}/audit-metrics.mjs" --root "/tmp/repo" --paths "a,b/c" --since 2025-05-31 --recent 2026-02-28 --out "${W}/metrics.json"`
+    assert.ok(p.includes(cmd), `scriptsDir ${JSON.stringify(s)} workDir ${JSON.stringify(w)}: expected ${cmd}`)
+    assert.match(p, /READ-ONLY/)
+    assert.ok(p.includes(`${W}/metrics.json`))
+    assert.equal(p.includes('task-orchestrator:'), false, 'the measure prompt names no skill')
+    assert.equal(p.includes('auditing-codebase'), false)
+  }
+})
+
+test('S26: no scriptsDir -> no measure call, the skip is logged, metricsPath is null, no prompt carries a digest, Measure is still the first phase', async () => {
+  const args = baseArgs({ contract: 'audit/args-v2' })
+  const { calls, result, logLines, phaseLog } = await fullRun(args, {})
+  assert.equal(calls.some((c) => c.label === 'measure'), false)
+  assert.ok(logLines.some((l) => l.includes('measure skipped: no scriptsDir')))
+  assert.equal(result.metricsPath, null)
+  assert.equal(phaseLog[0], 'Measure')
+  for (const c of calls) assert.equal(c.prompt.includes('MEASURED STRUCTURE'), false, `${c.label} must carry no digest`)
+})
+
+test('S25: a null Measure result -> metricsPath null, a WARNING is logged, the run still completes without a digest', async () => {
+  const { calls, result, logLines } = await fullRun(v2Args(), { measure: null })
+  assert.equal(calls.filter((c) => c.label === 'measure').length, 1)
+  assert.equal(result.metricsPath, null)
+  assert.equal(result.started, true)
+  assert.ok(result.kept.length > 0)
+  assert.ok(logLines.some((l) => /WARNING/.test(l)))
+  for (const c of calls) assert.equal(c.prompt.includes('MEASURED STRUCTURE'), false, `${c.label} must carry no digest`)
+})
+
+test('S25 / D13: a null scope result with a measure result still reports metricsPath and a null report', async () => {
+  const { result } = await fullRun(fullArgs(), { scope: null })
+  assert.equal(result.metricsPath, 'W/metrics.json')
+  assert.equal(result.report, null)
+  assert.deepEqual(result.kept, [])
+  assert.ok(Object.keys(result).includes('metricsPath'))
+})
+
+// ── S18 / S29: the architecture lens and the lens budget (D6, D7) ────────────
+
+test('S18: with given reviewers, the architecture lens runs under the D7 terms for focus all and code, with its own dispatch key', async () => {
+  for (const focus of ['all', 'code']) {
+    const { calls } = await fullRun(baseArgs({ focus }), {})
+    const arch = calls.filter((c) => c.label === 'review:architecture')
+    assert.equal(arch.length, 1, `focus ${focus}: exactly one architecture review`)
+    assert.match(arch[0].prompt, /intended architecture/i)
+    assert.match(arch[0].prompt, /pattern inventory/i)
+    assert.equal(arch[0].opts.model, 'opus')
+    assert.equal(arch[0].opts.effort, 'high')
+    assert.deepEqual(calls.filter((c) => c.label.startsWith('review:')).map((c) => c.label).sort(), ['review:architecture', 'review:r1', 'review:r2'])
+  }
+  assert.equal(CORE.ARCHITECTURE_LENS.key, 'architecture')
+  assert.equal(CORE.ARCHITECTURE_LENS.label, 'Architecture')
+  assert.equal(CORE.ARCHITECTURE_LENS.kind, 'code')
+  assert.match(CORE.ARCHITECTURE_LENS.focus, /intended architecture/i)
+  assert.match(CORE.ARCHITECTURE_LENS.focus, /pattern inventory/i)
+  assert.equal(CORE.ARCHITECTURE_LENS.focus.includes('task-orchestrator:'), false, 'no skill name in the lens focus')
+})
+
+test('S18: a scope-path quick run keeps proposed reviewers then lenses up to B = reviewerCount - 1 and logs the dropped keys; caller-given slices stay uncapped', async () => {
+  const proposed = scopeResult({
+    reviewers: [reviewerSpec('r1'), reviewerSpec('r2'), reviewerSpec('r3')],
+    lenses: [{ key: 'lensdrop1', label: 'Lens one', focus: 'f' }, { key: 'lensdrop2', label: 'Lens two', focus: 'f' }],
+  })
+  const { calls, logLines } = await fullRun(baseArgs({ scope: { paths: ['p'] } }), { scope: proposed })
+  assert.deepEqual(calls.filter((c) => c.label.startsWith('review:')).map((c) => c.label).sort(), ['review:architecture', 'review:r1', 'review:r2', 'review:r3'])
+  assert.ok(logLines.some((l) => l.includes('lensdrop1')), 'the first dropped lens is logged')
+  assert.ok(logLines.some((l) => l.includes('lensdrop2')), 'the second dropped lens is logged')
+  // caller-given reviewers and lenses are never capped
+  const many = baseArgs({
+    scope: { paths: ['p'], reviewers: [1, 2, 3, 4, 5, 6].map((i) => reviewerSpec('g' + i)), lenses: [{ key: 'lx', label: 'lx', focus: 'f' }] },
+  })
+  const given = await fullRun(many, {})
+  assert.equal(given.calls.filter((c) => c.label.startsWith('review:')).length, 8) // 6 + 1 lens + architecture
+})
+
+test('S29: focus docs adds no architecture lens; a caller lens keyed architecture is used as given and not doubled', async () => {
+  const docs = await fullRun(baseArgs({ focus: 'docs', scope: { paths: ['p'], reviewers: [reviewerSpec('d1', { kind: 'docs' })], lenses: [] } }), {})
+  assert.deepEqual(docs.calls.filter((c) => c.label.startsWith('review:')).map((c) => c.label), ['review:d1'])
+  const own = { key: 'architecture', label: 'My architecture', focus: 'caller focus text qq7' }
+  const args = baseArgs({ scope: { paths: ['p'], reviewers: [reviewerSpec('r1')], lenses: [own] } })
+  const { calls, plan } = await fullRun(args, {})
+  const arch = calls.filter((c) => c.label === 'review:architecture')
+  assert.equal(arch.length, 1, 'not doubled')
+  assert.ok(arch[0].prompt.includes('caller focus text qq7'), 'the caller lens is used as given')
+  assert.equal(/pattern inventory/i.test(arch[0].prompt), false, 'the default focus is not substituted')
+  assert.equal(arch[0].opts.model, 'opus', 'it still dispatches under review-architecture')
+  assert.equal(CORE.projectAgents(plan).review, 2, 'no extra lens is projected')
+})
+
+test('S18 / D6: the scope prompt asks for slices at the cost of change, not a defect hunt, and states the budget B', async () => {
+  for (const [focus, b] of [['all', 3], ['docs', 4]]) {
+    const a = baseArgs({ focus, scope: { paths: ['p'] } })
+    const { calls } = await fullRun(a, { scope: scopeResult({ reviewers: [plannerSlice('x1', focus === 'docs' ? 'docs' : 'code')] }) })
+    const p = calls.find((c) => c.label === 'scope').prompt
+    assert.ok(p.includes('costs the most to change'))
+    assert.ok(p.includes('not as a defect hunt'))
+    assert.match(p, new RegExp(`\\b${b}\\b`), `focus ${focus}: the prompt states ${b} slices and lenses in total`)
+  }
+})
+
+// ── S31: test code in the scope (D6) ─────────────────────────────────────────
+
+test('S31: testPathsOf keeps paths with a test, tests, __tests__, spec or specs segment (any case, either slash) and normalizes backslashes', () => {
+  assert.deepEqual(
+    CORE.testPathsOf(['src/test/kotlin', 'scripts\\tests', 'Tests', 'contest', 'src/testing', 'a/__tests__/b', 'x/Specs/y', 'lib/spec', 'latest/x', 'a/test.kt', 'src/main']),
+    ['src/test/kotlin', 'scripts/tests', 'Tests', 'a/__tests__/b', 'x/Specs/y', 'lib/spec']
+  )
+  assert.deepEqual(CORE.testPathsOf([]), [])
+  assert.deepEqual(CORE.testPathsOf(['contest', 'src/testing']), [])
+})
+
+test('S31: the scope prompt names TEST CODE and the test paths only when the scope has test paths', async () => {
+  const withTests = baseArgs({ scope: { paths: ['src/main', 'src\\test\\kotlin'] } })
+  const a = await fullRun(withTests, { scope: scopeResult({ reviewers: [reviewerSpec('r1')] }) })
+  const p = a.calls.find((c) => c.label === 'scope').prompt
+  assert.ok(p.includes('TEST CODE'))
+  assert.ok(p.includes('src/test/kotlin'))
+  assert.match(p, /test quality/i)
+  const without = baseArgs({ scope: { paths: ['src/main', 'src/testing'] } })
+  const b = await fullRun(without, { scope: scopeResult({ reviewers: [reviewerSpec('r1')] }) })
+  assert.equal(b.calls.find((c) => c.label === 'scope').prompt.includes('TEST CODE'), false)
+})
+
+// ── S30 / S32: the metrics helpers ───────────────────────────────────────────
+
+test('S30: shiftMonths shifts by calendar months, clamps the day to the target month, and follows Gregorian leap years', () => {
+  const cases = [
+    ['2026-11-22', -12, '2025-11-22'],
+    ['2026-05-31', -3, '2026-02-28'],
+    ['2024-05-31', -3, '2024-02-29'],
+    ['2026-02-15', -3, '2025-11-15'],
+    ['2024-02-29', -12, '2023-02-28'],
+    ['2026-11-30', 3, '2027-02-28'],
+    ['2026-01-31', 1, '2026-02-28'],
+    ['2026-03-31', -1, '2026-02-28'],
+    ['2028-03-31', -1, '2028-02-29'],
+    ['2100-03-31', -1, '2100-02-28'], // 2100 is not a leap year
+    ['2000-03-31', -1, '2000-02-29'], // 2000 is
+    ['2026-01-15', -1, '2025-12-15'],
+    ['2026-07-31', 0, '2026-07-31'],
+    ['2026-12-31', 2, '2027-02-28'],
+  ]
+  for (const [d, n, want] of cases) assert.equal(CORE.shiftMonths(d, n), want, `shiftMonths(${d}, ${n})`)
+})
+
+test('S32: formatMetricsDigest starts MEASURED STRUCTURE and caps at 15 hot, 10 complex, 10 cycles and 10 unstable modules', () => {
+  const pad = (i) => String(i).padStart(2, '0')
+  const m = {
+    hotSet: Array.from({ length: 20 }, (_, i) => ({ path: `hot-${pad(i + 1)}`, churn: 1, complexity: 1 })),
+    topComplexity: Array.from({ length: 12 }, (_, i) => ({ path: `tc-${pad(i + 1)}`, complexity: 5 })),
+    cycles: Array.from({ length: 12 }, (_, i) => [`cyc-${pad(i + 1)}-a`, `cyc-${pad(i + 1)}-b`]),
+    unstableModules: Array.from({ length: 12 }, (_, i) => ({ id: `unst-${pad(i + 1)}`, instability: 0.5 })),
+    notes: [],
+  }
+  const d = CORE.formatMetricsDigest(m)
+  assert.ok(d.startsWith('MEASURED STRUCTURE'))
+  for (let i = 1; i <= 15; i++) assert.ok(d.includes(`hot-${pad(i)}`), `hot ${i}`)
+  for (let i = 16; i <= 20; i++) assert.equal(d.includes(`hot-${pad(i)}`), false, `hot ${i} is past the cap`)
+  for (let i = 1; i <= 10; i++) {
+    assert.ok(d.includes(`tc-${pad(i)}`), `complexity ${i}`)
+    assert.ok(d.includes(`cyc-${pad(i)}-a -> cyc-${pad(i)}-b`), `cycle ${i}`)
+    assert.ok(d.includes(`unst-${pad(i)}`), `unstable ${i}`)
+  }
+  for (let i = 11; i <= 12; i++) {
+    assert.equal(d.includes(`tc-${pad(i)}`), false, `complexity ${i} is past the cap`)
+    assert.equal(d.includes(`cyc-${pad(i)}-a`), false, `cycle ${i} is past the cap`)
+    assert.equal(d.includes(`unst-${pad(i)}`), false, `unstable ${i} is past the cap`)
+  }
+  const empty = CORE.formatMetricsDigest({ hotSet: [], topComplexity: [], cycles: [], unstableModules: [], notes: [] })
+  assert.ok(empty.startsWith('MEASURED STRUCTURE'))
+})
+
+// ── S19: the stratified verify cap (D11) ─────────────────────────────────────
+
+function capItem(id, category, rating, severity) {
+  return { id, category, rating, severity }
+}
+
+test('S19: capVerification spreads over category x rating groups, ordered by the highest member severity, one finding per group per round', () => {
+  const merged = [
+    capItem('a', 'coupling', 'act-now', 'medium'),
+    capItem('b', 'coupling', 'act-now', 'high'),
+    capItem('c', 'security', 'watch', 'low'),
+    capItem('d', 'coupling', 'act-now', 'low'),
+    capItem('e', 'security', 'watch', 'critical'),
+    capItem('f', 'layering', 'plan-it', 'medium'),
+  ]
+  const { verify, unverified } = CORE.capVerification(merged, 4)
+  assert.deepEqual(verify.map((f) => f.id), ['e', 'b', 'f', 'c'])
+  assert.deepEqual(unverified.map((f) => f.id), ['a', 'd'])
+})
+
+test('S19 / probe (cap 0 and cap >= n): cap 0 verifies nothing; a larger cap verifies all in selection order with an empty tail', () => {
+  const merged = [
+    capItem('a', 'coupling', 'act-now', 'medium'),
+    capItem('b', 'coupling', 'act-now', 'high'),
+    capItem('c', 'security', 'watch', 'low'),
+    capItem('d', 'coupling', 'act-now', 'low'),
+    capItem('e', 'security', 'watch', 'critical'),
+    capItem('f', 'layering', 'plan-it', 'medium'),
+  ]
+  const none = CORE.capVerification(merged, 0)
+  assert.deepEqual(none.verify, [])
+  assert.deepEqual(none.unverified.map((f) => f.id), ['a', 'b', 'c', 'd', 'e', 'f'], 'the unverified rest keeps input order')
+  const all = CORE.capVerification(merged, 10)
+  assert.deepEqual(all.verify.map((f) => f.id), ['e', 'b', 'f', 'c', 'a', 'd'])
+  assert.deepEqual(all.unverified, [])
+})
+
+test('S19: a finding without a rating groups with watch; group ties break by the first member input index, not the strongest member', () => {
+  // no rating == watch: x and y share one group (highest member: critical), so y leads and x follows
+  const a = CORE.capVerification(
+    [capItem('x', 'security', 'watch', 'high'), { id: 'y', category: 'security', severity: 'critical' }, capItem('z', 'layering', 'plan-it', 'high')],
+    2
+  )
+  assert.deepEqual(a.verify.map((f) => f.id), ['y', 'z'])
+  assert.deepEqual(a.unverified.map((f) => f.id), ['x'])
+  // tie on the highest severity (high): the group whose first member comes first leads
+  const b = CORE.capVerification(
+    [capItem('p', 'cat1', 'plan-it', 'low'), capItem('q', 'cat2', 'plan-it', 'high'), capItem('r', 'cat1', 'plan-it', 'high')],
+    3
+  )
+  assert.deepEqual(b.verify.map((f) => f.id), ['r', 'q', 'p'])
+})
+
+// ── S20: selectedBy and the item policy (D16) ────────────────────────────────
+
+function policyCases() {
+  return [
+    ['f-1', { category: 'security-architecture', severity: 'high', verdict: 'CONFIRMED' }, 'none', { gated: true, bugs: true, all: true }, { gated: 'ok', bugs: 'ok', all: 'ok' }],
+    ['f-2', { category: 'concurrency', severity: 'low', verdict: 'UNVERIFIED' }, 'none', { gated: false, bugs: true, all: true }, { gated: 'severity below high', bugs: 'ok', all: 'ok' }],
+    ['f-3', { category: 'coupling', severity: 'high', verdict: 'PLAUSIBLE' }, 'none', { gated: true, bugs: false, all: true }, { gated: 'ok', bugs: 'class tech-debt', all: 'ok' }],
+    ['f-4', { category: 'transactions', severity: 'high', verdict: 'CONFIRMED', trackedId: 'TRACK-9' }, 'none', { gated: false, bugs: false, all: false }, { gated: 'tracked TRACK-9', bugs: 'tracked TRACK-9', all: 'tracked TRACK-9' }],
+    ['f-5', { category: 'data-model', severity: 'high', verdict: 'CONFIRMED' }, 'strong', { gated: false, bugs: false, all: false }, { gated: 'likely duplicate strong', bugs: 'likely duplicate strong', all: 'likely duplicate strong' }],
+    ['f-6', { category: 'error-handling', severity: 'high', verdict: 'CONFIRMED' }, 'unknown', { gated: false, bugs: true, all: true }, { gated: 'likely duplicate unknown', bugs: 'ok', all: 'ok' }],
+    ['f-7', { category: 'dead-code', severity: 'high', verdict: 'CONFIRMED', locations: ['obs/zone/x.mjs:1'] }, 'none', { gated: true, bugs: false, all: false }, { gated: 'ok', bugs: 'class observation', all: 'observation' }],
+    ['f-8', { category: 'concurrency', severity: 'high', verdict: 'UNVERIFIED', trackedId: 'TRACK-1' }, 'none', { gated: false, bugs: false, all: false }, { gated: null, bugs: 'tracked TRACK-1', all: 'tracked TRACK-1' }],
+    // f-8 gated reason is not asserted: which verdicts the gated rule refuses before the tracked check is "today's" rule, not in D16
+  ]
+}
+
+function policyProposal(policy) {
+  const items = { enabled: true, rootId: 'root-test-0001', materializeMin: 'high' }
+  if (policy !== undefined) items.policy = policy
+  const plan = proposalPlan({ items, observationPaths: ['obs/zone'] })
+  const cases = policyCases()
+  const kept = cases.map(([id, o]) => keptFinding({ findingId: id, ...o }))
+  const triage = Object.fromEntries(cases.map(([id, , dup]) => [id, { candidates: [], likelyDuplicate: dup }]))
+  return { plan, proposal: CORE.buildProposal(kept, triage, plan) }
+}
+
+test('S20: every proposal row carries severity, verdict and the selectedBy matrix', () => {
+  const { proposal } = policyProposal('gated')
+  const byId = Object.fromEntries(proposal.items.map((i) => [i.findingId, i]))
+  for (const [id, o, , sel] of policyCases()) {
+    const row = byId[id]
+    assert.deepEqual(row.selectedBy, sel, `${id} selectedBy`)
+    assert.equal(row.severity, o.severity)
+    assert.equal(row.verdict, o.verdict)
+  }
+})
+
+test('S20: materialize and reason follow items.policy (gated, bugs, all); an absent policy is gated', () => {
+  for (const policy of ['gated', 'bugs', 'all', undefined]) {
+    const effective = policy === undefined ? 'gated' : policy
+    const { plan, proposal } = policyProposal(policy)
+    assert.equal(plan.items.policy, effective)
+    const byId = Object.fromEntries(proposal.items.map((i) => [i.findingId, i]))
+    for (const [id, , , sel, reasons] of policyCases()) {
+      assert.equal(byId[id].materialize, sel[effective], `${effective} ${id} materialize`)
+      if (reasons[effective] !== null) assert.equal(byId[id].reason, reasons[effective], `${effective} ${id} reason`)
+    }
+  }
+})
+
+test('S20: batches follow the policy, and an observation never enters a batch', () => {
+  const want = { gated: ['f-1', 'f-3'], bugs: ['f-1', 'f-2', 'f-6'], all: ['f-1', 'f-2', 'f-3', 'f-6'] }
+  for (const policy of ['gated', 'bugs', 'all']) {
+    const { proposal } = policyProposal(policy)
+    assert.deepEqual(proposal.batches.flatMap((b) => b.childRefs).sort(), want[policy], `${policy} batches`)
+    assert.deepEqual(proposal.observations, ['f-7'])
+  }
+})
+
+test('S20: the unverified tag is added when the verdict is UNVERIFIED and any selectedBy is true, whatever the policy', () => {
+  for (const policy of ['gated', 'bugs', 'all']) {
+    const { plan, proposal } = policyProposal(policy)
+    const byId = Object.fromEntries(proposal.items.map((i) => [i.findingId, i]))
+    assert.equal(byId['f-2'].tags, `audit,concurrency,audit-${plan.runId},unverified`, `${policy}: UNVERIFIED with a true selectedBy`)
+    assert.equal(byId['f-8'].tags, `audit,concurrency,audit-${plan.runId}`, `${policy}: UNVERIFIED but tracked (all false)`)
+    assert.equal(byId['f-1'].tags, `audit,security-architecture,audit-${plan.runId}`, `${policy}: CONFIRMED is never tagged`)
+    assert.equal(byId['f-3'].tags, `audit,coupling,audit-${plan.runId}`, `${policy}: PLAUSIBLE is never tagged`)
+  }
+})
+
+// ── S22 / S23 / S28: argument validation (D1, D2) ────────────────────────────
+
+test('S22: a fable model under any fan-out key is refused, in any casing or embedding; single-agent keys accept it', () => {
+  for (const key of FAN_OUT) {
+    for (const value of ['fable', 'claude-fable-x', 'Fable', 'FABLE', 'my-fable-1']) {
+      const { ok, reason } = CORE.normalizeArgs(baseArgs({ models: { [key]: value } }))
+      assert.equal(ok, false, `${key}=${value} must be refused`)
+      assert.equal(reason, `invalid args: fable is not allowed for fan-out phase ${key}`)
+    }
+  }
+  for (const key of ['scope', 'critic', 'review-architecture', 'synth']) {
+    assert.equal(CORE.normalizeArgs(baseArgs({ models: { [key]: 'fable' } })).ok, true, `${key} accepts fable`)
+  }
+  assert.equal(CORE.normalizeArgs(baseArgs({ models: { review: 'opus', verify: 'haiku' } })).ok, true)
+  // the check does not stop at the first fan-out key it looks at
+  assert.equal(CORE.normalizeArgs(baseArgs({ models: { scope: 'fable', review: 'ok', verify: 'fable' } })).reason, 'invalid args: fable is not allowed for fan-out phase verify')
+})
+
+test('S23: dispatch overrides, scriptsDir, workDir and policy fail with the D2 reasons', () => {
+  const reason = (o) => {
+    const r = CORE.normalizeArgs(baseArgs(o))
+    assert.equal(r.ok, false, `expected a refusal for ${JSON.stringify(o)}`)
+    return r.reason
+  }
+  assert.equal(reason({ models: { bogus: 'x' } }), 'invalid args: unknown dispatch key models.bogus')
+  assert.equal(reason({ efforts: { bogus: 'x' } }), 'invalid args: unknown dispatch key efforts.bogus')
+  assert.equal(reason({ models: { synthesis: 'x' } }), 'invalid args: unknown dispatch key models.synthesis')
+  for (const bad of ['', 3, true, {}]) {
+    assert.equal(reason({ models: { review: bad } }), 'invalid args: models.review must be a non-empty string')
+    assert.equal(reason({ efforts: { review: bad } }), 'invalid args: efforts.review must be a non-empty string')
+    assert.equal(reason({ scriptsDir: bad, workDir: 'W' }), 'invalid args: scriptsDir must be a non-empty string')
+    assert.equal(reason({ workDir: bad }), 'invalid args: workDir must be a non-empty string')
+  }
+  assert.equal(reason({ scriptsDir: 'S' }), 'invalid args: workDir required when scriptsDir is set')
+  for (const bad of ['sometimes', 'GATED', 3]) {
+    assert.equal(reason({ items: { enabled: true, rootId: 'r', policy: bad } }), 'invalid args: items.policy must be gated, bugs or all')
+  }
+  assert.equal(reason({ contract: 'audit/args-v3' }), 'invalid args: contract must be audit/args-v2 or audit/args-v1')
+  assert.equal(CORE.normalizeArgs(baseArgs({ workDir: 'W' })).ok, true, 'workDir alone is fine')
+})
+
+test('S23 / probe (order): the D2 checks run after the focus checks and in the order scriptsDir, workDir, policy, models, efforts', () => {
+  const reason = (o) => CORE.normalizeArgs(baseArgs(o)).reason
+  const policyBad = { enabled: true, rootId: 'r', policy: 'x' }
+  assert.equal(reason({ focus: 'both', items: policyBad }), 'invalid args: focus must be code, docs or all')
+  assert.equal(reason({ scriptsDir: 3, workDir: 4, items: policyBad, models: { bogus: 'x' } }), 'invalid args: scriptsDir must be a non-empty string')
+  assert.equal(reason({ scriptsDir: 'S', items: policyBad, models: { bogus: 'x' } }), 'invalid args: workDir required when scriptsDir is set')
+  assert.equal(reason({ items: policyBad, models: { bogus: 'x' } }), 'invalid args: items.policy must be gated, bugs or all')
+  assert.equal(reason({ models: { bogus: 'x' }, efforts: { bogus: 'x' } }), 'invalid args: unknown dispatch key models.bogus')
+  assert.equal(reason({ models: { review: 3 }, efforts: { bogus: 'x' } }), 'invalid args: models.review must be a non-empty string')
+  // keys are checked in object order: an unknown key before a non-string value, then the reverse
+  assert.equal(reason({ models: { bogus: 'x', review: 3 } }), 'invalid args: unknown dispatch key models.bogus')
+  assert.equal(reason({ models: { review: 3, bogus: 'x' } }), 'invalid args: models.review must be a non-empty string')
+})
+
+test('S28: args-v1 and args-v2 validate and behave alike; plan.contract is the given one', () => {
+  const v1 = CORE.normalizeArgs(baseArgs({ contract: 'audit/args-v1' }))
+  const v2 = CORE.normalizeArgs(baseArgs({ contract: 'audit/args-v2' }))
+  assert.equal(v1.ok, true)
+  assert.equal(v2.ok, true)
+  assert.equal(v1.plan.contract, 'audit/args-v1')
+  assert.equal(v2.plan.contract, 'audit/args-v2')
+  assert.deepEqual({ ...v1.plan, contract: 'x' }, { ...v2.plan, contract: 'x' }, 'no mode switch between the two contracts')
+})
+
+test('S28: items.enabled defaults from rootId, an explicit false stays false, the policy defaults to gated', () => {
+  const alone = CORE.normalizeArgs(baseArgs({ items: { rootId: 'root-1' } })).plan
+  assert.equal(alone.items.enabled, true)
+  assert.equal(alone.items.policy, 'gated')
+  const off = CORE.normalizeArgs(baseArgs({ items: { enabled: false, rootId: 'root-1' } })).plan
+  assert.equal(off.items.enabled, false)
+  const none = CORE.normalizeArgs(baseArgs()).plan
+  assert.equal(!!(none.items && none.items.enabled), false)
+  for (const p of ['gated', 'bugs', 'all']) {
+    assert.equal(CORE.normalizeArgs(baseArgs({ items: { rootId: 'r', policy: p } })).plan.items.policy, p)
+  }
+  assert.deepEqual([...CORE.ITEM_POLICIES], ['gated', 'bugs', 'all'])
+  assert.deepEqual([...CORE.RATINGS], ['act-now', 'plan-it', 'watch'])
+})
+
+test('S28: the triage prompt names every kept finding, the ones capped out of verification included', async () => {
+  const reviewers = [
+    reviewerSpec('ra'), reviewerSpec('rb'), reviewerSpec('rc'),
+  ]
+  const sev = { ra: 'critical', rb: 'high', rc: 'low' }
+  const cat = { ra: 'coupling', rb: 'layering', rc: 'cohesion' }
+  const args = baseArgs({
+    scope: { paths: ['p'], reviewers, lenses: [] },
+    verify: { highLenses: ['combined'], defaultLenses: ['combined'], maxFindings: 2 },
+    items: { enabled: true, rootId: 'root-1' },
+  })
+  const { calls, result } = await fullRun(args, {
+    sevBySlice: sev,
+    findingFor: (key) => (key === 'architecture' ? null : makeFinding({ severity: sev[key], category: cat[key], rating: 'plan-it' })),
+  })
+  assert.equal(result.stats.unverifiedByCap, 1)
+  const triage = calls.filter((c) => c.label.startsWith('triage:'))
+  assert.equal(triage.length, 1)
+  for (const id of ['ra-1', 'rb-1', 'rc-1']) assert.ok(triage[0].prompt.includes(id), `triage names ${id}`)
+})
+
+// ── S24: the critic state (D12) ──────────────────────────────────────────────
+
+test('S24: criticState is disabled unless gaps are enabled with max > 0, no-result for a null critic, else ran', () => {
+  const plan = (gaps) => buildPlan({ gaps })
+  const some = criticResult({ assessment: 'a', gaps: [] })
+  assert.equal(CORE.criticState(plan({ enabled: true, max: 1 }), null), 'no-result')
+  assert.equal(CORE.criticState(plan({ enabled: true, max: 1 }), some), 'ran')
+  assert.equal(CORE.criticState(plan({ enabled: false, max: 0 }), null), 'disabled')
+  assert.equal(CORE.criticState(plan({ enabled: false, max: 2 }), some), 'disabled')
+  assert.equal(CORE.criticState(plan({ enabled: true, max: 0 }), null), 'disabled')
+  assert.equal(CORE.criticState(plan({ enabled: true, max: 0 }), some), 'disabled')
+})
+
+test('S24: coverage.critic and the synthesis prompt agree - no-result, disabled, ran', async () => {
+  const noResult = await fullRun(baseArgs({ gaps: undefined }), { critic: null })
+  assert.equal(noResult.result.report.coverage.critic, 'no-result')
+  const p1 = noResult.calls.find((c) => c.label === 'synthesis').prompt
+  assert.ok(p1.includes('GAP CRITIC: enabled, but it returned no result.'))
+  assert.ok(p1.includes('returned no result'))
+
+  const off = await fullRun(baseArgs(), {})
+  assert.equal(off.calls.some((c) => c.label === 'critic'), false)
+  assert.equal(off.result.report.coverage.critic, 'disabled')
+  const p2 = off.calls.find((c) => c.label === 'synthesis').prompt
+  assert.ok(p2.includes('GAP CRITIC: disabled for this run.'))
+  assert.equal(p2.includes('no result'), false, 'a disabled critic is not reported as a missing result')
+
+  const ran = await fullRun(baseArgs({ gaps: undefined }), { critic: criticResult({ assessment: 'assessment-text-xyz', gaps: [] }) })
+  assert.equal(ran.result.report.coverage.critic, 'ran')
+  const p3 = ran.calls.find((c) => c.label === 'synthesis').prompt
+  assert.ok(p3.includes('GAP CRITIC ASSESSMENT:'))
+  assert.ok(p3.includes('assessment-text-xyz'))
+})
+
+// ── S21 / S27: kept rows, coverage and the verification split (D13, D14) ─────
+
+test('S21: kept rows carry the D14 fields with the verifier correction appended; the report carries coverage in run order', async () => {
+  const merged = makeFinding({ severity: 'high', rating: 'act-now', confidence: 'medium' })
+  const { result, plan, calls } = await fullRun(
+    v2Args({ gaps: undefined, scope: { paths: ['p'], reviewers: [reviewerSpec('r1'), reviewerSpec('r2')], lenses: [] }, items: { enabled: true, rootId: 'root-1' } }),
+    {
+      critic: criticResult({ gaps: [{ label: 'g1', prompt: 'p1' }, { label: 'g2', prompt: 'p2' }] }),
+      nullFor: ['review:r1'],
+      findingFor: (key) => (key === 'r1' ? null : key === 'r2' ? merged : makeFinding({ severity: 'medium', rating: 'watch' })),
+      verdictFor: (label) => (label.startsWith('verify:r2-1') ? verdictResult({ evidenceAccurate: false, correctedEvidence: 'fix1' }) : verdictResult()),
+      synth: synthV2({ notExamined: ['synth-note'], findingIndex: [{ reportId: 'AR-01', findingId: 'r2-1', title: 't', severity: 'high', effort: 'M', verdict: 'CONFIRMED', alreadyTrackedId: '' }] }),
+    }
+  )
+  const row = result.kept.find((k) => k.findingId === 'r2-1')
+  assert.ok(row, 'r2-1 is kept')
+  assert.deepEqual(
+    Object.keys(row).sort(),
+    ['category', 'confidence', 'effort', 'evidence', 'findingId', 'impact', 'locations', 'rating', 'recommendation', 'reportId', 'severity', 'sliceKey', 'title', 'trackedId', 'verdict'],
+    'a CONFIRMED row has no unverifiedReason'
+  )
+  assert.equal(row.evidence, 'evidence text\n\nVerifier correction: [combined] fix1')
+  assert.equal(row.impact, 'impact text')
+  assert.equal(row.recommendation, 'fix it')
+  assert.equal(row.confidence, 'medium')
+  assert.equal(row.rating, 'act-now')
+  assert.equal(row.sliceKey, 'r2')
+  assert.equal(row.reportId, 'AR-01')
+  const arch = result.kept.find((k) => k.findingId === 'architecture-1')
+  assert.equal(arch.evidence, 'evidence text', 'no correction -> no suffix')
+  assert.equal(arch.sliceKey, 'architecture')
+  assert.equal(arch.rating, 'watch')
+
+  const report = result.report
+  assert.deepEqual(
+    Object.keys(report).sort(),
+    ['coverage', 'executiveSummary', 'healthVerdict', 'method', 'reportPath', 'roadmap', 'strengths', 'themes']
+  )
+  assert.equal(report.reportPath, plan.reportPath)
+  assert.equal(report.method, 'method text')
+  assert.deepEqual(report.strengths, ['a strength'])
+  // the gap's label text is not frozen by D13 (only that it is a returned gap, in run order): key and kind are
+  assert.deepEqual(report.coverage.reviewers.map((r) => [r.key, r.kind]), [['r2', 'code'], ['architecture', 'code'], ['gap1', 'code']])
+  assert.deepEqual(report.coverage.reviewers.slice(0, 2).map((r) => r.label), ['Reviewer r2', 'Architecture'])
+  assert.ok(report.coverage.reviewers[2].label.includes('g1'))
+  assert.deepEqual(report.coverage.notExamined, ['slice r1: no result', 'gap not run: g2', 'synth-note'])
+  assert.equal(report.coverage.critic, 'ran')
+  assert.deepEqual(report.coverage.verification, { confirmed: 3, refuted: 0, unverifiedByCap: 0, unverifiedNoVerifier: 0 })
+  assert.equal(result.stats.projectedAgents, CORE.projectAgents(plan).total)
+  assert.ok(calls.length > 0)
+})
+
+test('S21: a quick run with scriptsDir and items projects 34 agents (measure 1, scope 1, review 4, gaps 2, merge 1, verify 20, synth 1, triage 4)', () => {
+  const plan = CORE.normalizeArgs(fullArgs()).plan
+  const p = CORE.projectAgents(plan)
+  assert.deepEqual(
+    { total: p.total, measure: p.measure, scope: p.scope, review: p.review, gaps: p.gaps, merge: p.merge, verify: p.verify, synth: p.synth, triage: p.triage },
+    { total: 34, measure: 1, scope: 1, review: 4, gaps: 2, merge: 1, verify: 20, synth: 1, triage: 4 }
+  )
+  assert.equal(CORE.PRESETS.quick.gaps.enabled, true)
+  assert.equal(CORE.PRESETS.quick.gaps.max, 1)
+})
+
+test('S27: one finding each confirmed, refuted, capped and all-null -> the verification split, the unverified reasons and the refuted list', async () => {
+  const sev = { ra: 'critical', rb: 'high', rc: 'medium', rd: 'low' }
+  const cat = { ra: 'coupling', rb: 'layering', rc: 'cohesion', rd: 'duplication' }
+  const args = baseArgs({
+    scope: { paths: ['p'], reviewers: ['ra', 'rb', 'rc', 'rd'].map((k) => reviewerSpec(k)), lenses: [] },
+    verify: { highLenses: ['combined'], defaultLenses: ['combined'], maxFindings: 3 },
+  })
+  const { result } = await fullRun(args, {
+    findingFor: (key) => (key === 'architecture' ? null : makeFinding({ title: 'T-' + key, severity: sev[key], category: cat[key], rating: 'plan-it' })),
+    verdictFor: (label) => {
+      if (label.startsWith('verify:rb-1')) return verdictResult({ refuted: true, confidence: 'high' })
+      if (label.startsWith('verify:rc-1')) return null
+      return verdictResult()
+    },
+  })
+  const by = Object.fromEntries(result.kept.map((k) => [k.findingId, k]))
+  assert.equal(by['ra-1'].verdict, 'CONFIRMED')
+  assert.equal('unverifiedReason' in by['ra-1'], false, 'absent on a CONFIRMED row')
+  assert.equal(by['rc-1'].verdict, 'UNVERIFIED')
+  assert.equal(by['rc-1'].unverifiedReason, 'no-verifier')
+  assert.equal(by['rd-1'].verdict, 'UNVERIFIED')
+  assert.equal(by['rd-1'].unverifiedReason, 'cap')
+  assert.equal(by['rb-1'], undefined, 'a refuted finding is not kept')
+  assert.deepEqual(result.refuted, [{ findingId: 'rb-1', title: 'T-rb' }])
+  assert.deepEqual(result.report.coverage.verification, { confirmed: 1, refuted: 1, unverifiedByCap: 1, unverifiedNoVerifier: 1 })
+  assert.equal(result.stats.unverifiedByCap, 1)
+})
+
+// ── D9 / D10: schemas, categories, rating merge ──────────────────────────────
+
+test('D9: MEASURE, FINDINGS and SYNTH schemas follow the frozen shapes', () => {
+  const s = CORE.schemas(buildPlan())
+  assert.deepEqual([...s.MEASURE.required].sort(), ['cycles', 'hotSet', 'notes', 'topComplexity', 'unstableModules'])
+  const hot = s.MEASURE.properties.hotSet.items
+  assert.deepEqual(Object.keys(hot.properties).sort(), ['churn', 'complexity', 'path'])
+  assert.deepEqual(Object.keys(s.MEASURE.properties.topComplexity.items.properties).sort(), ['complexity', 'path'])
+  assert.deepEqual(Object.keys(s.MEASURE.properties.unstableModules.items.properties).sort(), ['id', 'instability'])
+  assert.equal(s.MEASURE.properties.cycles.items.type, 'array')
+  const f = s.FINDINGS.properties.findings.items
+  assert.ok(f.required.includes('rating'))
+  assert.deepEqual([...f.properties.rating.enum], ['act-now', 'plan-it', 'watch'])
+  assert.deepEqual(Object.keys(f.properties.metrics.properties).sort(), ['churn', 'complexity'])
+  assert.equal(f.properties.metrics.properties.churn.type, 'number')
+  assert.equal(f.required.includes('metrics'), false, 'metrics is optional')
+  assert.deepEqual(
+    [...s.SYNTH.required].sort(),
+    ['executiveSummary', 'findingIndex', 'healthVerdict', 'method', 'notExamined', 'roadmap', 'strengths', 'themes']
+  )
+  assert.equal('reportPath' in s.SYNTH.properties, false, 'the synthesis schema no longer carries reportPath')
+})
+
+test('D9: the three new categories follow dead-code in order and are tech-debt', () => {
+  const i = CORE.CATEGORIES.indexOf('dead-code')
+  assert.ok(i >= 0)
+  assert.deepEqual(CORE.CATEGORIES.slice(i + 1, i + 4), ['complexity', 'architecture-conformance', 'test-quality'])
+  for (const c of ['complexity', 'architecture-conformance', 'test-quality']) assert.equal(CORE.DEFAULT_CLASS_MAP[c], 'tech-debt')
+})
+
+test('D10: a merged row takes the most urgent member rating (absent counts as watch) and the canonical metrics', () => {
+  const metrics = { churn: 3, complexity: 7 }
+  const all = [
+    rawFinding('m1', 's1', { rating: 'watch', metrics }),
+    rawFinding('m2', 's2', { rating: 'act-now' }),
+    rawFinding('m3', 's3', { rating: 'plan-it' }),
+    rawFinding('n1', 's4', { rating: 'watch' }),
+    rawFinding('n2', 's5', { rating: 'plan-it' }),
+    rawFinding('k1', 's6'),
+    rawFinding('k2', 's7'),
+    rawFinding('u1', 's8', { rating: 'plan-it' }),
+    rawFinding('u2', 's9'),
+  ]
+  const groups = [
+    { canonicalId: 'm1', duplicateIds: ['m2', 'm3'], mergedTitle: 'M' },
+    { canonicalId: 'n1', duplicateIds: ['n2'], mergedTitle: 'N' },
+    { canonicalId: 'k1', duplicateIds: ['k2'], mergedTitle: 'K' },
+  ]
+  const merged = CORE.mergeFindings(all, groups)
+  const row = (id) => merged.find((m) => m.id === id)
+  assert.equal(row('m1').rating, 'act-now')
+  assert.deepEqual(row('m1').metrics, metrics)
+  assert.equal(row('n1').rating, 'plan-it')
+  assert.equal(row('k1').rating, 'watch', 'no member rating -> watch')
+  assert.equal(row('u1').rating, 'plan-it', 'a singleton keeps its own rating')
+  assert.equal(row('u2').rating, 'watch', 'an unrated singleton is watch')
+})
+
+// ── S33 / S5: prompt invariants and replay with the new phases ───────────────
+
+test('S33: every prompt is READ-ONLY without write-tool names (measure and synthesis included); synthesis omits reportPath; measure names only its metrics file', async () => {
+  const { calls, plan } = await fullRun(fullArgs(), fullScopeOpts())
+  const labels = new Set(calls.map((c) => c.label.split(':')[0]))
+  for (const l of ['measure', 'scope', 'review', 'critic', 'gap', 'merge', 'verify', 'synthesis', 'triage']) assert.ok(labels.has(l), `fixture reaches ${l}`)
+  for (const c of calls) {
+    assert.equal(c.opts.isolation, undefined)
+    assert.match(c.prompt, /READ-ONLY/, `${c.label} is READ-ONLY`)
+    for (const f of ['manage_items', 'manage_notes', 'advance_item', 'create_work_tree', 'items_write', 'notes_write', 'runs_write', 'docs_write']) {
+      assert.equal(c.prompt.includes(f), false, `${c.label} must not mention ${f}`)
+    }
+  }
+  assert.equal(calls.find((c) => c.label === 'synthesis').prompt.includes(plan.reportPath), false)
+  const m = calls.find((c) => c.label === 'measure').prompt
+  assert.ok(m.includes('W/metrics.json'))
+  assert.match(m, /only/i)
+})
+
+test('S5 / replay: two identical v2 runs with Measure, Gaps and Triage produce identical [label, prompt, model, effort] sequences', async () => {
+  const run = async () => {
+    const { calls } = await fullRun(fullArgs(), fullScopeOpts())
+    return calls.map((c) => [c.label, c.prompt, c.opts.model, c.opts.effort])
+  }
+  const a = await run()
+  const b = await run()
+  assert.deepEqual(a, b)
+  assert.ok(a.length > 10)
 })
