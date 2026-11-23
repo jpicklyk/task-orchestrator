@@ -26,7 +26,7 @@ import { RETIRED_3X_TOOLS, dispatchLiteralsInLine } from '../lib/contract-checks
 import { loadPolicy } from '../lib/dispatch-policy.mjs'
 import {
   loadCoreNamed,
-  autoAgent,
+  autoAgent as autoAgentRaw,
   fakePipeline,
   assertBarrier,
   scanForbiddenApis,
@@ -50,8 +50,45 @@ const CORE_NAMES = [
   'DISPATCH_CLASSES', 'FAN_OUT_KEYS', 'RATINGS', 'ITEM_POLICIES', 'ARCHITECTURE_LENS', 'testPathsOf',
   'formatMetricsDigest', 'sliceDigest', 'markMetricsPending', 'preCluster', 'primaryPath', 'fnv1a32', 'stableIds',
   'criticState', 'agentOpts', 'dispatchTag',
+  'assignedCandidates', 'packVerifyGroups', 'groupVotes', 'buildCandidatePrompt', 'buildVerifyGroupPrompt',
 ]
 const CORE = loadCoreNamed(SCRIPT_PATH, CORE_NAMES)
+
+// T8b (D9, D10): verification is per group, so a verify agent answers {verdicts: [{findingId, ...VERDICT}]}.
+// The FINDINGS array of a group prompt is a JSON array after the marker "FINDINGS:" (D10); read here with a bracket scan.
+function findingsOfPrompt(prompt) {
+  const at = prompt.lastIndexOf('FINDINGS:')
+  if (at < 0) return []
+  const start = prompt.indexOf('[', at)
+  let depth = 0
+  let inStr = false
+  for (let i = start; i < prompt.length; i++) {
+    const c = prompt[i]
+    if (inStr) {
+      if (c === '\\') i++
+      else if (c === '"') inStr = false
+    } else if (c === '"') inStr = true
+    else if (c === '[') depth++
+    else if (c === ']' && --depth === 0) return JSON.parse(prompt.slice(start, i + 1))
+  }
+  return []
+}
+
+/** Wraps a per-finding verify responder (called as label verify:<findingId>:<lens>, the finding as 4th argument) into the
+ * group answer a verify:g<n>:<lens> call expects. A null per-finding answer leaves that member out of verdicts. */
+function groupAnswer(responder) {
+  return async (label, prompt, opts) => {
+    const m = /^verify:g\d+:([a-z]+)$/.exec(label)
+    if (!m) return responder(label, prompt, opts)
+    const verdicts = []
+    for (const f of findingsOfPrompt(prompt)) {
+      const v = await responder('verify:' + f.id + ':' + m[1], prompt, opts, f)
+      if (v) verdicts.push({ findingId: f.id, ...v })
+    }
+    return { verdicts }
+  }
+}
+const autoAgent = (responder, o) => autoAgentRaw(groupAnswer(responder), o)
 
 // ── fixture builders ─────────────────────────────────────────────────────────
 
@@ -290,7 +327,7 @@ function assertSchemaShapeValid(schema, path) {
 test('S12 / T-schema: every schemas(plan) sub-schema has required subset of properties, recursively', () => {
   const plan = buildPlan()
   const built = CORE.schemas(plan)
-  for (const name of ['SCOPE', 'FINDINGS', 'CRITIC', 'DEDUP', 'VERDICT', 'SYNTH', 'TRIAGE']) {
+  for (const name of ['SCOPE', 'FINDINGS', 'CRITIC', 'DEDUP', 'VERDICT', 'VERDICTS', 'SYNTH', 'TRIAGE']) {
     assert.ok(built[name], `schemas(plan) must return ${name}`)
     assertSchemaShapeValid(built[name], name)
   }
@@ -310,7 +347,7 @@ test('S12: audit/result-v2 has exactly the documented top-level keys', async () 
   assert.deepEqual(
     Object.keys(result.stats).sort(),
     [
-      'reviewers', 'gaps', 'raw', 'merged', 'kept', 'confirmed', 'plausible', 'unverified',
+      'reviewers', 'candidateReviewers', 'verifyAgents', 'gaps', 'raw', 'merged', 'kept', 'confirmed', 'plausible', 'unverified',
       'refuted', 'missing', 'projectedAgents', 'droppedGaps', 'unverifiedByCap', 'metricsPending', 'mergeAgents',
     ].sort()
   )
@@ -442,6 +479,16 @@ test('S8: defaults — maxAgents 60, allowLarge false, items.materializeMin "hig
 // (independent of the implementation) rather than read from it.
 // E7 (D8, T8a D11): no measure term; merge = max(1, ceil(est / 40)); R = reviewers given ? reviewers + lenses + (D7 appends ? 1 : 0)
 // : reviewerCount; triage = items.enabled ? ceil(est / 10) : 0 (est uncapped); the other terms as before.
+// T8b (D15): C = assigned candidates (hand-counted: distinct non-empty string ids of measured.candidates, cut to candidateCount;
+// none without measured, in a docs focus or at count 0); est = (R + gapsMax + C) * 8; verify = ceil(nV / groupSize) * lens.
+function handCandidateCount(plan) {
+  if (!plan.measured || plan.focus === 'docs' || plan.scope.candidateCount === 0) return 0
+  const seen = new Set()
+  for (const c of plan.measured.candidates) {
+    if (c && typeof c === 'object' && typeof c.candidateId === 'string' && c.candidateId !== '') seen.add(c.candidateId)
+  }
+  return Math.min(seen.size, plan.scope.candidateCount)
+}
 function handComputeTotal(plan) {
   const reviewersGiven = Array.isArray(plan.scope.reviewers)
   const lenses = plan.scope.lenses || []
@@ -452,15 +499,16 @@ function handComputeTotal(plan) {
   const scope = reviewersGiven ? 0 : 1
   const review = R
   const gaps = plan.gaps.enabled ? 1 + plan.gaps.max : 0
-  const est = (R + (plan.gaps.enabled ? plan.gaps.max : 0)) * 8
+  const C = handCandidateCount(plan)
+  const est = (R + (plan.gaps.enabled ? plan.gaps.max : 0) + C) * 8
   const nV = Math.min(est, plan.verify.maxFindings)
-  const verify = nV * Math.max(plan.verify.highLenses.length, plan.verify.defaultLenses.length)
+  const verify = Math.ceil(nV / plan.verify.groupSize) * Math.max(plan.verify.highLenses.length, plan.verify.defaultLenses.length)
   const merge = Math.max(1, Math.ceil(est / 40))
   const synth = 1
   const triage = plan.items && plan.items.enabled ? Math.ceil(est / 10) : 0
   return {
-    total: scope + review + gaps + merge + verify + synth + triage,
-    scope, review, gaps, merge, verify, synth, triage,
+    total: scope + review + C + gaps + merge + verify + synth + triage,
+    scope, review, candidates: C, gaps, merge, verify, synth, triage,
   }
 }
 
@@ -471,7 +519,7 @@ test('S8: projectAgents matches the frozen formula, reviewers-absent estimate pa
   const expected = handComputeTotal(plan)
   const actual = CORE.projectAgents(plan)
   assert.deepEqual(
-    { total: actual.total, scope: actual.scope, review: actual.review, gaps: actual.gaps, merge: actual.merge, verify: actual.verify, synth: actual.synth, triage: actual.triage },
+    { total: actual.total, scope: actual.scope, review: actual.review, candidates: actual.candidates, gaps: actual.gaps, merge: actual.merge, verify: actual.verify, synth: actual.synth, triage: actual.triage },
     expected
   )
 })
@@ -482,7 +530,7 @@ test('S8: projectAgents matches the frozen formula, reviewers-given path (scope=
   const actual = CORE.projectAgents(plan)
   assert.equal(actual.scope, 0)
   assert.deepEqual(
-    { total: actual.total, scope: actual.scope, review: actual.review, gaps: actual.gaps, merge: actual.merge, verify: actual.verify, synth: actual.synth, triage: actual.triage },
+    { total: actual.total, scope: actual.scope, review: actual.review, candidates: actual.candidates, gaps: actual.gaps, merge: actual.merge, verify: actual.verify, synth: actual.synth, triage: actual.triage },
     expected
   )
 })
@@ -1411,27 +1459,29 @@ const D3_DEFAULTS = {
   'review-architecture': { model: 'opus', effort: 'high' },
   critic: { model: 'sonnet', effort: 'medium' },
   merge: { model: 'sonnet', effort: 'low' },
-  verify: { model: 'sonnet', effort: 'medium' },
-  'verify-high': { model: 'opus', effort: 'medium' },
+  'review-candidate': { model: 'sonnet', effort: 'high' },
+  'verify-group': { model: 'sonnet', effort: 'medium' },
+  'verify-group-high': { model: 'opus', effort: 'medium' },
   synth: { model: 'opus', effort: 'medium' },
   triage: { model: 'sonnet', effort: 'low' },
 }
 
 test('Follow-up (O10-1, D3): args.models/args.efforts reach agent() opts per dispatch key; scope, review:architecture, gap and verify-high have their own keys; an omitted key yields its default entry', async () => {
-  // models.verify is deliberately omitted (a low finding reaches the plain verify key): the omitted
-  // key must read its D3 default, never inherit; efforts.verify IS given, so only the model defaults.
+  // models['verify-group'] is deliberately omitted (a low finding reaches the plain verify-group key): the omitted
+  // key must read its D3 default, never inherit; efforts['verify-group'] IS given, so only the model defaults.
   const MODELS = {
     scope: 'm-scope', review: 'm-review', 'review-architecture': 'm-arch', critic: 'm-critic', merge: 'm-merge',
-    'verify-high': 'm-vhigh', synth: 'm-synth', triage: 'm-triage',
+    'verify-group-high': 'm-vhigh', synth: 'm-synth', triage: 'm-triage',
   }
   const EFFORTS = {
     scope: 'e-scope', review: 'e-review', 'review-architecture': 'e-arch', critic: 'e-critic', merge: 'e-merge',
-    verify: 'e-verify', 'verify-high': 'e-vhigh', synth: 'e-synth', triage: 'e-triage',
+    'verify-group': 'e-verify', 'verify-group-high': 'e-vhigh', synth: 'e-synth', triage: 'e-triage',
   }
   const plan = buildPlan({
     scope: { paths: ['claude-plugins/task-orchestrator/hooks'] }, // reviewers absent -> Scope runs
     gaps: { enabled: true, max: 1 },
     items: { enabled: true, rootId: 'root-test-0001', materializeMin: 'high' },
+    verify: { groupSize: 1 }, // one finding per group, so each verify call has one severity
     models: MODELS,
     efforts: EFFORTS,
   })
@@ -1473,20 +1523,21 @@ test('Follow-up (O10-1, D3): args.models/args.efforts reach agent() opts per dis
   checkKey((c) => c.label.startsWith('merge:'), 'merge', 'merge')
   checkKey((c) => c.label === 'synthesis', 'synth', 'synthesis')
   checkKey((c) => c.label.startsWith('triage:'), 'triage', 'triage:<n>')
-  const verifySev = (c) => sevBySlice[c.label.split(':')[1].split('-')[0]]
-  checkKey((c) => c.label.startsWith('verify:') && (verifySev(c) === 'high' || verifySev(c) === 'critical'), 'verify-high', 'verify of a high finding')
+  // T8b (D9): the key follows the group's highest severity; a group of one carries its finding's severity in the prompt.
+  const verifySev = (c) => findingsOfPrompt(c.prompt)[0].severity
+  checkKey((c) => c.label.startsWith('verify:') && (verifySev(c) === 'high' || verifySev(c) === 'critical'), 'verify-group-high', 'verify of a high finding')
   const low = calls.filter((c) => c.label.startsWith('verify:') && verifySev(c) === 'low')
-  assert.ok(low.length > 0, 'fixture must reach the plain verify key (a low finding)')
+  assert.ok(low.length > 0, 'fixture must reach the plain verify-group key (a low finding)')
   for (const c of low) {
-    assert.equal(c.opts.model, D3_DEFAULTS.verify.model, 'models.verify omitted -> the D3 default model, never inherit')
-    assert.equal(c.opts.effort, EFFORTS.verify)
-    assert.equal(c.opts.label, `${c.label} [${D3_DEFAULTS.verify.model}/${EFFORTS.verify}]`)
+    assert.equal(c.opts.model, D3_DEFAULTS['verify-group'].model, 'models.verify-group omitted -> the D3 default model, never inherit')
+    assert.equal(c.opts.effort, EFFORTS['verify-group'])
+    assert.equal(c.opts.label, `${c.label} [${D3_DEFAULTS['verify-group'].model}/${EFFORTS['verify-group']}]`)
   }
 })
 
 test('Follow-up (O10-2): the verify prompt names its own lens, every VERDICT field, and items_read (how alreadyTrackedId is derived)', async () => {
   const plan = buildPlan({
-    verify: { highLenses: ['evidence', 'significance', 'consequence'], defaultLenses: ['combined'], maxFindings: 40 },
+    verify: { highLenses: ['evidence', 'significance', 'consequence'], defaultLenses: ['combined'], maxFindings: 40, groupSize: 1 },
   })
   const responder = async (label) => {
     if (label === 'review:r1') return findingsResult({ findings: [makeFinding({ severity: 'critical' })] })
@@ -1511,6 +1562,8 @@ test('Follow-up (O10-2): the verify prompt names its own lens, every VERDICT fie
     for (const field of VERDICT_FIELDS) {
       assert.ok(c.prompt.includes(field), `${c.label} prompt must name VERDICT field "${field}"`)
     }
+    assert.ok(c.prompt.includes('findingId'), `${c.label} prompt must name findingId, the key of each verdict`)
+    assert.ok(c.prompt.includes('verdicts'), `${c.label} prompt must name the verdicts list the agent returns (task-scope O10-2 edit: also expect verdicts)`)
     assert.ok(c.prompt.includes('items_read'), `${c.label} prompt must mention items_read (alreadyTrackedId derivation)`)
     assert.equal(c.prompt.includes('query_items'), false, `${c.label} prompt must not name the retired query_items`)
   }
@@ -1956,7 +2009,7 @@ test('T10 the docs skill name appears once, as data, and in no non-reviewer prom
 
 test('O1 verify: a documentation-category verifier prompt carries the docs rule; a code finding prompt is unchanged', async () => {
   const plan = buildPlan({
-    verify: { highLenses: ['evidence', 'significance', 'consequence', 'combined'], defaultLenses: ['combined'], maxFindings: 40 },
+    verify: { highLenses: ['evidence', 'significance', 'consequence', 'combined'], defaultLenses: ['combined'], maxFindings: 40, groupSize: 1 },
   })
   const findings = [
     makeFinding({ title: 'docs-scope finding', category: 'documentation-scope' }),
@@ -1985,7 +2038,7 @@ test('O1 verify: a documentation-category verifier prompt carries the docs rule;
       assert.ok(c.prompt.includes('do not refute it because the text is true'), `${c.label} docs rule forbids refuting for accuracy`)
       assert.ok(c.prompt.includes('Refute it only when the cited text is not there'), `${c.label} docs rule names the refute conditions`)
     } else {
-      assert.ok(c.prompt.includes(text + '\n\nFINDING:\n'), `${c.label} code prompt: the lens text unchanged, straight into the finding`)
+      assert.ok(c.prompt.includes(text + '\n\nFINDINGS:\n'), `${c.label} code prompt: the lens text unchanged, straight into the finding`)
       assert.equal(c.prompt.includes('DOCUMENTATION FINDING'), false, `${c.label} code prompt carries no docs rule`)
     }
   }
@@ -1997,13 +2050,14 @@ test('O1 verify: a documentation-category verifier prompt carries the docs rule;
 // rule's refute grounds name records and generated blocks a check keeps current.
 
 test('347bbfb3 verify: a docs-slice or docs-gap finding filed under a code category gets the docs rule; a code-slice finding does not', async () => {
-  const plan = CORE.normalizeArgs(noReviewers({ gaps: { enabled: true, max: 1 } })).plan
+  const plan = CORE.normalizeArgs(noReviewers({ gaps: { enabled: true, max: 1 }, verify: { groupSize: 1 } })).plan
   const scope = scopeResult({ reviewers: [plannerSlice('d1', 'docs'), plannerSlice('c1', 'code')] })
   const critic = criticResult({ gaps: [{ label: 'gd', kind: 'docs', prompt: 'p' }] })
   const { agent, calls } = autoAgent(perSlice(kindResponder(plan, { scope, critic })))
   await CORE.runAudit(plan, makeDeps({ agent }))
   const verifyCalls = calls.filter((c) => c.label.startsWith('verify:'))
-  const bySource = (prefix) => verifyCalls.filter((c) => c.label.startsWith('verify:' + prefix + '-'))
+  // T8b: a group of one; the member id in the prompt (<sliceKey>-<n>) names the source slice
+  const bySource = (prefix) => verifyCalls.filter((c) => findingsOfPrompt(c.prompt)[0].id.startsWith(prefix + '-'))
   assert.ok(bySource('d1').length > 0 && bySource('c1').length > 0 && bySource('gap1').length > 0, 'each slice has verifier calls')
   for (const c of bySource('d1').concat(bySource('gap1'))) {
     assert.ok(c.prompt.includes('"category":"coupling"'), `${c.label} finding keeps its code category`)
@@ -2028,7 +2082,8 @@ test('347bbfb3 verify: the docs rule may refute drift in a record and a generate
 // implementation); signatures come from the supplied declarations block. No implementation source was
 // opened. Literal tables below (D3_DEFAULTS above, FAN_OUT) are copied from D2/D3, never read from CORE.
 
-const FAN_OUT = ['review', 'verify', 'verify-high', 'triage', 'merge']
+// T8b D2: literal, in order
+const FAN_OUT = ['review', 'review-candidate', 'verify-group', 'verify-group-high', 'triage', 'merge']
 
 // A measured input of the audit/digest-v1 shape (T7 digest.mjs buildDigest); rows sit under the default reviewer
 // path so a territory slice keeps them. Rebuilt per call so no test can mutate another test's input.
@@ -2050,6 +2105,12 @@ function measuredFixture(overrides = {}) {
     ...overrides,
   }
 }
+
+// A measured candidate (task-scope D3: candidateId, kind, subject paths, facts). Rebuilt per call.
+function candidateFixture(candidateId, overrides = {}) {
+  return { candidateId, kind: 'hotspot', subject: [`${HOOKS}/zz.kt`], facts: { churn: 9, note: 'fact of ' + candidateId }, ...overrides }
+}
+const withCandidates = (...ids) => ({ measured: measuredFixture({ candidates: ids.map((id) => candidateFixture(id)) }) })
 
 function v2Args(overrides = {}) {
   return baseArgs({ contract: 'audit/args-v2', measured: measuredFixture(), ...overrides })
@@ -2086,6 +2147,7 @@ function runResponder({
       return findingsResult({ findings: f === null ? [] : [f] })
     }
     if (label.startsWith('gap:')) return findingsResult({ findings: [mk('gap' + label.slice(4))] })
+    if (label.startsWith('candidate:')) return findingsResult({ findings: [mk(label.slice(10))] })
     if (label.startsWith('merge:')) return mergeFor ? mergeFor(label) : dedupResult({ groups: [] })
     if (label.startsWith('verify:')) return verdictFor(label)
     if (label === 'synthesis') return synth
@@ -2104,16 +2166,19 @@ async function fullRun(args, responderOpts = {}, { order = 'fifo' } = {}) {
   return { plan, calls, result, logLines, phaseLog }
 }
 
-function dispatchKeyOf(label, sevBySlice) {
+function dispatchKeyOf(call, sevBySlice) {
+  const label = call.label
   if (['scope', 'critic'].includes(label)) return label
+  if (label.startsWith('candidate:')) return 'review-candidate'
   if (label.startsWith('merge:')) return 'merge'
   if (label === 'synthesis') return 'synth'
   if (label === 'review:architecture') return 'review-architecture'
   if (label.startsWith('review:') || label.startsWith('gap:')) return 'review'
   if (label.startsWith('triage:')) return 'triage'
   if (label.startsWith('verify:')) {
-    const sev = sevBySlice[label.split(':')[1].split('-')[0]] || 'medium'
-    return sev === 'high' || sev === 'critical' ? 'verify-high' : 'verify'
+    // T8b D9: the key follows the highest severity among the group's members, read from the group prompt
+    const sevs = findingsOfPrompt(call.prompt).map((f) => f.severity)
+    return sevs.includes('high') || sevs.includes('critical') ? 'verify-group-high' : 'verify-group'
   }
   throw new Error('dispatchKeyOf: unexpected label ' + label)
 }
@@ -2143,23 +2208,24 @@ function fullArgs(overrides = {}) {
 // ── S15 / S16: dispatch (D3) ─────────────────────────────────────────────────
 
 test('S15: every call carries the D3 model and effort of its dispatch key, and a [model/effort] label tag', async () => {
-  const { calls } = await fullRun(fullArgs(), fullScopeOpts())
+  const { calls } = await fullRun(fullArgs(withCandidates('c1')), fullScopeOpts())
   const seenKeys = new Set()
   for (const c of calls) {
-    const key = dispatchKeyOf(c.label, FULL_SEV)
+    const key = dispatchKeyOf(c, FULL_SEV)
     seenKeys.add(key)
     const want = D3_DEFAULTS[key]
     assert.equal(c.opts.model, want.model, `${c.label} model`)
     assert.equal(c.opts.effort, want.effort, `${c.label} effort`)
     assert.equal(c.opts.label, `${c.label} [${want.model}/${want.effort}]`, `${c.label} label tag`)
   }
-  assert.deepEqual([...seenKeys].sort(), Object.keys(D3_DEFAULTS).sort(), 'fixture must exercise all nine dispatch keys')
+  assert.deepEqual([...seenKeys].sort(), Object.keys(D3_DEFAULTS).sort(), 'fixture must exercise all ten dispatch keys')
 })
 
 // E17 (A1): the phase-key -> dispatch-class map, a literal copy of A1 item 2 (class names only, no values).
+// T8b D2: a literal copy, in the D2 order
 const CLASS_MAP = {
-  scope: 'research', review: 'audit-review', 'review-architecture': 'review',
-  critic: 'research', merge: 'extraction', verify: 'research', 'verify-high': 'audit-verify-high',
+  scope: 'research', review: 'audit-review', 'review-candidate': 'audit-review', 'review-architecture': 'review',
+  critic: 'research', merge: 'extraction', 'verify-group': 'research', 'verify-group-high': 'audit-verify-high',
   synth: 'audit-synthesis', triage: 'extraction',
 }
 
@@ -2175,12 +2241,12 @@ test('S15: DISPATCH_CLASSES and FAN_OUT_KEYS equal their literals; plan.dispatch
 test('S16: overrides reach their keys; scope, critic, review-architecture and synth accept fable; omitted keys keep the defaults', async () => {
   const models = {
     scope: 'fable', critic: 'fable', 'review-architecture': 'fable', synth: 'fable', review: 'm-review',
-    'verify-high': 'm-vh', verify: 'm-verify', merge: 'm-merge', triage: 'm-triage',
+    'verify-group-high': 'm-vh', 'verify-group': 'm-verify', merge: 'm-merge', triage: 'm-triage',
   }
-  const efforts = { review: 'e-review', 'verify-high': 'e-vh' } // everything else omitted
-  const { calls, plan } = await fullRun(fullArgs({ models, efforts }), fullScopeOpts())
+  const efforts = { review: 'e-review', 'verify-group-high': 'e-vh' } // everything else omitted
+  const { calls, plan } = await fullRun(fullArgs({ models, efforts, ...withCandidates('c1') }), fullScopeOpts())
   for (const c of calls) {
-    const key = dispatchKeyOf(c.label, FULL_SEV)
+    const key = dispatchKeyOf(c, FULL_SEV)
     const model = models[key] === undefined ? D3_DEFAULTS[key].model : models[key]
     const effort = efforts[key] === undefined ? D3_DEFAULTS[key].effort : efforts[key]
     assert.equal(c.opts.model, model, `${c.label} model`)
@@ -2615,9 +2681,9 @@ test('S22: a fable model under any fan-out key is refused, in any casing or embe
   for (const key of ['scope', 'critic', 'review-architecture', 'synth']) {
     assert.equal(CORE.normalizeArgs(baseArgs({ models: { [key]: 'fable' } })).ok, true, `${key} accepts fable`)
   }
-  assert.equal(CORE.normalizeArgs(baseArgs({ models: { review: 'opus', verify: 'haiku' } })).ok, true)
+  assert.equal(CORE.normalizeArgs(baseArgs({ models: { review: 'opus', 'verify-group': 'haiku' } })).ok, true)
   // the check does not stop at the first fan-out key it looks at
-  assert.equal(CORE.normalizeArgs(baseArgs({ models: { scope: 'fable', review: 'ok', verify: 'fable' } })).reason, 'invalid args: fable is not allowed for fan-out phase verify')
+  assert.equal(CORE.normalizeArgs(baseArgs({ models: { scope: 'fable', review: 'ok', 'verify-group': 'fable' } })).reason, 'invalid args: fable is not allowed for fan-out phase verify-group')
 })
 
 test('S23: dispatch overrides, scriptsDir, workDir and policy fail with the D2 reasons', () => {
@@ -2791,12 +2857,13 @@ test('S21: kept rows carry the D14 fields with the verifier correction appended;
   assert.ok(calls.length > 0)
 })
 
-test('S21 / D11: a quick run with items projects 33 agents (scope 1, review 4, gaps 2, merge 1, verify 20, synth 1, triage 4) and no measure term', () => {
+test('S21 / D11: a quick run with items and no measured candidates projects 17 agents (scope 1, review 4, candidates 0, gaps 2, merge 1, verify 4 groups, synth 1, triage 4) and no measure term', () => {
   const plan = CORE.normalizeArgs(fullArgs()).plan
   const p = CORE.projectAgents(plan)
   assert.deepEqual(
-    { total: p.total, scope: p.scope, review: p.review, gaps: p.gaps, merge: p.merge, verify: p.verify, synth: p.synth, triage: p.triage },
-    { total: 33, scope: 1, review: 4, gaps: 2, merge: 1, verify: 20, synth: 1, triage: 4 }
+    { total: p.total, scope: p.scope, review: p.review, candidates: p.candidates, gaps: p.gaps, merge: p.merge, verify: p.verify, synth: p.synth, triage: p.triage },
+    // T8b D15 by hand: est = (4 + 1 + 0) * 8 = 40, nV = min(40, 20) = 20, verify = ceil(20 / 5) * 1 = 4
+    { total: 17, scope: 1, review: 4, candidates: 0, gaps: 2, merge: 1, verify: 4, synth: 1, triage: 4 }
   )
   assert.equal('measure' in p, false, 'projectAgents has no measure key')
   assert.equal(CORE.PRESETS.quick.gaps.enabled, true)
@@ -3048,7 +3115,7 @@ test('S35: each phase key takes the model and effort of its class from dispatchC
     assert.deepEqual(JSON.parse(JSON.stringify(plan.dispatch[key])), classes[cls], `${key} <- ${cls}`)
   }
   assert.deepEqual(plan.dispatch.scope, plan.dispatch.critic)
-  assert.deepEqual(plan.dispatch.scope, plan.dispatch.verify)
+  assert.deepEqual(plan.dispatch.scope, plan.dispatch['verify-group'])
   assert.deepEqual(plan.dispatch.merge, plan.dispatch.triage)
   assert.notDeepEqual(plan.dispatch.review, plan.dispatch['review-architecture'])
   // the plan holds copies: changing the plan's entry leaves the caller's class object alone
@@ -3058,10 +3125,10 @@ test('S35: each phase key takes the model and effort of its class from dispatchC
 
 test('S35: models and efforts override the class values per key and leave the other keys of the class alone', () => {
   const classes = distinctClasses()
-  const { ok, plan, reason } = CORE.normalizeArgs(baseArgs({ dispatchClasses: classes, models: { review: 'm-over' }, efforts: { verify: 'e-over', synth: 'e-synth-over' } }))
+  const { ok, plan, reason } = CORE.normalizeArgs(baseArgs({ dispatchClasses: classes, models: { review: 'm-over' }, efforts: { 'verify-group': 'e-over', synth: 'e-synth-over' } }))
   assert.equal(ok, true, reason)
   assert.deepEqual(JSON.parse(JSON.stringify(plan.dispatch.review)), { model: 'm-over', effort: 'e-audit-review' })
-  assert.deepEqual(JSON.parse(JSON.stringify(plan.dispatch.verify)), { model: 'm-research', effort: 'e-over' })
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.dispatch['verify-group'])), { model: 'm-research', effort: 'e-over' })
   assert.deepEqual(JSON.parse(JSON.stringify(plan.dispatch.synth)), { model: 'm-audit-synthesis', effort: 'e-synth-over' })
   assert.deepEqual(JSON.parse(JSON.stringify(plan.dispatch.scope)), classes.research, 'the same class under another key is untouched')
   assert.deepEqual(JSON.parse(JSON.stringify(plan.dispatch.critic)), classes.research)
@@ -3070,22 +3137,22 @@ test('S35: models and efforts override the class values per key and leave the ot
 
 test('S35: a whole run carries each call the model and effort of its key class, with the [model/effort] tag', async () => {
   const classes = distinctClasses()
-  const { calls } = await fullRun(fullArgs({ dispatchClasses: classes }), fullScopeOpts())
+  const { calls } = await fullRun(fullArgs({ dispatchClasses: classes, ...withCandidates('c1') }), fullScopeOpts())
   const seen = new Set()
   for (const c of calls) {
-    const key = dispatchKeyOf(c.label, FULL_SEV)
+    const key = dispatchKeyOf(c, FULL_SEV)
     seen.add(key)
     const want = classes[CLASS_MAP[key]]
     assert.equal(c.opts.model, want.model, `${c.label} model`)
     assert.equal(c.opts.effort, want.effort, `${c.label} effort`)
     assert.equal(c.opts.label, `${c.label} [${want.model}/${want.effort}]`, `${c.label} label tag`)
   }
-  assert.deepEqual([...seen].sort(), Object.keys(CLASS_MAP).sort(), 'fixture must exercise all nine dispatch keys')
+  assert.deepEqual([...seen].sort(), Object.keys(CLASS_MAP).sort(), 'fixture must exercise all ten dispatch keys')
 })
 
 test('S36: a fable model in the class of a fan-out key is refused naming the first such key, in any casing or embedding', () => {
   const cases = [
-    ['audit-review', 'review'], ['research', 'verify'], ['audit-verify-high', 'verify-high'],
+    ['audit-review', 'review'], ['research', 'verify-group'], ['audit-verify-high', 'verify-group-high'],
     ['extraction', 'triage'],
   ]
   for (const [cls, key] of cases) {
@@ -3104,8 +3171,8 @@ test('S36: a fable model in the class of a fan-out key is refused naming the fir
   )
   // an effort override does not lift the refusal
   assert.equal(
-    normalizeReason({ dispatchClasses: { ...classFixture(), research: { model: 'Fable', effort: 'low' } }, efforts: { verify: 'high' } }),
-    fableReason('verify'),
+    normalizeReason({ dispatchClasses: { ...classFixture(), research: { model: 'Fable', effort: 'low' } }, efforts: { 'verify-group': 'high' } }),
+    fableReason('verify-group'),
   )
 })
 
@@ -3116,17 +3183,17 @@ test('S36: fable stays allowed where no fan-out key resolves to it; an inline mo
   assert.equal(a.plan.dispatch['review-architecture'].model, 'fable')
   assert.equal(a.plan.dispatch.synth.model, 'fable')
   const research = { ...classFixture(), research: { model: 'Fable', effort: 'medium' } }
-  const b = CORE.normalizeArgs(baseArgs({ dispatchClasses: research, models: { verify: 'sonnet' } }))
+  const b = CORE.normalizeArgs(baseArgs({ dispatchClasses: research, models: { 'verify-group': 'sonnet' } }))
   assert.equal(b.ok, true, b.reason)
-  assert.equal(b.plan.dispatch.verify.model, 'sonnet')
-  assert.equal(b.plan.dispatch.verify.effort, 'medium')
+  assert.equal(b.plan.dispatch['verify-group'].model, 'sonnet')
+  assert.equal(b.plan.dispatch['verify-group'].effort, 'medium')
   assert.equal(b.plan.dispatch.scope.model, 'Fable', 'scope and critic are single-agent keys and keep the class model')
   assert.equal(b.plan.dispatch.critic.model, 'Fable')
 })
 
 test('S36 / probe (order): the inline fable check of models runs before the check on resolved class models', () => {
   const classes = { ...classFixture(), 'audit-review': { model: 'fable', effort: 'high' } }
-  assert.equal(normalizeReason({ dispatchClasses: classes, models: { verify: 'fable' } }), fableReason('verify'))
+  assert.equal(normalizeReason({ dispatchClasses: classes, models: { 'verify-group': 'fable' } }), fableReason('verify-group'))
   assert.equal(normalizeReason({ dispatchClasses: classes }), fableReason('review'))
 })
 
@@ -3456,16 +3523,16 @@ const BS = String.fromCharCode(92)
 test('S41: DISPATCH_CLASSES and FAN_OUT_KEYS have no measure entry; plan.dispatch and the agent projection have no measure key', () => {
   assert.equal('measure' in JSON.parse(JSON.stringify(CORE.DISPATCH_CLASSES)), false)
   assert.equal(Object.values(JSON.parse(JSON.stringify(CORE.DISPATCH_CLASSES))).includes('audit-measure'), false)
-  assert.deepEqual([...CORE.FAN_OUT_KEYS], ['review', 'verify', 'verify-high', 'triage', 'merge'])
+  assert.deepEqual([...CORE.FAN_OUT_KEYS], FAN_OUT)
   const plan = buildPlan()
   assert.equal('measure' in plan.dispatch, false)
   assert.equal('measure' in CORE.projectAgents(plan), false)
   assert.equal(CORE.normalizeArgs(baseArgs({ dispatchClasses: { ...classFixture(), 'audit-measure': { model: 'haiku', effort: 'low' } } })).ok, true, 'an unmapped audit-measure class entry is ignored, not required')
 })
 
-test('S41: a quick run with items and no scriptsDir projects 33 agents; the merge term is max(1, ceil(est / 40)) at the batch boundary', () => {
+test('S41: a quick run with items and no scriptsDir projects 17 agents; the merge term is max(1, ceil(est / 40)) at the batch boundary', () => {
   const plan = CORE.normalizeArgs(fullArgs()).plan
-  assert.equal(CORE.projectAgents(plan).total, 33)
+  assert.equal(CORE.projectAgents(plan).total, 17) // T8b D15 by hand: 1 + 4 + 2 + 1 + 4 + 1 + 4
   // est = (R + gaps.max) * 8: R=4 + 1 gap -> 40 -> 1 batch; R=5 + 1 -> 48 -> 2 batches
   const bigger = buildPlan({ scope: { paths: ['x'], reviewers: [1, 2, 3, 4].map((i) => reviewerSpec('g' + i)), lenses: [] }, gaps: { enabled: true, max: 1 } })
   assert.equal(CORE.projectAgents(bigger).merge, handComputeTotal(bigger).merge)
@@ -3689,7 +3756,7 @@ test('S48: a run with a metrics-pending finding sends it to no verifier, keeps i
     r3: [{ title: 'T-three', locations: ['src/r3.kt:1'], metrics: { churn: 1 } }],
   }
   const { calls, result } = await clusterRun(specs, { verify: { highLenses: ['combined'], defaultLenses: ['combined'], maxFindings: 1 } })
-  assert.equal(calls.some((c) => c.label.startsWith('verify:r1-1')), false, 'no verifier for the pending finding')
+  assert.equal(calls.some((c) => c.label.startsWith('verify:') && findingsOfPrompt(c.prompt).some((f) => f.id === 'r1-1')), false, 'no verify group lists the pending finding')
   assert.equal(result.stats.metricsPending, 1)
   assert.equal(result.stats.unverifiedByCap, 1, 'only the judgement finding past the cap is cut; the pending one took no slot')
   assert.deepEqual(result.kept.map((k) => k.findingId), ['r2-1', 'r3-1', 'r1-1'], 'order: verified, cap tail, pending')
@@ -3726,7 +3793,7 @@ test('S48 / probe: a measured finding whose claim is invalid is verified like a 
   const { calls, result } = await clusterRun({
     r1: [{ title: 'T-bad-claim', locations: ['src/r1.kt:1'], basis: 'measured', measuredClaim: { field: 'loc', value: 3 } }],
   })
-  assert.ok(calls.some((c) => c.label.startsWith('verify:r1-1')), 'verified by agents')
+  assert.ok(calls.some((c) => c.label.startsWith('verify:') && findingsOfPrompt(c.prompt).some((f) => f.id === 'r1-1')), 'verified by agents')
   const row = result.kept.find((k) => k.findingId === 'r1-1')
   assert.equal(row.basis, 'judgement')
   assert.equal('measuredClaim' in row, false)
@@ -4038,7 +4105,8 @@ test('S59: the same findings give the same title-to-stableId map whatever the co
   const swapped = await clusterRun(specs, { keys: ['s3', 's2', 's1'] })
   const base = mapOf(fifo)
   const sw = mapOf(swapped)
-  for (const t of ['T-three']) assert.equal(sw[t], base[t], 'a unique key hashes the same whatever the reviewer order')
+  // T8b S77 (O1, D13): the tie-break is by line, then the raw first-location string, so the whole map is reviewer-order independent
+  assert.deepEqual(sw, base)
   assert.equal(new Set(Object.values(sw)).size, 4, 'four distinct ids')
 })
 
@@ -4053,4 +4121,561 @@ test('S60: a refuted row carries exactly findingId, title, category, locations (
     findingId: 's1-1', title: 'T-refuted', category: 'layering', locations: locations.slice(0, 4),
     stableId: stableIdOf('layering', 'src/a.kt'), basis: 'judgement', verifiedBy: 'agents',
   }])
+})
+
+// ── T8b (item 3ef6e092, test-author seat): candidate fan-out and grouped verification ─────────────────────
+// Oracle: the item's task-scope D1-D16 and AC 1-11, test-plan S61-S79 (frozen before the implementation), and
+// carry-in-contracts C5 and C6. Signatures come from the supplied declarations block. No implementation source
+// was opened. Two facts outside the declarations were taken from public runtime evidence and are named in the
+// test-manifest: the cluster shape preCluster returns ({k, ids, ...}, observed by calling the function, as S55 does)
+// and the layout of a verify group prompt (a FINDINGS: JSON array, task-scope D10). Every expected value below is
+// derived by hand from the cited decision and written as a literal, never read back from the workflow.
+
+const CAND_FOUR = ['cand-alpha', 'cand-beta', 'cand-gamma', 'cand-delta']
+
+/** Args with a measured input carrying one candidate per id, in the given order. */
+function candidateArgs(ids, overrides = {}) {
+  return baseArgs({ measured: measuredFixture({ candidates: ids.map((id) => candidateFixture(id)) }), ...overrides })
+}
+
+const idsOfGroupPrompt = (prompt) => findingsOfPrompt(prompt).map((f) => f.id)
+
+// ── S61: C5 args (D1) ────────────────────────────────────────────────────────
+
+test('S61: the presets carry candidateCount 3/6/12 and groupSize 5; plan.scope.candidateCount and plan.verify.groupSize take the preset, an override wins', () => {
+  const want = { quick: 3, standard: 6, full: 12 }
+  for (const [preset, count] of Object.entries(want)) {
+    assert.equal(CORE.PRESETS[preset].candidateCount, count, `${preset} preset candidateCount`)
+    assert.equal(CORE.PRESETS[preset].verify.groupSize, 5, `${preset} preset groupSize`)
+    const { ok, plan, reason } = CORE.normalizeArgs(baseArgs({ preset, gaps: undefined }))
+    assert.equal(ok, true, reason)
+    assert.equal(plan.scope.candidateCount, count, `${preset} plan candidateCount`)
+    assert.equal(plan.verify.groupSize, 5, `${preset} plan groupSize`)
+  }
+  const base = baseArgs()
+  const over = CORE.normalizeArgs({ ...base, scope: { ...base.scope, candidateCount: 2 }, verify: { groupSize: 2 } })
+  assert.equal(over.ok, true, over.reason)
+  assert.equal(over.plan.scope.candidateCount, 2)
+  assert.equal(over.plan.verify.groupSize, 2)
+  assert.deepEqual(over.plan.verify.highLenses, ['combined'], 'the other verify fields keep the quick preset')
+  const zero = CORE.normalizeArgs({ ...base, scope: { ...base.scope, candidateCount: 0 } })
+  assert.equal(zero.ok, true, 'candidateCount 0 is allowed')
+  assert.equal(zero.plan.scope.candidateCount, 0, 'a zero override is kept, not replaced by the preset')
+})
+
+test('S61: verify.groupSize that is not a positive integer and scope.candidateCount that is not a non-negative integer are refused with the D1 reasons', () => {
+  const size = 'invalid args: verify.groupSize must be a positive integer'
+  const count = 'invalid args: scope.candidateCount must be a non-negative integer'
+  for (const bad of [0, -1, 1.5, '5']) {
+    assert.equal(CORE.normalizeArgs(baseArgs({ verify: { groupSize: bad } })).reason, size, `groupSize ${JSON.stringify(bad)}`)
+  }
+  for (const bad of [-1, 1.5]) {
+    const base = baseArgs()
+    assert.equal(CORE.normalizeArgs({ ...base, scope: { ...base.scope, candidateCount: bad } }).reason, count, `candidateCount ${bad}`)
+  }
+  // groupSize is checked first when both are bad
+  const base = baseArgs()
+  assert.equal(CORE.normalizeArgs({ ...base, scope: { ...base.scope, candidateCount: -1 }, verify: { groupSize: 0 } }).reason, size)
+  // 1 is the smallest valid group size
+  assert.equal(CORE.normalizeArgs(baseArgs({ verify: { groupSize: 1 } })).ok, true)
+})
+
+// ── S62: C5 dispatch maps (D2) ───────────────────────────────────────────────
+
+test('S62: DISPATCH_CLASSES and FAN_OUT_KEYS equal the D2 literals in order; the old verify keys are unknown; fable is refused for each new fan-out key inline and through its class', () => {
+  const classes = JSON.parse(JSON.stringify(CORE.DISPATCH_CLASSES))
+  assert.deepEqual(Object.entries(classes), [
+    ['scope', 'research'], ['review', 'audit-review'], ['review-candidate', 'audit-review'], ['review-architecture', 'review'],
+    ['critic', 'research'], ['merge', 'extraction'], ['verify-group', 'research'], ['verify-group-high', 'audit-verify-high'],
+    ['synth', 'audit-synthesis'], ['triage', 'extraction'],
+  ])
+  assert.deepEqual([...CORE.FAN_OUT_KEYS], ['review', 'review-candidate', 'verify-group', 'verify-group-high', 'triage', 'merge'])
+  for (const key of ['verify', 'verify-high']) {
+    assert.equal(normalizeReason({ models: { [key]: 'sonnet' } }), `invalid args: unknown dispatch key models.${key}`)
+    assert.equal(normalizeReason({ efforts: { [key]: 'low' } }), `invalid args: unknown dispatch key efforts.${key}`)
+  }
+  for (const key of ['review-candidate', 'verify-group', 'verify-group-high']) {
+    assert.equal(normalizeReason({ models: { [key]: 'fable' } }), fableReason(key), `inline fable under ${key}`)
+  }
+  // through the class: research feeds scope, critic and verify-group; only verify-group is a fan-out key
+  assert.equal(normalizeReason({ dispatchClasses: { ...classFixture(), research: { model: 'fable', effort: 'low' } } }), fableReason('verify-group'))
+  assert.equal(normalizeReason({ dispatchClasses: { ...classFixture(), 'audit-verify-high': { model: 'fable', effort: 'low' } } }), fableReason('verify-group-high'))
+  // audit-review feeds review and review-candidate: the first fan-out key in order is review
+  assert.equal(normalizeReason({ dispatchClasses: { ...classFixture(), 'audit-review': { model: 'fable', effort: 'low' } } }), fableReason('review'))
+  // an inline override of review lifts the class refusal for review, and the next key in order, review-candidate, is named
+  assert.equal(
+    normalizeReason({ dispatchClasses: { ...classFixture(), 'audit-review': { model: 'fable', effort: 'low' } }, models: { review: 'sonnet' } }),
+    fableReason('review-candidate'),
+  )
+})
+
+// ── S63 / S64: projection (D3, D15) ──────────────────────────────────────────
+
+const twelveIds = Array.from({ length: 12 }, (_, i) => 'cand-' + (i + 1))
+const measured12 = () => measuredFixture({ candidates: twelveIds.map((id) => candidateFixture(id)) })
+const presetPlan = (preset, { measured, items }) => {
+  const { ok, plan, reason } = CORE.normalizeArgs(baseArgs({
+    preset, gaps: undefined, scope: { paths: ['x'] }, ...(measured ? { measured } : {}),
+    ...(items ? { items: { enabled: true, rootId: 'root-1' } } : {}),
+  }))
+  assert.equal(ok, true, reason)
+  return plan
+}
+const termsOf = (p) => ({ total: p.total, scope: p.scope, review: p.review, candidates: p.candidates, gaps: p.gaps, merge: p.merge, verify: p.verify, synth: p.synth, triage: p.triage })
+
+test('S63: projectAgents pins per term (D15 by hand): 12 candidates measured, with and without items, and no measured', () => {
+  // est = (R + gaps.max + C) * 8; nV = min(est, maxFindings); verify = ceil(nV / 5) * lenses; merge = ceil(est / 40); triage = ceil(est / 10)
+  const withMeasured = {
+    quick: { total: 24, scope: 1, review: 4, candidates: 3, gaps: 2, merge: 2, verify: 4, synth: 1, triage: 7 },
+    standard: { total: 60, scope: 1, review: 8, candidates: 6, gaps: 3, merge: 4, verify: 24, synth: 1, triage: 13 },
+    full: { total: 128, scope: 1, review: 16, candidates: 12, gaps: 5, merge: 7, verify: 60, synth: 1, triage: 26 },
+  }
+  for (const [preset, want] of Object.entries(withMeasured)) {
+    assert.deepEqual(termsOf(CORE.projectAgents(presetPlan(preset, { measured: measured12(), items: true }))), want, `${preset} with items`)
+  }
+  const noItems = { quick: 17, standard: 47, full: 102 }
+  for (const [preset, total] of Object.entries(noItems)) {
+    const p = CORE.projectAgents(presetPlan(preset, { measured: measured12() }))
+    assert.equal(p.total, total, `${preset} without items`)
+    assert.equal(p.triage, 0)
+  }
+  const noMeasured = { quick: 17, standard: 47, full: 103 }
+  for (const [preset, total] of Object.entries(noMeasured)) {
+    const p = CORE.projectAgents(presetPlan(preset, { items: true }))
+    assert.equal(p.total, total, `${preset} without measured, with items`)
+    assert.equal(p.candidates, 0)
+  }
+})
+
+test('S63: assignedCandidates and the projection count no candidate in a docs focus or at candidateCount 0, cut at candidateCount, and count distinct valid ids', () => {
+  const ids = (plan) => CORE.assignedCandidates(plan).map((c) => c.candidateId)
+  const planOf = (o) => {
+    const { ok, plan, reason } = CORE.normalizeArgs(o)
+    assert.equal(ok, true, reason)
+    return plan
+  }
+  const m = (list) => measuredFixture({ candidates: list })
+  const four = CAND_FOUR.map((id) => candidateFixture(id))
+  // no measured, and a measured with an empty list
+  assert.deepEqual(ids(planOf(baseArgs())), [])
+  assert.deepEqual(ids(planOf(baseArgs({ measured: m([]) }))), [])
+  // cut at candidateCount 3, in measured order
+  assert.deepEqual(ids(planOf(baseArgs({ measured: m(four) }))), CAND_FOUR.slice(0, 3))
+  // two candidates under a count of 3 -> 2
+  const two = planOf(baseArgs({ measured: m(four.slice(0, 2)) }))
+  assert.equal(ids(two).length, 2)
+  assert.equal(CORE.projectAgents(two).candidates, 2)
+  // count 0 and a docs focus -> none
+  const base = baseArgs({ measured: m(four) })
+  const zero = planOf({ ...base, scope: { ...base.scope, candidateCount: 0 } })
+  assert.deepEqual(ids(zero), [])
+  assert.equal(CORE.projectAgents(zero).candidates, 0)
+  const docs = planOf(noReviewers({ measured: m(four), focus: 'docs' }))
+  assert.deepEqual(ids(docs), [])
+  assert.equal(CORE.projectAgents(docs).candidates, 0)
+  // a repeated id, an empty id, a non-string id and a non-object entry are skipped; the first of a repeat wins
+  const messy = [candidateFixture('a1'), null, 'x', candidateFixture('a1', { kind: 'later' }), candidateFixture(''), candidateFixture(7), candidateFixture('a2')]
+  const got = CORE.assignedCandidates(planOf(baseArgs({ measured: m(messy) })))
+  assert.deepEqual(got.map((c) => c.candidateId), ['a1', 'a2'])
+  assert.equal(got[0].kind, 'hotspot', 'the first occurrence of a repeated id is kept')
+  assert.equal(CORE.projectAgents(planOf(baseArgs({ measured: m(messy) }))).candidates, 2)
+  // a candidate whose subject is not an array reads as an empty subject
+  const noSubject = CORE.assignedCandidates(planOf(baseArgs({ measured: m([candidateFixture('s1', { subject: 'src/x' })]) })))
+  assert.deepEqual(JSON.parse(JSON.stringify(noSubject[0].subject)), [])
+})
+
+test('S64: sizeGuard passes standard with 12 candidates and items at maxAgents 60 and refuses full naming 128', () => {
+  assert.equal(CORE.sizeGuard(presetPlan('standard', { measured: measured12(), items: true })), null)
+  assert.deepEqual(CORE.sizeGuard(presetPlan('full', { measured: measured12(), items: true })), {
+    reason: 'projected 128 agents > maxAgents; pass allowLarge or a smaller preset',
+  })
+})
+
+// ── S65 - S68: candidate reviewers (D4, D5, D7) ──────────────────────────────
+
+test('S65: four candidates under quick run three candidate:<id> calls in measured order with the audit-review model and effort, a prompt carrying the candidate, and findings sourced by the candidate id', async () => {
+  const args = candidateArgs(CAND_FOUR)
+  const m = args.measured
+  const { calls, result } = await fullRun(args, {})
+  const candCalls = calls.filter((c) => c.label.startsWith('candidate:'))
+  assert.deepEqual(candCalls.map((c) => c.label), ['candidate:cand-alpha', 'candidate:cand-beta', 'candidate:cand-gamma'])
+  assert.equal(calls.some((c) => c.label === 'candidate:cand-delta'), false, 'the fourth candidate is past candidateCount')
+  assert.deepEqual(calls.filter((c) => c.label.startsWith('review:')).map((c) => c.label), ['review:r1', 'review:r2', 'review:architecture'], 'review calls are unchanged')
+  const lastReview = Math.max(...calls.map((c, i) => (c.label.startsWith('review:') ? i : -1)))
+  const firstCandidate = calls.findIndex((c) => c.label.startsWith('candidate:'))
+  assert.ok(firstCandidate > lastReview, 'candidate reviewers are issued after the reviewers and the lenses')
+  for (const c of candCalls) {
+    assert.equal(c.opts.model, 'sonnet')
+    assert.equal(c.opts.effort, 'high')
+    assert.equal(c.opts.label, `${c.label} [sonnet/high]`)
+    assert.equal(c.opts.phase, 'Review')
+  }
+  const cand = m.candidates[0]
+  const prompt = candCalls[0].prompt
+  assert.ok(prompt.includes('cand-alpha'), 'names the candidate id')
+  assert.ok(prompt.includes(cand.kind), 'names the candidate kind')
+  assert.ok(prompt.includes('SUBJECT:') && prompt.includes(cand.subject[0]), 'lists the subject paths')
+  assert.ok(prompt.includes('FACTS:') && prompt.includes(JSON.stringify(cand.facts)), 'carries the facts as JSON')
+  assert.match(prompt, /cost[- ]of[- ]change/i, 'asks the cost-of-change question')
+  assert.ok(prompt.includes(CORE.sliceDigest(m, cand.subject)), 'carries the digest of the subject slice')
+  assert.equal(prompt.includes('cand-beta'), false, 'carries no other candidate')
+  assert.equal(result.stats.candidateReviewers, 3)
+  assert.equal(result.stats.reviewers, 3, 'reviewers counts the territory and lens slices only')
+  for (const id of ['cand-alpha', 'cand-beta', 'cand-gamma']) {
+    const row = result.kept.find((k) => k.sliceKey === id)
+    assert.ok(row, `a kept finding carries sliceKey ${id}`)
+    assert.equal(row.findingId, `${id}-1`)
+  }
+})
+
+test('S66: a null candidate result is listed in stats.missing, counts no candidate reviewer and does not stop the run', async () => {
+  const { result } = await fullRun(candidateArgs(CAND_FOUR), { nullFor: ['candidate:cand-beta'] })
+  assert.equal(result.started, true)
+  assert.ok(result.stats.missing.includes('cand-beta'))
+  assert.equal(result.stats.candidateReviewers, 2)
+  assert.equal(result.kept.some((k) => k.sliceKey === 'cand-beta'), false)
+  assert.equal(result.kept.some((k) => k.sliceKey === 'cand-alpha'), true)
+})
+
+test('S67: no candidate call without measured (logged), in a docs focus or at candidateCount 0', async () => {
+  const none = await fullRun(baseArgs(), {})
+  assert.equal(none.calls.some((c) => c.label.startsWith('candidate:')), false)
+  assert.ok(none.logLines.some((l) => l.includes('no measured input')), 'the absence of measured input is logged')
+  assert.equal(none.result.stats.candidateReviewers, 0)
+
+  const docsArgs = noReviewers({ focus: 'docs', measured: measuredFixture({ candidates: CAND_FOUR.map((id) => candidateFixture(id)) }) })
+  const docsScope = scopeResult({ reviewers: [plannerSlice('d1', 'docs')] })
+  const docs = await fullRun(docsArgs, { scope: docsScope })
+  assert.equal(docs.result.started, true)
+  assert.equal(docs.calls.some((c) => c.label.startsWith('candidate:')), false)
+  assert.equal(docs.result.stats.candidateReviewers, 0)
+
+  const base = candidateArgs(CAND_FOUR)
+  const zero = await fullRun({ ...base, scope: { ...base.scope, candidateCount: 0 } }, {})
+  assert.equal(zero.calls.some((c) => c.label.startsWith('candidate:')), false)
+  assert.equal(zero.result.stats.candidateReviewers, 0)
+})
+
+test('S67 / probe (empty vs absent): a measured input with an empty candidates list runs no candidate call', async () => {
+  const { calls, result } = await fullRun(candidateArgs([]), {})
+  assert.equal(calls.some((c) => c.label.startsWith('candidate:')), false)
+  assert.equal(result.stats.candidateReviewers, 0)
+})
+
+test('S68: the scope prompt lists the assigned candidates after the digest, not an unassigned one; the block is absent without measured, at count 0 and in a docs focus', async () => {
+  const heading = 'MEASURED CANDIDATES ALREADY ASSIGNED'
+  const scopeOf = async (args, scope) => (await fullRun(args, { scope })).calls.find((c) => c.label === 'scope').prompt
+  const scope = scopeResult({ reviewers: [reviewerSpec('r1')] })
+  const m = measuredFixture({ candidates: CAND_FOUR.map((id) => candidateFixture(id)) })
+  const prompt = await scopeOf(noReviewers({ measured: m }), scope)
+  const at = prompt.indexOf(heading)
+  assert.ok(at >= 0, 'the block is present')
+  assert.ok(at > digestAt(prompt) && digestAt(prompt) >= 0, 'the block follows the digest')
+  const block = prompt.slice(at)
+  const subject = m.candidates[0].subject[0]
+  for (const id of CAND_FOUR.slice(0, 3)) assert.ok(block.includes(`${id} (${subject})`), `${id} is listed with its subject`)
+  assert.equal(block.includes('cand-delta'), false, 'the unassigned fourth candidate is not listed')
+
+  assert.equal((await scopeOf(noReviewers(), scope)).includes(heading), false, 'absent without measured')
+  const zeroArgs = noReviewers({ measured: m })
+  zeroArgs.scope.candidateCount = 0
+  assert.equal((await scopeOf(zeroArgs, scope)).includes(heading), false, 'absent at candidateCount 0')
+  assert.equal((await scopeOf(noReviewers({ measured: m, focus: 'docs' }), scopeResult({ reviewers: [plannerSlice('d1', 'docs')] }))).includes(heading), false, 'absent in a docs focus')
+})
+
+// ── S69: origin (D6) ─────────────────────────────────────────────────────────
+
+test('S69: every coverage.reviewers entry is {key, label, kind, origin}: territory, lens (the architecture lens too), candidate and gap; kind stays code or docs', async () => {
+  const { result } = await fullRun(fullArgs(withCandidates('c1')), fullScopeOpts())
+  const entries = result.report.coverage.reviewers
+  const by = Object.fromEntries(entries.map((e) => [e.key, e]))
+  for (const e of entries) assert.deepEqual(Object.keys(e).sort(), ['key', 'kind', 'label', 'origin'], `${e.key} entry shape`)
+  assert.deepEqual(
+    Object.fromEntries(entries.map((e) => [e.key, e.origin])),
+    { r1: 'territory', r2: 'territory', l1: 'lens', architecture: 'lens', c1: 'candidate', gap1: 'gap' },
+  )
+  for (const e of entries) assert.equal(e.kind, 'code', `${e.key} kind`)
+  assert.equal(result.stats.reviewers, 4, 'territory and lens slices: r1, r2, l1, architecture')
+  assert.equal(result.stats.candidateReviewers, 1)
+  assert.equal(by.c1.label.length > 0, true)
+
+  const docs = await fullRun(noReviewers({ focus: 'docs' }), { scope: scopeResult({ reviewers: [plannerSlice('d1', 'docs')] }) })
+  const d1 = docs.result.report.coverage.reviewers.find((e) => e.key === 'd1')
+  assert.equal(d1.kind, 'docs')
+  assert.equal(d1.origin, 'territory')
+})
+
+// ── S70: packVerifyGroups (D8) ───────────────────────────────────────────────
+
+// Rows in capVerification order. Cluster k=1 holds r2 (p/x), r7 (p/x), r4 (p/y); cluster k=2 holds r1 and r5 (p/z); r3 (p/y)
+// and r6 (p/x) are in no cluster. First index of each path in rows: p/z 0, p/x 1, p/y 2. By D8 (cluster k, then the first
+// index of the row's primaryPath, then the index) the order is r2 r7 r4 | r1 r5 | r6 r3.
+const packRows = () => [
+  { id: 'r1', locations: ['p/z.kt:1'] }, { id: 'r2', locations: ['p/x.kt:1'] }, { id: 'r3', locations: ['p/y.kt:1'] },
+  { id: 'r4', locations: ['p/y.kt:2'] }, { id: 'r5', locations: ['p/z.kt:9'] }, { id: 'r6', locations: ['p/x.kt:5'] },
+  { id: 'r7', locations: ['p/x.kt:3'] },
+]
+const packClusters = () => [{ k: 1, ids: ['r2', 'r4', 'r7'] }, { k: 2, ids: ['r1', 'r5'] }]
+const packIds = (groups) => groups.map((g) => g.map((r) => r.id))
+
+test('S70: packVerifyGroups orders by cluster, then path, then index, and chunks by groupSize', () => {
+  assert.deepEqual(packIds(CORE.packVerifyGroups(packRows(), packClusters(), 5)), [['r2', 'r7', 'r4', 'r1', 'r5'], ['r6', 'r3']])
+  assert.deepEqual(packIds(CORE.packVerifyGroups(packRows(), packClusters(), 1)), [['r2'], ['r7'], ['r4'], ['r1'], ['r5'], ['r6'], ['r3']])
+  assert.deepEqual(packIds(CORE.packVerifyGroups(packRows(), packClusters(), 3)), [['r2', 'r7', 'r4'], ['r1', 'r5', 'r6'], ['r3']])
+})
+
+test('S70 / probe (boundaries): exactly ceil(n / groupSize) groups at 5 vs 6 rows, at groupSize n and above n', () => {
+  const six = [...packRows(), { id: 'r8', locations: ['p/w.kt:1'] }].slice(0, 6)
+  assert.equal(CORE.packVerifyGroups(six.slice(0, 5), packClusters(), 5).length, 1)
+  assert.equal(CORE.packVerifyGroups(six, packClusters(), 5).length, 2)
+  assert.deepEqual(CORE.packVerifyGroups(six, packClusters(), 5).map((g) => g.length), [5, 1])
+  for (const size of [7, 8, 100]) assert.deepEqual(packIds(CORE.packVerifyGroups(packRows(), packClusters(), size)), [['r2', 'r7', 'r4', 'r1', 'r5', 'r6', 'r3']], `size ${size}`)
+  assert.deepEqual(CORE.packVerifyGroups([], [], 5), [])
+  assert.deepEqual(CORE.packVerifyGroups([], packClusters(), 1), [])
+})
+
+test('S70 / probe: rows in no cluster sort last by path and index; the clusters array order does not decide; the inputs are not mutated; a repeat gives the same answer', () => {
+  const noClusters = packIds(CORE.packVerifyGroups(packRows(), [], 5))
+  // path first indexes: p/z 0, p/x 1, p/y 2 -> r1 r5 | r2 r6 r7 | r3 r4
+  assert.deepEqual(noClusters, [['r1', 'r5', 'r2', 'r6', 'r7'], ['r3', 'r4']])
+  const reversed = packClusters().reverse()
+  assert.deepEqual(packIds(CORE.packVerifyGroups(packRows(), reversed, 5)), [['r2', 'r7', 'r4', 'r1', 'r5'], ['r6', 'r3']])
+  const rows = packRows()
+  const clusters = packClusters()
+  const before = JSON.stringify([rows, clusters])
+  const first = packIds(CORE.packVerifyGroups(rows, clusters, 2))
+  assert.equal(JSON.stringify([rows, clusters]), before, 'inputs unchanged')
+  assert.deepEqual(rows.map((r) => r.id), ['r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7'])
+  assert.deepEqual(packIds(CORE.packVerifyGroups(rows, clusters, 2)), first)
+})
+
+// ── S71 - S73: group verification (D9 - D11) ─────────────────────────────────
+
+/** A run of one finding per reviewer slice (s1..sN), each on its own path so no merge agent runs. */
+function slicesRun(severities, { verify = {}, verdictFor, order = 'fifo' } = {}) {
+  const bySlice = {}
+  severities.forEach((sev, i) => { bySlice['s' + (i + 1)] = [{ severity: sev, locations: [`src/s${i + 1}.kt:1`] }] })
+  return clusterRun(bySlice, { verify: { highLenses: ['combined'], defaultLenses: ['combined'], maxFindings: 20, ...verify }, verdictFor, order })
+}
+
+test('S71: seven low findings at groupSize 5 make two verify groups, verify:g1:combined and verify:g2:combined, under the verify-group key; stats.verifyAgents counts them', async () => {
+  const { calls, result } = await slicesRun(Array(7).fill('low'))
+  const verifyCalls = calls.filter((c) => c.label.startsWith('verify:'))
+  assert.deepEqual(verifyCalls.map((c) => c.label), ['verify:g1:combined', 'verify:g2:combined'])
+  assert.equal(result.stats.verifyAgents, 2)
+  assert.deepEqual(verifyCalls.map((c) => idsOfGroupPrompt(c.prompt).length), [5, 2])
+  const all = verifyCalls.flatMap((c) => idsOfGroupPrompt(c.prompt)).sort()
+  assert.deepEqual(all, ['s1-1', 's2-1', 's3-1', 's4-1', 's5-1', 's6-1', 's7-1'], 'every finding is in exactly one group')
+  for (const c of verifyCalls) {
+    assert.equal(c.opts.model, 'sonnet', 'verify-group is the research class')
+    assert.equal(c.opts.effort, 'medium')
+    assert.equal(c.opts.label, `${c.label} [sonnet/medium]`)
+    assert.equal(c.opts.phase, 'Verify')
+    for (const field of ['refuted', 'confidence', 'evidenceAccurate', 'correctedEvidence', 'adjustedSeverity', 'alreadyTrackedId', 'rationale', 'findingId']) {
+      assert.ok(c.prompt.includes(field), `${c.label} prompt names ${field}`)
+    }
+    for (const f of findingsOfPrompt(c.prompt)) {
+      assert.deepEqual(Object.keys(f).sort(), ['category', 'documentation', 'evidence', 'id', 'impact', 'locations', 'recommendation', 'severity', 'title'])
+    }
+  }
+  assert.equal(result.kept.length, 7)
+  for (const k of result.kept) assert.equal(k.verdict, 'CONFIRMED')
+})
+
+test('S71: the group prompt names the verdicts list the verifier returns (test-plan S71: names each VERDICT field and verdicts)', async () => {
+  const { calls } = await slicesRun(Array(2).fill('low'))
+  const c = calls.find((x) => x.label.startsWith('verify:'))
+  assert.ok(c.prompt.includes('verdicts'), 'the prompt names the verdicts list')
+})
+
+test('S71 / probe (groupSize 1 and >= n): one group per finding at 1, one group at 7 and above', async () => {
+  const single = await slicesRun(Array(3).fill('low'), { verify: { groupSize: 1 } })
+  assert.deepEqual(single.calls.filter((c) => c.label.startsWith('verify:')).map((c) => c.label), ['verify:g1:combined', 'verify:g2:combined', 'verify:g3:combined'])
+  assert.equal(single.result.stats.verifyAgents, 3)
+  const wide = await slicesRun(Array(7).fill('low'), { verify: { groupSize: 7 } })
+  assert.deepEqual(wide.calls.filter((c) => c.label.startsWith('verify:')).map((c) => c.label), ['verify:g1:combined'])
+  const five = await slicesRun(Array(5).fill('low'))
+  assert.equal(five.result.stats.verifyAgents, 1, 'five rows at size 5 is one group')
+  const six = await slicesRun(Array(6).fill('low'))
+  assert.equal(six.result.stats.verifyAgents, 2, 'six rows at size 5 is two groups')
+})
+
+test('S71: a group with a high or critical member takes the high lenses under verify-group-high; a group of medium and low members takes the default lenses under verify-group', async () => {
+  const verify = { highLenses: ['evidence', 'significance', 'consequence'], defaultLenses: ['combined'] }
+  for (const top of ['high', 'critical']) {
+    const { calls, result } = await slicesRun(['low', 'low', top, 'medium', 'low', 'low', 'low'], { verify })
+    const verifyCalls = calls.filter((c) => c.label.startsWith('verify:'))
+    const holder = (c) => idsOfGroupPrompt(c.prompt).includes('s3-1')
+    const high = verifyCalls.filter(holder)
+    const rest = verifyCalls.filter((c) => !holder(c))
+    assert.deepEqual(high.map((c) => c.label.split(':').pop()).sort(), ['consequence', 'evidence', 'significance'], `${top}: three high lenses`)
+    for (const c of high) {
+      assert.equal(c.opts.model, 'opus', `${top}: verify-group-high is the audit-verify-high class`)
+      assert.equal(c.opts.effort, 'medium')
+    }
+    assert.deepEqual(rest.map((c) => c.label.split(':').pop()), ['combined'], `${top}: the other group has the default lens`)
+    for (const c of rest) assert.equal(c.opts.model, 'sonnet')
+    assert.equal(result.stats.verifyAgents, 4)
+  }
+  const medium = await slicesRun(Array(7).fill('medium'), { verify })
+  assert.deepEqual(medium.calls.filter((c) => c.label.startsWith('verify:')).map((c) => c.label), ['verify:g1:combined', 'verify:g2:combined'], 'medium is not high')
+})
+
+test('S72: groupVotes aligns votes to the group by findingId: a missing id is null, an unknown id is ignored, the first of a duplicate wins; a null or malformed answer is all null', () => {
+  const group = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+  const answer = { verdicts: [{ findingId: 'b', rationale: 'rb' }, { findingId: 'ghost', rationale: 'rg' }, { findingId: 'a', rationale: 'ra1' }, { findingId: 'a', rationale: 'ra2' }] }
+  const votes = CORE.groupVotes(answer, group)
+  assert.equal(votes.length, 3)
+  assert.equal(votes[0].rationale, 'ra1', 'the first entry for an id wins')
+  assert.equal(votes[1].rationale, 'rb', 'matched by id, not by position')
+  assert.equal(votes[2], null)
+  for (const bad of [null, undefined, {}, { verdicts: null }, { verdicts: 'x' }, { verdicts: {} }]) {
+    assert.deepEqual(CORE.groupVotes(bad, group), [null, null, null], JSON.stringify(bad))
+  }
+  assert.deepEqual(CORE.groupVotes(answer, []), [])
+  assert.equal(CORE.groupVotes({ verdicts: [{ findingId: 'a' }, null, 7] }, group)[0].findingId, 'a', 'a non-object entry does not stop the scan')
+})
+
+test('S72: in a run, a member the verifier omitted is UNVERIFIED no-verifier and the others are CONFIRMED', async () => {
+  const { result } = await slicesRun(['high', 'high', 'high'], { verdictFor: (label) => (label.startsWith('verify:s2-1') ? null : verdictResult()) })
+  const by = Object.fromEntries(result.kept.map((k) => [k.findingId, k]))
+  assert.equal(by['s1-1'].verdict, 'CONFIRMED')
+  assert.equal(by['s3-1'].verdict, 'CONFIRMED')
+  assert.equal(by['s2-1'].verdict, 'UNVERIFIED')
+  assert.equal(by['s2-1'].unverifiedReason, 'no-verifier')
+})
+
+test('S72 / probe: a raw group answer with an unknown id, with no verdicts list, or in the old bare-verdict shape', async () => {
+  const run = async (answerFor) => {
+    const args = baseArgs({ scope: { paths: ['p'], reviewers: ['s1', 's2'].map((k) => reviewerSpec(k)), lenses: [] } })
+    const { plan } = CORE.normalizeArgs(args)
+    const responder = async (label, prompt) => {
+      if (label.startsWith('review:')) {
+        const key = label.slice(7)
+        return findingsResult({ findings: key === 'architecture' ? [] : [makeFinding({ locations: [`src/${key}.kt:1`], rating: 'plan-it' })] })
+      }
+      if (label.startsWith('merge:')) return dedupResult({ groups: [] })
+      if (label.startsWith('verify:')) return answerFor(findingsOfPrompt(prompt).map((f) => f.id))
+      if (label === 'synthesis') return synthV2()
+      throw new Error('unexpected label ' + label)
+    }
+    const { agent } = autoAgentRaw(responder)
+    return CORE.runAudit(plan, makeDeps({ agent }))
+  }
+  const ghost = await run((ids) => ({ verdicts: [{ findingId: 'ghost', ...verdictResult() }, ...ids.map((id) => ({ findingId: id, ...verdictResult() }))] }))
+  assert.deepEqual(ghost.kept.map((k) => k.verdict), ['CONFIRMED', 'CONFIRMED'])
+  for (const answer of [() => ({}), () => verdictResult()]) {
+    const r = await run(answer)
+    assert.deepEqual(r.kept.map((k) => [k.verdict, k.unverifiedReason]), [['UNVERIFIED', 'no-verifier'], ['UNVERIFIED', 'no-verifier']])
+  }
+})
+
+test('S73: a group with a documentation member carries the docs rule once and marks that member documentation: true; a code-only group has no rule', async () => {
+  const findingFor = (key) => {
+    if (key === 'architecture') return null
+    return makeFinding({ category: key === 'x1' ? 'documentation-drift' : 'coupling', severity: 'medium', rating: 'plan-it' })
+  }
+  const scope = scopeResult({ reviewers: [plannerSlice('d1', 'docs'), plannerSlice('c1', 'code'), plannerSlice('x1', 'code')] })
+  const { calls } = await fullRun(noReviewers(), { scope, findingFor })
+  const groupCalls = calls.filter((c) => c.label.startsWith('verify:'))
+  assert.equal(groupCalls.length, 1, 'three findings fit one group')
+  const prompt = groupCalls[0].prompt
+  assert.equal(prompt.split('DOCUMENTATION FINDING:').length - 1, 1, 'the docs rule appears once')
+  assert.match(prompt, /marked documentation: true/)
+  const flags = Object.fromEntries(findingsOfPrompt(prompt).map((f) => [f.id, f.documentation]))
+  assert.deepEqual(flags, { 'd1-1': true, 'c1-1': false, 'x1-1': true })
+
+  const code = await fullRun(noReviewers(), { scope: scopeResult({ reviewers: [plannerSlice('c1', 'code'), plannerSlice('c2', 'code')] }), findingFor: (k) => (k === 'architecture' ? null : makeFinding({ severity: 'medium', rating: 'plan-it' })) })
+  const codePrompt = code.calls.find((c) => c.label.startsWith('verify:')).prompt
+  assert.equal(codePrompt.includes('DOCUMENTATION FINDING'), false)
+  for (const f of findingsOfPrompt(codePrompt)) assert.equal(f.documentation, false)
+})
+
+// ── S74 - S77: carry-ins O4, O5, O2, O1 ──────────────────────────────────────
+
+test('S74 (O4): verifiedBy is agents for CONFIRMED, PLAUSIBLE and REFUTED rows and none for an all-null, a capped and a metrics-pending row', async () => {
+  const claim = { field: 'churn', value: 9 }
+  const specs = {
+    sa: [{ title: 'T-a', severity: 'critical', locations: ['src/a.kt:1'] }],
+    sb: [{ title: 'T-b', severity: 'critical', locations: ['src/b.kt:1'] }],
+    sc: [{ title: 'T-c', severity: 'critical', locations: ['src/c.kt:1'] }],
+    sd: [{ title: 'T-d', severity: 'critical', locations: ['src/d.kt:1'] }],
+    se: [{ title: 'T-e', severity: 'low', locations: ['src/e.kt:1'] }],
+    sp: [{ title: 'T-p', severity: 'critical', locations: ['src/p.kt:1'], basis: 'measured', measuredClaim: claim }],
+  }
+  const verdictFor = (label) => {
+    if (label.startsWith('verify:sb-1')) return verdictResult({ refuted: true, confidence: 'low' })
+    if (label.startsWith('verify:sc-1')) return verdictResult({ refuted: true, confidence: 'high' })
+    if (label.startsWith('verify:sd-1')) return null
+    return verdictResult()
+  }
+  const { result } = await clusterRun(specs, { verify: { highLenses: ['combined'], defaultLenses: ['combined'], maxFindings: 4, groupSize: 5 }, verdictFor })
+  const by = Object.fromEntries(result.kept.map((k) => [k.findingId, k]))
+  assert.deepEqual([by['sa-1'].verdict, by['sa-1'].verifiedBy], ['CONFIRMED', 'agents'])
+  assert.deepEqual([by['sb-1'].verdict, by['sb-1'].verifiedBy], ['PLAUSIBLE', 'agents'])
+  assert.deepEqual([by['sd-1'].verdict, by['sd-1'].unverifiedReason, by['sd-1'].verifiedBy], ['UNVERIFIED', 'no-verifier', 'none'])
+  assert.deepEqual([by['se-1'].verdict, by['se-1'].unverifiedReason, by['se-1'].verifiedBy], ['UNVERIFIED', 'cap', 'none'])
+  assert.deepEqual([by['sp-1'].verdict, by['sp-1'].unverifiedReason, by['sp-1'].verifiedBy], ['UNVERIFIED', 'metrics-pending', 'none'])
+  assert.deepEqual(result.refuted.map((r) => [r.findingId, r.verifiedBy]), [['sc-1', 'agents']])
+})
+
+test('S75 (O5): no prompt of a run without measured contains MEASURED STRUCTURE, and the reviewer prompts still define basis and judgement; with measured the digest is named', async () => {
+  const without = await fullRun(fullArgs({ measured: undefined }), fullScopeOpts())
+  assert.ok(without.calls.length > 8, 'the run reached every phase')
+  for (const c of without.calls) assert.equal(c.prompt.includes('MEASURED STRUCTURE'), false, `${c.label} names no measured structure`)
+  for (const c of without.calls.filter((x) => x.label.startsWith('review:') || x.label.startsWith('gap:'))) {
+    assert.ok(c.prompt.includes('basis'), `${c.label} still asks for a basis`)
+    assert.ok(c.prompt.includes('judgement'), `${c.label} still names judgement`)
+  }
+  const withM = await fullRun(fullArgs(), fullScopeOpts())
+  assert.ok(withM.calls.find((c) => c.label === 'review:r1').prompt.includes('MEASURED STRUCTURE'))
+})
+
+test('S76 (O2, D13): two findings of one category and path whose first locations are src/a.kt:5 and src/a.kt:5-9 get the bare id on :5 and the -2 suffix on :5-9, in either input order', async () => {
+  const h = testFnv('coupling|src/a.kt')
+  for (const keys of [['s1', 's2'], ['s2', 's1']]) {
+    const specs = { s1: [{ locations: ['src/a.kt:5-9'] }], s2: [{ locations: ['src/a.kt:5'] }] }
+    const { result } = await clusterRun(specs, { keys })
+    const idOf = (loc) => result.kept.find((k) => k.locations[0] === loc).stableId
+    assert.equal(idOf('src/a.kt:5'), `F-${h}`, `${keys}: the shorter string sorts first`)
+    assert.equal(idOf('src/a.kt:5-9'), `F-${h}-2`, `${keys}: the longer string takes the suffix`)
+  }
+})
+
+// ── S78 / S79: determinism and metrics-pending rows ──────────────────────────
+
+test('S78: fifo and reverse completion, and two identical runs, give equal [label, prompt] for the candidate and verify calls and equal kept rows', async () => {
+  const args = () => candidateArgs(CAND_FOUR, { verify: { groupSize: 2 } })
+  const pick = (calls) => calls.filter((c) => c.label.startsWith('candidate:') || c.label.startsWith('verify:')).map((c) => [c.label, c.prompt])
+  const fifo = await fullRun(args(), {}, { order: 'fifo' })
+  const reverse = await fullRun(args(), {}, { order: 'reverse' })
+  const again = await fullRun(args(), {}, { order: 'fifo' })
+  const base = pick(fifo.calls)
+  assert.ok(base.some(([l]) => l.startsWith('candidate:')) && base.some(([l]) => l.startsWith('verify:g2')), 'the run has candidate calls and at least two verify groups')
+  assert.deepEqual(pick(reverse.calls), base)
+  assert.deepEqual(pick(again.calls), base)
+  assert.deepEqual(reverse.result.kept, fifo.result.kept)
+})
+
+test('S78 / probe: a candidate id with a colon and a slash keeps its label, its finding ids and its verdict', async () => {
+  const id = 'pkg:core/io'
+  const { calls, result } = await fullRun(candidateArgs([id]), { locationFor: (key) => (key === id ? 'src/pkgcore.mjs:1' : `src/${key}.mjs:1`) })
+  assert.ok(calls.some((c) => c.label === 'candidate:pkg:core/io'))
+  const row = result.kept.find((k) => k.sliceKey === id)
+  assert.ok(row, 'the candidate finding is kept')
+  assert.equal(row.findingId, 'pkg:core/io-1')
+  assert.equal(row.verdict, 'CONFIRMED')
+  assert.ok(calls.some((c) => c.label.startsWith('verify:') && idsOfGroupPrompt(c.prompt).includes('pkg:core/io-1')))
+})
+
+test('S79: no verify group lists a metrics-pending finding and every other finding is listed once', async () => {
+  const claim = { field: 'churn', value: 9 }
+  const specs = {
+    r1: [{ title: 'T-pending', locations: ['src/r1.kt:1'], basis: 'measured', measuredClaim: claim }],
+    r2: [{ title: 'T-two', locations: ['src/r2.kt:1'] }],
+    r3: [{ title: 'T-three', locations: ['src/r3.kt:1'] }],
+  }
+  const { calls } = await clusterRun(specs, { verify: { highLenses: ['combined'], defaultLenses: ['combined'], maxFindings: 20, groupSize: 1 } })
+  const listed = calls.filter((c) => c.label.startsWith('verify:')).flatMap((c) => idsOfGroupPrompt(c.prompt))
+  assert.deepEqual(listed.sort(), ['r2-1', 'r3-1'])
 })

@@ -37,6 +37,19 @@ function tableRows(heading) {
   return rows.slice(2)
 }
 
+// T8b D16: run-audit launches with a digest-v1 measured input; twelve distinct candidates fill the largest preset's
+// candidate reviewers (candidateCount 12), so every preset projects its full candidate term.
+function measuredWith12() {
+  return {
+    contract: 'audit/digest-v1',
+    window: { since: '2025-11-22', recent: '2026-08-22' },
+    headSha: 'abc123',
+    metricsPath: '/w/metrics.json',
+    hotSet: [], topComplexity: [], cycles: [], unstableModules: [], coupling: [], trend: [], notes: [],
+    candidates: Array.from({ length: 12 }, (_, i) => ({ candidateId: 'cand-' + (i + 1), kind: 'hotspot', subject: ['src/m' + (i + 1)], facts: { churn: i } })),
+  }
+}
+
 function argsFor(preset, withRoot) {
   const a = {
     contract: 'audit/args-v2',
@@ -49,6 +62,7 @@ function argsFor(preset, withRoot) {
     workDir: '/w',
     reportPath: '/w/report.html',
     dispatchClasses: POLICY.classes,
+    measured: measuredWith12(),
   }
   if (withRoot) a.items = { rootId: 'ce064d2c-7c03-4eac-ae7d-89a14c2ba273' }
   return a
@@ -67,6 +81,8 @@ test('S1 Presets rows equal the workflow presets and projections', () => {
   ])
   assert.equal(expected.length, 3)
   assert.deepEqual(tableRows('Presets'), expected)
+  // the projections by hand (task-orchestrator D15, AC8): with items / without items, 12 candidates measured
+  assert.deepEqual(expected.map((r) => r.slice(4)), [['24', '17'], ['60', '47'], ['128', '102']])
 })
 
 test('S2 Dispatch rows equal the workflow phase-key map in order', () => {
