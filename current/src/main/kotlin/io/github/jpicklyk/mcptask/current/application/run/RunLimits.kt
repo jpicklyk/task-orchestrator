@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.run
 
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.RunStore
+import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.ServerDecision
 import io.github.jpicklyk.mcptask.current.application.port.ServerDecisionRaiser
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
@@ -36,7 +36,7 @@ import java.util.UUID
  * active; superseding keeps the count, so it is allowed at capacity.
  */
 class RunLimits(
-    private val repositoryProvider: RepositoryProvider,
+    private val repositoryProvider: RunStoreProvider,
     private val unitOfWork: UnitOfWork,
     private val runService: RunService,
     private val seatService: SeatService,

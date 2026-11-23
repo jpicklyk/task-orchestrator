@@ -2,7 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockingEdge
 import io.github.jpicklyk.mcptask.current.domain.graph.TopoOrder
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
@@ -197,7 +197,7 @@ internal data class TreeAdoption(
  * notes (and among anchors) the last one wins. A [PerRootConfigUnavailableException] propagates.
  */
 class WorkTreeService(
-    private val repositoryProvider: RepositoryProvider,
+    private val repositoryProvider: WorkflowStoreProvider,
     private val unitOfWork: UnitOfWork,
     private val configResolver: EffectiveConfigResolver,
     private val itemCommandService: ItemCommandService,

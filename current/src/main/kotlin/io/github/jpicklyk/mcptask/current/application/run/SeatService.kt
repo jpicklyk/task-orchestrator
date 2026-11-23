@@ -3,9 +3,9 @@ package io.github.jpicklyk.mcptask.current.application.run
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.port.AssigneeHolder
 import io.github.jpicklyk.mcptask.current.application.port.InFlightSeat
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.RunSeatPort
 import io.github.jpicklyk.mcptask.current.application.port.RunSeatStore
+import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.SeatTokenMatch
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
@@ -69,7 +69,7 @@ data class SeatEndResult(
  * Also the [RunSeatPort] the run close uses (delegated to the store).
  */
 class SeatService(
-    private val repositoryProvider: RepositoryProvider,
+    private val repositoryProvider: RunStoreProvider,
     private val unitOfWork: UnitOfWork,
     private val claimService: ClaimService,
     private val configResolver: EffectiveConfigResolver,

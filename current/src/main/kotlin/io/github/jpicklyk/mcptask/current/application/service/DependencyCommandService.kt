@@ -2,7 +2,7 @@
 
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStoreProvider
 import io.github.jpicklyk.mcptask.current.domain.graph.CycleDetector
 import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
@@ -46,7 +46,7 @@ import java.util.UUID
  * id: naming the edge names its items), and the item itself, never its counterparties (delete by item).
  */
 class DependencyCommandService(
-    private val repositoryProvider: RepositoryProvider,
+    private val repositoryProvider: DependencyStoreProvider,
     private val unitOfWork: UnitOfWork
 ) {
     /** Applies the write policy to [deps] and stores them in one write unit, returning the stored rows in request order. */

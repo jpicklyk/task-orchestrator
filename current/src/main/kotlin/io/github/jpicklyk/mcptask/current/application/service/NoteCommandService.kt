@@ -4,7 +4,7 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.NoteStoreProvider
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
@@ -121,7 +121,7 @@ data class NoteWriteResult(
  * not `shared`. A rule-2 allow ([SeatVerdict.Allow]) is decisive: rule 3 is skipped and the note's owner is kept.
  */
 class NoteCommandService(
-    private val repositoryProvider: RepositoryProvider,
+    private val repositoryProvider: NoteStoreProvider,
     private val configResolver: EffectiveConfigResolver,
     private val unitOfWork: UnitOfWork,
     /** The not-closed run an item is a member of; the default resolves none (rule 2 never refuses). */

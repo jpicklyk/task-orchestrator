@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.report
 
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.ReportStoreProvider
 import io.github.jpicklyk.mcptask.current.application.run.RunRollupSnapshot
 import io.github.jpicklyk.mcptask.current.platform.port.Clock
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
@@ -29,10 +29,10 @@ object ReportRunRollupSnapshot {
 
     /**
      * The snapshot over [unitOfWork] and [clock]. A provider that serves no report queries (its `reportQueries()` throws
-     * [UnsupportedOperationException], as the interface default does) stores none.
+     * [UnsupportedOperationException], as the `RepositoryProvider` default does) stores none.
      */
     fun over(
-        repositoryProvider: RepositoryProvider,
+        repositoryProvider: ReportStoreProvider,
         unitOfWork: UnitOfWork,
         clock: Clock
     ): RunRollupSnapshot =

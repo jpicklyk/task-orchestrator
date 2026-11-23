@@ -2,8 +2,8 @@ package io.github.jpicklyk.mcptask.current.application.api.notes
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
+import io.github.jpicklyk.mcptask.current.application.port.NoteStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.NoteSummary
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
 import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
 import io.github.jpicklyk.mcptask.current.application.service.NoteUpsertCommand
@@ -237,7 +237,7 @@ object NoteHandlers {
      * ambiguous prefix lists only admitted candidates); an unrestricted one gets `not_found` for a missing item.
      */
     private suspend fun admit(
-        stores: RepositoryProvider,
+        stores: NoteStoreProvider,
         ctx: CallContext,
         rawItemId: String,
         recordRoot: Boolean = false

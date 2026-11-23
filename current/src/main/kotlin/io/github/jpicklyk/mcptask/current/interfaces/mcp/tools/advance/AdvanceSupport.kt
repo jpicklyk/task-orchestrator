@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.LifecycleStoreProvider
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceErrors
 import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.NONE_ROLE_WIRE
@@ -35,14 +35,14 @@ internal object AdvanceSupport {
 
     /** Resolves [ref] to an item id the call's scope admits ([ScopedIds.resolveTarget]): never an existence oracle. */
     suspend fun resolveInScope(
-        stores: RepositoryProvider,
+        stores: LifecycleStoreProvider,
         ctx: CallContext,
         ref: IdRef,
         field: String = "/itemId"
     ): Outcome<UUID> = ScopedIds.resolveTarget(stores.workItemRepository(), ctx.scope, ref, field)
 
     suspend fun loadItem(
-        stores: RepositoryProvider,
+        stores: LifecycleStoreProvider,
         id: UUID
     ): Outcome<WorkItem> = stores.workItemRepository().getById(id)?.let { Outcome.Ok(it) } ?: Outcome.Err(itemNotFound(id))
 
