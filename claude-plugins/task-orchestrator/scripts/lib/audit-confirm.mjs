@@ -78,8 +78,6 @@ export function confirmMeasured(input, metrics) {
   const kept = [];
   const confirmedIds = new Set();
   const refutedIds = new Set();
-  let confirmedByMetrics = 0;
-  let refutedByMetrics = 0;
 
   for (const row of keptIn) {
     const m = metricsRows(row, files);
@@ -99,7 +97,6 @@ export function confirmMeasured(input, metrics) {
       delete row.unverifiedReason;
       if (m) row.metrics = m;
       confirmedIds.add(row.findingId);
-      confirmedByMetrics++;
       kept.push(row);
     } else if (verdict.result === 'mismatch') {
       const rationale =
@@ -120,7 +117,6 @@ export function confirmMeasured(input, metrics) {
       if (m) out.metrics = m;
       refuted.push(out);
       refutedIds.add(row.findingId);
-      refutedByMetrics++;
     } else {
       row.unverifiedReason = 'no-metrics';
       if (m) row.metrics = m;
@@ -144,8 +140,9 @@ export function confirmMeasured(input, metrics) {
   stats.plausible = count((k) => k.verdict === 'PLAUSIBLE');
   stats.unverified = count((k) => k.verdict === 'UNVERIFIED');
   stats.refuted = refuted.length;
-  stats.confirmedByMetrics = confirmedByMetrics;
-  stats.refutedByMetrics = refutedByMetrics;
+  // by final state, so a second pass over its own output leaves them unchanged
+  stats.confirmedByMetrics = count((k) => k.verdict === 'CONFIRMED' && k.verifiedBy === 'metrics');
+  stats.refutedByMetrics = refuted.filter((r) => r && r.verifiedBy === 'metrics').length;
   res.stats = stats;
   const report = res.report;
   if (isObj(report) && isObj(report.coverage)) {
