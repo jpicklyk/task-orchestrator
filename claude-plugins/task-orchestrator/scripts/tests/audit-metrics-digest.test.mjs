@@ -814,7 +814,7 @@ test('S17: without --digest-out no digest is written and the metrics output equa
 // ------------------------------------------------------------------ probes
 
 test('probe: a non-ASCII file name survives into the digest', () => {
-  const name = 'café.txt';
+  const name = 'caf\u00e9.txt';
   const repo = once('unicode', () =>
     makeRepo('unicode', [
       { date: '2026-02-01', files: { [name]: 'c\n  child\n    grand\n' } },

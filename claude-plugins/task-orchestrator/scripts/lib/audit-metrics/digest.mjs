@@ -32,13 +32,13 @@ export function buildDigest(metrics, { top = 10, candidates = DEFAULT_CANDIDATES
     .sort((a, b) => b.indentComplexity - a.indentComplexity || cmp(a.path, b.path))
     .slice(0, top)
     .map((r) => ({ path: r.path, complexity: r.indentComplexity, module: r.module }));
-  const cycles = metrics.modules.cycles;
+  const cycles = metrics.modules.cycles.map((c) => [...c]);
   const unstableModules = metrics.modules.nodes
     .filter((n) => n.fanIn >= 1 && n.instability > 0)
     .sort((a, b) => b.instability - a.instability || b.fanIn - a.fanIn || cmp(a.id, b.id))
     .slice(0, top)
     .map((n) => ({ id: n.id, instability: n.instability, fanIn: n.fanIn, fanOut: n.fanOut }));
-  const coupling = metrics.coupling.map((c) => ({ path: c.path, partners: c.partners }));
+  const coupling = metrics.coupling.map((c) => ({ path: c.path, partners: c.partners.map((q) => ({ path: q.path, count: q.count })) }));
   const trend = metrics.trend.map((t) => ({ path: t.path, complexities: t.samples.map((s) => s.indentComplexity) }));
 
   const hottest = (mods) => {
@@ -95,7 +95,7 @@ export function buildDigest(metrics, { top = 10, candidates = DEFAULT_CANDIDATES
       kind: 'co-change',
       subject: [p.path, ...p.partners.map((q) => q.path)],
       facts: { commits: p.commits, partners: p.partners },
-      score: round4((p.partners[0].count / p.commits) * hotScore.get(p.path)),
+      score: round4((p.partners[0].count / p.commits) * (hotScore.get(p.path) ?? 0)),
     });
   }
   const ranked = all
@@ -105,7 +105,7 @@ export function buildDigest(metrics, { top = 10, candidates = DEFAULT_CANDIDATES
 
   return {
     contract: DIGEST_CONTRACT,
-    window: metrics.window,
+    window: { ...metrics.window },
     headSha: metrics.generatedFrom.headSha,
     metricsPath: null,
     hotSet,
