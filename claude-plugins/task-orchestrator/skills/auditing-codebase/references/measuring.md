@@ -21,7 +21,7 @@ The command line of the script:
 node "<script>" --root <repo> --paths <p1,p2,...> --since <YYYY-MM-DD> --recent <YYYY-MM-DD> --out <file.json> [--digest-out <digest.json>]
 ```
 
-`--since` is the start of the long window and `--recent` the start of the recent one. `--out` and the optional `--digest-out` go to a temporary directory outside the audited tree: the audit never writes inside the code it reads. The script only reads the repository, writes only the `--out` file and, when given, the `--digest-out` file, and records problems in `notes[]` instead of failing. Optional flags (`--module-depth`, `--top`, `--lang-table`, `--max-commit-files`) are left at their defaults unless the metrics format says otherwise.
+`--since` is the start of the long window and `--recent` the start of the recent one. `--out` and the optional `--digest-out` go to a temporary directory outside the audited tree: the audit never writes inside the code it reads. The script only reads the repository, writes only the `--out` file and, when given, the `--digest-out` file (`--candidates <n>` caps its candidate list), and records problems in `notes[]` instead of failing. Optional flags (`--module-depth`, `--top`, `--lang-table`, `--max-commit-files`) are left at their defaults unless the metrics format says otherwise.
 
 ## What each output group means
 
@@ -32,7 +32,7 @@ node "<script>" --root <repo> --paths <p1,p2,...> --since <YYYY-MM-DD> --recent 
 - **`repoHotSet` and `hotSet`.** The repository's hot files, and the scoped files whose counts are of the same order as them. Take both as given; an area with an empty `hotSet` has no hot set.
 - **`coupling`.** For each hot file, the files that changed in the same commits, with counts. Commits that touch more files than the bulk threshold are excluded, so renames and formatting sweeps do not couple everything to everything.
 - **`trend`.** Complexity of the top hot files sampled at several points in history. A rising series means the file gets harder with each change; a falling one means it is being cleaned up.
-- **`modules`.** The module graph at one directory depth below a base. A base is a source root taken from the resolved package imports (the target path minus the matched qualified name), or the common directory of a connected group of relative imports; a file under neither keeps the entry base, the longest directory common to the scoped files of its `--paths` entry, and is grouped by up to `--module-depth` directory segments below it (for the `.` entry, trees no import reaches, such as CI configuration, documentation or a build-tool wrapper directory, are separate modules). Per module: `fanIn` (modules that depend on it), `fanOut` (modules it depends on) and `instability` = fanOut / (fanIn + fanOut) (Martin: near 0 is stable, near 1 changes freely), the edges with counts, and `cycles`. Imports are resolved by a per-language pattern table; an import it cannot resolve is counted and never guessed, so a graph is a lower bound on the real dependencies.
+- **`modules`.** The module graph at one directory depth below a base. A base is a source root taken from the resolved package imports (the target path minus the matched qualified name), or the common directory of a connected group of relative imports; a file under neither keeps the entry base, the longest directory common to the scoped files of its `--paths` entry, and is grouped by up to `--module-depth` directory segments below it (for the `.` entry, trees no import reaches, such as CI configuration, documentation or a build-tool wrapper directory, are separate modules). Per module: `fanIn` (modules that depend on it), `fanOut` (modules it depends on) and `instability` = fanOut / (fanIn + fanOut) (Martin: near 0 is stable, near 1 changes freely), the edges with counts, and `cycles`. Each file row carries its `module`. Imports are resolved by a per-language pattern table; an import it cannot resolve is counted and never guessed, so a graph is a lower bound on the real dependencies.
 - **`languages`.** The extensions recognised, and `unrecognised` ones, for which only the indentation numbers exist. Name the unrecognised languages in the report.
 - **`notes[]`.** Problems the run recorded: no history, a missing path. Each one lowers confidence for what it touches; repeat it in the report.
 
@@ -40,17 +40,18 @@ node "<script>" --root <repo> --paths <p1,p2,...> --since <YYYY-MM-DD> --recent 
 
 A digest is a smaller extract of the metrics file, made for reading by an auditor. It holds:
 
-- **`files[]`.** The facts table: per file `path`, `churn`, `churnRecent`, `complexity` (the indentation measure), `branchComplexity` (or null) and `hotspotScore`. It is capped to the scoped files with the highest score, so a file can be absent.
-- **The same groups as the metrics file:** `hotSet`, `topComplexity`, `cycles`, `unstableModules`, `coupling` and `trend`, plus `moduleOf`, the module of each file in the facts table.
-- **`candidates[]`.** The candidate list, ranked by score. Each entry has a kind: `hot-file`, `cycle`, `unstable-module` or `co-change` (a coupling partner in another module, with 3 or more shared commits).
+- **`hotSet`.** The hot files, each with `path`, `churn`, `churnRecent`, `complexity` (the indentation measure), `hotspotScore` and `module`.
+- **`topComplexity`, `cycles`, `unstableModules`, `coupling` and `trend`.** The same groups as the metrics file, trimmed to the top entries, with the module of each file in `topComplexity`.
+- **`notes[]`.** The problems the metrics run recorded, copied unchanged.
+- **`candidates[]`.** The candidate list, ranked by `score` and capped by `--candidates` (12 by default). Each entry has a `kind`: `hot-file`, `cycle`, `unstable-module` or `co-change` (a coupling partner in another module, with 3 or more shared commits), its `subject` (paths or module ids) and the measured `facts` it rests on.
 
-A file missing from the facts table has no measured number in the digest. Read the metrics file at `metricsPath`, or say in the report that it was not measured.
+The digest has no row per file. A file outside `hotSet` and `topComplexity` has no measured number in the digest: read the metrics file, or say in the report that it was not measured.
 
 ## Measured and judgement claims
 
 A claim is measured when it is the measurement itself: a churn count, a complexity figure, a cycle's module ids. State it as the field and the value exactly as the measurements give it. Everything else is judgement: that the cost is real, that a move pays, that two files belong together. A number made by hand is `estimated`, and a claim that rests on it is judgement.
 
-A measured claim is checked against the numbers, not argued. One that differs from them is wrong.
+A measured claim is checked against the numbers, not argued: after the audit a script compares each one with the metrics file, within 10% for a number, or by containment for a cycle's module ids. One that differs from them is wrong and is dropped.
 
 ## By hand
 
