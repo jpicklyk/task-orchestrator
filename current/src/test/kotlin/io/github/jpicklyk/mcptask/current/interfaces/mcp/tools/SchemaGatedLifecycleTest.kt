@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.model.item.*
-import io.github.jpicklyk.mcptask.current.model.knowledge.*
 import io.github.jpicklyk.mcptask.current.model.note.*
 import io.github.jpicklyk.mcptask.current.model.schema.*
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver

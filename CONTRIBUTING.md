@@ -149,7 +149,7 @@ Fixes #53
 - Handlers receive collaborators through the one `ToolExecutionContext` (`env`); do not construct services inline
 
 **Architecture**:
-- Follow the layer model — domain → application → infrastructure → interfaces, outer layers may depend on inner ones, never the reverse (see below for enforcement)
+- Follow the layer model — domain and model (the shared model) → application → infrastructure → interfaces, outer layers may depend on inner ones, never the reverse (see below for enforcement)
 - Domain layer must remain framework-agnostic
 - Use repository pattern for data access
 - A tool is a `ToolSpec` of selects or ops registered in `buildToolSpecs()` (`interfaces/shared/tools/ToolRegistry.kt`); its request classes live in `application/api/<area>/`

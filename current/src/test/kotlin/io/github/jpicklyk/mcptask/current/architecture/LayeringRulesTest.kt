@@ -77,6 +77,8 @@ class LayeringRulesTest {
         assertEquals(listOf("$root.application.api.X"), imports("model/item/A.kt", "$root.application.api.X"))
         assertEquals(listOf("$root.infrastructure.sqlite.X"), imports("model/item/A.kt", "$root.infrastructure.sqlite.X"))
         assertEquals(listOf("$root.interfaces.mcp.X"), imports("model/item/A.kt", "$root.interfaces.mcp.X"))
+        assertEquals(listOf("$root.application.api.X"), imports("domain/lifecycle/A.kt", "$root.application.api.X"))
+        assertEquals(listOf("$root.infrastructure.sqlite.X"), imports("domain/lifecycle/A.kt", "$root.infrastructure.sqlite.X"))
         assertEquals(listOf("$root.infrastructure.sqlite.X"), imports("application/service/A.kt", "$root.infrastructure.sqlite.X"))
         assertEquals(listOf("$root.interfaces.api.v1.X"), imports("application/service/A.kt", "$root.interfaces.api.v1.X"))
         assertEquals(listOf("$root.interfaces.api.v1.X"), imports("infrastructure/config/A.kt", "$root.interfaces.api.v1.X"))

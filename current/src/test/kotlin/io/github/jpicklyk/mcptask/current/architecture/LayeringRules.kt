@@ -7,7 +7,7 @@ package io.github.jpicklyk.mcptask.current.architecture
  * Layer model (CONTRIBUTING.md, CLAUDE.md): `domain -> application -> infrastructure -> interfaces`; an outer layer may
  * depend on an inner one, the reverse is forbidden. The shared `model` tree is innermost, beside `domain`.
  *
- * - R1: `domain` must not import from `application`, `infrastructure` or `interfaces`.
+ * - R1: `domain` and `model` (the shared model) must not import from `application`, `infrastructure` or `interfaces`.
  * - R2: `application` must not import from `infrastructure` or `interfaces`.
  * - R3: `infrastructure` must not import from `interfaces`.
  * - R4: `domain` and `application` must not import the transport frameworks, `io.modelcontextprotocol` or `io.ktor`
