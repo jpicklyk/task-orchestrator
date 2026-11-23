@@ -20,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.test.blocksDep
 import io.github.jpicklyk.mcptask.current.test.breakConfigReads
 import io.github.jpicklyk.mcptask.current.test.configFaultFixture
 import io.github.jpicklyk.mcptask.current.test.makeNote
+import io.github.jpicklyk.mcptask.current.test.noRunStoresContext
 import io.github.jpicklyk.mcptask.current.test.relatesDep
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
@@ -214,6 +215,20 @@ class ItemsReadContextTest {
 
     private val plainQueueRow =
         mapOf("block" to "blocked", "cancel" to "terminal", "complete" to "terminal", "hold" to "blocked", "start" to "work")
+
+    @Test
+    fun `context over a provider that serves no decisions answers ok and leaves decisions out`(): Unit =
+        runBlocking {
+            val ctx = noRunStoresContext(db.db)
+            val id = UUID.randomUUID()
+            ctx.repositoryProvider.workItemRepository().create(WorkItem(id = id, rootId = id, title = "Root", depth = 0))
+
+            val body = ItemContextProbe().envelope(ctx, buildJsonObject { put("itemId", id.toString()) })
+
+            assertEquals("true", body["ok"]?.jsonPrimitive?.content, "$body")
+            val data = assertNotNull(body["data"]?.jsonObject, "$body")
+            assertFalse("decisions" in data, "no decision store means no decisions: $body")
+        }
 
     // ------------------------------------------------------------------ S1, S2, S3
 
