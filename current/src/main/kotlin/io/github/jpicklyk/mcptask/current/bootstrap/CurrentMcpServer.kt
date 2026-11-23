@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.bootstrap
 
 import io.github.jpicklyk.mcptask.current.application.api.BatchRunner
-import io.github.jpicklyk.mcptask.current.application.api.RequestDecoder
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
@@ -19,12 +18,9 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.Sqlit
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.cors.configureCors
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.installApiStatusPages
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.installRequestCorrelation
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.directorOpsRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.opsRoutes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.toCallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configSchemaRoute
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemRoutes
@@ -41,11 +37,14 @@ import io.github.jpicklyk.mcptask.current.interfaces.mcp.SdkSessions
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerSdkSessions
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installHostAllowlist
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.platform.health.ReadinessMarker
 import io.github.jpicklyk.mcptask.current.platform.port.Clock
+import io.github.jpicklyk.mcptask.current.platform.request.RequestDecoder
+import io.github.jpicklyk.mcptask.current.platform.rest.correlation.installRequestCorrelation
+import io.github.jpicklyk.mcptask.current.platform.rest.error.installApiStatusPages
+import io.github.jpicklyk.mcptask.current.platform.rest.ops.toCallAccess
 import io.github.jpicklyk.mcptask.current.platform.retention.IdempotencyPruner
 import io.github.jpicklyk.mcptask.current.platform.retention.RetentionPruner
 import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
@@ -53,6 +52,7 @@ import io.github.jpicklyk.mcptask.current.platform.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.platform.sqlite.SchemaStartupOutcome
 import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application

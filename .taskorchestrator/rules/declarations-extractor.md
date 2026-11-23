@@ -82,7 +82,7 @@ because "the extractor was told not to" reproduces that failure.
   hands every call to `ToolDispatcher.dispatch`, which checks the principal (and seat token), the
   capability, `describe` and the selector, decodes the arguments with `RequestDecoder`, then runs
   the select or op inside `withEventActor` and `withConfigSession`; a handler's `run` alone never
-  decodes or checks access" (`interfaces/shared/tools/ToolDispatcher.kt:50-84`). For a REST
+  decodes or checks access" (`interfaces/shared/tools/ToolDispatcher.kt:105-173`). For a REST
   route it is the route's check order, copied from the frozen error table.
 - Orchestration tool names: `Grep` for the scan step; `SendMessage` to report a missing or
   unresolvable declaration back to the orchestrator rather than guessing one.

@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelopeError
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
+import io.github.jpicklyk.mcptask.current.platform.rest.envelope.respondEnvelopeError
 import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import io.ktor.http.HttpHeaders
 import io.ktor.server.application.Application

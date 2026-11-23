@@ -1,16 +1,16 @@
 package io.github.jpicklyk.mcptask.current.test
 
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.toCallAccess
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.Dispatched
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolView
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.call.Principal
 import io.github.jpicklyk.mcptask.current.platform.call.PrincipalKind
 import io.github.jpicklyk.mcptask.current.platform.call.ProofStatus
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
+import io.github.jpicklyk.mcptask.current.platform.rest.ops.toCallAccess
+import io.github.jpicklyk.mcptask.current.platform.tool.CallAccess
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolView
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 

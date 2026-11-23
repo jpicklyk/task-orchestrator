@@ -2,22 +2,22 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
-import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.Dispatched
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolSchemaRenderer
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolSpec
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallLogFields
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallTelemetry
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallTelemetryFactory
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.HostName
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.ReqId
+import io.github.jpicklyk.mcptask.current.platform.envelope.EnvelopeEncoder
 import io.github.jpicklyk.mcptask.current.platform.logging.MdcValues
 import io.github.jpicklyk.mcptask.current.platform.port.Clock
 import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.platform.tool.CallAccess
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolSchemaRenderer
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolSpec
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerSession
 import io.modelcontextprotocol.kotlin.sdk.server.StreamableHttpServerTransport

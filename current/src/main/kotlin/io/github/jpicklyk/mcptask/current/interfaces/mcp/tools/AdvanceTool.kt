@@ -4,8 +4,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.claimOp
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.heartbeatOp
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.releaseOp
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.transitionOp
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.platform.idempotency.JsonElementCodec
+import io.github.jpicklyk.mcptask.current.platform.tool.OpsToolSpec
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonObject
 

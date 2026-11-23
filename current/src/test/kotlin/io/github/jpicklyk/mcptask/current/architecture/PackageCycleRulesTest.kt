@@ -136,7 +136,8 @@ class PackageCycleRulesTest {
             "support" to "support",
             "calltelemetry" to "telemetry",
             "eventrecording" to "service",
-            "idempotency" to "service"
+            "idempotency" to "service",
+            "request" to "api"
         )
 
     @Test
@@ -168,12 +169,20 @@ class PackageCycleRulesTest {
     }
 
     @Test
-    fun `S4b a platform folder that counts as infrastructure or sits directly under platform is out of scope`() {
-        listOf("sqlite", "settings", "yaml", "retention", "health", "logging", "security", "shutdown", "time").forEach { folder ->
-            assertEquals(null, PackageCycleRules.nodeOfPath("platform/$folder/A.kt"), "platform/$folder")
-            assertEquals(emptyList(), edgesOf("platform/$folder/A.kt", imports = listOf("$app.api.X")), "source platform/$folder")
-            assertEquals(emptyList(), edgesOf("application/read/A.kt", imports = listOf("$platform.$folder.X")), "target platform.$folder")
-        }
+    fun `S4b a platform folder that counts as infrastructure or interfaces or sits directly under platform is out of scope`() {
+        val outOfScope =
+            listOf("sqlite", "settings", "yaml", "retention", "health", "logging", "security", "shutdown", "time") +
+                listOf("tool", "envelope", "rest")
+        outOfScope
+            .forEach { folder ->
+                assertEquals(null, PackageCycleRules.nodeOfPath("platform/$folder/A.kt"), "platform/$folder")
+                assertEquals(emptyList(), edgesOf("platform/$folder/A.kt", imports = listOf("$app.api.X")), "source platform/$folder")
+                assertEquals(
+                    emptyList(),
+                    edgesOf("application/read/A.kt", imports = listOf("$platform.$folder.X")),
+                    "target platform.$folder"
+                )
+            }
         assertEquals(null, PackageCycleRules.nodeOfPath("platform/A.kt"))
         assertEquals(emptyList(), edgesOf("application/read/A.kt", imports = listOf("$platform.port")), "a bare folder name is no edge")
     }

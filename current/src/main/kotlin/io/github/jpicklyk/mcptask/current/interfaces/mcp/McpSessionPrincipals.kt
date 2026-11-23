@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.toCallAccess
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
 import io.github.jpicklyk.mcptask.current.platform.call.Principal
 import io.github.jpicklyk.mcptask.current.platform.call.auditId
 import io.github.jpicklyk.mcptask.current.platform.port.Clock
+import io.github.jpicklyk.mcptask.current.platform.rest.ops.toCallAccess
+import io.github.jpicklyk.mcptask.current.platform.tool.CallAccess
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap

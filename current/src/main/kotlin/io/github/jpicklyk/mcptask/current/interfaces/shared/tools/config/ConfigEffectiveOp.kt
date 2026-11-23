@@ -1,18 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config
 
-import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.SchemaMatch
 import io.github.jpicklyk.mcptask.current.application.config.TraitDescriptor
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DispatchProfileDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.EffectiveConfigDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.EffectiveSchemaDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.NoteSchemaEntryDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ResourceRequirementDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.TraitDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.StatusGraphBuilder
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.Role
@@ -21,7 +12,16 @@ import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.model.schema.DispatchProfile
 import io.github.jpicklyk.mcptask.current.model.schema.SkillMode
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.request.Doc
+import io.github.jpicklyk.mcptask.current.platform.rest.dto.DispatchProfileDto
+import io.github.jpicklyk.mcptask.current.platform.rest.dto.EffectiveConfigDto
+import io.github.jpicklyk.mcptask.current.platform.rest.dto.EffectiveSchemaDto
+import io.github.jpicklyk.mcptask.current.platform.rest.dto.NoteSchemaEntryDto
+import io.github.jpicklyk.mcptask.current.platform.rest.dto.ResourceRequirementDto
+import io.github.jpicklyk.mcptask.current.platform.rest.dto.TraitDto
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef
+import io.github.jpicklyk.mcptask.current.platform.tool.OpSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.orchestration
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement

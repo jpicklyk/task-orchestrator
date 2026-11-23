@@ -4,9 +4,9 @@ import io.github.jpicklyk.mcptask.current.application.report.ReportService
 import io.github.jpicklyk.mcptask.current.application.report.ReportWasteRequest
 import io.github.jpicklyk.mcptask.current.application.report.WasteReport
 import io.github.jpicklyk.mcptask.current.application.report.WasteSignal
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.director
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.director
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put

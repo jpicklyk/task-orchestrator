@@ -53,7 +53,11 @@ object LayeringRules {
             "logging" to "infrastructure",
             "security" to "infrastructure",
             "shutdown" to "infrastructure",
-            "time" to "infrastructure"
+            "time" to "infrastructure",
+            "request" to "application",
+            "tool" to "interfaces",
+            "envelope" to "interfaces",
+            "rest" to "interfaces"
         )
     private val TRANSPORTS = listOf("io.modelcontextprotocol", "io.ktor")
 

@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigDiff
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.config.productionConfigValidator
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.checkItemScope
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.resolveItemId
 import io.github.jpicklyk.mcptask.current.model.config.ConfigVersion
@@ -21,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.platform.call.CallContext
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.platform.support.toDomainError
+import io.github.jpicklyk.mcptask.current.platform.tool.invalidField
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive

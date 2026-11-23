@@ -134,9 +134,11 @@ class LayeringRulesTest {
     @Test
     fun `S4b infrastructure forbids a platform folder that counts as interfaces but not one that counts as infrastructure`() {
         assertEquals(emptyList(), imports("infrastructure/config/A.kt", "$root.platform.sqlite.X"))
-        assertTrue(
-            LayeringRules.forbiddenPrefixesFor("infrastructure/config/A.kt").none { it.startsWith("$root.platform") },
-            "the shipped table has no interfaces row, so infrastructure forbids no platform folder"
+        val shipped = LayeringRules.forbiddenPrefixesFor("infrastructure/config/A.kt")
+        assertEquals(
+            setOf("$root.platform.tool", "$root.platform.envelope", "$root.platform.rest"),
+            shipped.filter { it.startsWith("$root.platform") }.toSet(),
+            "the shipped table's interfaces rows are exactly the platform folders infrastructure forbids"
         )
         val table = mapOf("sqlite" to "infrastructure", "web" to "interfaces")
         val forbidden = LayeringRules.forbiddenPrefixesFor("infrastructure/config/A.kt", table)
@@ -146,6 +148,39 @@ class LayeringRulesTest {
             "$root.platform.web" in LayeringRules.forbiddenPrefixesFor("application/service/A.kt", table),
             "application forbids it too"
         )
+    }
+
+    @Test
+    fun `S4b platform request counts as application`() {
+        assertEquals(emptyList(), imports("platform/request/A.kt", "$root.model.error.X", "$root.platform.port.X"))
+        assertEquals(
+            listOf("$root.infrastructure.sqlite.X", "$root.interfaces.mcp.X", "$root.bootstrap.X", "io.ktor.server.X"),
+            imports(
+                "platform/request/A.kt",
+                "$root.infrastructure.sqlite.X",
+                "$root.interfaces.mcp.X",
+                "$root.bootstrap.X",
+                "io.ktor.server.X"
+            ),
+            "application rules R1, R2, R4, R5 apply to platform/request"
+        )
+        assertEquals(emptyList(), imports("application/api/notes/A.kt", "$root.platform.request.Doc"))
+        assertEquals(emptyList(), imports("infrastructure/config/A.kt", "$root.platform.request.Doc"))
+        assertEquals(listOf("$root.platform.request.Doc"), imports("model/item/A.kt", "$root.platform.request.Doc"))
+    }
+
+    @Test
+    fun `S4b platform tool envelope and rest count as interfaces`() {
+        listOf("tool", "envelope", "rest").forEach { folder ->
+            val path = "platform/$folder/A.kt"
+            assertEquals(emptyList(), imports(path, "$root.application.api.X", "$root.infrastructure.identity.X", "io.ktor.server.X"), path)
+            assertEquals(listOf("$root.bootstrap.X"), imports(path, "$root.bootstrap.X"), path)
+            val target = "$root.platform.$folder.X"
+            assertEquals(listOf(target), imports("application/service/A.kt", target), "application -> platform/$folder")
+            assertEquals(listOf(target), imports("infrastructure/config/A.kt", target), "infrastructure -> platform/$folder")
+            assertEquals(listOf(target), imports("model/item/A.kt", target), "model -> platform/$folder")
+            assertEquals(emptyList(), imports("interfaces/mcp/A.kt", target), "interfaces -> platform/$folder")
+        }
     }
 
     @Test

@@ -1,19 +1,19 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.apiPrincipal
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelope
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.REQ_ID_HEADER
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.toCallAccess
-import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EncodedEnvelope
-import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolView
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.ReqId
+import io.github.jpicklyk.mcptask.current.platform.envelope.EncodedEnvelope
+import io.github.jpicklyk.mcptask.current.platform.envelope.EnvelopeEncoder
+import io.github.jpicklyk.mcptask.current.platform.rest.correlation.REQ_ID_HEADER
+import io.github.jpicklyk.mcptask.current.platform.rest.envelope.respondEnvelope
+import io.github.jpicklyk.mcptask.current.platform.rest.ops.toCallAccess
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolView
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall

@@ -8,7 +8,7 @@ import kotlin.test.assertTrue
  * Unit coverage of [MdcValues.bounded] — the O9 length cap on self-reported MDC values (item
  * b5081c9b task-scope, scenarios L11-L14). See [MdcValuesTest.bounded and end-to-end callers]
  * ([io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapterMdcTest],
- * [io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.RequestCorrelationTest]) for the
+ * [io.github.jpicklyk.mcptask.current.platform.rest.correlation.RequestCorrelationTest]) for the
  * caller-side application of this cap.
  */
 class MdcValuesTest {

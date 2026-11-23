@@ -3,11 +3,11 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SchemaFacts
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionTable
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.StatusGraphDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.StatusGraphTypeDto
 import io.github.jpicklyk.mcptask.current.model.item.LifecycleMode
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.platform.rest.dto.StatusGraphDto
+import io.github.jpicklyk.mcptask.current.platform.rest.dto.StatusGraphTypeDto
 
 /**
  * Derives the static status-transition graph from registered work-item schemas.
@@ -23,7 +23,7 @@ import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
  * schema map of its own scope ([buildStatusGraph]) or the one resolved schema of one item ([rowFor]); a null schema
  * is a schema-free item ([SchemaFacts.SCHEMA_FREE]).
  *
- * Lives in the interfaces layer because it returns `interfaces/api/v1/dto` `*Dto` types — the
+ * Lives in the interfaces layer because it returns `platform/rest/dto` `*Dto` types — the
  * application layer must not depend on interface DTOs.
  */
 class StatusGraphBuilder {

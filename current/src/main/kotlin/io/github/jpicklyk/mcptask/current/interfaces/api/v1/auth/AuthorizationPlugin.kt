@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth
 
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelopeError
 import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.call.configName
 import io.github.jpicklyk.mcptask.current.platform.call.grants
+import io.github.jpicklyk.mcptask.current.platform.rest.envelope.respondEnvelopeError
 import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
 import io.ktor.server.application.createRouteScopedPlugin
 import io.ktor.server.application.install

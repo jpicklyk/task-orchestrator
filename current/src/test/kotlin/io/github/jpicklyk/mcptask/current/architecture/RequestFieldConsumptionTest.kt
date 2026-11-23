@@ -19,9 +19,9 @@ import io.github.jpicklyk.mcptask.current.architecture.requestfixtures.S8Outer
 import io.github.jpicklyk.mcptask.current.architecture.requestfixtures.S9RootA
 import io.github.jpicklyk.mcptask.current.architecture.requestfixtures.S9RootB
 import io.github.jpicklyk.mcptask.current.architecture.requestfixtures.S9Shared
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.github.jpicklyk.mcptask.current.platform.tool.OpsToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.SelectToolSpec
 import kotlinx.serialization.KSerializer
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertTimeoutPreemptively

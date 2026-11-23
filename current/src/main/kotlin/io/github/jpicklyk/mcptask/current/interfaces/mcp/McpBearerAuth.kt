@@ -8,8 +8,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.isDirectorOnly
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.keySetUnavailable
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.unauthenticated
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.withHostOf
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelopeError
 import io.github.jpicklyk.mcptask.current.platform.call.Principal
+import io.github.jpicklyk.mcptask.current.platform.rest.envelope.respondEnvelopeError
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.server.application.ApplicationCall

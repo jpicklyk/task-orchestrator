@@ -9,14 +9,14 @@ import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuth
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelopeError
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.CLIENT_HOST_HEADER
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.platform.call.Principal
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.HostName
+import io.github.jpicklyk.mcptask.current.platform.rest.correlation.CLIENT_HOST_HEADER
+import io.github.jpicklyk.mcptask.current.platform.rest.envelope.respondEnvelopeError
 import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
 import io.ktor.http.HttpHeaders
 import io.ktor.server.application.ApplicationCall

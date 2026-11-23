@@ -16,7 +16,7 @@ expand a change's blast radius in non-obvious ways.
 case: the spec and a hook header said note attribution is shown only when the caller is ADMIN and
 the flag is false; the code redacted only when `redactNoteAttribution && !isAdmin`, so it was
 shown when ADMIN OR the flag was false. The 4.0 rule lives at
-`interfaces/api/v1/ops/OpsAccess.kt:22` (`attributionVisible = !redactNoteAttribution || ADMIN`).
+`platform/rest/ops/OpsAccess.kt:22` (`attributionVisible = !redactNoteAttribution || ADMIN`).
 The error survived from spec to header because the sentence was written from intent and no line
 was opened.
 
