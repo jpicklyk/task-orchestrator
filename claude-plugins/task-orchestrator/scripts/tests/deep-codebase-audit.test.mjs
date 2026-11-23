@@ -47,8 +47,9 @@ const CORE_NAMES = [
   'normalizeObsPath', 'isObservation', 'buildProposal', 'runAudit',
   'SEVERITY_RANK', 'LENS_KEYS', 'PRESETS', 'CATEGORIES', 'DEFAULT_CLASS_MAP', 'TYPE_MAP_KEY', 'DEFAULT_METHOD_SKILL',
   'DOCS_METHOD_SKILL', 'FOCUS_VALUES', 'sliceKind', 'inFocus', 'methodSkillOf', 'VERIFY_LENS_INSTRUCTIONS',
-  'DISPATCH_CLASSES', 'FAN_OUT_KEYS', 'RATINGS', 'ITEM_POLICIES', 'ARCHITECTURE_LENS', 'shiftMonths', 'testPathsOf',
-  'formatMetricsDigest', 'buildMeasurePrompt', 'criticState', 'agentOpts', 'dispatchTag',
+  'DISPATCH_CLASSES', 'FAN_OUT_KEYS', 'RATINGS', 'ITEM_POLICIES', 'ARCHITECTURE_LENS', 'testPathsOf',
+  'formatMetricsDigest', 'sliceDigest', 'markMetricsPending', 'preCluster', 'primaryPath', 'fnv1a32', 'stableIds',
+  'criticState', 'agentOpts', 'dispatchTag',
 ]
 const CORE = loadCoreNamed(SCRIPT_PATH, CORE_NAMES)
 
@@ -66,7 +67,6 @@ function reviewerSpec(key, overrides = {}) {
 // read from the script). Rebuilt per call so no test can mutate another test's args.
 function classFixture() {
   return {
-    'audit-measure': { model: 'haiku', effort: 'low' },
     research: { model: 'sonnet', effort: 'medium' },
     'audit-review': { model: 'sonnet', effort: 'high' },
     review: { model: 'opus', effort: 'high' },
@@ -105,13 +105,40 @@ function buildPlan(overrides = {}) {
 
 function makeFinding(overrides = {}) {
   return {
-    title: 'A finding', severity: 'high', category: 'coupling',
+    title: 'A finding', severity: 'high', category: 'coupling', basis: 'judgement',
     locations: ['claude-plugins/task-orchestrator/hooks/example.mjs:1'],
     evidence: 'evidence text', impact: 'impact text', recommendation: 'fix it',
     effort: 'M', confidence: 'high',
     ...overrides,
   }
 }
+// FNV-1a 32-bit over the UTF-8 bytes (offset 0x811c9dc5, prime 0x01000193), written here from the published
+// algorithm as the oracle for stable ids: never read from the workflow.
+function testFnv(text) {
+  let h = 0x811c9dc5
+  for (const b of Buffer.from(text, 'utf8')) {
+    h ^= b
+    h = Math.imul(h, 0x01000193) >>> 0
+  }
+  return h.toString(16).padStart(8, '0')
+}
+const stableIdOf = (category, path) => `F-${testFnv(`${category}|${path}`)}`
+
+/** Wraps a label-keyed responder so each review or gap slice answers with a location of its own
+ * (src/<key>.mjs:1) wherever the finding still carries the shared default location: the T8a pre-clustering
+ * auto-merges findings of one category and location, and these fixtures want separate findings. */
+function perSlice(responder) {
+  const DEFAULT_LOCATION = makeFinding().locations[0]
+  return async (label, ...rest) => {
+    const r = await responder(label, ...rest)
+    const m = /^(review|gap):(.+)$/.exec(label)
+    if (!m || !r || !Array.isArray(r.findings)) return r
+    const key = m[1] === 'gap' ? 'gap' + m[2] : m[2]
+    const findings = r.findings.map((f) => (f.locations.length === 1 && f.locations[0] === DEFAULT_LOCATION ? { ...f, locations: [`src/${key}.mjs:1`] } : f))
+    return { ...r, findings }
+  }
+}
+
 function findingsResult({ sliceSummary = 'summary', strengths = [], findings = [makeFinding()] } = {}) {
   return { sliceSummary, strengths, findings }
 }
@@ -159,7 +186,7 @@ function makeDeps({ agent, phaseLog = [], logLines = [] } = {}) {
 function standardResponder(plan) {
   return async (label) => {
     if (label.startsWith('review:')) return findingsResult({ findings: [makeFinding({ severity: 'medium' })] })
-    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('merge:')) return dedupResult({ groups: [] })
     if (label.startsWith('verify:')) return verdictResult({ refuted: false })
     if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
     throw new Error('standardResponder: unexpected label ' + label)
@@ -177,7 +204,7 @@ test('S10 / T-meta: meta is a pure literal; name and phases are exact per Append
   const meta = JSON.parse(JSON.stringify(loadMeta(SCRIPT_PATH)))
   assert.equal(meta.name, 'deep-codebase-audit')
   assert.deepEqual(meta.phases, [
-    { title: 'Measure' }, { title: 'Scope' }, { title: 'Review' }, { title: 'Gaps' }, { title: 'Merge' },
+    { title: 'Scope' }, { title: 'Review' }, { title: 'Gaps' }, { title: 'Merge' },
     { title: 'Verify' }, { title: 'Synthesize' }, { title: 'Triage' },
   ])
   // Appendix B freezes `name` and `phases` verbatim, but declares description/whenToUse as
@@ -263,7 +290,7 @@ function assertSchemaShapeValid(schema, path) {
 test('S12 / T-schema: every schemas(plan) sub-schema has required subset of properties, recursively', () => {
   const plan = buildPlan()
   const built = CORE.schemas(plan)
-  for (const name of ['MEASURE', 'SCOPE', 'FINDINGS', 'CRITIC', 'DEDUP', 'VERDICT', 'SYNTH', 'TRIAGE']) {
+  for (const name of ['SCOPE', 'FINDINGS', 'CRITIC', 'DEDUP', 'VERDICT', 'SYNTH', 'TRIAGE']) {
     assert.ok(built[name], `schemas(plan) must return ${name}`)
     assertSchemaShapeValid(built[name], name)
   }
@@ -284,7 +311,7 @@ test('S12: audit/result-v2 has exactly the documented top-level keys', async () 
     Object.keys(result.stats).sort(),
     [
       'reviewers', 'gaps', 'raw', 'merged', 'kept', 'confirmed', 'plausible', 'unverified',
-      'refuted', 'missing', 'projectedAgents', 'droppedGaps', 'unverifiedByCap',
+      'refuted', 'missing', 'projectedAgents', 'droppedGaps', 'unverifiedByCap', 'metricsPending', 'mergeAgents',
     ].sort()
   )
 })
@@ -413,7 +440,7 @@ test('S8: defaults — maxAgents 60, allowLarge false, items.materializeMin "hig
 
 // projectAgents / sizeGuard — formula from the frozen Appendix B paragraph, computed by hand
 // (independent of the implementation) rather than read from it.
-// E7 (D8): measure = scriptsDir ? 1 : 0; R = reviewers given ? reviewers + lenses + (D7 appends ? 1 : 0)
+// E7 (D8, T8a D11): no measure term; merge = max(1, ceil(est / 40)); R = reviewers given ? reviewers + lenses + (D7 appends ? 1 : 0)
 // : reviewerCount; triage = items.enabled ? ceil(est / 10) : 0 (est uncapped); the other terms as before.
 function handComputeTotal(plan) {
   const reviewersGiven = Array.isArray(plan.scope.reviewers)
@@ -422,19 +449,18 @@ function handComputeTotal(plan) {
   const R = reviewersGiven
     ? plan.scope.reviewers.length + lenses.length + (appends ? 1 : 0)
     : plan.scope.reviewerCount
-  const measure = plan.scriptsDir ? 1 : 0
   const scope = reviewersGiven ? 0 : 1
   const review = R
   const gaps = plan.gaps.enabled ? 1 + plan.gaps.max : 0
   const est = (R + (plan.gaps.enabled ? plan.gaps.max : 0)) * 8
   const nV = Math.min(est, plan.verify.maxFindings)
   const verify = nV * Math.max(plan.verify.highLenses.length, plan.verify.defaultLenses.length)
-  const merge = 1
+  const merge = Math.max(1, Math.ceil(est / 40))
   const synth = 1
   const triage = plan.items && plan.items.enabled ? Math.ceil(est / 10) : 0
   return {
-    total: measure + scope + review + gaps + merge + verify + synth + triage,
-    measure, scope, review, gaps, merge, verify, synth, triage,
+    total: scope + review + gaps + merge + verify + synth + triage,
+    scope, review, gaps, merge, verify, synth, triage,
   }
 }
 
@@ -445,7 +471,7 @@ test('S8: projectAgents matches the frozen formula, reviewers-absent estimate pa
   const expected = handComputeTotal(plan)
   const actual = CORE.projectAgents(plan)
   assert.deepEqual(
-    { total: actual.total, measure: actual.measure, scope: actual.scope, review: actual.review, gaps: actual.gaps, merge: actual.merge, verify: actual.verify, synth: actual.synth, triage: actual.triage },
+    { total: actual.total, scope: actual.scope, review: actual.review, gaps: actual.gaps, merge: actual.merge, verify: actual.verify, synth: actual.synth, triage: actual.triage },
     expected
   )
 })
@@ -456,7 +482,7 @@ test('S8: projectAgents matches the frozen formula, reviewers-given path (scope=
   const actual = CORE.projectAgents(plan)
   assert.equal(actual.scope, 0)
   assert.deepEqual(
-    { total: actual.total, measure: actual.measure, scope: actual.scope, review: actual.review, gaps: actual.gaps, merge: actual.merge, verify: actual.verify, synth: actual.synth, triage: actual.triage },
+    { total: actual.total, scope: actual.scope, review: actual.review, gaps: actual.gaps, merge: actual.merge, verify: actual.verify, synth: actual.synth, triage: actual.triage },
     expected
   )
 })
@@ -970,13 +996,13 @@ test('S3 (integration, replay): fifo vs reverse autoAgent completion order yield
       const key = label.slice('review:'.length)
       return findingsResult({ findings: [makeFinding({ title: `finding for ${key}`, severity: 'high' })] })
     }
-    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('merge:')) return dedupResult({ groups: [] })
     if (label.startsWith('verify:')) return verdictResult({ refuted: false, adjustedSeverity: 'high' })
     if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
     throw new Error('unexpected label ' + label)
   }
   const runOnce = async (order) => {
-    const { agent } = autoAgent(responder, { order })
+    const { agent } = autoAgent(perSlice(responder), { order })
     const result = await CORE.runAudit(plan, makeDeps({ agent }))
     return result.kept
   }
@@ -992,8 +1018,8 @@ test('S3 (integration, replay): fifo vs reverse autoAgent completion order yield
 function s1aResponder() {
   return async (label) => {
     if (label === 'scope') return scopeResult({ reviewers: [reviewerSpec('r1'), reviewerSpec('r2')], lenses: [] })
-    if (label === 'review:r1' || label === 'review:r2') return findingsResult({ findings: [makeFinding({ severity: 'high' })] })
-    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label === 'review:r1' || label === 'review:r2') return findingsResult({ findings: [makeFinding({ severity: 'high', locations: [sharedLocation(label.slice(7))] })] })
+    if (label.startsWith('merge:')) return dedupResult({ groups: [] })
     if (label === 'verify:r1-1:combined' || label === 'verify:r2-1:combined') return verdictResult({ refuted: false })
     if (label === 'synthesis') return synthResult({ reportPath: '/tmp/audit-report.md' })
     if (label === 'triage:1') {
@@ -1015,7 +1041,7 @@ test('S1a: barrier Scope -> Review -> Merge -> Verify -> Synthesize -> Triage (r
     items: { enabled: true, rootId: 'root-test-0001', materializeMin: 'high' },
     reportPath: '/tmp/audit-report.md',
   })
-  const { agent, calls } = autoAgent(s1aResponder(), { order: 'reverse' })
+  const { agent, calls } = autoAgent(perSlice(s1aResponder()), { order: 'reverse' })
   const result = await CORE.runAudit(plan, makeDeps({ agent }))
   assert.equal(result.started, true)
   assertBarrier(calls, 'Scope', 'Review')
@@ -1028,15 +1054,15 @@ test('S1a: barrier Scope -> Review -> Merge -> Verify -> Synthesize -> Triage (r
 test('S1b: barrier Review -> Gaps -> Merge, gap reviewer label is gap:<n> 1-based (reverse order)', async () => {
   const plan = buildPlan({ gaps: { enabled: true, max: 2 } }) // scope.reviewers = r1, r2 from baseArgs
   const responder = async (label) => {
-    if (label === 'review:r1' || label === 'review:r2') return findingsResult({ findings: [makeFinding()] })
+    if (label === 'review:r1' || label === 'review:r2') return findingsResult({ findings: [makeFinding({ locations: [sharedLocation(label.slice(7))] })] })
     if (label === 'critic') return criticResult({ gaps: [{ label: 'coverage-gap', prompt: 'look at X' }] })
     if (label === 'gap:1') return findingsResult({ findings: [makeFinding()] })
-    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('merge:')) return dedupResult({ groups: [] })
     if (label.startsWith('verify:')) return verdictResult({ refuted: false })
     if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
     throw new Error('s1b: unexpected label ' + label)
   }
-  const { agent, calls } = autoAgent(responder, { order: 'reverse' })
+  const { agent, calls } = autoAgent(perSlice(responder), { order: 'reverse' })
   const result = await CORE.runAudit(plan, makeDeps({ agent }))
   assert.equal(result.started, true)
   assertBarrier(calls, 'Review', 'Gaps')
@@ -1056,7 +1082,7 @@ test('S2: a null scope agent -> kept [], stats.missing includes "scope", report 
     if (label === 'scope') return null
     throw new Error('no agent beyond scope should be called when scope is null: ' + label)
   }
-  const { agent, calls } = autoAgent(responder)
+  const { agent, calls } = autoAgent(perSlice(responder))
   const result = await CORE.runAudit(plan, makeDeps({ agent }))
   assert.deepEqual(result.kept, [])
   assert.ok(result.stats.missing.includes('scope'))
@@ -1070,12 +1096,12 @@ test('S2: a null reviewer -> that reviewer key is listed in stats.missing, the r
   const responder = async (label) => {
     if (label === 'review:r1') return null
     if (label === 'review:r2') return findingsResult({ findings: [makeFinding()] })
-    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('merge:')) return dedupResult({ groups: [] })
     if (label.startsWith('verify:')) return verdictResult({ refuted: false })
     if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
     throw new Error('unexpected label ' + label)
   }
-  const { agent } = autoAgent(responder)
+  const { agent } = autoAgent(perSlice(responder))
   const result = await CORE.runAudit(plan, makeDeps({ agent }))
   assert.ok(result.stats.missing.includes('r1'))
   assert.equal(result.stats.raw, 1)
@@ -1085,12 +1111,12 @@ test('S2: a null merge agent leaves findings unmerged (merged count === raw coun
   const plan = buildPlan() // reviewers r1, r2, one finding each -> raw = 2
   const responder = async (label) => {
     if (label === 'review:r1' || label === 'review:r2') return findingsResult({ findings: [makeFinding()] })
-    if (label === 'merge') return null
+    if (label.startsWith('merge:')) return null
     if (label.startsWith('verify:')) return verdictResult({ refuted: false })
     if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
     throw new Error('unexpected label ' + label)
   }
-  const { agent } = autoAgent(responder)
+  const { agent } = autoAgent(perSlice(responder))
   const result = await CORE.runAudit(plan, makeDeps({ agent }))
   assert.equal(result.stats.raw, 2)
   assert.equal(result.stats.merged, 2)
@@ -1100,12 +1126,12 @@ test('S2: every verify lens returning null marks the finding UNVERIFIED (not dro
   const plan = buildPlan()
   const responder = async (label) => {
     if (label === 'review:r1' || label === 'review:r2') return findingsResult({ findings: [makeFinding()] })
-    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('merge:')) return dedupResult({ groups: [] })
     if (label.startsWith('verify:')) return null
     if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
     throw new Error('unexpected label ' + label)
   }
-  const { agent } = autoAgent(responder)
+  const { agent } = autoAgent(perSlice(responder))
   const result = await CORE.runAudit(plan, makeDeps({ agent }))
   assert.equal(result.stats.unverified, result.kept.length)
   assert.ok(result.kept.length > 0)
@@ -1116,12 +1142,12 @@ test('S2: a null synthesis agent -> report null, kept set still returned', async
   const plan = buildPlan()
   const responder = async (label) => {
     if (label === 'review:r1' || label === 'review:r2') return findingsResult({ findings: [makeFinding()] })
-    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('merge:')) return dedupResult({ groups: [] })
     if (label.startsWith('verify:')) return verdictResult({ refuted: false })
     if (label === 'synthesis') return null
     throw new Error('unexpected label ' + label)
   }
-  const { agent } = autoAgent(responder)
+  const { agent } = autoAgent(perSlice(responder))
   const result = await CORE.runAudit(plan, makeDeps({ agent }))
   assert.equal(result.report, null)
   assert.equal(result.kept.length, 2)
@@ -1131,13 +1157,13 @@ test('S2: a null triage agent marks affected findings likelyDuplicate "unknown" 
   const plan = buildPlan({ items: { enabled: true, rootId: 'root-test-0001', materializeMin: 'high' } })
   const responder = async (label) => {
     if (label === 'review:r1' || label === 'review:r2') return findingsResult({ findings: [makeFinding({ severity: 'high' })] })
-    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('merge:')) return dedupResult({ groups: [] })
     if (label.startsWith('verify:')) return verdictResult({ refuted: false })
     if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
     if (label.startsWith('triage:')) return null
     throw new Error('unexpected label ' + label)
   }
-  const { agent } = autoAgent(responder)
+  const { agent } = autoAgent(perSlice(responder))
   const result = await CORE.runAudit(plan, makeDeps({ agent }))
   assert.ok(result.proposal, 'proposal must still be computed when triage is null')
   assert.ok(result.proposal.items.length > 0)
@@ -1159,12 +1185,12 @@ test('S6: every non-synthesis prompt is READ-ONLY and excludes write-tool names;
     if (label.startsWith('review:')) return findingsResult({ findings: [makeFinding()] })
     if (label === 'critic') return criticResult({ gaps: [{ label: 'g', prompt: 'p' }] })
     if (label.startsWith('gap:')) return findingsResult({ findings: [makeFinding()] })
-    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('merge:')) return dedupResult({ groups: [] })
     if (label.startsWith('verify:')) return verdictResult({ refuted: false })
     if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
     throw new Error('unexpected label ' + label)
   }
-  const { agent, calls } = autoAgent(responder)
+  const { agent, calls } = autoAgent(perSlice(responder))
   await CORE.runAudit(plan, makeDeps({ agent }))
   assert.ok(calls.length > 0)
   for (const c of calls) {
@@ -1188,13 +1214,13 @@ test('S14 (4.0): no audit prompt names a retired 3.x tool (RETIRED_3X_TOOLS), wh
     if (label.startsWith('review:')) return findingsResult({ findings: [makeFinding()] })
     if (label === 'critic') return criticResult({ gaps: [{ label: 'g', prompt: 'p' }] })
     if (label.startsWith('gap:')) return findingsResult({ findings: [makeFinding()] })
-    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('merge:')) return dedupResult({ groups: [] })
     if (label.startsWith('verify:')) return verdictResult({ refuted: false })
     if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
     if (label.startsWith('triage:')) return triageResult({ results: [{ findingId: 'r1-1', candidates: [], likelyDuplicate: 'none' }] })
     throw new Error('unexpected label ' + label)
   }
-  const { agent, calls } = autoAgent(responder)
+  const { agent, calls } = autoAgent(perSlice(responder))
   await CORE.runAudit(plan, makeDeps({ agent }))
   assert.ok(calls.length > 0)
   for (const c of calls) {
@@ -1247,12 +1273,12 @@ test('Follow-up S4: cap tail — findings beyond maxFindings end UNVERIFIED, cou
   const responder = async (label) => {
     if (label === 'review:r1') return findingsResult({ findings: [makeFinding({ severity: 'critical' })] })
     if (label === 'review:r2') return findingsResult({ findings: [makeFinding({ severity: 'low' })] })
-    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('merge:')) return dedupResult({ groups: [] })
     if (label === 'verify:r1-1:combined') return verdictResult({ refuted: false })
     if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
     throw new Error('cap-tail: unexpected label ' + label) // r2-1 must never reach Verify — it is capped
   }
-  const { agent } = autoAgent(responder)
+  const { agent } = autoAgent(perSlice(responder))
   const result = await CORE.runAudit(plan, makeDeps({ agent, logLines }))
   assert.equal(result.stats.unverifiedByCap, 1)
   const tail = result.kept.find((k) => k.findingId === 'r2-1')
@@ -1296,12 +1322,12 @@ test('Follow-up: stats.droppedGaps records gap proposals beyond gaps.max, and on
       })
     }
     if (label === 'gap:1') return findingsResult({ findings: [makeFinding()] })
-    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('merge:')) return dedupResult({ groups: [] })
     if (label.startsWith('verify:')) return verdictResult({ refuted: false })
     if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
     throw new Error('droppedGaps: unexpected label ' + label) // gap:2 / gap:3 must never run (max=1)
   }
-  const { agent, calls } = autoAgent(responder)
+  const { agent, calls } = autoAgent(perSlice(responder))
   const result = await CORE.runAudit(plan, makeDeps({ agent }))
   assert.equal(calls.filter((c) => c.label.startsWith('gap:')).length, 1, 'only gaps.max gap reviewers run')
   assert.equal(result.stats.droppedGaps.length, 2)
@@ -1314,15 +1340,15 @@ test('Follow-up: raw === 0 skips Merge and Verify entirely (no such agent calls)
   const plan = buildPlan() // reviewers r1, r2
   const responder = async (label) => {
     if (label === 'review:r1' || label === 'review:r2') return null
-    if (label === 'merge') throw new Error('merge must not be called when raw === 0')
+    if (label.startsWith('merge:')) throw new Error('merge must not be called when raw === 0')
     if (label.startsWith('verify:')) throw new Error('verify must not be called when raw === 0')
     if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
     throw new Error('raw==0: unexpected label ' + label)
   }
-  const { agent, calls } = autoAgent(responder)
+  const { agent, calls } = autoAgent(perSlice(responder))
   const result = await CORE.runAudit(plan, makeDeps({ agent }))
   assert.equal(result.stats.raw, 0)
-  assert.equal(calls.some((c) => c.label === 'merge'), false)
+  assert.equal(calls.some((c) => c.label.startsWith('merge:')), false)
   assert.equal(calls.some((c) => c.label.startsWith('verify:')), false)
 })
 
@@ -1334,7 +1360,7 @@ test('Follow-up S6: the scope prompt is READ-ONLY; the triage prompt names items
   const responder = async (label) => {
     if (label === 'scope') return scopeResult({ reviewers: [reviewerSpec('r1')], lenses: [] })
     if (label === 'review:r1') return findingsResult({ findings: [makeFinding()] })
-    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('merge:')) return dedupResult({ groups: [] })
     if (label.startsWith('verify:')) return verdictResult({ refuted: false })
     if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
     if (label.startsWith('triage:')) {
@@ -1342,7 +1368,7 @@ test('Follow-up S6: the scope prompt is READ-ONLY; the triage prompt names items
     }
     throw new Error('S6 scope/triage: unexpected label ' + label)
   }
-  const { agent, calls } = autoAgent(responder)
+  const { agent, calls } = autoAgent(perSlice(responder))
   await CORE.runAudit(plan, makeDeps({ agent }))
   const scopeCall = calls.find((c) => c.label === 'scope')
   assert.ok(scopeCall, 'scope must have been called')
@@ -1359,12 +1385,12 @@ test('Follow-up O6: scope.reviewers: [] is treated as absent (Scope phase runs),
   const responder = async (label) => {
     if (label === 'scope') return scopeResult({ reviewers: [reviewerSpec('r1')], lenses: [] })
     if (label === 'review:r1') return findingsResult({ findings: [makeFinding()] })
-    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('merge:')) return dedupResult({ groups: [] })
     if (label.startsWith('verify:')) return verdictResult({ refuted: false })
     if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
     throw new Error('O6: unexpected label ' + label)
   }
-  const { agent, calls } = autoAgent(responder)
+  const { agent, calls } = autoAgent(perSlice(responder))
   const result = await CORE.runAudit(plan, makeDeps({ agent }))
   assert.ok(calls.some((c) => c.label === 'scope'), 'an empty scope.reviewers array must still trigger the Scope phase')
   assert.equal(result.started, true)
@@ -1380,7 +1406,6 @@ test('Follow-up O6: scope.reviewers: [] is treated as absent (Scope phase runs),
 // -> review-architecture, verify calls of a high or critical finding -> verify-high, else verify; an
 // omitted key yields its default entry (never inherit). The default table below is a literal copy of D3.
 const D3_DEFAULTS = {
-  measure: { model: 'haiku', effort: 'low' },
   scope: { model: 'sonnet', effort: 'medium' },
   review: { model: 'sonnet', effort: 'high' },
   'review-architecture': { model: 'opus', effort: 'high' },
@@ -1413,16 +1438,16 @@ test('Follow-up (O10-1, D3): args.models/args.efforts reach agent() opts per dis
   const sevBySlice = { r1: 'high', r2: 'low', architecture: 'high', gap1: 'high' }
   const responder = async (label) => {
     if (label === 'scope') return scopeResult({ reviewers: [reviewerSpec('r1'), reviewerSpec('r2')], lenses: [] })
-    if (label.startsWith('review:')) return findingsResult({ findings: [makeFinding({ severity: sevBySlice[label.slice(7)] })] })
+    if (label.startsWith('review:')) return findingsResult({ findings: [makeFinding({ severity: sevBySlice[label.slice(7)], locations: [sharedLocation(label.slice(7))] })] })
     if (label === 'critic') return criticResult({ gaps: [{ label: 'g1', prompt: 'p1' }] })
     if (label === 'gap:1') return findingsResult({ findings: [makeFinding({ severity: sevBySlice.gap1 })] })
-    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('merge:')) return dedupResult({ groups: [] })
     if (label.startsWith('verify:')) return verdictResult({ refuted: false })
     if (label === 'synthesis') return synthResult()
     if (label.startsWith('triage:')) return triageResult({ results: [] })
     throw new Error('models/efforts: unexpected label ' + label)
   }
-  const { agent, calls } = autoAgent(responder)
+  const { agent, calls } = autoAgent(perSlice(responder))
   const result = await CORE.runAudit(plan, makeDeps({ agent }))
   assert.equal(result.started, true)
 
@@ -1445,7 +1470,7 @@ test('Follow-up (O10-1, D3): args.models/args.efforts reach agent() opts per dis
   checkKey((c) => c.label === 'review:architecture', 'review-architecture', 'review:architecture')
   checkKey((c) => c.label.startsWith('gap:'), 'review', 'gap:<n> (reuses the review key)')
   checkKey((c) => c.label === 'critic', 'critic', 'critic')
-  checkKey((c) => c.label === 'merge', 'merge', 'merge')
+  checkKey((c) => c.label.startsWith('merge:'), 'merge', 'merge')
   checkKey((c) => c.label === 'synthesis', 'synth', 'synthesis')
   checkKey((c) => c.label.startsWith('triage:'), 'triage', 'triage:<n>')
   const verifySev = (c) => sevBySlice[c.label.split(':')[1].split('-')[0]]
@@ -1466,12 +1491,12 @@ test('Follow-up (O10-2): the verify prompt names its own lens, every VERDICT fie
   const responder = async (label) => {
     if (label === 'review:r1') return findingsResult({ findings: [makeFinding({ severity: 'critical' })] })
     if (label === 'review:r2') return findingsResult({ findings: [makeFinding({ severity: 'low' })] })
-    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('merge:')) return dedupResult({ groups: [] })
     if (label.startsWith('verify:')) return verdictResult({ refuted: false })
     if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
     throw new Error('verify-prompt: unexpected label ' + label)
   }
-  const { agent, calls } = autoAgent(responder)
+  const { agent, calls } = autoAgent(perSlice(responder))
   await CORE.runAudit(plan, makeDeps({ agent }))
   const verifyCalls = calls.filter((c) => c.label.startsWith('verify:'))
   assert.equal(verifyCalls.length, 4, 'expect 3 highLenses calls (critical finding) + 1 defaultLenses call (low finding)')
@@ -1500,12 +1525,12 @@ test('Follow-up (O10-3): a Scope agent proposing more reviewers than reviewerCou
   const responder = async (label) => {
     if (label === 'scope') return scopeResult({ reviewers: proposedReviewers, lenses: [] })
     if (label.startsWith('review:')) return findingsResult({ findings: [makeFinding()] })
-    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('merge:')) return dedupResult({ groups: [] })
     if (label.startsWith('verify:')) return verdictResult({ refuted: false })
     if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
     throw new Error('scope-cap: unexpected label ' + label)
   }
-  const { agent, calls } = autoAgent(responder)
+  const { agent, calls } = autoAgent(perSlice(responder))
   const result = await CORE.runAudit(plan, makeDeps({ agent }))
   assert.equal(result.started, true)
   const reviewCalls = calls.filter((c) => c.label.startsWith('review:'))
@@ -1526,13 +1551,13 @@ test('Follow-up (O10-4, D15): triage:<n> call count equals ceil(kept/10) - the u
   assert.ok(projected.total <= plan.maxAgents, 'fixture must stay within default maxAgents for this test to run without allowLarge')
   const responder = async (label) => {
     if (label.startsWith('review:')) return findingsResult({ findings: [makeFinding({ severity: 'medium' })] })
-    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('merge:')) return dedupResult({ groups: [] })
     if (label.startsWith('verify:')) return verdictResult({ refuted: false })
     if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
     if (label.startsWith('triage:')) return triageResult({ results: [] })
     throw new Error('triage-cap: unexpected label ' + label)
   }
-  const { agent, calls } = autoAgent(responder)
+  const { agent, calls } = autoAgent(perSlice(responder))
   const result = await CORE.runAudit(plan, makeDeps({ agent }))
   assert.equal(result.started, true)
   assert.equal(result.kept.length, 26, 'all 26 merged findings are kept (25 reviewers + the architecture lens; verified ones plus the unverified-by-cap tail)')
@@ -1589,7 +1614,7 @@ function methodRunResponder(plan) {
     if (label.startsWith('review:')) return findingsResult({ findings: [makeFinding()] })
     if (label === 'critic') return criticResult({ gaps: [{ label: 'g', prompt: 'p' }] })
     if (label.startsWith('gap:')) return findingsResult({ findings: [makeFinding()] })
-    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('merge:')) return dedupResult({ groups: [] })
     if (label.startsWith('verify:')) return verdictResult({ refuted: false })
     if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
     throw new Error('method skill: unexpected label ' + label)
@@ -1700,7 +1725,7 @@ function kindResponder(plan, { scope, critic } = {}) {
     if (label === 'scope') return scope
     if (label === 'critic') return critic
     if (label.startsWith('review:') || label.startsWith('gap:')) return findingsResult({ findings: [makeFinding()] })
-    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('merge:')) return dedupResult({ groups: [] })
     if (label.startsWith('verify:')) return verdictResult({ refuted: false })
     if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
     throw new Error('kind: unexpected label ' + label)
@@ -1940,7 +1965,7 @@ test('O1 verify: a documentation-category verifier prompt carries the docs rule;
   ]
   const responder = async (label) => {
     if (label.startsWith('review:')) return label === 'review:r1' ? findingsResult({ findings }) : findingsResult({ findings: [] })
-    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('merge:')) return dedupResult({ groups: [] })
     if (label.startsWith('verify:')) return verdictResult({ refuted: false })
     if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
     throw new Error('O1 verify: unexpected label ' + label)
@@ -1975,7 +2000,7 @@ test('347bbfb3 verify: a docs-slice or docs-gap finding filed under a code categ
   const plan = CORE.normalizeArgs(noReviewers({ gaps: { enabled: true, max: 1 } })).plan
   const scope = scopeResult({ reviewers: [plannerSlice('d1', 'docs'), plannerSlice('c1', 'code')] })
   const critic = criticResult({ gaps: [{ label: 'gd', kind: 'docs', prompt: 'p' }] })
-  const { agent, calls } = autoAgent(kindResponder(plan, { scope, critic }))
+  const { agent, calls } = autoAgent(perSlice(kindResponder(plan, { scope, critic })))
   await CORE.runAudit(plan, makeDeps({ agent }))
   const verifyCalls = calls.filter((c) => c.label.startsWith('verify:'))
   const bySource = (prefix) => verifyCalls.filter((c) => c.label.startsWith('verify:' + prefix + '-'))
@@ -2003,22 +2028,31 @@ test('347bbfb3 verify: the docs rule may refute drift in a record and a generate
 // implementation); signatures come from the supplied declarations block. No implementation source was
 // opened. Literal tables below (D3_DEFAULTS above, FAN_OUT) are copied from D2/D3, never read from CORE.
 
-const FAN_OUT = ['review', 'verify', 'verify-high', 'triage', 'merge', 'measure']
+const FAN_OUT = ['review', 'verify', 'verify-high', 'triage', 'merge']
 
-function v2Args(overrides = {}) {
-  return baseArgs({ contract: 'audit/args-v2', scriptsDir: 'S/', workDir: 'W\\', ...overrides })
-}
-
-function measureResult(overrides = {}) {
+// A measured input of the audit/digest-v1 shape (T7 digest.mjs buildDigest); rows sit under the default reviewer
+// path so a territory slice keeps them. Rebuilt per call so no test can mutate another test's input.
+const HOOKS = 'claude-plugins/task-orchestrator/hooks'
+function measuredFixture(overrides = {}) {
   return {
-    metricsWritten: true,
-    hotSet: [{ path: 'hot/zz.kt', churn: 9, complexity: 30 }],
-    topComplexity: [{ path: 'cx/yy.kt', complexity: 44 }],
-    cycles: [['mod-aa', 'mod-bb']],
-    unstableModules: [{ id: 'mod-unstable', instability: 0.9 }],
+    contract: 'audit/digest-v1',
+    window: { since: '2025-11-22', recent: '2026-08-22' },
+    headSha: 'abc123',
+    metricsPath: 'W/metrics.json',
+    hotSet: [{ path: `${HOOKS}/zz.kt`, churn: 9, churnRecent: 3, complexity: 30, hotspotScore: 0.5, module: HOOKS }],
+    topComplexity: [{ path: `${HOOKS}/yy.kt`, complexity: 44, module: HOOKS }],
+    cycles: [[HOOKS, 'mod-bb']],
+    unstableModules: [{ id: HOOKS, instability: 0.9, fanIn: 1, fanOut: 2 }],
+    coupling: [],
+    trend: [],
     notes: [],
+    candidates: [],
     ...overrides,
   }
+}
+
+function v2Args(overrides = {}) {
+  return baseArgs({ contract: 'audit/args-v2', measured: measuredFixture(), ...overrides })
 }
 
 function synthV2(overrides = {}) {
@@ -2029,14 +2063,21 @@ function synthV2(overrides = {}) {
   }
 }
 
-/** A responder covering every label of a v2 run. `measure`/`critic`: pass null for a null agent result. */
+/** A responder covering every label of a v2 run. `critic`: pass null for a null agent result. Each slice key
+ * gets its own finding location (src/<key>.mjs:1) unless findingFor sets locations itself, so the T8a
+ * pre-clustering leaves findings of different slices apart; `locationFor(key)` overrides that location. */
 function runResponder({
-  measure = measureResult(), scope, critic = criticResult(), sevBySlice = {}, synth = synthV2(),
-  triageResults = [], verdictFor = () => verdictResult(), findingFor, nullFor = [],
+  scope, critic = criticResult(), sevBySlice = {}, synth = synthV2(),
+  triageResults = [], verdictFor = () => verdictResult(), findingFor, nullFor = [], locationFor = null, mergeFor = null,
 } = {}) {
-  const mk = (key) => (findingFor ? findingFor(key) : makeFinding({ severity: sevBySlice[key] || 'medium', rating: 'plan-it' }))
+  const DEFAULT_LOCATION = makeFinding().locations[0]
+  const locate = (key, f) => {
+    if (f === null) return null
+    const loc = locationFor ? locationFor(key) : `src/${key}.mjs:1`
+    return f.locations.length === 1 && f.locations[0] === DEFAULT_LOCATION ? { ...f, locations: [loc] } : f
+  }
+  const mk = (key) => locate(key, findingFor ? findingFor(key) : makeFinding({ severity: sevBySlice[key] || 'medium', rating: 'plan-it' }))
   return async (label) => {
-    if (label === 'measure') return measure
     if (label === 'scope') return scope
     if (label === 'critic') return critic
     if (nullFor.includes(label)) return null
@@ -2045,7 +2086,7 @@ function runResponder({
       return findingsResult({ findings: f === null ? [] : [f] })
     }
     if (label.startsWith('gap:')) return findingsResult({ findings: [mk('gap' + label.slice(4))] })
-    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('merge:')) return mergeFor ? mergeFor(label) : dedupResult({ groups: [] })
     if (label.startsWith('verify:')) return verdictFor(label)
     if (label === 'synthesis') return synth
     if (label.startsWith('triage:')) return triageResult({ results: triageResults })
@@ -2064,7 +2105,8 @@ async function fullRun(args, responderOpts = {}, { order = 'fifo' } = {}) {
 }
 
 function dispatchKeyOf(label, sevBySlice) {
-  if (['measure', 'scope', 'critic', 'merge'].includes(label)) return label
+  if (['scope', 'critic'].includes(label)) return label
+  if (label.startsWith('merge:')) return 'merge'
   if (label === 'synthesis') return 'synth'
   if (label === 'review:architecture') return 'review-architecture'
   if (label.startsWith('review:') || label.startsWith('gap:')) return 'review'
@@ -2078,8 +2120,14 @@ function dispatchKeyOf(label, sevBySlice) {
 
 const FULL_SEV = { r1: 'critical', r2: 'low', l1: 'medium', architecture: 'high', gap1: 'medium' }
 
+// r1 and r2 share one path at two lines, so the pre-clustering hands exactly one batch to a merge agent
+function sharedLocation(key) {
+  return key === 'r1' ? 'src/shared.mjs:1' : key === 'r2' ? 'src/shared.mjs:9' : `src/${key}.mjs:1`
+}
+
 function fullScopeOpts(extra = {}) {
   return {
+    locationFor: sharedLocation,
     scope: scopeResult({ reviewers: [reviewerSpec('r1'), reviewerSpec('r2')], lenses: [{ key: 'l1', label: 'Lens l1', focus: 'f' }] }),
     critic: criticResult({ gaps: [{ label: 'g1', prompt: 'p1' }] }),
     sevBySlice: FULL_SEV,
@@ -2088,7 +2136,7 @@ function fullScopeOpts(extra = {}) {
 }
 
 function fullArgs(overrides = {}) {
-  // quick preset with the gaps default (critic enabled), the Scope phase running, Measure and Triage on
+  // quick preset with the gaps default (critic enabled), the Scope phase running, measured input and Triage on
   return v2Args({ gaps: undefined, scope: { paths: ['p'] }, items: { enabled: true, rootId: 'root-1' }, ...overrides })
 }
 
@@ -2105,12 +2153,12 @@ test('S15: every call carries the D3 model and effort of its dispatch key, and a
     assert.equal(c.opts.effort, want.effort, `${c.label} effort`)
     assert.equal(c.opts.label, `${c.label} [${want.model}/${want.effort}]`, `${c.label} label tag`)
   }
-  assert.deepEqual([...seenKeys].sort(), Object.keys(D3_DEFAULTS).sort(), 'fixture must exercise all ten dispatch keys')
+  assert.deepEqual([...seenKeys].sort(), Object.keys(D3_DEFAULTS).sort(), 'fixture must exercise all nine dispatch keys')
 })
 
 // E17 (A1): the phase-key -> dispatch-class map, a literal copy of A1 item 2 (class names only, no values).
 const CLASS_MAP = {
-  measure: 'audit-measure', scope: 'research', review: 'audit-review', 'review-architecture': 'review',
+  scope: 'research', review: 'audit-review', 'review-architecture': 'review',
   critic: 'research', merge: 'extraction', verify: 'research', 'verify-high': 'audit-verify-high',
   synth: 'audit-synthesis', triage: 'extraction',
 }
@@ -2128,8 +2176,8 @@ test('S16: overrides reach their keys; scope, critic, review-architecture and sy
   const models = {
     scope: 'fable', critic: 'fable', 'review-architecture': 'fable', synth: 'fable', review: 'm-review',
     'verify-high': 'm-vh', verify: 'm-verify', merge: 'm-merge', triage: 'm-triage',
-  } // measure omitted
-  const efforts = { review: 'e-review', 'verify-high': 'e-vh', measure: 'e-measure' } // everything else omitted
+  }
+  const efforts = { review: 'e-review', 'verify-high': 'e-vh' } // everything else omitted
   const { calls, plan } = await fullRun(fullArgs({ models, efforts }), fullScopeOpts())
   for (const c of calls) {
     const key = dispatchKeyOf(c.label, FULL_SEV)
@@ -2139,7 +2187,7 @@ test('S16: overrides reach their keys; scope, critic, review-architecture and sy
     assert.equal(c.opts.effort, effort, `${c.label} effort`)
     assert.equal(c.opts.label, `${c.label} [${model}/${effort}]`)
   }
-  assert.deepEqual(plan.dispatch.measure, { model: 'haiku', effort: 'e-measure' })
+  assert.equal('measure' in plan.dispatch, false, 'T8a: no measure dispatch key')
   assert.deepEqual(plan.dispatch.review, { model: 'm-review', effort: 'e-review' })
   assert.deepEqual(plan.dispatch['review-architecture'], { model: 'fable', effort: 'high' })
 })
@@ -2160,73 +2208,148 @@ test('S16 / agentOpts: sets model, effort and the label suffix on a copy of the 
   }
 })
 
-// ── S17 / S26 / S25: the Measure phase (D4, D5) ──────────────────────────────
+// ── S17 / S25 / S26 / S38 / S40 / S45: measured input replaces the Measure phase (T8a D1-D4) ──
 
-test('S17: Measure runs first with the D4 command, metricsPath is <W>/metrics.json, the digest reaches the scope and every reviewer, lens and gap prompt (reverse barrier)', async () => {
-  const m = measureResult()
-  const args = fullArgs({ date: '2026-11-22', scope: { paths: ['p1', 'p2'] } })
-  const { calls, result, phaseLog } = await fullRun(args, fullScopeOpts({ measure: m }), { order: 'reverse' })
-  assert.equal(phaseLog[0], 'Measure')
-  assert.equal(calls.filter((c) => c.label === 'measure').length, 1)
-  assertBarrier(calls, 'Measure', 'Scope')
-  const measure = calls.find((c) => c.label === 'measure')
-  assert.ok(
-    measure.prompt.includes('node "S/audit-metrics.mjs" --root "/tmp/repo" --paths "p1,p2" --since 2025-11-22 --recent 2026-08-22 --out "W/metrics.json"'),
-    'the measure prompt carries the exact D4 command'
-  )
-  assert.equal(result.metricsPath, 'W/metrics.json')
-  const digest = CORE.formatMetricsDigest(m)
-  const carriers = calls.filter((c) => c.label === 'scope' || c.label.startsWith('review:') || c.label.startsWith('gap:'))
-  assert.deepEqual(carriers.map((c) => c.label).sort(), ['gap:1', 'review:architecture', 'review:l1', 'review:r1', 'review:r2', 'scope'])
-  for (const c of carriers) {
-    assert.ok(c.prompt.includes(digest), `${c.label} prompt carries the digest verbatim`)
-    assert.ok(c.prompt.includes('hot/zz.kt'), `${c.label} prompt names a measured path`)
-    if (c.label !== 'scope') {
-      assert.ok(c.prompt.indexOf('MEASURED STRUCTURE') < c.prompt.indexOf('YOUR SLICE:'), `${c.label}: digest sits before YOUR SLICE:`)
-    }
-  }
-})
+// A digest block is a line that starts with the heading; the reviewer preamble also names the heading in prose
+// (it defines the basis words), so an inline mention is not a digest.
+const hasDigest = (prompt) => /^MEASURED STRUCTURE/m.test(prompt)
+const digestAt = (prompt) => prompt.search(/^MEASURED STRUCTURE/m)
 
-test('S17 / probe (separators): trailing / and \\ are removed from scriptsDir and workDir; paths join with a comma; the dates shift with calendar clamping', () => {
-  const cases = [['S/', 'W\\', 'S', 'W'], ['S\\', 'W/', 'S', 'W'], ['S', 'W', 'S', 'W'], ['S//', 'W\\/', 'S', 'W'], ['D:\\tools\\scripts\\', 'D:/work/', 'D:\\tools\\scripts', 'D:/work']]
-  for (const [s, w, S, W] of cases) {
-    const plan = buildPlan({ scriptsDir: s, workDir: w, date: '2026-05-31', scope: { paths: ['a', 'b/c'], reviewers: [reviewerSpec('r1')] } })
-    const p = CORE.buildMeasurePrompt(plan)
-    const cmd = `node "${S}/audit-metrics.mjs" --root "/tmp/repo" --paths "a,b/c" --since 2025-05-31 --recent 2026-02-28 --out "${W}/metrics.json"`
-    assert.ok(p.includes(cmd), `scriptsDir ${JSON.stringify(s)} workDir ${JSON.stringify(w)}: expected ${cmd}`)
-    assert.match(p, /READ-ONLY/)
-    assert.ok(p.includes(`${W}/metrics.json`))
-    assert.equal(p.includes('task-orchestrator:'), false, 'the measure prompt names no skill')
-    assert.equal(p.includes('auditing-codebase'), false)
-  }
-})
+const fullDigestOf = (m) => CORE.formatMetricsDigest(m, { since: m.window.since, recent: m.window.recent, metricsPath: m.metricsPath })
 
-test('S26: no scriptsDir -> no measure call, the skip is logged, metricsPath is null, no prompt carries a digest, Measure is still the first phase', async () => {
-  const args = baseArgs({ contract: 'audit/args-v2' })
-  const { calls, result, logLines, phaseLog } = await fullRun(args, {})
+test('S17 / S38 / S45: measured input -> no measure call, Scope is the first phase of seven, metricsPath is measured.metricsPath, each carrier gets its own digest, no prompt names audit-metrics.mjs (reverse barrier)', async () => {
+  const m = measuredFixture()
+  const args = fullArgs({ date: '2026-11-22', measured: m, scope: { paths: [HOOKS] } })
+  const { calls, result, phaseLog } = await fullRun(args, fullScopeOpts(), { order: 'reverse' })
+  assert.equal(phaseLog[0], 'Scope')
+  assert.equal(phaseLog.includes('Measure'), false)
   assert.equal(calls.some((c) => c.label === 'measure'), false)
-  assert.ok(logLines.some((l) => l.includes('measure skipped: no scriptsDir')))
-  assert.equal(result.metricsPath, null)
-  assert.equal(phaseLog[0], 'Measure')
-  for (const c of calls) assert.equal(c.prompt.includes('MEASURED STRUCTURE'), false, `${c.label} must carry no digest`)
+  assert.equal(JSON.parse(JSON.stringify(loadMeta(SCRIPT_PATH))).phases.length, 7)
+  assert.equal(result.metricsPath, 'W/metrics.json')
+  for (const c of calls) assert.equal(c.prompt.includes('audit-metrics.mjs'), false, `${c.label} must not name the metrics script`)
+  const territory = CORE.sliceDigest(m, [HOOKS])
+  const byLabel = (l) => calls.find((c) => c.label === l)
+  // territory reviewers get sliceDigest of their own paths; the other lens and the gap reviewer the scope paths
+  for (const l of ['review:r1', 'review:r2', 'review:l1', 'gap:1']) {
+    assert.ok(byLabel(l).prompt.includes(territory), `${l} prompt carries sliceDigest(m, paths)`)
+  }
+  // scope and the architecture lens get the full digest
+  for (const l of ['scope', 'review:architecture']) assert.ok(byLabel(l).prompt.includes(fullDigestOf(m)), `${l} carries the full digest`)
+  assert.ok(hasDigest(byLabel('review:r1').prompt))
+  assert.ok(byLabel('review:r1').prompt.includes(`${HOOKS}/zz.kt`), 'the hot file under the slice path is named')
+  for (const c of calls.filter((x) => x.label.startsWith('review:') || x.label.startsWith('gap:'))) {
+    assert.ok(digestAt(c.prompt) >= 0 && digestAt(c.prompt) < c.prompt.indexOf('YOUR SLICE:'), `${c.label}: digest sits before YOUR SLICE:`)
+  }
+  // critic, merge, synthesis and triage carry no digest; verify carries only the file line
+  for (const c of calls.filter((x) => x.label === 'critic' || x.label.startsWith('merge:') || x.label === 'synthesis' || x.label.startsWith('triage:'))) {
+    assert.equal(hasDigest(c.prompt), false, `${c.label} carries no digest`)
+    assert.equal(c.prompt.includes('Metrics file:'), false, `${c.label} carries no metrics file line`)
+  }
+  const verifies = calls.filter((c) => c.label.startsWith('verify:'))
+  assert.ok(verifies.length > 0)
+  for (const c of verifies) {
+    assert.ok(c.prompt.includes('Metrics file: W/metrics.json'), `${c.label} names the metrics file`)
+    assert.equal(hasDigest(c.prompt), false, `${c.label} carries no digest body`)
+  }
 })
 
-test('S25: a null Measure result -> metricsPath null, a WARNING is logged, the run still completes without a digest', async () => {
-  const { calls, result, logLines } = await fullRun(v2Args(), { measure: null })
-  assert.equal(calls.filter((c) => c.label === 'measure').length, 1)
+test('S17 / S39 probe (metricsPath variants): a non-empty string is used verbatim, a backslash included; an empty or non-string metricsPath is null; no file line follows', async () => {
+  const withSlash = 'D:' + String.fromCharCode(92) + 'work' + String.fromCharCode(92) + 'metrics.json'
+  const ok = await fullRun(v2Args({ measured: measuredFixture({ metricsPath: withSlash }) }), {})
+  assert.equal(ok.result.metricsPath, withSlash)
+  for (const bad of ['', null, 5, undefined]) {
+    const { result, calls } = await fullRun(v2Args({ measured: measuredFixture({ metricsPath: bad }) }), {})
+    assert.equal(result.metricsPath, null, `metricsPath=${JSON.stringify(bad)}`)
+    for (const c of calls) assert.equal(c.prompt.includes('Metrics file:'), false, `${c.label}: no file line`)
+  }
+})
+
+test('S26 / S40: no measured input -> the absence is logged, metricsPath is null, no prompt carries a digest or a file line, Scope is the first phase', async () => {
+  const { calls, result, logLines, phaseLog } = await fullRun(fullArgs({ measured: undefined }), fullScopeOpts())
+  assert.ok(logLines.some((l) => l.includes('no measured input')))
+  assert.equal(result.metricsPath, null)
+  assert.equal(phaseLog[0], 'Scope')
+  assert.ok(calls.length > 0)
+  for (const c of calls) {
+    assert.equal(hasDigest(c.prompt), false, `${c.label} must carry no digest`)
+    assert.equal(c.prompt.includes('Metrics file:'), false, `${c.label} must carry no metrics file line`)
+  }
+})
+
+test('S25 / S40: measured input with metricsPath null -> the digest reaches the reviewers, no prompt carries a file line, metricsPath is null, the absence is not logged', async () => {
+  const { calls, result, logLines } = await fullRun(v2Args({ measured: measuredFixture({ metricsPath: null }) }), {})
   assert.equal(result.metricsPath, null)
   assert.equal(result.started, true)
-  assert.ok(result.kept.length > 0)
-  assert.ok(logLines.some((l) => /WARNING/.test(l)))
-  for (const c of calls) assert.equal(c.prompt.includes('MEASURED STRUCTURE'), false, `${c.label} must carry no digest`)
+  assert.equal(logLines.some((l) => l.includes('no measured input')), false)
+  assert.ok(calls.some((c) => c.label.startsWith('review:') && hasDigest(c.prompt)))
+  for (const c of calls) assert.equal(c.prompt.includes('Metrics file:'), false, `${c.label} must carry no metrics file line`)
 })
 
-test('S25 / D13: a null scope result with a measure result still reports metricsPath and a null report', async () => {
+test('S25 / D13: a null scope result with a measured input still reports metricsPath and a null report', async () => {
   const { result } = await fullRun(fullArgs(), { scope: null })
   assert.equal(result.metricsPath, 'W/metrics.json')
   assert.equal(result.report, null)
   assert.deepEqual(result.kept, [])
   assert.ok(Object.keys(result).includes('metricsPath'))
+  assert.equal(result.stats.mergeAgents, 0, 'the null-scope return counts no merge agents')
+})
+
+// ── S39: normalizeArgs and measured (D1) ─────────────────────────────────────
+
+const MEASURED_REASON = 'invalid args: measured must be an audit/digest-v1 object'
+
+function normalizeMeasuredReason(o) {
+  const r = CORE.normalizeArgs(baseArgs(o))
+  assert.equal(r.ok, false)
+  return r.reason
+}
+
+test('S39: measured must be an audit/digest-v1 object: a string, number, array or another contract is refused with the frozen reason', () => {
+  for (const bad of ['x', 5, true, [], [measuredFixture()], {}, { contract: 'audit/digest-v0' }, measuredFixture({ contract: 'audit/digest-v2' })]) {
+    const r = CORE.normalizeArgs(baseArgs({ measured: bad }))
+    assert.equal(r.ok, false, `expected a refusal for ${JSON.stringify(bad)}`)
+    assert.equal(r.reason, MEASURED_REASON)
+  }
+})
+
+test('S39: measured absent or null -> plan.measured null; a digest-v1 object is accepted and kept on the plan, inner lists unchecked', () => {
+  const absent = CORE.normalizeArgs(baseArgs())
+  const nul = CORE.normalizeArgs(baseArgs({ measured: null }))
+  assert.equal(absent.ok, true)
+  assert.equal(absent.plan.measured, null)
+  assert.equal(nul.ok, true)
+  assert.equal(nul.plan.measured, null)
+  const m = measuredFixture()
+  const given = CORE.normalizeArgs(baseArgs({ measured: m }))
+  assert.equal(given.ok, true, given.reason)
+  assert.deepEqual(JSON.parse(JSON.stringify(given.plan.measured)), m)
+  const bare = CORE.normalizeArgs(baseArgs({ measured: { contract: 'audit/digest-v1' } }))
+  assert.equal(bare.ok, true, 'a digest with no lists is valid: a missing list reads empty')
+})
+
+test('S39 / probe (order): the measured check comes after the items.policy check and before the dispatchClasses check; a JSON-string args form is checked too', () => {
+  const policyBad = { enabled: true, rootId: 'r', policy: 'x' }
+  assert.equal(normalizeMeasuredReason({ measured: 'x', items: policyBad }), 'invalid args: items.policy must be gated, bugs or all')
+  assert.equal(normalizeMeasuredReason({ measured: 'x', dispatchClasses: undefined }), MEASURED_REASON)
+  const asString = CORE.normalizeArgs(JSON.stringify(baseArgs({ measured: 'x' })))
+  assert.equal(asString.reason, MEASURED_REASON)
+  const asStringOk = CORE.normalizeArgs(JSON.stringify(baseArgs({ measured: measuredFixture() })))
+  assert.equal(asStringOk.ok, true)
+})
+
+test('S39 / probe (entry sequence): a refused measured stops the run before any agent runs', async () => {
+  const script = loadScript(SCRIPT_PATH)
+  let agentCalls = 0
+  const result = await script.run({
+    agent: async () => { agentCalls += 1; return null },
+    parallel: fakeParallel,
+    pipeline: fakePipeline,
+    phase: () => {},
+    log: () => {},
+    args: baseArgs({ contract: 'audit/args-v2', measured: 'x' }),
+  })
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { started: false, reason: MEASURED_REASON })
+  assert.equal(agentCalls, 0)
 })
 
 // ── S18 / S29: the architecture lens and the lens budget (D6, D7) ────────────
@@ -2317,35 +2440,27 @@ test('S31: the scope prompt names TEST CODE and the test paths only when the sco
 
 // ── S30 / S32: the metrics helpers ───────────────────────────────────────────
 
-test('S30: shiftMonths shifts by calendar months, clamps the day to the target month, and follows Gregorian leap years', () => {
-  const cases = [
-    ['2026-11-22', -12, '2025-11-22'],
-    ['2026-05-31', -3, '2026-02-28'],
-    ['2024-05-31', -3, '2024-02-29'],
-    ['2026-02-15', -3, '2025-11-15'],
-    ['2024-02-29', -12, '2023-02-28'],
-    ['2026-11-30', 3, '2027-02-28'],
-    ['2026-01-31', 1, '2026-02-28'],
-    ['2026-03-31', -1, '2026-02-28'],
-    ['2028-03-31', -1, '2028-02-29'],
-    ['2100-03-31', -1, '2100-02-28'], // 2100 is not a leap year
-    ['2000-03-31', -1, '2000-02-29'], // 2000 is
-    ['2026-01-15', -1, '2025-12-15'],
-    ['2026-07-31', 0, '2026-07-31'],
-    ['2026-12-31', 2, '2027-02-28'],
-  ]
-  for (const [d, n, want] of cases) assert.equal(CORE.shiftMonths(d, n), want, `shiftMonths(${d}, ${n})`)
+test('S30: the digest windows are measured.window, not a date computed from the run date', async () => {
+  const m = measuredFixture({ window: { since: '2020-01-02', recent: '2021-03-04' } })
+  const { calls } = await fullRun(fullArgs({ date: '2026-05-31', measured: m }), fullScopeOpts())
+  const carriers = calls.filter((x) => x.label.startsWith('review:'))
+  assert.ok(carriers.length >= 4)
+  for (const c of carriers) {
+    assert.ok(c.prompt.includes('long since 2020-01-02, recent since 2021-03-04'), `${c.label} windows come from measured.window`)
+    assert.equal(c.prompt.includes('2025-05-31'), false, `${c.label}: no window computed from the run date`)
+    assert.equal(c.prompt.includes('2026-02-28'), false, `${c.label}: no window computed from the run date`)
+  }
 })
 
-test('S32: formatMetricsDigest starts MEASURED STRUCTURE and caps at 15 hot, 10 complex, 10 cycles and 10 unstable modules', () => {
+test('S32: formatMetricsDigest of a digest-v1 object starts MEASURED STRUCTURE and caps at 15 hot, 10 complex, 10 cycles and 10 unstable modules', () => {
   const pad = (i) => String(i).padStart(2, '0')
-  const m = {
+  const m = measuredFixture({
     hotSet: Array.from({ length: 20 }, (_, i) => ({ path: `hot-${pad(i + 1)}`, churn: 1, complexity: 1 })),
     topComplexity: Array.from({ length: 12 }, (_, i) => ({ path: `tc-${pad(i + 1)}`, complexity: 5 })),
     cycles: Array.from({ length: 12 }, (_, i) => [`cyc-${pad(i + 1)}-a`, `cyc-${pad(i + 1)}-b`]),
     unstableModules: Array.from({ length: 12 }, (_, i) => ({ id: `unst-${pad(i + 1)}`, instability: 0.5 })),
     notes: [],
-  }
+  })
   const d = CORE.formatMetricsDigest(m)
   assert.ok(d.startsWith('MEASURED STRUCTURE'))
   for (let i = 1; i <= 15; i++) assert.ok(d.includes(`hot-${pad(i)}`), `hot ${i}`)
@@ -2639,9 +2754,12 @@ test('S21: kept rows carry the D14 fields with the verifier correction appended;
   assert.ok(row, 'r2-1 is kept')
   assert.deepEqual(
     Object.keys(row).sort(),
-    ['category', 'confidence', 'effort', 'evidence', 'findingId', 'impact', 'locations', 'rating', 'recommendation', 'reportId', 'severity', 'sliceKey', 'title', 'trackedId', 'verdict'],
-    'a CONFIRMED row has no unverifiedReason'
+    ['basis', 'category', 'confidence', 'effort', 'evidence', 'findingId', 'impact', 'locations', 'rating', 'recommendation', 'reportId', 'severity', 'sliceKey', 'stableId', 'title', 'trackedId', 'verdict', 'verifiedBy'],
+    'a CONFIRMED judgement row has no unverifiedReason and no measuredClaim'
   )
+  assert.equal(row.basis, 'judgement')
+  assert.equal(row.verifiedBy, 'agents')
+  assert.equal(row.stableId, stableIdOf('coupling', 'src/r2.mjs'))
   assert.equal(row.evidence, 'evidence text\n\nVerifier correction: [combined] fix1')
   assert.equal(row.impact, 'impact text')
   assert.equal(row.recommendation, 'fix it')
@@ -2673,13 +2791,14 @@ test('S21: kept rows carry the D14 fields with the verifier correction appended;
   assert.ok(calls.length > 0)
 })
 
-test('S21: a quick run with scriptsDir and items projects 34 agents (measure 1, scope 1, review 4, gaps 2, merge 1, verify 20, synth 1, triage 4)', () => {
+test('S21 / D11: a quick run with items projects 33 agents (scope 1, review 4, gaps 2, merge 1, verify 20, synth 1, triage 4) and no measure term', () => {
   const plan = CORE.normalizeArgs(fullArgs()).plan
   const p = CORE.projectAgents(plan)
   assert.deepEqual(
-    { total: p.total, measure: p.measure, scope: p.scope, review: p.review, gaps: p.gaps, merge: p.merge, verify: p.verify, synth: p.synth, triage: p.triage },
-    { total: 34, measure: 1, scope: 1, review: 4, gaps: 2, merge: 1, verify: 20, synth: 1, triage: 4 }
+    { total: p.total, scope: p.scope, review: p.review, gaps: p.gaps, merge: p.merge, verify: p.verify, synth: p.synth, triage: p.triage },
+    { total: 33, scope: 1, review: 4, gaps: 2, merge: 1, verify: 20, synth: 1, triage: 4 }
   )
+  assert.equal('measure' in p, false, 'projectAgents has no measure key')
   assert.equal(CORE.PRESETS.quick.gaps.enabled, true)
   assert.equal(CORE.PRESETS.quick.gaps.max, 1)
 })
@@ -2707,27 +2826,34 @@ test('S27: one finding each confirmed, refuted, capped and all-null -> the verif
   assert.equal(by['rd-1'].verdict, 'UNVERIFIED')
   assert.equal(by['rd-1'].unverifiedReason, 'cap')
   assert.equal(by['rb-1'], undefined, 'a refuted finding is not kept')
-  assert.deepEqual(result.refuted, [{ findingId: 'rb-1', title: 'T-rb' }])
+  assert.deepEqual(result.refuted, [{
+    findingId: 'rb-1', title: 'T-rb', category: 'layering', locations: ['src/rb.mjs:1'],
+    stableId: stableIdOf('layering', 'src/rb.mjs'), basis: 'judgement', verifiedBy: 'agents',
+  }])
   assert.deepEqual(result.report.coverage.verification, { confirmed: 1, refuted: 1, unverifiedByCap: 1, unverifiedNoVerifier: 1 })
   assert.equal(result.stats.unverifiedByCap, 1)
 })
 
 // ── D9 / D10: schemas, categories, rating merge ──────────────────────────────
 
-test('D9: MEASURE, FINDINGS and SYNTH schemas follow the frozen shapes', () => {
+test('D9 / S46: the FINDINGS schema requires basis (measured or judgement), takes an optional measuredClaim and no metrics; SYNTH keeps its shape; there is no MEASURE schema', () => {
   const s = CORE.schemas(buildPlan())
-  assert.deepEqual([...s.MEASURE.required].sort(), ['coupling', 'cycles', 'hotSet', 'metricsWritten', 'notes', 'topComplexity', 'trend', 'unstableModules'])
-  const hot = s.MEASURE.properties.hotSet.items
-  assert.deepEqual(Object.keys(hot.properties).sort(), ['churn', 'churnRecent', 'complexity', 'hotspotScore', 'path'])
-  assert.deepEqual(Object.keys(s.MEASURE.properties.topComplexity.items.properties).sort(), ['complexity', 'path'])
-  assert.deepEqual(Object.keys(s.MEASURE.properties.unstableModules.items.properties).sort(), ['id', 'instability'])
-  assert.equal(s.MEASURE.properties.cycles.items.type, 'array')
+  assert.equal('MEASURE' in s, false, 'T8a: the MEASURE schema is gone')
   const f = s.FINDINGS.properties.findings.items
   assert.ok(f.required.includes('rating'))
   assert.deepEqual([...f.properties.rating.enum], ['act-now', 'plan-it', 'watch'])
-  assert.deepEqual(Object.keys(f.properties.metrics.properties).sort(), ['churn', 'complexity'])
-  assert.equal(f.properties.metrics.properties.churn.type, 'number')
-  assert.equal(f.required.includes('metrics'), false, 'metrics is optional')
+  assert.ok(f.required.includes('basis'), 'basis is required')
+  assert.deepEqual([...f.properties.basis.enum].sort(), ['judgement', 'measured'])
+  assert.equal(f.required.includes('measuredClaim'), false, 'measuredClaim is optional')
+  const claim = f.properties.measuredClaim
+  assert.ok(claim, 'measuredClaim is declared')
+  assert.deepEqual([...claim.required], ['field'])
+  assert.deepEqual([...claim.properties.field.enum].sort(), ['churn', 'churnRecent', 'complexity', 'cycle', 'hotspotScore'])
+  assert.deepEqual(Object.keys(claim.properties).sort(), ['field', 'modules', 'value'].sort(), 'exactly the five-field claim: field, value, modules (and nothing else)')
+  assert.equal(claim.properties.value.type, 'number')
+  assert.equal(claim.properties.modules.type, 'array')
+  assert.equal(claim.properties.modules.items.type, 'string')
+  assert.equal('metrics' in f.properties, false, 'the reviewer no longer sends metrics')
   assert.deepEqual(
     [...s.SYNTH.required].sort(),
     ['executiveSummary', 'findingIndex', 'healthVerdict', 'method', 'notExamined', 'roadmap', 'strengths', 'themes']
@@ -2742,11 +2868,11 @@ test('D9: the three new categories follow dead-code in order and are tech-debt',
   for (const c of ['complexity', 'architecture-conformance', 'test-quality']) assert.equal(CORE.DEFAULT_CLASS_MAP[c], 'tech-debt')
 })
 
-test('D10: a merged row takes the most urgent member rating (absent counts as watch) and the canonical metrics', () => {
-  const metrics = { churn: 3, complexity: 7 }
+test('D10: a merged row takes the most urgent member rating (absent counts as watch) and the canonical basis and measuredClaim', () => {
+  const claim = { field: 'churn', value: 3 }
   const all = [
-    rawFinding('m1', 's1', { rating: 'watch', metrics }),
-    rawFinding('m2', 's2', { rating: 'act-now' }),
+    rawFinding('m1', 's1', { rating: 'watch', basis: 'measured', measuredClaim: claim }),
+    rawFinding('m2', 's2', { rating: 'act-now', basis: 'judgement' }),
     rawFinding('m3', 's3', { rating: 'plan-it' }),
     rawFinding('n1', 's4', { rating: 'watch' }),
     rawFinding('n2', 's5', { rating: 'plan-it' }),
@@ -2763,7 +2889,8 @@ test('D10: a merged row takes the most urgent member rating (absent counts as wa
   const merged = CORE.mergeFindings(all, groups)
   const row = (id) => merged.find((m) => m.id === id)
   assert.equal(row('m1').rating, 'act-now')
-  assert.deepEqual(row('m1').metrics, metrics)
+  assert.equal(row('m1').basis, 'measured', 'the canonical basis wins over a member judgement')
+  assert.deepEqual(row('m1').measuredClaim, claim)
   assert.equal(row('n1').rating, 'plan-it')
   assert.equal(row('k1').rating, 'watch', 'no member rating -> watch')
   assert.equal(row('u1').rating, 'plan-it', 'a singleton keeps its own rating')
@@ -2772,10 +2899,11 @@ test('D10: a merged row takes the most urgent member rating (absent counts as wa
 
 // ── S33 / S5: prompt invariants and replay with the new phases ───────────────
 
-test('S33: every prompt is READ-ONLY without write-tool names (measure and synthesis included); synthesis omits reportPath; measure names only its metrics file', async () => {
+test('S33: every prompt is READ-ONLY without write-tool names (synthesis included); synthesis omits reportPath', async () => {
   const { calls, plan } = await fullRun(fullArgs(), fullScopeOpts())
   const labels = new Set(calls.map((c) => c.label.split(':')[0]))
-  for (const l of ['measure', 'scope', 'review', 'critic', 'gap', 'merge', 'verify', 'synthesis', 'triage']) assert.ok(labels.has(l), `fixture reaches ${l}`)
+  for (const l of ['scope', 'review', 'critic', 'gap', 'merge', 'verify', 'synthesis', 'triage']) assert.ok(labels.has(l), `fixture reaches ${l}`)
+  assert.equal(labels.has('measure'), false, 'T8a: no measure call')
   for (const c of calls) {
     assert.equal(c.opts.isolation, undefined)
     assert.match(c.prompt, /READ-ONLY/, `${c.label} is READ-ONLY`)
@@ -2784,12 +2912,9 @@ test('S33: every prompt is READ-ONLY without write-tool names (measure and synth
     }
   }
   assert.equal(calls.find((c) => c.label === 'synthesis').prompt.includes(plan.reportPath), false)
-  const m = calls.find((c) => c.label === 'measure').prompt
-  assert.ok(m.includes('W/metrics.json'))
-  assert.match(m, /only/i)
 })
 
-test('S5 / replay: two identical v2 runs with Measure, Gaps and Triage produce identical [label, prompt, model, effort] sequences', async () => {
+test('S5 / replay: two identical v2 runs with measured input, Gaps and Triage produce identical [label, prompt, model, effort] sequences', async () => {
   const run = async () => {
     const { calls } = await fullRun(fullArgs(), fullScopeOpts())
     return calls.map((c) => [c.label, c.prompt, c.opts.model, c.opts.effort])
@@ -2839,7 +2964,7 @@ test('S34: dispatchClasses absent, null, an array, a string, a number or a boole
   assert.equal(asString.reason, CLASS_REQUIRED)
 })
 
-test('S34: a missing or incomplete class entry is refused naming that class, for each of the seven mapped classes', () => {
+test('S34: a missing or incomplete class entry is refused naming that class, for each of the six mapped classes', () => {
   for (const cls of Object.keys(classFixture())) {
     assert.equal(normalizeReason({ dispatchClasses: withoutClasses(cls) }), classReason(cls), `${cls} missing`)
   }
@@ -2855,8 +2980,7 @@ test('S34: a missing or incomplete class entry is refused naming that class, for
 })
 
 test('S34 / probe (order): classes are checked in the order of the phase-key map; the policy check comes first and the models check after', () => {
-  // map order: audit-measure, research, audit-review, review, (research), extraction, (research), audit-verify-high, audit-synthesis
-  assert.equal(normalizeReason({ dispatchClasses: withoutClasses('audit-synthesis', 'audit-measure') }), classReason('audit-measure'))
+  // map order: research, audit-review, review, (research), extraction, (research), audit-verify-high, audit-synthesis
   assert.equal(normalizeReason({ dispatchClasses: withoutClasses('audit-review', 'research') }), classReason('research'))
   assert.equal(normalizeReason({ dispatchClasses: withoutClasses('review', 'audit-review') }), classReason('audit-review'))
   assert.equal(normalizeReason({ dispatchClasses: withoutClasses('extraction', 'review') }), classReason('review'))
@@ -2872,7 +2996,7 @@ test('S34 / probe (order): classes are checked in the order of the phase-key map
   assert.equal(normalizeReason({ dispatchClasses: classFixture(), models: { bogus: 'x' } }), 'invalid args: unknown dispatch key models.bogus')
 })
 
-test('S34: classes outside the map and fields other than model and effort are ignored; plan.dispatch holds exactly the ten keys with a model and an effort', () => {
+test('S34: classes outside the map and fields other than model and effort are ignored; plan.dispatch holds exactly the nine keys with a model and an effort', () => {
   const classes = {
     ...classFixture(),
     research: { model: 'sonnet', effort: 'medium', description: 'text', extra: 1 },
@@ -2956,13 +3080,13 @@ test('S35: a whole run carries each call the model and effort of its key class, 
     assert.equal(c.opts.effort, want.effort, `${c.label} effort`)
     assert.equal(c.opts.label, `${c.label} [${want.model}/${want.effort}]`, `${c.label} label tag`)
   }
-  assert.deepEqual([...seen].sort(), Object.keys(CLASS_MAP).sort(), 'fixture must exercise all ten dispatch keys')
+  assert.deepEqual([...seen].sort(), Object.keys(CLASS_MAP).sort(), 'fixture must exercise all nine dispatch keys')
 })
 
 test('S36: a fable model in the class of a fan-out key is refused naming the first such key, in any casing or embedding', () => {
   const cases = [
     ['audit-review', 'review'], ['research', 'verify'], ['audit-verify-high', 'verify-high'],
-    ['extraction', 'triage'], ['audit-measure', 'measure'],
+    ['extraction', 'triage'],
   ]
   for (const [cls, key] of cases) {
     for (const model of ['fable', 'Fable', 'FABLE', 'claude-fable-x', 'my-fable-1']) {
@@ -2973,9 +3097,9 @@ test('S36: a fable model in the class of a fan-out key is refused naming the fir
       )
     }
   }
-  // two fan-out classes at fable: the first fan-out key in the frozen order (review before measure)
+  // two fan-out classes at fable: the first fan-out key in the frozen order (review before triage)
   assert.equal(
-    normalizeReason({ dispatchClasses: { ...classFixture(), 'audit-measure': { model: 'fable', effort: 'low' }, 'audit-review': { model: 'fable', effort: 'low' } } }),
+    normalizeReason({ dispatchClasses: { ...classFixture(), extraction: { model: 'fable', effort: 'low' }, 'audit-review': { model: 'fable', effort: 'low' } } }),
     fableReason('review'),
   )
   // an effort override does not lift the refusal
@@ -3016,10 +3140,9 @@ test('S37: the classes of dispatch-policy.json give the D3 table, and none resol
   }
 })
 
-test('S37: the four audit classes exist in the policy at the A1 values, and the reused classes carry the D3 values', () => {
+test('S37 / S41: the three audit classes exist in the policy at the A1 values, audit-measure is gone, and the reused classes carry the D3 values', () => {
   const { classes } = loadPolicy()
   const want = {
-    'audit-measure': { model: 'haiku', effort: 'low' },
     'audit-review': { model: 'sonnet', effort: 'high' },
     'audit-verify-high': { model: 'opus', effort: 'medium' },
     'audit-synthesis': { model: 'opus', effort: 'medium' },
@@ -3031,6 +3154,7 @@ test('S37: the four audit classes exist in the policy at the A1 values, and the 
     assert.ok(classes[cls], `class ${cls} exists`)
     assert.deepEqual({ model: classes[cls].model, effort: classes[cls].effort }, v, cls)
   }
+  assert.equal('audit-measure' in classes, false, 'T8a: the audit-measure class is removed')
 })
 
 // -- Feature-review A1 fixes (item bf401ffd, test-author seat) --------------------------------
@@ -3040,8 +3164,6 @@ test('S37: the four audit classes exist in the policy at the A1 values, and the 
 // and D5, never read from CORE.
 
 const DIGEST_CUT_NOTE_LITERAL = '(digest cut at 8000 characters; the full numbers are in the metrics file)'
-const NO_FILE_WARNING = 'WARNING: measure wrote no metrics file; continuing without measurements'
-
 /** Every JSON value (object or array) that parses out of free text, found by a string-aware bracket scan. */
 function jsonValuesIn(text) {
   const out = []
@@ -3086,87 +3208,21 @@ function objectsDeep(value, acc = []) {
   return acc
 }
 
-function noFileMeasure(overrides = {}) {
-  return measureResult({
-    metricsWritten: false, hotSet: [], topComplexity: [], cycles: [], unstableModules: [], coupling: [], trend: [],
-    notes: ['the metrics command failed'], ...overrides,
-  })
-}
+// S2, S3 (D2) -----------------------------------------------------------------------------------
 
-// S1 (D2) ---------------------------------------------------------------------------------------
-
-test('S1 / D2: metricsWritten false -> metricsPath null, the WARNING is logged, no prompt carries a digest, the run completes', async () => {
-  const { calls, result, logLines } = await fullRun(v2Args(), { measure: noFileMeasure() })
-  assert.equal(calls.filter((c) => c.label === 'measure').length, 1)
-  assert.equal(result.metricsPath, null)
-  assert.equal(result.started, true)
-  assert.ok(result.kept.length > 0, 'the run still produces findings')
-  assert.ok(logLines.some((l) => l.includes(NO_FILE_WARNING)), 'the no-metrics-file WARNING is logged')
-  for (const c of calls) {
-    assert.equal(c.prompt.includes('MEASURED STRUCTURE'), false, `${c.label} must carry no digest`)
-    assert.equal(c.prompt.includes('Metrics file:'), false, `${c.label} must carry no metrics file line`)
-  }
+test('S2 / D2: no Measure phase: schemas(plan) has no MEASURE entry and meta.phases starts at Scope', () => {
+  assert.equal('MEASURE' in CORE.schemas(buildPlan()), false)
+  const meta = JSON.parse(JSON.stringify(loadMeta(SCRIPT_PATH)))
+  assert.equal(meta.phases[0].title, 'Scope')
+  assert.equal(meta.phases.some((ph) => ph.title === 'Measure'), false)
 })
 
-test('S1 / D2 probe: a null scope result with metricsWritten false still reports metricsPath null and a null report', async () => {
-  const { result, logLines } = await fullRun(fullArgs(), { scope: null, measure: noFileMeasure() })
-  assert.equal(result.metricsPath, null)
-  assert.equal(result.report, null)
-  assert.ok(Object.keys(result).includes('metricsPath'))
-  assert.ok(logLines.some((l) => l.includes(NO_FILE_WARNING)))
-})
-
-test('S1 / D2 probe: the flag decides, not the emptiness - metricsWritten true with empty lists keeps the path and the digest', async () => {
-  const m = noFileMeasure({ metricsWritten: true })
-  const { calls, result, logLines } = await fullRun(v2Args(), { measure: m })
-  assert.equal(result.metricsPath, 'W/metrics.json')
-  assert.equal(logLines.some((l) => l.includes(NO_FILE_WARNING)), false)
-  assert.ok(calls.some((c) => c.label.startsWith('review:') && c.prompt.includes('MEASURED STRUCTURE')))
-})
-
-test('S1 / D2 probe: only the boolean true counts - absent, 1, "true" and null all mean no metrics file', async () => {
-  const absent = measureResult()
-  delete absent.metricsWritten
-  for (const m of [absent, measureResult({ metricsWritten: 1 }), measureResult({ metricsWritten: 'true' }), measureResult({ metricsWritten: null })]) {
-    const { calls, result } = await fullRun(v2Args(), { measure: m })
-    assert.equal(result.metricsPath, null, `metricsWritten=${JSON.stringify(m.metricsWritten)}`)
-    for (const c of calls) assert.equal(c.prompt.includes('MEASURED STRUCTURE'), false, `${c.label} carries no digest`)
-  }
-})
-
-// S2, S3 (D2, D5) ------------------------------------------------------------------------------
-
-test('S2 / D2, D5: the MEASURE schema requires metricsWritten, coupling and trend; a hot-set item requires churnRecent and hotspotScore', () => {
-  const m = CORE.schemas(buildPlan()).MEASURE
-  assert.equal(m.properties.metricsWritten.type, 'boolean')
-  for (const k of ['metricsWritten', 'coupling', 'trend']) assert.ok(m.required.includes(k), `${k} is required`)
-  const hot = m.properties.hotSet.items
-  for (const k of ['churnRecent', 'hotspotScore']) {
-    assert.ok(hot.required.includes(k), `hotSet item requires ${k}`)
-    assert.equal(hot.properties[k].type, 'number')
-  }
-  const coupling = m.properties.coupling
-  assert.equal(coupling.type, 'array')
-  assert.deepEqual([...coupling.items.required].sort(), ['partners', 'path'])
-  assert.equal(coupling.items.properties.path.type, 'string')
-  assert.equal(coupling.items.properties.partners.type, 'array')
-  const partner = coupling.items.properties.partners.items
-  assert.deepEqual([...partner.required].sort(), ['count', 'path'])
-  assert.equal(partner.properties.count.type, 'number')
-  const trend = m.properties.trend
-  assert.equal(trend.type, 'array')
-  assert.deepEqual([...trend.items.required].sort(), ['complexities', 'path'])
-  assert.equal(trend.items.properties.complexities.type, 'array')
-  assert.equal(trend.items.properties.complexities.items.type, 'number')
-})
-
-test('S3 / D2, D5: the measure prompt names metricsWritten, coupling, trend, churnRecent and hotspotScore', () => {
-  const plan = buildPlan({ contract: 'audit/args-v2', scriptsDir: 'S', workDir: 'W' })
-  const p = CORE.buildMeasurePrompt(plan)
-  for (const w of ['metricsWritten', 'coupling', 'trend', 'churnRecent', 'hotspotScore']) {
-    assert.ok(p.includes(w), `the measure prompt names ${w}`)
-  }
-  assert.match(p, /READ-ONLY/)
+test('S3 / D2: a run without measured input names no metrics script in any prompt, and the helpers of the Measure phase are gone', async () => {
+  const { calls } = await fullRun(fullArgs({ measured: undefined }), fullScopeOpts())
+  for (const c of calls) assert.equal(c.prompt.includes('audit-metrics.mjs'), false, `${c.label} must not name the metrics script`)
+  const text = scriptText(SCRIPT_PATH)
+  assert.equal(text.includes('buildMeasurePrompt'), false)
+  assert.equal(text.includes('shiftMonths'), false)
 })
 
 // S4 (D3) ----------------------------------------------------------------------------------------
@@ -3181,14 +3237,14 @@ test('S4 / D3: result.date is args.date on a full run and on a null-scope run, f
   }
 })
 
-test('S4 / D3 probe: a run without scriptsDir (no Measure) carries the date too', async () => {
+test('S4 / D3 probe: a run without measured input carries the date too', async () => {
   const { result } = await fullRun(baseArgs({ contract: 'audit/args-v2', date: '2026-03-31' }), {})
   assert.equal(result.date, '2026-03-31')
 })
 
 // S5 (D4) ----------------------------------------------------------------------------------------
 
-test('S5 / D4: finding metrics reach the kept row and the synthesis JSON unchanged; a finding without metrics gets no key in either', async () => {
+test('S5 / D4: a reviewer-sent metrics key never reaches a kept row or the synthesis JSON', async () => {
   const withMetrics = makeFinding({ title: 'T-with-metrics-q9', metrics: { churn: 3, complexity: 7 } })
   const without = makeFinding({ title: 'T-without-metrics-q9' })
   const { result, calls } = await fullRun(v2Args(), {
@@ -3197,18 +3253,16 @@ test('S5 / D4: finding metrics reach the kept row and the synthesis JSON unchang
   const keptWith = result.kept.find((k) => k.title === 'T-with-metrics-q9')
   const keptWithout = result.kept.find((k) => k.title === 'T-without-metrics-q9')
   assert.ok(keptWith && keptWithout, 'both findings are kept')
-  assert.deepEqual(keptWith.metrics, { churn: 3, complexity: 7 })
-  assert.equal('metrics' in keptWithout, false, 'no metrics -> no key on the kept row')
-
+  assert.equal('metrics' in keptWith, false, 'no kept row carries metrics')
+  assert.equal('metrics' in keptWithout, false)
   const synth = calls.find((c) => c.label === 'synthesis')
   assert.ok(synth, 'synthesis ran')
   const rowsFor = (title) => objectsDeep(jsonValuesIn(synth.prompt)).filter((o) => Object.values(o).includes(title))
-  const payloadWith = rowsFor('T-with-metrics-q9')
-  const payloadWithout = rowsFor('T-without-metrics-q9')
-  assert.ok(payloadWith.length > 0, 'the synthesis prompt carries the finding as JSON')
-  assert.ok(payloadWithout.length > 0, 'the synthesis prompt carries the unmeasured finding as JSON')
-  for (const o of payloadWith) assert.deepEqual(o.metrics, { churn: 3, complexity: 7 })
-  for (const o of payloadWithout) assert.equal('metrics' in o, false, 'no metrics -> no key in the synthesis JSON')
+  for (const t of ['T-with-metrics-q9', 'T-without-metrics-q9']) {
+    const payload = rowsFor(t)
+    assert.ok(payload.length > 0, `the synthesis prompt carries ${t} as JSON`)
+    for (const o of payload) assert.equal('metrics' in o, false, 'no metrics key in the synthesis JSON')
+  }
 })
 
 // S6, S7, S8 (D5): formatMetricsDigest(m, ctx) ---------------------------------------------------
@@ -3235,7 +3289,7 @@ function digestInput(overrides = {}) {
 
 const DIGEST_CTX = { metricsPath: 'W/metrics.json', since: '2025-11-22', recent: '2026-08-22' }
 const WINDOWS_LINE = 'Windows: long since 2025-11-22, recent since 2026-08-22'
-const FILE_LINE = 'Metrics file: W/metrics.json (every number above comes from it; read it instead of running the metrics script)'
+const FILE_LINE = 'Metrics file: W/metrics.json (every number above comes from it, and it holds the numbers for every other file; read it instead of running the metrics script)'
 
 test('S6 / D5: the digest prints hot-set, coupling and trend lines in the D5 shapes and ends with the two ctx lines', () => {
   const d = CORE.formatMetricsDigest(digestInput(), DIGEST_CTX)
@@ -3372,14 +3426,631 @@ test('S9 / D5: reviewer prompts carry the metrics file and both windows after th
   for (const c of reviewers) {
     assert.ok(c.prompt.includes('Metrics file: W/metrics.json'), `${c.label} names the metrics file`)
     assert.ok(c.prompt.includes('long since 2025-11-22, recent since 2026-08-22'), `${c.label} names the windows`)
-    assert.ok(c.prompt.indexOf('MEASURED STRUCTURE') < c.prompt.indexOf('Metrics file:'), `${c.label}: ctx after the digest`)
+    assert.ok(digestAt(c.prompt) >= 0 && digestAt(c.prompt) < c.prompt.indexOf('Metrics file:'), `${c.label}: ctx after the digest`)
     assert.ok(c.prompt.indexOf('Metrics file:') < c.prompt.indexOf('YOUR SLICE:'), `${c.label}: ctx before the slice`)
   }
 })
 
-test('S9 / D5 probe: the windows follow the run date with calendar clamping', async () => {
-  const { calls } = await fullRun(fullArgs({ date: '2026-05-31' }), fullScopeOpts())
-  for (const c of calls.filter((x) => x.label.startsWith('review:'))) {
-    assert.ok(c.prompt.includes('long since 2025-05-31, recent since 2026-02-28'), `${c.label} windows`)
+test('S9 / D5 probe: the windows follow measured.window whatever the run date', async () => {
+  const m = measuredFixture({ window: { since: '2024-02-29', recent: '2025-12-31' } })
+  const { calls } = await fullRun(fullArgs({ date: '2026-05-31', measured: m }), fullScopeOpts())
+  const reviewers = calls.filter((x) => x.label.startsWith('review:'))
+  assert.ok(reviewers.length >= 4)
+  for (const c of reviewers) {
+    assert.ok(c.prompt.includes('long since 2024-02-29, recent since 2025-12-31'), `${c.label} windows`)
   }
+})
+
+// -- T8a (item 01632f2c, test-author seat): measured input, slice digests, metrics-pending rows, pre-clustered
+// merge and stable ids. Oracle: the item's task-scope D1-D11 and test-plan S38-S60 (frozen before the
+// implementation); signatures come from the supplied declarations block. No implementation source was
+// opened: the one fact not in the declarations, the shapes preCluster returns, is asserted only on the
+// members the task-scope names (autoGroups, clusters, batches) and otherwise through the merge calls a run
+// makes. FNV expected values come from the published vectors and from testFnv above (an independent
+// implementation over Buffer bytes), never from the workflow.
+
+const BS = String.fromCharCode(92)
+
+// ── S41: no measure key, class or fan-out entry ──────────────────────────────
+
+test('S41: DISPATCH_CLASSES and FAN_OUT_KEYS have no measure entry; plan.dispatch and the agent projection have no measure key', () => {
+  assert.equal('measure' in JSON.parse(JSON.stringify(CORE.DISPATCH_CLASSES)), false)
+  assert.equal(Object.values(JSON.parse(JSON.stringify(CORE.DISPATCH_CLASSES))).includes('audit-measure'), false)
+  assert.deepEqual([...CORE.FAN_OUT_KEYS], ['review', 'verify', 'verify-high', 'triage', 'merge'])
+  const plan = buildPlan()
+  assert.equal('measure' in plan.dispatch, false)
+  assert.equal('measure' in CORE.projectAgents(plan), false)
+  assert.equal(CORE.normalizeArgs(baseArgs({ dispatchClasses: { ...classFixture(), 'audit-measure': { model: 'haiku', effort: 'low' } } })).ok, true, 'an unmapped audit-measure class entry is ignored, not required')
+})
+
+test('S41: a quick run with items and no scriptsDir projects 33 agents; the merge term is max(1, ceil(est / 40)) at the batch boundary', () => {
+  const plan = CORE.normalizeArgs(fullArgs()).plan
+  assert.equal(CORE.projectAgents(plan).total, 33)
+  // est = (R + gaps.max) * 8: R=4 + 1 gap -> 40 -> 1 batch; R=5 + 1 -> 48 -> 2 batches
+  const bigger = buildPlan({ scope: { paths: ['x'], reviewers: [1, 2, 3, 4].map((i) => reviewerSpec('g' + i)), lenses: [] }, gaps: { enabled: true, max: 1 } })
+  assert.equal(CORE.projectAgents(bigger).merge, handComputeTotal(bigger).merge)
+  assert.equal(handComputeTotal(bigger).merge, 2)
+})
+
+// ── S42-S44: sliceDigest ─────────────────────────────────────────────────────
+
+function sliceMeasured() {
+  const hot = (path, module) => ({ path, churn: 5, churnRecent: 2, complexity: 9, hotspotScore: 0.4, module })
+  return measuredFixture({
+    hotSet: [hot('src/a/a-hot.kt', 'src/a'), hot('src/b/b-hot.kt', 'src/b'), hot('src/ab/ab-hot.kt', 'src/ab')],
+    topComplexity: [
+      { path: 'src/a/a-cx.kt', complexity: 40, module: 'src/a' },
+      { path: 'src/b/b-cx.kt', complexity: 39, module: 'src/b' },
+      { path: 'src/ab/ab-cx.kt', complexity: 38, module: 'src/ab' },
+    ],
+    trend: [
+      { path: 'src/a/a-trend.kt', complexities: [1, 2, 3] },
+      { path: 'src/b/b-trend.kt', complexities: [3, 2, 1] },
+    ],
+    // 'src' overlaps the slice from above, 'src/a/deep' from below; 'src/ab' and 'src/b' do not overlap 'src/a'
+    cycles: [['src', 'lib-cyc'], ['src/b', 'drop-cyc-x'], ['src/ab', 'drop-cyc-y'], ['src/a/deep', 'deep-cyc']],
+    unstableModules: [
+      { id: 'src/a/deep', instability: 0.9, fanIn: 1, fanOut: 2 },
+      { id: 'src/b/drop-unst', instability: 0.8, fanIn: 1, fanOut: 2 },
+      { id: 'src/ab/drop-unst2', instability: 0.7, fanIn: 1, fanOut: 2 },
+    ],
+    coupling: [
+      { path: 'src/b/x-coup.kt', partners: [{ path: 'src/a/partner-in.kt', count: 3 }] },
+      { path: 'src/a/own-coup.kt', partners: [{ path: 'lib/far.kt', count: 2 }] },
+      { path: 'src/b/drop-coup.kt', partners: [{ path: 'src/b/drop-partner.kt', count: 4 }] },
+    ],
+  })
+}
+
+test('S42: sliceDigest keeps hot, complexity and trend rows under the slice path, the overlapping cycles and unstable modules, and the coupling rows with a slice path on either side; it drops the rest', () => {
+  const d = CORE.sliceDigest(sliceMeasured(), ['src/a'])
+  assert.ok(d.startsWith('MEASURED STRUCTURE'))
+  for (const kept of ['src/a/a-hot.kt', 'src/a/a-cx.kt', 'src/a/a-trend.kt', 'lib-cyc', 'deep-cyc', 'src/a/deep', 'src/b/x-coup.kt', 'src/a/own-coup.kt']) {
+    assert.ok(d.includes(kept), `${kept} is kept`)
+  }
+  for (const dropped of ['src/b/b-hot.kt', 'src/b/b-cx.kt', 'src/b/b-trend.kt', 'drop-cyc-x', 'drop-cyc-y', 'drop-unst', 'drop-coup.kt', 'src/ab/ab-hot.kt']) {
+    assert.equal(d.includes(dropped), false, `${dropped} is dropped`)
+  }
+  assert.ok(d.trimEnd().split('\n').slice(-2).join('\n') === [WINDOWS_LINE, FILE_LINE].join('\n'), 'the windows and file lines end the digest')
+})
+
+test('S42 / probe: a slice that owns nothing in the measured input still gets a digest text, with none of the other slices rows', () => {
+  const d = CORE.sliceDigest(sliceMeasured(), ['docs/elsewhere'])
+  assert.equal(typeof d, 'string')
+  for (const gone of ['a-hot.kt', 'b-hot.kt', 'ab-hot.kt', 'a-cx.kt', 'b-trend.kt', 'lib-cyc', 'drop-cyc-x', 'x-coup.kt', 'own-coup.kt']) {
+    assert.equal(d.includes(gone), false, `${gone} is not under docs/elsewhere`)
+  }
+})
+
+test('S43: a path matches a whole segment: src/a keeps src/a/x and not src/ab/x; separators, a leading ./ and a trailing slash normalize; . and the empty path keep the whole tree', () => {
+  const m = sliceMeasured()
+  const base = CORE.sliceDigest(m, ['src/a'])
+  assert.equal(base.includes('src/ab/ab-hot.kt'), false, 'src/ab is not under src/a')
+  assert.equal(base.includes('src/ab/ab-cx.kt'), false)
+  assert.equal(CORE.sliceDigest(m, ['src' + BS + 'a' + BS]), base, 'backslashes and a trailing separator')
+  assert.equal(CORE.sliceDigest(m, ['./src/a']), base, 'a leading ./')
+  assert.equal(CORE.sliceDigest(m, ['src/a/']), base, 'a trailing slash')
+  for (const whole of [['.'], [''], ['./']]) {
+    const d = CORE.sliceDigest(m, whole)
+    for (const p of ['src/a/a-hot.kt', 'src/b/b-hot.kt', 'src/ab/ab-hot.kt', 'src/b/b-cx.kt', 'src/b/b-trend.kt', 'drop-cyc-x']) {
+      assert.ok(d.includes(p), `${JSON.stringify(whole)} keeps ${p}`)
+    }
+  }
+  const two = CORE.sliceDigest(m, ['src/a', 'src/b'])
+  assert.ok(two.includes('src/a/a-hot.kt') && two.includes('src/b/b-hot.kt'), 'several slice paths union')
+  assert.equal(two.includes('src/ab/ab-hot.kt'), false)
+})
+
+function bigSliceMeasured(count = 15) {
+  const paths = Array.from({ length: count }, (_, i) => `src/a/h${String(i + 1).padStart(2, '0')}${'x'.repeat(597)}`)
+  return {
+    paths,
+    m: measuredFixture({
+      hotSet: paths.map((p) => ({ path: p, churn: 1, churnRecent: 1, complexity: 1, hotspotScore: 0.1, module: 'src/a' })),
+      topComplexity: [], cycles: [], unstableModules: [], coupling: [], trend: [],
+    }),
+  }
+}
+const CUT_NOTE_3000 = '(digest cut at 3000 characters; the full numbers are in the metrics file)'
+
+test('S44: a slice digest over 3000 characters is cut at the last line break within 3000, the note names 3000 and ends the capped text, the ctx lines follow', () => {
+  const { paths, m } = bigSliceMeasured()
+  const d = CORE.sliceDigest(m, ['src/a'])
+  const at = d.indexOf('Windows:')
+  assert.notEqual(at, -1)
+  const capped = d.slice(0, at).trimEnd()
+  assert.ok(capped.endsWith(CUT_NOTE_3000), 'the cut note names the cap used')
+  const cutText = capped.slice(0, capped.length - CUT_NOTE_3000.length).trimEnd()
+  assert.ok(cutText.length <= 3000, `the text before the note is at most 3000 characters (${cutText.length})`)
+  const kept = paths.filter((p) => cutText.includes(p))
+  assert.ok(kept.length >= 1 && kept.length < 15, 'some, not all, hot paths survive the cut')
+  assert.deepEqual(kept, paths.slice(0, kept.length), 'the cut drops from the end')
+  for (const l of cutText.split('\n').filter((x) => x.startsWith('- src/a/h'))) assert.ok(l.endsWith(')'), 'no line is cut in the middle')
+  const nextLine = `- ${paths[kept.length]} (churn 1, recent 1, complexity 1, score 0.1)`
+  assert.ok(cutText.length + 1 + nextLine.length > 3000, 'the cut is at the last line break that fits')
+  assert.deepEqual(d.trimEnd().split('\n').slice(-2), [WINDOWS_LINE, FILE_LINE])
+})
+
+test('S44: the same input is cut at 3000 for a slice and at 8000 by default; maxChars 8000 equals the default; a digest of exactly 3000 characters is not cut, 3001 is', () => {
+  const { m } = bigSliceMeasured()
+  assert.ok(CORE.formatMetricsDigest(m).endsWith(DIGEST_CUT_NOTE_LITERAL), 'default cap 8000')
+  assert.equal(CORE.formatMetricsDigest(m, { maxChars: 8000 }), CORE.formatMetricsDigest(m))
+  const three = CORE.formatMetricsDigest(m, { maxChars: 3000 })
+  assert.ok(three.endsWith(CUT_NOTE_3000))
+  assert.equal(three.includes('digest cut at 8000'), false)
+  const build = (len) => measuredFixture({
+    hotSet: [{ path: 'x'.repeat(len), churn: 1, churnRecent: 1, complexity: 1, hotspotScore: 0.1 }],
+    topComplexity: [], cycles: [], unstableModules: [], coupling: [], trend: [],
+  })
+  const a = CORE.formatMetricsDigest(build(10), { maxChars: 3000 }).length
+  const exact = 10 + (3000 - a)
+  const atCap = CORE.formatMetricsDigest(build(exact), { maxChars: 3000 })
+  assert.equal(atCap.length, 3000, 'fixture: exactly 3000 characters')
+  assert.equal(atCap.includes('digest cut'), false)
+  assert.ok(CORE.formatMetricsDigest(build(exact + 1), { maxChars: 3000 }).endsWith(CUT_NOTE_3000))
+})
+
+// ── S45: carriers with distinct slice paths ──────────────────────────────────
+
+test('S45: each territory reviewer gets the digest of its own paths, the other lens and the gap reviewer the scope paths, scope and the architecture lens the full digest', async () => {
+  const m = sliceMeasured()
+  const reviewers = [reviewerSpec('ra', { paths: ['src/a'] }), reviewerSpec('rb', { paths: ['src/b'] })]
+  const args = baseArgs({
+    contract: 'audit/args-v2', measured: m, gaps: { enabled: true, max: 1 },
+    scope: { paths: ['src'], reviewers, lenses: [{ key: 'l1', label: 'Lens l1', focus: 'f' }] },
+  })
+  const { calls } = await fullRun(args, { critic: criticResult({ gaps: [{ label: 'g1', prompt: 'p1' }] }) })
+  const prompt = (l) => calls.find((c) => c.label === l).prompt
+  assert.ok(prompt('review:ra').includes(CORE.sliceDigest(m, ['src/a'])))
+  assert.ok(prompt('review:rb').includes(CORE.sliceDigest(m, ['src/b'])))
+  assert.equal(prompt('review:ra').includes('src/b/b-hot.kt'), false, 'ra does not see rb rows')
+  assert.equal(prompt('review:rb').includes('src/a/a-hot.kt'), false, 'rb does not see ra rows')
+  for (const l of ['review:l1', 'gap:1']) assert.ok(prompt(l).includes(CORE.sliceDigest(m, ['src'])), `${l} gets sliceDigest of the scope paths`)
+  assert.ok(prompt('review:architecture').includes(fullDigestOf(m)))
+  assert.ok(calls.some((c) => c.label === 'critic'))
+  for (const l of ['critic', 'synthesis']) assert.equal(hasDigest(prompt(l)), false, `${l} gets no digest`)
+})
+
+// ── S46: FINDINGS prompt words ───────────────────────────────────────────────
+
+test('S46: the reviewer prompt asks for basis and measuredClaim and no longer asks for metrics', async () => {
+  const { calls } = await fullRun(v2Args(), {})
+  const p = calls.find((c) => c.label === 'review:r1').prompt
+  assert.ok(p.includes('basis'))
+  assert.ok(p.includes('measuredClaim'))
+  assert.ok(p.includes('measured') && p.includes('judgement'))
+  assert.equal(/set metrics|metrics:/i.test(p), false, 'the old metrics clause is gone')
+})
+
+// ── S47 / S48: metrics-pending rows ──────────────────────────────────────────
+
+function mergedRow(id, overrides = {}) {
+  return { id, title: `Row ${id}`, severity: 'high', category: 'coupling', locations: [`src/${id}.kt:1`], basis: 'judgement', ...overrides }
+}
+
+test('S47: markMetricsPending: a measured row with a valid claim is pending (UNVERIFIED, metrics-pending, verifiedBy none, finalSeverity = severity); every other row is rest with basis judgement and no claim', () => {
+  const rows = [
+    mergedRow('p1', { basis: 'measured', measuredClaim: { field: 'churn', value: 9 } }),
+    mergedRow('p2', { basis: 'measured', measuredClaim: { field: 'complexity', value: 0 }, severity: 'low' }),
+    mergedRow('p3', { basis: 'measured', measuredClaim: { field: 'cycle', modules: ['m/a', 'm/b'] } }),
+    mergedRow('r-noclaim', { basis: 'measured' }),
+    mergedRow('r-judge', { basis: 'judgement', measuredClaim: { field: 'churn', value: 9 } }),
+    mergedRow('r-plain', { basis: 'judgement' }),
+    mergedRow('r-field', { basis: 'measured', measuredClaim: { field: 'loc', value: 9 } }),
+    mergedRow('r-str', { basis: 'measured', measuredClaim: { field: 'churn', value: '9' } }),
+    mergedRow('r-nan', { basis: 'measured', measuredClaim: { field: 'churn', value: NaN } }),
+    mergedRow('r-inf', { basis: 'measured', measuredClaim: { field: 'hotspotScore', value: Infinity } }),
+    mergedRow('r-novalue', { basis: 'measured', measuredClaim: { field: 'churnRecent' } }),
+    mergedRow('r-cyc-empty', { basis: 'measured', measuredClaim: { field: 'cycle', modules: [] } }),
+    mergedRow('r-cyc-str', { basis: 'measured', measuredClaim: { field: 'cycle', modules: 'm/a' } }),
+    mergedRow('r-cyc-none', { basis: 'measured', measuredClaim: { field: 'cycle' } }),
+    mergedRow('r-null', { basis: 'measured', measuredClaim: null }),
+  ]
+  const { pending, rest } = CORE.markMetricsPending(rows)
+  assert.deepEqual(pending.map((r) => r.id), ['p1', 'p2', 'p3'], 'pending rows keep input order')
+  assert.deepEqual(rest.map((r) => r.id), rows.slice(3).map((r) => r.id), 'rest rows keep input order')
+  for (const r of pending) {
+    assert.equal(r.verdict, 'UNVERIFIED')
+    assert.equal(r.unverifiedReason, 'metrics-pending')
+    assert.equal(r.verifiedBy, 'none')
+    assert.equal(r.basis, 'measured')
+    assert.ok(r.measuredClaim, 'a pending row keeps its claim')
+  }
+  assert.equal(pending[0].finalSeverity, 'high')
+  assert.equal(pending[1].finalSeverity, 'low', 'finalSeverity is the row severity')
+  assert.deepEqual(pending[0].measuredClaim, { field: 'churn', value: 9 })
+  assert.deepEqual(pending[2].measuredClaim, { field: 'cycle', modules: ['m/a', 'm/b'] })
+  for (const r of rest) {
+    assert.equal(r.basis, 'judgement', `${r.id} basis`)
+    assert.equal('measuredClaim' in r, false, `${r.id} carries no claim`)
+    assert.equal('verdict' in r, false, `${r.id} is not marked unverified`)
+  }
+})
+
+test('S47 / probe: a reviewer-sent metrics key is dropped from pending and rest rows; an empty input gives two empty lists; the input rows are not mutated', () => {
+  const rows = [
+    mergedRow('a', { basis: 'measured', measuredClaim: { field: 'churn', value: 3 }, metrics: { churn: 3 } }),
+    mergedRow('b', { metrics: { churn: 1, complexity: 2 } }),
+  ]
+  const before = JSON.parse(JSON.stringify(rows))
+  const { pending, rest } = CORE.markMetricsPending(rows)
+  assert.equal('metrics' in pending[0], false)
+  assert.equal('metrics' in rest[0], false)
+  assert.deepEqual(JSON.parse(JSON.stringify(rows)), before)
+  const none = CORE.markMetricsPending([])
+  assert.deepEqual([JSON.parse(JSON.stringify(none.pending)), JSON.parse(JSON.stringify(none.rest))], [[], []])
+})
+
+test('S48: a run with a metrics-pending finding sends it to no verifier, keeps it last, counts stats.metricsPending, and gives it no cap slot', async () => {
+  const claim = { field: 'churn', value: 9 }
+  const specs = {
+    r1: [{ title: 'T-pending', locations: ['src/r1.kt:1'], basis: 'measured', measuredClaim: claim, severity: 'critical' }],
+    r2: [{ title: 'T-two', locations: ['src/r2.kt:1'] }],
+    r3: [{ title: 'T-three', locations: ['src/r3.kt:1'], metrics: { churn: 1 } }],
+  }
+  const { calls, result } = await clusterRun(specs, { verify: { highLenses: ['combined'], defaultLenses: ['combined'], maxFindings: 1 } })
+  assert.equal(calls.some((c) => c.label.startsWith('verify:r1-1')), false, 'no verifier for the pending finding')
+  assert.equal(result.stats.metricsPending, 1)
+  assert.equal(result.stats.unverifiedByCap, 1, 'only the judgement finding past the cap is cut; the pending one took no slot')
+  assert.deepEqual(result.kept.map((k) => k.findingId), ['r2-1', 'r3-1', 'r1-1'], 'order: verified, cap tail, pending')
+  const by = Object.fromEntries(result.kept.map((k) => [k.findingId, k]))
+  assert.equal(by['r1-1'].verdict, 'UNVERIFIED')
+  assert.equal(by['r1-1'].unverifiedReason, 'metrics-pending')
+  assert.equal(by['r1-1'].verifiedBy, 'none')
+  assert.equal(by['r1-1'].basis, 'measured')
+  assert.deepEqual(by['r1-1'].measuredClaim, claim)
+  assert.equal(by['r1-1'].severity, 'critical')
+  assert.equal(by['r2-1'].verifiedBy, 'agents')
+  assert.equal(by['r2-1'].basis, 'judgement')
+  assert.equal('measuredClaim' in by['r2-1'], false)
+  assert.equal(by['r3-1'].unverifiedReason, 'cap')
+  assert.equal(by['r3-1'].verifiedBy, 'none', 'a cap-tail UNVERIFIED row has verifiedBy none')
+  for (const k of result.kept) assert.equal('metrics' in k, false, `${k.findingId} carries no metrics`)
+  const synth = calls.find((c) => c.label === 'synthesis')
+  const payload = objectsDeep(jsonValuesIn(synth.prompt)).filter((o) => Object.values(o).includes('T-pending'))
+  assert.ok(payload.length > 0, 'the synthesis payload carries the pending finding')
+  for (const o of payload) {
+    assert.equal(o.basis, 'measured')
+    assert.deepEqual(o.measuredClaim, claim)
+    assert.equal('metrics' in o, false)
+  }
+})
+
+test('S48: the synthesis prompt names metrics-pending in its UNVERIFIED sentence even when no finding is pending', async () => {
+  const { calls } = await clusterRun({ r1: [{ title: 'T-one', locations: ['src/r1.kt:1'] }] })
+  const synth = calls.find((c) => c.label === 'synthesis').prompt
+  assert.ok(synth.includes('metrics-pending'))
+})
+
+test('S48 / probe: a measured finding whose claim is invalid is verified like a judgement finding and reads as judgement on the kept row', async () => {
+  const { calls, result } = await clusterRun({
+    r1: [{ title: 'T-bad-claim', locations: ['src/r1.kt:1'], basis: 'measured', measuredClaim: { field: 'loc', value: 3 } }],
+  })
+  assert.ok(calls.some((c) => c.label.startsWith('verify:r1-1')), 'verified by agents')
+  const row = result.kept.find((k) => k.findingId === 'r1-1')
+  assert.equal(row.basis, 'judgement')
+  assert.equal('measuredClaim' in row, false)
+  assert.equal(row.verifiedBy, 'agents')
+  assert.equal(result.stats.metricsPending, 0)
+})
+
+// ── S49-S55: pre-clustered merge ─────────────────────────────────────────────
+
+/** A run over a fixed reviewer list; bySlice maps a slice key to the finding overrides it returns. */
+async function clusterRun(bySlice, { measured, mergeFor, verdictFor, order = 'fifo', verify, keys } = {}) {
+  const sliceKeys = keys || Object.keys(bySlice)
+  const args = baseArgs({
+    contract: 'audit/args-v2', measured,
+    scope: { paths: ['p'], reviewers: sliceKeys.map((k) => reviewerSpec(k)), lenses: [] },
+    ...(verify ? { verify } : {}),
+  })
+  const { ok, plan, reason } = CORE.normalizeArgs(args)
+  assert.equal(ok, true, reason)
+  const responder = async (label) => {
+    if (label.startsWith('review:')) {
+      const list = bySlice[label.slice(7)] || []
+      return findingsResult({ findings: list.map((f) => makeFinding({ rating: 'plan-it', ...f })) })
+    }
+    if (label.startsWith('merge:')) return mergeFor ? mergeFor(label) : dedupResult({ groups: [] })
+    if (label.startsWith('verify:')) return verdictFor ? verdictFor(label) : verdictResult()
+    if (label === 'synthesis') return synthV2()
+    throw new Error('clusterRun: unexpected label ' + label)
+  }
+  const logLines = []
+  const { agent, calls } = autoAgent(responder, { order })
+  const result = await CORE.runAudit(plan, makeDeps({ agent, logLines }))
+  const mergeCalls = calls.filter((c) => c.label.startsWith('merge:'))
+  return { plan, calls, result, mergeCalls, logLines }
+}
+
+const mentions = (prompt, id) => new RegExp(`(^|[^A-Za-z0-9-])${id}([^A-Za-z0-9]|$)`).test(prompt)
+
+test('S49: three findings on three distinct paths make no cluster: no merge call, stats.mergeAgents 0', async () => {
+  const { mergeCalls, result } = await clusterRun({
+    s1: [{ locations: ['src/a.kt:1'] }], s2: [{ locations: ['src/b.kt:1'] }], s3: [{ locations: ['src/c.kt:1'] }],
+  })
+  assert.equal(mergeCalls.length, 0)
+  assert.equal(result.stats.mergeAgents, 0)
+  assert.equal(result.stats.merged, 3)
+})
+
+test('S50: two findings on one path (other lines) and one elsewhere -> one merge agent, labelled merge:1, that lists only the two ids; stats.mergeAgents 1', async () => {
+  const { mergeCalls, result } = await clusterRun({
+    s1: [{ locations: ['src/a.kt:1'] }], s2: [{ locations: ['src/a.kt:9'] }], s3: [{ locations: ['src/c.kt:1'] }],
+  })
+  assert.deepEqual(mergeCalls.map((c) => c.label), ['merge:1'])
+  assert.ok(mentions(mergeCalls[0].prompt, 's1-1') && mentions(mergeCalls[0].prompt, 's2-1'))
+  assert.equal(mentions(mergeCalls[0].prompt, 's3-1'), false, 'the lone finding is not sent to the agent')
+  assert.equal(result.stats.mergeAgents, 1)
+  assert.equal(result.stats.merged, 3, 'a merge agent that returns no groups leaves three rows')
+})
+
+test('S50 / probe: the primary path ignores a line number and path spelling: a.kt:1 and ./a.kt:9 and a backslash spelling share one cluster', async () => {
+  const { mergeCalls } = await clusterRun({
+    s1: [{ locations: ['src/a.kt:1'] }], s2: [{ locations: ['./src/a.kt:9-12'] }], s3: [{ locations: ['src' + BS + 'a.kt'] }],
+  })
+  assert.equal(mergeCalls.length, 1)
+  for (const id of ['s1-1', 's2-1', 's3-1']) assert.ok(mentions(mergeCalls[0].prompt, id), `${id} is in the cluster`)
+})
+
+function manyOn(path, count) {
+  return Array.from({ length: count }, (_, i) => ({ locations: [`${path}:${i + 1}`] }))
+}
+
+test('S51: a 30-finding cluster and a 20-finding cluster do not share a batch: merge:1 and merge:2, neither split', async () => {
+  const { mergeCalls, result } = await clusterRun({ sA: manyOn('src/a.kt', 30), sB: manyOn('src/b.kt', 20) })
+  assert.deepEqual(mergeCalls.map((c) => c.label), ['merge:1', 'merge:2'])
+  assert.ok(mentions(mergeCalls[0].prompt, 'sA-1') && mentions(mergeCalls[0].prompt, 'sA-30'))
+  assert.equal(mentions(mergeCalls[0].prompt, 'sB-1'), false)
+  assert.ok(mentions(mergeCalls[1].prompt, 'sB-1') && mentions(mergeCalls[1].prompt, 'sB-20'))
+  assert.equal(mentions(mergeCalls[1].prompt, 'sA-1'), false)
+  assert.equal(result.stats.mergeAgents, 2)
+})
+
+test('S51 / probe (batch boundary): clusters of 20 and 20 share one agent (40 fits), 21 and 20 take two, and a 41-finding cluster is one batch alone', async () => {
+  const fit = await clusterRun({ sA: manyOn('src/a.kt', 20), sB: manyOn('src/b.kt', 20) })
+  assert.deepEqual(fit.mergeCalls.map((c) => c.label), ['merge:1'])
+  assert.ok(mentions(fit.mergeCalls[0].prompt, 'sA-1') && mentions(fit.mergeCalls[0].prompt, 'sB-20'))
+  assert.equal(fit.result.stats.mergeAgents, 1)
+  const over = await clusterRun({ sA: manyOn('src/a.kt', 21), sB: manyOn('src/b.kt', 20) })
+  assert.deepEqual(over.mergeCalls.map((c) => c.label), ['merge:1', 'merge:2'])
+  const oversize = await clusterRun({ sA: manyOn('src/a.kt', 41) })
+  assert.deepEqual(oversize.mergeCalls.map((c) => c.label), ['merge:1'], 'an oversize cluster is never split')
+  assert.ok(mentions(oversize.mergeCalls[0].prompt, 'sA-41'))
+  const behind = await clusterRun({ sA: manyOn('src/a.kt', 41), sB: manyOn('src/b.kt', 2) })
+  assert.deepEqual(behind.mergeCalls.map((c) => c.label), ['merge:1', 'merge:2'], 'a small cluster does not join an oversize one')
+})
+
+test('S52: two slices with the same category and location make one auto-merged row and no agent; with two categories they make a cluster and one agent', async () => {
+  const same = await clusterRun({ s1: [{ locations: ['src/a.kt:1'] }], s2: [{ locations: ['src/a.kt:1'] }] })
+  assert.equal(same.mergeCalls.length, 0)
+  assert.equal(same.result.stats.mergeAgents, 0)
+  assert.equal(same.result.stats.merged, 1)
+  assert.deepEqual(same.result.kept.map((k) => k.findingId), ['s1-1'], 'the earliest finding is the canonical one')
+  const spelled = await clusterRun({ s1: [{ locations: ['src' + BS + 'a.kt:1'] }], s2: [{ locations: ['src/a.kt:1'] }] })
+  assert.equal(spelled.result.stats.merged, 1, 'the location is compared after path normalization')
+  const lines = await clusterRun({ s1: [{ locations: ['src/a.kt:1'] }], s2: [{ locations: ['src/a.kt:2'] }] })
+  assert.equal(lines.result.stats.merged, 2, 'the line is part of the auto-merge key')
+  const two = await clusterRun({ s1: [{ locations: ['src/a.kt:1'], category: 'coupling' }], s2: [{ locations: ['src/a.kt:1'], category: 'layering' }] })
+  assert.equal(two.mergeCalls.length, 1)
+  assert.equal(two.result.stats.mergeAgents, 1)
+  assert.equal(two.result.stats.merged, 2)
+})
+
+test('S53: a co-change candidate links findings on its two files into one cluster; without the candidate they stay apart', async () => {
+  const candidate = { candidateId: 'co-change:x.kt', kind: 'co-change', subject: ['x.kt', 'y.kt'], facts: { commits: 4, partners: [] }, score: 0.4 }
+  const specs = { s1: [{ locations: ['x.kt:1'] }], s2: [{ locations: ['y.kt:1'] }], s3: [{ locations: ['z.kt:1'] }] }
+  const linked = await clusterRun(specs, { measured: measuredFixture({ candidates: [candidate] }) })
+  assert.equal(linked.mergeCalls.length, 1)
+  assert.ok(mentions(linked.mergeCalls[0].prompt, 's1-1') && mentions(linked.mergeCalls[0].prompt, 's2-1'))
+  assert.equal(mentions(linked.mergeCalls[0].prompt, 's3-1'), false, 'a file outside the subject is not linked')
+  const alone = await clusterRun(specs)
+  assert.equal(alone.mergeCalls.length, 0)
+  const foreign = await clusterRun(
+    { s1: [{ locations: ['x.kt:1'] }], s3: [{ locations: ['z.kt:1'] }] },
+    { measured: measuredFixture({ candidates: [candidate] }) }
+  )
+  assert.equal(foreign.mergeCalls.length, 0, 'only one of the two subject files has a finding')
+})
+
+test('S53: a cycle candidate links findings in two of its modules into one cluster, by the longest known module id; a finding in another module stays out', async () => {
+  const candidate = { candidateId: 'cycle:m/a', kind: 'cycle', subject: ['m/a', 'm/b'], facts: { fileCount: 2, hottestPath: 'm/a/1.kt', edges: 2 }, score: 0.7 }
+  const specs = { s1: [{ locations: ['m/a/1.kt:3'] }], s2: [{ locations: ['m/b/2.kt:3'] }], s3: [{ locations: ['m/c/4.kt:3'] }] }
+  const measured = measuredFixture({
+    candidates: [candidate], cycles: [['m/a', 'm/b']],
+    hotSet: [{ path: 'm/a/1.kt', churn: 1, churnRecent: 1, complexity: 1, hotspotScore: 0.1, module: 'm/a' }],
+    topComplexity: [{ path: 'm/c/4.kt', complexity: 3, module: 'm/c' }],
+    unstableModules: [],
+  })
+  const linked = await clusterRun(specs, { measured })
+  assert.equal(linked.mergeCalls.length, 1)
+  assert.ok(mentions(linked.mergeCalls[0].prompt, 's1-1') && mentions(linked.mergeCalls[0].prompt, 's2-1'))
+  assert.equal(mentions(linked.mergeCalls[0].prompt, 's3-1'), false)
+  const alone = await clusterRun(specs)
+  assert.equal(alone.mergeCalls.length, 0, 'without the candidate the three paths stay apart')
+})
+
+test('S53 / probe: the merge prompt lists the units under CLUSTER headings and forbids a group across clusters', async () => {
+  const { mergeCalls } = await clusterRun({
+    s1: [{ locations: ['src/a.kt:1'] }], s2: [{ locations: ['src/a.kt:2'] }],
+    s3: [{ locations: ['src/b.kt:1'] }], s4: [{ locations: ['src/b.kt:2'] }],
+  })
+  assert.equal(mergeCalls.length, 1, 'two small clusters share one batch')
+  const p = mergeCalls[0].prompt
+  assert.ok(p.includes('CLUSTER 1') && p.includes('CLUSTER 2'))
+  assert.equal(p.includes('CLUSTER 3'), false)
+  assert.ok(p.indexOf('CLUSTER 1') < p.indexOf('s1-1') && p.indexOf('s2-1') < p.indexOf('CLUSTER 2') && p.indexOf('CLUSTER 2') < p.indexOf('s3-1'), 'ids sit under their own heading')
+  assert.match(p, /READ-ONLY/)
+})
+
+test('S54: a group the agent returns across two clusters merges only the ids of its canonical cluster', async () => {
+  const groups = [{ canonicalId: 's1-1', duplicateIds: ['s2-1', 's3-1'], mergedTitle: 'Merged one' }]
+  const { result, mergeCalls } = await clusterRun(
+    {
+      s1: [{ locations: ['src/a.kt:1'] }], s2: [{ locations: ['src/a.kt:2'] }],
+      s3: [{ locations: ['src/b.kt:1'] }], s4: [{ locations: ['src/b.kt:2'] }],
+    },
+    { mergeFor: () => dedupResult({ groups }) }
+  )
+  assert.equal(mergeCalls.length, 1)
+  assert.deepEqual(result.kept.map((k) => k.findingId).sort(), ['s1-1', 's3-1', 's4-1'], 's2 joined s1; s3 stayed out of the cross-cluster group')
+  assert.equal(result.kept.find((k) => k.findingId === 's1-1').title, 'Merged one')
+  assert.equal(result.stats.merged, 3)
+})
+
+test('S54 / probe: a canonical brings its auto-merged members; an untouched auto group is added as is; a null agent leaves its batch to the auto groups', async () => {
+  const specs = {
+    s1: [{ locations: ['src/a.kt:1'] }], s2: [{ locations: ['src/a.kt:1'] }], s3: [{ locations: ['src/a.kt:5'] }],
+    s4: [{ locations: ['src/b.kt:1'] }], s5: [{ locations: ['src/b.kt:1'] }],
+  }
+  const bring = await clusterRun(specs, { mergeFor: () => dedupResult({ groups: [{ canonicalId: 's1-1', duplicateIds: ['s3-1'], mergedTitle: 'Brought' }] }) })
+  assert.deepEqual(bring.result.kept.map((k) => k.findingId).sort(), ['s1-1', 's4-1'], 's1+s2 (auto) + s3 form one row; s4+s5 (auto, untouched) another')
+  assert.equal(bring.result.kept.find((k) => k.findingId === 's1-1').title, 'Brought')
+  assert.equal(bring.result.stats.merged, 2)
+  const nul = await clusterRun(specs, { mergeFor: () => null })
+  assert.deepEqual(nul.result.kept.map((k) => k.findingId).sort(), ['s1-1', 's3-1', 's4-1'], 'a null agent: the auto groups still merge, nothing else does')
+  assert.equal(nul.result.started, true)
+})
+
+test('S54 / probe: an id the agent invents, or one outside the cluster, is ignored', async () => {
+  const { result } = await clusterRun(
+    { s1: [{ locations: ['src/a.kt:1'] }], s2: [{ locations: ['src/a.kt:2'] }], s3: [{ locations: ['src/c.kt:1'] }] },
+    { mergeFor: () => dedupResult({ groups: [{ canonicalId: 's1-1', duplicateIds: ['ghost-9', 's3-1'], mergedTitle: 'X' }] }) }
+  )
+  assert.deepEqual(result.kept.map((k) => k.findingId).sort(), ['s1-1', 's2-1', 's3-1'])
+})
+
+test('S55: preCluster is deterministic and does not mutate its input; fifo and reverse completion order give the same kept rows and the same merge prompts', async () => {
+  const all = [
+    rawFinding('a', 's1', { locations: ['src/a.kt:1'] }),
+    rawFinding('b', 's2', { locations: ['src/a.kt:1'] }),
+    rawFinding('c', 's3', { locations: ['src/a.kt:7'] }),
+    rawFinding('d', 's4', { locations: ['src/d.kt:2'], category: 'layering' }),
+  ]
+  const before = JSON.parse(JSON.stringify(all))
+  const first = JSON.parse(JSON.stringify(CORE.preCluster(all)))
+  const second = JSON.parse(JSON.stringify(CORE.preCluster(all)))
+  assert.deepEqual(first, second)
+  assert.deepEqual(JSON.parse(JSON.stringify(all)), before)
+  const withNull = JSON.parse(JSON.stringify(CORE.preCluster(all, null)))
+  assert.deepEqual(withNull, first, 'an absent measured argument equals null')
+  assert.equal(first.autoGroups.length, 1)
+  assert.equal(first.autoGroups[0].canonicalId, 'a')
+  assert.deepEqual(first.autoGroups[0].duplicateIds, ['b'])
+  assert.equal(first.autoGroups[0].mergedTitle, '')
+  assert.equal(first.batches.length, 1)
+  const specs = {
+    s1: [{ locations: ['src/a.kt:1'] }], s2: [{ locations: ['src/a.kt:2'] }], s3: [{ locations: ['src/b.kt:1'] }], s4: [{ locations: ['src/b.kt:2'] }],
+  }
+  const f = await clusterRun(specs, { order: 'fifo' })
+  const r = await clusterRun(specs, { order: 'reverse' })
+  assert.deepEqual(r.result.kept, f.result.kept)
+  assert.deepEqual(r.mergeCalls.map((c) => [c.label, c.prompt]), f.mergeCalls.map((c) => [c.label, c.prompt]))
+})
+
+test('S55 / probe: preCluster of no findings and of one finding makes no batch', () => {
+  assert.equal(CORE.preCluster([]).batches.length, 0)
+  assert.equal(CORE.preCluster([]).autoGroups.length, 0)
+  assert.equal(CORE.preCluster([rawFinding('a', 's1')]).batches.length, 0)
+})
+
+// ── S56-S60: stable ids ──────────────────────────────────────────────────────
+
+test('S56: fnv1a32 gives the published FNV-1a 32-bit vectors as 8 lowercase hex digits, over the UTF-8 bytes', () => {
+  assert.equal(CORE.fnv1a32(''), '811c9dc5')
+  assert.equal(CORE.fnv1a32('a'), 'e40c292c')
+  assert.equal(CORE.fnv1a32('foobar'), 'bf9cf968')
+  for (const text of ['\u00e9', '\u20ac', 'caf\u00e9|src/\u00fc.kt', '\ud83d\ude00']) {
+    assert.equal(CORE.fnv1a32(text), testFnv(text), `bytes of ${JSON.stringify(text)}`)
+  }
+  assert.notEqual(CORE.fnv1a32('\u00e9'), CORE.fnv1a32('e'), 'a non-ASCII character is not truncated to a byte')
+  let zeroLeading = null
+  for (let i = 0; i < 100000 && zeroLeading === null; i++) if (testFnv('z' + i).startsWith('0')) zeroLeading = 'z' + i
+  assert.ok(zeroLeading, 'fixture: an input whose hash starts with 0')
+  assert.equal(CORE.fnv1a32(zeroLeading), testFnv(zeroLeading), 'leading zeros are kept')
+  assert.equal(CORE.fnv1a32(zeroLeading).length, 8)
+  assert.match(CORE.fnv1a32('Hello'), /^[0-9a-f]{8}$/)
+})
+
+test('S56: a kept row stableId is F- plus the hash of category|primaryPath, whatever the line or slice', async () => {
+  const { result } = await clusterRun({
+    s1: [{ category: 'coupling', locations: ['src/a.kt:12'] }],
+    s2: [{ category: 'layering', locations: ['src' + BS + 'b.kt:3-9'] }],
+    s3: [{ category: 'coupling', locations: ['./src/c.kt'] }],
+  })
+  const by = Object.fromEntries(result.kept.map((k) => [k.findingId, k.stableId]))
+  assert.equal(by['s1-1'], stableIdOf('coupling', 'src/a.kt'))
+  assert.equal(by['s2-1'], stableIdOf('layering', 'src/b.kt'))
+  assert.equal(by['s3-1'], stableIdOf('coupling', 'src/c.kt'))
+})
+
+test('S57: primaryPath takes the first location: backslashes to slashes, no leading ./, a trailing :line or :line-line stripped, a drive letter kept; no location gives an empty string', () => {
+  assert.equal(CORE.primaryPath(['a' + BS + 'b.kt:12']), 'a/b.kt')
+  assert.equal(CORE.primaryPath(['./x.kt:3-9']), 'x.kt')
+  assert.equal(CORE.primaryPath(['C:/x.kt:5']), 'C:/x.kt')
+  assert.equal(CORE.primaryPath(['C:' + BS + 'x.kt:5']), 'C:/x.kt')
+  assert.equal(CORE.primaryPath(['x.kt:ab']), 'x.kt:ab', 'a non-numeric suffix is part of the path')
+  assert.equal(CORE.primaryPath(['x.kt']), 'x.kt')
+  assert.equal(CORE.primaryPath(['x.kt:7', 'y.kt:8']), 'x.kt', 'only the first location counts')
+  assert.equal(CORE.primaryPath([]), '')
+})
+
+test('S58: three kept findings that share one category and primary path get F-h, F-h-2, F-h-3 in order', async () => {
+  const h = testFnv('coupling|src/a.kt')
+  const specs = { s1: [{ locations: ['src/a.kt:1'] }], s2: [{ locations: ['src/a.kt:2'] }], s3: [{ locations: ['src/a.kt:3'] }] }
+  const three = await clusterRun(specs)
+  assert.deepEqual(three.result.kept.map((k) => k.stableId), [`F-${h}`, `F-${h}-2`, `F-${h}-3`])
+  assert.deepEqual(three.result.kept.map((k) => k.findingId), ['s1-1', 's2-1', 's3-1'])
+})
+
+test('S58b: the numbering runs over kept rows first and refuted rows after (task-scope D9, test-plan S58): a refuted first finding takes the last suffix', async () => {
+  const h = testFnv('coupling|src/a.kt')
+  const specs = { s1: [{ locations: ['src/a.kt:1'] }], s2: [{ locations: ['src/a.kt:2'] }], s3: [{ locations: ['src/a.kt:3'] }] }
+  const refutedFirst = await clusterRun(specs, {
+    verdictFor: (label) => (label.startsWith('verify:s1-1') ? verdictResult({ refuted: true, confidence: 'high' }) : verdictResult()),
+  })
+  assert.deepEqual(refutedFirst.result.kept.map((k) => [k.findingId, k.stableId]), [['s2-1', `F-${h}`], ['s3-1', `F-${h}-2`]])
+  assert.deepEqual(refutedFirst.result.refuted.map((r) => [r.findingId, r.stableId]), [['s1-1', `F-${h}-3`]], 'a refuted row is numbered after the kept rows')
+})
+
+test('S58 / probe: a different category or a different path starts its own counter', async () => {
+  const { result } = await clusterRun({
+    s1: [{ locations: ['src/a.kt:1'] }],
+    s2: [{ locations: ['src/a.kt:2'], category: 'layering' }],
+    s3: [{ locations: ['src/b.kt:1'] }],
+  })
+  const ids = result.kept.map((k) => k.stableId)
+  assert.equal(new Set(ids).size, 3)
+  for (const id of ids) assert.match(id, /^F-[0-9a-f]{8}$/, 'no suffix on a first occurrence')
+})
+
+test('S59: the same findings give the same title-to-stableId map whatever the completion order or the reviewer order', async () => {
+  const specs = {
+    s1: [{ title: 'T-one', locations: ['src/a.kt:1'] }, { title: 'T-two', locations: ['src/a.kt:2'] }],
+    s2: [{ title: 'T-three', locations: ['src/b.kt:1'], category: 'layering' }],
+    s3: [{ title: 'T-four', locations: ['src/a.kt:3'] }],
+  }
+  const mapOf = (r) => Object.fromEntries(r.result.kept.map((k) => [k.title, k.stableId]))
+  const fifo = await clusterRun(specs, { order: 'fifo' })
+  const reverse = await clusterRun(specs, { order: 'reverse' })
+  assert.deepEqual(mapOf(reverse), mapOf(fifo))
+  assert.equal(Object.keys(mapOf(fifo)).length, 4)
+  const swapped = await clusterRun(specs, { keys: ['s3', 's2', 's1'] })
+  const base = mapOf(fifo)
+  const sw = mapOf(swapped)
+  for (const t of ['T-three']) assert.equal(sw[t], base[t], 'a unique key hashes the same whatever the reviewer order')
+  assert.equal(new Set(Object.values(sw)).size, 4, 'four distinct ids')
+})
+
+test('S60: a refuted row carries exactly findingId, title, category, locations (first four), stableId, basis judgement and verifiedBy agents', async () => {
+  const locations = ['src/a.kt:1', 'src/b.kt:2', 'src/c.kt:3', 'src/d.kt:4', 'src/e.kt:5', 'src/f.kt:6']
+  const { result } = await clusterRun(
+    { s1: [{ title: 'T-refuted', category: 'layering', locations }] },
+    { verdictFor: () => verdictResult({ refuted: true, confidence: 'high' }) }
+  )
+  assert.equal(result.kept.length, 0)
+  assert.deepEqual(result.refuted, [{
+    findingId: 's1-1', title: 'T-refuted', category: 'layering', locations: locations.slice(0, 4),
+    stableId: stableIdOf('layering', 'src/a.kt'), basis: 'judgement', verifiedBy: 'agents',
+  }])
 })
