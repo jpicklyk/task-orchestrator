@@ -42,7 +42,7 @@ A digest is a smaller extract of the metrics file, made for reading by an audito
 
 - **`hotSet`.** The hot files, each with `path`, `churn`, `churnRecent`, `complexity` (the indentation measure), `hotspotScore` and `module`.
 - **`topComplexity` and `unstableModules`.** Cut to the top entries (`--top`, 10 by default): `topComplexity` lists `path`, `complexity` and `module` of the most complex files, `unstableModules` the `id`, `instability`, `fanIn` and `fanOut` of the modules with a dependent and a nonzero instability.
-- **`cycles`, `coupling` and `trend`.** Copied whole from the metrics file; `trend` keeps for each file its `path` and the list of its sampled complexities, `complexities`.
+- **`cycles`, `coupling` and `trend`.** Taken from the metrics file: `cycles` whole, `coupling` as each hot file's `path` and its partners' `path` and `count` (the commit total is dropped), and `trend` as each file's `path` and the list of its sampled complexities, `complexities`.
 - **`notes[]`.** The problems the metrics run recorded, copied unchanged.
 - **`candidates[]`.** The candidate list, ranked by `score` and capped by `--candidates` (12 by default). Each entry has a `kind`: `hot-file`, `cycle`, `unstable-module` or `co-change` (a coupling partner in another module, with 3 or more shared commits), its `subject` (paths or module ids) and the measured `facts` it rests on.
 
@@ -51,8 +51,6 @@ The digest has no row per file. A file outside `hotSet` and `topComplexity` has 
 ## Measured and judgement claims
 
 A claim is measured when it is the measurement itself: a churn count, a complexity figure, a cycle's module ids. State it as the field and the value exactly as the measurements give it. Everything else is judgement: that the cost is real, that a move pays, that two files belong together. A number made by hand is `estimated`, and a claim that rests on it is judgement.
-
-A measured claim quotes the measured value and the field it rests on.
 
 ## By hand
 
