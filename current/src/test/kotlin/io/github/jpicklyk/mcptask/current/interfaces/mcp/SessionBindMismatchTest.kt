@@ -2,8 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
@@ -11,6 +9,8 @@ import io.github.jpicklyk.mcptask.current.platform.call.Principal
 import io.github.jpicklyk.mcptask.current.platform.call.PrincipalKind
 import io.github.jpicklyk.mcptask.current.platform.call.ProofStatus
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
+import io.github.jpicklyk.mcptask.current.platform.tool.CallAccess
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.testAccess

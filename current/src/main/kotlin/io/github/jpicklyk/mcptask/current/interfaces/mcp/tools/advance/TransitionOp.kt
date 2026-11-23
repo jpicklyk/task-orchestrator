@@ -13,9 +13,6 @@ import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteCo
 import io.github.jpicklyk.mcptask.current.application.service.putSkillExtras
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.NoteSchemaJson
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.DecisionLoader
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
@@ -30,6 +27,9 @@ import io.github.jpicklyk.mcptask.current.platform.call.of
 import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
 import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.platform.support.toDomainError
+import io.github.jpicklyk.mcptask.current.platform.tool.OpSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.invalidField
+import io.github.jpicklyk.mcptask.current.platform.tool.orchestration
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject

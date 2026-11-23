@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.api.docs
 
-import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentKind
+import io.github.jpicklyk.mcptask.current.platform.request.Doc
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable

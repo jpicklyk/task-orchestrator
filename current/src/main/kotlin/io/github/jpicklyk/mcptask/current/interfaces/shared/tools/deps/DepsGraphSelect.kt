@@ -4,9 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepsGraphRequest
 import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
 import io.github.jpicklyk.mcptask.current.domain.graph.TopoOrder
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.director
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
@@ -16,6 +13,9 @@ import io.github.jpicklyk.mcptask.current.platform.call.CallContext
 import io.github.jpicklyk.mcptask.current.platform.port.ListPage
 import io.github.jpicklyk.mcptask.current.platform.port.PageRequest
 import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
+import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.director
+import io.github.jpicklyk.mcptask.current.platform.tool.knowledge
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put

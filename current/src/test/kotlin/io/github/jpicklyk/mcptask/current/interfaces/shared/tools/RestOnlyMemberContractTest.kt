@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
-import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.bootstrap.buildProfileServer
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
@@ -12,7 +11,20 @@ import io.github.jpicklyk.mcptask.current.parity.FixtureParityCatalog
 import io.github.jpicklyk.mcptask.current.parity.installParityRestApp
 import io.github.jpicklyk.mcptask.current.parity.parityAuthConfig
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.request.Doc
 import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
+import io.github.jpicklyk.mcptask.current.platform.tool.OpSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.OpsToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.SelectToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolSchemaRenderer
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolView
+import io.github.jpicklyk.mcptask.current.platform.tool.director
+import io.github.jpicklyk.mcptask.current.platform.tool.knowledge
+import io.github.jpicklyk.mcptask.current.platform.tool.orchestration
+import io.github.jpicklyk.mcptask.current.platform.tool.visibleOps
+import io.github.jpicklyk.mcptask.current.platform.tool.visibleSelects
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.ApiReferenceDocs
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools

@@ -1,16 +1,11 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config
 
-import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.service.RuleGetResult
 import io.github.jpicklyk.mcptask.current.application.service.RuleListResult
 import io.github.jpicklyk.mcptask.current.application.service.RuleService
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidFields
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.checkItemScope
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.resolveItemId
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -18,7 +13,12 @@ import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.call.CallContext
+import io.github.jpicklyk.mcptask.current.platform.request.Doc
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef
+import io.github.jpicklyk.mcptask.current.platform.tool.OpSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.invalidField
+import io.github.jpicklyk.mcptask.current.platform.tool.invalidFields
+import io.github.jpicklyk.mcptask.current.platform.tool.orchestration
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement

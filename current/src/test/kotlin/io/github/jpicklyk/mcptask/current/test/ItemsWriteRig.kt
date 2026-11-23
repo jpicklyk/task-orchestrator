@@ -3,9 +3,9 @@ package io.github.jpicklyk.mcptask.current.test
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull

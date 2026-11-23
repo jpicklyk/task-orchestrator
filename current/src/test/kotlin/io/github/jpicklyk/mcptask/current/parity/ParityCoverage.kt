@@ -1,14 +1,14 @@
 package io.github.jpicklyk.mcptask.current.parity
 
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.call.Principal
 import io.github.jpicklyk.mcptask.current.platform.call.PrincipalKind
 import io.github.jpicklyk.mcptask.current.platform.call.ProofStatus
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
+import io.github.jpicklyk.mcptask.current.platform.tool.OpsToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.SelectToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import java.util.UUID
 
 /**

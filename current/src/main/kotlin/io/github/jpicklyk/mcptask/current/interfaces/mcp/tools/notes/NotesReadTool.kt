@@ -5,11 +5,11 @@ import io.github.jpicklyk.mcptask.current.application.api.notes.NoteHandlers
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteListEntry
 import io.github.jpicklyk.mcptask.current.application.api.notes.NotesGetRequest
 import io.github.jpicklyk.mcptask.current.application.api.notes.NotesListRequest
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.SelectToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.knowledge
 import kotlinx.serialization.serializer
 
 /** `notes_read get`: one note with its body (or `{unchanged, version}` when the caller's `ifVersion` is current). */

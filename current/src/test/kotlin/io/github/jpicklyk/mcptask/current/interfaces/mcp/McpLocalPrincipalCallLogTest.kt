@@ -6,9 +6,6 @@ import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuth
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.toCallAccess
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.model.claim.ActorKind
@@ -24,6 +21,9 @@ import io.github.jpicklyk.mcptask.current.platform.call.auditId
 import io.github.jpicklyk.mcptask.current.platform.call.auditVerification
 import io.github.jpicklyk.mcptask.current.platform.call.toCallPrincipal
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
+import io.github.jpicklyk.mcptask.current.platform.rest.ops.toCallAccess
+import io.github.jpicklyk.mcptask.current.platform.tool.CallAccess
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools

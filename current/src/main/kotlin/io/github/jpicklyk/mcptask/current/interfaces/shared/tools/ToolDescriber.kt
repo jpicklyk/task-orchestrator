@@ -1,6 +1,16 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.platform.tool.ErrorDetailDocs
+import io.github.jpicklyk.mcptask.current.platform.tool.JsonSchemaGenerator
+import io.github.jpicklyk.mcptask.current.platform.tool.OpsToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.SelectToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolSchemaRenderer
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolView
+import io.github.jpicklyk.mcptask.current.platform.tool.descriptionFor
+import io.github.jpicklyk.mcptask.current.platform.tool.visibleOps
+import io.github.jpicklyk.mcptask.current.platform.tool.visibleSelects
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject

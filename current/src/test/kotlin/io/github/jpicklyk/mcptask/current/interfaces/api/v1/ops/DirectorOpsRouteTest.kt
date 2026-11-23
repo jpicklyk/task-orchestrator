@@ -1,18 +1,11 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops
 
-import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.director
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -23,6 +16,13 @@ import io.github.jpicklyk.mcptask.current.platform.call.Principal
 import io.github.jpicklyk.mcptask.current.platform.call.PrincipalKind
 import io.github.jpicklyk.mcptask.current.platform.call.ProofStatus
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
+import io.github.jpicklyk.mcptask.current.platform.request.Doc
+import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.SelectToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
+import io.github.jpicklyk.mcptask.current.platform.tool.director
+import io.github.jpicklyk.mcptask.current.platform.tool.knowledge
+import io.github.jpicklyk.mcptask.current.platform.tool.orchestration
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header

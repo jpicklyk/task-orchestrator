@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ActorClaimDto
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.claim.ActorKind
+import io.github.jpicklyk.mcptask.current.platform.rest.dto.ActorClaimDto
 import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.take

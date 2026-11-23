@@ -1,18 +1,18 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.api.BatchRunner
-import io.github.jpicklyk.mcptask.current.application.api.RequestDecoder
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.knowledge
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorFixtures
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.platform.request.RequestDecoder
+import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.SelectToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
+import io.github.jpicklyk.mcptask.current.platform.tool.knowledge
 import io.github.jpicklyk.mcptask.current.test.CollectingSink
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools

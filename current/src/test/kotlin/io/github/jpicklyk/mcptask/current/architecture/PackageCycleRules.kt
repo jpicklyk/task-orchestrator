@@ -32,7 +32,8 @@ object PackageCycleRules {
             "support" to "support",
             "calltelemetry" to "telemetry",
             "eventrecording" to "service",
-            "idempotency" to "service"
+            "idempotency" to "service",
+            "request" to "api"
         )
     private val FQN =
         Regex(

@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.report
 
 import io.github.jpicklyk.mcptask.current.application.report.ReportWindow
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.SelectToolSpec
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put

@@ -4,15 +4,15 @@ import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.advance.ClaimRequest
 import io.github.jpicklyk.mcptask.current.application.api.advance.HeartbeatRequest
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimState
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.call.CallContext
 import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
+import io.github.jpicklyk.mcptask.current.platform.tool.OpSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.invalidField
+import io.github.jpicklyk.mcptask.current.platform.tool.orchestration
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.serializer
 

@@ -13,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.model.knowledge.DocumentKind
 import io.github.jpicklyk.mcptask.current.platform.settings.AppConfig
 import io.github.jpicklyk.mcptask.current.platform.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.platform.sqlite.OutsideUnitPolicy
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.actorJson
 import io.github.jpicklyk.mcptask.current.test.advanceTool
 import io.github.jpicklyk.mcptask.current.test.claimOp

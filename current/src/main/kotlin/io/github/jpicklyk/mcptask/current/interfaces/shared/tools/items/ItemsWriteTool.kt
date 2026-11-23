@@ -3,8 +3,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceCascadeEvent
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -18,6 +16,8 @@ import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 import io.github.jpicklyk.mcptask.current.platform.sqlite.PersistenceFaults
 import io.github.jpicklyk.mcptask.current.platform.support.IdRef
 import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
+import io.github.jpicklyk.mcptask.current.platform.tool.OpsToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray

@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.inMemoryTestServerOptions
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
@@ -24,6 +23,7 @@ import io.github.jpicklyk.mcptask.current.model.knowledge.Link
 import io.github.jpicklyk.mcptask.current.model.knowledge.LinkRelation
 import io.github.jpicklyk.mcptask.current.model.knowledge.RefKind
 import io.github.jpicklyk.mcptask.current.model.note.Note
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.modelcontextprotocol.kotlin.sdk.client.Client

@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.test.tools
 
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolSpec
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import io.modelcontextprotocol.kotlin.sdk.types.Tool
 import kotlinx.serialization.json.Json

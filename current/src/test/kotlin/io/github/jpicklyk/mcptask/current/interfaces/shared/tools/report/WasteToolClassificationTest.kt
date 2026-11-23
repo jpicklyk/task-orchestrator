@@ -4,10 +4,10 @@ import io.github.jpicklyk.mcptask.current.application.report.ReportFieldDocs
 import io.github.jpicklyk.mcptask.current.application.report.ReportService
 import io.github.jpicklyk.mcptask.current.application.report.WasteToolClasses
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDescriber
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.parity.ParityCoverage
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject

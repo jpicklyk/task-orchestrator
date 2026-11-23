@@ -3,11 +3,11 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.report
 import io.github.jpicklyk.mcptask.current.application.port.ContentionRow
 import io.github.jpicklyk.mcptask.current.application.report.ReportContentionRequest
 import io.github.jpicklyk.mcptask.current.application.report.ReportService
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.PageWith
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.director
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.platform.port.ListPage
+import io.github.jpicklyk.mcptask.current.platform.tool.PageWith
+import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.director
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put

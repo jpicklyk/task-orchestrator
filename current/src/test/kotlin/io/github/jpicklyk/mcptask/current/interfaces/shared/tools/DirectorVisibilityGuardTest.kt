@@ -1,8 +1,18 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
-import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
+import io.github.jpicklyk.mcptask.current.platform.request.Doc
+import io.github.jpicklyk.mcptask.current.platform.tool.OpSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.OpsToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.SelectToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.director
+import io.github.jpicklyk.mcptask.current.platform.tool.knowledge
+import io.github.jpicklyk.mcptask.current.platform.tool.orchestration
+import io.github.jpicklyk.mcptask.current.platform.tool.visibleNames
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonPrimitive

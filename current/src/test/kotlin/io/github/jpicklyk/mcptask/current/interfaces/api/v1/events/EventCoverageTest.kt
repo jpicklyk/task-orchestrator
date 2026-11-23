@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
@@ -16,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.note.Note
 import io.github.jpicklyk.mcptask.current.platform.port.EventRecord
 import io.github.jpicklyk.mcptask.current.platform.port.EventStore
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.actorJson
 import io.github.jpicklyk.mcptask.current.test.advanceTool
 import io.github.jpicklyk.mcptask.current.test.callTool

@@ -14,7 +14,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.str
-import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -33,6 +32,7 @@ import io.github.jpicklyk.mcptask.current.model.run.RunPauseReason
 import io.github.jpicklyk.mcptask.current.model.run.RunReleased
 import io.github.jpicklyk.mcptask.current.model.run.RunStatus
 import io.github.jpicklyk.mcptask.current.model.run.RunTerminalReason
+import io.github.jpicklyk.mcptask.current.platform.envelope.EnvelopeEncoder
 import io.github.jpicklyk.mcptask.current.platform.port.EventRecord
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.test.SettableClock

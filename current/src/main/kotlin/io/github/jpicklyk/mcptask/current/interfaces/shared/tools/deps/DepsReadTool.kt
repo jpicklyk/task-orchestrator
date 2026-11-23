@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps
 
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.SelectToolSpec
 
 const val DEPS_READ = "deps_read"
 

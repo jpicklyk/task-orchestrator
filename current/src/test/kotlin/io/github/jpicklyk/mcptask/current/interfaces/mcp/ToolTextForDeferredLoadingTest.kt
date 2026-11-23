@@ -2,13 +2,13 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.bootstrap.profileInstructions
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDescriber
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolSchemaRenderer
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolView
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.visibleNames
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolSchemaRenderer
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolView
+import io.github.jpicklyk.mcptask.current.platform.tool.visibleNames
 import io.github.jpicklyk.mcptask.current.test.tools.ToolSurfaceChecks
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject

@@ -13,6 +13,14 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.itemsWri
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.report.reportTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.runsReadTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.runsWriteTool
+import io.github.jpicklyk.mcptask.current.platform.tool.JsonSchemaGenerator
+import io.github.jpicklyk.mcptask.current.platform.tool.OpSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.OpsToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.SelectToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolView
+import io.github.jpicklyk.mcptask.current.platform.tool.visibleNames
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.StructureKind
 import kotlinx.serialization.json.JsonObject
@@ -66,7 +74,7 @@ class ToolRegistry(
 
     operator fun get(name: String): ToolSpec? = byName[name]
 
-    /** The tools with at least one select/op visible to [profile] (a [ToolProfile], or [ToolView.Rest]), in registration order. */
+    /** The tools with at least one select/op visible to [profile] (a `ToolProfile`, or [ToolView.Rest]), in registration order. */
     fun visible(profile: ToolView): List<ToolSpec> = tools.filter { visibleNames(it, profile).isNotEmpty() }
 
     private class Member(

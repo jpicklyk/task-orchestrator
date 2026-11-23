@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectToolSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.platform.tool.SelectToolSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 
 const val RUNS_READ = "runs_read"
 

@@ -6,14 +6,14 @@ import io.github.jpicklyk.mcptask.current.application.read.FrontierWaitReason
 import io.github.jpicklyk.mcptask.current.application.read.RunFrontier
 import io.github.jpicklyk.mcptask.current.application.read.RunFrontierQueries
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.director
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemView
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.orchestration
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.platform.call.CallContext
+import io.github.jpicklyk.mcptask.current.platform.tool.SelectSpec
+import io.github.jpicklyk.mcptask.current.platform.tool.director
+import io.github.jpicklyk.mcptask.current.platform.tool.orchestration
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray

@@ -275,7 +275,7 @@ class IdentityPackageTest {
     // region S7 application service stays below application api
 
     private val currentRoot = "io\\.github\\.jpicklyk\\.mcptask\\.current"
-    private val applicationApi = Regex("""(?<![A-Za-z0-9_])$currentRoot\.(?:application\.api|platform\.call)\b""")
+    private val applicationApi = Regex("""(?<![A-Za-z0-9_])$currentRoot\.(?:application\.api|platform\.call|platform\.request)\b""")
 
     /** The legacy `application/service` node: its own folder and the `platform/` folders that took its files. */
     private val serviceNodePaths = listOf("application/service/", "platform/eventrecording/", "platform/idempotency/")
@@ -298,7 +298,7 @@ class IdentityPackageTest {
         val offenders = serviceImportingApi(sources)
         assertTrue(
             offenders.isEmpty(),
-            "application/service files, platform/eventrecording, platform/idempotency and platform.call reaching application.api (AR-58 edge 1): $offenders"
+            "application/service files, platform/eventrecording, platform/idempotency, platform.call and platform.request reaching application.api (AR-58 edge 1): $offenders"
         )
     }
 
@@ -306,6 +306,7 @@ class IdentityPackageTest {
     fun `S7 the application api matcher flags an import and a FQN use and ignores KDoc and prefix traps`() {
         val api = "io.github.jpicklyk.mcptask.current.application.api"
         val call = "io.github.jpicklyk.mcptask.current.platform.call"
+        val request = "io.github.jpicklyk.mcptask.current.platform.request"
         val seeded =
             listOf(
                 synthetic("application/service/A.kt", "import $api.ActorAware"),
@@ -316,7 +317,8 @@ class IdentityPackageTest {
                 synthetic("application/other/F.kt", "import $api.ActorAware"),
                 synthetic("platform/eventrecording/G.kt", "import $call.CallContext"),
                 synthetic("platform/idempotency/H.kt", "val p = $call.Principal"),
-                synthetic("platform/port/I.kt", "import $call.Principal")
+                synthetic("platform/port/I.kt", "import $call.Principal"),
+                synthetic("application/service/J.kt", "import $request.Doc")
             )
         assertEquals(
             setOf(
@@ -324,7 +326,8 @@ class IdentityPackageTest {
                 "application/service/B.kt",
                 "application/service/C.kt",
                 "platform/eventrecording/G.kt",
-                "platform/idempotency/H.kt"
+                "platform/idempotency/H.kt",
+                "application/service/J.kt"
             ),
             serviceImportingApi(seeded).toSet()
         )
