@@ -1,0 +1,211 @@
+{
+  "languages": [
+    {
+      "name": "kotlin",
+      "extensions": [".kt", ".kts"],
+      "lineComment": ["//"],
+      "blockComment": {
+        "start": "/*",
+        "end": "*/"
+      },
+      "blockStyle": "brace",
+      "branchTokens": ["if", "for", "while", "when", "catch", "&&", "||", "?:"],
+      "functionPatterns": [
+        "^\\s*(?:(?:public|private|protected|internal|override|open|abstract|final|inline|suspend|operator|infix|tailrec|external|actual|expect|const)\\s+)*fun\\s+(?:<[^>]*>\\s*)?(?:[\\w.<>?,\\s]+\\.)?(\\w+)\\s*\\("
+      ],
+      "importKind": "package",
+      "importSeparator": ".",
+      "importPatterns": [
+        "^\\s*import\\s+([\\w.]+(?:\\.\\*)?)"
+      ]
+    },
+    {
+      "name": "java",
+      "extensions": [".java"],
+      "lineComment": ["//"],
+      "blockComment": {
+        "start": "/*",
+        "end": "*/"
+      },
+      "blockStyle": "brace",
+      "branchTokens": ["if", "for", "while", "case", "catch", "&&", "||"],
+      "functionPatterns": [
+        "^\\s*(?:(?:public|private|protected|static|final|abstract|synchronized|native|default)\\s+)*(?:<[^>]*>\\s+)?(?!(?:return|new|else|throw|case|if|while|for|foreach|switch|catch|using|lock)\\b)[\\w.<>\\[\\]?,]+\\s+(\\w+)\\s*\\("
+      ],
+      "importKind": "package",
+      "importSeparator": ".",
+      "importPatterns": [
+        "^\\s*import\\s+(?:static\\s+)?([\\w.]+(?:\\.\\*)?)"
+      ]
+    },
+    {
+      "name": "javascript",
+      "extensions": [".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts"],
+      "lineComment": ["//"],
+      "blockComment": {
+        "start": "/*",
+        "end": "*/"
+      },
+      "blockStyle": "brace",
+      "branchTokens": ["if", "for", "while", "case", "catch", "&&", "||", "??"],
+      "functionPatterns": [
+        "^\\s*(?:export\\s+)?(?:default\\s+)?(?:async\\s+)?function\\s*\\*?\\s*(\\w+)\\s*\\(",
+        "^\\s*(?:export\\s+)?(?:const|let|var)\\s+(\\w+)\\s*=\\s*(?:async\\s+)?\\(",
+        "^\\s*(?:(?:public|private|protected|static|async|get|set)\\s+)*(?!(?:if|for|while|switch|catch|return|function|await|new|typeof|else)\\b)(\\w+)\\s*\\((?=.*\\{\\s*$)"
+      ],
+      "importKind": "relative",
+      "importPatterns": [
+        "^\\s*(?:import|export)\\b[^'\"]*?\\bfrom\\s*['\"]([^'\"]+)['\"]",
+        "^\\s*import\\s*['\"]([^'\"]+)['\"]",
+        "\\brequire\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)",
+        "\\bimport\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)"
+      ]
+    },
+    {
+      "name": "go",
+      "extensions": [".go"],
+      "lineComment": ["//"],
+      "blockComment": {
+        "start": "/*",
+        "end": "*/"
+      },
+      "blockStyle": "brace",
+      "branchTokens": ["if", "for", "case", "&&", "||"],
+      "functionPatterns": [
+        "^\\s*func\\s+(?:\\([^)]*\\)\\s*)?(\\w+)\\s*\\("
+      ],
+      "importKind": "package",
+      "importSeparator": "/",
+      "importPatterns": [
+        "^\\s*(?:import\\s+)?(?:\\w+\\s+)?\"([\\w./-]+)\"\\s*$"
+      ]
+    },
+    {
+      "name": "rust",
+      "extensions": [".rs"],
+      "lineComment": ["//"],
+      "blockComment": {
+        "start": "/*",
+        "end": "*/"
+      },
+      "blockStyle": "brace",
+      "branchTokens": ["if", "for", "while", "match", "&&", "||"],
+      "functionPatterns": [
+        "^\\s*(?:pub(?:\\([^)]*\\))?\\s+)?(?:(?:const|async|unsafe|extern)\\s+)*fn\\s+(\\w+)\\s*(?:<[^>]*>)?\\s*\\("
+      ],
+      "importKind": "package",
+      "importSeparator": "::",
+      "importPatterns": [
+        "^\\s*(?:pub\\s+)?use\\s+([\\w:]+)"
+      ]
+    },
+    {
+      "name": "python",
+      "extensions": [".py", ".pyi"],
+      "lineComment": ["#"],
+      "blockComment": null,
+      "blockStyle": "indent",
+      "branchTokens": ["if", "elif", "for", "while", "except", "and", "or"],
+      "functionPatterns": ["^\\s*(?:async\\s+)?def\\s+(\\w+)\\s*\\("],
+      "importKind": "package",
+      "importSeparator": ".",
+      "importPatterns": [
+        "^\\s*from\\s+(\\.+|\\.*\\w[\\w.]*)\\s+import\\b",
+        "^\\s*import\\s+(\\w[\\w.]*)"
+      ]
+    },
+    {
+      "name": "csharp",
+      "extensions": [".cs"],
+      "lineComment": ["//"],
+      "blockComment": {
+        "start": "/*",
+        "end": "*/"
+      },
+      "blockStyle": "brace",
+      "branchTokens": ["if", "for", "foreach", "while", "case", "catch", "&&", "||", "??"],
+      "functionPatterns": [
+        "^\\s*(?:(?:public|private|protected|internal|static|virtual|override|abstract|async|sealed|extern|unsafe|partial|new)\\s+)*(?!(?:return|new|else|throw|case|if|while|for|foreach|switch|catch|using|lock)\\b)[\\w.<>\\[\\]?,]+\\s+(\\w+)\\s*\\("
+      ],
+      "importKind": "package",
+      "importSeparator": ".",
+      "importPatterns": [
+        "^\\s*using\\s+(?:static\\s+)?([\\w.]+)\\s*;"
+      ]
+    },
+    {
+      "name": "swift",
+      "extensions": [".swift"],
+      "lineComment": ["//"],
+      "blockComment": {
+        "start": "/*",
+        "end": "*/"
+      },
+      "blockStyle": "brace",
+      "branchTokens": ["if", "guard", "for", "while", "case", "catch", "&&", "||", "??"],
+      "functionPatterns": [
+        "^\\s*(?:(?:public|private|fileprivate|internal|open|static|class|final|override|mutating|nonmutating|convenience|required)\\s+)*func\\s+(\\w+)\\s*(?:<[^>]*>)?\\s*\\("
+      ],
+      "importKind": "package",
+      "importSeparator": ".",
+      "importPatterns": ["^\\s*import\\s+(\\w+)"]
+    },
+    {
+      "name": "ruby",
+      "extensions": [".rb"],
+      "lineComment": ["#"],
+      "blockComment": {
+        "start": "=begin",
+        "end": "=end"
+      },
+      "blockStyle": "end",
+      "branchTokens": ["if", "elsif", "unless", "while", "until", "for", "when", "rescue", "and", "or", "&&", "||"],
+      "functionPatterns": [
+        "^\\s*def\\s+(?:self\\.)?(\\w+[?!]?)"
+      ],
+      "importKind": "relative",
+      "importPatterns": [
+        "\\brequire_relative\\s*\\(?\\s*['\"]([^'\"]+)['\"]"
+      ]
+    },
+    {
+      "name": "c",
+      "extensions": [".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx"],
+      "lineComment": ["//"],
+      "blockComment": {
+        "start": "/*",
+        "end": "*/"
+      },
+      "blockStyle": "brace",
+      "branchTokens": ["if", "for", "while", "case", "catch", "&&", "||"],
+      "functionPatterns": [
+        "^(?!(?:if|for|while|switch|return|else|do|sizeof)\\b)[A-Za-z_][\\w:<>,*&~ ]*[ *&](\\w+)\\s*\\("
+      ],
+      "importKind": "relative",
+      "importPatterns": [
+        "^\\s*#\\s*include\\s*\"([^\"]+)\""
+      ]
+    },
+    {
+      "name": "php",
+      "extensions": [".php"],
+      "lineComment": ["//", "#"],
+      "blockComment": {
+        "start": "/*",
+        "end": "*/"
+      },
+      "blockStyle": "brace",
+      "branchTokens": ["if", "elseif", "for", "foreach", "while", "case", "catch", "&&", "||", "??"],
+      "functionPatterns": ["^\\s*(?:(?:public|private|protected|static|final|abstract)\\s+)*function\\s+&?\\s*(\\w+)\\s*\\("],
+      "importKind": "relative",
+      "importPatterns": [
+        "\\b(?:require|include)(?:_once)?\\s*\\(?\\s*['\"]([^'\"]+)['\"]"
+      ]
+    }
+  ],
+  "noise": {
+    "basenames": ["package-lock.json", "yarn.lock", "pnpm-lock.yaml", "Cargo.lock", "Gemfile.lock", "poetry.lock", "composer.lock", "go.sum", "gradle.lockfile", "CHANGELOG.md", "CHANGES.md", "HISTORY.md"],
+    "suffixes": [".lock", ".min.js", ".min.css", ".map"],
+    "segments": ["node_modules", "dist", "build", "out", "target", "vendor", "generated", "__pycache__", ".gradle"]
+  }
+}
