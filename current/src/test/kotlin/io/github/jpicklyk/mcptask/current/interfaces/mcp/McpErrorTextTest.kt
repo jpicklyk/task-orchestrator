@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.api.BatchRunner
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorFixtures
@@ -84,10 +85,11 @@ class McpErrorTextTest {
             "lc_read",
             "Local read tool whose errors carry messages with a newline and non-ASCII text.",
             listOf(
-                SelectSpec.Single<FixtureTools.GetReq, String>(
+                SelectSpec.Single<ToolExecutionContext, FixtureTools.GetReq, String>(
                     name = "get",
                     doc = "Read one thing by id.",
                     profiles = knowledge(),
+                    services = ToolExecutionContext::class,
                     request = serializer<FixtureTools.GetReq>(),
                     errors = setOf(ErrorCode.NOT_FOUND),
                     handler = { _, _, req ->
@@ -113,7 +115,7 @@ class McpErrorTextTest {
 
     private fun adapter(): McpOperationAdapter =
         McpOperationAdapter(
-            ToolDispatcher(RequestDecoder(), BatchRunner(env.unitOfWork, env.idempotency), env),
+            ToolDispatcher(RequestDecoder(), BatchRunner(env.unitOfWork, env.idempotency), env, buildToolSpecs()),
             callLog = sink
         )
 

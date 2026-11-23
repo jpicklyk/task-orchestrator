@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsResumeRequest
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -15,13 +14,14 @@ import kotlinx.serialization.serializer
 
 /** runs_write resume: a director or a human resumes a manually paused run. */
 internal val runsResumeOp =
-    OpSpec<RunsResumeRequest, JsonObject>(
+    OpSpec<RunToolServices, RunsResumeRequest, JsonObject>(
         name = "resume",
         doc =
             "Resume a manually paused run. Director or a human only. An attempts pause, or a run-budget pause left by 4.0.0, " +
                 "cannot be resumed, only closed (invalid_run_state, allowed close). Returns the run.",
         profiles = director(),
         capability = ApiCapability.RUNS,
+        services = RunToolServices::class,
         request = serializer<RunsResumeRequest>(),
         errors =
             setOf(
@@ -35,7 +35,7 @@ internal val runsResumeOp =
     )
 
 private suspend fun WriteScope.resumeRun(
-    env: ToolExecutionContext,
+    env: RunToolServices,
     ctx: CallContext,
     req: RunsResumeRequest
 ): Outcome<JsonObject> {

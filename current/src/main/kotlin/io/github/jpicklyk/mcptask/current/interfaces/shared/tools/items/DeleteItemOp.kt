@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
 import io.github.jpicklyk.mcptask.current.application.service.FenceGuard
@@ -36,13 +35,14 @@ internal object DeleteItemOp {
     const val NAME = "delete"
 }
 
-internal fun deleteItemOp(): OpSpec<DeleteItemRequest, ItemWriteResult> =
+internal fun deleteItemOp(): OpSpec<WorkflowToolServices, DeleteItemRequest, ItemWriteResult> =
     OpSpec(
         name = DeleteItemOp.NAME,
         doc = "Delete an item; a parent needs recursive.",
         destructive = true,
         capability = ApiCapability.WRITE_ITEMS,
         profiles = knowledge(),
+        services = WorkflowToolServices::class,
         request = serializer<DeleteItemRequest>(),
         errors =
             setOf(
@@ -59,7 +59,7 @@ internal fun deleteItemOp(): OpSpec<DeleteItemRequest, ItemWriteResult> =
     )
 
 private suspend fun WriteScope.deleteItem(
-    env: ToolExecutionContext,
+    env: WorkflowToolServices,
     ctx: CallContext,
     req: DeleteItemRequest
 ): Outcome<ItemWriteResult> {

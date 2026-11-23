@@ -81,10 +81,11 @@ class McpOperationAdapterMdcTest {
             "mdc_probe",
             "MDC probe.",
             listOf(
-                SelectSpec.Single<ProbeReq, String>(
+                SelectSpec.Single<ToolExecutionContext, ProbeReq, String>(
                     name = "log",
                     doc = "Log one line.",
                     profiles = knowledge(),
+                    services = ToolExecutionContext::class,
                     request = serializer<ProbeReq>(),
                     handler = { _, _, req ->
                         if (req.fail) throw IllegalStateException("forced internal error for MDC coverage")

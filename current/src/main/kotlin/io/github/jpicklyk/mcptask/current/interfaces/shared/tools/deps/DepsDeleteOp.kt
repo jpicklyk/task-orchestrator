@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepsDeleteRequest
 import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
@@ -25,7 +24,7 @@ private val FULL_UUID = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-
 
 /** deps_write delete: by dependency id, by endpoints, or every edge of one item. */
 internal val depsDeleteOp =
-    OpSpec<DepsDeleteRequest, JsonObject>(
+    OpSpec<DependencyToolServices, DepsDeleteRequest, JsonObject>(
         name = "delete",
         doc =
             "Delete dependency edges. Give exactly one of: id (one edge, full UUID), from + to (with optional type), or " +
@@ -33,6 +32,7 @@ internal val depsDeleteOp =
         destructive = true,
         capability = ApiCapability.MANAGE_DEPENDENCIES,
         profiles = knowledge(),
+        services = DependencyToolServices::class,
         request = serializer<DepsDeleteRequest>(),
         errors =
             setOf(
@@ -70,7 +70,7 @@ private fun shapeError(req: DepsDeleteRequest): DomainError? {
 }
 
 private suspend fun WriteScope.deleteById(
-    env: ToolExecutionContext,
+    env: DependencyToolServices,
     ctx: CallContext,
     rawId: String,
     caller: ClaimHolder
@@ -84,7 +84,7 @@ private suspend fun WriteScope.deleteById(
 }
 
 private suspend fun WriteScope.deleteByItem(
-    env: ToolExecutionContext,
+    env: DependencyToolServices,
     ctx: CallContext,
     ref: IdRef,
     caller: ClaimHolder
@@ -104,7 +104,7 @@ private suspend fun WriteScope.deleteByItem(
 }
 
 private suspend fun WriteScope.deleteByEnds(
-    env: ToolExecutionContext,
+    env: DependencyToolServices,
     ctx: CallContext,
     req: DepsDeleteRequest,
     caller: ClaimHolder

@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.parity
 
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
@@ -319,10 +320,11 @@ private class ProfileModeFixtures(
     private fun peek(
         name: String,
         profiles: Set<ToolProfile>
-    ) = SelectSpec.Single<PeekReq, JsonObject>(
+    ) = SelectSpec.Single<ToolExecutionContext, PeekReq, JsonObject>(
         name = name,
         doc = "Peek.",
         profiles = profiles,
+        services = ToolExecutionContext::class,
         request = serializer<PeekReq>(),
         handler = { _, _, _ -> Outcome.Ok(buildJsonObject { put("who", name) }) },
         data = { it }

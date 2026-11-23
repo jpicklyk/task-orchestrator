@@ -1,6 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolServiceRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.WorkflowToolServices
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.workTreeService
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
@@ -94,7 +96,7 @@ class WorkTreeServiceTest {
         runBlocking {
             val rig = rig(dir)
             val tree =
-                workTreeService(rig.ctx)
+                workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
                     .create(request(children = listOf(item("gc", parentRef = "c1"), item("c1"))))
                     .ok()
 
@@ -112,7 +114,10 @@ class WorkTreeServiceTest {
         runBlocking {
             val rig = rig(dir)
             val before = count("work_items")
-            val error = workTreeService(rig.ctx).create(request(children = listOf(item("a", "b"), item("b", "a")))).err()
+            val error =
+                workTreeService(
+                    ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class)
+                ).create(request(children = listOf(item("a", "b"), item("b", "a")))).err()
 
             assertEquals(ErrorCode.INVALID_REQUEST, error.code)
             assertEquals("/children", (error.detail as ErrorDetail.InvalidRequest).fields.single().field)
@@ -136,7 +141,7 @@ class WorkTreeServiceTest {
             val rig = rig(dir)
             val before = count("work_items")
             val error =
-                workTreeService(rig.ctx)
+                workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
                     .create(
                         request(
                             children = listOf(item("a"), item("b")),
@@ -160,7 +165,7 @@ class WorkTreeServiceTest {
         runBlocking {
             val rig = rig(dir)
             val error =
-                workTreeService(rig.ctx)
+                workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
                     .create(
                         request(
                             children = listOf(item("a"), item("b")),
@@ -181,7 +186,7 @@ class WorkTreeServiceTest {
             val project = rig.seed("Project")
             rig.raw.planDocumentRepository().stash(project.id, "plan", "# Overview\nOverview text.\n# Impl\nImpl text.")
             val tree =
-                workTreeService(rig.ctx)
+                workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
                     .create(
                         request(
                             rootType = "gated",
@@ -217,7 +222,7 @@ class WorkTreeServiceTest {
         runBlocking {
             val rig = rig(dir)
             val error =
-                workTreeService(rig.ctx)
+                workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
                     .create(request(rootType = "gated", notes = listOf(TreeNoteInput("root", "spec", "work", "x"))))
                     .err()
 
@@ -232,7 +237,10 @@ class WorkTreeServiceTest {
     ): Unit =
         runBlocking {
             val rig = rig(dir)
-            val error = workTreeService(rig.ctx).create(request(children = listOf(item("a"), item("b", type = "nope")))).err()
+            val error =
+                workTreeService(
+                    ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class)
+                ).create(request(children = listOf(item("a"), item("b", type = "nope")))).err()
 
             assertEquals(ErrorCode.SCHEMA_VIOLATION, error.code)
             assertEquals(0, count("work_items"), "the root and the first child roll back with the failing second child")
@@ -246,7 +254,10 @@ class WorkTreeServiceTest {
         runBlocking {
             val rig = rig(dir)
             val closed = rig.seed("Closed", role = Role.TERMINAL)
-            val error = workTreeService(rig.ctx).create(request(parentId = closed.id, children = listOf(item("a")))).err()
+            val error =
+                workTreeService(
+                    ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class)
+                ).create(request(parentId = closed.id, children = listOf(item("a")))).err()
 
             assertEquals(ErrorCode.INVALID_TRANSITION, error.code)
             assertEquals(1, count("work_items"))
@@ -261,7 +272,7 @@ class WorkTreeServiceTest {
             val project = rig.seed("Project")
             val existing = rig.seed("Existing", project)
             val tree =
-                workTreeService(rig.ctx)
+                workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
                     .create(WorkTreeRequest(root = TreeRootInput.Attach(existing.id), children = listOf(item("a")), caller = null))
                     .ok()
 
@@ -280,7 +291,7 @@ class WorkTreeServiceTest {
         runBlocking {
             val rig = rig(dir)
             val tree =
-                workTreeService(rig.ctx)
+                workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
                     .create(
                         request(
                             children = listOf(item("a"), item("b"), item("c")),

@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.parity
 
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findByFilters
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -88,10 +89,11 @@ class ParityFixtureTools {
     )
 
     val getSelect =
-        SelectSpec.Single<GetReq, JsonObject>(
+        SelectSpec.Single<ToolExecutionContext, GetReq, JsonObject>(
             name = "get",
             doc = "Read one item by id.",
             profiles = knowledge(),
+            services = ToolExecutionContext::class,
             request = serializer<GetReq>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.FORBIDDEN),
             handler = { env, ctx, req ->
@@ -117,10 +119,11 @@ class ParityFixtureTools {
         )
 
     val listSelect =
-        SelectSpec.Paged<ListReq, JsonObject>(
+        SelectSpec.Paged<ToolExecutionContext, ListReq, JsonObject>(
             name = "list",
             doc = "List the items visible to the caller.",
             profiles = knowledge(),
+            services = ToolExecutionContext::class,
             request = serializer<ListReq>(),
             handler = { env, ctx, req ->
                 val repo = env.repositoryProvider.workItemRepository()
@@ -138,11 +141,12 @@ class ParityFixtureTools {
         )
 
     val renameOp =
-        OpSpec<RenameReq, String>(
+        OpSpec<ToolExecutionContext, RenameReq, String>(
             name = "rename",
             doc = "Rename an item.",
             capability = ApiCapability.WRITE_ITEMS,
             profiles = knowledge(),
+            services = ToolExecutionContext::class,
             request = serializer<RenameReq>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.FORBIDDEN),
             execute = { _, ctx, req ->
@@ -168,11 +172,12 @@ class ParityFixtureTools {
         )
 
     val retagOp =
-        OpSpec<RetagReq, String>(
+        OpSpec<ToolExecutionContext, RetagReq, String>(
             name = "retag",
             doc = "Replace an item's tags.",
             capability = ApiCapability.WRITE_NOTES,
             profiles = knowledge(),
+            services = ToolExecutionContext::class,
             request = serializer<RetagReq>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.FORBIDDEN),
             execute = { _, ctx, req ->
@@ -212,21 +217,23 @@ class ParityFixtureTools {
     val registry: ToolRegistry get() = ToolRegistry(listOf(itemsTool, editTool))
 
     private val echoSelect =
-        SelectSpec.Single<EchoReq, String>(
+        SelectSpec.Single<ToolExecutionContext, EchoReq, String>(
             name = "echo",
             doc = "Echo the calling surface.",
             profiles = knowledge(),
+            services = ToolExecutionContext::class,
             request = serializer<EchoReq>(),
             handler = { _, ctx, _ -> Outcome.Ok(ctx.surface) },
             data = { JsonPrimitive(it) }
         )
 
     private val stampOp =
-        OpSpec<StampReq, String>(
+        OpSpec<ToolExecutionContext, StampReq, String>(
             name = "stamp",
             doc = "Write the calling surface into an item's title.",
             capability = ApiCapability.WRITE_ITEMS,
             profiles = knowledge(),
+            services = ToolExecutionContext::class,
             request = serializer<StampReq>(),
             errors = setOf(ErrorCode.NOT_FOUND),
             execute = { _, ctx, req ->

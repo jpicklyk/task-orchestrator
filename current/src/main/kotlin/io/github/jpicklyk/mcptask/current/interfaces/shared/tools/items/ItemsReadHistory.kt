@@ -55,7 +55,7 @@ object ItemsReadHistory {
     )
 
     val select =
-        SelectSpec.Single<Request, JsonObject>(
+        SelectSpec.Single<EventToolServices, Request, JsonObject>(
             name = "history",
             doc =
                 "The transition audit trail, newest first (default limit 50, max 200): itemId limits it to one item, " +
@@ -63,6 +63,7 @@ object ItemsReadHistory {
                     "itemId, occurredAt, trigger, fromRole, toRole, status labels, origin, summary, consumedCredentials, " +
                     "backfilled (a pre-4.0 row) and, when attribution is visible, actor and verification.",
             profiles = orchestration(),
+            services = EventToolServices::class,
             request = serializer<Request>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.INVALID_CURSOR),
             handler = handler@{ env, ctx, req ->
@@ -74,7 +75,7 @@ object ItemsReadHistory {
                 if (req.since != null && req.until != null && req.since.isAfter(req.until)) {
                     return@handler Outcome.Err(invalidField(pointer("since"), "must not be after until", req.since.toString()))
                 }
-                val store = env.repositoryProvider.eventStore()
+                val store = env.eventStore()
                 val result =
                     if (req.itemId != null) {
                         val itemId =

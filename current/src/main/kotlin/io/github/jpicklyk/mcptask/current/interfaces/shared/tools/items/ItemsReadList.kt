@@ -64,10 +64,11 @@ object ItemsReadList {
     )
 
     val select =
-        SelectSpec.Paged<Request, JsonObject>(
+        SelectSpec.Paged<ItemToolServices, Request, JsonObject>(
             name = "list",
             doc = "A filtered, sorted page of the items the caller may see, as compact views with an exact total.",
             profiles = knowledge() + director(),
+            services = ItemToolServices::class,
             request = serializer<Request>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.INVALID_CURSOR),
             handler = handler@{ env, ctx, req ->

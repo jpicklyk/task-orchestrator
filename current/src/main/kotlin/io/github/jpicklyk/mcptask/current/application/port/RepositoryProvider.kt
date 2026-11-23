@@ -53,7 +53,7 @@ interface RepositoryProvider :
     /** Polymorphic links (adoption provenance and, later, references). */
     override fun linkStore(): LinkStore
 
-    fun resourceLeaseRepository(): LeaseStore
+    override fun resourceLeaseRepository(): LeaseStore
 
     fun idempotencyStore(): IdempotencyStore
 

@@ -12,9 +12,11 @@ to hide.
 ## ToolExecutionContext Coupling
 
 `ToolExecutionContext` is constructed exactly once, in `ServerComposition.build()`
-(`bootstrap/ServerComposition.kt`), and passed to every tool. Adding a new service
-dependency means updating both the context class and that construction site. If your change introduces a new service that tools
-need, this is part of the blast radius.
+(`bootstrap/ServerComposition.kt`). Tool handlers do not receive it: `ToolServiceRegistry`
+builds one tool-services holder per slice from it (for example `RunToolServices`), and each select or op
+names its holder in `services`. Adding a new service dependency means updating the context class, that
+construction site, the holder and its builder in the registry. If your change introduces a new service that
+tools need, this is part of the blast radius.
 
 ## Flyway Is the Only Schema Path
 

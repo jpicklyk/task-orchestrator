@@ -20,7 +20,7 @@ import kotlinx.serialization.serializer
  * falls in the `{}` group.
  */
 internal val reportGatesSelect =
-    SelectSpec.PagedWith<ReportGatesRequest, JsonObject>(
+    SelectSpec.PagedWith<ReportToolServices, ReportGatesRequest, JsonObject>(
         name = "gates",
         doc =
             "Rejected transitions per group over [since, until) (default the 7 days before now, " +
@@ -32,6 +32,7 @@ internal val reportGatesSelect =
                 "(the oldest transition.rejected event held), basis raw and truncatedByRetention. A root-scoped credential sees " +
                 "its roots; a tag-scoped one sees rejections of items that currently carry an allowed tag.",
         profiles = director(),
+        services = ReportToolServices::class,
         request = serializer<ReportGatesRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         handler = { env, ctx, req ->

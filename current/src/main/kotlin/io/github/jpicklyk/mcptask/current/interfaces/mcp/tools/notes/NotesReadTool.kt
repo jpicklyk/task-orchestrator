@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.notes
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteGetResult
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteHandlers
 import io.github.jpicklyk.mcptask.current.application.api.notes.NoteListEntry
+import io.github.jpicklyk.mcptask.current.application.api.notes.NoteToolServices
 import io.github.jpicklyk.mcptask.current.application.api.notes.NotesGetRequest
 import io.github.jpicklyk.mcptask.current.application.api.notes.NotesListRequest
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -14,12 +15,13 @@ import kotlinx.serialization.serializer
 
 /** `notes_read get`: one note with its body (or `{unchanged, version}` when the caller's `ifVersion` is current). */
 internal val notesGetSelect =
-    SelectSpec.Single<NotesGetRequest, NoteGetResult>(
+    SelectSpec.Single<NoteToolServices, NotesGetRequest, NoteGetResult>(
         name = "get",
         doc =
             "Read one note of an item by key, with its body. " +
                 "With ifVersion equal to the note's current version the answer is {unchanged: true, version} and no body.",
         profiles = knowledge(),
+        services = NoteToolServices::class,
         request = serializer<NotesGetRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         capability = ApiCapability.READ,
@@ -29,12 +31,13 @@ internal val notesGetSelect =
 
 /** `notes_read list`: the notes of one item, metadata only. */
 internal val notesListSelect =
-    SelectSpec.Paged<NotesListRequest, NoteListEntry>(
+    SelectSpec.Paged<NoteToolServices, NotesListRequest, NoteListEntry>(
         name = "list",
         doc =
             "List the notes of an item without their bodies (id, key, role, version, bodyLength, modifiedAt), " +
                 "ordered by key. Read a body with get.",
         profiles = knowledge(),
+        services = NoteToolServices::class,
         request = serializer<NotesListRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         capability = ApiCapability.READ,

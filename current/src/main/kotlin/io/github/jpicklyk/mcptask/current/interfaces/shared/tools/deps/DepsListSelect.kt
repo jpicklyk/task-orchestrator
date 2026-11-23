@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepDirection
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepsListRequest
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
@@ -20,12 +19,13 @@ import java.util.UUID
 
 /** `deps_read list`: the edges touching one item, oldest first. */
 internal val depsListSelect =
-    SelectSpec.Paged<DepsListRequest, JsonObject>(
+    SelectSpec.Paged<DependencyToolServices, DepsListRequest, JsonObject>(
         name = "list",
         doc =
             "List the dependency edges touching one item, oldest first. incoming = what blocks it, outgoing = what it blocks. " +
                 "Edges whose other end is outside the scope of the call are left out and not counted.",
         profiles = knowledge() + director(),
+        services = DependencyToolServices::class,
         request = serializer<DepsListRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         handler = { env, ctx, req -> listEdges(env, ctx, req) },
@@ -33,7 +33,7 @@ internal val depsListSelect =
     )
 
 private suspend fun listEdges(
-    env: ToolExecutionContext,
+    env: DependencyToolServices,
     ctx: CallContext,
     req: DepsListRequest
 ): Outcome<ListPage<JsonObject>> {

@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -69,7 +70,7 @@ class ToolSurfaceGuardsTest {
                 description = "x".repeat(descriptionLength),
                 ops =
                     listOf(
-                        OpSpec<FixtureTools.CreateReq, String>(
+                        OpSpec<ToolExecutionContext, FixtureTools.CreateReq, String>(
                             name = "make",
                             doc = "Make.",
                             // R5 mechanical migration: the pre-R5 single-profile declaration as its profile set.
@@ -81,6 +82,7 @@ class ToolSurfaceGuardsTest {
                                         ToolProfile.DIRECTOR -> director()
                                     },
                             capability = ApiCapability.WRITE_ITEMS,
+                            services = ToolExecutionContext::class,
                             request = serializer<FixtureTools.CreateReq>(),
                             execute = { _, _, _ -> Outcome.Ok("x") }
                         )
@@ -243,11 +245,12 @@ class ToolSurfaceGuardsTest {
                 description = "Deep.",
                 ops =
                     listOf(
-                        OpSpec<DeepReq, String>(
+                        OpSpec<ToolExecutionContext, DeepReq, String>(
                             name = "dig",
                             doc = "Dig.",
                             capability = ApiCapability.WRITE_ITEMS,
                             profiles = knowledge(),
+                            services = ToolExecutionContext::class,
                             request = serializer<DeepReq>(),
                             execute = {
                                 _,
@@ -275,11 +278,12 @@ class ToolSurfaceGuardsTest {
                 description = "Deep.",
                 ops =
                     listOf(
-                        OpSpec<DeepReq, String>(
+                        OpSpec<ToolExecutionContext, DeepReq, String>(
                             name = "dig",
                             doc = "Dig.",
                             capability = ApiCapability.WRITE_ITEMS,
                             profiles = knowledge(),
+                            services = ToolExecutionContext::class,
                             request = serializer<DeepReq>(),
                             execute = {
                                 _,
@@ -306,11 +310,12 @@ class ToolSurfaceGuardsTest {
                 description = "Naked.",
                 ops =
                     listOf(
-                        OpSpec<NakedReq, String>(
+                        OpSpec<ToolExecutionContext, NakedReq, String>(
                             name = "go",
                             doc = "Go.",
                             capability = ApiCapability.WRITE_ITEMS,
                             profiles = knowledge(),
+                            services = ToolExecutionContext::class,
                             request = serializer<NakedReq>(),
                             execute = {
                                 _,
@@ -329,10 +334,11 @@ class ToolSurfaceGuardsTest {
                 "naked_sel",
                 "Naked.",
                 listOf(
-                    SelectSpec.Single<NakedReq, String>(
+                    SelectSpec.Single<ToolExecutionContext, NakedReq, String>(
                         name = "go",
                         doc = "Go.",
                         profiles = knowledge(),
+                        services = ToolExecutionContext::class,
                         request = serializer<NakedReq>(),
                         handler = { _, _, _ -> Outcome.Ok("x") },
                         data = { JsonPrimitive(it) }

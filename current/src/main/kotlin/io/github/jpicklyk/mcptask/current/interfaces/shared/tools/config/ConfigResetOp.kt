@@ -21,7 +21,7 @@ data class ConfigResetRequest(
 )
 
 internal val configResetOp =
-    OpSpec<ConfigResetRequest, JsonElement>(
+    OpSpec<ConfigToolServices, ConfigResetRequest, JsonElement>(
         name = "reset",
         doc =
             "Reset a root's config: append an empty reset version so the root falls back to the server config; history is " +
@@ -29,6 +29,7 @@ internal val configResetOp =
         profiles = orchestration(),
         destructive = true,
         capability = ApiCapability.WRITE_CONFIG,
+        services = ConfigToolServices::class,
         request = serializer<ConfigResetRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         execute = { env, ctx, req ->

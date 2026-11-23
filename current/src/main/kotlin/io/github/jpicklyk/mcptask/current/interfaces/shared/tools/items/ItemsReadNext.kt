@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 import io.github.jpicklyk.mcptask.current.application.port.ItemFilter
 import io.github.jpicklyk.mcptask.current.application.read.NextEmptyReason
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.LifecycleToolServices
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimState
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
@@ -86,7 +87,7 @@ object ItemsReadNext {
     )
 
     val select =
-        SelectSpec.Single<Request, JsonObject>(
+        SelectSpec.Single<LifecycleToolServices, Request, JsonObject>(
             name = "next",
             doc =
                 "One page of the items ready to pick up, ranked (default limit 1, max 200): in the role (default queue; " +
@@ -94,6 +95,7 @@ object ItemsReadNext {
                     "claimed items too. Empty with reason claim_held or dependency_unmet when matches exist but none is ready. " +
                     "fields: summary, ancestors.",
             profiles = orchestration(),
+            services = LifecycleToolServices::class,
             request = serializer<Request>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.INVALID_CURSOR),
             handler = handler@{ env, ctx, req ->

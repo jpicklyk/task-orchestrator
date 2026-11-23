@@ -146,7 +146,7 @@ Fixes #53
 - Use meaningful variable and function names
 - Add KDoc comments for public APIs
 - Keep functions focused and small
-- Handlers receive collaborators through the one `ToolExecutionContext` (`env`); do not construct services inline
+- Handlers receive collaborators through their slice's tool-services holder (`env`, built from the one `ToolExecutionContext` in `ToolServiceRegistry`); do not construct services inline
 
 **Architecture**:
 - Follow the layer model — domain and model (the shared model) → application → infrastructure → interfaces, outer layers may depend on inner ones, never the reverse (see below for enforcement)

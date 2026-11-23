@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.platform.tool
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
@@ -17,12 +16,14 @@ import io.github.jpicklyk.mcptask.current.platform.request.RequestDecoder
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlin.reflect.KClass
 
 /**
  * A 4.0 tool declaration (plan section 3.2, Q1b). The contract is PROVISIONAL until R20 merges.
  *
- * A spec is a context-free declaration: handlers receive the one composed [ToolExecutionContext] as
- * `env` at call time, so guards and goldens render specs without a database. Each select or op lives in
+ * A spec is a context-free declaration: each select or op names the services holder its handler takes (`services`),
+ * and the dispatcher hands that holder in as `env` at call time ([ToolServiceLookup]), so guards and goldens render
+ * specs without a database. Each select or op lives in
  * its own file and registers into its tool (plan section 2, "Tool registry layout").
  */
 sealed interface ToolSpec {
@@ -45,54 +46,57 @@ fun ToolSpec.descriptionFor(view: ToolView): String = (view as? ToolProfile)?.le
 class SelectToolSpec(
     override val name: String,
     override val description: String,
-    val selects: List<SelectSpec<*, *>>,
+    val selects: List<SelectSpec<*, *, *>>,
     override val profileDescriptions: Map<ToolProfile, String> = emptyMap()
 ) : ToolSpec
 
 /**
- * One select of a [SelectToolSpec]: its [request] class (decoded strictly; `describe` and
+ * One select of a [SelectToolSpec]: the [services] holder its handler takes, its [request] class (decoded strictly; `describe` and
  * `select` are lifted first), the [profiles] it is visible in (an empty set is REST-only), the [capability] a caller needs (READ
  * unless declared otherwise; ADMIN grants all), and the [errors] its handler may return beyond the common ones.
  */
-sealed class SelectSpec<R : Any, T>(
+sealed class SelectSpec<S : Any, R : Any, T>(
     val name: String,
     val doc: String,
     val profiles: Set<ToolProfile>,
+    val services: KClass<S>,
     val request: KSerializer<R>,
     val errors: Set<ErrorCode>,
     val capability: ApiCapability
 ) {
     /** A select returning one value; [data] maps it to `data` (null means no `data` member). */
-    class Single<R : Any, T>(
+    class Single<S : Any, R : Any, T>(
         name: String,
         doc: String,
         profiles: Set<ToolProfile>,
+        services: KClass<S>,
         request: KSerializer<R>,
         errors: Set<ErrorCode> = emptySet(),
         capability: ApiCapability = ApiCapability.READ,
-        val handler: suspend (ToolExecutionContext, CallContext, R) -> Outcome<T>,
+        val handler: suspend (S, CallContext, R) -> Outcome<T>,
         val data: (T) -> JsonElement?
-    ) : SelectSpec<R, T>(name, doc, profiles, request, errors, capability) {
+    ) : SelectSpec<S, R, T>(name, doc, profiles, services, request, errors, capability) {
         override suspend fun respond(
-            env: ToolExecutionContext,
+            env: S,
             ctx: CallContext,
             value: R
         ): EncodedEnvelope = EnvelopeEncoder.outcome(handler(env, ctx, value), ctx.reqId, data = data)
     }
 
     /** A select returning one page of a list; [item] maps each element of `data.items`. */
-    class Paged<R : Any, T>(
+    class Paged<S : Any, R : Any, T>(
         name: String,
         doc: String,
         profiles: Set<ToolProfile>,
+        services: KClass<S>,
         request: KSerializer<R>,
         errors: Set<ErrorCode> = emptySet(),
         capability: ApiCapability = ApiCapability.READ,
-        val handler: suspend (ToolExecutionContext, CallContext, R) -> Outcome<ListPage<T>>,
+        val handler: suspend (S, CallContext, R) -> Outcome<ListPage<T>>,
         val item: (T) -> JsonElement
-    ) : SelectSpec<R, T>(name, doc, profiles, request, errors, capability) {
+    ) : SelectSpec<S, R, T>(name, doc, profiles, services, request, errors, capability) {
         override suspend fun respond(
-            env: ToolExecutionContext,
+            env: S,
             ctx: CallContext,
             value: R
         ): EncodedEnvelope =
@@ -106,18 +110,19 @@ sealed class SelectSpec<R : Any, T>(
      * A paged select whose `data` also carries sibling members next to `items` and `page` (for example `report`'s
      * `window`): [handler] returns a [PageWith], whose [PageWith.extra] members are emitted after `page`.
      */
-    class PagedWith<R : Any, T>(
+    class PagedWith<S : Any, R : Any, T>(
         name: String,
         doc: String,
         profiles: Set<ToolProfile>,
+        services: KClass<S>,
         request: KSerializer<R>,
         errors: Set<ErrorCode> = emptySet(),
         capability: ApiCapability = ApiCapability.READ,
-        val handler: suspend (ToolExecutionContext, CallContext, R) -> Outcome<PageWith<T>>,
+        val handler: suspend (S, CallContext, R) -> Outcome<PageWith<T>>,
         val item: (T) -> JsonElement
-    ) : SelectSpec<R, T>(name, doc, profiles, request, errors, capability) {
+    ) : SelectSpec<S, R, T>(name, doc, profiles, services, request, errors, capability) {
         override suspend fun respond(
-            env: ToolExecutionContext,
+            env: S,
             ctx: CallContext,
             value: R
         ): EncodedEnvelope =
@@ -128,11 +133,11 @@ sealed class SelectSpec<R : Any, T>(
     }
 
     /** True for a select answering a list page ([Paged] or [PagedWith]), so it may also return `invalid_cursor`. */
-    val paged: Boolean get() = this is Paged<*, *> || this is PagedWith<*, *>
+    val paged: Boolean get() = this is Paged<*, *, *> || this is PagedWith<*, *, *>
 
     /** Runs the handler on a decoded request and encodes its result. */
     protected abstract suspend fun respond(
-        env: ToolExecutionContext,
+        env: S,
         ctx: CallContext,
         value: R
     ): EncodedEnvelope
@@ -148,9 +153,9 @@ sealed class SelectSpec<R : Any, T>(
         private val value: R
     ) {
         suspend fun run(
-            env: ToolExecutionContext,
+            services: ToolServiceLookup,
             ctx: CallContext
-        ): EncodedEnvelope = respond(env, ctx, value)
+        ): EncodedEnvelope = respond(services.get(this@SelectSpec.services), ctx, value)
     }
 
     companion object {
@@ -176,27 +181,28 @@ class PageWith<out T>(
 class OpsToolSpec<R>(
     override val name: String,
     override val description: String,
-    val ops: List<OpSpec<*, R>>,
+    val ops: List<OpSpec<*, *, R>>,
     val codec: IdempotencyCodec<R>,
     override val profileDescriptions: Map<ToolProfile, String> = emptyMap(),
     val element: (R) -> JsonObject
 ) : ToolSpec
 
 /**
- * One op of an [OpsToolSpec]: its element [request] class (decoded strictly; `op` and `idempotencyKey`
+ * One op of an [OpsToolSpec]: the [services] holder [execute] takes, its element [request] class (decoded strictly; `op` and `idempotencyKey`
  * are lifted first), the [profiles] it is visible in (an empty set is REST-only), whether it is [destructive], the [capability] a caller
  * needs (required, no default: a new write op must never silently be READ-only), the [errors] it may return
  * beyond the common ones, and [execute], which runs inside the element's write unit.
  */
-class OpSpec<E : Any, R>(
+class OpSpec<S : Any, E : Any, R>(
     val name: String,
     val doc: String,
     val profiles: Set<ToolProfile>,
     val destructive: Boolean = false,
     val capability: ApiCapability,
+    val services: KClass<S>,
     val request: KSerializer<E>,
     val errors: Set<ErrorCode> = emptySet(),
-    val execute: suspend WriteScope.(ToolExecutionContext, CallContext, E) -> Outcome<R>
+    val execute: suspend WriteScope.(S, CallContext, E) -> Outcome<R>
 ) {
     /** Decodes one `ops[]` element into [request]; field pointers are relative to the element. */
     internal fun decode(
@@ -204,7 +210,7 @@ class OpSpec<E : Any, R>(
         element: JsonObject
     ): Outcome<BoundOp<R>> =
         decoder.decode(request, element, OP_RESERVED).map { value ->
-            BoundOp(name) { env, ctx -> execute.invoke(this, env, ctx, value) }
+            BoundOp(name) { lookup, ctx -> execute.invoke(this, lookup.get(services), ctx, value) }
         }
 
     companion object {
@@ -222,14 +228,21 @@ class OpSpec<E : Any, R>(
 /** A decoded `ops[]` element of op [op], ready to run inside a write unit. */
 class BoundOp<R> internal constructor(
     val op: String,
-    val run: suspend WriteScope.(ToolExecutionContext, CallContext) -> Outcome<R>
+    val run: suspend WriteScope.(ToolServiceLookup, CallContext) -> Outcome<R>
 )
 
+/** Every select or op of this tool as `tool.member` paired with the services holder type it declares, in registration order. */
+fun ToolSpec.declaredServices(): List<Pair<String, KClass<*>>> =
+    when (this) {
+        is SelectToolSpec -> selects.map { "$name.${it.name}" to it.services }
+        is OpsToolSpec<*> -> ops.map { "$name.${it.name}" to it.services }
+    }
+
 /** A tool's selects or ops visible to [view] ([ToolView.sees]), in registration order. */
-internal fun SelectToolSpec.visibleSelects(view: ToolView): List<SelectSpec<*, *>> = selects.filter { view.sees(it.profiles) }
+internal fun SelectToolSpec.visibleSelects(view: ToolView): List<SelectSpec<*, *, *>> = selects.filter { view.sees(it.profiles) }
 
 /** See [visibleSelects]. */
-internal fun <R> OpsToolSpec<R>.visibleOps(view: ToolView): List<OpSpec<*, R>> = ops.filter { view.sees(it.profiles) }
+internal fun <R> OpsToolSpec<R>.visibleOps(view: ToolView): List<OpSpec<*, *, R>> = ops.filter { view.sees(it.profiles) }
 
 /** Names of the selects or ops of [spec] visible to [profile], in registration order. */
 internal fun visibleNames(

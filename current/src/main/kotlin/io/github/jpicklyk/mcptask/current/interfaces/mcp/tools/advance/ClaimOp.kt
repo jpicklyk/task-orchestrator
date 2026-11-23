@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.advance.ClaimRequest
 import io.github.jpicklyk.mcptask.current.application.api.advance.ClaimSelect
 import io.github.jpicklyk.mcptask.current.application.api.advance.SelectOrder
@@ -48,7 +47,7 @@ private const val REASON_DEPENDENCY_UNMET = "dependency_unmet"
  * becomes the holder (any other item it held is released); a holder claiming again refreshes the claim.
  */
 internal val claimOp =
-    OpSpec<ClaimRequest, JsonElement>(
+    OpSpec<LifecycleToolServices, ClaimRequest, JsonElement>(
         name = "claim",
         doc =
             "Claim an item for the calling actor, by itemId or by select (find-and-claim the best eligible match). " +
@@ -57,6 +56,7 @@ internal val claimOp =
                 "holder's lapsed claim adds displaced {assignmentId?, expiredAt, principal?}.",
         profiles = orchestration(),
         capability = ApiCapability.ADVANCE,
+        services = LifecycleToolServices::class,
         request = serializer<ClaimRequest>(),
         errors =
             setOf(
@@ -71,7 +71,7 @@ internal val claimOp =
     )
 
 private suspend fun WriteScope.runClaim(
-    env: ToolExecutionContext,
+    env: LifecycleToolServices,
     ctx: CallContext,
     req: ClaimRequest
 ): Outcome<JsonElement> {
@@ -102,7 +102,7 @@ private suspend fun WriteScope.runClaim(
  * holder pair's lapsed claim (its principal only when the caller may see principals).
  */
 internal suspend fun WriteScope.claimItem(
-    env: ToolExecutionContext,
+    env: LifecycleToolServices,
     ctx: CallContext,
     id: UUID,
     holder: ClaimHolder,
@@ -136,7 +136,7 @@ internal suspend fun WriteScope.claimItem(
 }
 
 private suspend fun WriteScope.claimBySelector(
-    env: ToolExecutionContext,
+    env: LifecycleToolServices,
     ctx: CallContext,
     holder: ClaimHolder,
     req: ClaimRequest,

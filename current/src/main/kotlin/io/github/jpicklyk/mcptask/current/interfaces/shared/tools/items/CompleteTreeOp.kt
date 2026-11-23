@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
 import io.github.jpicklyk.mcptask.current.application.service.TreeCompletionResult
@@ -42,12 +41,13 @@ internal object CompleteTreeOp {
  * admitted is `forbidden`, nothing written), then the run. A per-item rejection is data in `items[]`, never an
  * element error; all applied transitions of the element commit together.
  */
-internal fun completeTreeOp(): OpSpec<CompleteTreeRequest, ItemWriteResult> =
+internal fun completeTreeOp(): OpSpec<WorkflowToolServices, CompleteTreeRequest, ItemWriteResult> =
     OpSpec(
         name = CompleteTreeOp.NAME,
         doc = "Complete or cancel a tree's descendants (rootId) or listed items (itemIds) in dependency order; per-item outcomes.",
         profiles = orchestration(),
         capability = ApiCapability.ADVANCE,
+        services = WorkflowToolServices::class,
         request = serializer<CompleteTreeRequest>(),
         errors =
             setOf(
@@ -60,7 +60,7 @@ internal fun completeTreeOp(): OpSpec<CompleteTreeRequest, ItemWriteResult> =
     )
 
 private suspend fun WriteScope.completeTree(
-    env: ToolExecutionContext,
+    env: WorkflowToolServices,
     ctx: CallContext,
     req: CompleteTreeRequest
 ): Outcome<ItemWriteResult> {
@@ -129,8 +129,8 @@ private suspend fun WriteScope.completeTree(
 }
 
 /** The completion service over the call's composed services. */
-internal fun treeCompletionService(env: ToolExecutionContext): TreeCompletionService =
-    TreeCompletionService(env.repositoryProvider, env.advanceServiceFactory())
+internal fun treeCompletionService(env: WorkflowToolServices): TreeCompletionService =
+    TreeCompletionService(env.stores, env.advanceServiceFactory())
 
 /**
  * `{trigger, items, summary}`: every item's outcome in processing order, and the counts (total = the sum of the rest).

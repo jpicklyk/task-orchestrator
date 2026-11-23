@@ -20,7 +20,7 @@ import kotlinx.serialization.serializer
  * `data.window` follows `page`. A NULL group value omits the `<groupBy>` member, so `key` is `{}`; it is never JSON null.
  */
 internal val reportUsageSelect =
-    SelectSpec.PagedWith<ReportUsageRequest, JsonObject>(
+    SelectSpec.PagedWith<ReportToolServices, ReportUsageRequest, JsonObject>(
         name = "usage",
         doc =
             "Call-log usage per group over [since, until), default the 7 days before now. " +
@@ -33,6 +33,7 @@ internal val reportUsageSelect =
                 "horizon); otherwise basis daily reads per-day summaries (at most 400 days; since floors and a folded until ceils " +
                 "to UTC midnight; groupBy principal is raw-only). A tag-scoped credential is forbidden; a root-scoped one sees only rows of its roots.",
         profiles = director(),
+        services = ReportToolServices::class,
         request = serializer<ReportUsageRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         handler = { env, ctx, req ->

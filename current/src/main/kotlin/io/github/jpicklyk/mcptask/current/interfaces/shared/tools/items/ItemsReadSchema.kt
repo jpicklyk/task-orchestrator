@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.service.ItemSchemaView
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.LifecycleToolServices
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -36,10 +37,11 @@ object ItemsReadSchema {
     )
 
     val select =
-        SelectSpec.Single<Request, JsonObject>(
+        SelectSpec.Single<LifecycleToolServices, Request, JsonObject>(
             name = "schema",
             doc = "The note schema of a type or of an item; schemaFree when none matches; guidance only with fields.",
             profiles = knowledge(),
+            services = LifecycleToolServices::class,
             request = serializer<Request>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
             handler = handler@{ env, ctx, req ->

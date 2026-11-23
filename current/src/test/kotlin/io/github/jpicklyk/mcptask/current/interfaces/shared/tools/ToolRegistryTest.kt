@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability
 import io.github.jpicklyk.mcptask.current.platform.request.Doc
@@ -106,38 +107,40 @@ class ToolRegistryTest {
         name: String,
         request: KSerializer<E>,
         profiles: Set<ToolProfile> = knowledge()
-    ): OpSpec<E, String> =
-        OpSpec(name = name, doc = "An op.", profiles = profiles, capability = ApiCapability.WRITE_ITEMS, request = request, execute = {
-            _,
-            _,
-            _
-            ->
-            Outcome.Ok("x")
-        })
+    ): OpSpec<ToolExecutionContext, E, String> =
+        OpSpec(
+            name = name,
+            doc = "An op.",
+            profiles = profiles,
+            capability = ApiCapability.WRITE_ITEMS,
+            services = ToolExecutionContext::class,
+            request = request,
+            execute = { _, _, _ -> Outcome.Ok("x") }
+        )
 
     private fun opsTool(
         name: String,
-        vararg ops: OpSpec<*, String>
+        vararg ops: OpSpec<*, *, String>
     ): OpsToolSpec<String> = OpsToolSpec(name, "An ops tool.", ops.toList(), FixtureTools.StringCodec) { buildJsonObject { } }
 
     private fun <R : Any> select(
         name: String,
         request: KSerializer<R>,
         profiles: Set<ToolProfile> = knowledge()
-    ): SelectSpec<R, String> =
-        SelectSpec.Single(name = name, doc = "A select.", profiles = profiles, request = request, handler = {
-            _,
-            _,
-            _
-            ->
-            Outcome.Ok("x")
-        }, data = {
-            JsonPrimitive(it)
-        })
+    ): SelectSpec<ToolExecutionContext, R, String> =
+        SelectSpec.Single(
+            name = name,
+            doc = "A select.",
+            profiles = profiles,
+            services = ToolExecutionContext::class,
+            request = request,
+            handler = { _, _, _ -> Outcome.Ok("x") },
+            data = { JsonPrimitive(it) }
+        )
 
     private fun selectTool(
         name: String,
-        vararg selects: SelectSpec<*, *>
+        vararg selects: SelectSpec<*, *, *>
     ): SelectToolSpec = SelectToolSpec(name, "A select tool.", selects.toList())
 
     private fun rejected(build: () -> Unit): String = assertFailsWith<IllegalArgumentException> { build() }.message.orEmpty()

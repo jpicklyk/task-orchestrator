@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.port.ItemLookup
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceCascadeEvent
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
@@ -251,7 +251,7 @@ internal suspend fun <T> itemWriteBody(
  * that names nothing admitted is `forbidden`, and an ambiguous prefix lists only the admitted candidates.
  */
 internal suspend fun resolveItemId(
-    env: ToolExecutionContext,
+    env: ItemLookup,
     scope: AccessScope,
     ref: IdRef,
     field: String
@@ -259,7 +259,7 @@ internal suspend fun resolveItemId(
 
 /** Checks the caller's scope admits item [id] (an unrestricted scope reads nothing). */
 internal suspend fun checkItemScope(
-    env: ToolExecutionContext,
+    env: ItemLookup,
     ctx: CallContext,
     id: UUID
 ): Outcome<Unit> = ScopeGuard.check(ctx.scope, id, env.workItemRepository())

@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsAnswerRequest
 import io.github.jpicklyk.mcptask.current.application.decision.DecisionAnswerCommand
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -15,7 +14,7 @@ import kotlinx.serialization.serializer
 
 /** runs_write answer: answer a pending decision. */
 internal val runsAnswerOp =
-    OpSpec<RunsAnswerRequest, JsonObject>(
+    OpSpec<RunToolServices, RunsAnswerRequest, JsonObject>(
         name = "answer",
         doc =
             "Answer an open or acknowledged decision with an option key (text only for a freeform class) and an " +
@@ -24,6 +23,7 @@ internal val runsAnswerOp =
                 "Answering an attempt-cap decision acts on its paused run (allow_one, skip_item, stop); a run-budget decision left by 4.0.0 resumes on extend and closes on stop.",
         profiles = director(),
         capability = ApiCapability.DECIDE,
+        services = RunToolServices::class,
         request = serializer<RunsAnswerRequest>(),
         errors =
             setOf(
@@ -38,7 +38,7 @@ internal val runsAnswerOp =
     )
 
 private suspend fun WriteScope.answerDecision(
-    env: ToolExecutionContext,
+    env: RunToolServices,
     ctx: CallContext,
     req: RunsAnswerRequest
 ): Outcome<JsonObject> {

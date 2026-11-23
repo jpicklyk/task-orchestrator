@@ -24,13 +24,14 @@ data class ConfigGetRequest(
 )
 
 internal val configGetOp =
-    OpSpec<ConfigGetRequest, JsonElement>(
+    OpSpec<ConfigToolServices, ConfigGetRequest, JsonElement>(
         name = "get",
         doc =
             "Read a root's config document: the head, or the given version (a reset version reads as an empty document). " +
                 "A root with no config, or a reset head, is not_found.",
         profiles = orchestration(),
         capability = ApiCapability.READ,
+        services = ConfigToolServices::class,
         request = serializer<ConfigGetRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         execute = { env, ctx, req ->

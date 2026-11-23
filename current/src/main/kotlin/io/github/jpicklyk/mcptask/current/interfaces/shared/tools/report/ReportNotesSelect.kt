@@ -20,7 +20,7 @@ import kotlinx.serialization.serializer
  * with no value for the dimension falls in the `{}` group.
  */
 internal val reportNotesSelect =
-    SelectSpec.PagedWith<ReportNotesRequest, JsonObject>(
+    SelectSpec.PagedWith<ReportToolServices, ReportNotesRequest, JsonObject>(
         name = "notes",
         doc =
             "Note writes per group over [since, until) (default the 7 days before now, at most 31 days): writes " +
@@ -32,6 +32,7 @@ internal val reportNotesSelect =
                 "truncatedByRetention. A root-scoped credential sees its roots; a tag-scoped one sees writes on items " +
                 "that currently carry an allowed tag.",
         profiles = director(),
+        services = ReportToolServices::class,
         request = serializer<ReportNotesRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         handler = { env, ctx, req ->

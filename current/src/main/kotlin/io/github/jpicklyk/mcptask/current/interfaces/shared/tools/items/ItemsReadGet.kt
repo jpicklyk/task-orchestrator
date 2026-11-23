@@ -40,10 +40,11 @@ object ItemsReadGet {
     )
 
     val select =
-        SelectSpec.Single<Request, JsonObject>(
+        SelectSpec.Single<ItemToolServices, Request, JsonObject>(
             name = "get",
             doc = "One item by id: the full view; fields adds timestamps or ancestors; ifVersion short-circuits an unchanged item.",
             profiles = knowledge() + director(),
+            services = ItemToolServices::class,
             request = serializer<Request>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
             handler = { env, ctx, req ->

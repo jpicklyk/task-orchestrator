@@ -30,7 +30,7 @@ data class ConfigPushRequest(
 )
 
 internal val configPushOp =
-    OpSpec<ConfigPushRequest, JsonElement>(
+    OpSpec<ConfigToolServices, ConfigPushRequest, JsonElement>(
         name = "push",
         doc =
             "Validate a config document and append it as the root's next version (an identical re-push appends nothing, " +
@@ -38,6 +38,7 @@ internal val configPushOp =
                 "fails parsing or validation is config_invalid and nothing is stored.",
         profiles = orchestration(),
         capability = ApiCapability.WRITE_CONFIG,
+        services = ConfigToolServices::class,
         request = serializer<ConfigPushRequest>(),
         errors =
             setOf(

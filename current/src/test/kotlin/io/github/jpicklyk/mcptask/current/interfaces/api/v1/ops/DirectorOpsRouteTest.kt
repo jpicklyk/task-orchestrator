@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops
 
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
@@ -100,10 +101,11 @@ class DirectorOpsRouteTest {
     private fun probe(
         name: String,
         profiles: Set<ToolProfile>,
-    ) = SelectSpec.Single<ProbeReq, String>(
+    ) = SelectSpec.Single<ToolExecutionContext, ProbeReq, String>(
         name = name,
         doc = "Probe.",
         profiles = profiles,
+        services = ToolExecutionContext::class,
         request = serializer<ProbeReq>(),
         handler = { _, ctx, req ->
             seen += ctx

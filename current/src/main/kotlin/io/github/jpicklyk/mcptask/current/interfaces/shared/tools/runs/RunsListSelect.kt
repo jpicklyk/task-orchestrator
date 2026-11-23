@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsListRequest
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -19,13 +18,14 @@ import java.util.UUID
 
 /** `runs_read list`: runs, newest first. */
 internal val runsListSelect =
-    SelectSpec.Paged<RunsListRequest, JsonObject>(
+    SelectSpec.Paged<RunToolServices, RunsListRequest, JsonObject>(
         name = "list",
         doc =
             "List runs, newest first (openedAt descending). status, rootId and endedSince (closedAt at or after, " +
                 "inclusive) filter; unmarked names a mark key and keeps only closed runs without it, so it cannot be " +
                 "combined with a status other than closed. Runs on roots outside the call scope are left out.",
         profiles = orchestration() + director(),
+        services = RunToolServices::class,
         request = serializer<RunsListRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID),
         handler = { env, ctx, req -> listRuns(env, ctx, req) },
@@ -33,7 +33,7 @@ internal val runsListSelect =
     )
 
 private suspend fun listRuns(
-    env: ToolExecutionContext,
+    env: RunToolServices,
     ctx: CallContext,
     req: RunsListRequest
 ): Outcome<ListPage<JsonObject>> {
@@ -56,7 +56,7 @@ private suspend fun listRuns(
         if (req.rootId == null) {
             null
         } else {
-            when (val r = ScopedIds.resolve(env.repositoryProvider.workItemRepository(), ctx.scope, req.rootId, "/rootId")) {
+            when (val r = ScopedIds.resolve(env.stores.workItemRepository(), ctx.scope, req.rootId, "/rootId")) {
                 is Outcome.Ok -> r.value
                 is Outcome.Err -> return r
             }

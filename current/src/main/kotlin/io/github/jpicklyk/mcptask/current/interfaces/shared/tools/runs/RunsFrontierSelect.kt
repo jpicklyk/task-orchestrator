@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsFrontierRequest
 import io.github.jpicklyk.mcptask.current.application.read.FrontierWaitReason
 import io.github.jpicklyk.mcptask.current.application.read.RunFrontier
@@ -23,13 +22,14 @@ import kotlinx.serialization.serializer
 
 /** `runs_read frontier`: what a run can do next. */
 internal val runsFrontierSelect =
-    SelectSpec.Single<RunsFrontierRequest, JsonObject>(
+    SelectSpec.Single<RunToolServices, RunsFrontierRequest, JsonObject>(
         name = "frontier",
         doc =
             "A run's frontier: member counts by role, the ready members (no active seat, no unmet dependency, no " +
                 "claim held outside the run; none on a closed run), the active seats with their stalled flag, and the " +
                 "waiting members with a reason. Members and blockers outside the call scope are left out.",
         profiles = orchestration() + director(),
+        services = RunToolServices::class,
         request = serializer<RunsFrontierRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         handler = { env, ctx, req -> frontier(env, ctx, req) },
@@ -37,7 +37,7 @@ internal val runsFrontierSelect =
     )
 
 private suspend fun frontier(
-    env: ToolExecutionContext,
+    env: RunToolServices,
     ctx: CallContext,
     req: RunsFrontierRequest
 ): Outcome<JsonObject> {

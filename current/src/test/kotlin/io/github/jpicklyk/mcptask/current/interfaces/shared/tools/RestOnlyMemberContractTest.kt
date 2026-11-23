@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
+import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.bootstrap.buildProfileServer
 import io.github.jpicklyk.mcptask.current.bootstrap.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
@@ -105,10 +106,11 @@ class RestOnlyMemberContractTest {
     private fun sel(
         name: String,
         profiles: Set<ToolProfile>
-    ) = SelectSpec.Single<RunReq, JsonObject>(
+    ) = SelectSpec.Single<ToolExecutionContext, RunReq, JsonObject>(
         name = name,
         doc = "Run $name.",
         profiles = profiles,
+        services = ToolExecutionContext::class,
         request = serializer<RunReq>(),
         handler = { _, _, _ -> Outcome.Ok(buildJsonObject { put("ran", name) }) },
         data = { it }
@@ -117,11 +119,12 @@ class RestOnlyMemberContractTest {
     private fun op(
         name: String,
         profiles: Set<ToolProfile>
-    ) = OpSpec<RunReq, String>(
+    ) = OpSpec<ToolExecutionContext, RunReq, String>(
         name = name,
         doc = "Run $name.",
         profiles = profiles,
         capability = ApiCapability.WRITE_ITEMS,
+        services = ToolExecutionContext::class,
         request = serializer<RunReq>(),
         execute = { _, _, _ -> Outcome.Ok("ran:$name") }
     )

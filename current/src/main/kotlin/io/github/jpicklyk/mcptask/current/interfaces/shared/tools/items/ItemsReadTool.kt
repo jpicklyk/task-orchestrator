@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.Corpus
+import io.github.jpicklyk.mcptask.current.application.port.ItemLookup
 import io.github.jpicklyk.mcptask.current.application.port.ItemSortField
 import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.application.port.SortDirection
@@ -234,7 +234,7 @@ internal fun pointer(name: String): String = "/$name"
 
 /** [ScopedIds.resolve] of [ref] (request field [field]) under the caller's scope; the resolved id is not scope-checked. */
 internal suspend fun resolveId(
-    env: ToolExecutionContext,
+    env: ItemLookup,
     ctx: CallContext,
     ref: IdRef,
     field: String
@@ -242,7 +242,7 @@ internal suspend fun resolveId(
 
 /** [ScopedIds.resolveTarget]: a target id the caller may not see is `forbidden`. */
 internal suspend fun resolveTarget(
-    env: ToolExecutionContext,
+    env: ItemLookup,
     ctx: CallContext,
     ref: IdRef,
     field: String
@@ -250,7 +250,7 @@ internal suspend fun resolveTarget(
 
 /** [resolveId] of an optional [ref]; null stays null. */
 internal suspend fun resolveOptionalId(
-    env: ToolExecutionContext,
+    env: ItemLookup,
     ctx: CallContext,
     ref: IdRef?,
     field: String

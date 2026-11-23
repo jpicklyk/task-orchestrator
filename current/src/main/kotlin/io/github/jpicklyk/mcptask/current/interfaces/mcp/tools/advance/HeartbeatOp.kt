@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.advance.ClaimRequest
 import io.github.jpicklyk.mcptask.current.application.api.advance.HeartbeatRequest
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
@@ -21,13 +20,14 @@ import kotlinx.serialization.serializer
  * caller does not hold (unclaimed, lapsed or someone else's) is not_claim_holder.
  */
 internal val heartbeatOp =
-    OpSpec<HeartbeatRequest, JsonElement>(
+    OpSpec<LifecycleToolServices, HeartbeatRequest, JsonElement>(
         name = "heartbeat",
         doc =
             "Extend the active claim the calling actor holds on an item. " +
                 "Never takes an item: not_claim_holder unless the caller holds it.",
         profiles = orchestration(),
         capability = ApiCapability.ADVANCE,
+        services = LifecycleToolServices::class,
         request = serializer<HeartbeatRequest>(),
         errors =
             setOf(
@@ -41,7 +41,7 @@ internal val heartbeatOp =
     )
 
 private suspend fun WriteScope.runHeartbeat(
-    env: ToolExecutionContext,
+    env: LifecycleToolServices,
     ctx: CallContext,
     req: HeartbeatRequest
 ): Outcome<JsonElement> {

@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsEndSeatRequest
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
@@ -23,7 +22,7 @@ import kotlinx.serialization.serializer
 
 /** runs_write end_seat: the calling seat ends its own assignment. */
 internal val runsEndSeatOp =
-    OpSpec<RunsEndSeatRequest, JsonObject>(
+    OpSpec<RunToolServices, RunsEndSeatRequest, JsonObject>(
         name = "end_seat",
         doc =
             "End the calling seat's own assignment with an outcome (done, failed or abandoned), an optional summary " +
@@ -31,6 +30,7 @@ internal val runsEndSeatOp =
                 "refused. Releases the claims the seat holds and reports them in released; its token stops working.",
         profiles = orchestration(),
         capability = ApiCapability.RUNS,
+        services = RunToolServices::class,
         request = serializer<RunsEndSeatRequest>(),
         errors = setOf(ErrorCode.FORBIDDEN, ErrorCode.UNAUTHENTICATED),
         execute = { env, ctx, req -> endSeat(env, ctx, req) }
@@ -40,7 +40,7 @@ private const val LINK_KIND = "kind"
 private const val LINK_REF = "ref"
 
 private suspend fun WriteScope.endSeat(
-    env: ToolExecutionContext,
+    env: RunToolServices,
     ctx: CallContext,
     req: RunsEndSeatRequest
 ): Outcome<JsonObject> {

@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.mcp.PlannedSurfaceChecks
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.inMemoryTestServerOptions
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolServiceRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -552,7 +553,13 @@ internal class SeatWorld private constructor(
                         context = null,
                         dedupeKey = "budget:$runId:1"
                     )
-                when (val raised = ctx.decisionService.raiseServer(decision)) {
+                when (
+                    val raised =
+                        ToolServiceRegistry(ctx)
+                            .get(RunToolServices::class)
+                            .decisionService
+                            .raiseServer(decision)
+                ) {
                     is Outcome.Err -> raised
                     is Outcome.Ok ->
                         when (val paused = ctx.runService.pauseForLimit(runId, RunPauseReason.BUDGET, raised.value.id)) {

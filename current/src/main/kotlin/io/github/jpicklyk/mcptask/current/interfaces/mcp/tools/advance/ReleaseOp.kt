@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.advance.ReleaseRequest
 import io.github.jpicklyk.mcptask.current.application.port.ReleaseResult
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
@@ -17,11 +16,12 @@ import kotlinx.serialization.serializer
 
 /** `advance` op `release`: the holder gives up its claim on an item. */
 internal val releaseOp =
-    OpSpec<ReleaseRequest, JsonElement>(
+    OpSpec<LifecycleToolServices, ReleaseRequest, JsonElement>(
         name = "release",
         doc = "Release the claim the calling actor holds on an item. An item claimed by someone else, or by no one, is not_claim_holder.",
         profiles = orchestration(),
         capability = ApiCapability.ADVANCE,
+        services = LifecycleToolServices::class,
         request = serializer<ReleaseRequest>(),
         errors =
             setOf(
@@ -35,7 +35,7 @@ internal val releaseOp =
     )
 
 private suspend fun WriteScope.runRelease(
-    env: ToolExecutionContext,
+    env: LifecycleToolServices,
     ctx: CallContext,
     req: ReleaseRequest
 ): Outcome<JsonElement> {

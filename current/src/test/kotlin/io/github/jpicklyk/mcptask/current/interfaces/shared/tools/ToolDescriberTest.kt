@@ -58,7 +58,7 @@ class ToolDescriberTest {
     }
 
     private val dispatcher: ToolDispatcher by lazy {
-        ToolDispatcher(RequestDecoder(), BatchRunner(env.unitOfWork, env.idempotency), env)
+        ToolDispatcher(RequestDecoder(), BatchRunner(env.unitOfWork, env.idempotency), env, buildToolSpecs())
     }
 
     private fun obj(text: String): JsonObject = Json.parseToJsonElement(text).jsonObject

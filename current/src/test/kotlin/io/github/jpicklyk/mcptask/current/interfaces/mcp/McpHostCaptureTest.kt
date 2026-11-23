@@ -151,7 +151,7 @@ class McpHostCaptureTest {
 
     private fun operationAdapter(): McpOperationAdapter =
         McpOperationAdapter(
-            ToolDispatcher(RequestDecoder(), BatchRunner(env.unitOfWork, env.idempotency), env),
+            ToolDispatcher(RequestDecoder(), BatchRunner(env.unitOfWork, env.idempotency), env, buildToolSpecs()),
             callLog = sink
         )
 

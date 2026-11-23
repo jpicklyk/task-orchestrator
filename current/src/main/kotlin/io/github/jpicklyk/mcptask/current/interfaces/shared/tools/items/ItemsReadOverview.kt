@@ -50,10 +50,11 @@ object ItemsReadOverview {
     )
 
     val select =
-        SelectSpec.Single<Request, JsonObject>(
+        SelectSpec.Single<ItemToolServices, Request, JsonObject>(
             name = "overview",
             doc = "A hierarchy summary: global, one item's children (itemId) or an anchor's children (anchorId).",
             profiles = knowledge() + director(),
+            services = ItemToolServices::class,
             request = serializer<Request>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.INVALID_CURSOR),
             handler = handler@{ env, ctx, req ->

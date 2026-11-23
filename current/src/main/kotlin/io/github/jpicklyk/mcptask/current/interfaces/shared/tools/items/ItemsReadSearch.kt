@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
+import io.github.jpicklyk.mcptask.current.application.api.docs.KnowledgeToolServices
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.Ranker
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchRequest
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchValidationException
@@ -53,10 +54,11 @@ object ItemsReadSearch {
     )
 
     val select =
-        SelectSpec.Paged<Request, JsonObject>(
+        SelectSpec.Paged<KnowledgeToolServices, Request, JsonObject>(
             name = "search",
             doc = "Ranked full-text hits over item content, note bodies and documents the caller may see.",
             profiles = knowledge(),
+            services = KnowledgeToolServices::class,
             request = serializer<Request>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.INVALID_CURSOR),
             handler = handler@{ env, ctx, req ->

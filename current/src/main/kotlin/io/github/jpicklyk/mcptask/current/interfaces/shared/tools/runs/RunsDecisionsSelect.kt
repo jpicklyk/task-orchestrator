@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
-import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsDecisionsRequest
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
@@ -17,7 +16,7 @@ import java.util.UUID
 
 /** `runs_read decisions`: decision requests, newest first. */
 internal val runsDecisionsSelect =
-    SelectSpec.Paged<RunsDecisionsRequest, JsonObject>(
+    SelectSpec.Paged<RunToolServices, RunsDecisionsRequest, JsonObject>(
         name = "decisions",
         doc =
             "List decisions, newest first (raisedAt descending): id, class, severity, effectiveSeverity (one step up " +
@@ -25,6 +24,7 @@ internal val runsDecisionsSelect =
                 "filter; overdue true keeps the pending decisions past their expiry. No status filter: filter on status " +
                 "client-side. Decisions on roots outside the call scope are left out.",
         profiles = director(),
+        services = RunToolServices::class,
         request = serializer<RunsDecisionsRequest>(),
         errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
         handler = { env, ctx, req -> listDecisions(env, ctx, req) },
@@ -32,7 +32,7 @@ internal val runsDecisionsSelect =
     )
 
 private suspend fun listDecisions(
-    env: ToolExecutionContext,
+    env: RunToolServices,
     ctx: CallContext,
     req: RunsDecisionsRequest
 ): Outcome<ListPage<JsonObject>> {
@@ -41,7 +41,7 @@ private suspend fun listDecisions(
             is Outcome.Ok -> p.value
             is Outcome.Err -> return p
         }
-    val repo = env.repositoryProvider.workItemRepository()
+    val repo = env.stores.workItemRepository()
     val rootId: UUID? =
         req.rootId?.let { ref ->
             when (val r = ScopedIds.resolveTarget(repo, ctx.scope, ref, "/rootId")) {

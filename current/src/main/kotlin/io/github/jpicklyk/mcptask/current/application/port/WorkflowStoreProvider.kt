@@ -1,7 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
 /**
- * The stores the workflow slice reads. Today that is the knowledge set (work items, plan documents and
- * the links the tree service writes). [RepositoryProvider] implements it.
+ * The stores the workflow slice reads: the knowledge set (work items, plan documents and the links the tree service
+ * writes) and the lifecycle set the tree completion reads. [RepositoryProvider] implements it.
  */
-interface WorkflowStoreProvider : KnowledgeStoreProvider
+interface WorkflowStoreProvider :
+    KnowledgeStoreProvider,
+    LifecycleStoreProvider
