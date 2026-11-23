@@ -51,9 +51,9 @@ work_item_schemas:
     default_traits: [delegated, session-tracked, reviewed]
     seats:
       - { name: planner,      phase: queue }
-      - { name: implementer,  phase: work, enters: true, skills: [task-orchestrator:implementation-standards, repo-architecture], rules: [closure-notes] }
+      - { name: implementer,  phase: work, enters: true, skills: [task-orchestrator:implementation-standards, repo-architecture], rules: [closure-notes, zero-warnings] }
       - { name: orchestrator, phase: work, after: [implementer] }
-      - { name: reviewer,     phase: review, skills: [task-orchestrator:review-method, repo-architecture] }
+      - { name: reviewer,     phase: review, skills: [task-orchestrator:review-method, repo-architecture], rules: [review-scoping, review-cited-claims, zero-warnings] }
     notes:
       - key: task-scope
         role: queue
@@ -76,9 +76,9 @@ work_item_schemas:
     default_traits: [delegated, session-tracked, needs-test-author, reviewed]
     seats:
       - { name: planner,      phase: queue }
-      - { name: implementer,  phase: work, enters: true, skills: [task-orchestrator:implementation-standards, repo-architecture], rules: [closure-notes] }
+      - { name: implementer,  phase: work, enters: true, skills: [task-orchestrator:implementation-standards, repo-architecture], rules: [closure-notes, zero-warnings] }
       - { name: orchestrator, phase: work, after: [implementer] }
-      - { name: reviewer,     phase: review, skills: [task-orchestrator:review-method, repo-architecture] }
+      - { name: reviewer,     phase: review, skills: [task-orchestrator:review-method, repo-architecture], rules: [review-scoping, review-cited-claims, zero-warnings] }
     notes:
       - key: diagnosis
         role: queue
