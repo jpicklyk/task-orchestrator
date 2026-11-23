@@ -61,7 +61,7 @@ bouncyCastle = "1.86"
 googleTink = "1.24.0"
 
 # Linting
-ktlint = "12.1.2"
+ktlint = "14.2.0"
 
 [libraries]
 # Kotlin and Coroutines
