@@ -36,6 +36,7 @@ import io.github.jpicklyk.mcptask.current.platform.tool.SelectToolSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolServiceLookup
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolView
+import io.github.jpicklyk.mcptask.current.platform.tool.declaredServices
 import io.github.jpicklyk.mcptask.current.platform.tool.invalidField
 import io.github.jpicklyk.mcptask.current.platform.tool.invalidFields
 import io.github.jpicklyk.mcptask.current.platform.tool.unknownParameters
@@ -63,7 +64,8 @@ data class Dispatched(
 
 /**
  * Runs one call of a 4.0 tool, transport-neutral, so MCP ([McpOperationAdapter][io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter])
- * and REST (`POST /api/v1/ops/{tool}`, Q6) produce the same body for the same arguments.
+ * and REST (`POST /api/v1/ops/{tool}`, Q6) produce the same body for the same arguments. [specs] are the tools it will
+ * serve: construction throws when a select or op of one declares a services holder the dispatcher's registry lacks.
  *
  * Order (task-scope D2):
  * 0. **Principal** (R14). The transport passes a [CallAccess]; one without a principal is answered `unauthenticated`
@@ -99,12 +101,23 @@ data class Dispatched(
 class ToolDispatcher(
     private val decoder: RequestDecoder,
     private val batchRunner: BatchRunner,
-    private val env: ToolExecutionContext
+    private val env: ToolExecutionContext,
+    specs: List<ToolSpec>
 ) {
     private val logger = LoggerFactory.getLogger(ToolDispatcher::class.java)
 
-    /** The services holders a select or op takes as `env`, built over [env]. */
-    private val services: ToolServiceLookup = ToolServiceRegistry.of(env)
+    /** The services holders a select or op takes as `env`, built over [env]; this dispatcher's own registry, held for its life. */
+    private val services: ToolServiceLookup = ToolServiceRegistry(env)
+
+    init {
+        // A holder nobody registered is a wiring mistake: fail here, naming the select or op, not as an `internal` call outcome.
+        for (spec in specs) {
+            for ((member, type) in spec.declaredServices()) {
+                val registered = services.isRegistered(type)
+                require(registered) { "Tool member '$member': no tool services holder is registered for ${type.qualifiedName}" }
+            }
+        }
+    }
 
     suspend fun dispatch(
         spec: ToolSpec,

@@ -96,7 +96,7 @@ class WorkTreeServiceTest {
         runBlocking {
             val rig = rig(dir)
             val tree =
-                workTreeService(ToolServiceRegistry.of(rig.ctx).get(WorkflowToolServices::class))
+                workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
                     .create(request(children = listOf(item("gc", parentRef = "c1"), item("c1"))))
                     .ok()
 
@@ -116,7 +116,7 @@ class WorkTreeServiceTest {
             val before = count("work_items")
             val error =
                 workTreeService(
-                    ToolServiceRegistry.of(rig.ctx).get(WorkflowToolServices::class)
+                    ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class)
                 ).create(request(children = listOf(item("a", "b"), item("b", "a")))).err()
 
             assertEquals(ErrorCode.INVALID_REQUEST, error.code)
@@ -141,7 +141,7 @@ class WorkTreeServiceTest {
             val rig = rig(dir)
             val before = count("work_items")
             val error =
-                workTreeService(ToolServiceRegistry.of(rig.ctx).get(WorkflowToolServices::class))
+                workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
                     .create(
                         request(
                             children = listOf(item("a"), item("b")),
@@ -165,7 +165,7 @@ class WorkTreeServiceTest {
         runBlocking {
             val rig = rig(dir)
             val error =
-                workTreeService(ToolServiceRegistry.of(rig.ctx).get(WorkflowToolServices::class))
+                workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
                     .create(
                         request(
                             children = listOf(item("a"), item("b")),
@@ -186,7 +186,7 @@ class WorkTreeServiceTest {
             val project = rig.seed("Project")
             rig.raw.planDocumentRepository().stash(project.id, "plan", "# Overview\nOverview text.\n# Impl\nImpl text.")
             val tree =
-                workTreeService(ToolServiceRegistry.of(rig.ctx).get(WorkflowToolServices::class))
+                workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
                     .create(
                         request(
                             rootType = "gated",
@@ -222,7 +222,7 @@ class WorkTreeServiceTest {
         runBlocking {
             val rig = rig(dir)
             val error =
-                workTreeService(ToolServiceRegistry.of(rig.ctx).get(WorkflowToolServices::class))
+                workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
                     .create(request(rootType = "gated", notes = listOf(TreeNoteInput("root", "spec", "work", "x"))))
                     .err()
 
@@ -239,7 +239,7 @@ class WorkTreeServiceTest {
             val rig = rig(dir)
             val error =
                 workTreeService(
-                    ToolServiceRegistry.of(rig.ctx).get(WorkflowToolServices::class)
+                    ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class)
                 ).create(request(children = listOf(item("a"), item("b", type = "nope")))).err()
 
             assertEquals(ErrorCode.SCHEMA_VIOLATION, error.code)
@@ -256,7 +256,7 @@ class WorkTreeServiceTest {
             val closed = rig.seed("Closed", role = Role.TERMINAL)
             val error =
                 workTreeService(
-                    ToolServiceRegistry.of(rig.ctx).get(WorkflowToolServices::class)
+                    ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class)
                 ).create(request(parentId = closed.id, children = listOf(item("a")))).err()
 
             assertEquals(ErrorCode.INVALID_TRANSITION, error.code)
@@ -272,7 +272,7 @@ class WorkTreeServiceTest {
             val project = rig.seed("Project")
             val existing = rig.seed("Existing", project)
             val tree =
-                workTreeService(ToolServiceRegistry.of(rig.ctx).get(WorkflowToolServices::class))
+                workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
                     .create(WorkTreeRequest(root = TreeRootInput.Attach(existing.id), children = listOf(item("a")), caller = null))
                     .ok()
 
@@ -291,7 +291,7 @@ class WorkTreeServiceTest {
         runBlocking {
             val rig = rig(dir)
             val tree =
-                workTreeService(ToolServiceRegistry.of(rig.ctx).get(WorkflowToolServices::class))
+                workTreeService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
                     .create(
                         request(
                             children = listOf(item("a"), item("b"), item("c")),

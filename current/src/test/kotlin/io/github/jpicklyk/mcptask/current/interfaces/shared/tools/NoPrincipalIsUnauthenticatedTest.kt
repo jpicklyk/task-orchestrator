@@ -66,7 +66,7 @@ class NoPrincipalIsUnauthenticatedTest {
     }
 
     private val dispatcher: ToolDispatcher by lazy {
-        ToolDispatcher(RequestDecoder(), BatchRunner(env.unitOfWork, env.idempotency), env)
+        ToolDispatcher(RequestDecoder(), BatchRunner(env.unitOfWork, env.idempotency), env, buildToolSpecs())
     }
 
     private val reqId = "k7f3q9ab"

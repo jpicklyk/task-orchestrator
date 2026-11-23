@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.api.BatchRunner
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.platform.calltelemetry.CallLogFields
 import io.github.jpicklyk.mcptask.current.platform.request.RequestDecoder
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
@@ -71,7 +72,7 @@ class McpOperationAdapterTest {
 
     private fun adapter(): McpOperationAdapter =
         McpOperationAdapter(
-            ToolDispatcher(RequestDecoder(), BatchRunner(env.unitOfWork, env.idempotency), env),
+            ToolDispatcher(RequestDecoder(), BatchRunner(env.unitOfWork, env.idempotency), env, buildToolSpecs()),
             callLog = sink
         )
 

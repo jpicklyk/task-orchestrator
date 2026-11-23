@@ -163,7 +163,7 @@ decision_classes:
         val runA: UUID,
         val runB: UUID
     ) {
-        val svc get() = ToolServiceRegistry.of(rig.ctx).get(RunToolServices::class).decisionService
+        val svc get() = ToolServiceRegistry(rig.ctx).get(RunToolServices::class).decisionService
 
         fun options(vararg keys: String) = keys.map { DecisionRequestOption(key = it, label = "Label ${it.uppercase()}") }
 
@@ -2430,7 +2430,7 @@ class DecisionSseTest {
         val betaRoot: WorkItem,
         val betaItem: WorkItem
     ) {
-        val svc get() = ToolServiceRegistry.of(rig.ctx).get(RunToolServices::class).decisionService
+        val svc get() = ToolServiceRegistry(rig.ctx).get(RunToolServices::class).decisionService
 
         fun cmd(
             root: WorkItem,

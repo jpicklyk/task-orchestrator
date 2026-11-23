@@ -555,8 +555,7 @@ internal class SeatWorld private constructor(
                     )
                 when (
                     val raised =
-                        ToolServiceRegistry
-                            .of(ctx)
+                        ToolServiceRegistry(ctx)
                             .get(RunToolServices::class)
                             .decisionService
                             .raiseServer(decision)

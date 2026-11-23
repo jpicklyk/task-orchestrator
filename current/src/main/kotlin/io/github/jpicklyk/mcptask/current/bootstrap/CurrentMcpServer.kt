@@ -695,7 +695,8 @@ internal fun buildToolDispatcher(toolContext: ToolExecutionContext): ToolDispatc
     ToolDispatcher(
         RequestDecoder(),
         BatchRunner(toolContext.unitOfWork, toolContext.idempotency),
-        toolContext
+        toolContext,
+        buildToolSpecs()
     )
 
 /**

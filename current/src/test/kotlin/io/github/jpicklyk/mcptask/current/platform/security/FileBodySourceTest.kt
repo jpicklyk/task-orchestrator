@@ -304,7 +304,7 @@ class FileBodySourceTest {
         context.unitOfWork.write("FileBodySourceTest.stash") {
             DocHandlers.upsert(
                 this,
-                ToolServiceRegistry.of(context).get(KnowledgeToolServices::class),
+                ToolServiceRegistry(context).get(KnowledgeToolServices::class),
                 CallContext(reqId = "test", surface = CallLogRecord.SURFACE_MCP, principal = LOCAL_PRINCIPAL.toCallPrincipal()),
                 DocUpsertRequest(rootId = IdRef(rootId), kind = DocKind.PLAN, slug = slug, bodyFromFile = file)
             )

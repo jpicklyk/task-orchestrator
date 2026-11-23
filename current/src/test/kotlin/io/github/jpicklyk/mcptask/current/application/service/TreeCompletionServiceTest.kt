@@ -59,7 +59,7 @@ class TreeCompletionServiceTest {
         composition.unitOfWork.write("TreeCompletionServiceTest") {
             val r =
                 treeCompletionService(
-                    ToolServiceRegistry.of(ctx).get(WorkflowToolServices::class)
+                    ToolServiceRegistry(ctx).get(WorkflowToolServices::class)
                 ).run(targets, root, trigger, null, null)
             result = r
             when (r) {
@@ -103,7 +103,7 @@ class TreeCompletionServiceTest {
             val r =
                 try {
                     treeCompletionService(
-                        ToolServiceRegistry.of(rig.ctx).get(WorkflowToolServices::class)
+                        ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class)
                     ).run(items, null, "complete", null, null)
                 } finally {
                     tx.unregisterInterceptor(counter)
@@ -228,7 +228,7 @@ class TreeCompletionServiceTest {
             val root = rig.seed("R")
             val a = rig.seed("A", root)
             val aa = rig.seed("AA", a)
-            val service = treeCompletionService(ToolServiceRegistry.of(rig.ctx).get(WorkflowToolServices::class))
+            val service = treeCompletionService(ToolServiceRegistry(rig.ctx).get(WorkflowToolServices::class))
 
             val (withRoot, rootItem) = service.descendantTargets(root.id, includeRoot = true)!!
             assertEquals(setOf(a.id, aa.id), withRoot.map { it.id }.toSet())

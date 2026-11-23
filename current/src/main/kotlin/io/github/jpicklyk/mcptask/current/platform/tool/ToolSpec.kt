@@ -231,6 +231,13 @@ class BoundOp<R> internal constructor(
     val run: suspend WriteScope.(ToolServiceLookup, CallContext) -> Outcome<R>
 )
 
+/** Every select or op of this tool as `tool.member` paired with the services holder type it declares, in registration order. */
+fun ToolSpec.declaredServices(): List<Pair<String, KClass<*>>> =
+    when (this) {
+        is SelectToolSpec -> selects.map { "$name.${it.name}" to it.services }
+        is OpsToolSpec<*> -> ops.map { "$name.${it.name}" to it.services }
+    }
+
 /** A tool's selects or ops visible to [view] ([ToolView.sees]), in registration order. */
 internal fun SelectToolSpec.visibleSelects(view: ToolView): List<SelectSpec<*, *, *>> = selects.filter { view.sees(it.profiles) }
 

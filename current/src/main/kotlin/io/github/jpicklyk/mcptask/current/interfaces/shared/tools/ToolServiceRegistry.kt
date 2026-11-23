@@ -14,8 +14,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.Workflow
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.report.ReportToolServices
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.RunToolServices
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolServiceLookup
-import java.lang.ref.WeakReference
-import java.util.WeakHashMap
 import kotlin.reflect.KClass
 
 /**
@@ -24,9 +22,11 @@ import kotlin.reflect.KClass
  * the context cannot reference the decision package). A holder takes the context's lazy services as [Lazy] values, so
  * building it touches no store. It also serves [ToolExecutionContext] itself, for test fixture specs only.
  *
- * One registry per context ([of]), so every dispatcher over one context shares one [DecisionService].
+ * Not shared: a [ToolDispatcher] builds its own over its context, and holds it for its life. The one production
+ * dispatcher is the only consumer, and neither [DecisionService] nor [RunLimits] holds mutable state, so a second
+ * registry over the same context only builds second instances of the same services; no process-wide memo is needed.
  */
-class ToolServiceRegistry private constructor(
+class ToolServiceRegistry(
     private val tec: ToolExecutionContext
 ) : ToolServiceLookup {
     private val decisionService: Lazy<DecisionService> =
@@ -56,6 +56,8 @@ class ToolServiceRegistry private constructor(
             NoteToolServices::class to lazy { note() },
             KnowledgeToolServices::class to lazy { knowledge() }
         )
+
+    override fun isRegistered(type: KClass<*>): Boolean = type in holders
 
     override fun <S : Any> get(type: KClass<S>): S {
         val holder = holders[type] ?: error("No tool services holder is registered for ${type.qualifiedName}")
@@ -147,18 +149,4 @@ class ToolServiceRegistry private constructor(
             search = lazy { tec.searchService },
             related = lazy { tec.relatedService }
         )
-
-    companion object {
-        /**
-         * One registry per context, identity keyed. A registry holds its context, so the value is weak too: an entry is
-         * released once neither the context nor its registry is held (a strong value would pin the weak key for good).
-         */
-        private val registries: MutableMap<ToolExecutionContext, WeakReference<ToolServiceRegistry>> = WeakHashMap()
-
-        /** The registry of [tec]: built on first use, then reused while anything (a dispatcher) holds it. */
-        fun of(tec: ToolExecutionContext): ToolServiceRegistry =
-            synchronized(registries) {
-                registries[tec]?.get() ?: ToolServiceRegistry(tec).also { registries[tec] = WeakReference(it) }
-            }
-    }
 }
