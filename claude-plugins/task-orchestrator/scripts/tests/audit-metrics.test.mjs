@@ -292,7 +292,7 @@ function buildProbe() {
       '',
     ].join('\n'),
     'docs/my file.txt': body('space', 0),
-    'docs/ünï.txt': body('unicode', 0),
+    'docs/\u00fcn\u00ef.txt': body('unicode', 0),
     'bin/blob.dat': Buffer.from([0x00, 0x61, 0x0a]),
     'bin/edge.dat': Buffer.concat([Buffer.alloc(7999, 0x61), Buffer.from([0x00]), Buffer.from('z\n')]),
     'bin/late.dat': Buffer.concat([Buffer.alloc(8000, 0x61), Buffer.from([0x00]), Buffer.from('z\n')]),
@@ -303,7 +303,7 @@ function buildProbe() {
       date: '2026-02-02',
       files: {
         'docs/my file.txt': body('space', 1),
-        'docs/ünï.txt': body('unicode', 1),
+        'docs/\u00fcn\u00ef.txt': body('unicode', 1),
       },
     },
   ]);
@@ -668,26 +668,27 @@ test('S10: usage errors exit 2 with a stderr message and write no --out (R14)', 
   mkdirSync(plain, { recursive: true });
   const valid = { root: repo.dir, paths: '.', since: '2026-01-01', recent: '2026-06-01' };
   const cases = [
-    ['missing --root', { root: null }],
-    ['missing --paths', { paths: null }],
-    ['missing --since', { since: null }],
-    ['missing --recent', { recent: null }],
-    ['missing --out', { out: null }],
-    ['month 13', { since: '2026-13-01' }],
-    ['day 30 of February', { since: '2026-02-30' }],
-    ['unpadded date', { recent: '2026-6-1' }],
-    ['not a date', { since: 'tomorrow' }],
-    ['recent before since', { since: '2026-06-01', recent: '2026-05-31' }],
-    ['--top 0', { extra: ['--top', '0'] }],
-    ['--top -1', { extra: ['--top', '-1'] }],
-    ['--top 1.5', { extra: ['--top', '1.5'] }],
-    ['--top abc', { extra: ['--top', 'abc'] }],
-    ['--module-depth 0', { extra: ['--module-depth', '0'] }],
-    ['--max-commit-files 0', { extra: ['--max-commit-files', '0'] }],
-    ['root that is not a git work tree', { root: plain }],
-    ['root that does not exist', { root: path.join(workRoot, 'does-not-exist') }],
+    // [label, one change from the valid call, the flag the reason line must name]
+    ['missing --root', { root: null }, /--root/],
+    ['missing --paths', { paths: null }, /--paths/],
+    ['missing --since', { since: null }, /--since/],
+    ['missing --recent', { recent: null }, /--recent/],
+    ['missing --out', { out: null }, /--out/],
+    ['month 13', { since: '2026-13-01' }, /--since/],
+    ['day 30 of February', { since: '2026-02-30' }, /--since/],
+    ['unpadded date', { recent: '2026-6-1' }, /--recent/],
+    ['not a date', { since: 'tomorrow' }, /--since/],
+    ['recent before since', { since: '2026-06-01', recent: '2026-05-31' }, /--recent/],
+    ['--top 0', { extra: ['--top', '0'] }, /--top/],
+    ['--top -1', { extra: ['--top', '-1'] }, /--top/],
+    ['--top 1.5', { extra: ['--top', '1.5'] }, /--top/],
+    ['--top abc', { extra: ['--top', 'abc'] }, /--top/],
+    ['--module-depth 0', { extra: ['--module-depth', '0'] }, /--module-depth/],
+    ['--max-commit-files 0', { extra: ['--max-commit-files', '0'] }, /--max-commit-files/],
+    ['root that is not a git work tree', { root: plain }, /--root/],
+    ['root that does not exist', { root: path.join(workRoot, 'does-not-exist') }, /--root/],
   ];
-  cases.forEach(([label, change], i) => {
+  cases.forEach(([label, change, flag], i) => {
     const out = path.join(workRoot, 'usage', String(i), 'm.json');
     const cfg = { ...valid, out, ...change };
     const args = [];
@@ -697,7 +698,10 @@ test('S10: usage errors exit 2 with a stderr message and write no --out (R14)', 
     args.push(...(change.extra ?? []));
     const r = runCli(args);
     assert.equal(r.status, 2, `${label}: exit ${r.status}, stderr ${r.stderr}`);
-    assert.ok(r.stderr.trim().length > 0, `${label}: no message on stderr`);
+    // The reason is the stderr text outside the usage line: the usage line names every flag,
+    // so matching the whole of stderr would accept any rejection for any case.
+    const reason = r.stderr.split(/\r?\n/).filter((l) => l.trim() && !/^usage:/i.test(l.trim())).join('\n');
+    assert.match(reason, flag, `${label}: reason does not name the flag, stderr ${r.stderr}`);
     assert.equal(existsSync(out), false, `${label}: --out was written`);
   });
 });
@@ -712,7 +716,11 @@ test('S10b: accepted boundary values and parent directories of --out are created
   assert.equal(r.status, 0, r.stderr);
   const json = JSON.parse(readFileSync(out, 'utf8'));
   assert.deepEqual(json.window, { since: '2026-06-01', recent: '2026-06-01' });
-  assert.ok(json.repoHotSet.length <= 1);
+  // Long window = recent window = 2026-06-01 on: f.txt has 2 commits (06-01, 06-02), h.txt 1, g.txt 0.
+  // N = 3, all three files have indentComplexity 3: f scores 3/3 x 3/3 = 1, h 2/3 x 1, so --top 1 keeps f.txt only.
+  assert.deepEqual(json.repoHotSet, [
+    { path: 'f.txt', churn: 2, churnRecent: 2, indentComplexity: 3, hotspotScore: 1 },
+  ]);
 });
 
 test('S11: --since after the last commit gives zero churn, empty sets and a note (R3, R9, R14)', () => {
@@ -725,7 +733,8 @@ test('S11: --since after the last commit gives zero churn, empty sets and a note
   assert.deepEqual(json.hotSet, []);
   assert.deepEqual(json.coupling, []);
   assert.deepEqual(json.trend, []);
-  assert.ok(json.notes.length >= 1);
+  // R14: the note for a window without commits mentions the commits.
+  assert.ok(json.notes.some((n) => /commit/i.test(n)), JSON.stringify(json.notes));
 });
 
 test('S11b: a repository without commits exits 0, headSha null, a note (R14)', () => {
@@ -736,7 +745,8 @@ test('S11b: a repository without commits exits 0, headSha null, a note (R14)', (
   assert.deepEqual(json.generatedFrom, { headSha: null });
   assert.deepEqual(json.files, []);
   assert.deepEqual(json.hotSet, []);
-  assert.ok(json.notes.length >= 1);
+  // R14: the note for a repository without commits mentions the commits.
+  assert.ok(json.notes.some((n) => /commit/i.test(n)), JSON.stringify(json.notes));
 });
 
 test('S12: hot-set cut is churn x 3 >= R, boundary inclusive (R9)', () => {
@@ -859,7 +869,7 @@ test('probe: end-style (Ruby) function span (R7)', () => {
   const repo = once('probe', buildProbe);
   const { json } = metrics(repo, { since: '2026-01-01', recent: '2026-02-02' });
   const rb = byPath(json)['rb/foo.rb'];
-  assert.ok(rb.lang, 'Ruby is a shipped language');
+  assert.match(rb.lang, /ruby/i, 'Ruby is a shipped language');
   const bar = rb.topFunctions.find((fn) => fn.name === 'bar');
   assert.ok(bar, JSON.stringify(rb.topFunctions));
   assert.equal(bar.line, 2);
@@ -869,7 +879,7 @@ test('probe: end-style (Ruby) function span (R7)', () => {
 test('probe: noise, binary boundary, space and non-ASCII paths (R1, R2, R3)', () => {
   const repo = once('probe', buildProbe);
   const { json } = metrics(repo, { since: '2026-01-01', recent: '2026-02-02' });
-  const uni = 'docs/ünï.txt';
+  const uni = 'docs/\u00fcn\u00ef.txt';
   const expected = [
     'bin/late.dat', 'cmt/tail.kt', 'docs/my file.txt', uni, 'eol/crlf.kt', 'eol/lf.kt',
     'nest/nested.kt', 'rb/foo.rb', 'tabs/four.zz', 'tabs/mixed.zz', 'tabs/tab.zz', 'tabs/two.zz',
