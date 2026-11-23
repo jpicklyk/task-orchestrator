@@ -1,6 +1,6 @@
 # Ranking candidates
 
-Rank by what acting buys, not by how bad the code looks. Two measures decide: how often the place changes and how hard it is to change (the measured churn and complexity, and the hot-spot score they give) and how much each change costs there today (from reading). A candidate in a hot spot with a concrete, repeated cost outranks a worse-looking one that nobody touches.
+Rank by what acting buys, not by how bad the code looks. Two measures decide: how hard the place is to change and how much each change costs there today. The first is measured (churn, complexity and the hot-spot score they give); the second comes from reading. A candidate in a hot spot with a concrete, repeated cost outranks a worse-looking one that nobody touches.
 
 ## The ratings
 
