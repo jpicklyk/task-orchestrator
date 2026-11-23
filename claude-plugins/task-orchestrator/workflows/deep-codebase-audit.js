@@ -323,8 +323,9 @@ function markMetricsPending(rows) {
  * by an equal non-empty primaryPath, by one 'cycle' of measured.cycles (every unit whose module is in that cycle), and by one measured.coupling pair
  * (a unit on entry.path with a unit on a partner.path whose count is at least COUPLING_LINK_MIN; no same-module filter) - never by measured.candidates, which
  * the preset caps (a unit's module is the longest known module id M, from the hot set, top complexity, cycles and unstable modules,
- * with its primaryPath under M). After the unions, a cluster with more than MERGE_BATCH_MAX findings is split into parts: its units are grouped by path in
- * first-appearance order and whole path groups are packed next-fit up to MERGE_BATCH_MAX; a single path over the limit is one part (a single path is never
+ * with its primaryPath under M). After the unions, a cluster with more than MERGE_BATCH_MAX findings is split into parts: its units are grouped by path, the
+ * groups are ordered by primaryPath ascending (ties by the least member key (category, primaryPath, raw first location, input index)), the units inside a group
+ * by the same key, and whole path groups are packed next-fit up to MERGE_BATCH_MAX, so the parts do not depend on reviewer order; a single path over the limit is one part (a single path is never
  * split, and no path's findings land in two parts). Each part is an ordinary cluster. clusters: [{k (1-based, renumbered after the split), ids (every
  * finding id in the cluster), units: [{canonicalId, ids}], needsAgent (2 or more units)}].
  * batches: arrays of the needsAgent clusters, packed in order while their findings total at most MERGE_BATCH_MAX; a cluster over the limit (one path) is
@@ -400,8 +401,17 @@ function preCluster(all, measured = null) {
     byRoot.get(r).push(u)
   })
   const unitCount = (us) => us.reduce((n, u) => n + u.ids.length, 0)
-  // a union can grow a cluster past MERGE_BATCH_MAX; split it after the unions into parts: group its units by path in first-appearance order and pack whole
-  // path groups next-fit, so one path's findings never land in two parts; a single path over the limit is emitted alone (a single path is never split)
+  // a union can grow a cluster past MERGE_BATCH_MAX; split it after the unions into parts: group its units by path, order the groups and the units inside them
+  // by a key that does not depend on reviewer order, and pack whole path groups next-fit, so one path's findings never land in two parts; a single path over
+  // the limit is emitted alone (a single path is never split). The member key is the one mergeFindings orders by: (category, primaryPath, raw first location), then input index.
+  const cmpText = (x, y) => (x < y ? -1 : x > y ? 1 : 0)
+  const memberKey = (id) => {
+    const f = rows[order.get(id)]
+    return [f.category, primaryPath(f.locations), typeof (f.locations || [])[0] === 'string' ? f.locations[0] : '', order.get(id)]
+  }
+  const cmpKey = (a, b) => cmpText(a[0], b[0]) || cmpText(a[1], b[1]) || cmpText(a[2], b[2]) || a[3] - b[3]
+  const leastKey = (keys) => keys.reduce((least, k) => (cmpKey(k, least) < 0 ? k : least))
+  const unitKey = (u) => leastKey(u.ids.map(memberKey))
   const splitParts = (us) => {
     if (unitCount(us) <= MERGE_BATCH_MAX) return [us]
     const groups = new Map()
@@ -410,11 +420,15 @@ function preCluster(all, measured = null) {
       if (!groups.has(key)) groups.set(key, [])
       groups.get(key).push(u)
     })
+    const ordered = Array.from(groups.values()).map((g) => {
+      const keyed = g.map((u) => ({ u, key: unitKey(u) })).sort((a, b) => cmpKey(a.key, b.key))
+      return { units: keyed.map((x) => x.u), path: keyed[0].u.path || '', key: keyed[0].key }
+    }).sort((a, b) => cmpText(a.path, b.path) || cmpKey(a.key, b.key))
     const parts = []
     let curUs = []
-    for (const g of groups.values()) {
-      if (curUs.length && unitCount(curUs) + unitCount(g) > MERGE_BATCH_MAX) { parts.push(curUs); curUs = [] }
-      curUs = curUs.concat(g)
+    for (const g of ordered) {
+      if (curUs.length && unitCount(curUs) + unitCount(g.units) > MERGE_BATCH_MAX) { parts.push(curUs); curUs = [] }
+      curUs = curUs.concat(g.units)
       if (unitCount(curUs) > MERGE_BATCH_MAX) { parts.push(curUs); curUs = [] }
     }
     if (curUs.length) parts.push(curUs)
@@ -447,7 +461,7 @@ function preCluster(all, measured = null) {
 function buildMergePrompt(plan, rowsById, batch) {
   const line = (f) => f.id + ' | ' + f.severity + ' | ' + f.category + ' | ' + f.title + ' | ' + (f.locations || []).slice(0, 4).join(', ') + ' | ' + f.evidence.slice(0, 300).replace(/\n/g, ' ')
   const text = batch.map((c) => 'CLUSTER ' + c.k + ':\n' + c.units.map((u) => line(rowsById[u.canonicalId])).join('\n')).join('\n\n')
-  return 'READ-ONLY. You are deduplicating findings from an audit of ' + plan.repo.root + '. The findings are already clustered by shared files and measured relations; group findings describing the SAME underlying problem (same root cause and remedy), and group only findings listed under the same CLUSTER: a group never spans two clusters. Every id below must appear in exactly one group (singletons are groups with an empty duplicateIds). canonicalId = the best-evidenced member. mergedTitle = a precise merged title. Do not read files; work only from the digest below.\n\nDIGEST by cluster (id | severity | category | title | locations | evidence excerpt):\n' + text
+  return 'READ-ONLY. You are deduplicating findings from an audit of ' + plan.repo.root + '. The findings are already clustered by shared files and measured relations; group findings describing the SAME underlying problem (same root cause and remedy), and group only findings listed under the same CLUSTER: a group never spans two clusters. Every id below must appear in exactly one group (singletons are groups with an empty duplicateIds). canonicalId = any member of the group (the canonical member is chosen afterwards, by a fixed rule, not by you). mergedTitle = a precise merged title. Do not read files; work only from the digest below.\n\nDIGEST by cluster (id | severity | category | title | locations | evidence excerpt):\n' + text
 }
 
 /**

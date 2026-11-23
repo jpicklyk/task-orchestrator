@@ -4858,12 +4858,14 @@ test('A1: a cycle-linked cluster over 40 findings splits by path into more than 
     { sA: manyOn('m/a/1.kt', 25), sB: manyOn('m/b/2.kt', 20), sC: manyOn('m/a/3.kt', 10) },
     { measured: measuredFixture({ cycles: [['m/a', 'm/b']], hotSet: [], topComplexity: [], unstableModules: [], coupling: [], candidates: [] }) }
   )
+  // the path groups are packed in primaryPath order (m/a/1.kt 25, m/a/3.kt 10, m/b/2.kt 20), not in reviewer order
   assert.deepEqual(mergeCalls.map((c) => c.label), ['merge:1', 'merge:2'])
   assert.ok(mentions(mergeCalls[0].prompt, 'sA-1') && mentions(mergeCalls[0].prompt, 'sA-25'))
+  assert.ok(mentions(mergeCalls[0].prompt, 'sC-1') && mentions(mergeCalls[0].prompt, 'sC-10'))
   assert.equal(mentions(mergeCalls[0].prompt, 'sB-1'), false)
-  assert.equal(mentions(mergeCalls[0].prompt, 'sC-1'), false)
-  assert.ok(mentions(mergeCalls[1].prompt, 'sB-1') && mentions(mergeCalls[1].prompt, 'sC-10'))
+  assert.ok(mentions(mergeCalls[1].prompt, 'sB-1') && mentions(mergeCalls[1].prompt, 'sB-20'))
   assert.equal(mentions(mergeCalls[1].prompt, 'sA-1'), false)
+  assert.equal(mentions(mergeCalls[1].prompt, 'sC-1'), false)
   assert.equal(result.stats.mergeAgents, 2)
 })
 
@@ -4883,6 +4885,27 @@ test('A2: preCluster splits a cycle cluster of 45 + 5 findings on two paths: a s
     assert.ok(ids.length <= 40 || paths.size === 1, 'a batch over 40 holds one path')
     for (const p of paths) { assert.equal(pathsSeen.has(p), false, p + ' is in one batch'); pathsSeen.set(p, bi) }
   })
+})
+
+test('A2b: an oversized cluster splits into the same parts, merged findingIds and stableIds whatever the reviewer order', async () => {
+  const measured = measuredFixture({ cycles: [['m/a', 'm/b', 'm/c']], hotSet: [], topComplexity: [], unstableModules: [], coupling: [], candidates: [] })
+  // path groups of 30 / 20 / 15 findings: sorted by path they pack as [A] [B, C]; first-appearance order C, A, B would give [C] [A] [B]
+  const specs = { sA: manyOn('m/a/1.kt', 30), sB: manyOn('m/b/2.kt', 20), sC: manyOn('m/c/3.kt', 15) }
+  const mergeFor = () => dedupResult({ groups: [{ canonicalId: 'sC-1', duplicateIds: ['sB-1', 'sB-2'], mergedTitle: 'Merged' }] })
+  const partsOf = (clusters) => clusters.map((c) => c.ids.slice().sort().join(',')).sort()
+  const seen = []
+  for (const keys of [['sA', 'sB', 'sC'], ['sC', 'sA', 'sB'], ['sB', 'sC', 'sA']]) {
+    const rows = keys.flatMap((k) => specs[k].map((f, i) => ({ id: `${k}-${i + 1}`, source: k, category: 'coupling', locations: f.locations })))
+    const pre = CORE.preCluster(rows, measured)
+    assert.deepEqual(pre.clusters.map((c) => c.k), [1, 2], keys.join())
+    assert.deepEqual(pre.clusters.map((c) => c.ids.length), [30, 35], keys.join() + ': [A] then [B, C]')
+    const { result } = await clusterRun(specs, { measured, mergeFor, keys })
+    const merged = result.kept.map((k) => [k.findingId, k.stableId]).sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    seen.push({ parts: partsOf(pre.clusters), merged })
+  }
+  assert.equal(seen[0].merged.length, 65 - 2, 'the group of three collapses into one row')
+  assert.ok(seen[0].merged.some(([id]) => id === 'sB-1'), 'the least (category, path, location) member is canonical')
+  for (const other of seen.slice(1)) assert.deepEqual(other, seen[0])
 })
 
 test('A3: the workflow location grammar keeps a single space and cuts at a note separator', () => {
