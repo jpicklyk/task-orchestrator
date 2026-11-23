@@ -4003,14 +4003,14 @@ test('S58: three kept findings that share one category and primary path get F-h,
   assert.deepEqual(three.result.kept.map((k) => k.findingId), ['s1-1', 's2-1', 's3-1'])
 })
 
-test('S58b: the numbering runs over kept rows first and refuted rows after (task-scope D9, test-plan S58): a refuted first finding takes the last suffix', async () => {
+test('S58b: the suffixes follow line order (contract C6) over kept and refuted rows alike: a refuted first finding keeps the bare id', async () => {
   const h = testFnv('coupling|src/a.kt')
   const specs = { s1: [{ locations: ['src/a.kt:1'] }], s2: [{ locations: ['src/a.kt:2'] }], s3: [{ locations: ['src/a.kt:3'] }] }
   const refutedFirst = await clusterRun(specs, {
     verdictFor: (label) => (label.startsWith('verify:s1-1') ? verdictResult({ refuted: true, confidence: 'high' }) : verdictResult()),
   })
-  assert.deepEqual(refutedFirst.result.kept.map((k) => [k.findingId, k.stableId]), [['s2-1', `F-${h}`], ['s3-1', `F-${h}-2`]])
-  assert.deepEqual(refutedFirst.result.refuted.map((r) => [r.findingId, r.stableId]), [['s1-1', `F-${h}-3`]], 'a refuted row is numbered after the kept rows')
+  assert.deepEqual(refutedFirst.result.kept.map((k) => [k.findingId, k.stableId]), [['s2-1', `F-${h}-2`], ['s3-1', `F-${h}-3`]])
+  assert.deepEqual(refutedFirst.result.refuted.map((r) => [r.findingId, r.stableId]), [['s1-1', `F-${h}`]], 'a refuted row is numbered by its line, not after the kept rows')
 })
 
 test('S58 / probe: a different category or a different path starts its own counter', async () => {
