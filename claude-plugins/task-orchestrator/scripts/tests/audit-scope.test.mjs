@@ -9,7 +9,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -259,6 +259,42 @@ test('S19: a --root that is not a git work tree exits 2 naming the root, nothing
   assert.equal(r.status, 2);
   assert.equal(r.stdout, '');
   assert.ok(r.stderr.includes(`--root ${plain} is not a git work tree`), r.stderr);
+});
+
+test('S19: a failing git ls-files exits 1 with one line, nothing on stdout, no usage line', () => {
+  const dir = makeRepo('cli-bad-index', S19_FILES);
+  writeFileSync(path.join(dir, '.git', 'index'), 'garbage');
+  const r = runCli(['--root', dir]);
+  assert.equal(r.status, 1, r.stderr);
+  assert.equal(r.stdout, '');
+  const lines = r.stderr.split(/\r?\n/).filter((l) => l.trim() !== '');
+  assert.equal(lines.length, 1, r.stderr);
+  assert.ok(lines[0].includes('git ls-files'), r.stderr);
+  assert.doesNotMatch(r.stderr, /usage:/i);
+});
+
+test('S19: a --root below the top level of its work tree exits 2 naming the top level', () => {
+  const dir = makeRepo('cli-subroot', S19_FILES);
+  const top = git(dir, ['rev-parse', '--show-toplevel']).trim();
+  const r = runCli(['--root', path.join(dir, 'src')]);
+  assert.equal(r.status, 2, r.stderr);
+  assert.equal(r.stdout, '');
+  assert.ok(r.stderr.includes('--root'), r.stderr);
+  assert.ok(r.stderr.includes(top), r.stderr);
+});
+
+test('S19 probe: a --root spelled through a directory link to the top level gives the direct result', (t) => {
+  const dir = makeRepo('cli-linkroot', S19_FILES);
+  const link = path.join(workRoot, 'cli-linkroot-alias');
+  try {
+    symlinkSync(dir, link, process.platform === 'win32' ? 'junction' : 'dir');
+  } catch {
+    return t.skip('cannot create a directory link');
+  }
+  const direct = runCli(['--root', dir]);
+  const viaLink = runCli(['--root', link]);
+  assert.equal(viaLink.status, 0, viaLink.stderr);
+  assert.equal(viaLink.stdout, direct.stdout);
 });
 
 test('S19 probe: untracked files are not scoped; the run leaves the repository untouched', () => {

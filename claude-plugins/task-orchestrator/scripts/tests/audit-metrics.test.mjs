@@ -17,6 +17,8 @@ import {
   readFileSync,
   existsSync,
   rmSync,
+  cpSync,
+  symlinkSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -667,6 +669,8 @@ test('S10: usage errors exit 2 with a stderr message and write no --out (R14)', 
   const plain = path.join(workRoot, 'plain');
   mkdirSync(plain, { recursive: true });
   const valid = { root: repo.dir, paths: '.', since: '2026-01-01', recent: '2026-06-01' };
+  const badPattern = path.join(workRoot, 'usage-bad-pattern.json');
+  writeFileSync(badPattern, JSON.stringify({ languages: [{ name: 'Quirk', extensions: ['.qk'], functionPatterns: ['('] }] }));
   const cases = [
     // [label, one change from the valid call, the flag the reason line must name]
     ['missing --root', { root: null }, /--root/],
@@ -687,6 +691,8 @@ test('S10: usage errors exit 2 with a stderr message and write no --out (R14)', 
     ['--max-commit-files 0', { extra: ['--max-commit-files', '0'] }, /--max-commit-files/],
     ['root that is not a git work tree', { root: plain }, /--root/],
     ['root that does not exist', { root: path.join(workRoot, 'does-not-exist') }, /--root/],
+    ['--lang-table with an invalid pattern', { extra: ['--lang-table', badPattern] }, /--lang-table[\s\S]*Quirk/],
+    ['--lang-table naming a missing file', { extra: ['--lang-table', path.join(workRoot, 'no-such-table.json')] }, /--lang-table/],
   ];
   cases.forEach(([label, change, flag], i) => {
     const out = path.join(workRoot, 'usage', String(i), 'm.json');
@@ -704,6 +710,126 @@ test('S10: usage errors exit 2 with a stderr message and write no --out (R14)', 
     assert.match(reason, flag, `${label}: reason does not name the flag, stderr ${r.stderr}`);
     assert.equal(existsSync(out), false, `${label}: --out was written`);
   });
+});
+
+const stderrLines = (r) => r.stderr.split(/\r?\n/).filter((l) => l.trim() !== '');
+const reasonOf = (r) => stderrLines(r).filter((l) => !/^usage:/i.test(l.trim())).join('\n');
+
+// A directory link (junction on win32); false when the platform or permissions refuse to create one.
+function tryLink(target, linkPath) {
+  try {
+    symlinkSync(target, linkPath, process.platform === 'win32' ? 'junction' : 'dir');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function runWith(repo, out, extra = [], opts = {}) {
+  return runCli([
+    '--root', opts.root ?? repo.dir, '--paths', '.', '--since', '2026-01-01', '--recent', '2026-06-01',
+    '--out', out, ...extra,
+  ]);
+}
+
+test('S10c: an unusable bundled language table exits 1 with one line that is not a usage error', () => {
+  const repo = once('window', buildWindow);
+  const tree = path.join(workRoot, 'bundled-copy', 'scripts');
+  mkdirSync(tree, { recursive: true });
+  cpSync(path.join(scriptsDir, 'lib'), path.join(tree, 'lib'), { recursive: true });
+  cpSync(CLI, path.join(tree, 'audit-metrics.mjs'));
+  const copiedTable = path.join(tree, 'lib', 'audit-metrics', 'languages.json');
+  writeFileSync(copiedTable, '{');
+  const out = path.join(workRoot, 'bundled-copy', 'm.json');
+  const r = spawnSync(process.execPath, [
+    path.join(tree, 'audit-metrics.mjs'), '--root', repo.dir, '--paths', '.', '--since', '2026-01-01',
+    '--recent', '2026-06-01', '--out', out,
+  ], { env: baseEnv, encoding: 'utf8', timeout: 120000 });
+  assert.equal(r.status, 1, r.stderr);
+  const lines = stderrLines(r);
+  assert.equal(lines.length, 1, r.stderr);
+  assert.ok(lines[0].startsWith('language table '), lines[0]);
+  assert.ok(lines[0].includes(copiedTable), lines[0]);
+  assert.doesNotMatch(r.stderr, /--lang-table|usage:/i);
+  assert.equal(existsSync(out), false);
+});
+
+test('S10d: a --root below the top level of its work tree exits 2 naming the top level', () => {
+  const repo = once('scope', buildScope);
+  const top = git(repo.dir, ['rev-parse', '--show-toplevel']).trim();
+  const out = nextOut();
+  const r = runWith(repo, out, [], { root: path.join(repo.dir, 'src') });
+  assert.equal(r.status, 2, r.stderr);
+  const reason = reasonOf(r);
+  assert.match(reason, /--root/);
+  assert.ok(reason.includes(top), reason);
+  assert.equal(existsSync(out), false);
+});
+
+test('S10d probe: a --root spelled through a directory link to the top level is accepted', (t) => {
+  const repo = once('scope', buildScope);
+  const link = path.join(workRoot, 'root-link');
+  if (!tryLink(repo.dir, link)) return t.skip('cannot create a directory link');
+  const { json } = metrics(repo, { root: link });
+  assert.equal(json.contract, 'audit/metrics-v1');
+});
+
+test('S10e: --digest-out reaching --out through a directory link exits 2 before any write', (t) => {
+  const real = path.join(workRoot, 'link-real');
+  mkdirSync(real, { recursive: true });
+  const link = path.join(workRoot, 'link-alias');
+  if (!tryLink(real, link)) return t.skip('cannot create a directory link');
+  const repo = once('window', buildWindow);
+  const r = runWith(repo, path.join(real, 'm.json'), ['--digest-out', path.join(link, 'm.json')]);
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(reasonOf(r), /--digest-out/);
+  assert.equal(existsSync(path.join(real, 'm.json')), false);
+  assert.equal(existsSync(path.join(link, 'm.json')), false);
+});
+
+test('S10e: --digest-out in a directory spelled in another case exits 2 where the volume folds case', (t) => {
+  const dir = path.join(workRoot, 'casedir');
+  mkdirSync(dir, { recursive: true });
+  const upper = path.join(workRoot, 'CASEDIR');
+  if (!existsSync(upper)) return t.skip('case-sensitive volume');
+  const repo = once('window', buildWindow);
+  const r = runWith(repo, path.join(dir, 'm.json'), ['--digest-out', path.join(upper, 'm.json')]);
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(reasonOf(r), /--digest-out/);
+  assert.equal(existsSync(path.join(dir, 'm.json')), false);
+});
+
+test('S10f: a write failure exits 1 with one line naming the path and no stack', () => {
+  const repo = once('window', buildWindow);
+  const blocker = path.join(workRoot, 'blocker-file');
+  writeFileSync(blocker, 'x');
+  // --digest-out parent is a regular file: nothing may be written, --out included
+  const out1 = nextOut();
+  const digest1 = path.join(blocker, 'd.json');
+  const r1 = runWith(repo, out1, ['--digest-out', digest1]);
+  assert.equal(r1.status, 1, r1.stderr);
+  assert.equal(stderrLines(r1).length, 1, r1.stderr);
+  assert.ok(r1.stderr.includes('cannot write') && r1.stderr.includes(path.resolve(digest1)), r1.stderr);
+  assert.doesNotMatch(r1.stderr, /^\s+at /m);
+  assert.equal(existsSync(out1), false, '--out written before the digest target was checked');
+  // --out parent is a regular file: the digest must not be written
+  const digest2 = path.join(workRoot, 'fresh-digest-dir', 'd.json');
+  const out2 = path.join(blocker, 'm.json');
+  const r2 = runWith(repo, out2, ['--digest-out', digest2]);
+  assert.equal(r2.status, 1, r2.stderr);
+  assert.equal(stderrLines(r2).length, 1, r2.stderr);
+  assert.ok(r2.stderr.includes('cannot write') && r2.stderr.includes(path.resolve(out2)), r2.stderr);
+  assert.doesNotMatch(r2.stderr, /^\s+at /m);
+  assert.equal(existsSync(digest2), false);
+  // --digest-out names an existing directory
+  const out3 = nextOut();
+  const dirTarget = path.join(workRoot, 'digest-is-dir');
+  mkdirSync(dirTarget, { recursive: true });
+  const r3 = runWith(repo, out3, ['--digest-out', dirTarget]);
+  assert.equal(r3.status, 1, r3.stderr);
+  assert.ok(r3.stderr.includes('it is a directory'), r3.stderr);
+  assert.equal(stderrLines(r3).length, 1, r3.stderr);
+  assert.equal(existsSync(out3), false);
 });
 
 test('S10b: accepted boundary values and parent directories of --out are created', () => {
