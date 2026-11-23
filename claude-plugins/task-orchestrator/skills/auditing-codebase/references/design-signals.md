@@ -14,6 +14,8 @@ A signal is a candidate only once it is tied to a cost: a change that was, or wi
 | Infrastructure reaching the centre | Domain code importing storage, transport or framework types, so a change at the edge reaches the core, and tests of the core need the edge running | Turn the dependency around behind an interface the core owns |
 | Contested state | One value written from several places, and fixes to the same rule about it landing in more than one of them | Give the value one owner that enforces its rules |
 | Errors carried by hand | The same failure checked, translated or logged at every layer, and error-handling edits spread across those layers | Handle it where something can be done about it; elsewhere let it pass |
+| Complexity concentration | A high hot-spot score, or a rising complexity trend, in one function or file, together with recent changes that each had to read and re-test the whole of it | Split the function or file along the seams its branches already show, so a change reads one part |
+| Dependency cycle or unstable core | A cycle between modules, or high instability in a module that many others depend on, together with changes that reach every module in the cycle or every dependant | Break the cycle by moving the shared part to one side or behind an interface the core owns, so the core stops depending on what changes freely |
 | A shared surface bent per caller | A widely used function or type gaining a flag or mode for each new caller, so each new caller edits the shared code | Split the behaviours, or add a new surface beside the old one, move the callers, then remove the old |
 
 ## Reading for cost

@@ -1,6 +1,6 @@
 ---
 name: auditing-codebase
-description: "One broad pass over code that already exists: finds where the codebase costs the most to change, using version-control history to pick the places to look, then applies design signals, the slop catalog and a glossary-drift check there, and ranks the candidates Act now, Plan it or Watch. Use when asked to audit, assess the health of or find refactoring candidates in a codebase, a package or a path, and as the method for an auditor reviewing one scoped area. Covers source, tests and the comments in them; document files go to auditing-documentation."
+description: "One broad pass over code that already exists: finds where the codebase costs the most to change by measuring churn, complexity and coupling to pick the places to look, then applies design signals, the slop catalog, an architecture pass and a glossary-drift check there, and ranks the candidates Act now, Plan it or Watch. Use when asked to audit, assess the health of or find refactoring candidates in a codebase, a package or a path, and as the method for an auditor reviewing one scoped area. Covers source, tests and the comments in them; document files go to auditing-documentation."
 argument-hint: "[path or area to audit; default: the whole repository]"
 ---
 
@@ -16,12 +16,16 @@ The scope is the path or area you were given, or the whole repository when none 
 
 ## Method
 
-1. **Read what the project says about itself.** Its written conventions, its glossary and its decision records (often a `docs/decisions` or `adr` folder). They set what counts as a problem here. A documented decision is a reason, not a finding.
-2. **Find the hot spots.** Rank files by how often they change, then find files that change together. Code that is ugly but never touched costs nothing; code that changes every week costs every week. Drop churn that is there by design (the list is in hotspots). Every other file can be a hot spot, whatever its kind: a configuration table, a registry, or prompt or skill text is ranked like code when its history shows a cost of its own. A document file that is hot on its own is named in the report and left to auditing-documentation. A file that changes only because one hot file changed is that file's partner, a document included. The hot set is judged against the whole repository even when the scope is one area. Commands, the partner test and the hot set: [hotspots](references/hotspots.md). With no history (a fresh clone with one commit, an export), say so and fall back to size and fan-in, and mark every ranking as lower confidence.
-3. **Look closely at the hot spots only.** For each, in order of churn, read it and apply the design signals in [design-signals](references/design-signals.md) and the entries of [slop-catalog](references/slop-catalog.md) that apply to code that exists, except vocabulary drift, which step 4 checks. A file outside the hot set gets a look only because a hot file depends on it or changes together with it; it is named on the hot file's line as a partner, and is not ranked as a candidate of its own.
-4. **Check vocabulary drift.** See the next section.
-5. **Weigh each candidate against the project's own record.** If a decision record, a convention or a comment explains the shape, drop the candidate, or keep it only with the decision's cost shown: what that choice now makes expensive, with evidence from the history. A candidate that touches a record is flagged as such on its line, whichever way you rank it.
-6. **Rank.** Sort and rate by [ranking](references/ranking.md), and write the output below.
+The method is language-neutral: it needs no language-specific tool. A project's own analyzer may add exact numbers, and those are used as evidence like any other.
+
+1. **Read what the project says about itself.** Its written conventions, its glossary and its decision records (often a `docs/decisions` or `adr` folder). They set what counts as a problem here. A documented decision is a reason, not a finding. Write down the intended architecture they state (layers, allowed dependency directions, ownership of state); step 5 compares the code with it.
+2. **Measure.** Fix the two windows once, collect churn, complexity, coupling and the module graph, and keep the numbers for the later steps. The numbers come from a metrics file you were handed, from the metrics script, or by hand, in that order. Sources, the meaning of each number and its limits: [measuring](references/measuring.md).
+3. **Find the hot spots.** A hot spot is a file high in both churn and complexity. Code that is ugly but never touched costs nothing; code that changes every week and is hard to change costs every week. Drop churn that is there by design (the list is in hotspots). Every other file can be a hot spot, whatever its kind: a configuration table, a registry, or prompt or skill text is ranked like code when its history shows a cost of its own. A document file that is hot on its own is named in the report and left to auditing-documentation. A file that changes only because one hot file changed is that file's partner, a document included. The hot set is judged against the whole repository even when the scope is one area. Definition, commands, the partner test and the by-hand ranking: [hotspots](references/hotspots.md). With no history (a fresh clone with one commit, an export), say so and fall back to size and fan-in, and mark every ranking as lower confidence.
+4. **Look closely at the hot spots only.** For each, in order of score, read it and apply the design signals in [design-signals](references/design-signals.md) and the entries of [slop-catalog](references/slop-catalog.md) that apply to code that exists, except vocabulary drift, which step 6 checks. A file outside the hot set gets a look only because a hot file depends on it or changes together with it; it is named on the hot file's line as a partner, and is not ranked as a candidate of its own.
+5. **Run the architecture pass.** Compare the module graph and its cycles with the architecture step 1 recorded, and take an inventory of the patterns the code uses for the same job. Method: [architecture](references/architecture.md). Its findings are ranked like any other and must be tied to a cost.
+6. **Check vocabulary drift.** See the next section.
+7. **Weigh each candidate against the project's own record.** If a decision record, a convention or a comment explains the shape, drop the candidate, or keep it only with the decision's cost shown: what that choice now makes expensive, with evidence from the history. A candidate that touches a record is flagged as such on its line, whichever way you rank it.
+8. **Rank.** Sort and rate by [ranking](references/ranking.md), and write the output below.
 
 ## Vocabulary drift
 
@@ -40,11 +44,12 @@ One candidate per line or short block, in rank order, each proposable as a singl
 - **Rank and rating:** Act now, Plan it or Watch.
 - **Location:** file or directory, and symbol where it helps.
 - **What and why:** the signal or catalog entry, and the concrete cost with its evidence (change count over a period, files that change together, duplicate sites).
+- **Numbers:** churn over the long and the recent window, complexity, and the hot-spot score. Write `estimated` beside any number made by hand; omit the field when there are none.
 - **Move:** the smallest restructuring that removes the cost.
 - **Records:** a decision or convention it touches, if any.
 - **Confidence:** high, medium or low, and what would change it.
 
-If the request names an output file or line format, use that format and keep the same content in it. Close with the scope covered, the history window used, and anything you could not check. Do not pad the list: three well-evidenced candidates beat ten guesses, and an area with nothing worth acting on gets a short report that says so.
+If the request names an output file or line format, use that format and keep the same content in it. Close with the scope covered, the two windows used, where the measurements came from (a given file, the script or by hand), the languages the script did not recognise, and anything you could not check. Do not pad the list: three well-evidenced candidates beat ten guesses, and an area with nothing worth acting on gets a short report that says so.
 
 ## What an audit is not
 

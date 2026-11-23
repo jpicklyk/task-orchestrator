@@ -1,8 +1,8 @@
 # Finding hot spots
 
-A hot spot is a file that is both worth changing and changed often. History shows the second; reading shows the first. The idea of combining change frequency with a look at the code, and of treating files that change together as coupled, is Adam Tornhill's (*Your Code as a Crime Scene*); the commands below are ours.
+A hot spot is a file high in both churn (how often it changes) and complexity (how hard it is to change). History shows the first; the code shows the second. The idea of multiplying change frequency by complexity, and of treating files that change together as coupled, is Adam Tornhill's (*Your Code as a Crime Scene*); the commands below are ours. Where the numbers come from, and what each one means, is in [measuring](measuring.md).
 
-Run every command from the repository root, restricted to the audited path. Pick a window that covers enough work to be stable (six to twelve months, or the last few hundred commits, whichever is longer) and name it in the report.
+Run every command from the repository root, restricted to the audited path. The windows are fixed once, at the start of the audit, and named in the report: a long window of 12 months (the whole history when it is shorter) and a recent window of 3 months. Every number in the report uses one of them.
 
 ## Churn: commits per file
 
@@ -28,14 +28,15 @@ Source files are judged the same way: a source file that changes only in the com
 
 ## The hot set
 
-The hot set is the few files at the top of the churn list, where the counts stand clearly above the rest (often ten files or fewer). It is a property of the repository, not of the scope:
+The hot set is the files whose score (churn times complexity) stands clearly above the rest, judged against the whole repository (often ten files or fewer). It is a property of the repository, not of the scope. When the metrics script ran, take its repository-wide hot set and its scoped hot set as given. By hand:
 
-- For a whole-repository audit, take it from the list above.
+- Take the top 30 files by churn from the list above, estimate the complexity of each (see [measuring](measuring.md)), and rank them by the product of the churn rank and the complexity rank. The files at the top, clearly apart from the rest, are the hot set. Mark the complexity numbers `estimated`.
+- For a whole-repository audit, that is the whole job.
 - For a scoped audit, run the churn command a second time without the path and compare. The area's busiest files belong to the hot set only when their counts are of the same order as the repository's busiest files. An area whose top files change far less than that has no hot set: say so in the report, and rate its candidates as the cold-area case in [ranking](ranking.md) says.
 
 ## Recent versus lifetime
 
-The same command with a short window (`--since="3 months ago"`) shows what is hot now. A file high in the long list and absent from the short one is cooling; a file high in both is the one to read first.
+The same command with the recent window (`--since="3 months ago"`) shows what is hot now. A file high in the long list and absent from the short one is cooling; a file high in both is the one to read first.
 
 ## Change coupling: files that change together
 
