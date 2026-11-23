@@ -91,6 +91,7 @@ function main(argv) {
   const io = gitIo(root);
   if ((io.git(['rev-parse', '--is-inside-work-tree']) || '').trim() !== 'true') throw new UsageError(`--root ${flags.root} is not a git work tree`);
   const topLevel = (io.git(['rev-parse', '--show-toplevel']) || '').trim();
+  if (topLevel === '') throw new UsageError(`git top level could not be determined for --root ${flags.root}`);
   if (!sameEntry(root, topLevel)) throw new UsageError(`--root ${flags.root} is not the top level of its work tree (${topLevel})`);
   let langTable;
   const tablePath = flags['lang-table'] || join(dirname(fileURLToPath(import.meta.url)), 'lib', 'audit-metrics', 'languages.json');

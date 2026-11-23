@@ -44,6 +44,7 @@ function main(argv) {
   const root = resolve(flags.root);
   if ((git(root, ['rev-parse', '--is-inside-work-tree']) || '').trim() !== 'true') throw new UsageError(`--root ${flags.root} is not a git work tree`);
   const topLevel = (git(root, ['rev-parse', '--show-toplevel']) || '').trim();
+  if (topLevel === '') throw new UsageError(`git top level could not be determined for --root ${flags.root}`);
   if (!sameEntry(root, topLevel)) throw new UsageError(`--root ${flags.root} is not the top level of its work tree (${topLevel})`);
   const out = git(root, ['ls-files', '-z']);
   if (out === null) throw new RunError(`git ls-files failed in ${root}`);

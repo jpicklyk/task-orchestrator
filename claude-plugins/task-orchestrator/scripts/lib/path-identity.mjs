@@ -33,6 +33,8 @@ function statIds(p) {
 }
 
 export function sameEntry(a, b) {
+  // an empty spelling names nothing; resolve('') would read as the working directory
+  if (typeof a !== 'string' || typeof b !== 'string' || a.trim() === '' || b.trim() === '') return false;
   const fold = process.platform === 'win32' || process.platform === 'darwin';
   const ca = canonical(a);
   const cb = canonical(b);
