@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
 import io.github.jpicklyk.mcptask.current.application.decision.DecisionCaller
+import io.github.jpicklyk.mcptask.current.application.port.LifecycleStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
@@ -50,13 +51,13 @@ internal object DecisionLoader {
      * `forbidden` (never `not_found`), and an ambiguous prefix keeps only the candidates whose root [ScopeGuard] admits.
      */
     suspend fun resolveId(
-        stores: RunStoreProvider,
+        stores: LifecycleStoreProvider,
         scope: AccessScope,
         ref: IdRef
     ): Outcome<UUID> {
         if (ref.raw.length == UUID_LENGTH) return Outcome.Ok(UUID.fromString(ref.raw))
         val restricted = !scope.isUnrestricted
-        val store = stores.decisionRequestStore()
+        val store = stores.decisionReads()
         var hits = store.findIdsByPrefix(ref.raw, if (restricted) RESTRICTED_PREFIX_PROBE else PREFIX_PROBE)
         if (restricted) {
             hits =

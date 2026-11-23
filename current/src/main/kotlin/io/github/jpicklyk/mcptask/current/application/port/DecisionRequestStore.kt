@@ -1,19 +1,15 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequest
-import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestStatus
 import java.util.UUID
 
 /**
  * Persistence of decision requests (`decision_requests`). Every method joins the caller's unit; the writes belong to
  * `DecisionService` only. A database failure is thrown.
  */
-interface DecisionRequestStore {
+interface DecisionRequestStore : DecisionReads {
     /** Inserts [decision] and returns it as stored. */
     suspend fun create(decision: DecisionRequest): DecisionRequest
-
-    /** The decision request [id], or null when there is none. */
-    suspend fun getById(id: UUID): DecisionRequest?
 
     /**
      * The request that is NOT withdrawn with this (root, scope key, dedupe key), or null. The partial unique index
@@ -35,33 +31,8 @@ interface DecisionRequestStore {
         expectedVersion: Long
     ): DecisionRequest?
 
-    /**
-     * The requests matching every given filter, newest first (`raisedAt` descending, then `id` ascending): on a root in
-     * [rootIds] (null means any root; an empty set matches nothing), of run [runId], about item [itemId], and in one of
-     * [statuses] (null means any status).
-     */
-    suspend fun list(
-        rootIds: Set<UUID>? = null,
-        runId: UUID? = null,
-        itemId: UUID? = null,
-        statuses: Set<DecisionRequestStatus>? = null
-    ): List<DecisionRequest>
-
-    /** The requests whose id is in [ids] (one batched read; ids with no row are absent), in no particular order. */
-    suspend fun findByIds(ids: Set<UUID>): List<DecisionRequest>
-
     /** The number of requests of run [runId] still waiting for an answer (open or acknowledged). */
     suspend fun openCount(runId: UUID): Int
-
-    /**
-     * The ids of the requests whose id, as 32 lower-case hex digits without dashes, starts with [prefix] (compared
-     * ignoring case), in ascending id order, at most [limit] of them. A prefix that is not hex, or longer than 32
-     * digits, matches nothing.
-     */
-    suspend fun findIdsByPrefix(
-        prefix: String,
-        limit: Int = 2
-    ): List<UUID>
 }
 
 /**

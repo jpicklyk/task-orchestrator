@@ -4,6 +4,8 @@ package io.github.jpicklyk.mcptask.current.application.port
 interface ConfigStoreProvider {
     fun workItemRepository(): WorkItemRepository
 
+    fun itemStore(): ItemStore
+
     fun configStore(): ConfigStore
 
     fun planDocumentRepository(): PlanDocumentStore

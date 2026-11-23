@@ -100,7 +100,7 @@ private suspend fun WriteScope.runTransition(
     val seat = ctx.seat
     // An unlimited run (no budget field) cannot be limit-paused, so its seats skip the read.
     if (seat != null && seat.runLimited && req.trigger == TransitionTrigger.START) {
-        val run = stores.runStore().getById(seat.runId)
+        val run = stores.runReads().getById(seat.runId)
         if (run != null && run.status == RunStatus.PAUSED && run.pauseReason != RunPauseReason.MANUAL) {
             return Outcome.Err(RunService.runPaused(run))
         }
@@ -118,7 +118,7 @@ private suspend fun WriteScope.runTransition(
     val decisionHidden =
         decisionId != null &&
             !ctx.scope.isUnrestricted &&
-            stores.decisionRequestStore().getById(decisionId).let { found ->
+            stores.decisionReads().getById(decisionId).let { found ->
                 found == null || ScopeGuard.check(ctx.scope, found.rootId, stores.workItemRepository()) is Outcome.Err
             }
     val block = if (req.reason != null || decisionId != null) BlockInput(req.reason?.domain, decisionId, decisionHidden) else null

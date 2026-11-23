@@ -14,9 +14,9 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * A call to `items_read` select `context` (or `next` / `blocked`) through the production [testToolDispatcher] and tool
- * registry, for tests that used the removed 3.x `get_context` / `get_next_item` / `get_blocked_items` as a probe of the
- * state under test (Q22). Never a production shim: it adds nothing the dispatcher does not do.
+ * A call to `items_read` select `context` (or `next` / `blocked`) through [testToolDispatcher] (a test helper that
+ * builds the production dispatcher over a test context) and the tool registry, for tests that used the removed 3.x
+ * `get_context` / `get_next_item` / `get_blocked_items` as a probe of the state under test (Q22). Never a production shim: it adds nothing the dispatcher does not do.
  *
  * - [envelope] answers the 4.0 envelope body (`ok`, `data` or `error`).
  * - [execute] wraps it in the 3.x test shape `{success: true, data}` / `{success: false, error: {code, message}}`, so a

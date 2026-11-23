@@ -259,7 +259,7 @@ object ItemsReadContext {
     /**
      * The item's decision requests that are open, acknowledged or answered, newest first, as `{id, class, status,
      * option?}` (withdrawn ones are left out); null when there is none. A provider that serves no decision store (its
-     * `decisionRequestStore()` throws [UnsupportedOperationException], as the interface default does) has none.
+     * `decisionReads()` throws [UnsupportedOperationException], as the interface default does) has none.
      */
     private suspend fun decisions(
         env: LifecycleToolServices,
@@ -270,7 +270,7 @@ object ItemsReadContext {
             env.unitOfWork.read {
                 val store =
                     try {
-                        stores.decisionRequestStore()
+                        stores.decisionReads()
                     } catch (e: UnsupportedOperationException) {
                         return@read null
                     }

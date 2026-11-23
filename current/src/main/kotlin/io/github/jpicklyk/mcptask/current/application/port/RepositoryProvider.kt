@@ -2,6 +2,8 @@ package io.github.jpicklyk.mcptask.current.application.port
 
 import io.github.jpicklyk.mcptask.current.platform.port.EventStore
 import io.github.jpicklyk.mcptask.current.platform.port.IdempotencyStore
+import io.github.jpicklyk.mcptask.current.platform.port.RetentionStores
+import java.time.Instant
 
 /**
  * Provides access to all repository implementations. Application code takes the narrow per-slice provider it needs
@@ -11,11 +13,14 @@ import io.github.jpicklyk.mcptask.current.platform.port.IdempotencyStore
 interface RepositoryProvider :
     ConfigStoreProvider,
     DependencyStoreProvider,
+    ItemStoreProvider,
     KnowledgeStoreProvider,
     LifecycleStoreProvider,
     NoteStoreProvider,
     ReportStoreProvider,
+    RetentionStores,
     RunStoreProvider,
+    TelemetryStoreProvider,
     WorkflowStoreProvider {
     override fun workItemRepository(): WorkItemRepository
 
@@ -27,7 +32,7 @@ interface RepositoryProvider :
 
     override fun hierarchyStore(): HierarchyStore = workItemRepository()
 
-    fun claimStore(): ClaimStore = workItemRepository()
+    override fun claimStore(): ClaimStore = workItemRepository()
 
     /**
      * Full-text candidate retrieval over every searchable corpus. Not part of the work-item composite;
@@ -55,13 +60,9 @@ interface RepositoryProvider :
 
     override fun resourceLeaseRepository(): LeaseStore
 
-    fun idempotencyStore(): IdempotencyStore
+    override fun idempotencyStore(): IdempotencyStore
 
-    /**
-     * The append-only domain-event log (`events`). Write services append to it through the unit's
-     * `WriteScope.events` sink, never directly.
-     */
-    fun eventStore(): EventStore
+    override fun eventStore(): EventStore
 
     /**
      * The call log, for the retention pruner (appends go through the batched call-log writer, not a unit's stores).
@@ -69,11 +70,27 @@ interface RepositoryProvider :
      */
     fun callLogStore(): CallLogStore = throw UnsupportedOperationException("This RepositoryProvider has no call log store")
 
+    override suspend fun pruneLeaseHistory(
+        cutoff: Instant,
+        batch: Int
+    ): Int = resourceLeaseRepository().pruneClosed(cutoff, batch)
+
+    override suspend fun pruneCallLog(
+        cutoff: Instant,
+        batch: Int
+    ): Int = callLogStore().prune(cutoff, batch)
+
     /**
      * Runs and their membership. Writes belong to `RunService`. The default throws, so a provider that serves runs
      * must override it.
      */
     override fun runStore(): RunStore = throw UnsupportedOperationException("This RepositoryProvider has no run store")
+
+    /** The lifecycle's view of runs: [runStore], so a provider that serves no runs throws from the same accessor. */
+    override fun runReads(): RunReads = runStore()
+
+    /** The workflow's open-run count: [runStore], so a provider that serves no runs throws from the same accessor. */
+    override fun openRunCount(): OpenRunCount = runStore()
 
     /**
      * Seat assignments (`run_seats`). Writes belong to `SeatService` and the run close. The default throws, so a provider
@@ -89,6 +106,12 @@ interface RepositoryProvider :
         throw UnsupportedOperationException("This RepositoryProvider has no decision request store")
 
     /**
+     * The lifecycle's view of decisions: [decisionRequestStore], so a provider that serves no decisions throws from the
+     * same accessor.
+     */
+    override fun decisionReads(): DecisionReads = decisionRequestStore()
+
+    /**
      * The aggregate report queries (the `report` tool), reached as `stores.reportQueries()` inside the caller's read unit.
      * The default throws, so a provider that serves reports must override it.
      */
@@ -98,5 +121,6 @@ interface RepositoryProvider :
      * The `usage_daily` fold store (R13), used by the retention pruner's fold and the daily-basis report. The default throws,
      * so a provider that serves the fold must override it.
      */
-    fun usageDailyStore(): UsageDailyStore = throw UnsupportedOperationException("This RepositoryProvider has no usage daily store")
+    override fun usageDailyStore(): UsageDailyStore =
+        throw UnsupportedOperationException("This RepositoryProvider has no usage daily store")
 }
