@@ -1451,7 +1451,7 @@ test('Follow-up O6: scope.reviewers: [] is treated as absent (Scope phase runs),
 // (O10-1) is written to §2.2 regardless and reported red if it is red against HEAD.
 
 // E10 (D3): the dispatch key map. scope -> scope, review:<key> and gap:<n> -> review, review:architecture
-// -> review-architecture, verify calls of a high or critical finding -> verify-high, else verify; an
+// -> review-architecture, verify group calls with a high or critical member -> verify-group-high, else verify-group; an
 // omitted key yields its default entry (never inherit). The default table below is a literal copy of D3.
 const D3_DEFAULTS = {
   scope: { model: 'sonnet', effort: 'medium' },
@@ -1466,7 +1466,7 @@ const D3_DEFAULTS = {
   triage: { model: 'sonnet', effort: 'low' },
 }
 
-test('Follow-up (O10-1, D3): args.models/args.efforts reach agent() opts per dispatch key; scope, review:architecture, gap and verify-high have their own keys; an omitted key yields its default entry', async () => {
+test('Follow-up (O10-1, D3): args.models/args.efforts reach agent() opts per dispatch key; scope, review:architecture, gap and verify-group-high have their own keys; an omitted key yields its default entry', async () => {
   // models['verify-group'] is deliberately omitted (a low finding reaches the plain verify-group key): the omitted
   // key must read its D3 default, never inherit; efforts['verify-group'] IS given, so only the model defaults.
   const MODELS = {
