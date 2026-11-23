@@ -86,8 +86,8 @@ data class AppConfig(
     val databaseBusyTimeoutRaw: String?,
     // ---- Flyway (FlywayDatabaseSchemaManager) ----
     val flywayRepair: Boolean,
-    /** `DB_COMPACT_ON_UPGRADE` -- when true (default), [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager.updateSchema]
-     *  runs the one-time post-V17 startup compaction ([io.github.jpicklyk.mcptask.current.infrastructure.sqlite.StartupCompaction])
+    /** `DB_COMPACT_ON_UPGRADE` -- when true (default), [io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager.updateSchema]
+     *  runs the one-time post-V17 startup compaction ([io.github.jpicklyk.mcptask.current.platform.sqlite.StartupCompaction])
      *  after a successful Flyway-mode schema update. Set to `false` to opt out (e.g. to run the
      *  offline compaction runbook manually instead). */
     val dbCompactOnUpgrade: Boolean = true,

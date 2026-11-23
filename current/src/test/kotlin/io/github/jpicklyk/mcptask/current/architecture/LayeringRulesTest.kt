@@ -97,6 +97,56 @@ class LayeringRulesTest {
         assertEquals(emptyList(), imports("model/item/A.kt", "$root.applicationx.X"), "a prefix match needs a package boundary")
     }
 
+    // ------------------------------------------------------------------ S4b interim platform folders
+
+    @Test
+    fun `S4b a platform folder counts as the layer its table row names`() {
+        assertEquals(
+            listOf("$root.interfaces.mcp.X"),
+            imports("platform/sqlite/schema/A.kt", "$root.interfaces.mcp.X"),
+            "a platform folder that counts as infrastructure may not reach interfaces"
+        )
+        assertEquals(listOf("$root.bootstrap.X"), imports("platform/sqlite/A.kt", "$root.bootstrap.X"))
+        assertEquals(
+            emptyList(),
+            imports("platform/sqlite/A.kt", "$root.application.port.X", "$root.model.item.X"),
+            "infrastructure -> application and model are allowed"
+        )
+    }
+
+    @Test
+    fun `S4b domain and model forbid all of platform`() {
+        assertEquals(listOf("$root.platform.sqlite.X"), imports("model/item/A.kt", "$root.platform.sqlite.X"))
+        assertEquals(listOf("$root.platform.other.X"), imports("domain/lifecycle/A.kt", "$root.platform.other.X"))
+        assertEquals(emptyList(), imports("model/item/A.kt", "$root.platformx.X"), "a prefix match needs a package boundary")
+    }
+
+    @Test
+    fun `S4b application forbids a platform folder that counts as infrastructure`() {
+        assertEquals(listOf("$root.platform.sqlite.X"), imports("application/service/A.kt", "$root.platform.sqlite.X"))
+        assertEquals(
+            emptyList(),
+            imports("application/service/A.kt", "$root.platform.sqlitex.X"),
+            "a prefix match needs a package boundary"
+        )
+    }
+
+    @Test
+    fun `S4b infrastructure forbids a platform folder that counts as interfaces but not one that counts as infrastructure`() {
+        assertEquals(emptyList(), imports("infrastructure/config/A.kt", "$root.platform.sqlite.X"))
+        assertTrue(
+            LayeringRules.forbiddenPrefixesFor("infrastructure/config/A.kt").none { it.startsWith("$root.platform") },
+            "no table row names interfaces yet, so infrastructure forbids no platform folder"
+        )
+    }
+
+    @Test
+    fun `S4b a file under platform whose folder has no table row is itself a violation`() {
+        assertEquals(listOf("$root.platform.unknown has no layer row"), imports("platform/unknown/A.kt"))
+        assertEquals(listOf("$root.platform.<root> has no layer row"), imports("platform/A.kt"))
+        assertEquals(emptyList(), imports("platform/sqlite/A.kt"), "a mapped folder is not itself a violation")
+    }
+
     // ------------------------------------------------------------------ S5 baseline diff
 
     @Test

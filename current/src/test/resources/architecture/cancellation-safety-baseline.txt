@@ -8,7 +8,7 @@ infrastructure/config/YamlConfigDocumentParser.kt 1
 infrastructure/config/YamlStatusLabelService.kt 1
 infrastructure/identity/bearer/BearerTokenStore.kt 1
 infrastructure/shutdown/ShutdownCoordinator.kt 1
-infrastructure/sqlite/StartupCompaction.kt 1
-infrastructure/sqlite/StartupIntegrity.kt 1
-infrastructure/sqlite/repository/ProofClaimsSerialization.kt 1
-infrastructure/sqlite/schema/management/FlywayDatabaseSchemaManager.kt 3
+platform/sqlite/StartupCompaction.kt 1
+platform/sqlite/StartupIntegrity.kt 1
+platform/sqlite/repository/ProofClaimsSerialization.kt 1
+platform/sqlite/schema/management/FlywayDatabaseSchemaManager.kt 3

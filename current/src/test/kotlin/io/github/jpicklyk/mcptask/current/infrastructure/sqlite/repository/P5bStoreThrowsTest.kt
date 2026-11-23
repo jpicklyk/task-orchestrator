@@ -1,14 +1,14 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.PersistenceFaults
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.RawWriterLock
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.error.VersionConflictException
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.platform.sqlite.PersistenceFaults
+import io.github.jpicklyk.mcptask.current.platform.sqlite.RawWriterLock
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking

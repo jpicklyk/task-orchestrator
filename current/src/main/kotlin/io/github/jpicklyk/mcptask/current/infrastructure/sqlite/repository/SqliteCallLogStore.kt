@@ -3,8 +3,11 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 import io.github.jpicklyk.mcptask.current.application.port.CallLogAppendResult
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.CallLogStore
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.CallLogTable
+import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.SQL_IN_CHUNK_SIZE
+import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.SqliteEventStore
+import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.writeTx
+import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.CallLogTable
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList

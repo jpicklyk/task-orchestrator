@@ -6,7 +6,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepKind
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepPhase
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.StartupIntegrity
+import io.github.jpicklyk.mcptask.current.platform.sqlite.StartupIntegrity
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import org.junit.jupiter.api.Test

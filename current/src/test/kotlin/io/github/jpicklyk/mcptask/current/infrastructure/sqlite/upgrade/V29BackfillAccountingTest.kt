@@ -4,9 +4,9 @@ import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.UtcTimestamp
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.FlywayDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.RoleTransitionBackfillCallback
+import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.UtcTimestamp
+import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.FlywayDatabaseSchemaManager
+import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.RoleTransitionBackfillCallback
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive

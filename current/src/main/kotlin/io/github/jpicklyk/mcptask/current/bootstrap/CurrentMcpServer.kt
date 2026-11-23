@@ -22,8 +22,6 @@ import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.BearerT
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer.HashBytes
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.jwt.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.SchemaStartupOutcome
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
@@ -53,6 +51,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.platform.sqlite.SchemaStartupOutcome
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application

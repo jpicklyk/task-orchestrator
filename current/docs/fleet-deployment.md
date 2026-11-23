@@ -1105,7 +1105,7 @@ Rolling back discards everything 4.0 wrote after the upgrade. A 3.x binary canno
 
 To confirm the restored file is a 3.x database, run the step 4 query again: the latest `flyway_schema_history` row reads version 17, and the `data_steps` query fails with `no such table`.
 
-<!-- Source citations for the behavioural claims in "Upgrading from 3.x" (docs seat, task ff08e631). Each citation names a symbol (class, function or heading); search for it, line numbers are deliberately not used. P = PreUpgradeBackup (current/src/main/kotlin/io/github/jpicklyk/mcptask/current/infrastructure/sqlite/PreUpgradeBackup.kt), D = DatabaseManager (infrastructure/sqlite/DatabaseManager.kt), S = CurrentMcpServer (bootstrap/CurrentMcpServer.kt), A = AppConfig (infrastructure/config/AppConfig.kt).
+<!-- Source citations for the behavioural claims in "Upgrading from 3.x" (docs seat, task ff08e631). Each citation names a symbol (class, function or heading); search for it, line numbers are deliberately not used. P = PreUpgradeBackup (current/src/main/kotlin/io/github/jpicklyk/mcptask/current/platform/sqlite/PreUpgradeBackup.kt), D = DatabaseManager (platform/sqlite/DatabaseManager.kt), S = CurrentMcpServer (bootstrap/CurrentMcpServer.kt), A = AppConfig (infrastructure/config/AppConfig.kt).
  1 eligibility, stored <= 17 and binary target >= 18: PreUpgradeBackup.runBackup (the skip checks) and maxSuccessfulVersion.
  2 a file with user tables and no flyway_schema_history is unversioned (null) and still copied: PreUpgradeBackup.hasUserTables and maxSuccessfulVersion (null).
  3 binary target = latest classpath migration: DatabaseManager.latestClasspathMigration; none found = SkippedNoMigration in DatabaseManager.runPreUpgradeBackup.

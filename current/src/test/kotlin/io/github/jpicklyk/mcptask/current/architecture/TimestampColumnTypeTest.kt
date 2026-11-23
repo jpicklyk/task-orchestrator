@@ -14,7 +14,7 @@ import kotlin.test.assertTrue
  */
 class TimestampColumnTypeTest {
     companion object {
-        const val EXEMPT = "infrastructure/sqlite/schema/UtcTimestampColumnType.kt"
+        const val EXEMPT = "platform/sqlite/schema/UtcTimestampColumnType.kt"
 
         val FORBIDDEN =
             listOf(
@@ -77,7 +77,7 @@ class TimestampColumnTypeTest {
                 "val t = org.jetbrains.exposed.v1.javatime.JavaInstantColumnType()"
             )
         samples.forEach {
-            assertEquals(1, violations(it, "infrastructure/sqlite/schema/Other.kt"), "not flagged outside: $it")
+            assertEquals(1, violations(it, "platform/sqlite/schema/Other.kt"), "not flagged outside: $it")
             assertEquals(0, violations(it, EXEMPT), "wrongly flagged inside the exempt file: $it")
         }
     }

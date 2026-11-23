@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceCascadeEven
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCodec
 import io.github.jpicklyk.mcptask.current.application.support.IdRef
 import io.github.jpicklyk.mcptask.current.application.support.ScopeGuard
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.PersistenceFaults
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
@@ -18,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.platform.sqlite.PersistenceFaults
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray

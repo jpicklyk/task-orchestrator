@@ -2,7 +2,7 @@ package io.github.jpicklyk.mcptask.current.bootstrap
 
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.mockk.every
 import io.mockk.mockkConstructor
 import io.mockk.unmockkAll

@@ -8,7 +8,7 @@ import kotlin.test.assertTrue
 
 /**
  * Dialect-neutrality guard (item b094eb86, charter D20): SQLite and Exposed are confined to
- * `infrastructure/sqlite/`. Outside that prefix, production code must not
+ * `infrastructure/sqlite/` and `platform/sqlite/` (both until the slice stores leave `infrastructure/sqlite/`). Outside those prefixes, production code must not
  * - R1: import or fully-qualify anything from `org.sqlite.` or `org.jetbrains.exposed.`, or
  * - R2: carry a SQLite-dialect token (or an `org.sqlite.` / `org.jetbrains.exposed.` reflection name) inside a string literal
  * Comments and KDoc are excluded. Violations are counted per file against the two-way ratcheted baseline
@@ -22,7 +22,7 @@ class DialectNeutralityTest {
     )
 
     companion object {
-        const val SQLITE_ROOT = "infrastructure/sqlite/"
+        val SQLITE_ROOTS = listOf("infrastructure/sqlite/", "platform/sqlite/")
 
         val R1 = Regex("""\borg\.(sqlite|jetbrains\.exposed)\.""")
 
@@ -53,8 +53,8 @@ class DialectNeutralityTest {
 
         fun isR2(literal: String): Boolean = R2_CI.containsMatchIn(literal) || R2_MATCH.containsMatchIn(literal)
 
-        /** True when [path] lies under the SQLite root (trailing slash, so `infrastructure/sqlitex/` is not exempt). */
-        fun isExempt(path: String): Boolean = path.startsWith(SQLITE_ROOT)
+        /** True when [path] lies under a SQLite root (trailing slash, so `infrastructure/sqlitex/` is not exempt). */
+        fun isExempt(path: String): Boolean = SQLITE_ROOTS.any { path.startsWith(it) }
 
         fun lex(text: String): Lexed {
             val code = StringBuilder()
@@ -149,7 +149,7 @@ class DialectNeutralityTest {
     @Test
     fun `production code outside infrastructure sqlite matches the ratcheted dialect-neutrality baseline`() {
         val all = GuardSupport.productionSources()
-        assertTrue(all.any { isExempt(it.path) }, "no infrastructure/sqlite sources in scope: misrooted Konsist scope")
+        assertTrue(all.any { isExempt(it.path) }, "no infrastructure/sqlite or platform/sqlite sources in scope: misrooted Konsist scope")
         val actual = GuardSupport.countByFile(all.filterNot { isExempt(it.path) }) { violations(it.text) }
         val message =
             GuardSupport.ratchet(actual, GuardSupport.readBaseline("dialect-neutrality-baseline.txt"), "dialect-neutrality-baseline.txt")
@@ -219,16 +219,20 @@ class DialectNeutralityTest {
     @Test
     fun `the sqlite prefix is exempt only with its trailing slash`() {
         assertTrue(isExempt("infrastructure/sqlite/repository/A.kt"))
+        assertTrue(isExempt("platform/sqlite/schema/A.kt"))
         assertTrue(!isExempt("infrastructure/sqlitex/A.kt"))
+        assertTrue(!isExempt("platform/sqlitex/A.kt"))
         assertTrue(!isExempt("interfaces/api/v1/events/DeferredEventPublisher.kt"))
         val text = "import org.sqlite.JDBC"
         val sources =
             listOf(
                 GuardSupport.Source("infrastructure/sqlite/A.kt", text),
-                GuardSupport.Source("infrastructure/sqlitex/B.kt", text)
+                GuardSupport.Source("platform/sqlite/A.kt", text),
+                GuardSupport.Source("infrastructure/sqlitex/B.kt", text),
+                GuardSupport.Source("platform/sqlitex/B.kt", text)
             )
         val counted = GuardSupport.countByFile(sources.filterNot { isExempt(it.path) }) { violations(it.text) }
-        assertEquals(mapOf("infrastructure/sqlitex/B.kt" to 1), counted)
+        assertEquals(mapOf("infrastructure/sqlitex/B.kt" to 1, "platform/sqlitex/B.kt" to 1), counted)
     }
 
     @Test

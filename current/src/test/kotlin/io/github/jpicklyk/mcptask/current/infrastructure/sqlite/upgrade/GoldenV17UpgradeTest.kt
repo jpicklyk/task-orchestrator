@@ -2,12 +2,12 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.BackupOutcome
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.FlywayDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
 import io.github.jpicklyk.mcptask.current.model.item.LifecycleMode
+import io.github.jpicklyk.mcptask.current.platform.sqlite.BackupOutcome
+import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.management.FlywayDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.transitionsOf
 import kotlinx.coroutines.runBlocking

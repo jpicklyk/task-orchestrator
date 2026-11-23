@@ -18,7 +18,6 @@ import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellat
 import io.github.jpicklyk.mcptask.current.application.support.toDomainError
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallPrincipal
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallRun
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.PersistenceFaults
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EncodedEnvelope
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigInvalidException
@@ -28,6 +27,7 @@ import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.model.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
+import io.github.jpicklyk.mcptask.current.platform.sqlite.PersistenceFaults
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull

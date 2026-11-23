@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.seeds
 
 import io.github.jpicklyk.mcptask.current.application.port.EventStore
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.UtcTimestamp
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.BaselineDataset
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.MigrationSeed
+import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.UtcTimestamp
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
