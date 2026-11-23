@@ -28,8 +28,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Unit tests for [ToolExecutionContext.resolveDispatchProfile] (resolved-schema overload) /
- * [ToolExecutionContext.resolveDispatchProfiles] — the dispatch-trait resolution layer (B1,
+ * Unit tests for `configResolver.resolveDispatchProfile` (resolved-schema overload) /
+ * `configResolver.resolveDispatchProfiles` — the dispatch-trait resolution layer (B1,
  * dispatch trait dimension). Uses the 3-arg `resolveDispatchProfile(item, role, resolvedSchema)`
  * overload throughout: it is the overload the tools (the advance transition, the context read,
  * QueryItemsTool) actually use (per the pinned contract, P7), and it isolates the dispatch
@@ -94,7 +94,7 @@ class ToolExecutionContextDispatchTest {
             server.traitDispatch["delegated"] = mapOf(Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer"))
 
             val item = makeItem()
-            val profile = context.resolveDispatchProfile(item, Role.WORK, schema(listOf("delegated")))
+            val profile = context.configResolver.resolveDispatchProfile(item, Role.WORK, schema(listOf("delegated")))
 
             assertEquals(DispatchProfile(agent = "task-orchestrator:implementer"), profile)
         }
@@ -105,7 +105,7 @@ class ToolExecutionContextDispatchTest {
             server.traitDispatch["delegated"] = mapOf(Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer"))
 
             val item = makeItem(traits = listOf("delegated"))
-            val profile = context.resolveDispatchProfile(item, Role.WORK, resolvedSchema = null)
+            val profile = context.configResolver.resolveDispatchProfile(item, Role.WORK, resolvedSchema = null)
 
             assertEquals(DispatchProfile(agent = "task-orchestrator:implementer"), profile)
         }
@@ -122,7 +122,7 @@ class ToolExecutionContextDispatchTest {
             server.traitDispatch["x"] = mapOf(Role.WORK to DispatchProfile(agent = "a"))
 
             val item = makeItem(traits = listOf("x"))
-            val profile = context.resolveDispatchProfile(item, Role.WORK, schema(listOf("delegated")))
+            val profile = context.configResolver.resolveDispatchProfile(item, Role.WORK, schema(listOf("delegated")))
 
             assertEquals("a", profile?.agent)
         }
@@ -139,7 +139,7 @@ class ToolExecutionContextDispatchTest {
             server.traitDispatch["trait-b"] = mapOf(Role.WORK to DispatchProfile(agent = "b"))
 
             val item = makeItem()
-            val profile = context.resolveDispatchProfile(item, Role.WORK, schema(listOf("trait-a", "trait-b")))
+            val profile = context.configResolver.resolveDispatchProfile(item, Role.WORK, schema(listOf("trait-a", "trait-b")))
 
             assertEquals("a", profile?.agent)
         }
@@ -152,7 +152,7 @@ class ToolExecutionContextDispatchTest {
             server.traitDispatch["trait-b"] = mapOf(Role.WORK to DispatchProfile(agent = "b"))
 
             val item = makeItem()
-            val profile = context.resolveDispatchProfile(item, Role.WORK, schema(listOf("trait-a", "trait-b")))
+            val profile = context.configResolver.resolveDispatchProfile(item, Role.WORK, schema(listOf("trait-a", "trait-b")))
 
             assertEquals("b", profile?.agent)
         }
@@ -168,7 +168,7 @@ class ToolExecutionContextDispatchTest {
             server.traitDispatch["t2"] = mapOf(Role.WORK to DispatchProfile(effort = "high"))
 
             val item = makeItem()
-            val profile = context.resolveDispatchProfile(item, Role.WORK, schema(listOf("t1", "t2")))
+            val profile = context.configResolver.resolveDispatchProfile(item, Role.WORK, schema(listOf("t1", "t2")))
 
             assertEquals(DispatchProfile(agent = "a"), profile)
             assertNull(profile?.effort, "t2's effort must not merge into t1's winning profile")
@@ -206,7 +206,7 @@ class ToolExecutionContextDispatchTest {
             val ctx = ToolExecutionContext(repoProvider, perRootConfigService = perRoot, configResolver = server.resolver(perRoot))
 
             val item = makeItem(rootId = rootId)
-            val profile = ctx.resolveDispatchProfile(item, Role.WORK, schema(listOf("delegated")))
+            val profile = ctx.configResolver.resolveDispatchProfile(item, Role.WORK, schema(listOf("delegated")))
 
             assertEquals(perRootProfile, profile)
         }
@@ -237,7 +237,7 @@ class ToolExecutionContextDispatchTest {
             val ctx = ToolExecutionContext(repoProvider, perRootConfigService = perRoot, configResolver = server.resolver(perRoot))
 
             val item = makeItem(rootId = rootId)
-            val profile = ctx.resolveDispatchProfile(item, Role.WORK, schema(listOf("delegated")))
+            val profile = ctx.configResolver.resolveDispatchProfile(item, Role.WORK, schema(listOf("delegated")))
 
             assertEquals("task-orchestrator:implementer", profile?.agent)
         }
@@ -269,7 +269,7 @@ class ToolExecutionContextDispatchTest {
             val ctx = ToolExecutionContext(repoProvider, perRootConfigService = perRoot, configResolver = server.resolver(perRoot))
 
             val item = makeItem(rootId = rootId)
-            val profile = ctx.resolveDispatchProfile(item, Role.WORK, schema(listOf("delegated")))
+            val profile = ctx.configResolver.resolveDispatchProfile(item, Role.WORK, schema(listOf("delegated")))
 
             assertNull(profile, "a per-root REVIEW-only map must not fall through to the global WORK entry")
         }
@@ -291,7 +291,7 @@ class ToolExecutionContextDispatchTest {
 
             // Empty on both sides: no item-level traits (no properties) and no defaultTraits.
             val item = makeItem(rootId = rootId)
-            val profile = ctx.resolveDispatchProfile(item, Role.WORK, schema(emptyList()))
+            val profile = ctx.configResolver.resolveDispatchProfile(item, Role.WORK, schema(emptyList()))
 
             assertNull(profile)
             coVerify(exactly = 0) { perRoot.layer(any()) }
@@ -307,7 +307,7 @@ class ToolExecutionContextDispatchTest {
                 )
 
             val item = makeItem()
-            val profile = context.resolveDispatchProfile(item, Role.QUEUE, schema(listOf("delegated")))
+            val profile = context.configResolver.resolveDispatchProfile(item, Role.QUEUE, schema(listOf("delegated")))
 
             assertNull(profile, "the pinned contract declares queue/work/review only -- no QUEUE entry ever resolves")
         }
@@ -319,7 +319,7 @@ class ToolExecutionContextDispatchTest {
             server.traitDispatch["delegated"] = mapOf(Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer"))
 
             val item = makeItem()
-            val profile = context.resolveDispatchProfile(item, Role.WORK, schema(listOf("no-such-trait", "delegated")))
+            val profile = context.configResolver.resolveDispatchProfile(item, Role.WORK, schema(listOf("no-such-trait", "delegated")))
 
             assertEquals("task-orchestrator:implementer", profile?.agent)
         }
@@ -336,7 +336,7 @@ class ToolExecutionContextDispatchTest {
             server.traitDispatch["t"] = mapOf(Role.WORK to DispatchProfile(agent = "t-agent"))
 
             val item = makeItem(traits = listOf("t"))
-            val profile = context.resolveDispatchProfile(item, Role.WORK, schema(listOf("d", "t")))
+            val profile = context.configResolver.resolveDispatchProfile(item, Role.WORK, schema(listOf("d", "t")))
 
             assertEquals("t-agent", profile?.agent, "order = [t, d, t].distinct() = [t, d] -- t wins")
         }
@@ -386,7 +386,7 @@ class ToolExecutionContextDispatchTest {
             val ctx = ToolExecutionContext(repoProvider, configResolver = EffectiveConfigResolver(lookup, null))
             val item = makeItem()
 
-            val result = ctx.resolveSchema(item)
+            val result = ctx.configResolver.resolveSchema(item)
 
             assertEquals(2, result!!.notes.size, "sanity: the merge itself must still succeed")
             verify(exactly = 0) { lookup.traitDispatch(any()) }
@@ -411,7 +411,7 @@ class ToolExecutionContextDispatchTest {
             val ctx = ToolExecutionContext(repoProvider, configResolver = EffectiveConfigResolver(lookup, null))
             val item = makeItem()
 
-            val result = ctx.resolveResourceRequirements(item)
+            val result = ctx.configResolver.resolveResourceRequirements(item)
 
             assertTrue(result.isEmpty(), "sanity: the no-traits resource path must still succeed")
             verify(exactly = 0) { lookup.traitDispatch(any()) }

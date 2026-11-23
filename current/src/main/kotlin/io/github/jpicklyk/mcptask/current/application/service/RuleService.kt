@@ -26,7 +26,7 @@ import java.util.UUID
  *
  * Pipeline for both [get] and [list]: root exists -> root is depth-0 -> (for [get]) document
  * exists at `rule/<key>`. Callers resolving a skill-pointer (item mode) resolve the item's
- * effective schema themselves (via `ToolExecutionContext.resolveSchema`, which this class does not
+ * effective schema themselves (via `EffectiveConfigResolver.resolveSchema`, which this class does not
  * depend on) and pass the resolved rule key straight to [get].
  */
 class RuleService(

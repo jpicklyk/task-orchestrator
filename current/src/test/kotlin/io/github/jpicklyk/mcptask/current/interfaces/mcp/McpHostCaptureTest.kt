@@ -16,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.CollectingSink
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.FixtureToolServices
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
@@ -151,7 +152,7 @@ class McpHostCaptureTest {
 
     private fun operationAdapter(): McpOperationAdapter =
         McpOperationAdapter(
-            ToolDispatcher(RequestDecoder(), BatchRunner(env.unitOfWork, env.idempotency), env, buildToolSpecs()),
+            ToolDispatcher(RequestDecoder(), BatchRunner(env.unitOfWork, env.idempotency), env, buildToolSpecs(), FixtureToolServices(env)),
             callLog = sink
         )
 

@@ -26,6 +26,7 @@ import io.github.jpicklyk.mcptask.current.platform.tool.CallAccess
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.FixtureToolServices
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -164,7 +165,8 @@ class McpLocalPrincipalCallLogTest {
         fx: FixtureTools? = null
     ): Client {
         val server = Server(serverInfo = Implementation(name = "local-server", version = "1.0.0"), options = inMemoryTestServerOptions())
-        val adapter = McpOperationAdapter(buildToolDispatcher(rig.ctx), access = access, callLog = writer)
+        val adapter =
+            McpOperationAdapter(buildToolDispatcher(rig.ctx, services = FixtureToolServices(rig.ctx)), access = access, callLog = writer)
         adapter.register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
         if (fx != null) adapter.register(server, fx.registry, ToolProfile.ORCHESTRATION)
         val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()

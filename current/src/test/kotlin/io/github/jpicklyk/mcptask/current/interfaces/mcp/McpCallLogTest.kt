@@ -17,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.platform.calltelemetry.ReqId
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.FixtureToolServices
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
@@ -101,7 +102,7 @@ class McpCallLogTest {
     /** A server with the production registry and the [FixtureTools] registry, both through one [McpOperationAdapter] on [sink]. */
     private suspend fun connect(sink: CallLogSink): Pair<Client, Server> {
         val srv = Server(serverInfo = Implementation(name = "p10-server", version = "1.0.0"), options = inMemoryTestServerOptions())
-        val adapter = McpOperationAdapter(buildToolDispatcher(rig.ctx), callLog = sink)
+        val adapter = McpOperationAdapter(buildToolDispatcher(rig.ctx, services = FixtureToolServices(rig.ctx)), callLog = sink)
         adapter.register(srv, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
         adapter.register(srv, fixtures.registry, ToolProfile.ORCHESTRATION)
         val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()

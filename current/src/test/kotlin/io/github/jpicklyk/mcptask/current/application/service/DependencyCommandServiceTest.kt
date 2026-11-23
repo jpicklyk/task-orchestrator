@@ -72,7 +72,7 @@ class DependencyCommandServiceTest {
     ) = Dependency(fromItemId = from, toItemId = to, type = type, unblockAt = unblockAt)
 
     private suspend fun stored(vararg items: UUID): List<Dependency> =
-        items.flatMap { context.dependencyRepository().findByItemId(it) }.distinctBy { it.id }
+        items.flatMap { context.repositoryProvider.dependencyRepository().findByItemId(it) }.distinctBy { it.id }
 
     private fun <T> Outcome<T>.ok(): T =
         when (this) {

@@ -13,7 +13,7 @@ package io.github.jpicklyk.mcptask.current.model.lease
  * transition policy's lease gate (`GateId.LEASE`, evaluated by `TransitionPolicy`, which decides `acquireLeases` for a transition into
  * `work`) and the lease writes of `ClaimService.acquireLeases`, driven by `AdvanceService`; the requirements it
  * enforces come from
- * [io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext.resolveResourceRequirements].
+ * [io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver.resolveResourceRequirements].
  *
  * @property key Resource identifier. Matched against the optional top-level `resources:` registry
  *   ([ResourceDefinition]) to resolve a default TTL and description; also the lease/lock namespace

@@ -102,12 +102,12 @@ class ToolDispatcher(
     private val decoder: RequestDecoder,
     private val batchRunner: BatchRunner,
     private val env: ToolExecutionContext,
-    specs: List<ToolSpec>
+    /** The tools this dispatcher validates at construction; the composition passes the list its [ToolRegistry] serves. */
+    val specs: List<ToolSpec>,
+    /** The services holders a select or op takes as `env`; production uses the one over [env], a test may pass its own. */
+    private val services: ToolServiceLookup = ToolServiceRegistry(env)
 ) {
     private val logger = LoggerFactory.getLogger(ToolDispatcher::class.java)
-
-    /** The services holders a select or op takes as `env`, built over [env]; this dispatcher's own registry, held for its life. */
-    private val services: ToolServiceLookup = ToolServiceRegistry(env)
 
     init {
         // A holder nobody registered is a wiring mistake: fail here, naming the select or op, not as an `internal` call outcome.

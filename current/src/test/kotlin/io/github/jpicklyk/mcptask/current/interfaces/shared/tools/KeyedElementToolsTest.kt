@@ -165,7 +165,7 @@ class KeyedElementToolsTest {
 
             val mismatch = upsert("DIFFERENT body")
             assertTrue("idempotency_mismatch" in mismatch.toString(), "a changed body is a mismatch: $mismatch")
-            val notes = ctx.noteRepository().findByItemId(itemId)
+            val notes = ctx.repositoryProvider.noteRepository().findByItemId(itemId)
             assertEquals(1, notes.size)
             assertEquals("First body", notes.single().body, "the mismatched retry must not overwrite the note")
         }

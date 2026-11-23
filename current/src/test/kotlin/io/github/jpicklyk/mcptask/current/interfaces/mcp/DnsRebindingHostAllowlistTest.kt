@@ -5,7 +5,6 @@ import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.config.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.bootstrap.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.bootstrap.installRestApiRoutes
@@ -144,7 +143,6 @@ class DnsRebindingHostAllowlistTest {
             toolContext =
                 ToolExecutionContext(
                     provider,
-                    statusLabelService = NoOpStatusLabelService,
                     perRootConfigService = PerRootConfigService(provider.configStore()),
                     unitOfWork = db.unitOfWork()
                 ),

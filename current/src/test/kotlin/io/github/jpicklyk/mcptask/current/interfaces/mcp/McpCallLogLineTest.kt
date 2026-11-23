@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.LogCapture
 import io.github.jpicklyk.mcptask.current.test.LogSnapshot
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.FixtureToolServices
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
@@ -86,7 +87,7 @@ class McpCallLogLineTest {
     private suspend fun connect(sink: CallLogSink = CallLogSink.NONE): Client {
         val server =
             Server(serverInfo = Implementation(name = "df10-line-server", version = "1.0.0"), options = inMemoryTestServerOptions())
-        val adapter = McpOperationAdapter(buildToolDispatcher(rig.ctx), callLog = sink)
+        val adapter = McpOperationAdapter(buildToolDispatcher(rig.ctx, services = FixtureToolServices(rig.ctx)), callLog = sink)
         adapter.register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
         adapter.register(server, fixtures.registry, ToolProfile.ORCHESTRATION)
         val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()

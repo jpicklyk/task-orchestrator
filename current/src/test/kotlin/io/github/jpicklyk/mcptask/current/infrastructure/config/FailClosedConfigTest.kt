@@ -202,7 +202,10 @@ class FailClosedConfigTest {
     @Test
     fun `S5 schema resolution throws for the broken server head instead of resolving from nothing`() {
         val healthy = boot("a", base)
-        assertNotNull(runBlocking { healthy.toolContext.resolveTypeSchema("feature-task", null) }, "control: the type resolves")
+        assertNotNull(
+            runBlocking { healthy.toolContext.configResolver.resolveTypeSchema("feature-task", null) },
+            "control: the type resolves"
+        )
         val root = seedRoot()
         nullServerCanonical()
         val coldComposition = cold("cold")
@@ -210,7 +213,7 @@ class FailClosedConfigTest {
         val noRoot =
             assertFailsWith<PerRootConfigInvalidException> {
                 runBlocking {
-                    coldComposition.toolContext.resolveTypeSchema(
+                    coldComposition.toolContext.configResolver.resolveTypeSchema(
                         "feature-task",
                         null
                     )
@@ -219,7 +222,7 @@ class FailClosedConfigTest {
         assertNull(noRoot.rootId)
         val withRoot =
             assertFailsWith<PerRootConfigInvalidException> {
-                runBlocking { cold("cold-2").toolContext.resolveTypeSchema("feature-task", root.id) }
+                runBlocking { cold("cold-2").toolContext.configResolver.resolveTypeSchema("feature-task", root.id) }
             }
         assertNull(withRoot.rootId, "it is the server head that is broken, not the root's")
     }
@@ -231,13 +234,13 @@ class FailClosedConfigTest {
         pushRootConfig(root, rootOnly)
         val control = cold("control")
         assertNotNull(
-            runBlocking { control.toolContext.resolveTypeSchema("root-only-type", root.id) },
+            runBlocking { control.toolContext.configResolver.resolveTypeSchema("root-only-type", root.id) },
             "control: the root's own type resolves"
         )
         nullServerCanonical()
 
         assertFailsWith<PerRootConfigInvalidException> {
-            runBlocking { cold("cold").toolContext.resolveTypeSchema("root-only-type", root.id) }
+            runBlocking { cold("cold").toolContext.configResolver.resolveTypeSchema("root-only-type", root.id) }
         }
     }
 
@@ -253,7 +256,7 @@ class FailClosedConfigTest {
                 runBlocking {
                     cold(
                         "cold"
-                    ).toolContext.resolveTypeSchema("feature-task", root.id)
+                    ).toolContext.configResolver.resolveTypeSchema("feature-task", root.id)
                 }
             }
 

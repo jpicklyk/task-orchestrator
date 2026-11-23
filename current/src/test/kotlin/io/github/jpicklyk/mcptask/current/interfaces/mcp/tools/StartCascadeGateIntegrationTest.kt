@@ -107,7 +107,7 @@ class StartCascadeGateIntegrationTest {
         body: String = "Filled content for $key"
     ): Note {
         val note = Note(itemId = itemId, key = key, role = role.name.lowercase(), body = body)
-        val result = context.noteRepository().upsert(note)
+        val result = context.repositoryProvider.noteRepository().upsert(note)
         return result
     }
 
@@ -222,7 +222,7 @@ class StartCascadeGateIntegrationTest {
             assertEquals(Role.TERMINAL, getItem(parent.id).role, "sanity check: parent must have reached TERMINAL")
 
             // Now delete every parent note so the parent is left with ZERO filled notes.
-            context.noteRepository().deleteByItemId(parent.id)
+            context.repositoryProvider.noteRepository().deleteByItemId(parent.id)
 
             val reopenResult =
                 advance(transitionObj(child.id, "reopen"))

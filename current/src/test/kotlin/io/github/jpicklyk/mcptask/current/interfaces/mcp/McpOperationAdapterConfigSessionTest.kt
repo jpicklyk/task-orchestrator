@@ -13,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.platform.tool.SelectToolSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.platform.tool.knowledge
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.FixtureToolServices
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -89,7 +90,7 @@ class McpOperationAdapterConfigSessionTest {
                     services = ToolExecutionContext::class,
                     request = serializer<ResolveReq>(),
                     handler = { env, _, req ->
-                        repeat(req.times) { env.resolveTypeSchema("feature-task", rootId) }
+                        repeat(req.times) { env.configResolver.resolveTypeSchema("feature-task", rootId) }
                         Outcome.Ok("resolved")
                     },
                     data = { JsonPrimitive(it) }
@@ -119,7 +120,9 @@ class McpOperationAdapterConfigSessionTest {
         val env =
             ToolExecutionContext(repositoryProvider = db.repositoryProvider(), perRootConfigService = source, unitOfWork = db.unitOfWork())
         val server = Server(serverInfo = Implementation(name = "session-server", version = "1.0.0"), options = inMemoryTestServerOptions())
-        McpOperationAdapter(buildToolDispatcher(env)).register(server, ToolRegistry(listOf(probeTool(rootId))), ToolProfile.ORCHESTRATION)
+        McpOperationAdapter(
+            buildToolDispatcher(env, services = FixtureToolServices(env))
+        ).register(server, ToolRegistry(listOf(probeTool(rootId))), ToolProfile.ORCHESTRATION)
         val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()
         val client =
             Client(

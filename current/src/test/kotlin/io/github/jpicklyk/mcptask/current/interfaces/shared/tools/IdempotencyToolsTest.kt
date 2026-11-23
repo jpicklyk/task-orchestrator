@@ -107,7 +107,7 @@ class IdempotencyToolsTest {
             )
 
             // Verify the note body was set ONCE: the second call did not run
-            val notes = context.noteRepository().findByItemId(itemId)
+            val notes = context.repositoryProvider.noteRepository().findByItemId(itemId)
             assertEquals(1, notes.size)
             assertEquals("First body", notes[0].body, "Cached call must not have overwritten the body")
             assertEquals(1L, notes[0].version, "the replay did not write")
@@ -122,7 +122,7 @@ class IdempotencyToolsTest {
             context.upsertNoteVia(itemId, "approach", "work", "v2")
 
             assertEquals(0, db.idempotencyRecordCount())
-            val notes = context.noteRepository().findByItemId(itemId)
+            val notes = context.repositoryProvider.noteRepository().findByItemId(itemId)
             assertEquals("v2", notes[0].body, "Without a key, second call must overwrite")
             assertEquals(2L, notes[0].version, "each unkeyed write bumps the version")
         }

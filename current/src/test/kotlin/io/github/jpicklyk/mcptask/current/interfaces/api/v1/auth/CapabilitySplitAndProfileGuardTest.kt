@@ -36,6 +36,7 @@ import io.github.jpicklyk.mcptask.current.platform.call.grants
 import io.github.jpicklyk.mcptask.current.platform.call.toCallPrincipal
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.FixtureToolServices
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
@@ -599,7 +600,7 @@ class CapabilitySplitAndProfileGuardTest {
                     tokenEntries = entries
                     jwksVerifier = verifier
                 }
-                opsRoutes(registry, buildToolDispatcher(rig.ctx))
+                opsRoutes(registry, buildToolDispatcher(rig.ctx, registry, FixtureToolServices(rig.ctx)))
             }
         }
     }

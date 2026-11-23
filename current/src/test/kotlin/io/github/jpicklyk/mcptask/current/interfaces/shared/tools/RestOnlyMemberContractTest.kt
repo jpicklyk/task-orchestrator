@@ -28,6 +28,7 @@ import io.github.jpicklyk.mcptask.current.platform.tool.visibleOps
 import io.github.jpicklyk.mcptask.current.platform.tool.visibleSelects
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.ApiReferenceDocs
+import io.github.jpicklyk.mcptask.current.test.tools.FixtureToolServices
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
@@ -240,7 +241,7 @@ class RestOnlyMemberContractTest {
 
     private fun newServers(): Servers {
         val rig = EventLogRig.build(db.db, dir, EventLogRig.GATED_CONFIG)
-        val adapter = McpOperationAdapter(buildToolDispatcher(rig.ctx))
+        val adapter = McpOperationAdapter(buildToolDispatcher(rig.ctx, services = FixtureToolServices(rig.ctx)))
 
         fun server(profile: ToolProfile): Server =
             buildProfileServer(

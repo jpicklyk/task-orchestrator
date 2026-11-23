@@ -2,19 +2,12 @@ package io.github.jpicklyk.mcptask.current.application.api
 
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
-import io.github.jpicklyk.mcptask.current.application.config.LayeredConfig
-import io.github.jpicklyk.mcptask.current.application.config.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
-import io.github.jpicklyk.mcptask.current.application.config.SchemaMatch
-import io.github.jpicklyk.mcptask.current.application.config.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.knowledge.document.DocumentService
 import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
 import io.github.jpicklyk.mcptask.current.application.knowledge.related.RelatedService
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
-import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.DecisionEffects
-import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
-import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.RunDecisionPort
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
@@ -32,14 +25,6 @@ import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommende
 import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
 import io.github.jpicklyk.mcptask.current.application.service.PlanDocumentService
 import io.github.jpicklyk.mcptask.current.application.service.SchemaPinService
-import io.github.jpicklyk.mcptask.current.application.service.TransitionPreview
-import io.github.jpicklyk.mcptask.current.model.item.Role
-import io.github.jpicklyk.mcptask.current.model.item.WorkItem
-import io.github.jpicklyk.mcptask.current.model.lease.ResourceDefinition
-import io.github.jpicklyk.mcptask.current.model.lease.ResourceRequirement
-import io.github.jpicklyk.mcptask.current.model.schema.DispatchProfile
-import io.github.jpicklyk.mcptask.current.model.schema.IndependencePolicy
-import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.platform.eventrecording.UnscopedUnitOfWork
 import io.github.jpicklyk.mcptask.current.platform.idempotency.IdempotencyService
 import io.github.jpicklyk.mcptask.current.platform.port.BodySource
@@ -56,12 +41,11 @@ import java.util.UUID
  */
 class ToolExecutionContext(
     val repositoryProvider: RepositoryProvider,
-    private val statusLabelService: StatusLabelService = NoOpStatusLabelService,
     val nextItemRecommender: NextItemRecommender =
         NextItemRecommender(repositoryProvider.workItemRepository()),
     perRootConfigService: PerRootConfigSource? = null,
     /**
-     * The single resolution entry point every resolver method below delegates to. Defaults to a
+     * The single config resolution entry point (schemas, traits, dispatch profiles, status labels). Defaults to a
      * resolver with NO server config (an empty server layer) over `perRootConfigService`; production
      * and any test that needs server schemas pass a resolver built over a real server [LayerBackedGlobalLookup].
      */
@@ -121,8 +105,8 @@ class ToolExecutionContext(
     private val advanceServiceFactoryLazy by lazy {
         AdvanceServiceFactory(
             workItemRepository(),
-            dependencyRepository(),
-            noteRepository(),
+            repositoryProvider.dependencyRepository(),
+            repositoryProvider.noteRepository(),
             repositoryProvider.resourceLeaseRepository(),
             configResolver,
             unitOfWork,
@@ -237,161 +221,9 @@ class ToolExecutionContext(
     /** Access to WorkItem CRUD and query operations. */
     fun workItemRepository(): WorkItemRepository = repositoryProvider.workItemRepository()
 
-    /** Access to Note upsert, query, and delete operations. */
-    fun noteRepository(): NoteStore = repositoryProvider.noteRepository()
-
-    /** Access to Dependency graph operations (synchronous, non-suspend). */
-    fun dependencyRepository(): DependencyStore = repositoryProvider.dependencyRepository()
-
-    /** Access to the status label configuration service. */
-    fun statusLabelService(): StatusLabelService = statusLabelService
-
-    /** Access to the versioned per-root config store. */
-    fun configStore(): ConfigStore = repositoryProvider.configStore()
-
-    /**
-     * Resolves the effective [WorkItemSchema] for a [WorkItem], including trait note merging.
-     * Delegates to [EffectiveConfigResolver.resolveSchema]; see [LayeredConfig] for the one
-     * per-root-over-server precedence rule and [io.github.jpicklyk.mcptask.current.application.config.TraitResolver]
-     * for the trait merge.
-     */
-    suspend fun resolveSchema(item: WorkItem): WorkItemSchema? = configResolver.resolveSchema(item)
-
-    /**
-     * Same resolution as [resolveSchema], but also reports which config layer supplied the BASE
-     * schema and that layer's config fingerprint, which is what `items_read` `select=schema`
-     * needs for its `configSource`/`configFingerprint` fields. Delegates to
-     * [EffectiveConfigResolver.resolveSchemaWithSource].
-     */
-    suspend fun resolveSchemaWithSource(item: WorkItem): SchemaMatch? = configResolver.resolveSchemaWithSource(item)
-
-    /**
-     * Type-only counterpart to [resolveSchemaWithSource] for callers that have a type name but no
-     * [WorkItem]: no trait merging. Returns null when no layer resolves [type] (its own schema or a `"default"`).
-     */
-    suspend fun resolveTypeSchema(
-        type: String,
-        rootId: UUID?
-    ): SchemaMatch? = configResolver.resolveTypeSchema(type, rootId)
-
-    /**
-     * Returns true if the resolved (trait-merged) schema for [item] has a REVIEW phase; false when
-     * no schema matches (schema-free mode, skip REVIEW).
-     */
-    suspend fun resolveHasReviewPhase(item: WorkItem): Boolean = configResolver.resolveHasReviewPhase(item)
-
-    /**
-     * Resolves the effective [ResourceRequirement] list for [item]'s traits (config layer only;
-     * nothing here acquires or enforces a lease). Delegates to
-     * [EffectiveConfigResolver.resolveResourceRequirements].
-     */
-    suspend fun resolveResourceRequirements(item: WorkItem): List<ResourceRequirement> = configResolver.resolveResourceRequirements(item)
-
-    /**
-     * Type-only counterpart to [resolveResourceRequirements]: [defaultTraits] is the complete trait
-     * set. Delegates to [EffectiveConfigResolver.resolveResourceRequirementsForType].
-     */
-    suspend fun resolveResourceRequirementsForType(
-        defaultTraits: List<String>,
-        rootId: UUID?
-    ): List<ResourceRequirement> = configResolver.resolveResourceRequirementsForType(defaultTraits, rootId)
-
-    /**
-     * Resolves the dispatch routing profile for [item] at [role]. Convenience overload for callers
-     * with no already-resolved schema in hand: resolves it via [resolveSchema] first, then delegates
-     * to the 3-arg overload. Callers that already have a resolved schema MUST use the 3-arg overload
-     * instead: this one costs a second, redundant schema resolution (and its own per-root read).
-     */
-    suspend fun resolveDispatchProfile(
-        item: WorkItem,
-        role: Role
-    ): DispatchProfile? {
-        val resolvedSchema = resolveSchema(item)
-        return resolveDispatchProfile(item, role, resolvedSchema)
-    }
-
-    /**
-     * Resolves the dispatch routing profile for [item] at [role], using [resolvedSchema]'s
-     * `defaultTraits` instead of re-resolving the schema. A trait-less item costs zero per-root
-     * reads. Trait
-     * order is item traits first, then defaultTraits (the one order every trait merge uses). Delegates to
-     * [EffectiveConfigResolver.resolveDispatchProfile].
-     */
-    suspend fun resolveDispatchProfile(
-        item: WorkItem,
-        role: Role,
-        resolvedSchema: WorkItemSchema?
-    ): DispatchProfile? = configResolver.resolveDispatchProfile(item, role, resolvedSchema)
-
-    /**
-     * Per-phase counterpart to the 3-arg [resolveDispatchProfile]: a profile for EVERY phase
-     * [item]'s traits declare. Delegates to [EffectiveConfigResolver.resolveDispatchProfiles].
-     */
-    suspend fun resolveDispatchProfiles(
-        item: WorkItem,
-        resolvedSchema: WorkItemSchema?
-    ): Map<Role, DispatchProfile> = configResolver.resolveDispatchProfiles(item, resolvedSchema)
-
-    /**
-     * Type-only counterpart to [resolveDispatchProfiles]: [defaultTraits] is the complete trait set.
-     * Delegates to [EffectiveConfigResolver.resolveDispatchProfilesForType].
-     */
-    suspend fun resolveDispatchProfilesForType(
-        defaultTraits: List<String>,
-        rootId: UUID?
-    ): Map<Role, DispatchProfile> = configResolver.resolveDispatchProfilesForType(defaultTraits, rootId)
-
-    /**
-     * Resolves the effective resource registry (top-level `resources:`) visible to [rootId]: the
-     * server registry only. Delegates to [EffectiveConfigResolver.resolveResourceRegistry].
-     */
-    suspend fun resolveResourceRegistry(rootId: UUID?): Map<String, ResourceDefinition> = configResolver.resolveResourceRegistry(rootId)
-
-    /**
-     * Layered `note_limits.mode` resolution: [rootId]'s per-root explicit value wins, else the
-     * global mode. Delegates to [EffectiveConfigResolver.resolveNoteLimitsMode].
-     */
-    suspend fun resolveNoteLimitsMode(rootId: UUID?): String = configResolver.resolveNoteLimitsMode(rootId)
-
-    /**
-     * Layered `independence:` policy resolution (A2): [rootId]'s per-root block wins WHOLESALE,
-     * else the global policy. Delegates to [EffectiveConfigResolver.resolveIndependencePolicy].
-     */
-    suspend fun resolveIndependencePolicy(rootId: UUID?): IndependencePolicy = configResolver.resolveIndependencePolicy(rootId)
-
-    /**
-     * Layered status-label resolution for a single [trigger]: an explicit per-root key for
-     * [trigger] wins (including an explicit `null` value); otherwise the global label.
-     */
-    suspend fun resolveStatusLabel(
-        trigger: String,
-        rootId: UUID?
-    ): String? = resolveStatusLabels(listOf(trigger), rootId)[trigger]
-
-    /**
-     * Batched counterpart to [resolveStatusLabel]: every trigger in [triggers] from a SINGLE
-     * per-root read. Delegates to [EffectiveConfigResolver.resolveStatusLabels].
-     */
-    suspend fun resolveStatusLabels(
-        triggers: Collection<String>,
-        rootId: UUID?
-    ): Map<String, String?> = configResolver.resolveStatusLabels(triggers, rootId)
-
-    /**
-     * Returns the union of trait names available for the given [rootIds], per-root traits first,
-     * followed by the global trait list, distinct. Delegates to
-     * [EffectiveConfigResolver.availableTraits].
-     */
-    suspend fun availableTraits(rootIds: Collection<UUID>): List<String> = configResolver.availableTraits(rootIds)
-
     /**
      * The shared [AdvanceServiceFactory] for this context, backing every `advance` `transition` /
      * `items_write` `complete_tree` construction of [io.github.jpicklyk.mcptask.current.application.service.AdvanceService].
      */
     fun advanceServiceFactory(): AdvanceServiceFactory = advanceServiceFactoryLazy
-
-    /**
-     * The shared read-only [TransitionPreview] (`canAdvance` of `items_read` `select=context`): the same snapshot loader and policy every advance uses.
-     */
-    fun transitionPreview(): TransitionPreview = advanceServiceFactory().preview()
 }

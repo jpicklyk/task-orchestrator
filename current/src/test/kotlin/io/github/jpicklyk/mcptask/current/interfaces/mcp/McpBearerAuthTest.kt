@@ -24,6 +24,7 @@ import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.FixtureToolServices
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
 import io.ktor.client.HttpClient
 import io.ktor.client.request.delete
@@ -132,7 +133,7 @@ internal class McpAuthHttpFixture(
 
     val adapter =
         McpOperationAdapter(
-            buildToolDispatcher(rig.ctx),
+            buildToolDispatcher(rig.ctx, services = FixtureToolServices(rig.ctx)),
             access = { sessionId ->
                 accessQueries += sessionId
                 sessions.access(sessionId)

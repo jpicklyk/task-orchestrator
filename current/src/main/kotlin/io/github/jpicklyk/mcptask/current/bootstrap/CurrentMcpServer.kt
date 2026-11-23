@@ -38,6 +38,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerSdkSessions
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installHostAllowlist
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolServiceRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.platform.health.ReadinessMarker
 import io.github.jpicklyk.mcptask.current.platform.port.Clock
@@ -53,6 +54,7 @@ import io.github.jpicklyk.mcptask.current.platform.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.platform.sqlite.SchemaStartupOutcome
 import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
+import io.github.jpicklyk.mcptask.current.platform.tool.ToolServiceLookup
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
@@ -315,7 +317,7 @@ class CurrentMcpServer(
             // The tools (ToolSpec registry), served by profile.
             val registry = ToolRegistry(buildToolSpecs())
             // ONE dispatcher serves MCP and REST (`POST /api/v1/ops/{tool}`), so both produce the same bytes.
-            val toolDispatcher = buildToolDispatcher(toolContext)
+            val toolDispatcher = buildToolDispatcher(toolContext, registry)
             // HTTP: a tool call runs as the principal its session is bound to (McpBearerAuth binds it). Stdio: the local principal.
             val sdkSessions = ServerSdkSessions()
             val sessionPrincipals = newSessionPrincipals(appConfig, sdkSessions)
@@ -485,7 +487,7 @@ class CurrentMcpServer(
         sessionPrincipals: McpSessionPrincipals,
         callLog: CallLogSink = CallLogSink.NONE,
         toolRegistry: ToolRegistry = ToolRegistry(buildToolSpecs()),
-        toolDispatcher: ToolDispatcher = buildToolDispatcher(toolContext),
+        toolDispatcher: ToolDispatcher = buildToolDispatcher(toolContext, toolRegistry),
         onReady: () -> Unit = {},
     ): StartupOutcome {
         val host = appConfig.mcpHttpHost
@@ -690,13 +692,22 @@ internal fun buildProfileServer(
     return server
 }
 
-/** The one [ToolDispatcher] over [toolContext], shared by the MCP adapter and `POST /api/v1/ops/{tool}`. */
-internal fun buildToolDispatcher(toolContext: ToolExecutionContext): ToolDispatcher =
+/**
+ * The one [ToolDispatcher] over [toolContext], shared by the MCP adapter and `POST /api/v1/ops/{tool}`. It validates the
+ * specs [registry] serves, so the dispatcher and the registry never hold two lists; the composition builds [registry] once
+ * and passes it here and to the routes. A caller with no registry of its own gets one over a fresh [buildToolSpecs].
+ */
+internal fun buildToolDispatcher(
+    toolContext: ToolExecutionContext,
+    registry: ToolRegistry = ToolRegistry(buildToolSpecs()),
+    services: ToolServiceLookup = ToolServiceRegistry(toolContext)
+): ToolDispatcher =
     ToolDispatcher(
         RequestDecoder(),
         BatchRunner(toolContext.unitOfWork, toolContext.idempotency),
         toolContext,
-        buildToolSpecs()
+        registry.tools,
+        services
     )
 
 /**
@@ -862,7 +873,7 @@ internal fun Application.installRestApiRoutes(
     appConfig: AppConfig,
     callLog: CallLogSink = CallLogSink.NONE,
     toolRegistry: ToolRegistry = ToolRegistry(buildToolSpecs()),
-    toolDispatcher: ToolDispatcher = buildToolDispatcher(toolContext),
+    toolDispatcher: ToolDispatcher = buildToolDispatcher(toolContext, toolRegistry),
 ) {
     if (apiConfig is ApiAuthConfig.Disabled) return
 

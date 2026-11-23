@@ -18,6 +18,7 @@ import io.github.jpicklyk.mcptask.current.platform.tool.ToolProfile
 import io.github.jpicklyk.mcptask.current.platform.tool.knowledge
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.testAccess
+import io.github.jpicklyk.mcptask.current.test.tools.FixtureToolServices
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -104,7 +105,7 @@ class McpOperationAdapterMdcTest {
         val env = ToolExecutionContext(repositoryProvider = db.repositoryProvider(), unitOfWork = db.unitOfWork())
         val server = Server(serverInfo = Implementation(name = "mdc-server", version = "1.0.0"), options = inMemoryTestServerOptions())
         McpOperationAdapter(
-            buildToolDispatcher(env),
+            buildToolDispatcher(env, services = FixtureToolServices(env)),
             access = access
         ).register(server, ToolRegistry(listOf(probeTool(hopTo))), ToolProfile.ORCHESTRATION)
         val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()
