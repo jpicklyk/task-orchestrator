@@ -12,17 +12,17 @@ const arr = (v) => (Array.isArray(v) ? v : []);
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 /**
- * primaryPath(locations) -> string: the first location with backslashes as '/', no leading './' and a trailing
- * ':<digits>[-<digits>]' stripped; '' with no location. A copy of the workflow's primaryPath
- * (workflows/deep-codebase-audit.js); a workflow cannot import, so a test pins the two together.
+ * primaryPath(locations) -> string: the first location reduced by one grammar: trim, keep the text before the first whitespace,
+ * backslashes to '/', leading './' stripped, then a final ':' suffix that holds no '/' removed (':12', ':12-30', ':Foo.bar', ':1:2',
+ * a bare ':'; a drive letter stays); '' with no location, an empty string or a non-string. A copy of the workflow's primaryPath
+ * (workflows/deep-codebase-audit.js parseLocation); a workflow cannot import, so a test pins the two together.
  */
 export function primaryPath(locations) {
   const first = Array.isArray(locations) && locations.length ? locations[0] : null;
-  if (typeof first !== 'string' || !first) return '';
-  let out = first.split(String.fromCharCode(92)).join('/');
-  out = out.replace(/:\d+(-\d+)?$/, '');
+  if (typeof first !== 'string') return '';
+  let out = first.trim().split(/\s/)[0].split(String.fromCharCode(92)).join('/');
   while (out.indexOf('./') === 0) out = out.slice(2);
-  return out;
+  return out.replace(/:[^/]*$/, '');
 }
 
 /** validClaim(c): the workflow's rule for a measuredClaim (field in CLAIM_FIELDS; a finite value, or for cycle a non-empty string array) */

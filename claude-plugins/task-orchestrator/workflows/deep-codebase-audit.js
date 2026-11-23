@@ -111,6 +111,7 @@ function testPathsOf(paths) {
 const DIGEST_MAX_CHARS = 8000
 const SLICE_DIGEST_MAX_CHARS = 3000
 const MERGE_BATCH_MAX = 40
+const COUPLING_LINK_MIN = 3 // commits a coupling partner shares with a file before preCluster links their findings (the co-change floor of scripts/lib/audit-metrics/churn.mjs)
 
 /** normPathText(p) -> p with backslashes as '/', no leading './' and no trailing '/'; '.' and '' both give '' (the whole tree) */
 function normPathText(p) {
@@ -125,14 +126,28 @@ function underPath(x, p) {
   return p === '' || x === p || x.indexOf(p + '/') === 0
 }
 
-/** primaryPath(locations) -> string: the first location, backslashes to '/', no leading './', a trailing ':<digits>[-<digits>]' stripped; '' with no location */
-function primaryPath(locations) {
+/**
+ * parseLocation(locations) -> {path, line}: the first location reduced by one grammar, identical to lib/audit-confirm.mjs primaryPath (a workflow cannot
+ * import, so a test pins the two together): trim, keep the text before the first whitespace, backslashes to '/', leading './' stripped, then a final ':'
+ * suffix that holds no '/' removed (':12', ':12-30', ':Foo.bar', ':1:2', a bare ':'; a drive letter stays). line is the digits directly after the removed
+ * colon, or 0 when there are none; path is '' with no location, an empty string or a non-string.
+ */
+function parseLocation(locations) {
   const first = Array.isArray(locations) && locations.length ? locations[0] : null
-  if (typeof first !== 'string' || !first) return ''
-  let out = first.split(String.fromCharCode(92)).join('/')
-  out = out.replace(/:\d+(-\d+)?$/, '')
+  if (typeof first !== 'string') return { path: '', line: 0 }
+  const word = first.trim().split(/\s/)[0]
+  if (!word) return { path: '', line: 0 }
+  let out = word.split(String.fromCharCode(92)).join('/')
   while (out.indexOf('./') === 0) out = out.slice(2)
-  return out
+  const m = /:([^/]*)$/.exec(out)
+  if (!m) return { path: out, line: 0 }
+  const d = /^\d+/.exec(m[1])
+  return { path: out.slice(0, m.index), line: d ? Number(d[0]) : 0 }
+}
+
+/** primaryPath(locations) -> string: the path of parseLocation; '' with no location */
+function primaryPath(locations) {
+  return parseLocation(locations).path
 }
 
 /** fnv1a32(text) -> 8 lowercase hex digits: FNV-1a 32-bit over the UTF-8 bytes of text (offset 0x811c9dc5, prime 0x01000193) */
@@ -155,15 +170,12 @@ function fnv1a32(text) {
 
 /**
  * stableIds(rows) -> string[] aligned with rows: 'F-' + fnv1a32(category + '|' + primaryPath(locations)). Rows that share an id take
- * '-2', '-3' and so on in the order of the line of their first location (a row with no line first), then of the raw first-location string in code-unit order,
+ * '-2', '-3' and so on in the order of the line parsed from their first location (a row with no line first), then of the raw first-location string in code-unit order,
  * then by position, so the ids do not depend on row order unless two rows are identical in all three.
  */
 function stableIds(rows) {
   const list = rows || []
-  const lineOf = (r) => {
-    const m = /:(\d+)(-\d+)?$/.exec(Array.isArray(r.locations) && typeof r.locations[0] === 'string' ? r.locations[0] : '')
-    return m ? Number(m[1]) : 0
-  }
+  const lineOf = (r) => parseLocation(r.locations).line
   const rawOf = (r) => (Array.isArray(r.locations) && typeof r.locations[0] === 'string' ? r.locations[0] : '')
   const bases = list.map((r) => 'F-' + fnv1a32(r.category + '|' + primaryPath(r.locations)))
   const out = new Array(list.length)
@@ -285,8 +297,9 @@ function markMetricsPending(rows) {
  * preCluster(all, measured = null) -> {autoGroups, clusters, batches}, all in input order.
  * autoGroups: [{canonicalId, duplicateIds, mergedTitle: ''}] for 2 or more findings with an equal category and an equal first location
  * (normPathText'd, line kept); the canonical is the earliest. A unit is an auto group or an ungrouped finding; units are linked (union-find)
- * by an equal non-empty primaryPath, by both primaryPaths in the subject of one 'co-change' candidate of measured, and by both modules in the
- * subject of one 'cycle' candidate (a unit's module is the longest known module id M, from the hot set, top complexity, cycles and unstable modules,
+ * by an equal non-empty primaryPath, by one 'cycle' of measured.cycles (every unit whose module is in that cycle), and by one measured.coupling pair
+ * (a unit on entry.path with a unit on a partner.path whose count is at least COUPLING_LINK_MIN; no same-module filter) - never by measured.candidates, which
+ * the preset caps (a unit's module is the longest known module id M, from the hot set, top complexity, cycles and unstable modules,
  * with its primaryPath under M). clusters: [{k (1-based), ids (every finding id in the cluster), units: [{canonicalId, ids}], needsAgent (2 or more units)}].
  * batches: arrays of the needsAgent clusters, packed in order while their findings total at most MERGE_BATCH_MAX; a cluster is never split, and
  * a cluster over the limit is a batch of its own.
@@ -326,7 +339,6 @@ function preCluster(all, measured = null) {
     else firstByPath.set(u.path, i)
   })
   const mz = measured && typeof measured === 'object' ? measured : {}
-  const candidates = Array.isArray(mz.candidates) ? mz.candidates : []
   const known = new Set()
   ;(mz.hotSet || []).concat(mz.topComplexity || []).forEach((x) => { if (x && x.module) known.add(normPathText(x.module)) })
   ;(mz.cycles || []).forEach((c) => (c || []).forEach((id) => known.add(normPathText(id))))
@@ -338,17 +350,20 @@ function preCluster(all, measured = null) {
     return best
   }
   units.forEach((u) => { u.module = u.path ? moduleOf(normPathText(u.path)) : '' })
-  for (const c of candidates) {
-    if (!c || !Array.isArray(c.subject)) continue
-    const subject = new Set(c.subject.map(normPathText))
-    const key = c.kind === 'co-change' ? 'path' : c.kind === 'cycle' ? 'module' : null
-    if (!key) continue
-    let head = -1
-    units.forEach((u, i) => {
-      if (!u[key] || !subject.has(key === 'path' ? normPathText(u.path) : u.module)) return
-      if (head === -1) head = i
-      else union(head, i)
-    })
+  const linkAll = (idxs) => { for (let k = 1; k < idxs.length; k++) union(idxs[0], idxs[k]) }
+  for (const cyc of Array.isArray(mz.cycles) ? mz.cycles : []) {
+    if (!Array.isArray(cyc)) continue
+    const ids = new Set(cyc.map(normPathText))
+    linkAll(units.map((u, i) => (u.module && ids.has(u.module) ? i : -1)).filter((i) => i >= 0))
+  }
+  for (const e of Array.isArray(mz.coupling) ? mz.coupling : []) {
+    if (!e || typeof e.path !== 'string' || !Array.isArray(e.partners)) continue
+    const own = normPathText(e.path)
+    for (const q of e.partners) {
+      if (!q || typeof q.path !== 'string' || !(q.count >= COUPLING_LINK_MIN)) continue
+      const other = normPathText(q.path)
+      linkAll(units.map((u, i) => (u.path && (normPathText(u.path) === own || normPathText(u.path) === other) ? i : -1)).filter((i) => i >= 0))
+    }
   }
   const byRoot = new Map()
   units.forEach((u, i) => {
@@ -881,6 +896,7 @@ function reviewerPreamble(plan, slice = {}, docsInRun = false, digest = '') {
       : '. ') +
     'Where the method and this prompt disagree, this prompt wins: the HARD RULES, the slice, and the structured findings you return in place of the method\'s own report. ' +
     'Write each candidate as one finding: its move as recommendation, its evidence and any decision record it touches in evidence, its confidence as confidence, its severity per the rubric below, and as category the one from the output schema\'s list that fits it best. ' +
+    'Write each location as path or path:line (path:line-line for a range), with nothing after it; put a symbol or a note in evidence. ' +
     'Rate each finding by payback: act-now when the cost recurs on every change and the fix is cheap or urgent, plan-it when it is worth a scheduled change, watch when it is worth recording but not acting on yet. ' +
     (digest
       ? 'Set basis on each finding: measured when the finding rests on a number from the MEASURED STRUCTURE below (churn, complexity, hotspot score or a dependency cycle), judgement when it rests on your reading of the code or documents. For a measured finding give measuredClaim: the field (churn, churnRecent, complexity, hotspotScore or cycle) and the number you rely on, or for cycle the module ids; a script checks that claim against the measurements after the run, so quote the figure as it appears there and never estimate one.\n\n'

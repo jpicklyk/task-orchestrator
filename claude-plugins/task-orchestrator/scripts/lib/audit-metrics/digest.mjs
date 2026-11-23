@@ -1,9 +1,11 @@
 // buildDigest: the audit/digest-v1 object, a pure function of an audit/metrics-v1 object (no IO, no git).
-// Candidates are ranked refactoring leads: hot files, import cycles, unstable modules and cross-module co-change.
+// Candidates are refactoring leads: hot files, import cycles, unstable modules and cross-module co-change. Each kind is ordered by score, then
+// candidateId; the list is cut after taking them round-robin over the kinds in that order, so a small cap still holds every kind.
 import { cmp, coChangePairs } from './churn.mjs';
 
 export const DIGEST_CONTRACT = 'audit/digest-v1';
 export const DEFAULT_CANDIDATES = 12;
+const CANDIDATE_KINDS = ['hot-file', 'cycle', 'unstable-module', 'co-change'];
 
 const round4 = (x) => Math.round(x * 1e4) / 1e4;
 
@@ -98,10 +100,13 @@ export function buildDigest(metrics, { top = 10, candidates = DEFAULT_CANDIDATES
       score: round4((p.partners[0].count / p.commits) * (hotScore.get(p.path) ?? 0)),
     });
   }
-  const ranked = all
-    .map((c) => ({ candidateId: `${c.kind}:${c.subject[0]}`, ...c }))
-    .sort((a, b) => b.score - a.score || cmp(a.candidateId, b.candidateId))
-    .slice(0, candidates);
+  const byKind = new Map(CANDIDATE_KINDS.map((k) => [k, []]));
+  for (const c of all) byKind.get(c.kind).push({ candidateId: `${c.kind}:${c.subject[0]}`, ...c });
+  const queues = [...byKind.values()].map((q) => q.sort((a, b) => b.score - a.score || cmp(a.candidateId, b.candidateId)));
+  const ranked = [];
+  for (let i = 0; ranked.length < candidates && queues.some((q) => i < q.length); i++) {
+    for (const q of queues) if (i < q.length && ranked.length < candidates) ranked.push(q[i]);
+  }
 
   return {
     contract: DIGEST_CONTRACT,
