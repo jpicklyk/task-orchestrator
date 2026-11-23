@@ -247,7 +247,7 @@ test('S5 fixture chips: per group the values and counts match the fixture, in D6
   assert.deepEqual(pick('verdict'), expectedGroup(KEPT, (k) => k.verdict, ['CONFIRMED', 'PLAUSIBLE', 'UNVERIFIED']))
   assert.deepEqual(pick('severity'), expectedGroup(KEPT, (k) => k.severity, ['critical', 'high', 'medium', 'low']))
   assert.deepEqual(pick('rating'), expectedGroup(KEPT, (k) => k.rating, ['act-now', 'plan-it', 'watch']))
-  assert.deepEqual(pick('class'), expectedGroup(KEPT, classOf, ['act-now', 'plan-it', 'watch']))
+  assert.deepEqual(pick('class'), expectedGroup(KEPT, classOf, ['bug', 'tech-debt', 'observation']))
   for (const c of all.filter((x) => x.g !== 'all')) assert.equal(c.label, c.f, 'chip label is the value')
   assert.ok(FULL.includes('data-g="all" data-f="all"') && count(FULL, 'data-g="all"') === 1)
 })
@@ -266,6 +266,16 @@ test('S5 unknown values follow known ones in code-unit order; zero-count values 
   assert.ok(!v.some((c) => c.f === 'UNVERIFIED' || c.f === 'PLAUSIBLE'))
   assert.ok(!chips(html).some((c) => c.g === 'class'), 'no proposal -> no class group (D4)')
   assert.ok(!chips(html).some((c) => c.g === 'rating'), 'no rating on any row -> no rating group')
+})
+
+test('S5 class chips follow the workflow vocabulary: bug, tech-debt, observation, then others in code-unit order', () => {
+  const classes = ['zzz', 'observation', 'tech-debt', 'aaa', 'bug', 'tech-debt']
+  const rows = classes.map((_, i) => row({ findingId: `c${i}` }))
+  const proposal = { items: classes.map((c, i) => ({ findingId: `c${i}`, class: c })) }
+  const got = chips(renderAuditReport(res(rows, { proposal }))).filter((c) => c.g === 'class')
+  assert.deepEqual(got.map((c) => [c.f, c.n]), [['bug', 1], ['tech-debt', 2], ['observation', 1], ['aaa', 1], ['zzz', 1]])
+  // the fixture spans bug and tech-debt, so the order is also observable on real data
+  assert.equal(chips(FULL).filter((c) => c.g === 'class').map((c) => c.f).join(), 'bug,tech-debt')
 })
 
 test('S5 class comes only from the matching proposal row, never from category (D4)', () => {
@@ -352,7 +362,7 @@ test('S7 module rows ordered by instability desc then id; cycle, unresolved and 
   assert.deepEqual(rows[3].cells.slice(1), ['40', '5000', '20', '0', '0.00'])
   const text = textOf(sec)
   assert.ok(text.includes('interfaces/shared -> mcp'))
-  assert.ok(text.includes('Unresolved imports: 17'))
+  assert.ok(text.includes('Unresolved imports: 17 (includes imports of external libraries)'))
   assert.ok(text.includes('.txt (1)'))
   assert.ok(text.includes('Synthetic fixture: values are hand-written, not measured.'))
 })
@@ -398,10 +408,30 @@ test('S8 verification lines show the input numbers; reviewers, notExamined, refu
   r.report.coverage.verification = { confirmed: 5, refuted: 6, unverifiedByCap: 7, unverifiedNoVerifier: 8 }
   const text = textOf(section(renderAuditReport(r, METRICS), 'coverage'))
   for (const line of ['Confirmed: 5', 'Refuted: 6', 'Unverified (cap): 7', 'Unverified (no verifier): 8']) assert.ok(text.includes(line), line)
-  for (const name of RESULT.report.coverage.reviewers) assert.ok(text.includes(name), name)
+  // a reviewer entry is a string or a {key, label, kind} object; the page shows the string or the label
+  for (const e of RESULT.report.coverage.reviewers) {
+    const name = typeof e === 'string' ? e : e.label
+    assert.ok(text.includes(name), name)
+  }
   for (const name of RESULT.report.coverage.notExamined) assert.ok(text.includes(name), name)
   for (const f of RESULT.refuted) assert.ok(text.includes(f.title), f.title)
   assert.ok(text.includes(String(RESULT.stats.raw)) && text.includes(String(RESULT.stats.merged)))
+})
+
+test('S8 a coverage.reviewers entry shaped {key,label,kind} renders its label, a string entry renders itself', () => {
+  const r = clone(RESULT)
+  r.report.coverage.reviewers = [
+    { key: 'zz-key-one', label: 'Label Number One', kind: 'code' },
+    'plain-string-reviewer',
+    { key: 'zz-key-two', label: 'Label Number Two', kind: 'lens' },
+  ]
+  const text = textOf(section(renderAuditReport(r, METRICS), 'coverage'))
+  for (const shown of ['Label Number One', 'Label Number Two', 'plain-string-reviewer']) assert.ok(text.includes(shown), shown)
+  for (const hidden of ['zz-key-one', 'zz-key-two']) assert.ok(!text.includes(hidden), `${hidden} is the key, not the label`)
+  // the fixture mixes both shapes, so the old key-based expectations can no longer pass
+  const fx = textOf(section(FULL, 'coverage'))
+  assert.ok(fx.includes('Application support') && fx.includes('Domain core services') && fx.includes('interfaces-bootstrap'))
+  assert.ok(!fx.includes('application-support') && !fx.includes('domain-core-services'))
 })
 
 // ── S9 report-id links (D7) ─────────────────────────────────────────────────────────────────
@@ -474,25 +504,32 @@ test('S12 CLI exits 2 with INVALID: and leaves --out untouched', (t) => {
   writeFileSync(badMetrics, JSON.stringify({ ...METRICS, contract: 'audit/metrics-v0' }))
   const SENT = 'SENTINEL-DO-NOT-OVERWRITE'
   const out = join(dir, 'out.html')
+  // The message wording is not pinned (C3: "INVALID: <msg>"). Each case's own reason is asserted as
+  // the failure kind in the spec's words plus the argument or file that caused it, so a message that
+  // names a different cause fails that case.
   const cases = {
-    'missing --out': (o) => ['--result', WRAPPER_PATH],
-    'unknown flag': (o) => ['--result', WRAPPER_PATH, '--out', o, '--bogus', 'x'],
-    'missing flag value': (o) => ['--result', WRAPPER_PATH, '--out', o, '--metrics'],
-    'missing --result': (o) => ['--out', o],
-    'unreadable result': (o) => ['--result', join(dir, 'nope.json'), '--out', o],
-    'non-JSON': (o) => ['--result', junk, '--out', o],
-    'no kept[]': (o) => ['--result', nokept, '--out', o],
-    'no kept[] on result': (o) => ['--result', nokeptInner, '--out', o],
-    'metrics contract v0': (o) => ['--result', WRAPPER_PATH, '--metrics', badMetrics, '--out', o],
-    'unreadable metrics': (o) => ['--result', WRAPPER_PATH, '--metrics', join(dir, 'nometrics.json'), '--out', o],
+    'missing --out': { args: (o) => ['--result', WRAPPER_PATH], reason: [/missing/i, /--out/] },
+    'unknown flag': { args: (o) => ['--result', WRAPPER_PATH, '--out', o, '--bogus', 'x'], reason: [/unknown/i, /--bogus/] },
+    'missing flag value': { args: (o) => ['--result', WRAPPER_PATH, '--out', o, '--metrics'], reason: [/missing/i, /value/i, /--metrics/] },
+    'missing --result': { args: (o) => ['--out', o], reason: [/missing/i, /--result/] },
+    'unreadable result': { args: (o) => ['--result', join(dir, 'nope.json'), '--out', o], reason: [/--result/, /nope\.json/] },
+    'non-JSON': { args: (o) => ['--result', junk, '--out', o], reason: [/JSON/, /junk\.json/] },
+    'no kept[]': { args: (o) => ['--result', nokept, '--out', o], reason: [/kept/] },
+    'no kept[] on result': { args: (o) => ['--result', nokeptInner, '--out', o], reason: [/kept/] },
+    'metrics contract v0': { args: (o) => ['--result', WRAPPER_PATH, '--metrics', badMetrics, '--out', o], reason: [/audit\/metrics-v1/] },
+    'unreadable metrics': { args: (o) => ['--result', WRAPPER_PATH, '--metrics', join(dir, 'nometrics.json'), '--out', o], reason: [/--metrics/, /nometrics\.json/] },
   }
-  for (const [name, mk] of Object.entries(cases)) {
+  for (const [name, { args, reason }] of Object.entries(cases)) {
     writeFileSync(out, SENT)
-    const r = runCli(mk(out))
+    const r = runCli(args(out))
     assert.equal(r.status, 2, `${name}: exit code (stderr: ${r.stderr})`)
-    assert.ok(r.stderr.startsWith('INVALID: ') || r.stderr.includes('INVALID: '), `${name}: stderr INVALID:`)
+    assert.ok(r.stderr.startsWith('INVALID: '), `${name}: stderr starts with INVALID: (got: ${r.stderr})`)
+    for (const re of reason) assert.match(r.stderr, re, `${name}: reason names its own cause`)
     assert.equal(readFileSync(out, 'utf8'), SENT, `${name}: --out untouched`)
   }
+  // the reasons differ per cause: a missing --out is never reported as a missing --result
+  assert.doesNotMatch(runCli(cases['missing --out'].args(out)).stderr, /--result/)
+  assert.doesNotMatch(runCli(cases['missing --result'].args(out)).stderr, /--out/)
   // no pre-existing out file: none is created
   const fresh = join(dir, 'fresh.html')
   const r = runCli(['--result', junk, '--out', fresh])
@@ -528,7 +565,10 @@ test('S14 an empty kept[] says so and counts nothing', () => {
   assert.ok(textOf(html).includes('No findings kept.'))
   assert.ok(html.includes('id="findings"'))
   assert.equal(cards(html).length, 0)
-  for (const [label, v] of Object.entries(tiles(html))) assert.equal(v, '0', label)
+  // all six tiles exist and read 0 (a page with no tiles must not pass this scenario)
+  const t = tiles(html)
+  assert.deepEqual(Object.keys(t).sort(), ['Confirmed', 'Critical/high', 'Kept', 'Low', 'Medium', 'Unverified'])
+  for (const label of Object.keys(t)) assert.equal(t[label], '0', label)
   assert.equal(chips(html).filter((c) => c.g !== 'all').length, 0)
   assert.ok(!textOf(FULL).includes('No findings kept.'))
 })
