@@ -78,7 +78,7 @@ function classFixture() {
 
 function baseArgs(overrides = {}) {
   return {
-    contract: 'audit/args-v1',
+    contract: 'audit/args-v2',
     dispatchClasses: classFixture(),
     runId: 'a-test-0001',
     date: '2026-09-28',
@@ -315,10 +315,10 @@ test('S8: a JSON string is parsed the same as an object (W11)', () => {
   assert.deepEqual(asString.plan, asObject.plan)
 })
 
-test('S8: wrong/missing contract -> "invalid args: contract must be audit/args-v2 or audit/args-v1"', () => {
+test('S8: wrong/missing contract -> "invalid args: contract must be audit/args-v2"', () => {
   const { ok, reason } = CORE.normalizeArgs({})
   assert.equal(ok, false)
-  assert.equal(reason, 'invalid args: contract must be audit/args-v2 or audit/args-v1')
+  assert.equal(reason, 'invalid args: contract must be audit/args-v2')
 })
 
 test('S8: missing required fields fail in the frozen order runId, date, repo.root, reportPath', () => {
@@ -2524,7 +2524,7 @@ test('S23: dispatch overrides, scriptsDir, workDir and policy fail with the D2 r
   for (const bad of ['sometimes', 'GATED', 3]) {
     assert.equal(reason({ items: { enabled: true, rootId: 'r', policy: bad } }), 'invalid args: items.policy must be gated, bugs or all')
   }
-  assert.equal(reason({ contract: 'audit/args-v3' }), 'invalid args: contract must be audit/args-v2 or audit/args-v1')
+  assert.equal(reason({ contract: 'audit/args-v3' }), 'invalid args: contract must be audit/args-v2')
   assert.equal(CORE.normalizeArgs(baseArgs({ workDir: 'W' })).ok, true, 'workDir alone is fine')
 })
 
@@ -2542,14 +2542,13 @@ test('S23 / probe (order): the D2 checks run after the focus checks and in the o
   assert.equal(reason({ models: { review: 3, bogus: 'x' } }), 'invalid args: models.review must be a non-empty string')
 })
 
-test('S28: args-v1 and args-v2 validate and behave alike; plan.contract is the given one', () => {
+test('S28: audit/args-v1 is refused even with a complete v2 object; plan.contract is audit/args-v2', () => {
   const v1 = CORE.normalizeArgs(baseArgs({ contract: 'audit/args-v1' }))
+  assert.equal(v1.ok, false)
+  assert.equal(v1.reason, 'invalid args: contract must be audit/args-v2')
   const v2 = CORE.normalizeArgs(baseArgs({ contract: 'audit/args-v2' }))
-  assert.equal(v1.ok, true)
   assert.equal(v2.ok, true)
-  assert.equal(v1.plan.contract, 'audit/args-v1')
   assert.equal(v2.plan.contract, 'audit/args-v2')
-  assert.deepEqual({ ...v1.plan, contract: 'x' }, { ...v2.plan, contract: 'x' }, 'no mode switch between the two contracts')
 })
 
 test('S28: items.enabled defaults from rootId, an explicit false stays false, the policy defaults to gated', () => {
@@ -2828,8 +2827,8 @@ const normalizeReason = (o) => {
   return r.reason
 }
 
-test('S34: dispatchClasses absent, null, an array, a string, a number or a boolean is refused in both contracts, never inherited', () => {
-  for (const contract of ['audit/args-v1', 'audit/args-v2']) {
+test('S34: dispatchClasses absent, null, an array, a string, a number or a boolean is refused, never inherited', () => {
+  for (const contract of ['audit/args-v2']) {
     for (const bad of [undefined, null, [], [classFixture()], 'research', 3, true]) {
       assert.equal(normalizeReason({ contract, dispatchClasses: bad }), CLASS_REQUIRED, `${contract} dispatchClasses=${JSON.stringify(bad)}`)
     }
@@ -3007,9 +3006,9 @@ test('S36 / probe (order): the inline fable check of models runs before the chec
   assert.equal(normalizeReason({ dispatchClasses: classes }), fableReason('review'))
 })
 
-test('S37: the classes of dispatch-policy.json give the D3 table for both contracts, and none resolves to fable', () => {
+test('S37: the classes of dispatch-policy.json give the D3 table, and none resolves to fable', () => {
   const { classes } = loadPolicy()
-  for (const contract of ['audit/args-v1', 'audit/args-v2']) {
+  for (const contract of ['audit/args-v2']) {
     const { ok, plan, reason } = CORE.normalizeArgs(baseArgs({ contract, dispatchClasses: classes }))
     assert.equal(ok, true, `${contract}: ${reason}`)
     assert.deepEqual(JSON.parse(JSON.stringify(plan.dispatch)), D3_DEFAULTS, contract)

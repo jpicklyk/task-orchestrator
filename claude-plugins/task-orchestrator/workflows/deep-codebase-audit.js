@@ -209,8 +209,8 @@ function normalizeArgs(raw) {
   if (typeof A === 'string') {
     try { A = JSON.parse(A) } catch (e) { return { ok: false, reason: 'invalid args: bad JSON' } }
   }
-  if (!A || typeof A !== 'object' || (A.contract !== 'audit/args-v2' && A.contract !== 'audit/args-v1')) {
-    return { ok: false, reason: 'invalid args: contract must be audit/args-v2 or audit/args-v1' }
+  if (!A || typeof A !== 'object' || A.contract !== 'audit/args-v2') {
+    return { ok: false, reason: 'invalid args: contract must be audit/args-v2' }
   }
   for (const f of ['runId', 'date', 'repo.root', 'reportPath']) {
     const v = f === 'repo.root' ? (A.repo && A.repo.root) : A[f]
