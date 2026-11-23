@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
-/** The stores the run slice (runs, seats, decisions) reads and writes. `RepositoryProvider` implements it. */
+/** The stores the run slice (runs, seats, decisions) reads and writes. [RepositoryProvider] implements it. */
 interface RunStoreProvider {
     fun workItemRepository(): WorkItemRepository
 

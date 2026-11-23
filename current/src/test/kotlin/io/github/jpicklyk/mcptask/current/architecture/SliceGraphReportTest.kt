@@ -366,8 +366,6 @@ class SliceGraphReportTest {
                 "application/port/DependencyStoreProvider.kt" to "dependency",
                 "application/port/KnowledgeStoreProvider.kt" to "knowledge",
                 "application/port/LifecycleStoreProvider.kt" to "lifecycle",
-                "application/port/NoteStoreProvider.kt" to "note",
-                "application/port/ReportStoreProvider.kt" to "report",
                 "application/port/WorkflowStoreProvider.kt" to "workflow",
                 "application/port/DocumentStore.kt" to "knowledge",
                 "application/port/LinkStore.kt" to "knowledge",
@@ -379,7 +377,9 @@ class SliceGraphReportTest {
                 "application/port/WorkItemRepository.kt" to "item",
                 "application/port/LeaseStore.kt" to "lease",
                 "application/port/NoteStore.kt" to "note",
+                "application/port/NoteStoreProvider.kt" to "note",
                 "application/port/ReportQueries.kt" to "report",
+                "application/port/ReportStoreProvider.kt" to "report",
                 "application/port/Run" to "run",
                 // application/service
                 "application/service/Advance" to "lifecycle",
