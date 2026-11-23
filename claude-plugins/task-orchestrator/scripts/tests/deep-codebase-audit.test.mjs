@@ -3904,27 +3904,26 @@ test('S52: two slices with the same category and location make one auto-merged r
   assert.equal(two.result.stats.merged, 2)
 })
 
-test('S53: a co-change candidate links findings on its two files into one cluster; without the candidate they stay apart', async () => {
-  const candidate = { candidateId: 'co-change:x.kt', kind: 'co-change', subject: ['x.kt', 'y.kt'], facts: { commits: 4, partners: [] }, score: 0.4 }
+test('S53: a digest coupling pair links findings on its two files into one cluster; without the pair they stay apart', async () => {
+  const coupling = [{ path: 'x.kt', partners: [{ path: 'y.kt', count: 4 }] }]
   const specs = { s1: [{ locations: ['x.kt:1'] }], s2: [{ locations: ['y.kt:1'] }], s3: [{ locations: ['z.kt:1'] }] }
-  const linked = await clusterRun(specs, { measured: measuredFixture({ candidates: [candidate] }) })
+  const linked = await clusterRun(specs, { measured: measuredFixture({ coupling }) })
   assert.equal(linked.mergeCalls.length, 1)
   assert.ok(mentions(linked.mergeCalls[0].prompt, 's1-1') && mentions(linked.mergeCalls[0].prompt, 's2-1'))
-  assert.equal(mentions(linked.mergeCalls[0].prompt, 's3-1'), false, 'a file outside the subject is not linked')
+  assert.equal(mentions(linked.mergeCalls[0].prompt, 's3-1'), false, 'a file outside the pair is not linked')
   const alone = await clusterRun(specs)
   assert.equal(alone.mergeCalls.length, 0)
   const foreign = await clusterRun(
     { s1: [{ locations: ['x.kt:1'] }], s3: [{ locations: ['z.kt:1'] }] },
-    { measured: measuredFixture({ candidates: [candidate] }) }
+    { measured: measuredFixture({ coupling }) }
   )
-  assert.equal(foreign.mergeCalls.length, 0, 'only one of the two subject files has a finding')
+  assert.equal(foreign.mergeCalls.length, 0, 'only one of the two paired files has a finding')
 })
 
-test('S53: a cycle candidate links findings in two of its modules into one cluster, by the longest known module id; a finding in another module stays out', async () => {
-  const candidate = { candidateId: 'cycle:m/a', kind: 'cycle', subject: ['m/a', 'm/b'], facts: { fileCount: 2, hottestPath: 'm/a/1.kt', edges: 2 }, score: 0.7 }
+test('S53: a digest cycle links findings in two of its modules into one cluster, by the longest known module id; a finding in another module stays out', async () => {
   const specs = { s1: [{ locations: ['m/a/1.kt:3'] }], s2: [{ locations: ['m/b/2.kt:3'] }], s3: [{ locations: ['m/c/4.kt:3'] }] }
   const measured = measuredFixture({
-    candidates: [candidate], cycles: [['m/a', 'm/b']],
+    cycles: [['m/a', 'm/b']],
     hotSet: [{ path: 'm/a/1.kt', churn: 1, churnRecent: 1, complexity: 1, hotspotScore: 0.1, module: 'm/a' }],
     topComplexity: [{ path: 'm/c/4.kt', complexity: 3, module: 'm/c' }],
     unstableModules: [],
@@ -3934,7 +3933,7 @@ test('S53: a cycle candidate links findings in two of its modules into one clust
   assert.ok(mentions(linked.mergeCalls[0].prompt, 's1-1') && mentions(linked.mergeCalls[0].prompt, 's2-1'))
   assert.equal(mentions(linked.mergeCalls[0].prompt, 's3-1'), false)
   const alone = await clusterRun(specs)
-  assert.equal(alone.mergeCalls.length, 0, 'without the candidate the three paths stay apart')
+  assert.equal(alone.mergeCalls.length, 0, 'without the cycle the three paths stay apart')
 })
 
 test('S53 / probe: the merge prompt lists the units under CLUSTER headings and forbids a group across clusters', async () => {
@@ -4056,7 +4055,7 @@ test('S57: primaryPath takes the first location: backslashes to slashes, no lead
   assert.equal(CORE.primaryPath(['./x.kt:3-9']), 'x.kt')
   assert.equal(CORE.primaryPath(['C:/x.kt:5']), 'C:/x.kt')
   assert.equal(CORE.primaryPath(['C:' + BS + 'x.kt:5']), 'C:/x.kt')
-  assert.equal(CORE.primaryPath(['x.kt:ab']), 'x.kt:ab', 'a non-numeric suffix is part of the path')
+  assert.equal(CORE.primaryPath(['x.kt:ab']), 'x.kt', 'a :symbol suffix is stripped')
   assert.equal(CORE.primaryPath(['x.kt']), 'x.kt')
   assert.equal(CORE.primaryPath(['x.kt:7', 'y.kt:8']), 'x.kt', 'only the first location counts')
   assert.equal(CORE.primaryPath([]), '')
@@ -4678,4 +4677,132 @@ test('S79: no verify group lists a metrics-pending finding and every other findi
   const { calls } = await clusterRun(specs, { verify: { highLenses: ['combined'], defaultLenses: ['combined'], maxFindings: 20, groupSize: 1 } })
   const listed = calls.filter((c) => c.label.startsWith('verify:')).flatMap((c) => idsOfGroupPrompt(c.prompt))
   assert.deepEqual(listed.sort(), ['r2-1', 'r3-1'])
+})
+
+// ── T11 (item 326f7edf): one location grammar, candidate-free structural links, location sentence ─────
+// Oracle: the item's task-scope D1, D2, D4 and AC 1, 3, 6, 7, and the test-plan S1, S3, S6-S14 (frozen before
+// the implementation). Hashes come from testFnv above; no implementation source was opened.
+
+const LOCATION_SENTENCE = 'Write each location as path or path:line (path:line-line for a range), with nothing after it; put a symbol or a note in evidence. '
+const TAB = String.fromCharCode(9)
+
+test('S1 (T11): primaryPath maps the five D1 forms of one file to src/a.kt (workflow copy)', () => {
+  for (const loc of ['src/a.kt:12', 'src/a.kt:12-30', 'src/a.kt:Foo.bar', 'src/a.kt (note)', 'src/a.kt:12 (note)']) {
+    assert.equal(CORE.primaryPath([loc]), 'src/a.kt', loc)
+  }
+})
+
+test('S11 (T11): primaryPath of no location, an empty string or a non-string is an empty string (workflow copy)', () => {
+  assert.equal(CORE.primaryPath([]), '')
+  assert.equal(CORE.primaryPath(['']), '')
+  assert.equal(CORE.primaryPath([null]), '')
+  assert.equal(CORE.primaryPath([42]), '')
+})
+
+test('S12 (T11): primaryPath D1 edges and separators (workflow copy)', () => {
+  assert.equal(CORE.primaryPath(['C:' + BS + 'x' + BS + 'y.kt:9']), 'C:/x/y.kt')
+  assert.equal(CORE.primaryPath(['  ./x.kt:3 (n)']), 'x.kt')
+  assert.equal(CORE.primaryPath(['x.kt:']), 'x.kt')
+  assert.equal(CORE.primaryPath(['x.kt:1:2']), 'x.kt')
+  assert.equal(CORE.primaryPath(['a:b/c.kt:7']), 'a:b/c.kt')
+  assert.equal(CORE.primaryPath(['plain.kt']), 'plain.kt')
+  assert.equal(CORE.primaryPath(['src/a.kt' + TAB + 'vs src/b.kt']), 'src/a.kt', 'a tab ends the path')
+  assert.equal(CORE.primaryPath(['src/a.kt  vs src/b.kt']), 'src/a.kt', 'a double space ends the path')
+  assert.equal(CORE.primaryPath(['././x.kt:1']), 'x.kt', 'repeated leading ./')
+  assert.equal(CORE.primaryPath(['c:/x/y.kt:9']), 'c:/x/y.kt', 'lower-case drive letter stays')
+})
+
+test('S3 (T11): one finding at src/a.kt:12, src/a.kt:12 (resolve) or src/a.kt:Foo.bar gets the stable id of category|src/a.kt', async () => {
+  for (const loc of ['src/a.kt:12', 'src/a.kt:12 (resolve)', 'src/a.kt:Foo.bar']) {
+    const { result } = await clusterRun({ s1: [{ category: 'coupling', locations: [loc] }] })
+    assert.equal(result.kept.length, 1, loc)
+    assert.equal(result.kept[0].stableId, stableIdOf('coupling', 'src/a.kt'), loc)
+  }
+})
+
+test('S14 (T11): stable-id suffixes follow the parsed line: the row at :7 (an annotated location) takes the bare id, the row at :30 takes -2', async () => {
+  const h = testFnv('coupling|src/a.kt')
+  const { result } = await clusterRun({
+    s1: [{ title: 'T-b', locations: ['src/a.kt:30'] }],
+    s2: [{ title: 'T-a', locations: ['src/a.kt:7 (note)'] }],
+  })
+  const by = Object.fromEntries(result.kept.map((k) => [k.title, k.stableId]))
+  assert.equal(by['T-a'], 'F-' + h)
+  assert.equal(by['T-b'], 'F-' + h + '-2')
+})
+
+test('S6 (T11): with an empty candidate list a digest coupling pair of count 3 links its two files into one merge call; a third file stays out', async () => {
+  const specs = { s1: [{ locations: ['x.kt:1'] }], s2: [{ locations: ['y.kt:1'] }], s3: [{ locations: ['z.kt:1'] }] }
+  const measured = measuredFixture({ candidates: [], cycles: [], coupling: [{ path: 'x.kt', partners: [{ path: 'y.kt', count: 3 }] }] })
+  const { mergeCalls } = await clusterRun(specs, { measured })
+  assert.equal(mergeCalls.length, 1)
+  assert.ok(mentions(mergeCalls[0].prompt, 's1-1') && mentions(mergeCalls[0].prompt, 's2-1'))
+  assert.equal(mentions(mergeCalls[0].prompt, 's3-1'), false)
+})
+
+test('S9 (T11): a coupling partner with count 2 makes no link', async () => {
+  const specs = { s1: [{ locations: ['x.kt:1'] }], s2: [{ locations: ['y.kt:1'] }] }
+  const measured = measuredFixture({ candidates: [], cycles: [], coupling: [{ path: 'x.kt', partners: [{ path: 'y.kt', count: 2 }] }] })
+  const { mergeCalls } = await clusterRun(specs, { measured })
+  assert.equal(mergeCalls.length, 0)
+})
+
+test('S10 (T11): a co-change candidate on x.kt and y.kt with empty coupling and no cycles makes no link', async () => {
+  const candidate = { candidateId: 'co-change:x.kt', kind: 'co-change', subject: ['x.kt', 'y.kt'], facts: { commits: 4, partners: [] }, score: 0.4 }
+  const specs = { s1: [{ locations: ['x.kt:1'] }], s2: [{ locations: ['y.kt:1'] }] }
+  const measured = measuredFixture({ candidates: [candidate], cycles: [], coupling: [] })
+  const { mergeCalls } = await clusterRun(specs, { measured })
+  assert.equal(mergeCalls.length, 0)
+})
+
+test('S10 (T11): a cycle candidate alone, with cycles empty, makes no link', async () => {
+  const candidate = { candidateId: 'cycle:m/a', kind: 'cycle', subject: ['m/a', 'm/b'], facts: { fileCount: 2, hottestPath: 'm/a/1.kt', edges: 2 }, score: 0.7 }
+  const specs = { s1: [{ locations: ['m/a/1.kt:3'] }], s2: [{ locations: ['m/b/2.kt:3'] }] }
+  const measured = measuredFixture({
+    candidates: [candidate], cycles: [],
+    hotSet: [{ path: 'm/a/1.kt', churn: 1, churnRecent: 1, complexity: 1, hotspotScore: 0.1, module: 'm/a' }],
+    topComplexity: [{ path: 'm/b/2.kt', complexity: 3, module: 'm/b' }], unstableModules: [],
+  })
+  const { mergeCalls } = await clusterRun(specs, { measured })
+  assert.equal(mergeCalls.length, 0)
+})
+
+test('S6 / probe (T11): a pair listed under both files links; a partner with no finding, an empty cycle and an empty partner list link nothing', async () => {
+  const both = measuredFixture({
+    candidates: [], cycles: [],
+    coupling: [{ path: 'x.kt', partners: [{ path: 'y.kt', count: 5 }] }, { path: 'y.kt', partners: [{ path: 'x.kt', count: 5 }] }],
+  })
+  const dup = await clusterRun({ s1: [{ locations: ['x.kt:1'] }], s2: [{ locations: ['y.kt:1'] }] }, { measured: both })
+  assert.equal(dup.mergeCalls.length, 1)
+  assert.ok(mentions(dup.mergeCalls[0].prompt, 's1-1') && mentions(dup.mergeCalls[0].prompt, 's2-1'))
+  const lone = measuredFixture({ candidates: [], cycles: [], coupling: [{ path: 'x.kt', partners: [{ path: 'y.kt', count: 5 }] }] })
+  const noPartner = await clusterRun({ s1: [{ locations: ['x.kt:1'] }], s3: [{ locations: ['z.kt:1'] }] }, { measured: lone })
+  assert.equal(noPartner.mergeCalls.length, 0, 'the partner has no finding')
+  const empty = measuredFixture({ candidates: [], cycles: [[]], coupling: [{ path: 'x.kt', partners: [] }] })
+  const none = await clusterRun({ s1: [{ locations: ['x.kt:1'] }], s2: [{ locations: ['y.kt:1'] }] }, { measured: empty })
+  assert.equal(none.mergeCalls.length, 0, 'an empty cycle and an empty partner list link nothing')
+})
+
+test('S7 (T11): a digest cycle with an empty candidate list links m/a and m/b findings, and the top-complexity module m/c stays out', async () => {
+  const specs = { s1: [{ locations: ['m/a/1.kt:3'] }], s2: [{ locations: ['m/b/2.kt:3'] }], s3: [{ locations: ['m/c/4.kt:3'] }] }
+  const measured = measuredFixture({
+    candidates: [], cycles: [['m/a', 'm/b']], coupling: [],
+    hotSet: [{ path: 'm/a/1.kt', churn: 1, churnRecent: 1, complexity: 1, hotspotScore: 0.1, module: 'm/a' }],
+    topComplexity: [{ path: 'm/c/4.kt', complexity: 3, module: 'm/c' }],
+    unstableModules: [],
+  })
+  const { mergeCalls } = await clusterRun(specs, { measured })
+  assert.equal(mergeCalls.length, 1)
+  assert.ok(mentions(mergeCalls[0].prompt, 's1-1') && mentions(mergeCalls[0].prompt, 's2-1'))
+  assert.equal(mentions(mergeCalls[0].prompt, 's3-1'), false)
+})
+
+test('S8 (T11): the reviewer preamble and the review, gap and candidate prompts carry the location sentence verbatim', async () => {
+  assert.ok(CORE.reviewerPreamble(buildPlan()).includes(LOCATION_SENTENCE), 'reviewerPreamble')
+  const { calls } = await fullRun(fullArgs(withCandidates('c1')), fullScopeOpts())
+  for (const prefix of ['review:', 'gap:', 'candidate:']) {
+    const matching = calls.filter((c) => c.label.startsWith(prefix))
+    assert.ok(matching.length > 0, 'fixture must run a ' + prefix + ' agent')
+    for (const c of matching) assert.ok(c.prompt.includes(LOCATION_SENTENCE), c.label)
+  }
 })

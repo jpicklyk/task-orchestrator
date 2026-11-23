@@ -653,8 +653,8 @@ test('S13 primaryPath follows the contract on hand-derived cases', () => {
     [['src/a.kt:12'], 'src/a.kt'],
     [['a.kt:1-2', 'b.kt:3'], 'a.kt'],
     [['./x\\y.kt:3-9'], 'x/y.kt'],
-    [['p.kt:12 (fn)'], 'p.kt:12 (fn)'],
-    [['x.kt:'], 'x.kt:'],
+    [['p.kt:12 (fn)'], 'p.kt'],
+    [['x.kt:'], 'x.kt'],
     [['plain.kt'], 'plain.kt'],
   ]
   for (const [locations, want] of cases) assert.equal(primaryPath(locations), want, JSON.stringify(locations))
@@ -665,6 +665,85 @@ test('S13 primaryPath equals the workflow core on a probe list', () => {
     [], [''], ['a\\b.kt:1-2'], ['./x.md:3'], ['p.kt:12 (fn)'], ['x.kt:'], ['.\\y\\z.kt:5'], ['C:\\x\\y.kt:9'],
     ['a.kt:1-2-3'], ['a.kt:12-'], ['../x.kt:1'], ['a/./b.kt:4'], ['a.kt:0'], ['dir/file.kt:10-20', 'other.kt:1'], ['  spaced.kt:3'],
     ['https://h/x.kt:9'], ['a:b/c.kt:7'], ['x.kt:1:2'], ['./.hidden:4'], ['./'],
+    ['src/a.kt:12'], ['src/a.kt:12-30'], ['src/a.kt:Foo.bar'], ['src/a.kt (note)'], ['src/a.kt:12 (note)'],
+    [''], [null], [42], ['  ./x.kt:3 (n)'], ['src/a.kt	vs src/b.kt'], ['src/a.kt  vs src/b.kt'], ['c:' + String.fromCharCode(92) + 'x' + String.fromCharCode(92) + 'y.kt:9'],['C:/x/y.kt/'], ['x.kt:'], [':'],
   ]
   for (const p of probes) assert.equal(primaryPath(p), WF.primaryPath(p), JSON.stringify(p))
+})
+
+// ── T11 (item 326f7edf): one location grammar (D1) and metrics on every row whose path is known ──────
+// Oracle: the item's task-scope D1 and AC 1-3, and the test-plan S1, S2, S11, S12, S13 (frozen before the
+// implementation). Every expected value below is derived by hand from the grammar clauses.
+
+test('S1 primaryPath maps the five D1 forms of one file to src/a.kt (lib copy)', () => {
+  for (const loc of ['src/a.kt:12', 'src/a.kt:12-30', 'src/a.kt:Foo.bar', 'src/a.kt (note)', 'src/a.kt:12 (note)']) {
+    assert.equal(primaryPath([loc]), 'src/a.kt', loc)
+  }
+})
+
+test('S11 primaryPath of no location, an empty string or a non-string is an empty string (lib copy)', () => {
+  assert.equal(primaryPath([]), '')
+  assert.equal(primaryPath(['']), '')
+  assert.equal(primaryPath([null]), '')
+  assert.equal(primaryPath([42]), '')
+})
+
+test('S12 primaryPath D1 edges (lib copy)', () => {
+  const cases = [
+    ['C:' + String.fromCharCode(92) + 'x' + String.fromCharCode(92) + 'y.kt:9', 'C:/x/y.kt'],
+    ["  ./x.kt:3 (n)", 'x.kt'],
+    ['x.kt:', 'x.kt'],
+    ['x.kt:1:2', 'x.kt'],
+    ['a:b/c.kt:7', 'a:b/c.kt'],
+    ['plain.kt', 'plain.kt'],
+  ]
+  for (const [loc, want] of cases) assert.equal(primaryPath([loc]), want, JSON.stringify(loc))
+})
+
+test('S12 / probe: a tab or a double space ends the path like a single space; the first whitespace decides', () => {
+  assert.equal(primaryPath(['src/a.kt	vs src/b.kt']), 'src/a.kt')
+  assert.equal(primaryPath(['src/a.kt  vs src/b.kt']), 'src/a.kt')
+  assert.equal(primaryPath(['	 src/a.kt:5 	(x)']), 'src/a.kt')
+})
+
+test('S12 / probe: repeated leading ./ are all stripped; a lower-case drive letter and a final slash keep their form', () => {
+  assert.equal(primaryPath(['././x.kt:1']), 'x.kt')
+  assert.equal(primaryPath(['c:/x/y.kt:9']), 'c:/x/y.kt')
+  assert.equal(primaryPath(['C:/x/y/']), 'C:/x/y/')
+})
+
+test('S13 / probe: both copies agree on every D1 form, edge and probe input', () => {
+  const BSL = String.fromCharCode(92)
+  const inputs = [
+    ['src/a.kt:12'], ['src/a.kt:12-30'], ['src/a.kt:Foo.bar'], ['src/a.kt (note)'], ['src/a.kt:12 (note)'],
+    ['C:' + BSL + 'x' + BSL + 'y.kt:9'], ['  ./x.kt:3 (n)'], ['x.kt:'], ['x.kt:1:2'], ['a:b/c.kt:7'], ['plain.kt'],
+    ['src/a.kt	vs src/b.kt'], ['src/a.kt  vs src/b.kt'], ['././x.kt:1'], ['c:/x/y.kt:9'], ['C:/x/y/'], [''], [null], [42], [], [':'],
+  ]
+  for (const p of inputs) assert.equal(primaryPath(p), WF.primaryPath(p), JSON.stringify(p))
+})
+
+test('S2 result-wrapper fixture: confirm attaches metrics to the 11 rows whose first-location path is in the metrics file and to the ScopeClaimParser row not at all', () => {
+  const wrapper = JSON.parse(readFileSync(join(HERE, 'fixtures', 'audit-report-html', 'result-wrapper.json'), 'utf8'))
+  const base = 'current/src/main/kotlin/io/github/jpicklyk/mcptask/current/'
+  // hand-typed, hand-normalized first-location paths of the fixture rows (AdvanceService.kt is the first location of two rows)
+  const paths = [
+    'application/config/EffectiveConfigResolver.kt',
+    'infrastructure/config/AppConfig.kt',
+    'application/api/BatchRunner.kt',
+    'application/service/AdvanceService.kt',
+    'interfaces/api/v1/routes/EventRoutes.kt',
+    'application/support/ScopeGuard.kt',
+    'interfaces/api/v1/error/ApiStatusPages.kt',
+    'domain/lifecycle/TransitionPolicy.kt',
+    'application/read/RunFrontierQueries.kt',
+    'interfaces/api/v1/auth/AuthenticationPlugin.kt',
+  ].map((p) => base + p)
+  const out = confirmMeasured(clone(wrapper.result), metricsOf(paths.map((p) => frow(p))))
+  assert.equal(out.kept.length, 12)
+  const withMetrics = out.kept.filter((r) => r.metrics)
+  assert.equal(withMetrics.length, 11)
+  const scope = out.kept.find((r) => r.locations[0].includes('ScopeClaimParser.kt'))
+  assert.ok(scope, 'fixture row present')
+  assert.equal('metrics' in scope, false)
+  assert.deepEqual(out.kept.filter((r) => !r.metrics).map((r) => r.findingId), [scope.findingId])
 })

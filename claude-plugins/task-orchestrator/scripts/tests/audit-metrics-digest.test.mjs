@@ -205,19 +205,22 @@ const D2_KEYS = [
 
 // Hand-computed with D3 on m5() (top 10, candidates 12). Scores: hot-file = hotspotScore; cycle = hottest
 // member (a/x.kt 0.8); unstable-module = instability x hottest file of the module; co-change = 5/10 x 0.8.
-// Order: score desc, then candidateId by code-unit order ('cycle:' < 'hot-file:', 'co-change:' < 'unstable-').
+// Order (D3): each kind sorted by score desc then candidateId by code-unit order, emitted round-robin in the
+// kind order hot-file, cycle, unstable-module, co-change, skipping a kind once exhausted. Round 1: hot-file:a/x.kt,
+// cycle:a, unstable-module:a (0.4), co-change:a/x.kt; round 2: hot-file:b/z.kt (cycle and co-change are done),
+// unstable-module:m (0.3); round 3: unstable-module:b (0.25).
 const M5_CANDIDATES = [
-  {
-    candidateId: 'cycle:a', kind: 'cycle', subject: ['a', 'b'],
-    facts: { fileCount: 3, hottestPath: 'a/x.kt', edges: 2 }, score: 0.8,
-  },
   {
     candidateId: 'hot-file:a/x.kt', kind: 'hot-file', subject: ['a/x.kt'],
     facts: { churn: 10, churnRecent: 4, complexity: 8, branchComplexity: 5, hotspotScore: 0.8 }, score: 0.8,
   },
   {
-    candidateId: 'hot-file:b/z.kt', kind: 'hot-file', subject: ['b/z.kt'],
-    facts: { churn: 6, churnRecent: 2, complexity: 5, branchComplexity: 2, hotspotScore: 0.5 }, score: 0.5,
+    candidateId: 'cycle:a', kind: 'cycle', subject: ['a', 'b'],
+    facts: { fileCount: 3, hottestPath: 'a/x.kt', edges: 2 }, score: 0.8,
+  },
+  {
+    candidateId: 'unstable-module:a', kind: 'unstable-module', subject: ['a'],
+    facts: { instability: 0.5, fanIn: 1, fanOut: 1, files: 2, hottestPath: 'a/x.kt' }, score: 0.4,
   },
   {
     candidateId: 'co-change:a/x.kt', kind: 'co-change', subject: ['a/x.kt', 'b/z.kt', 'm/w.kt'],
@@ -228,8 +231,8 @@ const M5_CANDIDATES = [
     score: 0.4,
   },
   {
-    candidateId: 'unstable-module:a', kind: 'unstable-module', subject: ['a'],
-    facts: { instability: 0.5, fanIn: 1, fanOut: 1, files: 2, hottestPath: 'a/x.kt' }, score: 0.4,
+    candidateId: 'hot-file:b/z.kt', kind: 'hot-file', subject: ['b/z.kt'],
+    facts: { churn: 6, churnRecent: 2, complexity: 5, branchComplexity: 2, hotspotScore: 0.5 }, score: 0.5,
   },
   {
     candidateId: 'unstable-module:m', kind: 'unstable-module', subject: ['m'],
@@ -477,7 +480,7 @@ test('S14: the candidates option keeps the first N of the ranked list; default 1
   assert.deepEqual(buildDigest(hotOnly(3)).candidates.length, 3);
 });
 
-test('S15: equal scores order by candidateId in code-unit order; ids are unique; a score-0 candidate is ranked last, not dropped', () => {
+test('S15: equal scores order by candidateId in code-unit order within a kind; ids are unique; a score-0 candidate keeps its turn in the round-robin, not dropped', () => {
   const m = m5();
   m.files = [
     row('b.kt', 'm', 3, 0, 1, null, 0.5),
@@ -495,7 +498,7 @@ test('S15: equal scores order by candidateId in code-unit order; ids are unique;
   m.modules = { depth: 2, nodes: [], edges: [], cycles: [['p', 'q']], unresolved: 0 };
   const cands = buildDigest(m).candidates;
   assert.deepEqual(cands.map((c) => c.candidateId), [
-    'hot-file:B.kt', 'hot-file:a.kt', 'hot-file:b.kt', 'hot-file:c.kt', 'cycle:p', 'hot-file:z.kt',
+    'hot-file:B.kt', 'cycle:p', 'hot-file:a.kt', 'hot-file:b.kt', 'hot-file:c.kt', 'hot-file:z.kt',
   ]);
   assert.equal(new Set(cands.map((c) => c.candidateId)).size, cands.length);
   const zeroCycle = cands.find((c) => c.candidateId === 'cycle:p');
@@ -616,7 +619,14 @@ function oracleCandidates(m, top) {
       score: round4((partners[0].count / e.commits) * rowOf[e.path].hotspotScore),
     });
   }
-  return out.sort((p, q) => q.score - p.score || cmp(p.candidateId, q.candidateId));
+  // D3: per kind by score desc then candidateId, then round-robin in the fixed kind order
+  const kinds = ['hot-file', 'cycle', 'unstable-module', 'co-change'];
+  const lanes = kinds.map((k) => out.filter((c) => c.kind === k).sort((p, q) => q.score - p.score || cmp(p.candidateId, q.candidateId)));
+  const merged = [];
+  for (let i = 0; merged.length < out.length; i += 1) {
+    for (const lane of lanes) if (i < lane.length) merged.push(lane[i]);
+  }
+  return merged;
 }
 
 test('S6: --digest-out writes one compact line with the resolved metrics path; a rerun is byte-identical; parents are created', () => {
@@ -680,9 +690,12 @@ test('S7: on a fixture repository the candidates equal the D3/D4 recomputation f
   const co = digest.candidates.find((c) => c.kind === 'co-change');
   assert.equal(co.facts.commits, 4);
   assert.ok(co.facts.partners.every((p) => p.count >= 3 && p.module !== ''), JSON.stringify(co.facts));
-  // sorted: score descending
-  for (let i = 1; i < digest.candidates.length; i += 1) {
-    assert.ok(digest.candidates[i - 1].score >= digest.candidates[i].score);
+  // D3: within each kind the order is score descending
+  for (const kind of ['hot-file', 'cycle', 'unstable-module', 'co-change']) {
+    const lane = digest.candidates.filter((c) => c.kind === kind);
+    for (let i = 1; i < lane.length; i += 1) {
+      assert.ok(lane[i - 1].score >= lane[i].score, kind);
+    }
   }
 });
 
@@ -826,4 +839,32 @@ test('probe: a non-ASCII file name survives into the digest', () => {
   const digest = JSON.parse(readFileSync(s.dig, 'utf8'));
   assert.deepEqual(digest.topComplexity.map((t) => t.path), [name]);
   assert.equal(readFileSync(s.dig).includes(Buffer.from(name, 'utf8')), true);
+});
+
+// ------------------------------------------------------- T11 (item 326f7edf): candidate diversity (D3)
+// Oracle: the item's task-scope D3 and AC 4, test-plan S4, S5, S15, S16 and the candidates probes.
+
+test('S4 (T11): with all four kinds present and candidates 3, the list holds hot-file, cycle, unstable-module in that order', () => {
+  const kinds = buildDigest(m5(), { candidates: 3 }).candidates.map((c) => c.kind);
+  assert.deepEqual(kinds, ['hot-file', 'cycle', 'unstable-module']);
+  assert.equal(new Set(kinds).size, 3);
+});
+
+test('S5 (T11): candidates 6 on m5() are the first six of the hand-built round-robin list; candidates 7 and above give all seven', () => {
+  assert.deepEqual(buildDigest(m5(), { candidates: 6 }).candidates, M5_CANDIDATES.slice(0, 6));
+  assert.deepEqual(buildDigest(m5(), { candidates: 7 }).candidates, M5_CANDIDATES);
+  assert.deepEqual(buildDigest(m5(), { candidates: 99 }).candidates, M5_CANDIDATES);
+});
+
+test('S16 (T11): with one kind only the list is score desc then candidateId, cut at N', () => {
+  const m = hotOnly(5);
+  assert.deepEqual(
+    buildDigest(m, { candidates: 3 }).candidates.map((c) => c.candidateId),
+    ['hot-file:f05.kt', 'hot-file:f04.kt', 'hot-file:f03.kt'],
+  );
+});
+
+test('S4 / probe (T11): candidates 0 gives an empty list; building the digest twice gives identical text', () => {
+  assert.deepEqual(buildDigest(m5(), { candidates: 0 }).candidates, []);
+  assert.equal(serializeDigest(buildDigest(m5(), { candidates: 3 })), serializeDigest(buildDigest(m5(), { candidates: 3 })));
 });
