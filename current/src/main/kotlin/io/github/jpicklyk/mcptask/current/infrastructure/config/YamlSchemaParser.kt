@@ -1443,7 +1443,7 @@ internal object YamlSchemaParser {
                 )
                 false
             } else {
-                requiredRaw as? Boolean ?: false
+                requiredRaw ?: false
             }
 
         val description = raw["description"] as? String ?: ""
@@ -1463,7 +1463,7 @@ internal object YamlSchemaParser {
                 )
                 null
             } else {
-                (maxLengthRaw as? Number)?.toInt()
+                maxLengthRaw?.toInt()
             }
 
         val seat = raw["seat"] as? String
@@ -1492,7 +1492,7 @@ internal object YamlSchemaParser {
                 )
                 false
             } else {
-                sharedRaw as? Boolean ?: false
+                sharedRaw ?: false
             }
 
         for (rawKey in raw.keys) {

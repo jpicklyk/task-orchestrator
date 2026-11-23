@@ -115,7 +115,7 @@ class IndependenceConfigParseTest {
     fun `require_verified true parses to a boolean true`() {
         val doc = parse("independence:\n  mode: reject\n  require_verified: true\n$noSchemaSection")
         assertEquals(IndependenceMode.REJECT, doc.independence!!.mode)
-        assertTrue(doc.independence!!.requireVerified)
+        assertTrue(doc.independence.requireVerified)
     }
 
     @Test
@@ -184,7 +184,7 @@ class IndependenceConfigParseTest {
         runBlocking {
             composition.toolContext.repositoryProvider
                 .workItemRepository()
-                .create(WorkItem(title = title, type = "project", depth = 0))!!
+                .create(WorkItem(title = title, type = "project", depth = 0))
                 .id
         }
 
@@ -197,7 +197,6 @@ class IndependenceConfigParseTest {
             composition.toolContext.repositoryProvider
                 .configStore()
                 .upsert(rootId, yaml)
-                ?: error("fixture: per-root push failed for $rootId")
         }
     }
 
@@ -300,7 +299,7 @@ class IndependenceConfigParseTest {
             val yaml = "independence:\n  mode: warn\n  colour: red\nwork_item_schemas:\n  default:\n    notes: []\n"
             val result = service.push(rootId, yaml)
             assertTrue(result is ConfigPushResult.Invalid, "push result: $result")
-            val errors = (result as ConfigPushResult.Invalid).errors
+            val errors = result.errors
             assertTrue(errors.any { it.path == "/independence/colour" && it.reason.contains("colour") }, "errors: $errors")
         }
 }

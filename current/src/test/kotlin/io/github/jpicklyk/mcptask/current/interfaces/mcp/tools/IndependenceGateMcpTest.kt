@@ -165,7 +165,7 @@ work_item_schemas:
     private suspend fun createRoot(toolContext: ToolExecutionContext): UUID =
         toolContext.repositoryProvider
             .workItemRepository()
-            .create(WorkItem(title = "A2a indep-gate root", type = "project", depth = 0))!!
+            .create(WorkItem(title = "A2a indep-gate root", type = "project", depth = 0))
             .id
 
     private suspend fun createItem(
@@ -185,7 +185,7 @@ work_item_schemas:
                     rootId = rootId,
                     depth = 1
                 )
-            ) ?: error("fixture: item creation failed for type=$type")
+            )
 
     // For cascade fixtures: an explicit parentId/depth so a PARENT (depth 1, child of root) can
     // itself own a CHILD (depth 2), distinct from createItem's root-level children.
@@ -208,7 +208,7 @@ work_item_schemas:
                     rootId = rootId,
                     depth = depth
                 )
-            ) ?: error("fixture: child item creation failed for type=$type")
+            )
 
     private suspend fun upsertNote(
         toolContext: ToolExecutionContext,

@@ -27,7 +27,7 @@ class RunDecisionEffects(
     override suspend fun onAnsweredOrRefuse(decision: DecisionRequest): DomainError? {
         val runId = decision.runId ?: return null
         val option = decision.answer?.option ?: return null
-        val closedBy = decision.answer?.answeredById
+        val closedBy = decision.answer.answeredById
         return when (decision.decisionClass) {
             RunLimitDecisions.RUN_BUDGET ->
                 when (option) {

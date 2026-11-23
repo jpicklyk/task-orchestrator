@@ -55,7 +55,7 @@ class DatabaseManagerStartupCompactionTest {
     }
 
     private fun readUserVersion(manager: DatabaseManager): Int {
-        val db = manager.getDatabase()
+        val db = manager.writer()
         return transaction(db) {
             var value = -1
             exec("PRAGMA user_version") { rs -> if (rs.next()) value = rs.getInt(1) }

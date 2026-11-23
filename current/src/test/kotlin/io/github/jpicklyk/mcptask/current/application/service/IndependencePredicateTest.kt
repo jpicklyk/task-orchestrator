@@ -233,7 +233,7 @@ class IndependencePredicateTest {
                 val upserted = repo.noteRepository().upsert(note.copy(itemId = realItemId))
                 assertNotNull(upserted, "note upsert must succeed: $upserted")
             }
-            (repo.noteRepository().findByItemId(realItemId)!!)
+            (repo.noteRepository().findByItemId(realItemId))
         }
 
     @Test

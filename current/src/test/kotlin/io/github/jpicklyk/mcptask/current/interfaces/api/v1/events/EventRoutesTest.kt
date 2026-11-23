@@ -306,12 +306,10 @@ class EventRoutesTest {
 
             val itemId = UUID.randomUUID()
             val item = WorkItem(id = itemId, parentId = null, title = "Advance test", depth = 0, role = Role.QUEUE)
-            assertTrue(
-                ToolExecutionContext(decorated, unitOfWork = unitOfWork)
-                    .itemCommandService
-                    .create(ItemCreateCommand(type = TEST_ITEM_TYPE, id = itemId, parentId = null, title = "Advance test"))
-                    .orFail() != null
-            )
+            ToolExecutionContext(decorated, unitOfWork = unitOfWork)
+                .itemCommandService
+                .create(ItemCreateCommand(type = TEST_ITEM_TYPE, id = itemId, parentId = null, title = "Advance test"))
+                .orFail()
 
             // Change the ROLE (a phase advance) — must surface as item.advanced (carries newRole),
             // distinct from item.updated. P11: AdvanceService writes the role change, its transition row
@@ -614,7 +612,7 @@ class EventRoutesTest {
             assertNotNull(result, "Read should succeed via decorated provider")
             val retrieved = result
             assertEquals(item.id, retrieved!!.id)
-            assertEquals("Transparency test", retrieved!!.title)
+            assertEquals("Transparency test", retrieved.title)
 
             // Verify no spurious events were emitted on the read
             assertEquals(0, bus.subscriberCount(), "No subscribers should be active")

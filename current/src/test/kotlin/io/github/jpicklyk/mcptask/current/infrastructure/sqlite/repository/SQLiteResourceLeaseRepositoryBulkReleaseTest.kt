@@ -33,7 +33,7 @@ class SQLiteResourceLeaseRepositoryBulkReleaseTest {
 
     private suspend fun holders(n: Int): List<UUID> =
         (0 until n).map {
-            ((repositoryProvider.workItemRepository().create(WorkItem(title = "h$it", depth = 0)))!!).id
+            ((repositoryProvider.workItemRepository().create(WorkItem(title = "h$it", depth = 0)))).id
         }
 
     private fun openIntervals(holder: UUID): Int =

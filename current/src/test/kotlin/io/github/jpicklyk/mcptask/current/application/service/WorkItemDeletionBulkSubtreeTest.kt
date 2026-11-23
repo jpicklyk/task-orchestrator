@@ -84,7 +84,7 @@ class WorkItemDeletionBulkSubtreeTest {
             assertEquals(root.id to expectedDescendants, deleted(outcome))
             assertTrue(!exists(root.id))
             assertTrue(all.none { exists(it) })
-            assertTrue((repositoryProvider.noteRepository().findByItemId(noted)!!).isEmpty())
+            assertTrue((repositoryProvider.noteRepository().findByItemId(noted)).isEmpty())
             assertNull(repositoryProvider.dependencyRepository().findById(dep.id))
             assertTrue(lease.findActiveForItem(all.first()).isEmpty())
             assertTrue(exists(external.id))

@@ -462,7 +462,7 @@ class McpErrorTextTest {
 
             val record = sink.records.single()
             val expected = utf8(result.text()) + utf8(result.structured().toString())
-            assertEquals(expected, record.responseBytes?.toLong())
+            assertEquals(expected, record.responseBytes)
             assertTrue(result.text().contains('\n'), "control: the text really carries a tail the byte count must include")
         }
 

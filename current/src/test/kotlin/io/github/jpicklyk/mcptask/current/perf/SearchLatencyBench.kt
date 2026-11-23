@@ -154,7 +154,7 @@ class SearchLatencyBench {
         val roots =
             (0 until ROOTS).map { r ->
                 val id = UUID.randomUUID()
-                check(items.create(WorkItem(id = id, rootId = id, title = "bench-root-$r", role = Role.QUEUE, depth = 0)) != null)
+                items.create(WorkItem(id = id, rootId = id, title = "bench-root-$r", role = Role.QUEUE, depth = 0))
                 id
             }
         var noteCount = 0

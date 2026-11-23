@@ -277,7 +277,7 @@ class McpCallLogTest {
             call("items_read", "select" to jstr("context"), "itemId" to jstr(item.id.toString()))
             val row = flush().single()
             val versions = Json.parseToJsonElement(row["target_versions"] as String).jsonObject
-            assertEquals(version.toLong(), versions[item.id.toString()]!!.jsonPrimitive.content.toLong())
+            assertEquals(version, versions[item.id.toString()]!!.jsonPrimitive.content.toLong())
         }
 
     @Test

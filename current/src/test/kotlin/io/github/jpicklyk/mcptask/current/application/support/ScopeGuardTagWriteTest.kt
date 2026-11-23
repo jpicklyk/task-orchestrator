@@ -29,7 +29,7 @@ class ScopeGuardTagWriteTest {
         required: String
     ) {
         assertTrue(this is Outcome.Err, "$label: expected Err but was $this")
-        val error = (this as Outcome.Err).error
+        val error = this.error
         assertEquals(ErrorCode.FORBIDDEN, error.code, label)
         assertEquals(ErrorDetail.Forbidden(ForbiddenScope.TAG, required), error.detail, label)
     }

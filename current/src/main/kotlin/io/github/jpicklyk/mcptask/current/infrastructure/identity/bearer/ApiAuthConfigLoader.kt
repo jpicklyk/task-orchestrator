@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.identity.bearer
 import io.github.jpicklyk.mcptask.current.infrastructure.config.EnvBoolean
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.MAX_TOKEN_LIFETIME_SECONDS_CEILING
 import io.github.jpicklyk.mcptask.current.infrastructure.identity.isLiteralLoopbackHost
+import io.github.jpicklyk.mcptask.current.infrastructure.identity.parseAbsoluteUrl
 import org.slf4j.LoggerFactory
 import java.net.MalformedURLException
 import java.net.URL
@@ -152,7 +153,7 @@ class ApiAuthConfigLoader(
         // Fail-fast URL validation — reject malformed URLs at startup rather than at first JWKS fetch
         val parsedUrl =
             try {
-                URL(url)
+                parseAbsoluteUrl(url)
             } catch (e: MalformedURLException) {
                 throw IllegalArgumentException(
                     "API_JWKS_URL '$url' is not a valid URL: ${e.message}. " +

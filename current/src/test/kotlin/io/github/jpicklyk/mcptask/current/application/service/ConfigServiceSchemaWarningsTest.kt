@@ -81,7 +81,7 @@ class ConfigServiceSchemaWarningsTest {
             val result = service.push(rootId, yaml)
 
             assertTrue(result is ConfigPushResult.Success)
-            assertTrue((result as ConfigPushResult.Success).schemaWarnings.isEmpty())
+            assertTrue(result.schemaWarnings.isEmpty())
         }
 
     @Test
@@ -90,7 +90,7 @@ class ConfigServiceSchemaWarningsTest {
             val result = service.push(rootId, unownedNoteYaml)
 
             assertTrue(result is ConfigPushResult.Success, "an advisory finding must never reject the push: $result")
-            val warnings = (result as ConfigPushResult.Success).schemaWarnings
+            val warnings = result.schemaWarnings
             assertEquals(1, warnings.size, "expected exactly one advisory warning: $warnings")
             assertTrue(warnings.single().contains("feature-task") && warnings.single().contains("spec"), warnings.single())
 
@@ -119,7 +119,7 @@ class ConfigServiceSchemaWarningsTest {
             val result = service.push(rootId, yaml)
 
             assertTrue(result is ConfigPushResult.Success)
-            val warnings = (result as ConfigPushResult.Success).schemaWarnings
+            val warnings = result.schemaWarnings
             assertEquals(2, warnings.size, "expected exactly two warnings: $warnings")
             assertTrue(warnings[0].contains("first-note"), "first warning should be for the first note: $warnings")
             assertTrue(warnings[1].contains("second-note"), "second warning should be for the second note: $warnings")
@@ -143,7 +143,7 @@ class ConfigServiceSchemaWarningsTest {
             val result = service.push(rootId, yaml)
 
             assertTrue(result is ConfigPushResult.Invalid, "former soft skips must reject the push: $result")
-            val errorPaths = (result as ConfigPushResult.Invalid).errors.map { it.path }
+            val errorPaths = result.errors.map { it.path }
             assertTrue("/work_item_schemas/feature-task/notes/0/role" in errorPaths, "$errorPaths")
             assertTrue("/work_item_schemas/feature-task/notes/2" in errorPaths, "$errorPaths")
             assertEquals(null, projectConfigRepository.get(rootId), "a rejected push stores nothing")
@@ -155,7 +155,7 @@ class ConfigServiceSchemaWarningsTest {
             val result = service.push(rootId, "")
 
             assertTrue(result is ConfigPushResult.Success)
-            assertTrue((result as ConfigPushResult.Success).schemaWarnings.isEmpty())
+            assertTrue(result.schemaWarnings.isEmpty())
         }
 
     @Test
@@ -166,8 +166,8 @@ class ConfigServiceSchemaWarningsTest {
 
             assertTrue(first is ConfigPushResult.Success)
             assertTrue(second is ConfigPushResult.Success)
-            val firstWarnings = (first as ConfigPushResult.Success).schemaWarnings
-            val secondWarnings = (second as ConfigPushResult.Success).schemaWarnings
+            val firstWarnings = first.schemaWarnings
+            val secondWarnings = second.schemaWarnings
             assertTrue(firstWarnings.isNotEmpty(), "sanity: this scenario needs at least one warning to be meaningful")
             assertEquals(firstWarnings, secondWarnings, "the same input YAML must recompute identical warnings on re-push")
         }

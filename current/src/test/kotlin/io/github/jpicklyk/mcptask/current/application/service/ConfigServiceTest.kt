@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -94,8 +95,7 @@ class ConfigServiceTest {
         runBlocking {
             val result = service.push(rootId, yamlWithEmbeddedRootId(otherRootId.toString()))
 
-            assertTrue(result is ConfigPushResult.RootIdMismatch)
-            val mismatch = result as ConfigPushResult.RootIdMismatch
+            val mismatch = assertIs<ConfigPushResult.RootIdMismatch>(result)
             assertEquals(rootId, mismatch.targetRootId)
             assertEquals(otherRootId, mismatch.embeddedRootId)
 
@@ -119,7 +119,7 @@ class ConfigServiceTest {
             assertTrue(result is ConfigPushResult.Success)
             val stored = projectConfigRepository.get(rootId)
             assertNotNull(stored)
-            assertEquals(rootId, stored?.rootItemId)
+            assertEquals(rootId, stored.rootItemId)
         }
 
     // ──────────────────────────────────────────────
@@ -152,8 +152,8 @@ class ConfigServiceTest {
 
             assertTrue(second is ConfigPushResult.Success)
             assertEquals(
-                (first as ConfigPushResult.Success).fingerprint,
-                (second as ConfigPushResult.Success).fingerprint
+                first.fingerprint,
+                second.fingerprint
             )
         }
 
@@ -169,8 +169,7 @@ class ConfigServiceTest {
             // rejected, not silently accepted as a normal re-push.
             val result = service.push(rootId, yamlA)
 
-            assertTrue(result is ConfigPushResult.Superseded)
-            val superseded = result as ConfigPushResult.Superseded
+            val superseded = assertIs<ConfigPushResult.Superseded>(result)
             assertEquals(rootId, superseded.rootItemId)
 
             val currentStored = projectConfigRepository.get(rootId)
@@ -218,7 +217,7 @@ class ConfigServiceTest {
             val result = service.push(rootId, yaml)
 
             assertTrue(result is ConfigPushResult.Invalid, "a server-only key must reject the push: $result")
-            assertEquals(listOf("/actor_authentication"), (result as ConfigPushResult.Invalid).errors.map { it.path })
+            assertEquals(listOf("/actor_authentication"), result.errors.map { it.path })
             assertEquals(null, projectConfigRepository.get(rootId), "nothing is stored for a rejected push")
         }
 
@@ -252,6 +251,6 @@ class ConfigServiceTest {
             val result = service.push(rootId, "")
 
             assertTrue(result is ConfigPushResult.Success)
-            assertTrue((result as ConfigPushResult.Success).schemaWarnings.isEmpty())
+            assertTrue(result.schemaWarnings.isEmpty())
         }
 }

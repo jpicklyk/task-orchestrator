@@ -13,7 +13,7 @@ import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
-import io.ktor.utils.io.readRemaining
+import io.ktor.utils.io.readBuffer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -436,7 +436,7 @@ class DefaultJwksKeySetProvider(
         }
 
         // Read body with a hard cap to prevent unbounded memory consumption.
-        val bytes = response.bodyAsChannel().readRemaining(MAX_BODY_BYTES.toLong() + 1).readByteArray()
+        val bytes = response.bodyAsChannel().readBuffer(MAX_BODY_BYTES.toLong() + 1).readByteArray()
         if (bytes.size > MAX_BODY_BYTES) {
             throw IllegalStateException(
                 "response body from $url exceeds maximum allowed size of ${MAX_BODY_BYTES} bytes"

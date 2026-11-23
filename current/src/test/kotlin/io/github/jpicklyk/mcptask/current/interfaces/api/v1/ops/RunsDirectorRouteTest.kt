@@ -173,7 +173,7 @@ class RunsDirectorRouteTest {
         val runId = runIdIn(response.text())
         val issued = Regex("\"coordinatorToken\":\"([A-Za-z0-9_-]{43})\"").find(response.text())
         assertTrue(issued != null, "open returns a 43-character coordinatorToken: ${response.text()}")
-        coordinatorTokens[runId] = issued!!.groupValues[1]
+        coordinatorTokens[runId] = issued.groupValues[1]
         return runId
     }
 

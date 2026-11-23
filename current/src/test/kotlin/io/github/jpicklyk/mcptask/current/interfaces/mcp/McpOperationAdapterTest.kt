@@ -313,7 +313,7 @@ class McpOperationAdapterTest {
             assertNull(record.resultCount, "a single-value read has no items")
             assertEquals(CallLogFields.requestShapeJson(args(text), null, null, ToolProfile.ORCHESTRATION.wire), record.requestShape)
             val expectedBytes = utf8(result.text()) + utf8(assertNotNull(result.structuredContent).toString())
-            assertEquals(expectedBytes, record.responseBytes?.toLong(), "UTF-8 text bytes plus compact structuredContent bytes")
+            assertEquals(expectedBytes, record.responseBytes, "UTF-8 text bytes plus compact structuredContent bytes")
         }
 
     @Test

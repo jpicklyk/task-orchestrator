@@ -116,7 +116,7 @@ class AdvanceLatencyBench {
             val rootId = UUID.randomUUID()
             val root =
                 WorkItem(id = rootId, rootId = rootId, title = "bench-root-$r", role = Role.QUEUE, depth = 0)
-            check(repo.create(root) != null) { "seed root $r failed" }
+            repo.create(root)
             (0 until ADVANCES).map { c ->
                 val child =
                     WorkItem(
@@ -126,9 +126,7 @@ class AdvanceLatencyBench {
                         role = Role.QUEUE,
                         depth = 1
                     )
-                val created = repo.create(child)
-                check(created != null) { "seed child $r/$c failed: $created" }
-                created.id
+                repo.create(child).id
             }
         }
     }

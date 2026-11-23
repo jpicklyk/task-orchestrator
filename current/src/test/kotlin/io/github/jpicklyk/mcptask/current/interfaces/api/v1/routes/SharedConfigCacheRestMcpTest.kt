@@ -127,9 +127,8 @@ class SharedConfigCacheRestMcpTest {
 
             val item =
                 runBlocking {
-                    val root = sqlite.workItemRepository().create(WorkItem(title = "S5 root", depth = 0))!!
+                    val root = sqlite.workItemRepository().create(WorkItem(title = "S5 root", depth = 0))
                     sqlite.configStore().upsert(root.id, perRootYaml())
-                        ?: error("fixture: per-root config upsert failed")
                     sqlite
                         .workItemRepository()
                         .create(
@@ -141,7 +140,7 @@ class SharedConfigCacheRestMcpTest {
                                 rootId = root.id,
                                 depth = 1,
                             ),
-                        )!!
+                        )
                 }
 
             application { configureSharedApp(provider, ctx) }

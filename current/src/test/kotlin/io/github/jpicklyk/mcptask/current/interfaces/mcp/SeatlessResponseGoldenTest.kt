@@ -167,7 +167,7 @@ class SeatlessResponseGoldenTest {
          * plain (non-pretty) [Json] instance so both sides serialize identically regardless of
          * whether the source was read pretty-printed (the golden file) or built in memory (the
          * actual, normalized capture). */
-        private val compactJson = Json { }
+        private val compactJson = Json
 
         private fun classpathResourceText(path: String): String {
             val stream =
@@ -223,12 +223,11 @@ class SeatlessResponseGoldenTest {
                 .workItemRepository()
                 .create(
                     WorkItem(id = ROOT_ID, title = "A1 T0 golden root", type = "project", depth = 0),
-                ) ?: error("fixture: root item creation failed")
+                )
 
             repo
                 .configStore()
                 .upsert(ROOT_ID, classpathResourceText(REPO_CONFIG_RESOURCE))
-                ?: error("fixture: per-root config push failed")
 
             repo
                 .workItemRepository()
@@ -242,7 +241,7 @@ class SeatlessResponseGoldenTest {
                         rootId = ROOT_ID,
                         depth = 1,
                     ),
-                ) ?: error("fixture: feature-task item creation failed")
+                )
 
             repo
                 .workItemRepository()
@@ -256,7 +255,7 @@ class SeatlessResponseGoldenTest {
                         rootId = ROOT_ID,
                         depth = 1,
                     ),
-                ) ?: error("fixture: bug-fix item creation failed")
+                )
 
             repo
                 .workItemRepository()
@@ -270,7 +269,7 @@ class SeatlessResponseGoldenTest {
                         rootId = ROOT_ID,
                         depth = 1,
                     ),
-                ) ?: error("fixture: schema-free item creation failed")
+                )
 
             repo
                 .workItemRepository()
@@ -284,7 +283,7 @@ class SeatlessResponseGoldenTest {
                         rootId = ROOT_ID,
                         depth = 1,
                     ),
-                ) ?: error("fixture: terminal item creation failed")
+                )
         }
 
         return Fixture(

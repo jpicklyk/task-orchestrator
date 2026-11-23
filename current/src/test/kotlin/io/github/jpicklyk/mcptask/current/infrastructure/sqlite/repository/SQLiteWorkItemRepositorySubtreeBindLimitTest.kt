@@ -98,7 +98,7 @@ class SQLiteWorkItemRepositorySubtreeBindLimitTest {
             // Only the grandchildren (no row in the set is the parent of another) are FK-safe to
             // delete in a single deleteAll.
             val grandchildren =
-                (repo.findDescendants(tree.root.id)!!)
+                (repo.findDescendants(tree.root.id))
                     .filter { it.depth == 2 }
                     .map { it.id }
                     .toSet()

@@ -62,7 +62,7 @@ class ProofEvidenceRestTest {
         actorId: String = "agent-evidence"
     ): Pair<WorkItem, Note> =
         runBlocking {
-            val item = repo.workItemRepository().create(WorkItem(title = "Evidence Item", depth = 0))!!
+            val item = repo.workItemRepository().create(WorkItem(title = "Evidence Item", depth = 0))
             val actor = ActorClaim(id = actorId, kind = ActorKind.ORCHESTRATOR)
             val verification =
                 VerificationResult(status = status, verifier = "jwks", proofSha256 = proofSha256, proofClaims = claims)
@@ -78,7 +78,7 @@ class ProofEvidenceRestTest {
                             actorClaim = actor,
                             verification = verification
                         )
-                    )!!
+                    )
             Pair(item, note)
         }
 

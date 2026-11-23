@@ -101,8 +101,7 @@ class SyncLostSseDeliveryTest {
             tags: String?,
         ): WorkItem {
             val item = WorkItem(id = UUID.randomUUID(), parentId = null, title = "sync-lost-fixture", depth = 0, tags = tags)
-            val result = provider.workItemRepository().create(item)
-            check(result != null) { "fixture item create failed: $result" }
+            provider.workItemRepository().create(item)
             return item
         }
     }

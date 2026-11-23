@@ -283,7 +283,7 @@ class RelatedServiceTest {
             val hit = related(r).hits.single()
 
             assertNull(hit.document)
-            assertEquals(current.version.toLong(), hit.version)
+            assertEquals(current.version, hit.version)
         }
 
     // ------------------------------------------------------------------ S3: tags

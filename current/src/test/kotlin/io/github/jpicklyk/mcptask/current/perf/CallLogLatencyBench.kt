@@ -268,13 +268,9 @@ class CallLogLatencyBench {
         val repo = context.workItemRepository()
         return (0 until ROOTS).map { r ->
             val rootId = UUID.randomUUID()
-            check(repo.create(WorkItem(id = rootId, rootId = rootId, title = "bench-root-$r", role = Role.QUEUE, depth = 0)) != null) {
-                "seed root $r failed"
-            }
+            repo.create(WorkItem(id = rootId, rootId = rootId, title = "bench-root-$r", role = Role.QUEUE, depth = 0))
             (0 until ADVANCES).map { c ->
-                val created = repo.create(WorkItem(parentId = rootId, rootId = rootId, title = "bench-$r-$c", role = Role.QUEUE, depth = 1))
-                check(created != null) { "seed child $r/$c failed" }
-                created.id
+                repo.create(WorkItem(parentId = rootId, rootId = rootId, title = "bench-$r-$c", role = Role.QUEUE, depth = 1)).id
             }
         }
     }

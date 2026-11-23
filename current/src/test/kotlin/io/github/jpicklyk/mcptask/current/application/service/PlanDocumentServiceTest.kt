@@ -74,7 +74,7 @@ class PlanDocumentServiceTest {
         runBlocking {
             val child =
                 (
-                    workItemRepository.create(WorkItem(title = "Child", parentId = rootId, depth = 1))!!
+                    workItemRepository.create(WorkItem(title = "Child", parentId = rootId, depth = 1))
                 )
 
             val result = service.stash(child.id, "plan-a", "content")
@@ -138,7 +138,7 @@ class PlanDocumentServiceTest {
             service.stash(rootId, "plan-a", "# Plan A\n")
             val result = service.get(rootId, "plan-a")
             assertNotNull(result)
-            assertEquals("# Plan A\n", result?.body)
+            assertEquals("# Plan A\n", result.body)
         }
 
     @Test

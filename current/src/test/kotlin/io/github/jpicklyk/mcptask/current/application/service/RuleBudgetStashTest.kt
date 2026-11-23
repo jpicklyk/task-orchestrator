@@ -36,6 +36,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -117,15 +118,14 @@ class RuleBudgetStashTest {
                     .workItemRepository()
                     .create(
                         WorkItem(title = "S11 Root", depth = 0)
-                    )!!
+                    )
             }
 
         val atLimit = runBlocking { service.stash(root.id, "rule/budget-at-limit", "x".repeat(16384)) }
         assertTrue(atLimit is PlanDocumentStashResult.Success, "16384 bytes must be accepted: $atLimit")
 
         val overLimit = runBlocking { service.stash(root.id, "rule/budget-over-limit", "x".repeat(16385)) }
-        assertTrue(overLimit is PlanDocumentStashResult.TooLarge, "16385 bytes must be rejected: $overLimit")
-        val tooLarge = overLimit as PlanDocumentStashResult.TooLarge
+        val tooLarge = assertIs<PlanDocumentStashResult.TooLarge>(overLimit, "16385 bytes must be rejected: $overLimit")
         assertEquals(16385, tooLarge.sizeBytes)
         assertEquals(16384, tooLarge.maxBytes)
     }
@@ -142,7 +142,7 @@ class RuleBudgetStashTest {
                     .workItemRepository()
                     .create(
                         WorkItem(title = "S11 Multibyte Root", depth = 0)
-                    )!!
+                    )
             }
 
         // U+00E9 (e-acute) is 2 bytes in UTF-8: 8192 chars == 16384 bytes, exactly at the boundary.
@@ -159,7 +159,7 @@ class RuleBudgetStashTest {
         val overLimitBody = "é".repeat(8193)
         val overLimit = runBlocking { service.stash(root.id, "rule/multibyte-over-limit", overLimitBody) }
         assertTrue(overLimit is PlanDocumentStashResult.TooLarge, "16386 bytes (8193 multibyte chars) must be rejected: $overLimit")
-        assertEquals(16386, (overLimit as PlanDocumentStashResult.TooLarge).sizeBytes)
+        assertEquals(16386, overLimit.sizeBytes)
     }
 
     @Test
@@ -174,7 +174,7 @@ class RuleBudgetStashTest {
                     .workItemRepository()
                     .create(
                         WorkItem(title = "S11 Non-Rule Root", depth = 0)
-                    )!!
+                    )
             }
 
         val body = "x".repeat(20000)
@@ -222,7 +222,7 @@ class RuleBudgetStashTest {
         runBlocking {
             val composition = buildComposition(tempDir)
             val repo = composition.toolContext.repositoryProvider
-            val root = repo.workItemRepository().create(WorkItem(title = "S12 MCP Root", depth = 0))!!
+            val root = repo.workItemRepository().create(WorkItem(title = "S12 MCP Root", depth = 0))
             repo.planDocumentRepository().stash(root.id, "rule/x", "A rule document, not a feature plan.")
 
             val result =
@@ -274,7 +274,7 @@ class RuleBudgetStashTest {
         val composition = buildComposition(tempDir)
         val repo = composition.toolContext.repositoryProvider
         val root =
-            runBlocking { repo.workItemRepository().create(WorkItem(title = "RuleService RepoError Root", depth = 0))!! }
+            runBlocking { repo.workItemRepository().create(WorkItem(title = "RuleService RepoError Root", depth = 0)) }
         runBlocking { repo.planDocumentRepository().stash(root.id, "rule/x", "body") }
         val unknownId = UUID.randomUUID()
 

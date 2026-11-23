@@ -22,7 +22,6 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
-import kotlin.test.assertTrue
 
 /**
  * DB-backed integration test proving [ToolExecutionContext.resolveSchema] actually layers a
@@ -81,11 +80,8 @@ class ToolExecutionContextPerRootIntegrationTest {
                         role: work
                         required: false
                 """.trimIndent()
-            val upsertResult = repository.upsert(rootWithConfig, perRootYaml)
-            assertTrue(
-                upsertResult != null,
-                "Test setup precondition: per-root config upsert must succeed, got $upsertResult"
-            )
+            // upsert returns the stored ConfigVersion and throws on failure, so the setup precondition needs no assertion.
+            repository.upsert(rootWithConfig, perRootYaml)
             // rootWithoutConfig intentionally has no pushed config row.
 
             server = MutableServerConfig()
