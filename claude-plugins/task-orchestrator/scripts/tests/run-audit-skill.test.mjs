@@ -108,7 +108,31 @@ test('S22 the Candidates column holds 3, 6 and 12 for quick, standard and full',
 })
 
 test('S23 the skill names the confirm and metrics scripts, the digest and candidate flags and the previous-result comparison', () => {
-  for (const needle of ['audit-confirm.mjs', 'audit-metrics.mjs', '--digest-out', '--candidates', '--previous']) {
+  for (const needle of ['audit-confirm.mjs', 'audit-metrics.mjs', '--digest-out', '--candidates', '--previous', 'audit-scope.mjs']) {
     assert.ok(SKILL.includes(needle), `names ${needle}`)
   }
+})
+
+// S24-S27 (06adc357): the scope source, the result file and the Step 6 exits and baseline rules.
+const stepBetween = (from, to) => SKILL.slice(SKILL.indexOf(from), SKILL.indexOf(to))
+
+test('S24 the scope.paths row names audit-scope.mjs and --root', () => {
+  const row = SKILL.split(String.fromCharCode(10)).find((l) => l.startsWith('| `scope.paths` |'))
+  assert.ok(row, 'row present')
+  assert.ok(row.includes('audit-scope.mjs') && row.includes('--root'))
+})
+
+test('S25 the metrics fallback needs a non-null metricsPath whose file exists', () => {
+  assert.ok(SKILL.includes('`metricsPath` is non-null and that file exists'))
+})
+
+test('S26 Step 3 matches the previous result on scope.paths and drops results without scope', () => {
+  assert.ok(SKILL.includes("`scope.paths` equal to this run's"))
+  assert.ok(SKILL.includes('a result without `scope` never qualifies'))
+})
+
+test('S27 Step 6 stops on any other exit and never uses a bare save as a baseline', () => {
+  const step6 = stepBetween('## Step 6', '## Step 7')
+  assert.ok(step6.includes('Any other exit: report its stderr and stop; do not go on to Step 7.'))
+  assert.ok(step6.includes('never a `--previous` comparison baseline'))
 })

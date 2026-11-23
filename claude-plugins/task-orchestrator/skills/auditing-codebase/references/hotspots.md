@@ -30,7 +30,7 @@ Source files are judged the same way: a source file that changes only in the com
 
 The hot set is the files whose score (churn times complexity) stands clearly above the rest, judged against the whole repository (often ten files or fewer). It is a property of the repository, not of the scope. When the metrics script ran, take its repository-wide hot set and its scoped hot set as given. By hand:
 
-- Take the top 30 files by churn from the list above, estimate the complexity of each (see [measuring](measuring.md)), and rank them by the product of the churn percentile and the complexity percentile (each the share of the listed files at or below the file's value, so a higher product is hotter), as the script does. The files at the top, clearly apart from the rest, are the hot set. Mark the complexity numbers `estimated`.
+- Take the top 30 files by churn from the list above, estimate the complexity of each (see [measuring](measuring.md)), and rank them by the product of the churn percentile and the complexity percentile (each the share of the 30 listed files at or below the file's value, so a higher product is hotter; an approximation of the repository-wide percentile the script computes). The files at the top, clearly apart from the rest, are the hot set. Mark the complexity numbers `estimated`.
 - For a whole-repository audit, that is the whole job.
 - For a scoped audit, run the churn command a second time without the path and compare. The area's busiest files belong to the hot set only when their counts are of the same order as the repository's busiest files. An area whose top files change far less than that has no hot set: say so in the report, and rate its candidates as the cold-area case in [ranking](ranking.md) says.
 

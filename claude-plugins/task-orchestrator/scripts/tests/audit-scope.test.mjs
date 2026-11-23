@@ -9,10 +9,10 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { scopePaths } from '../lib/audit-scope.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -261,6 +261,42 @@ test('S19: a --root that is not a git work tree exits 2 naming the root, nothing
   assert.ok(r.stderr.includes(`--root ${plain} is not a git work tree`), r.stderr);
 });
 
+test('S19: a failing git ls-files exits 1 with one line, nothing on stdout, no usage line', () => {
+  const dir = makeRepo('cli-bad-index', S19_FILES);
+  writeFileSync(path.join(dir, '.git', 'index'), 'garbage');
+  const r = runCli(['--root', dir]);
+  assert.equal(r.status, 1, r.stderr);
+  assert.equal(r.stdout, '');
+  const lines = r.stderr.split(/\r?\n/).filter((l) => l.trim() !== '');
+  assert.equal(lines.length, 1, r.stderr);
+  assert.ok(lines[0].includes('git ls-files'), r.stderr);
+  assert.doesNotMatch(r.stderr, /usage:/i);
+});
+
+test('S19: a --root below the top level of its work tree exits 2 naming the top level', () => {
+  const dir = makeRepo('cli-subroot', S19_FILES);
+  const top = git(dir, ['rev-parse', '--show-toplevel']).trim();
+  const r = runCli(['--root', path.join(dir, 'src')]);
+  assert.equal(r.status, 2, r.stderr);
+  assert.equal(r.stdout, '');
+  assert.ok(r.stderr.includes('--root'), r.stderr);
+  assert.ok(r.stderr.includes(top), r.stderr);
+});
+
+test('S19 probe: a --root spelled through a directory link to the top level gives the direct result', (t) => {
+  const dir = makeRepo('cli-linkroot', S19_FILES);
+  const link = path.join(workRoot, 'cli-linkroot-alias');
+  try {
+    symlinkSync(dir, link, process.platform === 'win32' ? 'junction' : 'dir');
+  } catch {
+    return t.skip('cannot create a directory link');
+  }
+  const direct = runCli(['--root', dir]);
+  const viaLink = runCli(['--root', link]);
+  assert.equal(viaLink.status, 0, viaLink.stderr);
+  assert.equal(viaLink.stdout, direct.stdout);
+});
+
 test('S19 probe: untracked files are not scoped; the run leaves the repository untouched', () => {
   const dir = makeRepo('cli-untracked', S19_FILES, { 'zzz/test/u.js': 'x\n' });
   const before = git(dir, ['status', '--porcelain']);
@@ -280,3 +316,36 @@ test('S19 probe: a tracked path with a non-ASCII segment is read as written (git
   // T=tests, mirror tests/<e-acute>, a tracked file lies under it; a quoted path would miss it and add tests
   assert.equal(r.stdout, `${JSON.stringify(['src/é', 'tests/é'])}\n`);
 });
+
+// S19: a failed or empty `git rev-parse --show-toplevel` refuses; it never reads as the working directory.
+// The seam is a --import preload that wraps child_process.spawnSync for that one git call.
+function toplevelSeam(mode) {
+  const file = path.join(workRoot, 'toplevel-seam.mjs');
+  writeFileSync(file, [
+    "import cp from 'node:child_process';",
+    "import { syncBuiltinESMExports } from 'node:module';",
+    'const real = cp.spawnSync;',
+    'cp.spawnSync = (cmd, args, opts) => {',
+    "  if (cmd === 'git' && Array.isArray(args) && args.includes('--show-toplevel')) {",
+    "    return process.env.SEAM_TOPLEVEL === 'fail'",
+    "      ? { status: 128, stdout: '', stderr: 'fatal', error: undefined }",
+    "      : { status: 0, stdout: process.env.SEAM_TOPLEVEL === 'blank' ? '   ' : '', stderr: '', error: undefined };",
+    '  }',
+    '  return real(cmd, args, opts);',
+    '};',
+    'syncBuiltinESMExports();',
+    '',
+  ].join('\n'));
+  return { ...baseEnv, SEAM_TOPLEVEL: mode, NODE_OPTIONS: `--import=${pathToFileURL(file).href}` };
+}
+
+
+for (const mode of ['fail', 'empty', 'blank']) {
+  test(`S19: a show-toplevel that ${mode === 'fail' ? 'exits non-zero' : mode === 'empty' ? 'prints nothing' : 'prints only whitespace'} exits 2 naming the root, even with the root as the working directory`, () => {
+    const dir = makeRepo(`cli-toplevel-${mode}`, S19_FILES);
+    const r = spawnSync(process.execPath, [CLI, '--root', dir], { env: toplevelSeam(mode), encoding: 'utf8', cwd: dir, timeout: 60000 });
+    assert.equal(r.status, 2, r.stderr);
+    assert.equal(r.stdout, '');
+    assert.ok(r.stderr.includes(`git top level could not be determined for --root ${dir}`), r.stderr);
+  });
+}

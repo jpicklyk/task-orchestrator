@@ -41,7 +41,7 @@ Build one `audit/args-v2` object:
 | `measured` | the parsed `<workDir>/digest.json` of Step 3; omitted when Step 3 did not produce it |
 | `dispatchClasses` | the `classes` object of `<scriptsDir>/../dispatch-policy.json`, passed unchanged |
 
-`models` and `efforts` are set only for a per-phase-key override the user names. Set `allowLarge: true` only for `full`, and only after the user confirms the projected agent count. Never write a model or effort value in this skill or invent one: they come from `dispatchClasses`.
+`models` and `efforts` are set only for a per-phase-key override the user names. A named override replaces the class's model or effort for that phase key only, and the table shown at Step 4 gives the overridden value for that key. Set `allowLarge: true` only for `full`, and only after the user confirms the projected agent count. Never write a model or effort value in this skill or invent one: they come from `dispatchClasses`.
 
 ## Step 3 - Measure
 
@@ -54,11 +54,11 @@ node "<scriptsDir>/audit-metrics.mjs" --root <git toplevel> --paths <scope.paths
 - Exit 0: set `args.measured` to the parsed `digest.json`.
 - Any other exit: launch without `measured`, tell the user the audit runs unmeasured, and skip `audit-confirm.mjs` and `--metrics` below.
 
-Find the previous result for the comparison. Look at the `*.json` files beside `reportPath` and, when `reportPath` is the default, in the sibling `<scratchpad>/audit/*/` directories. A file qualifies when it holds a result (bare or the task output wrapper) with contract `audit/result-v2`, `confirmedBy: 'audit-confirm'` (a saved `<report>.json`, never an unconfirmed workflow `result.json`) and a `runId` below this run's; the greatest `runId` wins. No qualifying file means no comparison. A result does not record its scope, so name the chosen file and its `runId` in the pre-launch statement; when the user says it audited a different scope, run without `--previous`.
+Find the previous result for the comparison. Look at the `*.json` files beside `reportPath` and, when `reportPath` is the default, in the sibling `<scratchpad>/audit/*/` directories. A file qualifies when it holds a result (bare or the task output wrapper) with contract `audit/result-v2`, `confirmedBy: 'audit-confirm'` (a saved `<report>.json`, never an unconfirmed workflow `result.json`), a `runId` below this run's and `scope.paths` equal to this run's (the same array, element by element); a result without `scope` never qualifies. The greatest `runId` wins. No qualifying file means no comparison. Name the chosen file and its `runId` in the pre-launch statement.
 
 ## Step 4 - Confirm before launch
 
-State the `reportPath` and that items will cite it, name the comparison file or say there is none, state the candidate count (the smaller of the preset's `candidateCount` and the digest's candidates; 0 when unmeasured) and the projected agents (`at most <table value>` when fewer candidates fill the preset), then show the two tables below, with the model and effort of each class filled from the `dispatchClasses` just read, and wait for the user's confirmation. The default `maxAgents` is 60; `quick` and `standard` fit it. The projections below assume a measured digest with enough candidates to fill the preset's candidate reviewers.
+State the `reportPath` and that items will cite it (when `reportPath` is the scratchpad default, warn that the scratchpad can be cleared and the items would then cite a missing file, and offer a durable `--out`), name the comparison file or say there is none, state the candidate count (the smaller of the preset's `candidateCount` and the digest's candidates; 0 when unmeasured) and the projected agents (`at most <table value>` when fewer candidates fill the preset), then show the two tables below, with the model and effort of each class filled from the `dispatchClasses` just read (a named `models` or `efforts` override replaces the class value for that phase key and shows in the table presented), and wait for the user's confirmation. The default `maxAgents` is 60; `quick` and `standard` fit it. The projections below assume a measured digest with enough candidates to fill the preset's candidate reviewers.
 
 ### Presets
 
@@ -101,17 +101,18 @@ On the completion notification:
 node "<scriptsDir>/audit-confirm.mjs" --result <file> --metrics <workDir>/metrics.json --out <resultJson>
 ```
 
-On its exit 2, or when Step 3 did not measure, say so and write the bare workflow result to `<resultJson>` instead.
+On its exit 2, or when Step 3 did not measure, say so and write the bare workflow result to `<resultJson>` instead. The bare save has no `confirmedBy`, so it is never a `--previous` comparison baseline; tell the user so.
 - Render from `<resultJson>`:
 
 ```
 node "<scriptsDir>/audit-report-html.mjs" --result <resultJson> --out <reportPath>
 ```
 
-Add `--metrics <workDir>/metrics.json` when Step 3 measured (else, `--metrics <result.metricsPath>` only when `metricsPath` is non-null and that file exists; without metrics the report says they were not available), and `--previous <the Step 3 comparison file>` when there is one.
+Add `--metrics <workDir>/metrics.json` when Step 3 measured (else, `--metrics <result.metricsPath>` only when `metricsPath` is non-null and that file exists; without metrics the report says they were not available), and `--previous <the Step 3 comparison file>` when there is one. The comparison lists new, persisting, resolved and refuted now findings by `stableId`; a previous finding whose `stableId` is on a current refuted row, whether the metrics or the verifiers refuted it, is listed under Refuted now, not resolved.
 
 - Exit 0: send the report file with `SendUserFile` when the host has it, else give its absolute path.
 - Exit 2: report the `INVALID` line and stop; do not go on to Step 7.
+- Any other exit: report its stderr and stop; do not go on to Step 7.
 
 ## Step 7 - Offer the findings as items
 

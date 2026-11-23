@@ -78,10 +78,10 @@ function fromDocsSlice(f, docsKeys) {
   return keys.some((k) => docsKeys.has(k))
 }
 
-/** verifyLensText(lensKey, category, fromDocs = false) -> the lens instruction, followed by the documentation rule when the finding came from a docs slice or is in a documentation category */
-function verifyLensText(lensKey, category, fromDocs = false) {
+/** verifyLensText(lensKey, withDocsRule) -> the lens instruction, followed by the documentation rule when withDocsRule is true */
+function verifyLensText(lensKey, withDocsRule) {
   const lens = VERIFY_LENS_INSTRUCTIONS[lensKey]
-  return !fromDocs && DOCS_CATEGORIES.indexOf(category) === -1 ? lens : lens + '\n\n' + DOCS_VERIFY_RULE
+  return withDocsRule ? lens + '\n\n' + DOCS_VERIFY_RULE : lens
 }
 
 /**
@@ -128,21 +128,44 @@ function underPath(x, p) {
 
 /**
  * parseLocation(locations) -> {path, line}: the first location reduced by one grammar, identical to lib/audit-confirm.mjs primaryPath (a workflow cannot
- * import, so a test pins the two together): trim, keep the text before the first whitespace, backslashes to '/', leading './' stripped, then a final ':'
- * suffix that holds no '/' removed (':12', ':12-30', ':Foo.bar', ':1:2', a bare ':'; a drive letter stays). line is the digits directly after the removed
- * colon, or 0 when there are none; path is '' with no location, an empty string or a non-string.
+ * import, so a test pins the two together): trim; cut at the earliest of a whitespace character other than a space, a run of 2 or more whitespace
+ * characters, ' (', ' - ', an em dash, and the end of a numeric suffix (':12', ':12-30', '(12)', '#L12') that is followed by whitespace, so 'a.kt:12 see b/c.kt'
+ * is 'a.kt' (a single space with no such suffix before it does not end the path, so 'my dir/a b.kt' survives); trim the end; backslashes to '/'; leading
+ * './' stripped; then trailing suffixes removed repeatedly until none matches, each pass trying in this order: '#L5', '#L5-L9', '#L5-9'; '(12)', '(12,5)',
+ * '(12-30)'; a ':' suffix that holds no '/' (':12', ':12-30', ':Foo.bar', ':1:2', a bare ':'; a drive letter stays), so 'src/a.kt:parse(12)' is 'src/a.kt'.
+ * Limit: a path that itself contains ' (', ' - ' or an em dash is cut there.
+ * line is the first digits of the first removed suffix that has any (digits directly after the colon for a ':' suffix), or 0 when there are none; path is ''
+ * with no location, an empty string or a non-string.
  */
 function parseLocation(locations) {
   const first = Array.isArray(locations) && locations.length ? locations[0] : null
   if (typeof first !== 'string') return { path: '', line: 0 }
-  const word = first.trim().split(/\s/)[0]
+  const text = first.trim()
+  let cut = text.length
+  for (const re of [/[^\S ]/, /\s{2,}/, / \(/, / - /, /\u2014/]) {
+    const hit = re.exec(text)
+    if (hit && hit.index < cut) cut = hit.index
+  }
+  const numeric = /(?::\d+(?:[-:,]\d+)*|#L\d+(?:-L?\d+)?|\(\d[\d,-]*\))(?=\s)/.exec(text)
+  if (numeric && numeric.index + numeric[0].length < cut) cut = numeric.index + numeric[0].length
+  const word = text.slice(0, cut).trimEnd()
   if (!word) return { path: '', line: 0 }
   let out = word.split(String.fromCharCode(92)).join('/')
   while (out.indexOf('./') === 0) out = out.slice(2)
-  const m = /:([^/]*)$/.exec(out)
-  if (!m) return { path: out, line: 0 }
-  const d = /^\d+/.exec(m[1])
-  return { path: out.slice(0, m.index), line: d ? Number(d[0]) : 0 }
+  let line = 0
+  for (let again = true; again;) {
+    again = false
+    for (const re of [/#L(\d+)(?:-L?\d+)?$/, /\((\d[\d,-]*)\)$/, /:([^/]*)$/]) {
+      const m = re.exec(out)
+      if (!m) continue
+      const d = /^\d+/.exec(m[1])
+      if (!line && d) line = Number(d[0])
+      out = out.slice(0, m.index)
+      again = true
+      break
+    }
+  }
+  return { path: out, line }
 }
 
 /** primaryPath(locations) -> string: the path of parseLocation; '' with no location */
@@ -191,7 +214,7 @@ function stableIds(rows) {
 /**
  * formatMetricsDigest(m, ctx = {}) -> the 'MEASURED STRUCTURE' text injected into prompts: first 15 hot-set paths, 10 top-complexity paths,
  * 10 cycles (8 ids each), 10 least stable modules, 5 coupling entries, 5 complexity trends; the text is capped at ctx.maxChars (default
- * DIGEST_MAX_CHARS) at a line break, then ctx.since/ctx.recent and ctx.metricsPath add the window and file lines after the cap
+ * DIGEST_MAX_CHARS) at a line break, then ctx.since (with ', recent since ctx.recent' only when ctx.recent is set) and ctx.metricsPath add the window and file lines after the cap
  */
 function formatMetricsDigest(m, ctx = {}) {
   const cap = typeof ctx.maxChars === 'number' && ctx.maxChars > 0 ? ctx.maxChars : DIGEST_MAX_CHARS
@@ -225,7 +248,7 @@ function formatMetricsDigest(m, ctx = {}) {
     const cut = text.lastIndexOf('\n', cap)
     text = text.slice(0, cut > 0 ? cut : cap) + '\n(digest cut at ' + cap + ' characters; the full numbers are in the metrics file)'
   }
-  if (ctx.since) text += '\nWindows: long since ' + ctx.since + ', recent since ' + ctx.recent
+  if (ctx.since) text += '\nWindows: long since ' + ctx.since + (ctx.recent ? ', recent since ' + ctx.recent : '')
   if (ctx.metricsPath) text += '\nMetrics file: ' + ctx.metricsPath + ' (every number above comes from it, and it holds the numbers for every other file; read it instead of running the metrics script)'
   return text
 }
@@ -300,9 +323,13 @@ function markMetricsPending(rows) {
  * by an equal non-empty primaryPath, by one 'cycle' of measured.cycles (every unit whose module is in that cycle), and by one measured.coupling pair
  * (a unit on entry.path with a unit on a partner.path whose count is at least COUPLING_LINK_MIN; no same-module filter) - never by measured.candidates, which
  * the preset caps (a unit's module is the longest known module id M, from the hot set, top complexity, cycles and unstable modules,
- * with its primaryPath under M). clusters: [{k (1-based), ids (every finding id in the cluster), units: [{canonicalId, ids}], needsAgent (2 or more units)}].
- * batches: arrays of the needsAgent clusters, packed in order while their findings total at most MERGE_BATCH_MAX; a cluster is never split, and
- * a cluster over the limit is a batch of its own.
+ * with its primaryPath under M). After the unions, a cluster with more than MERGE_BATCH_MAX findings is split into parts: its units are grouped by path, the
+ * groups are ordered by primaryPath ascending (ties by the least member key (category, primaryPath, raw first location, input index)), the units inside a group
+ * by the same key, and whole path groups are packed next-fit up to MERGE_BATCH_MAX, so the parts do not depend on reviewer order; a single path over the limit is one part (a single path is never
+ * split, and no path's findings land in two parts). Each part is an ordinary cluster. clusters: [{k (1-based, renumbered after the split), ids (every
+ * finding id in the cluster), units: [{canonicalId, ids}], needsAgent (2 or more units)}].
+ * batches: arrays of the needsAgent clusters, packed in order while their findings total at most MERGE_BATCH_MAX; a cluster over the limit (one path) is
+ * a batch of its own.
  */
 function preCluster(all, measured = null) {
   const rows = all || []
@@ -344,6 +371,8 @@ function preCluster(all, measured = null) {
   ;(mz.cycles || []).forEach((c) => (c || []).forEach((id) => known.add(normPathText(id))))
   ;(mz.unstableModules || []).forEach((u) => { if (u && u.id) known.add(normPathText(u.id)) })
   known.delete('')
+  // moduleOf keeps the longest known prefix: a finding in a nested module (m/a under m) takes the nested id, so a cycle through m alone does not link it.
+  // The cost is a missed cross-module merge candidate, never a wrong merge; a digest-side fix was declined (06adc357 feature-summary).
   const moduleOf = (path) => {
     let best = ''
     for (const id of known) if (underPath(path, id) && id.length > best.length) best = id
@@ -371,7 +400,43 @@ function preCluster(all, measured = null) {
     if (!byRoot.has(r)) byRoot.set(r, [])
     byRoot.get(r).push(u)
   })
-  const clusters = Array.from(byRoot.values()).sort((a, b) => a[0].first - b[0].first).map((us, i) => {
+  const unitCount = (us) => us.reduce((n, u) => n + u.ids.length, 0)
+  // a union can grow a cluster past MERGE_BATCH_MAX; split it after the unions into parts: group its units by path, order the groups and the units inside them
+  // by a key that does not depend on reviewer order, and pack whole path groups next-fit, so one path's findings never land in two parts; a single path over
+  // the limit is emitted alone (a single path is never split). The member key is the one mergeFindings orders by: (category, primaryPath, raw first location), then input index.
+  const cmpText = (x, y) => (x < y ? -1 : x > y ? 1 : 0)
+  const memberKey = (id) => {
+    const f = rows[order.get(id)]
+    return [f.category, primaryPath(f.locations), typeof (f.locations || [])[0] === 'string' ? f.locations[0] : '', order.get(id)]
+  }
+  const cmpKey = (a, b) => cmpText(a[0], b[0]) || cmpText(a[1], b[1]) || cmpText(a[2], b[2]) || a[3] - b[3]
+  const leastKey = (keys) => keys.reduce((least, k) => (cmpKey(k, least) < 0 ? k : least))
+  const unitKey = (u) => leastKey(u.ids.map(memberKey))
+  const splitParts = (us) => {
+    if (unitCount(us) <= MERGE_BATCH_MAX) return [us]
+    const groups = new Map()
+    us.forEach((u) => {
+      const key = u.path || u.first // a number never equals a path string: a unit with no path is its own group: nothing links it to another by path
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key).push(u)
+    })
+    const ordered = Array.from(groups.values()).map((g) => {
+      const keyed = g.map((u) => ({ u, key: unitKey(u) })).sort((a, b) => cmpKey(a.key, b.key))
+      return { units: keyed.map((x) => x.u), path: keyed[0].u.path || '', key: keyed[0].key }
+    }).sort((a, b) => cmpText(a.path, b.path) || cmpKey(a.key, b.key))
+    const parts = []
+    let curUs = []
+    for (const g of ordered) {
+      if (curUs.length && unitCount(curUs) + unitCount(g.units) > MERGE_BATCH_MAX) { parts.push(curUs); curUs = [] }
+      curUs = curUs.concat(g.units)
+      if (unitCount(curUs) > MERGE_BATCH_MAX) { parts.push(curUs); curUs = [] }
+    }
+    if (curUs.length) parts.push(curUs)
+    return parts
+  }
+  const parts = []
+  Array.from(byRoot.values()).sort((a, b) => a[0].first - b[0].first).forEach((us) => splitParts(us).forEach((p) => parts.push(p)))
+  const clusters = parts.map((us, i) => {
     const ids = []
     us.forEach((u) => u.ids.forEach((id) => ids.push(id)))
     ids.sort((a, b) => order.get(a) - order.get(b))
@@ -396,7 +461,7 @@ function preCluster(all, measured = null) {
 function buildMergePrompt(plan, rowsById, batch) {
   const line = (f) => f.id + ' | ' + f.severity + ' | ' + f.category + ' | ' + f.title + ' | ' + (f.locations || []).slice(0, 4).join(', ') + ' | ' + f.evidence.slice(0, 300).replace(/\n/g, ' ')
   const text = batch.map((c) => 'CLUSTER ' + c.k + ':\n' + c.units.map((u) => line(rowsById[u.canonicalId])).join('\n')).join('\n\n')
-  return 'READ-ONLY. You are deduplicating findings from an audit of ' + plan.repo.root + '. The findings are already clustered by shared files and measured relations; group findings describing the SAME underlying problem (same root cause and remedy), and group only findings listed under the same CLUSTER: a group never spans two clusters. Every id below must appear in exactly one group (singletons are groups with an empty duplicateIds). canonicalId = the best-evidenced member. mergedTitle = a precise merged title. Do not read files; work only from the digest below.\n\nDIGEST by cluster (id | severity | category | title | locations | evidence excerpt):\n' + text
+  return 'READ-ONLY. You are deduplicating findings from an audit of ' + plan.repo.root + '. The findings are already clustered by shared files and measured relations; group findings describing the SAME underlying problem (same root cause and remedy), and group only findings listed under the same CLUSTER: a group never spans two clusters. Every id below must appear in exactly one group (singletons are groups with an empty duplicateIds). canonicalId = any member of the group (the canonical member is chosen afterwards, by a fixed rule, not by you). mergedTitle = a precise merged title. Do not read files; work only from the digest below.\n\nDIGEST by cluster (id | severity | category | title | locations | evidence excerpt):\n' + text
 }
 
 /**
@@ -543,7 +608,8 @@ function normalizeArgs(raw) {
   }
   for (const field of ['models', 'efforts']) {
     const given = A[field]
-    if (given == null || typeof given !== 'object') continue
+    if (given == null) continue
+    if (typeof given !== 'object' || Array.isArray(given)) return { ok: false, reason: 'invalid args: ' + field + ' must be an object' }
     const prop = field === 'models' ? 'model' : 'effort'
     for (const k of Object.keys(given)) {
       if (!Object.prototype.hasOwnProperty.call(DISPATCH_CLASSES, k)) return { ok: false, reason: 'invalid args: unknown dispatch key ' + field + '.' + k }
@@ -632,7 +698,7 @@ function flattenFindings(slices) {
   return all
 }
 
-/** mergeFindings(all, groups) -> merged[] (grouped elements in groups order, then ungrouped singletons in input order) */
+/** mergeFindings(all, groups) -> merged[] (grouped elements in groups order, then ungrouped singletons in input order); a group's members are ordered by (category, primaryPath, first location, input index) and every member-ordered field follows that order */
 function mergeFindings(all, groups) {
   const byId = {}
   all.forEach((f, i) => { byId[f.id] = { f, idx: i } })
@@ -642,7 +708,14 @@ function mergeFindings(all, groups) {
     const ids = [g.canonicalId].concat(g.duplicateIds || []).filter((id) => byId[id] && !seen.has(id))
     if (!ids.length) continue
     ids.forEach((id) => seen.add(id))
-    ids.sort((a, b) => byId[a].idx - byId[b].idx)
+    const cmp = (x, y) => (x < y ? -1 : x > y ? 1 : 0) // code-unit order, '' first
+    const keyOf = (id) => { const f = byId[id].f; return [f.category, primaryPath(f.locations), typeof (f.locations || [])[0] === 'string' ? f.locations[0] : ''] }
+    // the canonical member must not depend on reviewer order: least (category, primaryPath, raw first location), then input index
+    ids.sort((a, b) => {
+      const ka = keyOf(a)
+      const kb = keyOf(b)
+      return cmp(ka[0], kb[0]) || cmp(ka[1], kb[1]) || cmp(ka[2], kb[2]) || byId[a].idx - byId[b].idx
+    })
     const members = ids.map((id) => byId[id].f)
     const canon = members[0]
     const maxSev = members.reduce((acc, m) => (SEVERITY_RANK[m.severity] > SEVERITY_RANK[acc] ? m.severity : acc), canon.severity)
@@ -956,9 +1029,10 @@ function isDocsFinding(f, docsKeys) {
 
 /** buildVerifyGroupPrompt(plan, group, lensKey, docsKeys, metricsPath = '') -> string: the verifier preamble, the lens, the documentation rule once when any member is a docs finding, then FINDINGS: a JSON array in group order */
 function buildVerifyGroupPrompt(plan, group, lensKey, docsKeys, metricsPath = '') {
-  const anyDocs = group.some((f) => isDocsFinding(f, docsKeys))
-  const lens = verifyLensText(lensKey, '', anyDocs) + (anyDocs ? '\n\nThe documentation rule applies to the findings marked documentation: true below, and to no other.' : '')
-  const list = group.map((f) => ({ id: f.id, title: f.title, severity: f.severity, category: f.category, locations: f.locations, evidence: f.evidence, impact: f.impact, recommendation: f.recommendation, documentation: isDocsFinding(f, docsKeys) }))
+  const docsFlags = group.map((f) => isDocsFinding(f, docsKeys))
+  const anyDocs = docsFlags.some(Boolean)
+  const lens = verifyLensText(lensKey, anyDocs) + (anyDocs ? '\n\nThe documentation rule applies to the findings marked documentation: true below, and to no other.' : '')
+  const list = group.map((f, i) => ({ id: f.id, title: f.title, severity: f.severity, category: f.category, locations: f.locations, evidence: f.evidence, impact: f.impact, recommendation: f.recommendation, documentation: docsFlags[i] }))
   return verifierPreamble(plan, metricsPath) + lens + '\n\nFINDINGS:\n' + JSON.stringify(list)
 }
 
@@ -1063,7 +1137,7 @@ async function runAudit(plan, deps) {
       return {
         contract: 'audit/result-v2', started: true, runId: plan.runId,
         stats: { reviewers: 0, candidateReviewers: 0, verifyAgents: 0, gaps: 0, raw: 0, merged: 0, kept: 0, confirmed: 0, plausible: 0, unverified: 0, refuted: 0, missing: ['scope'], projectedAgents: projected.total, droppedGaps: [], unverifiedByCap: 0, metricsPending: 0, mergeAgents: 0 },
-        report: null, kept: [], refuted: [], proposal: null, metricsPath, date: plan.date,
+        report: null, kept: [], refuted: [], proposal: null, metricsPath, date: plan.date, scope: { paths: plan.scope.paths.slice() },
       }
     }
     const proposedR = scopeResult.reviewers || []
@@ -1244,7 +1318,7 @@ async function runAudit(plan, deps) {
     projectedAgents: projected.total, droppedGaps, unverifiedByCap: capResult.unverified.length,
     metricsPending: metricsPendingRows.length, mergeAgents,
   }
-  return { contract: 'audit/result-v2', started: true, runId: plan.runId, stats, report, kept: keptOut, refuted: refutedOut, proposal, metricsPath, date: plan.date }
+  return { contract: 'audit/result-v2', started: true, runId: plan.runId, stats, report, kept: keptOut, refuted: refutedOut, proposal, metricsPath, date: plan.date, scope: { paths: plan.scope.paths.slice() } }
 }
 
 // @core-end

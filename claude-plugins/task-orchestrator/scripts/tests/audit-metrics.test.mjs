@@ -17,10 +17,12 @@ import {
   readFileSync,
   existsSync,
   rmSync,
+  cpSync,
+  symlinkSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadLanguageTable } from '../lib/audit-metrics/languages.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -509,7 +511,7 @@ test('S2: bulk commits count toward churn but not coupling; exactly max is not b
     { path: 'f.txt', commits: 0, partners: [] },
   ]);
   // R14: a note counts the 2 bulk commits excluded from coupling
-  assert.ok(json.notes.some((n) => /bulk/i.test(n) && /\b2\b/.test(n)), JSON.stringify(json.notes));
+  assert.ok(json.notes.includes('2 bulk commit(s) naming more than 4 paths excluded from coupling'), JSON.stringify(json.notes));
 });
 
 test('S2b: the default --max-commit-files (40) keeps every commit in coupling', () => {
@@ -641,7 +643,7 @@ test('S9: a --paths entry without files gives a note naming it; others still sco
   const repo = once('scope', buildScope);
   const { json } = metrics(repo, { paths: 'src,nopath' });
   assert.deepEqual(paths(json.files), ['src/a.txt', 'src/sub/c.txt']);
-  assert.ok(json.notes.some((n) => n.includes('nopath')), JSON.stringify(json.notes));
+  assert.ok(json.notes.includes('--paths entry "nopath" matches no files'), JSON.stringify(json.notes));
 });
 
 test('S9b: scores are normalised over the whole repository; hot sets follow R9', () => {
@@ -667,6 +669,8 @@ test('S10: usage errors exit 2 with a stderr message and write no --out (R14)', 
   const plain = path.join(workRoot, 'plain');
   mkdirSync(plain, { recursive: true });
   const valid = { root: repo.dir, paths: '.', since: '2026-01-01', recent: '2026-06-01' };
+  const badPattern = path.join(workRoot, 'usage-bad-pattern.json');
+  writeFileSync(badPattern, JSON.stringify({ languages: [{ name: 'Quirk', extensions: ['.qk'], functionPatterns: ['('] }] }));
   const cases = [
     // [label, one change from the valid call, the flag the reason line must name]
     ['missing --root', { root: null }, /--root/],
@@ -687,6 +691,8 @@ test('S10: usage errors exit 2 with a stderr message and write no --out (R14)', 
     ['--max-commit-files 0', { extra: ['--max-commit-files', '0'] }, /--max-commit-files/],
     ['root that is not a git work tree', { root: plain }, /--root/],
     ['root that does not exist', { root: path.join(workRoot, 'does-not-exist') }, /--root/],
+    ['--lang-table with an invalid pattern', { extra: ['--lang-table', badPattern] }, /--lang-table[\s\S]*Quirk/],
+    ['--lang-table naming a missing file', { extra: ['--lang-table', path.join(workRoot, 'no-such-table.json')] }, /--lang-table/],
   ];
   cases.forEach(([label, change, flag], i) => {
     const out = path.join(workRoot, 'usage', String(i), 'm.json');
@@ -704,6 +710,126 @@ test('S10: usage errors exit 2 with a stderr message and write no --out (R14)', 
     assert.match(reason, flag, `${label}: reason does not name the flag, stderr ${r.stderr}`);
     assert.equal(existsSync(out), false, `${label}: --out was written`);
   });
+});
+
+const stderrLines = (r) => r.stderr.split(/\r?\n/).filter((l) => l.trim() !== '');
+const reasonOf = (r) => stderrLines(r).filter((l) => !/^usage:/i.test(l.trim())).join('\n');
+
+// A directory link (junction on win32); false when the platform or permissions refuse to create one.
+function tryLink(target, linkPath) {
+  try {
+    symlinkSync(target, linkPath, process.platform === 'win32' ? 'junction' : 'dir');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function runWith(repo, out, extra = [], opts = {}) {
+  return runCli([
+    '--root', opts.root ?? repo.dir, '--paths', '.', '--since', '2026-01-01', '--recent', '2026-06-01',
+    '--out', out, ...extra,
+  ]);
+}
+
+test('S10c: an unusable bundled language table exits 1 with one line that is not a usage error', () => {
+  const repo = once('window', buildWindow);
+  const tree = path.join(workRoot, 'bundled-copy', 'scripts');
+  mkdirSync(tree, { recursive: true });
+  cpSync(path.join(scriptsDir, 'lib'), path.join(tree, 'lib'), { recursive: true });
+  cpSync(CLI, path.join(tree, 'audit-metrics.mjs'));
+  const copiedTable = path.join(tree, 'lib', 'audit-metrics', 'languages.json');
+  writeFileSync(copiedTable, '{');
+  const out = path.join(workRoot, 'bundled-copy', 'm.json');
+  const r = spawnSync(process.execPath, [
+    path.join(tree, 'audit-metrics.mjs'), '--root', repo.dir, '--paths', '.', '--since', '2026-01-01',
+    '--recent', '2026-06-01', '--out', out,
+  ], { env: baseEnv, encoding: 'utf8', timeout: 120000 });
+  assert.equal(r.status, 1, r.stderr);
+  const lines = stderrLines(r);
+  assert.equal(lines.length, 1, r.stderr);
+  assert.ok(lines[0].startsWith('language table '), lines[0]);
+  assert.ok(lines[0].includes(copiedTable), lines[0]);
+  assert.doesNotMatch(r.stderr, /--lang-table|usage:/i);
+  assert.equal(existsSync(out), false);
+});
+
+test('S10d: a --root below the top level of its work tree exits 2 naming the top level', () => {
+  const repo = once('scope', buildScope);
+  const top = git(repo.dir, ['rev-parse', '--show-toplevel']).trim();
+  const out = nextOut();
+  const r = runWith(repo, out, [], { root: path.join(repo.dir, 'src') });
+  assert.equal(r.status, 2, r.stderr);
+  const reason = reasonOf(r);
+  assert.match(reason, /--root/);
+  assert.ok(reason.includes(top), reason);
+  assert.equal(existsSync(out), false);
+});
+
+test('S10d probe: a --root spelled through a directory link to the top level is accepted', (t) => {
+  const repo = once('scope', buildScope);
+  const link = path.join(workRoot, 'root-link');
+  if (!tryLink(repo.dir, link)) return t.skip('cannot create a directory link');
+  const { json } = metrics(repo, { root: link });
+  assert.equal(json.contract, 'audit/metrics-v1');
+});
+
+test('S10e: --digest-out reaching --out through a directory link exits 2 before any write', (t) => {
+  const real = path.join(workRoot, 'link-real');
+  mkdirSync(real, { recursive: true });
+  const link = path.join(workRoot, 'link-alias');
+  if (!tryLink(real, link)) return t.skip('cannot create a directory link');
+  const repo = once('window', buildWindow);
+  const r = runWith(repo, path.join(real, 'm.json'), ['--digest-out', path.join(link, 'm.json')]);
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(reasonOf(r), /--digest-out/);
+  assert.equal(existsSync(path.join(real, 'm.json')), false);
+  assert.equal(existsSync(path.join(link, 'm.json')), false);
+});
+
+test('S10e: --digest-out in a directory spelled in another case exits 2 where the volume folds case', (t) => {
+  const dir = path.join(workRoot, 'casedir');
+  mkdirSync(dir, { recursive: true });
+  const upper = path.join(workRoot, 'CASEDIR');
+  if (!existsSync(upper)) return t.skip('case-sensitive volume');
+  const repo = once('window', buildWindow);
+  const r = runWith(repo, path.join(dir, 'm.json'), ['--digest-out', path.join(upper, 'm.json')]);
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(reasonOf(r), /--digest-out/);
+  assert.equal(existsSync(path.join(dir, 'm.json')), false);
+});
+
+test('S10f: a write failure exits 1 with one line naming the path and no stack', () => {
+  const repo = once('window', buildWindow);
+  const blocker = path.join(workRoot, 'blocker-file');
+  writeFileSync(blocker, 'x');
+  // --digest-out parent is a regular file: nothing may be written, --out included
+  const out1 = nextOut();
+  const digest1 = path.join(blocker, 'd.json');
+  const r1 = runWith(repo, out1, ['--digest-out', digest1]);
+  assert.equal(r1.status, 1, r1.stderr);
+  assert.equal(stderrLines(r1).length, 1, r1.stderr);
+  assert.ok(r1.stderr.includes('cannot write') && r1.stderr.includes(path.resolve(digest1)), r1.stderr);
+  assert.doesNotMatch(r1.stderr, /^\s+at /m);
+  assert.equal(existsSync(out1), false, '--out written before the digest target was checked');
+  // --out parent is a regular file: the digest must not be written
+  const digest2 = path.join(workRoot, 'fresh-digest-dir', 'd.json');
+  const out2 = path.join(blocker, 'm.json');
+  const r2 = runWith(repo, out2, ['--digest-out', digest2]);
+  assert.equal(r2.status, 1, r2.stderr);
+  assert.equal(stderrLines(r2).length, 1, r2.stderr);
+  assert.ok(r2.stderr.includes('cannot write') && r2.stderr.includes(path.resolve(out2)), r2.stderr);
+  assert.doesNotMatch(r2.stderr, /^\s+at /m);
+  assert.equal(existsSync(digest2), false);
+  // --digest-out names an existing directory
+  const out3 = nextOut();
+  const dirTarget = path.join(workRoot, 'digest-is-dir');
+  mkdirSync(dirTarget, { recursive: true });
+  const r3 = runWith(repo, out3, ['--digest-out', dirTarget]);
+  assert.equal(r3.status, 1, r3.stderr);
+  assert.ok(r3.stderr.includes('it is a directory'), r3.stderr);
+  assert.equal(stderrLines(r3).length, 1, r3.stderr);
+  assert.equal(existsSync(out3), false);
 });
 
 test('S10b: accepted boundary values and parent directories of --out are created', () => {
@@ -733,8 +859,8 @@ test('S11: --since after the last commit gives zero churn, empty sets and a note
   assert.deepEqual(json.hotSet, []);
   assert.deepEqual(json.coupling, []);
   assert.deepEqual(json.trend, []);
-  // R14: the note for a window without commits mentions the commits.
-  assert.ok(json.notes.some((n) => /commit/i.test(n)), JSON.stringify(json.notes));
+  // R14: the note for a window without commits names the window start.
+  assert.ok(json.notes.includes('no commits on or after 2026-12-01'), JSON.stringify(json.notes));
 });
 
 test('S11b: a repository without commits exits 0, headSha null, a note (R14)', () => {
@@ -745,8 +871,8 @@ test('S11b: a repository without commits exits 0, headSha null, a note (R14)', (
   assert.deepEqual(json.generatedFrom, { headSha: null });
   assert.deepEqual(json.files, []);
   assert.deepEqual(json.hotSet, []);
-  // R14: the note for a repository without commits mentions the commits.
-  assert.ok(json.notes.some((n) => /commit/i.test(n)), JSON.stringify(json.notes));
+  // R14: the note for a repository without commits.
+  assert.ok(json.notes.includes('repository has no commits'), JSON.stringify(json.notes));
 });
 
 test('S12: hot-set cut is churn x 3 >= R, boundary inclusive (R9)', () => {
@@ -1156,3 +1282,111 @@ test('probe: the module graph does not depend on how the same tree is named in -
   assert.deepEqual(app.cycles, all.cycles);
   assert.deepEqual(nodeIds(app), nodeIds(all));
 });
+
+// ------------------------------------------- dotted Python imports and fixture trees (item c32d302b)
+//
+// Oracle: the item's task-scope decisions 1 and 2, hand-derived on each fixture. A dotted import
+// ('from .b import x') joins the connected-group bases like a JS relative import; a file with a fixtures or
+// __fixtures__ directory segment (any case) is kept in files with module null and stays out of the graph.
+
+function buildPythonDotted() {
+  return makeRepo('pydotted', [
+    {
+      date: '2026-02-01',
+      files: {
+        'svc/core/pkg/a.py': 'from .b import x\nfrom ..util import y\n',
+        'svc/core/pkg/b.py': 'x = 1\n',
+        'svc/core/util.py': 'y = 2\n',
+        'svc/core/pkg2/c.py': 'from ..pkg import b\n',
+        'docs/x.md': 'docs\n  notes\n',
+      },
+    },
+  ]);
+}
+
+function buildFixtureTrees() {
+  return makeRepo('fixtrees', [
+    {
+      date: '2026-02-01',
+      files: {
+        'lib/a/x.mjs': "import { y } from '../b/y.mjs';\nexport const x = y;\n",
+        'lib/b/y.mjs': 'export const y = 1;\n',
+        'lib/b/fixtures.mjs': 'export const f = 1;\n',
+        // A file named exactly fixtures is not a fixture tree: only a directory segment marks one.
+        'lib/b/fixtures': 'plain text\n',
+        'tests/fixtures/proj/src/p/q.mjs': "import { r } from '../r/r.mjs';\nexport const q = r;\n",
+        'tests/fixtures/proj/src/r/r.mjs': 'export const r = 1;\n',
+        'tests/__Fixtures__/z.mjs': "import { x } from '../../lib/a/x.mjs';\nexport const z = x;\n",
+        'tests/t.test.mjs':
+          "import { x } from '../lib/a/x.mjs';\nimport { q } from './fixtures/proj/src/p/q.mjs';\nimport { f } from '../lib/b/fixtures.mjs';\nexport const t = [x, q, f];\n",
+      },
+    },
+  ]);
+}
+
+test('S15: dotted Python imports join the connected-group bases', () => {
+  const repo = once('pydotted', buildPythonDotted);
+  const { json } = metrics(repo, { paths: '.' });
+  const m = json.modules;
+  assert.deepEqual(nodeIds(m), ['docs', 'svc/core', 'svc/core/pkg', 'svc/core/pkg2']);
+  assert.deepEqual(edgeKeys(m), ['svc/core/pkg -> svc/core x1', 'svc/core/pkg2 -> svc/core/pkg x1']);
+  assert.equal(m.unresolved, 0);
+  const f = byPath(json);
+  assert.equal(f['svc/core/pkg/a.py'].module, 'svc/core/pkg');
+  assert.equal(f['svc/core/pkg/b.py'].module, 'svc/core/pkg');
+  assert.equal(f['svc/core/pkg2/c.py'].module, 'svc/core/pkg2');
+  assert.equal(f['svc/core/util.py'].module, 'svc/core');
+});
+
+test('S16: files under a fixtures or __fixtures__ directory stay in files with module null and out of the graph', () => {
+  const repo = once('fixtrees', buildFixtureTrees);
+  const { json } = metrics(repo, { paths: '.' });
+  const m = json.modules;
+  assert.deepEqual(nodeIds(m), ['lib/a', 'lib/b', 'tests']);
+  assert.deepEqual(edgeKeys(m), ['lib/a -> lib/b x1', 'tests -> lib/a x1', 'tests -> lib/b x1']);
+  assert.equal(m.unresolved, 0);
+  assert.deepEqual(Object.fromEntries(m.nodes.map((n) => [n.id, n.files])), { 'lib/a': 1, 'lib/b': 3, tests: 1 });
+  assert.equal(json.files.length, 8);
+  const f = byPath(json);
+  for (const p of ['tests/fixtures/proj/src/p/q.mjs', 'tests/fixtures/proj/src/r/r.mjs', 'tests/__Fixtures__/z.mjs']) {
+    assert.equal(f[p].module, null, p);
+  }
+  assert.equal(f['lib/b/fixtures.mjs'].module, 'lib/b');
+  assert.equal(f['lib/b/fixtures'].module, 'lib/b');
+});
+
+// S17: a failed or empty `git rev-parse --show-toplevel` refuses; it never reads as the working directory.
+// The seam is a --import preload that wraps child_process.spawnSync for that one git call.
+function toplevelSeam(mode) {
+  const file = path.join(workRoot, 'toplevel-seam.mjs');
+  writeFileSync(file, [
+    "import cp from 'node:child_process';",
+    "import { syncBuiltinESMExports } from 'node:module';",
+    'const real = cp.spawnSync;',
+    'cp.spawnSync = (cmd, args, opts) => {',
+    "  if (cmd === 'git' && Array.isArray(args) && args.includes('--show-toplevel')) {",
+    "    return process.env.SEAM_TOPLEVEL === 'fail'",
+    "      ? { status: 128, stdout: '', stderr: 'fatal', error: undefined }",
+    "      : { status: 0, stdout: process.env.SEAM_TOPLEVEL === 'blank' ? '   ' : '', stderr: '', error: undefined };",
+    '  }',
+    '  return real(cmd, args, opts);',
+    '};',
+    'syncBuiltinESMExports();',
+    '',
+  ].join('\n'));
+  return { ...baseEnv, SEAM_TOPLEVEL: mode, NODE_OPTIONS: `--import=${pathToFileURL(file).href}` };
+}
+
+for (const mode of ['fail', 'empty', 'blank']) {
+  test(`S17: a show-toplevel that ${mode === 'fail' ? 'exits non-zero' : mode === 'empty' ? 'prints nothing' : 'prints only whitespace'} exits 2 naming the root, even with the root as the working directory`, () => {
+    const repo = once('pydotted', buildPythonDotted);
+    const out = path.join(workRoot, 'out', `toplevel-${mode}.json`);
+    const r = spawnSync(process.execPath, [
+      CLI, '--root', repo.dir, '--paths', '.', '--since', '2026-01-01', '--recent', '2026-06-01', '--out', out,
+    ], { env: toplevelSeam(mode), encoding: 'utf8', cwd: repo.dir, timeout: 120000 });
+    assert.equal(r.status, 2, r.stderr);
+    assert.equal(r.stdout, '');
+    assert.ok(r.stderr.includes(`git top level could not be determined for --root ${repo.dir}`), r.stderr);
+    assert.equal(existsSync(out), false);
+  });
+}

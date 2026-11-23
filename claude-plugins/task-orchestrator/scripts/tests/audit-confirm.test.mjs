@@ -133,6 +133,7 @@ test('S2 churn claimed 40, measured 60: leaves kept[] and proposal.items, append
   assert.deepEqual(out.refuted[0], old, 'earlier refuted rows keep their place and content')
   assert.deepEqual(out.refuted[1], {
     findingId: b.findingId,
+    reportId: b.reportId,
     title: b.title,
     category: b.category,
     locations: b.locations,
@@ -241,7 +242,7 @@ test('S5 a cycle claim confirms when every module sits in one measured cycle, in
 
 // ── S6 no measurement to compare with (D2, D3, D4) ───────────────────────────────────────────────
 
-test('S6 no files[] row, a non-finite field, or no cycles array: the row stays kept UNVERIFIED with reason no-metrics and no metrics key', () => {
+test('S6 no files[] row, a non-finite field, or no cycles array: the row stays kept UNVERIFIED with reason no-metrics; rows whose path has a files[] row carry metrics, the others none', () => {
   const noRow = pend('n/none.kt', num('churn', 5))
   const nullField = pend('n/null.kt', num('churn', 5))
   const strField = pend('n/str.kt', num('churn', 5))
@@ -259,6 +260,9 @@ test('S6 no files[] row, a non-finite field, or no cycles array: the row stays k
   }
   assert.equal('metrics' in byId(out.kept, noRow.findingId), false)
   assert.equal('metrics' in byId(out.kept, cycleNoArray.findingId), false)
+  const unusable = { churn: null, churnRecent: 5, complexity: 200, hotspotScore: 0.5 }
+  assert.deepEqual(byId(out.kept, nullField.findingId).metrics, unusable)
+  assert.deepEqual(byId(out.kept, strField.findingId).metrics, unusable)
 })
 
 test('S6 an existing but empty modules.cycles array is a measurement: the cycle claim is refuted, not no-metrics', () => {
@@ -320,7 +324,9 @@ function mixedRun() {
 
 test('S8 stats are recounted, the metrics counters set, other stats left alone', () => {
   const { input, metrics } = mixedRun()
+  input.stats.metricsPending = 3
   const out = confirmMeasured(input, metrics)
+  assert.equal(out.stats.metricsPending, 0, 'every pending row is decided')
   assert.equal(out.stats.kept, 6)
   assert.equal(out.stats.confirmed, 2) // a (by metrics) and d
   assert.equal(out.stats.plausible, 1)
@@ -667,6 +673,8 @@ test('S13 primaryPath equals the workflow core on a probe list', () => {
     ['https://h/x.kt:9'], ['a:b/c.kt:7'], ['x.kt:1:2'], ['./.hidden:4'], ['./'],
     ['src/a.kt:12'], ['src/a.kt:12-30'], ['src/a.kt:Foo.bar'], ['src/a.kt (note)'], ['src/a.kt:12 (note)'],
     [''], [null], [42], ['  ./x.kt:3 (n)'], ['src/a.kt	vs src/b.kt'], ['src/a.kt  vs src/b.kt'], ['c:' + String.fromCharCode(92) + 'x' + String.fromCharCode(92) + 'y.kt:9'],['C:/x/y.kt/'], ['x.kt:'], [':'],
+    ['my dir/a b.kt:12'], ['my dir/a b.kt (note)'], ['src/a.kt:3 - see b/c.kt'], ['src/a.kt:3 ' + String.fromCharCode(0x2014) + ' note'], ['src/a.kt(12)'], ['src/a.kt(12,5)'], ['src/a.kt(12-30)'], ['src/a.kt#L5'], ['src/a.kt#L5-L9'], ['src/a.kt#L5-9'], ['src/a.kt (12)'], ['src/foo()/a.kt'],
+    ['src/a.kt:parse(12)'], ['src/a.kt:parse:12'], ['src/a.kt:Foo.bar(1)'], ['a.kt:12 see b/c.kt'], ['a.kt(12) see b/c.kt'], ['a.kt#L12 see b/c.kt'], ['a.kt:12-30 see b/c.kt'], ['my dir/a.kt:3'],
   ]
   for (const p of probes) assert.equal(primaryPath(p), WF.primaryPath(p), JSON.stringify(p))
 })
@@ -700,7 +708,7 @@ test('S12 primaryPath D1 edges (lib copy)', () => {
   for (const [loc, want] of cases) assert.equal(primaryPath([loc]), want, JSON.stringify(loc))
 })
 
-test('S12 / probe: a tab or a double space ends the path like a single space; the first whitespace decides', () => {
+test('S12 / probe: a tab or a run of two or more whitespace characters ends the path; a single space does not', () => {
   assert.equal(primaryPath(['src/a.kt	vs src/b.kt']), 'src/a.kt')
   assert.equal(primaryPath(['src/a.kt  vs src/b.kt']), 'src/a.kt')
   assert.equal(primaryPath(['	 src/a.kt:5 	(x)']), 'src/a.kt')
@@ -718,6 +726,7 @@ test('S13 / probe: both copies agree on every D1 form, edge and probe input', ()
     ['src/a.kt:12'], ['src/a.kt:12-30'], ['src/a.kt:Foo.bar'], ['src/a.kt (note)'], ['src/a.kt:12 (note)'],
     ['C:' + BSL + 'x' + BSL + 'y.kt:9'], ['  ./x.kt:3 (n)'], ['x.kt:'], ['x.kt:1:2'], ['a:b/c.kt:7'], ['plain.kt'],
     ['src/a.kt	vs src/b.kt'], ['src/a.kt  vs src/b.kt'], ['././x.kt:1'], ['c:/x/y.kt:9'], ['C:/x/y/'], [''], [null], [42], [], [':'],
+    ['my dir/a b.kt:12'], ['my dir/a b.kt (note)'], ['src/a.kt:3 - see b/c.kt'], ['src/a.kt:3 ' + String.fromCharCode(0x2014) + ' note'], ['src/a.kt(12)'], ['src/a.kt(12,5)'], ['src/a.kt(12-30)'], ['src/a.kt#L5'], ['src/a.kt#L5-L9'], ['src/a.kt#L5-9'], ['src/a.kt (12)'], ['src/foo()/a.kt'],
   ]
   for (const p of inputs) assert.equal(primaryPath(p), WF.primaryPath(p), JSON.stringify(p))
 })
@@ -746,4 +755,94 @@ test('S2 result-wrapper fixture: confirm attaches metrics to the 11 rows whose f
   assert.ok(scope, 'fixture row present')
   assert.equal('metrics' in scope, false)
   assert.deepEqual(out.kept.filter((r) => !r.metrics).map((r) => r.findingId), [scope.findingId])
+})
+
+// ── item b5617eb3: refuted-row report id, metricsPending recount, re-gate parity ─────────────────────
+
+test('AC2 a metrics-refuted row copies a non-empty reportId; an empty one leaves no reportId key', () => {
+  const withId = pend('q/a.kt', num('churn', 40), { reportId: 'R07' })
+  const emptyId = pend('q/b.kt', num('churn', 40), { reportId: '' })
+  const out = confirmMeasured(result([withId, emptyId]), metricsOf([frow('q/a.kt', { churn: 60 }), frow('q/b.kt', { churn: 60 })]))
+  assert.equal(out.kept.length, 0)
+  assert.equal(byId(out.refuted, withId.findingId).reportId, 'R07')
+  assert.equal('reportId' in byId(out.refuted, emptyId.findingId), false)
+})
+
+test('AC2 a row moves from kept to refuted with its report id: the two id sets of one run are disjoint', () => {
+  const gone = pend('q/e.kt', num('churn', 40))
+  const stays = pend('q/f.kt', num('churn', 40))
+  const plain = judged('q/g.kt')
+  const out = confirmMeasured(result([gone, stays, plain]), metricsOf([frow('q/e.kt', { churn: 60 }), frow('q/f.kt', { churn: 40 })]))
+  const keptIds = out.kept.map((r) => r.reportId)
+  const refutedIds = out.refuted.map((r) => r.reportId)
+  assert.deepEqual(refutedIds, [gone.reportId])
+  assert.deepEqual(keptIds.sort(), [stays.reportId, plain.reportId].sort())
+  assert.deepEqual(keptIds.filter((id) => refutedIds.includes(id)), [])
+})
+
+test('AC5 stats.metricsPending is recounted from the kept rows still pending, and a second pass gives the same value', () => {
+  const rows = [pend('q/c.kt', num('churn', 10)), pend('q/d.kt', num('churn', 10))]
+  const input = result(rows, { stats: { ...stats0, metricsPending: 2 } })
+  const out = confirmMeasured(input, metricsOf([frow('q/c.kt', { churn: 10 }), frow('q/d.kt', { churn: 10 })]))
+  assert.equal(out.stats.metricsPending, 0)
+  assert.equal(confirmMeasured(out, metricsOf([])).stats.metricsPending, 0)
+})
+
+const PARITY = loadCoreNamed(WORKFLOW, ['buildProposal'])
+
+test('AC1 the re-gated proposal equals the workflow buildProposal over the confirmed kept rows (policy gated)', () => {
+  const plan = {
+    title: 'T', date: '2026-11-23', runId: 'a-parity', reportPath: 'docs/audit.html', observationPaths: ['docs/'],
+    classMap: { hotspot: 'bug', cohesion: 'tech-debt' },
+    items: { enabled: true, rootId: 'root-1', materializeMin: 'medium', policy: 'gated', typeMap: { bug: 'bug', techDebt: 'tech-debt' } },
+  }
+  const clean = pend('p/clean.kt', num('churn', 10))
+  const tracked = pend('p/tracked.kt', num('churn', 10), { trackedId: 'abcd1234' })
+  const dupStrong = pend('p/strong.kt', num('churn', 10))
+  const unknown = pend('p/unknown.kt', num('churn', 10))
+  const weak = pend('p/weak.kt', num('churn', 10))
+  const low = pend('p/low.kt', num('churn', 10), { severity: 'low' })
+  const mismatch = pend('p/mismatch.kt', num('churn', 40))
+  const noRow = pend('p/norow.kt', num('churn', 10))
+  const obs = pend('docs/obs.md', num('churn', 10))
+  const bulk = Array.from({ length: 26 }, (_, i) => judged(`p/bulk${i}.kt`, { severity: 'medium' }))
+  const agents = judged('p/judged.kt', { severity: 'high' })
+  const kept = [clean, tracked, dupStrong, unknown, weak, low, mismatch, noRow, obs, ...bulk, agents]
+  const triage = {
+    [dupStrong.findingId]: { candidates: [], likelyDuplicate: 'strong' },
+    [unknown.findingId]: { candidates: [], likelyDuplicate: 'unknown' },
+    [weak.findingId]: { candidates: [], likelyDuplicate: 'weak' },
+  }
+  for (const k of kept) if (!triage[k.findingId]) triage[k.findingId] = { candidates: [], likelyDuplicate: 'none' }
+  const before = PARITY.buildProposal(clone(kept), triage, plan)
+  const files = ['clean', 'tracked', 'strong', 'unknown', 'weak', 'low', 'obs'].map((n) => frow(n === 'obs' ? 'docs/obs.md' : `p/${n}.kt`, { churn: 10 }))
+  files.push(frow('p/mismatch.kt', { churn: 10 }))
+  const out = confirmMeasured(result(kept, { proposal: before }), metricsOf(files))
+  assert.deepEqual(out.proposal, PARITY.buildProposal(out.kept, triage, plan))
+  // not vacuous: the refuted row left, and the materializable rows span two batches
+  assert.equal(out.proposal.items.some((i) => i.findingId === mismatch.findingId), false)
+  assert.equal(byId(out.refuted, mismatch.findingId).findingId, mismatch.findingId)
+  assert.equal(out.proposal.batches.length, 2)
+  assert.ok(out.proposal.batches[0].childRefs.includes(clean.findingId))
+  assert.ok(!out.proposal.batches.some((b) => b.childRefs.includes(tracked.findingId)))
+})
+
+test('A3 / A4 primaryPath (lib copy): one #L or (digits) suffix is removed, a single space survives, a note separator cuts', () => {
+  for (const loc of ['src/a.kt(12)', 'src/a.kt(12,5)', 'src/a.kt(12-30)', 'src/a.kt#L5', 'src/a.kt#L5-L9', 'src/a.kt#L5-9']) assert.equal(primaryPath([loc]), 'src/a.kt', loc);
+  assert.equal(primaryPath(['my dir/a b.kt:12']), 'my dir/a b.kt');
+  assert.equal(primaryPath(['my dir/a b.kt (note)']), 'my dir/a b.kt');
+  assert.equal(primaryPath(['src/a.kt:3 - see b/c.kt']), 'src/a.kt');
+  assert.equal(primaryPath(['src/a.kt:3 ' + String.fromCharCode(0x2014) + ' note']), 'src/a.kt');
+  assert.equal(primaryPath(['src/a.kt (12)']), 'src/a.kt');
+});
+
+test('FA1 / FA2 primaryPath (lib copy): every trailing suffix is stripped, a numeric suffix before whitespace ends the path', () => {
+  assert.equal(primaryPath(['src/a.kt:parse(12)']), 'src/a.kt')
+  assert.equal(primaryPath(['src/a.kt:parse:12']), 'src/a.kt')
+  assert.equal(primaryPath(['src/a.kt:12']), 'src/a.kt')
+  assert.equal(primaryPath(['src/a.kt:Foo.bar(1)']), 'src/a.kt')
+  assert.equal(primaryPath(['a.kt:12 see b/c.kt']), 'a.kt')
+  assert.equal(primaryPath(['a.kt(12) see b/c.kt']), 'a.kt')
+  assert.equal(primaryPath(['a.kt#L12 see b/c.kt']), 'a.kt')
+  assert.equal(primaryPath(['my dir/a.kt:3']), 'my dir/a.kt')
 })
