@@ -54,7 +54,7 @@ node "<scriptsDir>/audit-metrics.mjs" --root <git toplevel> --paths <scope.paths
 - Exit 0: set `args.measured` to the parsed `digest.json`.
 - Any other exit: launch without `measured`, tell the user the audit runs unmeasured, and skip `audit-confirm.mjs` and `--metrics` below.
 
-Find the previous result for the comparison. Look at the `*.json` files beside `reportPath` and, when `reportPath` is the default, in the sibling `<scratchpad>/audit/*/` directories. A file qualifies when it holds a result (bare or the task output wrapper) with contract `audit/result-v2` and a `runId` below this run's; the greatest `runId` wins. No qualifying file means no comparison.
+Find the previous result for the comparison. Look at the `*.json` files beside `reportPath` and, when `reportPath` is the default, in the sibling `<scratchpad>/audit/*/` directories. A file qualifies when it holds a result (bare or the task output wrapper) with contract `audit/result-v2`, `confirmedBy: 'audit-confirm'` (a saved `<report>.json`, never an unconfirmed workflow `result.json`) and a `runId` below this run's; the greatest `runId` wins. No qualifying file means no comparison. A result does not record its scope, so name the chosen file and its `runId` in the pre-launch statement; when the user says it audited a different scope, run without `--previous`.
 
 ## Step 4 - Confirm before launch
 
