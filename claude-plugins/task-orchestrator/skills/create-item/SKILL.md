@@ -126,9 +126,9 @@ Add `  Created new container: <name> under <parent>` when a category was created
 
 ## From a workflow findings proposal
 
-An alternate entry for materializing findings from a `task-orchestrator:deep-codebase-audit` run. The workflow never writes items; it returns an `audit/result-v1` result with a `proposal` (candidate rows in `proposal.items[]`) and `kept[]` (surviving findings). Use this path instead of Steps 1-3 when the input is a proposal.
+An alternate entry for materializing findings from a `task-orchestrator:deep-codebase-audit` run. The workflow never writes items; it returns an `audit/result-v2` result with a `proposal` (candidate rows in `proposal.items[]`) and `kept[]` (surviving findings). Use this path instead of Steps 1-3 when the input is a proposal. The input also names the chosen `items.policy` (`gated`, `bugs` or `all`); a row's `selectedBy` holds one flag per policy, and a row's starting `materialize` is `selectedBy[policy]`. A row's `materialize`, `reason` and the proposal's `batches` reflect only the policy the audit was launched with (`gated`), so for another policy the table shows `selectedBy[policy]` and the tree is built from the rows that policy selects, never from `batches`. A row tagged `unverified` keeps the tag.
 
-1. **Table.** Show one table: id, severity, class, type, materialize and reason, candidates.
+1. **Table.** Show one table: id, severity, class, type, selected by the chosen policy, reason, candidates.
 2. **Dedup.** Row `candidates` come from the unscoped Step 5 search the audit already ran; cite them. Re-search only rows with `likelyDuplicate: unknown` or rows the user added or retitled. Candidates are FYI only.
 3. **Edits.** The user may flip `materialize`, reclassify a row (bug, tech-debt, agent-observation) or drop it. Apply nothing without an explicit edit.
 4. **Container.** Resolve ONE category container with Steps 2-3 and have the user confirm it. Non-observation rows go under a single audit container created beneath it.
@@ -137,7 +137,7 @@ An alternate entry for materializing findings from a `task-orchestrator:deep-cod
 7. **Notes.** None written from the proposal; queue notes are filled later in normal planning.
 8. **Report** with Step 7's format, one line per created item.
 
-Never automated: creating without explicit confirmation, acting on dedup candidates, or materializing a `materialize: false` row the user did not flip.
+Never automated: creating without explicit confirmation, acting on dedup candidates, or materializing a row the chosen policy did not select (`not selected by the chosen policy`) that the user did not flip.
 
 ## Troubleshooting
 
