@@ -78,10 +78,10 @@ function fromDocsSlice(f, docsKeys) {
   return keys.some((k) => docsKeys.has(k))
 }
 
-/** verifyLensText(lensKey, category, fromDocs = false) -> the lens instruction, followed by the documentation rule when the finding came from a docs slice or is in a documentation category */
-function verifyLensText(lensKey, category, fromDocs = false) {
+/** verifyLensText(lensKey, withDocsRule) -> the lens instruction, followed by the documentation rule when withDocsRule is true */
+function verifyLensText(lensKey, withDocsRule) {
   const lens = VERIFY_LENS_INSTRUCTIONS[lensKey]
-  return !fromDocs && DOCS_CATEGORIES.indexOf(category) === -1 ? lens : lens + '\n\n' + DOCS_VERIFY_RULE
+  return withDocsRule ? lens + '\n\n' + DOCS_VERIFY_RULE : lens
 }
 
 /**
@@ -191,7 +191,7 @@ function stableIds(rows) {
 /**
  * formatMetricsDigest(m, ctx = {}) -> the 'MEASURED STRUCTURE' text injected into prompts: first 15 hot-set paths, 10 top-complexity paths,
  * 10 cycles (8 ids each), 10 least stable modules, 5 coupling entries, 5 complexity trends; the text is capped at ctx.maxChars (default
- * DIGEST_MAX_CHARS) at a line break, then ctx.since/ctx.recent and ctx.metricsPath add the window and file lines after the cap
+ * DIGEST_MAX_CHARS) at a line break, then ctx.since (with ', recent since ctx.recent' only when ctx.recent is set) and ctx.metricsPath add the window and file lines after the cap
  */
 function formatMetricsDigest(m, ctx = {}) {
   const cap = typeof ctx.maxChars === 'number' && ctx.maxChars > 0 ? ctx.maxChars : DIGEST_MAX_CHARS
@@ -225,7 +225,7 @@ function formatMetricsDigest(m, ctx = {}) {
     const cut = text.lastIndexOf('\n', cap)
     text = text.slice(0, cut > 0 ? cut : cap) + '\n(digest cut at ' + cap + ' characters; the full numbers are in the metrics file)'
   }
-  if (ctx.since) text += '\nWindows: long since ' + ctx.since + ', recent since ' + ctx.recent
+  if (ctx.since) text += '\nWindows: long since ' + ctx.since + (ctx.recent ? ', recent since ' + ctx.recent : '')
   if (ctx.metricsPath) text += '\nMetrics file: ' + ctx.metricsPath + ' (every number above comes from it, and it holds the numbers for every other file; read it instead of running the metrics script)'
   return text
 }
@@ -543,7 +543,8 @@ function normalizeArgs(raw) {
   }
   for (const field of ['models', 'efforts']) {
     const given = A[field]
-    if (given == null || typeof given !== 'object') continue
+    if (given == null) continue
+    if (typeof given !== 'object' || Array.isArray(given)) return { ok: false, reason: 'invalid args: ' + field + ' must be an object' }
     const prop = field === 'models' ? 'model' : 'effort'
     for (const k of Object.keys(given)) {
       if (!Object.prototype.hasOwnProperty.call(DISPATCH_CLASSES, k)) return { ok: false, reason: 'invalid args: unknown dispatch key ' + field + '.' + k }
@@ -956,9 +957,10 @@ function isDocsFinding(f, docsKeys) {
 
 /** buildVerifyGroupPrompt(plan, group, lensKey, docsKeys, metricsPath = '') -> string: the verifier preamble, the lens, the documentation rule once when any member is a docs finding, then FINDINGS: a JSON array in group order */
 function buildVerifyGroupPrompt(plan, group, lensKey, docsKeys, metricsPath = '') {
-  const anyDocs = group.some((f) => isDocsFinding(f, docsKeys))
-  const lens = verifyLensText(lensKey, '', anyDocs) + (anyDocs ? '\n\nThe documentation rule applies to the findings marked documentation: true below, and to no other.' : '')
-  const list = group.map((f) => ({ id: f.id, title: f.title, severity: f.severity, category: f.category, locations: f.locations, evidence: f.evidence, impact: f.impact, recommendation: f.recommendation, documentation: isDocsFinding(f, docsKeys) }))
+  const docsFlags = group.map((f) => isDocsFinding(f, docsKeys))
+  const anyDocs = docsFlags.some(Boolean)
+  const lens = verifyLensText(lensKey, anyDocs) + (anyDocs ? '\n\nThe documentation rule applies to the findings marked documentation: true below, and to no other.' : '')
+  const list = group.map((f, i) => ({ id: f.id, title: f.title, severity: f.severity, category: f.category, locations: f.locations, evidence: f.evidence, impact: f.impact, recommendation: f.recommendation, documentation: docsFlags[i] }))
   return verifierPreamble(plan, metricsPath) + lens + '\n\nFINDINGS:\n' + JSON.stringify(list)
 }
 
@@ -1063,7 +1065,7 @@ async function runAudit(plan, deps) {
       return {
         contract: 'audit/result-v2', started: true, runId: plan.runId,
         stats: { reviewers: 0, candidateReviewers: 0, verifyAgents: 0, gaps: 0, raw: 0, merged: 0, kept: 0, confirmed: 0, plausible: 0, unverified: 0, refuted: 0, missing: ['scope'], projectedAgents: projected.total, droppedGaps: [], unverifiedByCap: 0, metricsPending: 0, mergeAgents: 0 },
-        report: null, kept: [], refuted: [], proposal: null, metricsPath, date: plan.date,
+        report: null, kept: [], refuted: [], proposal: null, metricsPath, date: plan.date, scope: { paths: plan.scope.paths.slice() },
       }
     }
     const proposedR = scopeResult.reviewers || []
@@ -1244,7 +1246,7 @@ async function runAudit(plan, deps) {
     projectedAgents: projected.total, droppedGaps, unverifiedByCap: capResult.unverified.length,
     metricsPending: metricsPendingRows.length, mergeAgents,
   }
-  return { contract: 'audit/result-v2', started: true, runId: plan.runId, stats, report, kept: keptOut, refuted: refutedOut, proposal, metricsPath, date: plan.date }
+  return { contract: 'audit/result-v2', started: true, runId: plan.runId, stats, report, kept: keptOut, refuted: refutedOut, proposal, metricsPath, date: plan.date, scope: { paths: plan.scope.paths.slice() } }
 }
 
 // @core-end

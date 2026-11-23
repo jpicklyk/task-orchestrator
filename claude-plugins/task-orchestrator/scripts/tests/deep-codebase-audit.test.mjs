@@ -259,11 +259,26 @@ test('S10 / T-meta: meta is a pure literal; name and phases are exact per Append
   }
   assert.match(meta.whenToUse, /90/, "whenToUse must state full's time cost (~90 minutes)")
   assert.match(meta.whenToUse, /30M|30 ?million/i, "whenToUse must state full's token cost (~30M tokens)")
-  // Review finding O2: whenToUse must also warn that quick fits the default maxAgents (60)
-  // while standard/full need allowLarge (or a raised maxAgents) — required by arbitration
+  // Review finding O2: whenToUse must also warn that quick and standard fit the default maxAgents (60)
+  // while full needs allowLarge (or a raised maxAgents) — required by arbitration
   // case 2 (coordinator citation: Phase C contract Appendix B META + review finding O2).
   assert.match(meta.whenToUse, /maxAgents/, 'whenToUse must name maxAgents')
   assert.match(meta.whenToUse, /allowLarge/, 'whenToUse must name allowLarge')
+  assert.match(meta.whenToUse, /quick and standard fit the default maxAgents/)
+})
+
+test('whenToUse claim: with Scope proposing, preset gaps and six measured candidates, standard projects at most 60 agents and full more than 60', () => {
+  const ids = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6']
+  const m = () => measuredFixture({ candidates: ids.map((id) => candidateFixture(id)) })
+  for (const measured of [null, m()]) {
+    const total = (preset) => {
+      const { ok, plan, reason } = CORE.normalizeArgs(noReviewers({ preset, gaps: undefined, measured }))
+      assert.equal(ok, true, reason)
+      return CORE.projectAgents(plan).total
+    }
+    assert.ok(total('standard') <= 60, 'standard fits the default maxAgents')
+    assert.ok(total('full') > 60, 'full exceeds the default maxAgents')
+  }
 })
 
 // ── S11: T-core-pure ─────────────────────────────────────────────────────────
@@ -341,8 +356,10 @@ test('S12: audit/result-v2 has exactly the documented top-level keys', async () 
   const result = await CORE.runAudit(plan, makeDeps({ agent }))
   assert.deepEqual(
     Object.keys(result).sort(),
-    ['contract', 'started', 'runId', 'stats', 'report', 'kept', 'refuted', 'proposal', 'metricsPath', 'date'].sort()
+    ['contract', 'started', 'runId', 'stats', 'report', 'kept', 'refuted', 'proposal', 'metricsPath', 'date', 'scope'].sort()
   )
+  assert.deepEqual(result.scope, { paths: plan.scope.paths })
+  assert.notEqual(result.scope.paths, plan.scope.paths, 'the result copies the paths')
   assert.equal(result.contract, 'audit/result-v2')
   assert.deepEqual(
     Object.keys(result.stats).sort(),
@@ -1136,6 +1153,8 @@ test('S2: a null scope agent -> kept [], stats.missing includes "scope", report 
   assert.ok(result.stats.missing.includes('scope'))
   assert.equal(result.report, null)
   assert.equal(result.proposal, null)
+  assert.deepEqual(result.scope, { paths: ['claude-plugins/task-orchestrator/hooks'] })
+  assert.notEqual(result.scope.paths, plan.scope.paths, 'the result copies the paths')
   assert.equal(calls.filter((c) => c.label.startsWith('review:')).length, 0)
 })
 
@@ -1227,7 +1246,8 @@ test('S2: a null triage agent marks affected findings likelyDuplicate "unknown" 
 // no prompt contains manage_items, manage_notes, advance_item or create_work_tree; the
 // synthesis prompt contains reportPath".
 
-test('S6: every non-synthesis prompt is READ-ONLY and excludes write-tool names; synthesis names reportPath; no call sets opts.isolation', async () => {
+// The Appendix B clause quoted above, that the synthesis prompt contains reportPath, is superseded by D12/E9.
+test('S6: every prompt, synthesis included, is READ-ONLY and excludes write-tool names; synthesis does not name reportPath; no call sets opts.isolation', async () => {
   const plan = buildPlan({ gaps: { enabled: true, max: 1 } })
   const responder = async (label) => {
     if (label.startsWith('review:')) return findingsResult({ findings: [makeFinding()] })
@@ -2702,6 +2722,13 @@ test('S23: dispatch overrides, scriptsDir, workDir and policy fail with the D2 r
     assert.equal(reason({ workDir: bad }), 'invalid args: workDir must be a non-empty string')
   }
   assert.equal(reason({ scriptsDir: 'S' }), 'invalid args: workDir required when scriptsDir is set')
+  for (const field of ['models', 'efforts']) {
+    for (const bad of [[], ['x'], 'str', 3, true]) {
+      assert.equal(reason({ [field]: bad }), `invalid args: ${field} must be an object`, `${field}=${JSON.stringify(bad)}`)
+    }
+    assert.equal(CORE.normalizeArgs(baseArgs({ [field]: null })).ok, true, `${field}: null stays allowed`)
+    assert.equal(CORE.normalizeArgs(baseArgs()).ok, true, `${field} absent stays allowed`)
+  }
   for (const bad of ['sometimes', 'GATED', 3]) {
     assert.equal(reason({ items: { enabled: true, rootId: 'r', policy: bad } }), 'invalid args: items.policy must be gated, bugs or all')
   }
@@ -3403,6 +3430,9 @@ test('S6 / D5 probe: the ctx lines appear only for the ctx members given, Window
   const windowsOnly = CORE.formatMetricsDigest(m, { since: '2025-11-22', recent: '2026-08-22' })
   assert.ok(windowsOnly.includes(WINDOWS_LINE))
   assert.equal(windowsOnly.includes('Metrics file:'), false)
+  const sinceOnly = CORE.formatMetricsDigest(m, { since: '2025-11-22' })
+  assert.ok(sinceOnly.endsWith('\nWindows: long since 2025-11-22'), 'since alone prints no recent window')
+  assert.equal(sinceOnly.includes('recent since'), false)
   const fileOnly = CORE.formatMetricsDigest(m, { metricsPath: 'W/metrics.json' })
   assert.ok(fileOnly.includes(FILE_LINE))
   assert.equal(fileOnly.includes('Windows:'), false)
@@ -4380,6 +4410,18 @@ test('S68: the scope prompt lists the assigned candidates after the digest, not 
   zeroArgs.scope.candidateCount = 0
   assert.equal((await scopeOf(zeroArgs, scope)).includes(heading), false, 'absent at candidateCount 0')
   assert.equal((await scopeOf(noReviewers({ measured: m, focus: 'docs' }), scopeResult({ reviewers: [plannerSlice('d1', 'docs')] }))).includes(heading), false, 'absent in a docs focus')
+})
+
+test('S68b: a candidate prompt lists every subject path as "SUBJECT: a, b."; the scope prompt lists it as "<id> (a, b)"', async () => {
+  const a = `${HOOKS}/zz.kt`
+  const b = `${HOOKS}/yy.kt`
+  const m = measuredFixture({ candidates: [candidateFixture('cand-alpha', { subject: [a, b] })] })
+  const scope = scopeResult({ reviewers: [reviewerSpec('r1')] })
+  const { calls } = await fullRun(noReviewers({ measured: m }), { scope })
+  const candidate = calls.find((c) => c.label === 'candidate:cand-alpha').prompt
+  assert.ok(candidate.includes(`SUBJECT: ${a}, ${b}.`), 'the candidate prompt joins the subject paths')
+  const scopePrompt = calls.find((c) => c.label === 'scope').prompt
+  assert.ok(scopePrompt.slice(scopePrompt.indexOf('MEASURED CANDIDATES ALREADY ASSIGNED')).includes(`cand-alpha (${a}, ${b})`), 'the scope prompt joins the subject paths')
 })
 
 // ── S69: origin (D6) ─────────────────────────────────────────────────────────
