@@ -53,7 +53,7 @@ Example: run-wave hands a wave to a background agent. That agent is the run's or
 
 ### Director
 
-The layer that decides on the user's behalf, within the authority each decision class gives it. It works through the decision inbox, sends a background agent when an answer needs evidence and reads only that agent's summary, and escalates what it may not settle. It watches the board across runs. It reads only ids, counts, one decision in full at a time, and run rollups. It never drives work: it hands work to orchestrators.
+The layer that decides on the user's behalf, within the authority each decision class gives it. It works through the decision inbox, sends a background agent when an answer needs evidence and reads only that agent's summary, and escalates what it may not settle. It acts on the board at the user's instruction; it does not own the board. It reads only ids, counts, one decision in full at a time, and run rollups. It never drives work: it hands work to orchestrators.
 
 Distinct from: orchestrator, which drives and never decides. The director is also distinct from the director profile, its tool set, and from director mode, the session mode in which the user's own session plays this layer.
 
@@ -67,6 +67,14 @@ Distinct from: steering, the hook config that sets how strongly the plugin hooks
 Don't call it: coordinator mode (an open run in orchestration mode), orchestrator mode.
 In code: the `orchestration-mode` mod's footer labels.
 
+### Board
+
+The user's view of work across runs: open runs and their frontier, the decision inbox, stalls, risk and cost. It is the same view in either session mode. In orchestration mode the user acts on it directly; in director mode the user reads it and tells the director what to handle. It shows ids, counts and short reasons, never note bodies, so the director can read the same view without breaking its altitude rule.
+
+Distinct from: director mode, which changes who acts on the board, not who sees it; and from the director, which acts on the board and does not own it.
+Don't call it: the director's board.
+In code: the work-summary and director skills render it today. Its reads are `runs_read` `frontier`, served on both profiles, and `runs_read` `decisions` and `report` `rollup`, served today on the director profile only.
+
 ### Director mode
 
 The session mode in which the user's session plays the director, entered with the director skill or by running as the hardened director agent. A guard hook keeps the session from reading files, editing, or dispatching in the foreground.
@@ -76,7 +84,7 @@ Example: a background agent dispatched by a director session is not in director 
 
 ### Director profile
 
-The server tool profile served at `/mcp/director`: the director's altitude-limited tool set (the run board, the decision inbox and rollups), with no read that returns a note or document body. Calling it does not make a caller a director, and it is not where decision authority lives.
+The server tool profile served at `/mcp/director`: the director's altitude-limited tool set (reads of the board, the decision inbox and rollups), with no read that returns a note or document body. Calling it does not make a caller a director, and it is not where decision authority lives.
 
 Distinct from: director mode, which is a session state, and the director layer.
 In code: `ToolProfile.DIRECTOR`.
