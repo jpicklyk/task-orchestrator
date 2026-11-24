@@ -13,7 +13,7 @@
 // No function here renders a seat token or a run token: the orchestrator holds them,
 // writes seat tokens to the token files runOps names, and adds the right token as the top-level
 // seatToken of each call it sends. The stage-result handler reads the run's token files solely
-// to redact them (with any seatToken/coordinatorToken key) from the state it prints; nothing
+// to redact them (with any seatToken/orchestratorToken/coordinatorToken key) from the state it prints; nothing
 // renders them.
 
 import { extractLastBalancedJson } from './ralph-lib.mjs'
@@ -852,7 +852,7 @@ export function validateAgainst(schema, value, path = '$') {
  * whitespace text and unparseable text are both treated as an invalid envelope. First
  * failure -> retry (envelopeRetries:1 recorded); second failure -> stopped 'invalid envelope'.
  * A valid envelope maps via core.mapStageResult and records outs[key] = env.output after core.stripTokens(env, opts.knownTokens) removes
- * seatToken/coordinatorToken keys and redacts every known token value.
+ * seatToken/orchestratorToken/coordinatorToken keys and redacts every known token value.
  */
 export function stageResult(core, doc, state, idOrShort, seat, finalText, opts = {}) {
   const { plan } = resolvePlan(core, doc)

@@ -24,7 +24,7 @@ object RunsTable : Table("runs") {
     val openedAt = utcTimestampText("opened_at")
     val closedBy = text("closed_by").nullable()
     val closedAt = utcTimestampText("closed_at").nullable()
-    val coordinatorSeenAt = utcTimestampText("coordinator_seen_at").nullable()
+    val orchestratorSeenAt = utcTimestampText("coordinator_seen_at").nullable()
     val stallAfterSeconds = integer("stall_after_s")
     val budget = text("budget").nullable()
     val reportedTokens = long("reported_tokens").default(0)

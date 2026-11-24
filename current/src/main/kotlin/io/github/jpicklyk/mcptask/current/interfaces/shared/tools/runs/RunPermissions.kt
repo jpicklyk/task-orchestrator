@@ -44,22 +44,22 @@ internal object RunPermissions {
     fun isHuman(ctx: CallContext): Boolean = isHumanCaller(ctx)
 
     /** True when the call carries the token of [run]. */
-    fun isCoordinator(
+    fun isOrchestrator(
         ctx: CallContext,
         run: Run
     ): Boolean {
         val seat = ctx.seat ?: return false
-        return seat.seat == RunSeat.COORDINATOR && seat.runId == run.id
+        return seat.seat == RunSeat.ORCHESTRATOR && seat.runId == run.id
     }
 
     /** True when the call carries a member-seat token (any run). */
-    fun isMemberSeat(ctx: CallContext): Boolean = ctx.seat?.let { it.seat != RunSeat.COORDINATOR && it.itemId != null } == true
+    fun isMemberSeat(ctx: CallContext): Boolean = ctx.seat?.let { it.seat != RunSeat.ORCHESTRATOR && it.itemId != null } == true
 
     /** close, any reason. */
     fun mayClose(
         ctx: CallContext,
         run: Run
-    ): Boolean = isCoordinator(ctx, run) || isDirector(ctx) || isHuman(ctx)
+    ): Boolean = isOrchestrator(ctx, run) || isDirector(ctx) || isHuman(ctx)
 
     /** pause and resume. */
     fun mayPauseOrResume(ctx: CallContext): Boolean = isDirector(ctx) || isHuman(ctx)
@@ -68,13 +68,13 @@ internal object RunPermissions {
     fun mayUpdate(
         ctx: CallContext,
         run: Run
-    ): Boolean = isCoordinator(ctx, run)
+    ): Boolean = isOrchestrator(ctx, run)
 
     /** assign. */
     fun mayAssign(
         ctx: CallContext,
         run: Run
-    ): Boolean = isCoordinator(ctx, run)
+    ): Boolean = isOrchestrator(ctx, run)
 
     /** The refusal naming the principal kinds [required] (comma-separated, sorted) that could have done the call. */
     fun refuse(required: String): DomainError = ScopeGuard.forbidden(ForbiddenScope.PRINCIPAL_KIND, required)

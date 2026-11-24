@@ -83,6 +83,8 @@ function listData(items, reason) {
 //   externalClose    {op, nth = 1, reason = 'cancelled'}: the nth op of that name finds the run already closed by a
 //                    director (every token of the run is dead, so that call is the call-level 401)
 //   runsGet(ctx)     -> undefined | {http, code} call-level error for runs_read get; ctx {nth}
+//   runTokenKeys    -> which keys `open` returns the run token under: 'old' (coordinatorToken only, a 4.0.x
+//                      server), 'both' (default: orchestratorToken then its deprecated alias, 4.1+) or 'new'
 export async function startFakeApi(opts = {}) {
   const st = {
     trace: [],
@@ -212,7 +214,13 @@ export async function startFakeApi(opts = {}) {
           budget: op.budget,
           members: new Set((op.items ?? []).map(norm)),
         }
-        return { ok: true, ...view(), coordinatorToken: st.coordinatorToken }
+        const keys = opts.runTokenKeys ?? 'both'
+        return {
+          ok: true,
+          ...view(),
+          ...(keys === 'old' ? {} : { orchestratorToken: st.coordinatorToken }),
+          ...(keys === 'new' ? {} : { coordinatorToken: st.coordinatorToken }),
+        }
       }
       case 'runs_write.update': {
         if (caller.kind !== 'coordinator') return elementError('forbidden', { scope: 'principal_kind', required: 'coordinator' })

@@ -169,7 +169,7 @@ class SqliteRunSeatStore(
                 .select(n)
                 .where {
                     (RunSeatsTable.runId eq runId) and (RunSeatsTable.status eq RunSeatStatus.ACTIVE.wire) and
-                        (RunSeatsTable.seat neq RunSeat.COORDINATOR)
+                        (RunSeatsTable.seat neq RunSeat.ORCHESTRATOR)
                 }.single()[n]
                 .toInt()
         }

@@ -243,7 +243,7 @@ class RunServiceTest {
             assertNull(run.budget, "no budget given and none configured: unlimited")
             assertEquals(1L, run.version)
             assertEquals(RUN_T, run.openedAt)
-            assertEquals(RUN_T, run.coordinatorSeenAt, "coordinatorSeenAt starts at openedAt")
+            assertEquals(RUN_T, run.orchestratorSeenAt, "coordinatorSeenAt starts at openedAt")
             assertNull(run.pauseReason)
             assertNull(run.terminalReason)
             assertNull(run.closedAt)

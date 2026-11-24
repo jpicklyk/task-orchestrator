@@ -168,7 +168,7 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
     </div>
   </div>
   <div class="grid3">
-    <div class="rule"><h3>Open</h3><p class="small"><code>runs_write</code> <code>open</code> takes a root and up to 500 of its items. An item can sit in only one run that is not closed. The answer carries <code>coordinatorToken</code> once. The orchestrator session that opens a run and keeps that token is its coordinator. The token, not the opening, makes it one.</p></div>
+    <div class="rule"><h3>Open</h3><p class="small"><code>runs_write</code> <code>open</code> takes a root and up to 500 of its items. An item can sit in only one run that is not closed. The answer carries <code>orchestratorToken</code> once (and, until 5.0, the same value under its deprecated alias <code>coordinatorToken</code>). The orchestrator session that opens a run and keeps that token is its coordinator. The token, not the opening, makes it one.</p></div>
     <div class="rule"><h3>Assign</h3><p class="small">Only the coordinator can <code>assign</code>. It returns a seat token for one item and one seat, shown once. Assigning the seat again kills the old token and counts another attempt.</p></div>
     <div class="rule"><h3>Close</h3><p class="small">The coordinator, the director profile or a human can <code>close</code>, with <code>completed</code>, <code>cancelled</code>, <code>failed</code> or <code>abandoned</code>. <code>completed</code> is refused while a seat is active. <code>budget_exhausted</code> belongs to the server.</p></div>
   </div>
@@ -346,7 +346,7 @@ Coordinator tier: 2 (Workflow)</pre>
      call:'{"ops": [{"op": "open", "rootId": "1be2db5e", "items": ["a1b2c3d4", "e5f6a7b8"],\n          "budget": {"attemptsPerSeat": 3, "maxActiveSeats": 4}}]}',
      run:'open',coord:'live, shown once',seat:'none yet',item:'a1b2c3d4: queue'},
     {nm:'assign',say:'The coordinator assigns the implementer seat of one item. The seat token is bound to that item, that seat and the principal of the coordinator, so only agents sharing that principal can use it.',
-     call:'{"seatToken": "<coordinatorToken>",\n "ops": [{"op": "assign", "runId": "7c0f3a91", "itemId": "a1b2c3d4", "seat": "implementer"}]}',
+     call:'{"seatToken": "<orchestratorToken>",\n "ops": [{"op": "assign", "runId": "7c0f3a91", "itemId": "a1b2c3d4", "seat": "implementer"}]}',
      run:'open, 1 seat active',coord:'live',seat:'live, attempt 1, shown once',item:'a1b2c3d4: queue'},
     {nm:'start',say:'The seat enters its phase. An enters seat may start only into its own phase.',
      call:'{"seatToken": "<seatToken>",\n "ops": [{"op": "transition", "itemId": "a1b2c3d4", "trigger": "start"}]}',
@@ -361,7 +361,7 @@ Coordinator tier: 2 (Workflow)</pre>
      call:'{"seatToken": "<seatToken>",\n "ops": [{"op": "end_seat", "outcome": "done", "summary": "Plate written."}]}',
      run:'open, no seat active',coord:'live',seat:'ended',item:'a1b2c3d4: work'},
     {nm:'close',say:'With no seat active, the run closes as completed. Closing ends every token of the run. Any pending decision stays open and is counted in the snapshot.',
-     call:'{"seatToken": "<coordinatorToken>",\n "ops": [{"op": "close", "runId": "7c0f3a91", "reason": "completed"}]}',
+     call:'{"seatToken": "<orchestratorToken>",\n "ops": [{"op": "close", "runId": "7c0f3a91", "reason": "completed"}]}',
      run:'closed, completed',coord:'ended',seat:'ended',item:'a1b2c3d4: work'}
   ];
   var cur=0;

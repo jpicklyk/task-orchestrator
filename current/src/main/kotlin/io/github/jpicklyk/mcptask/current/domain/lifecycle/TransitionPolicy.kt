@@ -340,7 +340,7 @@ private fun seatAllows(
     val seat = caller.seat ?: return false
     // A token of another run carries no authority here, whatever its seat.
     if (caller.runId == null || caller.runId != facts.openRunId) return false
-    if (seat == RunSeat.COORDINATOR) return true
+    if (seat == RunSeat.ORCHESTRATOR) return true
     // A member-seat token acts only on the item it is assigned to.
     if (caller.itemId != itemId) return false
     // Fail closed on a seat name the pinned schema does not declare.
@@ -390,7 +390,7 @@ private fun seatForbidden(
     target: Role?
 ): Decision.Reject {
     val seat = facts.caller.seat
-    val allowedSeats = listOf(RunSeat.COORDINATOR) + facts.seats.filter { seatMayRun(it, trigger, target) }.map { it.name }
+    val allowedSeats = listOf(RunSeat.ORCHESTRATOR) + facts.seats.filter { seatMayRun(it, trigger, target) }.map { it.name }
     val who = if (seat != null) "seat $seat" else "a caller without a seat"
     return Decision.Reject(
         GateId.SEAT,

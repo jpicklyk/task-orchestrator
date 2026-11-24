@@ -44,7 +44,7 @@ data class RunSeatLink(
  * [principalId] that the assignment's token is bound to. The token itself is never kept; [tokenHash] is its lowercase hex
  * SHA-256.
  *
- * The [COORDINATOR] pseudo-seat is the one run-scoped row: its [itemId] is null.
+ * The [ORCHESTRATOR] pseudo-seat is the one run-scoped row: its [itemId] is null.
  */
 data class RunSeat(
     val id: UUID = UUID.randomUUID(),
@@ -66,7 +66,7 @@ data class RunSeat(
     init {
         require(seat.isNotEmpty() && seat.length <= MAX_SEAT_LENGTH) { "seat must be 1 to $MAX_SEAT_LENGTH characters" }
         require(attempt >= 1) { "attempt must be at least 1" }
-        require((itemId == null) == (seat == COORDINATOR)) { "only the coordinator seat is run-scoped (no item)" }
+        require((itemId == null) == (seat == ORCHESTRATOR)) { "only the orchestrator seat is run-scoped (no item)" }
         require((status == RunSeatStatus.ACTIVE) == (outcome == null && endedAt == null)) {
             "an active seat has no outcome or end time, an ended one has both"
         }
@@ -75,13 +75,17 @@ data class RunSeat(
     }
 
     /** True for the run-scoped `coordinator` pseudo-seat. */
-    val isCoordinator: Boolean get() = seat == COORDINATOR
+    val isOrchestrator: Boolean get() = seat == ORCHESTRATOR
 
     val isActive: Boolean get() = status == RunSeatStatus.ACTIVE
 
     companion object {
-        /** The run-scoped pseudo-seat `open` creates; it is never a seat of an item's schema. */
-        const val COORDINATOR = "coordinator"
+        /**
+         * The run-scoped pseudo-seat `open` creates, held by the run's orchestrator; it is never a seat of an item's schema.
+         * Its stored value stays `coordinator`: `run_seats.seat` is indexed data a rename would migrate, and `orchestrator`
+         * is the reserved schema seat ([io.github.jpicklyk.mcptask.current.model.schema.SeatDefinition.ORCHESTRATOR_WRITABLE_SEAT]).
+         */
+        const val ORCHESTRATOR = "coordinator"
 
         /** The review seat a seat-less item may be assigned when its schema has a review phase. */
         const val REVIEWER = "reviewer"

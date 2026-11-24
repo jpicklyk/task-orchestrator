@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 import io.github.jpicklyk.mcptask.current.application.api.runs.RunsOpenRequest
 import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
 import io.github.jpicklyk.mcptask.current.application.run.RunOpenCommand
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.RunWireKeys.putWithAlias
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.run.Run
@@ -16,8 +17,8 @@ import io.github.jpicklyk.mcptask.current.platform.tool.OpSpec
 import io.github.jpicklyk.mcptask.current.platform.tool.director
 import io.github.jpicklyk.mcptask.current.platform.tool.orchestration
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import kotlinx.serialization.serializer
 import java.util.UUID
 
@@ -27,9 +28,9 @@ internal val runsOpenOp =
         name = "open",
         doc =
             "Open a run on a root over up to 500 of its items. The caller is recorded as the opener. An item already in " +
-                "an open run is duplicate. Returns the run and coordinatorToken, the run token, held by the run's orchestrator (shown " +
-                "once; a keyed replay omits it and returns tokenRedacted: true): pass it as the top-level seatToken to " +
-                "update, assign and close.",
+                "an open run is duplicate. Returns the run and orchestratorToken, the run token, held by the run's orchestrator " +
+                "(shown once; coordinatorToken carries the same value, deprecated, removed in 5.0; a keyed replay omits both and " +
+                "returns tokenRedacted: true): pass it as the top-level seatToken to update, assign and close.",
         profiles = orchestration() + director(),
         capability = ApiCapability.RUNS,
         services = RunToolServices::class,
@@ -100,8 +101,8 @@ private suspend fun WriteScope<RunStoreProvider>.openRun(
             is Outcome.Err -> return r
         }
     // The `coordinator` pseudo-seat joins the op's unit: a run is never stored without it.
-    val coordinator =
-        when (val r = env.seatService.openCoordinator(opened, RunPermissions.callerId(ctx))) {
+    val orchestrator =
+        when (val r = env.seatService.openOrchestrator(opened, RunPermissions.callerId(ctx))) {
             is Outcome.Ok -> r.value
             is Outcome.Err -> return r
         }
@@ -109,7 +110,7 @@ private suspend fun WriteScope<RunStoreProvider>.openRun(
     return Outcome.Ok(
         buildJsonObject {
             for ((key, value) in view) put(key, value)
-            put("coordinatorToken", coordinator.token)
+            putWithAlias(RunWireKeys.ORCHESTRATOR_TOKEN, JsonPrimitive(orchestrator.token))
         }
     )
 }

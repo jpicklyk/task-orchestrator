@@ -230,7 +230,7 @@ work_item_schemas:
         runBlocking {
             val f = fixture()
 
-            val issued = f.seats.openCoordinator(f.run, ORCH).ok()
+            val issued = f.seats.openOrchestrator(f.run, ORCH).ok()
 
             val token = issued.token
             assertTrue(BASE64URL.matches(token), "43 base64url characters, no padding: [$token]")
@@ -284,7 +284,7 @@ work_item_schemas:
             val tokens = mutableSetOf<String>()
             tokens +=
                 f.seats
-                    .openCoordinator(f.run, ORCH)
+                    .openOrchestrator(f.run, ORCH)
                     .ok()
                     .token
             repeat(40) { i ->
@@ -302,7 +302,7 @@ work_item_schemas:
     fun `S2 assign stores the triple's row with attempt 1, hints and the assigning principal, and records one seat assigned`(): Unit =
         runBlocking {
             val f = fixture()
-            f.seats.openCoordinator(f.run, ORCH).ok()
+            f.seats.openOrchestrator(f.run, ORCH).ok()
             clock.advanceSeconds(7)
 
             var issued: IssuedSeat? = null
@@ -670,7 +670,7 @@ work_item_schemas:
     fun `list is oldest first, active only by default, the ended ones with the flag, and one item's seats with the filter`(): Unit =
         runBlocking {
             val f = fixture()
-            val coordinator = f.seats.openCoordinator(f.run, ORCH).ok()
+            val coordinator = f.seats.openOrchestrator(f.run, ORCH).ok()
             clock.advanceSeconds(1)
             val first = f.assign(f.seated, "builder").ok()
             clock.advanceSeconds(1)
@@ -842,7 +842,7 @@ work_item_schemas:
     fun `S18 the port counts the active member seats, hands out their holder pairs and ends every seat of the run with run_closed`(): Unit =
         runBlocking {
             val f = fixture()
-            val coordinator = f.seats.openCoordinator(f.run, ORCH).ok()
+            val coordinator = f.seats.openOrchestrator(f.run, ORCH).ok()
             val builder = f.assign(f.seated, "builder").ok()
             val checker = f.assign(f.seatedTwo, "checker").ok()
             val ended = f.assign(f.plain, "implementer").ok()

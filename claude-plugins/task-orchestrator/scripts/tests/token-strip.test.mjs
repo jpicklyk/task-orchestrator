@@ -49,7 +49,7 @@ function hasKeyDeep(value, key) {
   return false
 }
 function noTokenKeys(value) {
-  return !hasKeyDeep(value, 'seatToken') && !hasKeyDeep(value, 'coordinatorToken')
+  return !hasKeyDeep(value, 'seatToken') && !hasKeyDeep(value, 'orchestratorToken') && !hasKeyDeep(value, 'coordinatorToken')
 }
 function clone(v) {
   return JSON.parse(JSON.stringify(v))
@@ -117,6 +117,29 @@ test('S1: seatToken and coordinatorToken keys are removed at every depth; everyt
   assert.deepEqual(input, snapshot, 'the input must not be mutated')
   assert.notEqual(out, input, 'a copy is returned, not the same object')
   assert.notEqual(out.notes, input.notes)
+})
+
+test('S1: orchestratorToken (the 4.1 run token key) is removed at every depth beside its deprecated alias coordinatorToken', () => {
+  const input = {
+    status: 'done',
+    orchestratorToken: 'V-orch',
+    coordinatorToken: 'V-orch',
+    notes: [{ key: 'task-scope', orchestratorToken: 'V-note', warning: 'keep me' }],
+    output: {
+      nested: { orchestratorToken: 'V-deep', keep: 1, deeper: { orchestratorToken: 'V-deeper', also: 'kept' } },
+      list: [{ orchestratorToken: 'V-el', n: 1 }, 'plain'],
+    },
+  }
+  const snapshot = clone(input)
+  const out = waveCore.stripTokens(input)
+  assert.deepEqual(out, {
+    status: 'done',
+    notes: [{ key: 'task-scope', warning: 'keep me' }],
+    output: { nested: { keep: 1, deeper: { also: 'kept' } }, list: [{ n: 1 }, 'plain'] },
+  })
+  assert.equal(hasKeyDeep(out, 'orchestratorToken'), false)
+  assert.equal(JSON.stringify(out).includes('V-'), false, 'no token value survives')
+  assert.deepEqual(input, snapshot, 'the input must not be mutated')
 })
 
 test('S1: a token-key whose value is itself an object or array is removed whole (and its subtree is gone)', () => {

@@ -197,7 +197,7 @@ class RunPermissionsTest {
         }
     }
 
-    // ------------------------------------------------------------------ isCoordinator (D3: the coordinator TOKEN, R22)
+    // ------------------------------------------------------------------ isOrchestrator (D3: the coordinator TOKEN, R22)
 
     /** The seat context a coordinator token resolves to for [run] (the run-scoped pseudo-seat has no item). */
     private fun coordinatorSeat(run: Run) =
@@ -214,34 +214,34 @@ class RunPermissionsTest {
     @Test
     fun `the coordinator is the caller presenting the coordinator seat of that run, whatever its identity`() {
         val run = runOpenedBy("api:rw-coord")
-        assertTrue(RunPermissions.isCoordinator(rest("rw-coord").under(coordinatorSeat(run)), run), "the coordinator token of this run")
+        assertTrue(RunPermissions.isOrchestrator(rest("rw-coord").under(coordinatorSeat(run)), run), "the coordinator token of this run")
         // the dispatcher bound the token to its principal before the context was built, so identity plays no part once a token resolved
-        assertTrue(RunPermissions.isCoordinator(rest("rw-other").under(coordinatorSeat(run)), run))
-        assertTrue(RunPermissions.isCoordinator(lifted("orchestrator-1").under(coordinatorSeat(run)), run))
-        assertTrue(RunPermissions.isCoordinator(local().under(coordinatorSeat(run)), run))
+        assertTrue(RunPermissions.isOrchestrator(rest("rw-other").under(coordinatorSeat(run)), run))
+        assertTrue(RunPermissions.isOrchestrator(lifted("orchestrator-1").under(coordinatorSeat(run)), run))
+        assertTrue(RunPermissions.isOrchestrator(local().under(coordinatorSeat(run)), run))
     }
 
     @Test
     fun `the opener without a token is not the coordinator - for every way the opener can be identified`() {
         val byRest = runOpenedBy("api:rw-coord", "service")
-        assertFalse(RunPermissions.isCoordinator(rest("rw-coord", PrincipalKind.SERVICE), byRest), "same id, same kind, no token")
+        assertFalse(RunPermissions.isOrchestrator(rest("rw-coord", PrincipalKind.SERVICE), byRest), "same id, same kind, no token")
         val byLifted = runOpenedBy("orchestrator-1", "agent")
-        assertFalse(RunPermissions.isCoordinator(lifted("orchestrator-1"), byLifted), "a lifted actor that opened the run")
+        assertFalse(RunPermissions.isOrchestrator(lifted("orchestrator-1"), byLifted), "a lifted actor that opened the run")
         val byLocal = runOpenedBy("local", "agent")
-        assertFalse(RunPermissions.isCoordinator(local(), byLocal), "the local principal that opened the run")
+        assertFalse(RunPermissions.isOrchestrator(local(), byLocal), "the local principal that opened the run")
         // control: the same three callers presenting the coordinator token of their run are the coordinator
-        assertTrue(RunPermissions.isCoordinator(rest("rw-coord", PrincipalKind.SERVICE).under(coordinatorSeat(byRest)), byRest))
-        assertTrue(RunPermissions.isCoordinator(lifted("orchestrator-1").under(coordinatorSeat(byLifted)), byLifted))
-        assertTrue(RunPermissions.isCoordinator(local().under(coordinatorSeat(byLocal)), byLocal))
+        assertTrue(RunPermissions.isOrchestrator(rest("rw-coord", PrincipalKind.SERVICE).under(coordinatorSeat(byRest)), byRest))
+        assertTrue(RunPermissions.isOrchestrator(lifted("orchestrator-1").under(coordinatorSeat(byLifted)), byLifted))
+        assertTrue(RunPermissions.isOrchestrator(local().under(coordinatorSeat(byLocal)), byLocal))
     }
 
     @Test
     fun `a coordinator token of another run does not make the caller the coordinator of this one`() {
         val run = runOpenedBy("api:rw-coord")
         val other = runOpenedBy("api:rw-coord")
-        assertFalse(RunPermissions.isCoordinator(rest("rw-coord").under(coordinatorSeat(other)), run), "the seat names another run")
+        assertFalse(RunPermissions.isOrchestrator(rest("rw-coord").under(coordinatorSeat(other)), run), "the seat names another run")
         assertTrue(
-            RunPermissions.isCoordinator(rest("rw-coord").under(coordinatorSeat(other)), other),
+            RunPermissions.isOrchestrator(rest("rw-coord").under(coordinatorSeat(other)), other),
             "control: it is the coordinator of its own"
         )
     }
@@ -259,10 +259,10 @@ class RunPermissionsTest {
             "coordinators",
             "coord"
         )) {
-            assertFalse(RunPermissions.isCoordinator(rest("rw-coord").under(memberSeat(run, seat)), run), "member seat [$seat]")
+            assertFalse(RunPermissions.isOrchestrator(rest("rw-coord").under(memberSeat(run, seat)), run), "member seat [$seat]")
         }
         // control: the exact pseudo-seat name on a run-scoped context is the coordinator
-        assertTrue(RunPermissions.isCoordinator(rest("rw-coord").under(coordinatorSeat(run)), run))
+        assertTrue(RunPermissions.isOrchestrator(rest("rw-coord").under(coordinatorSeat(run)), run))
     }
 
     @Test
@@ -271,10 +271,10 @@ class RunPermissionsTest {
         for (kind in PrincipalKind.entries) {
             for (profile in listOf("rest", "director", "orchestration", null)) {
                 assertTrue(
-                    RunPermissions.isCoordinator(rest("rw-coord", kind, profile).under(coordinatorSeat(run)), run),
+                    RunPermissions.isOrchestrator(rest("rw-coord", kind, profile).under(coordinatorSeat(run)), run),
                     "kind $kind profile $profile"
                 )
-                assertFalse(RunPermissions.isCoordinator(rest("rw-coord", kind, profile), run), "no token: kind $kind profile $profile")
+                assertFalse(RunPermissions.isOrchestrator(rest("rw-coord", kind, profile), run), "no token: kind $kind profile $profile")
             }
         }
     }

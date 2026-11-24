@@ -1011,19 +1011,19 @@ permission rule and before `not_found` could differ, and `list` leaves such runs
 unknown run id or prefix is `forbidden` as well (never `not_found`), and an ambiguous prefix lists only the runs the
 scope admits (none is `forbidden`, one resolves); an unrestricted token keeps `not_found` and the full candidate list.
 Who may do what: `open` any `runs`
-caller (the caller is recorded as `openedBy`, with `openedByKind` the credential's kind, or `agent` for the local principal) and the result carries `coordinatorToken`, the run's orchestrator credential, shown once; `close` (any reason but
+caller (the caller is recorded as `openedBy`, with `openedByKind` the credential's kind, or `agent` for the local principal) and the result carries `orchestratorToken`, the run's orchestrator credential, shown once; `close` (any reason but
 the server-only `budget_exhausted`) the orchestrator, the director profile or a human token; `pause` and `resume` the
 director profile or a human token (a service or agent token on `/ops/runs_write` is refused, the same token on
 `/ops/director/runs_write` is not; a call under any seat token is neither director nor human); `update` and `assign`
 the orchestrator only; `end_seat` the seat's own token; `mark` any `runs` caller. A refusal is `forbidden` with
 `detail: {scope: "principal_kind", required}` naming the allowed kinds. The orchestrator is the caller presenting the
-run's `coordinatorToken` as the top-level `seatToken`; the opening principal without it is not the orchestrator.
+run's `orchestratorToken` as the top-level `seatToken`; the opening principal without it is not the orchestrator.
 `assign{runId, itemId, seat, hints?}` assigns a seat of a member item (a seat of the item's schema, or `implementer` or
 `planner` for an item with none, plus `reviewer` when its schema has a review-role note; an unknown seat is `not_found` with `detail.kind: seat`, `coordinator` and a non-member
 are `invalid_request` on `/seat` and `/itemId`, a closed or paused run `run_closed` or `run_paused`) and returns
 `{assignmentId, seatToken, attempt}`; re-assigning an active seat ends it as `superseded`, releases its claims and counts
 a new attempt. A token is shown once: the idempotency store never holds one, so a keyed replay of `open` or `assign`
-(same `idempotencyKey` and payload) returns the stored result without `coordinatorToken` or `seatToken` and with
+(same `idempotencyKey` and payload) returns the stored result without `orchestratorToken` (or its alias) or `seatToken` and with
 `tokenRedacted: true`. To recover a lost token, re-assign the seat (it supersedes the assignment and issues a fresh
 token); a lost orchestrator token is recovered only by closing the run and opening a new one. `end_seat{outcome, summary?, links?}` (outcome `done`, `failed` or `abandoned`; summary at most 500
 characters; at most 10 `{kind, ref}` links, kind `item`, `note`, `doc`, `commit` or `url`, ref 1 to 200 characters) ends
@@ -1036,7 +1036,7 @@ anything else (empty, not a string, unknown, ended, superseded, another principa
 fixed message `The seat token is not accepted.` and no detail, checked before anything else in the body is read. A
 call under a token drops ADMIN (no principal visibility, no `takeover`, root writes only with an unrestricted scope),
 records its run and seat on its events and call-log row, refreshes the seat's `lastSeenAt` on a write tool (at most
-every 5 seconds; the orchestrator token also refreshes the run's `coordinatorSeenAt`; a `describe: true` call, like any
+every 5 seconds; the orchestrator token also refreshes the run's `orchestratorSeenAt`; a `describe: true` call, like any
 read, never refreshes it), and keys idempotency records by
 `<principal>#<assignmentId>`. A claim taken under a token is held by the pair (principal, assignment): only a call
 under the same token is its holder for heartbeat, release, transition and every fenced write, and a claim no longer
@@ -1048,8 +1048,8 @@ the note's attribution seat (`notes.seat`), which the independence gate pairs wi
 caller that sends one gets `unknown_parameter` on `/usage`). `mark` is REST only (it is on no MCP
 profile): it sets a named instant on a run in any status, first write wins, and answers `marked: false` and records
 nothing for a key already set. Every run result is the run view (`runId`, `rootId`, `status`, `openedBy`, `budget`
-(the caps), `usage {observedTokens}`, `hints`, `marks`, `members`, `activeSeats`, `stalledSeats`, `coordinatorStalled`, `version`, ...); `close` adds `snapshot`, `mark` adds
-`marked`. The field reference is in [`api-reference.md`](api-reference.md#runs_read).
+(the caps), `usage {observedTokens}`, `hints`, `marks`, `members`, `activeSeats`, `stalledSeats`, `orchestratorStalled`, `version`, ...); `close` adds `snapshot`, `mark` adds
+`marked`. Deprecated aliases (4.x, removed in 5.0): `coordinatorToken`, `coordinatorSeenAt` and `coordinatorStalled` are returned beside `orchestratorToken`, `orchestratorSeenAt` and `orchestratorStalled` with the same values; the stored seat value `coordinator` and the `required` values of a `forbidden` refusal keep their names. The field reference is in [`api-reference.md`](api-reference.md#runs_read).
 
 **Budgets and caps.** A run's `budget{attemptsPerSeat?, maxActiveSeats?}` is pinned at `open` (at most the configured
 `runs.budgets` ceilings, `invalid_request /budget/<field>` otherwise) and `update` may only lower a set field or set one

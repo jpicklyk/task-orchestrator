@@ -97,12 +97,12 @@ class SqliteRunStore(
             }
         }
 
-    override suspend fun touchCoordinator(
+    override suspend fun touchOrchestrator(
         runId: UUID,
         at: Instant
     ) {
-        databaseManager.writeTx("RunStore.touchCoordinator") {
-            RunsTable.update({ RunsTable.id eq runId }) { it[RunsTable.coordinatorSeenAt] = at }
+        databaseManager.writeTx("RunStore.touchOrchestrator") {
+            RunsTable.update({ RunsTable.id eq runId }) { it[RunsTable.orchestratorSeenAt] = at }
         }
     }
 
@@ -258,7 +258,7 @@ class SqliteRunStore(
         it[RunsTable.terminalReason] = run.terminalReason?.wire
         it[RunsTable.closedBy] = run.closedBy
         it[RunsTable.closedAt] = run.closedAt
-        it[RunsTable.coordinatorSeenAt] = run.coordinatorSeenAt
+        it[RunsTable.orchestratorSeenAt] = run.orchestratorSeenAt
         it[RunsTable.stallAfterSeconds] = run.stallAfterSeconds
         it[RunsTable.budget] = encodeBudget(run.budget)
         it[RunsTable.observedTokens] = run.observedTokens
@@ -292,7 +292,7 @@ class SqliteRunStore(
             openedAt = row[RunsTable.openedAt],
             closedBy = row[RunsTable.closedBy],
             closedAt = row[RunsTable.closedAt],
-            coordinatorSeenAt = row[RunsTable.coordinatorSeenAt],
+            orchestratorSeenAt = row[RunsTable.orchestratorSeenAt],
             stallAfterSeconds = row[RunsTable.stallAfterSeconds],
             budget = decodeBudget(row[RunsTable.budget]),
             observedTokens = row[RunsTable.observedTokens],

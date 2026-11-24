@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
 import io.github.jpicklyk.mcptask.current.application.run.RunEndedSnapshot
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs.RunWireKeys.putWithAlias
 import io.github.jpicklyk.mcptask.current.model.run.Run
 import io.github.jpicklyk.mcptask.current.model.run.RunBudget
 import io.github.jpicklyk.mcptask.current.model.run.RunLiveness
@@ -29,7 +30,7 @@ internal object RunView {
         seats: List<RunSeat>,
         now: Instant
     ): JsonObject {
-        val memberSeats = seats.filter { it.isActive && !it.isCoordinator }
+        val memberSeats = seats.filter { it.isActive && !it.isOrchestrator }
         val stalledSeats =
             if (run.status == RunStatus.CLOSED) 0 else memberSeats.count { RunLiveness.isSeatStalled(it, now, run.stallAfterSeconds) }
         return of(run, members, memberSeats.size, stalledSeats, now)
@@ -56,8 +57,8 @@ internal object RunView {
             put("openedAt", run.openedAt.toString())
             run.closedBy?.let { put("closedBy", it) }
             run.closedAt?.let { put("closedAt", it.toString()) }
-            run.coordinatorSeenAt?.let { put("coordinatorSeenAt", it.toString()) }
-            put("coordinatorStalled", RunLiveness.isCoordinatorStalled(run, now))
+            run.orchestratorSeenAt?.let { putWithAlias(RunWireKeys.ORCHESTRATOR_SEEN_AT, JsonPrimitive(it.toString())) }
+            putWithAlias(RunWireKeys.ORCHESTRATOR_STALLED, JsonPrimitive(RunLiveness.isOrchestratorStalled(run, now)))
             put("stallAfterSeconds", run.stallAfterSeconds)
             run.budget?.takeUnless { it.isUnlimited }?.let { put("budget", budget(it)) }
             put(
