@@ -13,7 +13,7 @@ const val RUNS_WRITE = "runs_write"
  * The runs_write idempotency codec. A token is shown once: [encode] drops a `coordinatorToken` (open) or `seatToken`
  * (assign) from the result before it is stored and marks it `tokenRedacted: true`, so the idempotency store never
  * holds a credential and a keyed replay returns the result without the token. Recovery: re-assign the seat (it
- * supersedes the assignment and issues a fresh token) or, for the coordinator token, close the run and open a new one.
+ * supersedes the assignment and issues a fresh token) or, for the run token, close the run and open a new one.
  * The first, live response is not encoded and carries the token.
  */
 internal object RunsWriteCodec : IdempotencyCodec<JsonObject> {
@@ -43,18 +43,18 @@ fun runsWriteTool(): OpsToolSpec<JsonObject> =
         description =
             "Open, update, close, pause, resume and mark runs; assign and end seats; raise, ack, answer and withdraw " +
                 "decisions. Each op needs the runs capability (ack, answer: decide) and a root in scope. close: " +
-                "coordinator, director or a human; update, assign: coordinator token; end_seat: the seat's own token; " +
+                "run token, director or a human; update, assign: run token; end_seat: the seat's own token; " +
                 "pause and resume: director or human only; mark: REST only. Result: the run (close adds snapshot, mark " +
                 "adds marked) or the decision.",
         profileDescriptions =
             mapOf(
                 ToolProfile.ORCHESTRATION to
                     "Open, update and close runs; assign and end seats; raise and withdraw decisions. Each op needs the " +
-                    "runs capability and a root in scope. close: coordinator, director or a human; update, assign: " +
-                    "coordinator token; end_seat: the seat's own token. Result: the run (close adds snapshot) or the decision.",
+                    "runs capability and a root in scope. close: run token, director or a human; update, assign: " +
+                    "run token; end_seat: the seat's own token. Result: the run (close adds snapshot) or the decision.",
                 ToolProfile.DIRECTOR to
                     "Open, close, pause and resume runs; ack, answer and withdraw decisions. Each op needs the runs " +
-                    "capability (ack, answer: decide) and a root in scope. close: coordinator, director or a human; pause " +
+                    "capability (ack, answer: decide) and a root in scope. close: run token, director or a human; pause " +
                     "and resume: director or human only. Result: the run (close adds snapshot) or the decision."
             ),
         ops =

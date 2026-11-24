@@ -17,7 +17,7 @@ tool section ends with a block between `<!-- generated:tool NAME -->` markers, a
 class `@Doc` (or the op's profile, capability or errors) and run `./gradlew :current:regenerateApiReference`;
 `ApiReferenceFreshnessTest` fails when a block is stale and names that task. The same data is served at runtime
 by a `describe: true` call on any tool. A write element also takes `op` and an optional `idempotencyKey`, and a select call takes
-`select` and `describe`, and any call may carry a top-level `seatToken` (a run's seat or coordinator token, see [Runs](#category-runs)); the dispatcher reads those first, so the generated tables do not list them. The orchestration profile's tool schemas declare `seatToken` as an optional top-level string, so a client that validates arguments against the schema (Code Mode) accepts it; the knowledge and director schemas do not. No call takes
+`select` and `describe`, and any call may carry a top-level `seatToken` (a run's seat or run token, see [Runs](#category-runs)); the dispatcher reads those first, so the generated tables do not list them. The orchestration profile's tool schemas declare `seatToken` as an optional top-level string, so a client that validates arguments against the schema (Code Mode) accepts it; the knowledge and director schemas do not. No call takes
 an `actor`: the caller is the principal its transport established (the bearer credential over REST and HTTP `/mcp`,
 the `local` principal over stdio and in the unauthenticated modes), and a body `actor` is `unknown_parameter`. A call
 with no principal is `unauthenticated` before anything in it is read.
@@ -262,7 +262,7 @@ failures; resend with a new key to retry the failed items.
 <!-- generated:tool items_write -->
 Create, update and delete work items or whole trees, one ops[] element each.
 
-**`items_write` op `create`** (knowledge and orchestration profiles; capability `write-items`): Create an item in queue.
+**`items_write` op `create`** (knowledge and orchestration profiles; capability `write-items`): Create an item. It starts in queue, or lifecycle-free (no role) when its type's schema has lifecycle: none.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -615,7 +615,7 @@ omitted from `blockers` while its item stays listed.
   `dispatch` is the `{agent?, model?, effort?}` profile of the current role of the item. All are omitted for a
   seat-less or terminal item, never `[]`/`{}`. A seat serves `rules` and `skills` only when it declares them.
 - `callerSeat` is the name of the seat the call's seat token holds, present only when the token's item is this item
-  (omitted without a token, for the run's coordinator token and for a token of another item).
+  (omitted without a token, for the run token and for a token of another item).
 - `gateStatus.violations` (`[{key, seat?, constraint, conflictingSeat?, waived?}]`, actor-free) reports the
   independence-attestation findings of the current phase: present (possibly `[]`) when independence `mode` is not
   `off` and the schema declares `independent_of`, omitted otherwise
@@ -1336,11 +1336,11 @@ caused it (see Suppressed below), and a cascade applies only when the parent's s
   `seats` and the write's caller could not send the equivalent trigger to it directly: `start` for a start cascade,
   `complete` for a terminal cascade, `reopen` for a reopen cascade; this holds for a `start`, `complete`, `cancel` or
   `reopen` and for the reparent and delete cascades of `items_write`. The check runs in the order ownership, then
-  seat, then the other gates. The coordinator token and a human credential pass. A member-seat token passes only for
+  seat, then the other gates. The run token and a human credential pass. A member-seat token passes only for
   the one item it is bound to, so a seat child cascades into a member parent only when its token is bound to that
   parent, and it needs the equivalent trigger in its seat's `transitions` (or `enters` for `start`). The parent keeps
   its role and claim and the chain stops there; the wire shows `blocked: seat` and no seat, run or holder, and
-  `items_write` reports `reason: seat_forbidden`. To recover, the coordinator token or a human credential advances the
+  `items_write` reports `reason: seat_forbidden`. To recover, the run token or a human credential advances the
   parent directly), `blocked: gate` (the parent lacks required notes; a terminal cascade checks every phase's notes
   unless it descends from a `cancel`, a start cascade checks the parent's current phase only, a reopen cascade
   never checks notes; a terminal cascade into a parent in `review` is always suppressed, whatever its origin, with
@@ -1995,7 +1995,7 @@ unknown run or a run of another root is `forbidden`, never `not_found`). A call 
   bound: a call that is not bound to the run (so not stamped with it) is missed.
 - **Run sections.** `run` is the run's `status`, `terminalReason`, `openedAt` and `closedAt`. `decisions` counts the
   run's decision requests still open or acknowledged (`open`), by class and by effective severity (an overdue request
-  reads one step more urgent). `seats.active` counts the run's active member seats (the coordinator excluded),
+  reads one step more urgent). `seats.active` counts the run's active member seats (the `coordinator` pseudo-seat excluded),
   `seats.stalled` lists at most 5 of those stalled under the run's `stallAfterSeconds` (silent longest first, then item
   id, then seat) and `seats.count` is the true number. `attempts` counts every member-seat assignment, ended ones
   included (`total`), and the highest attempt (`max`). There is no `budget` section: token and cost budgets were
@@ -2125,13 +2125,13 @@ coordinatorStalled, stallAfterSeconds, budget?: {attemptsPerSeat?, maxActiveSeat
 hints, marks, members, activeSeats, stalledSeats, version}`. Absent members are omitted, never `null`;
 `usage.observedTokens` is the server's own estimate of the run's call-log response tokens and enforces nothing (the
 4.0.0 token and cost budgets and the agent-reported usage were removed in 4.0.1). `activeSeats` counts the active
-member seats (never the coordinator) and `stalledSeats` those of them that are stalled. Under a restricted scope,
+member seats (never the `coordinator` pseudo-seat) and `stalledSeats` those of them that are stalled. Under a restricted scope,
 `members`, `activeSeats` and `stalledSeats` count only the members and seats the caller's scope can see.
 
-**Stalled.** One rule for seats and the coordinator: stalled when the time since last seen is strictly longer than the
+**Stalled.** One rule for seats and the run's orchestrator: stalled when the time since last seen is strictly longer than the
 run's own `stallAfterSeconds` (pinned at open; never re-read from config), compared exactly. A seat is last seen at its
-`lastSeenAt`, or its `assignedAt` when it never touched anything; the coordinator at `coordinatorSeenAt`. Only a call
-made with the seat's token (or the coordinator token, for the coordinator) refreshes them, and only on a tool that takes an
+`lastSeenAt`, or its `assignedAt` when it never touched anything; the run's orchestrator at `coordinatorSeenAt`. Only a call
+made with the seat's token (or the run token, for the run's orchestrator) refreshes them, and only on a tool that takes an
 `ops` array, whichever op it names: a read-only op such as `config` `get` or `history` touches it as much as an `advance`
 `heartbeat` does. A call to a `select` tool (`runs_read`, `items_read`), and a `describe: true` call on any tool, never
 does. A closed run is
@@ -2140,15 +2140,15 @@ never stalled. Stalled is a derived view only: nothing is ended, released or rai
 **Frontier** (`frontier{runId}`): `{runId, status, stalled, counts: {queue, work, review, blocked, terminal}, cancelled,
 ready: [{id, title, role, type?}], inFlight: [{id, role, title?, seat, attempt, lastSeenAt?, stalled}], waiting: [{id,
 reason, decisionId?, blockers?}]}`, one read with a constant number of statements. `runId` is the full UUID, item ids are 8-hex short ids;
-`stalled` is the coordinator's, the same as the run view's `coordinatorStalled`; every array is present. `counts` covers
+`stalled` is the run's orchestrator's, the same as the run view's `coordinatorStalled`; every array is present. `counts` covers
 the visible members, every role present. `cancelled` is how many of the terminal ones carry the status label of `cancel`
 under the run's root (the one label policy: per-root `status_labels`, then the server's, then the built-in `cancelled`),
 so they are counted in `counts.terminal` too; a member relabelled after its cancel is not counted. An `inFlight` entry's
 `title` is its item's title. `ready` (membership order) holds the members that are neither terminal nor
 blocked, have no active seat, no unsatisfied blocking dependency and no live claim held outside the run (a claim whose
-holder pair is not an active assignee of this run, the coordinator included; an expired claim never counts); it is
+holder pair is not an active assignee of this run, the `coordinator` pseudo-seat included; an expired claim never counts); it is
 always empty on a closed run, and a paused run computes it normally. `inFlight` (assignment order) holds the active
-member seats, never the coordinator. `waiting` (membership order): a blocked member has the `reason` of its block, one of
+member seats, never the `coordinator` pseudo-seat. `waiting` (membership order): a blocked member has the `reason` of its block, one of
 `manual`, `dependency`, `awaiting_decision` or `resource`, plus `decisionId` (the full UUID) whenever the block names a
 decision; a blocked member with `reason: dependency` also has `blockers`, always empty. A member that is not
 blocked but has an unsatisfied blocking dependency has `reason: dependency` and `blockers`, the unsatisfied blockers' short ids, sorted.
@@ -2181,7 +2181,7 @@ Errors: `ambiguous_id`, `forbidden`, `internal`, `invalid_request`, `not_found`,
 
 Errors: `ambiguous_id`, `internal`, `invalid_cursor`, `invalid_request`, `not_found`, `unavailable`, `unknown_parameter`
 
-**`runs_read` select `seats`** (orchestration profile only; capability `read`): List the seat assignments of one run, oldest first: active ones, or every one with ended:true, optionally only those on one item. The coordinator pseudo-seat has no itemId. Tokens are never shown.
+**`runs_read` select `seats`** (orchestration profile only; capability `read`): List the seat assignments of one run, oldest first: active ones, or every one with ended:true, optionally only those on one item. The run token's seat, coordinator, has no itemId. Tokens are never shown.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2231,16 +2231,16 @@ assignment), `raise`, `ack`, `answer` and `withdraw` (decisions, below) and `mar
 write wins, at most 32 marks; the answer adds `marked`, false for a replay). Every op needs the `runs` capability (`ack` and
 `answer` need `decide`) and a run whose root is in scope.
 
-**Tokens.** `open` returns a `coordinatorToken` once; a keyed replay omits it (`tokenRedacted: true`). The coordinator is the
+**Tokens.** `open` returns a `coordinatorToken` once; a keyed replay omits it (`tokenRedacted: true`). The run's orchestrator is the
 caller that presents that token as the top-level `seatToken`. `assign` returns a seat token once, bound to one member item
 and one seat; re-assigning the seat supersedes the old token. A token that is unknown, ended, superseded or another
-principal's is `unauthenticated` with no detail. When a run closes, its tokens die with it: a coordinator token of a
+principal's is `unauthenticated` with no detail. When a run closes, its tokens die with it: a run token of a
 closed run is `unauthenticated` (for example on `update`), while a director or human `close` still works. A lost
-coordinator token cannot be recovered: close the run and open another.
+run token cannot be recovered: close the run and open another.
 
-**Permissions.** `open` any caller with `runs`. `close`, any reason: the coordinator, the director profile or a human
+**Permissions.** `open` any caller with `runs`. `close`, any reason: the run token, the director profile or a human
 token. `pause` and `resume`: the director profile or a human token (the opener may not pause). `update` and `assign`: the
-coordinator token only. `end_seat`: the seat's own token. `mark`: any caller with `runs`. A refusal is `forbidden` with `detail:
+run token only. `end_seat`: the seat's own token. `mark`: any caller with `runs`. A refusal is `forbidden` with `detail:
 {scope: "principal_kind", required}` where `required` lists the allowed kinds. Errors come in a fixed order: the scope check
 on the run's root first, so a permission refusal never reveals whether an out-of-scope run exists; then the permission
 refusal; then the state of the run (`run_closed`, `run_paused`, `invalid_run_state`). `assign` follows the same order, so a
@@ -2263,7 +2263,7 @@ most 32. Any token with `runs` whose scope reaches the run can stamp any key, `r
 
 `ack` uses the same answerer check as `answer`; an acknowledged decision is returned unchanged by a second `ack`. An answer
 is final and immutable: a later `ack`, `answer` or `withdraw` of an answered or withdrawn decision is `decision_closed`,
-checked after the permission. `withdraw` is allowed for the raiser (the same principal and seat) or the coordinator token of
+checked after the permission. `withdraw` is allowed for the raiser (the same principal and seat) or the run token of
 the decision's run. The decisions the server raises for a limit (`attempt-cap`, and a `run-budget` left by 4.0.0, which is never raised again) are never withdrawable; they stay
 pending until answered; closing the run is the other way out of the pause (the decision stays pending and is recorded in the close snapshot's `openDecisions`). Expiry (a class's `expires_after`) escalates the severity only: the decision reads
 one step more urgent (`effectiveSeverity`, `overdue: true`) and the server takes no other action. A close withdraws no
@@ -2277,9 +2277,9 @@ without the withdrawn ones.
 **Request reference.** Generated from the registry (see [Overview](#overview)).
 
 <!-- generated:tool runs_write -->
-Open, update, close, pause, resume and mark runs; assign and end seats; raise, ack, answer and withdraw decisions. Each op needs the runs capability (ack, answer: decide) and a root in scope. close: coordinator, director or a human; update, assign: coordinator token; end_seat: the seat's own token; pause and resume: director or human only; mark: REST only. Result: the run (close adds snapshot, mark adds marked) or the decision.
+Open, update, close, pause, resume and mark runs; assign and end seats; raise, ack, answer and withdraw decisions. Each op needs the runs capability (ack, answer: decide) and a root in scope. close: run token, director or a human; update, assign: run token; end_seat: the seat's own token; pause and resume: director or human only; mark: REST only. Result: the run (close adds snapshot, mark adds marked) or the decision.
 
-**`runs_write` op `open`** (orchestration and director profiles; capability `runs`): Open a run on a root over up to 500 of its items. The caller is recorded as the opener. An item already in an open run is duplicate. Returns the run and coordinatorToken, the run's coordinator credential (shown once; a keyed replay omits it and returns tokenRedacted: true): pass it as the top-level seatToken to update, assign and close.
+**`runs_write` op `open`** (orchestration and director profiles; capability `runs`): Open a run on a root over up to 500 of its items. The caller is recorded as the opener. An item already in an open run is duplicate. Returns the run and coordinatorToken, the run token, held by the run's orchestrator (shown once; a keyed replay omits it and returns tokenRedacted: true): pass it as the top-level seatToken to update, assign and close.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2291,12 +2291,12 @@ Open, update, close, pause, resume and mark runs; assign and end seats; raise, a
 | `budget` | object | no | Run budget: attemptsPerSeat, maxActiveSeats; absent means no cap. On open it may not exceed a configured ceiling; on update a field can only be lowered or newly set. |
 | `budget.attemptsPerSeat` | integer | no | Most attempts one seat may take. |
 | `budget.maxActiveSeats` | integer | no | Most seats active at once. |
-| `stallAfterSeconds` | integer | no | Seconds without a coordinator sign of life before the run reads as stalled. Default from config. |
-| `hints` | map of string | no | Short structured coordinator hints, string to string. On update they replace the stored hints. |
+| `stallAfterSeconds` | integer | no | Seconds without a sign of life from the run's orchestrator before the run reads as stalled. Default from config. |
+| `hints` | map of string | no | Short structured hints for the run's orchestrator, string to string. On update they replace the stored hints. |
 
 Errors: `ambiguous_id`, `duplicate`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
 
-**`runs_write` op `update`** (orchestration profile only; capability `runs`): Change an open run: add or remove items, lower the budget (a field can only go down or be newly set), replace the hints. Coordinator only. A paused run is run_paused; a closed run is run_closed. expectedVersion guards against a concurrent change. Returns the run.
+**`runs_write` op `update`** (orchestration profile only; capability `runs`): Change an open run: add or remove items, lower the budget (a field can only go down or be newly set), replace the hints. Run token only. A paused run is run_paused; a closed run is run_closed. expectedVersion guards against a concurrent change. Returns the run.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2306,12 +2306,12 @@ Errors: `ambiguous_id`, `duplicate`, `forbidden`, `idempotency_mismatch`, `inter
 | `budget` | object | no | Run budget: attemptsPerSeat, maxActiveSeats; absent means no cap. On open it may not exceed a configured ceiling; on update a field can only be lowered or newly set. |
 | `budget.attemptsPerSeat` | integer | no | Most attempts one seat may take. |
 | `budget.maxActiveSeats` | integer | no | Most seats active at once. |
-| `hints` | map of string | no | Short structured coordinator hints, string to string. On update they replace the stored hints. |
+| `hints` | map of string | no | Short structured hints for the run's orchestrator, string to string. On update they replace the stored hints. |
 | `expectedVersion` | integer | no | Fails with version_conflict unless the run is at this version. |
 
 Errors: `ambiguous_id`, `duplicate`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `run_closed`, `run_paused`, `unavailable`, `unknown_parameter`, `version_conflict`
 
-**`runs_write` op `close`** (orchestration and director profiles; capability `runs`; destructive): End a run with a reason: completed, cancelled, failed or abandoned (budget_exhausted is server-only). Coordinator, director or a human. Any reason but completed ends active seats and releases claims and leases of the members; completed is refused while a seat is active. Returns the run and a snapshot of what the close recorded.
+**`runs_write` op `close`** (orchestration and director profiles; capability `runs`; destructive): End a run with a reason: completed, cancelled, failed or abandoned (budget_exhausted is server-only). Run token, director or a human. Any reason but completed ends active seats and releases claims and leases of the members; completed is refused while a seat is active. Returns the run and a snapshot of what the close recorded.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2345,18 +2345,18 @@ Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invali
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unavailable`, `unknown_parameter`
 
-**`runs_write` op `assign`** (orchestration profile only; capability `runs`): Assign a seat of a member item: a seat of the item's schema, or implementer or planner for an item with none (plus reviewer when its schema has review notes). Coordinator token only. Re-assigning an active seat supersedes it (its token dies and its claims are released) and counts a new attempt. Returns assignmentId, seatToken and attempt; the token is shown once (a keyed replay omits it and returns tokenRedacted: true; re-assign for a fresh token) and every call made under the seat passes it as the top-level seatToken. Past the run's attempt cap it is run_paused (the run pauses on an attempt-cap decision); at maxActiveSeats it is run_at_capacity (retry when a seat ends).
+**`runs_write` op `assign`** (orchestration profile only; capability `runs`): Assign a seat of a member item: a seat of the item's schema, or implementer or planner for an item with none (plus reviewer when its schema has review notes). Run token only. Re-assigning an active seat supersedes it (its token dies and its claims are released) and counts a new attempt. Returns assignmentId, seatToken and attempt; the token is shown once (a keyed replay omits it and returns tokenRedacted: true; re-assign for a fresh token) and every call made under the seat passes it as the top-level seatToken. Past the run's attempt cap it is run_paused (the run pauses on an attempt-cap decision); at maxActiveSeats it is run_at_capacity (retry when a seat ends).
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `runId` | string | yes | Run id: UUID or 8-32 hex. |
 | `itemId` | string | yes | Item id: UUID or 8-32 hex. |
 | `seat` | string | yes | A seat of the item's schema (implementer or planner when it has none, plus reviewer when it has review notes). Returns a seat token; re-assigning supersedes. |
-| `hints` | map of string | no | Short structured coordinator hints, string to string. On update they replace the stored hints. |
+| `hints` | map of string | no | Short structured hints for the run's orchestrator, string to string. On update they replace the stored hints. |
 
 Errors: `ambiguous_id`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `run_at_capacity`, `run_closed`, `run_paused`, `unauthenticated`, `unavailable`, `unknown_parameter`
 
-**`runs_write` op `end_seat`** (orchestration profile only; capability `runs`): End the calling seat's own assignment with an outcome (done, failed or abandoned), an optional summary (at most 500 characters) and up to 10 links. Needs the seat's own token; the coordinator token is refused. Releases the claims the seat holds and reports them in released; its token stops working.
+**`runs_write` op `end_seat`** (orchestration profile only; capability `runs`): End the calling seat's own assignment with an outcome (done, failed or abandoned), an optional summary (at most 500 characters) and up to 10 links. Needs the seat's own token; the run token is refused. Releases the claims the seat holds and reports them in released; its token stops working.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2404,7 +2404,7 @@ Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, 
 
 Errors: `ambiguous_id`, `decision_closed`, `forbidden`, `idempotency_mismatch`, `internal`, `invalid_request`, `not_found`, `partial_failure`, `unauthenticated`, `unavailable`, `unknown_parameter`, `version_conflict`
 
-**`runs_write` op `withdraw`** (orchestration and director profiles; capability `runs`): Withdraw an open or acknowledged decision: its raiser (the same principal and seat) or the coordinator token of its run. An answered or withdrawn decision is decision_closed. The dedupeKey is then free for a new decision. Returns the decision.
+**`runs_write` op `withdraw`** (orchestration and director profiles; capability `runs`): Withdraw an open or acknowledged decision: its raiser (the same principal and seat) or the run token of its run. An answered or withdrawn decision is decision_closed. The dedupeKey is then free for a new decision. Returns the decision.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |

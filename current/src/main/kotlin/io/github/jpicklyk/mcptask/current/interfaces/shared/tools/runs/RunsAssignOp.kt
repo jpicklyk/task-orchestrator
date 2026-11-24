@@ -20,13 +20,13 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.serializer
 
-/** runs_write assign: the coordinator assigns a seat of a member item. */
+/** runs_write assign: the run's orchestrator assigns a seat of a member item. */
 internal val runsAssignOp =
     OpSpec<RunToolServices, RunsAssignRequest, JsonObject, RunStoreProvider>(
         name = "assign",
         doc =
             "Assign a seat of a member item: a seat of the item's schema, or implementer or planner for an item with " +
-                "none (plus reviewer when its schema has review notes). Coordinator token only. Re-assigning an active seat " +
+                "none (plus reviewer when its schema has review notes). Run token only. Re-assigning an active seat " +
                 "supersedes it (its token dies and its claims are released) and counts a new attempt. Returns assignmentId, " +
                 "seatToken and attempt; the token is shown once (a keyed replay omits it and returns tokenRedacted: true; " +
                 "re-assign for a fresh token) and every call made under the seat passes it as the top-level seatToken. " +

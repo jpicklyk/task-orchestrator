@@ -43,7 +43,7 @@ internal object CreateItemOp {
 internal fun createItemOp(): OpSpec<WorkflowToolServices, CreateItemRequest, ItemWriteResult, WorkflowStoreProvider> =
     OpSpec(
         name = CreateItemOp.NAME,
-        doc = "Create an item in queue.",
+        doc = "Create an item. It starts in queue, or lifecycle-free (no role) when its type's schema has lifecycle: none.",
         capability = ApiCapability.WRITE_ITEMS,
         profiles = knowledge(),
         services = WorkflowToolServices::class,

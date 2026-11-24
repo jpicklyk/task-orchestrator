@@ -1783,7 +1783,7 @@ class NoteCommandServiceTest {
         // decisive Allow
         assertEquals(SeatVerdict.Allow, verdict(build, builder), "the assigned seat on its own key")
         assertEquals(SeatVerdict.Allow, verdict(build, humanSeatCaller), "a human on a seat-owned key")
-        assertEquals(SeatVerdict.Allow, verdict(orch, coordinatorOfRun), "the coordinator on a COORDINATOR_WRITABLE_SEAT key")
+        assertEquals(SeatVerdict.Allow, verdict(orch, coordinatorOfRun), "the coordinator on a ORCHESTRATOR_WRITABLE_SEAT key")
         // Defer: rule 3 decides
         assertEquals(SeatVerdict.Defer, verdict(build, builder, openRun = null), "no open run")
         assertEquals(SeatVerdict.Defer, verdict(build, humanSeatCaller, openRun = null), "no open run, human")
