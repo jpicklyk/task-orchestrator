@@ -28,6 +28,7 @@ import {
   isValidRuleKey,
   planRuleSync,
   planBundledSync,
+  planBundledArchive,
   formatRuleSyncSummary,
 } from '../config-sync.mjs';
 
@@ -229,7 +230,7 @@ const listAnswer = (items, page = {}) => ({
 // ---- the stateful stub API ---------------------------------------------------------------------------------
 //
 // opts.config   { version, fingerprint, createdAt, history?: [fingerprints once held] } | undefined (no config yet)
-// opts.docs     { slug: { hash, version } } rule documents the server holds (bundled rules at their current
+// opts.docs     { slug: { hash, version, archived? } } rule documents the server holds (bundled rules at their current
 //               hash are seeded first unless opts.seedBundled === false)
 // opts.pageSize page size of the docs_read list (default: everything on one page)
 // opts.override (call, state) => reply | undefined; a reply is { status, json | raw, delayMs, stall }
@@ -290,7 +291,7 @@ function startStub(opts = {}) {
     }
     if (tool === 'docs_read') {
       if (body.select !== 'list') return topError(400, 'invalid_request', 'only list is expected');
-      const slugs = [...state.docs.keys()].sort();
+      const slugs = [...state.docs.keys()].filter((slug) => body.includeArchived === true || !state.docs.get(slug).archived).sort();
       const pageSize = opts.pageSize ?? 100000;
       let offset = 0;
       if (body.cursor !== undefined) {
@@ -306,6 +307,7 @@ function startStub(opts = {}) {
         version: state.docs.get(slug).version,
         createdAt: '2026-01-01T00:00:00Z',
         modifiedAt: '2026-01-01T00:00:00Z',
+        ...(state.docs.get(slug).archived ? { archivedAt: '2026-03-03T00:00:00Z' } : {}),
       }));
       const truncated = offset + pageSize < slugs.length;
       return listAnswer(items, { total: slugs.length, truncated, ...(truncated ? { next: String(offset + pageSize) } : {}) });
@@ -313,8 +315,19 @@ function startStub(opts = {}) {
     if (tool === 'docs_write') {
       if (!Array.isArray(body.ops) || body.ops.length !== 1) return topError(400, 'invalid_request', 'expected exactly one op');
       const el = body.ops[0];
-      if (el.op !== 'upsert') return topError(400, 'invalid_request', `unexpected docs_write op ${el.op}`);
       const cur = state.docs.get(el.slug);
+      // archive / unarchive: set or clear the mark, version unchanged; a repeat is a no-op (api-reference docs_write).
+      if (el.op === 'archive' || el.op === 'unarchive') {
+        if (!cur) return batch([errEl('not_found', { kind: 'document', id: `rule/${el.slug}` })]);
+        if (el.expectedVersion !== undefined && el.expectedVersion !== cur.version) {
+          return batch([errEl('version_conflict', { kind: 'document', id: `rule/${el.slug}`, expected: el.expectedVersion, actual: cur.version })]);
+        }
+        cur.archived = el.op === 'archive';
+        return batch([okEl({ id: '11111111-1111-4111-8111-111111111111', kind: el.kind, slug: el.slug, version: cur.version, archived: cur.archived })]);
+      }
+      if (el.op !== 'upsert') return topError(400, 'invalid_request', `unexpected docs_write op ${el.op}`);
+      // An upsert to an archived document is invalid_request, checked before compare-and-set.
+      if (cur && cur.archived) return batch([errEl('invalid_request', { kind: 'document', id: `rule/${el.slug}` }, 'an archived document must be unarchived first')]);
       if (el.expectedVersion !== undefined) {
         const have = cur ? cur.version : 0;
         if (el.expectedVersion !== have) {
@@ -368,7 +381,10 @@ function startStub(opts = {}) {
         tools: () => calls.map((c) => c.tool),
         ofTool: (t) => calls.filter((c) => c.tool === t),
         configOps: () => calls.filter((c) => c.tool === 'config').map((c) => c.body.ops[0]),
-        upserts: () => calls.filter((c) => c.tool === 'docs_write').map((c) => c.body.ops[0]),
+        docWrites: () => calls.filter((c) => c.tool === 'docs_write').map((c) => c.body.ops[0]),
+        upserts: () => calls.filter((c) => c.tool === 'docs_write').map((c) => c.body.ops[0]).filter((op) => op.op === 'upsert'),
+        archives: () => calls.filter((c) => c.tool === 'docs_write').map((c) => c.body.ops[0]).filter((op) => op.op === 'archive'),
+        unarchives: () => calls.filter((c) => c.tool === 'docs_write').map((c) => c.body.ops[0]).filter((op) => op.op === 'unarchive'),
         maxInFlight: () => maxInFlight,
         close: () => new Promise((r) => { if (typeof server.closeAllConnections === 'function') server.closeAllConnections(); server.close(r); }),
       });
@@ -669,7 +685,7 @@ test('planBundledSync: a key the workspace provides is omitted from every list, 
       serverVersions,
       workspaceKeys: new Set(['k']),
     });
-    assert.deepEqual(plan, { toPush: [], inSync: [], untouched: [] });
+    assert.deepEqual(plan, { toPush: [], inSync: [], untouched: [], toUnarchive: [] });
   }
 });
 
@@ -823,7 +839,7 @@ test('S1 (AC1): relation current - only config get and the rules listing; "alrea
     assert.ok(line.includes('root-s1'), line);
     assert.deepEqual(stub.tools(), ['config', 'docs_read']);
     assert.deepEqual(stub.configOps(), [{ op: 'get', rootId: 'root-s1', fingerprint: fp }]);
-    assert.deepEqual(stub.ofTool('docs_read')[0].body, { select: 'list', rootId: 'root-s1', kind: 'rule', limit: 200 });
+    assert.deepEqual(stub.ofTool('docs_read')[0].body, { select: 'list', rootId: 'root-s1', kind: 'rule', limit: 200, includeArchived: true });
     for (const c of stub.calls) {
       assert.equal(c.method, 'POST');
       assert.equal(c.url, `/api/v1/ops/${c.tool}`);
@@ -1945,5 +1961,500 @@ test('a877f204 T8: mixed config (one none, one auto) -> every bundled key plus t
     const res = await runHook(p.dir, stub.url);
     assert.equal(res.status, 0, res.stderr);
     assert.deepEqual(new Set(stub.upserts().map(putKeyOf)), new Set(['house-style', ...BUNDLED_KEYS]));
+  });
+});
+
+// ---- 4aee7d91: archive bundled build rules already pushed into lifecycle-free roots --------------------------
+// Oracle: specification v1 of item 4aee7d91 (the "bundled and unchanged" rule, AC1-AC7) and amendment A1, plus
+// current/docs/api-reference.md docs_read list (includeArchived, archivedAt) and docs_write archive / unarchive /
+// upsert-to-archived (invalid_request). The stub above models those documented semantics.
+
+const LIFECYCLE_FREE = 'work_item_schemas:\n  page:\n    lifecycle: none\n  topic:\n    lifecycle: none\n';
+const LIFECYCLE_MIXED = 'work_item_schemas:\n  page:\n    lifecycle: none\n  bug:\n    lifecycle: auto\n';
+const REAL_MANIFEST = JSON.parse(readFileSync(join(BUNDLED_DIR, 'manifest.json'), 'utf-8'));
+const NON_PROTOCOL_BUNDLED_KEYS = BUNDLED_KEYS.filter((k) => !k.startsWith('protocol.'));
+
+/** A lifecycle-free project whose config the stub already holds (relation current). */
+function lifecycleFreeProject(rootId, extra = LIFECYCLE_FREE) {
+  const p = makeProject(rootId, { extra });
+  return { ...p, configState: { version: 1, fingerprint: p.fp } };
+}
+
+const archiveOp = (rootId, slug, expectedVersion) => ({ op: 'archive', rootId, kind: 'rule', slug, expectedVersion });
+
+test('4aee7d91 P1: planBundledArchive - absent, archived, workspace key, current, older, unknown, null, empty, uppercase hex, non-array manifest entry', () => {
+  const cur = sha256Hex(Buffer.from('cur\n'));
+  const old = sha256Hex(Buffer.from('old\n'));
+  const manifest = {
+    absent: [old, cur],
+    archived: [old, cur],
+    ws: [old, cur],
+    current: [old, cur],
+    older: [old, cur],
+    unknown: [old, cur],
+    nul: [old, cur],
+    empty: [old, cur],
+    upper: [old, cur],
+    notarray: cur,
+    'Bad Key': [cur],
+  };
+  const serverVersions = new Map([
+    ['ws', cur],
+    ['current', cur],
+    ['older', old],
+    ['unknown', 'f'.repeat(64)],
+    ['nul', null],
+    ['empty', ''],
+    ['upper', cur.toUpperCase()],
+    ['notarray', cur],
+    ['Bad Key', cur],
+  ]);
+  const plan = planBundledArchive({
+    manifest,
+    serverVersions,
+    archivedKeys: new Set(['archived']),
+    workspaceKeys: new Set(['ws']),
+  });
+  assert.deepEqual(plan.toArchive, ['current', 'older']);
+  assert.deepEqual(plan.untouched, ['unknown', 'nul', 'empty', 'upper', 'notarray']);
+});
+
+test('4aee7d91 P1: planBundledArchive - a key in archivedKeys is never archived again, whether or not serverVersions also lists it live', () => {
+  const cur = sha256Hex(Buffer.from('cur\n'));
+  for (const serverVersions of [new Map(), new Map([['k', cur]])]) {
+    const plan = planBundledArchive({ manifest: { k: [cur] }, serverVersions, archivedKeys: new Set(['k']), workspaceKeys: new Set() });
+    assert.deepEqual(plan, { toArchive: [], untouched: [] }, `serverVersions ${JSON.stringify([...serverVersions])}`);
+  }
+});
+
+test('4aee7d91 P2: formatRuleSyncSummary - empty new lists change nothing; clause order is base, archived, unarchived, skipped, failed, kept, unusable, deferred', () => {
+  const base = { pushedKeys: [], unchangedCount: 2, skipped: [], failed: [] };
+  assert.equal(formatRuleSyncSummary({ ...base, archivedKeys: [], unarchivedKeys: [] }), formatRuleSyncSummary(base));
+  const line = formatRuleSyncSummary({
+    pushedKeys: ['a'],
+    unchangedCount: 1,
+    skipped: [{ key: 's', reason: 'invalid key' }],
+    failed: [{ key: 'f', reason: 'version_conflict' }],
+    deferredCount: 2,
+    untouchedKeys: ['k'],
+    bundledListingUnusable: true,
+    archivedKeys: ['x', 'y'],
+    unarchivedKeys: ['u'],
+  });
+  assert.equal(
+    line,
+    'pushed 1 (a); 1 in sync.; archived bundled build rules: x, y; unarchived: u; skipped: s (invalid key); ' +
+      'failed: f (version_conflict); kept unrecognized server copy: k; bundled rules skipped (unusable rules listing); 2 deferred to next session',
+  );
+});
+
+test('4aee7d91 P1: planBundledSync - an archived bundled copy at an older, the current or an unknown hash', () => {
+  const curBytes = Buffer.from('cur\n');
+  const cur = sha256Hex(curBytes);
+  const old = sha256Hex(Buffer.from('old\n'));
+  const manifest = { a: [old, cur], b: [old, cur], c: [old, cur] };
+  const plan = planBundledSync({
+    bundled: ['a', 'b', 'c'].map((key) => ({ key, bytes: curBytes })),
+    manifest,
+    serverVersions: new Map(),
+    workspaceKeys: new Set(),
+    archivedVersions: new Map([['a', old], ['b', cur], ['c', 'e'.repeat(64)]]),
+  });
+  assert.deepEqual(plan.toPush, []);
+  assert.deepEqual(plan.toUnarchive.map((r) => [r.key, r.upsert]), [['a', true], ['b', false]]);
+  assert.deepEqual(plan.untouched, ['c']);
+});
+
+test('4aee7d91 X1 (AC1): lifecycle-free, bundled at the current hash, no rules/ - every key archived once at version 1, protocol first, no upsert', async () => {
+  const { dir, configState } = lifecycleFreeProject('root-x1');
+  await withStub({ config: configState }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    const archives = stub.archives();
+    assert.equal(archives.length, BUNDLED_KEYS.length);
+    assert.deepEqual(new Set(archives.slice(0, PROTOCOL_BUNDLED_KEYS.length).map((a) => a.slug)), new Set(PROTOCOL_BUNDLED_KEYS));
+    assert.deepEqual(new Set(archives.map((a) => a.slug)), new Set(BUNDLED_KEYS));
+    for (const a of archives) assert.deepEqual(a, archiveOp('root-x1', a.slug, 1));
+    assert.equal(stub.upserts().length, 0);
+    const line = lineOf(res);
+    const m = line.match(/archived bundled build rules: ([^;]+)/);
+    assert.ok(m, line);
+    const listed = m[1].split(', ');
+    assert.deepEqual(listed, archives.map((a) => a.slug), 'the line lists the archived keys in the order sent');
+    assert.ok(listed.slice(0, PROTOCOL_BUNDLED_KEYS.length).every((k) => k.startsWith('protocol.')), line);
+    assert.equal(stub.maxInFlight(), 1);
+  });
+});
+
+test('4aee7d91 X2 (AC1): a live copy at an older manifest hash is archived too', async () => {
+  const { dir, configState } = lifecycleFreeProject('root-x2');
+  const oldHash = REAL_MANIFEST['commit-discipline'][0];
+  await withStub({ config: configState, docs: { 'commit-discipline': { hash: oldHash, version: 4 } } }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.deepEqual(stub.archives().find((a) => a.slug === 'commit-discipline'), archiveOp('root-x2', 'commit-discipline', 4));
+    assert.equal(stub.archives().length, BUNDLED_KEYS.length);
+    assert.equal(stub.upserts().length, 0);
+  });
+});
+
+test('4aee7d91 X3 (AC2): a customised copy (unknown hash) gets no call and is named; the others are archived', async () => {
+  const { dir, configState } = lifecycleFreeProject('root-x3');
+  await withStub({ config: configState, docs: { 'review-scoping': { hash: 'c'.repeat(64), version: 2 } } }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(!stub.docWrites().some((w) => w.slug === 'review-scoping'));
+    assert.equal(stub.archives().length, BUNDLED_KEYS.length - 1);
+    assert.ok(lineOf(res).includes('kept unrecognized server copy: review-scoping'), lineOf(res));
+  });
+});
+
+test('4aee7d91 X4 (AC2): a workspace rule with a bundled key is upserted as a workspace rule and never archived', async () => {
+  const { dir, configState } = lifecycleFreeProject('root-x4');
+  writeRuleFile(dir, 'commit-discipline.md', 'Our own commit rule.\n');
+  await withStub({ config: configState }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.deepEqual(stub.upserts().map(putKeyOf), ['commit-discipline']);
+    assert.equal(stub.upserts()[0].body, 'Our own commit rule.\n');
+    assert.ok(!stub.archives().some((a) => a.slug === 'commit-discipline'));
+    assert.equal(stub.archives().length, BUNDLED_KEYS.length - 1);
+  });
+});
+
+test('4aee7d91 X5 (AC3): replay - run one archives, run two sends a get and one listing and its line is the config line alone', async () => {
+  const { dir, configState } = lifecycleFreeProject('root-x5');
+  await withStub({ config: configState }, async (stub) => {
+    const first = await runHook(dir, stub.url);
+    assert.equal(first.status, 0, first.stderr);
+    assert.equal(stub.archives().length, BUNDLED_KEYS.length);
+    const before = stub.calls.length;
+    const second = await runHook(dir, stub.url);
+    assert.equal(second.status, 0, second.stderr);
+    assert.deepEqual(stub.calls.slice(before).map((c) => c.tool), ['config', 'docs_read']);
+    assert.equal(lineOf(second), 'Task Orchestrator: project config already in sync for root root-x5.');
+  });
+});
+
+test('4aee7d91 X6 (AC3): every bundled key already archived - zero docs_write', async () => {
+  const { dir, configState } = lifecycleFreeProject('root-x6');
+  const docs = Object.fromEntries(bundledAtCurrentHash().map(({ key, hash }) => [key, { hash, archived: true }]));
+  await withStub({ config: configState, docs }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(stub.docWrites().length, 0);
+    assert.ok(!lineOf(res).includes('Rules:'), lineOf(res));
+  });
+});
+
+test('4aee7d91 X7 (AC4): FileChanged on a lifecycle-free root - zero archives', async () => {
+  const { dir, configState } = lifecycleFreeProject('root-x7');
+  writeRuleFile(dir, 'only.md', 'Only.\n');
+  await withStub({ config: configState }, async (stub) => {
+    const res = await runHook(dir, stub.url, { event: 'FileChanged' });
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(stub.archives().length, 0);
+    assert.deepEqual(stub.upserts().map(putKeyOf), ['only']);
+  });
+});
+
+test('4aee7d91 X8 (AC4, AC6): a mixed config with every bundled key live at the current hash - zero docs_write', async () => {
+  const { dir, configState } = lifecycleFreeProject('root-x8', LIFECYCLE_MIXED);
+  await withStub({ config: configState }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(stub.docWrites().length, 0);
+  });
+});
+
+test('4aee7d91 X9 (AC4): lifecycle-free but superseded, or rejected by validate - zero archives, the workspace rule still upserted', async () => {
+  {
+    const p = makeProject('root-x9a', { extra: LIFECYCLE_FREE });
+    writeRuleFile(p.dir, 'house.md', 'House.\n');
+    await withStub({ config: { version: 3, fingerprint: 'd'.repeat(64), history: [p.fp] } }, async (stub) => {
+      const res = await runHook(p.dir, stub.url);
+      assert.equal(res.status, 0, res.stderr);
+      assert.ok(lineOf(res).includes('config sync skipped'), lineOf(res));
+      assert.equal(stub.archives().length, 0);
+      assert.deepEqual(stub.upserts().map(putKeyOf), ['house']);
+    });
+  }
+  {
+    const p = makeProject('root-x9b', { extra: LIFECYCLE_FREE });
+    writeRuleFile(p.dir, 'house.md', 'House.\n');
+    await withStub({
+      config: { version: 3, fingerprint: 'd'.repeat(64) },
+      override: (call) => (call.tool === 'config' && call.body.ops[0].op === 'validate'
+        ? batch([okEl({ rootId: 'root-x9b', valid: false, errors: [{ path: 'x', reason: 'bad' }], warnings: [] })])
+        : undefined),
+    }, async (stub) => {
+      const res = await runHook(p.dir, stub.url);
+      assert.equal(res.status, 0, res.stderr);
+      assert.ok(lineOf(res).includes('config sync rejected'), lineOf(res));
+      assert.equal(stub.configOps().filter((o) => o.op === 'push').length, 0);
+      assert.equal(stub.archives().length, 0);
+      assert.deepEqual(stub.upserts().map(putKeyOf), ['house']);
+    });
+  }
+});
+
+test('4aee7d91 X9 probe (AC4): lifecycle-free and pushed ok this run - the bundled copies are archived', async () => {
+  const p = makeProject('root-x9c', { extra: LIFECYCLE_FREE });
+  await withStub({ config: { version: 2, fingerprint: 'd'.repeat(64) } }, async (stub) => {
+    const res = await runHook(p.dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(stub.configOps().filter((o) => o.op === 'push').length, 1);
+    assert.equal(stub.archives().length, BUNDLED_KEYS.length);
+  });
+});
+
+test('4aee7d91 X10 (AC4): an unusable listing - zero archives and the skipped clause; a failed config get sends no listing', async () => {
+  {
+    const { dir, configState } = lifecycleFreeProject('root-x10');
+    await withStub({
+      config: configState,
+      override: (call) => (call.tool === 'docs_read' ? { status: 200, json: { ok: true, data: { items: {} }, meta: META } } : undefined),
+    }, async (stub) => {
+      const res = await runHook(dir, stub.url);
+      assert.equal(res.status, 0, res.stderr);
+      assert.equal(stub.docWrites().length, 0);
+      assert.ok(lineOf(res).includes('bundled rules skipped (unusable rules listing)'), lineOf(res));
+    });
+  }
+  {
+    const { dir, configState } = lifecycleFreeProject('root-x10b');
+    await withStub({ config: configState, override: (call) => (call.tool === 'config' ? topError(503, 'unavailable') : undefined) }, async (stub) => {
+      const res = await runHook(dir, stub.url);
+      assert.equal(res.status, 0, res.stderr);
+      assert.deepEqual(stub.tools(), ['config']);
+    });
+  }
+  const { dir } = lifecycleFreeProject('root-x10c');
+  const res = await runHook(dir, UNREACHABLE_API_URL);
+  assert.equal(res.status, 0, res.stderr);
+  assert.ok(lineOf(res).includes('config sync skipped'), lineOf(res));
+});
+
+test('4aee7d91 X11 (AC5): one archive answered 207 forbidden - failed (forbidden: needs write-docs), the rest archived, exit 0', async () => {
+  const { dir, configState } = lifecycleFreeProject('root-x11');
+  await withStub({
+    config: configState,
+    override: (call) => (call.tool === 'docs_write' && call.body.ops[0].slug === 'closure-notes'
+      ? batch([errEl('forbidden', { scope: 'capability', required: 'write-docs' })])
+      : undefined),
+  }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(stub.archives().length, BUNDLED_KEYS.length);
+    assert.ok(lineOf(res).includes('failed: closure-notes (forbidden: needs write-docs)'), lineOf(res));
+    const m = lineOf(res).match(/archived bundled build rules: ([^;]+)/);
+    assert.equal(m[1].split(', ').length, BUNDLED_KEYS.length - 1, lineOf(res));
+  });
+});
+
+test('4aee7d91 X12 (AC5): an archive answered version_conflict, or a legacy answer - failed with that reason and sent once', async () => {
+  const { dir, configState } = lifecycleFreeProject('root-x12');
+  await withStub({
+    config: configState,
+    override: (call) => {
+      if (call.tool !== 'docs_write') return undefined;
+      const slug = call.body.ops[0].slug;
+      if (slug === 'planning-sweeps') return batch([errEl('version_conflict', { kind: 'document', id: 'rule/planning-sweeps', expected: 1, actual: 2 })]);
+      if (slug === 'review-cited-claims') return { status: 404, raw: '{"success":false,"error":{"code":"NOT_FOUND"}}' };
+      return undefined;
+    },
+  }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(stub.archives().filter((a) => a.slug === 'planning-sweeps').length, 1);
+    assert.ok(lineOf(res).includes('planning-sweeps (version_conflict)'), lineOf(res));
+    assert.ok(lineOf(res).includes('review-cited-claims (legacy server)'), lineOf(res));
+    assert.equal(stub.archives().length, BUNDLED_KEYS.length);
+  });
+});
+
+test('4aee7d91 X13 (AC5): archives held up by the SessionStart deadline are deferred, never failed; wall time bounded', async () => {
+  const { dir, configState } = lifecycleFreeProject('root-x13');
+  await withStub({
+    config: configState,
+    override: (call) => (call.tool === 'docs_write'
+      ? { ...batch([okEl({ id: '11111111-1111-4111-8111-111111111111', kind: 'rule', slug: call.body.ops[0].slug, version: 1, archived: true })]), delayMs: 1500 }
+      : undefined),
+  }, async (stub) => {
+    const started = Date.now();
+    const res = await runHook(dir, stub.url);
+    const wall = Date.now() - started;
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(res.killed, false);
+    assert.ok(wall < 9500, `wall ${wall}ms`);
+    const line = lineOf(res);
+    const deferred = line.match(/(\d+) deferred to next session/);
+    assert.ok(deferred && Number(deferred[1]) >= 1, line);
+    assert.ok(!line.includes('failed'), line);
+  });
+});
+
+test('4aee7d91 X14 (AC6): the listing body carries includeArchived true', async () => {
+  const { dir, configState } = lifecycleFreeProject('root-x14');
+  await withStub({ config: configState }, async (stub) => {
+    await runHook(dir, stub.url);
+    assert.deepEqual(stub.ofTool('docs_read')[0].body, { select: 'list', rootId: 'root-x14', kind: 'rule', limit: 200, includeArchived: true });
+  });
+});
+
+test('4aee7d91 X15 (AC7, A1): lifecycle-full root, archived bundled copies - older hash: unarchive then upsert at the listed version; current: unarchive only; unknown: no write, kept', async () => {
+  const { dir, configState } = inSyncProject('root-x15');
+  const oldHash = REAL_MANIFEST['closure-notes'][0];
+  const curHashOf = Object.fromEntries(bundledAtCurrentHash().map(({ key, hash }) => [key, hash]));
+  await withStub({
+    config: configState,
+    docs: {
+      'closure-notes': { hash: oldHash, version: 3, archived: true },
+      'review-scoping': { hash: curHashOf['review-scoping'], version: 2, archived: true },
+      'planning-sweeps': { hash: '9'.repeat(64), version: 5, archived: true },
+    },
+  }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    const writes = stub.docWrites();
+    assert.deepEqual(writes.filter((w) => w.slug === 'closure-notes'), [
+      { op: 'unarchive', rootId: 'root-x15', kind: 'rule', slug: 'closure-notes', expectedVersion: 3 },
+      { op: 'upsert', rootId: 'root-x15', kind: 'rule', slug: 'closure-notes', body: bundledNormalizedBytes('closure-notes').toString('utf8'), expectedVersion: 3 },
+    ]);
+    assert.deepEqual(writes.filter((w) => w.slug === 'review-scoping'), [
+      { op: 'unarchive', rootId: 'root-x15', kind: 'rule', slug: 'review-scoping', expectedVersion: 2 },
+    ]);
+    assert.deepEqual(writes.filter((w) => w.slug === 'planning-sweeps'), []);
+    assert.equal(writes.length, 3);
+    const line = lineOf(res);
+    const restored = line.match(/unarchived: ([^;]+)/);
+    assert.ok(restored, line);
+    assert.deepEqual(new Set(restored[1].split(', ')), new Set(['closure-notes', 'review-scoping']), line);
+    assert.ok(line.includes('pushed 1 (closure-notes)'), line);
+    assert.ok(line.includes('kept unrecognized server copy: planning-sweeps'), line);
+    assert.ok(!line.includes('failed'), line);
+    assert.ok(!stub.state.docs.get('closure-notes').archived, 'closure-notes is live again');
+    assert.equal(stub.state.docs.get('review-scoping').archived, false);
+  });
+});
+
+test('4aee7d91 X16 (AC6): lifecycle-full root, a workspace rule archived on the server - an upsert at expectedVersion 0 that is reported failed', async () => {
+  const { dir, configState } = inSyncProject('root-x16');
+  writeRuleFile(dir, 'house.md', 'House.\n');
+  await withStub({ config: configState, docs: { house: { hash: 'a'.repeat(64), version: 4, archived: true } } }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.deepEqual(stub.docWrites().map((w) => [w.op, w.slug, w.expectedVersion]), [['upsert', 'house', 0]]);
+    assert.ok(lineOf(res).includes('failed: house ('), lineOf(res));
+    assert.equal(stub.archives().length + stub.unarchives().length, 0);
+  });
+});
+
+test('4aee7d91 X1 probe (AC1): a non-protocol-only archive set keeps manifest order after the protocol keys', async () => {
+  const { dir, configState } = lifecycleFreeProject('root-x1p');
+  await withStub({ config: configState }, async (stub) => {
+    await runHook(dir, stub.url);
+    const order = stub.archives().map((a) => a.slug).filter((k) => !k.startsWith('protocol.'));
+    assert.deepEqual(order, Object.keys(REAL_MANIFEST).filter((k) => NON_PROTOCOL_BUNDLED_KEYS.includes(k)));
+  });
+});
+
+// ---- 4aee7d91 fix cycle (amendment A2): restore precondition and restore failure paths --------------------------
+
+/** Every bundled key archived on the server at its oldest manifest hash (so a restore is unarchive + upsert). */
+function archivedAtOldHash(version = 2) {
+  return Object.fromEntries(Object.keys(REAL_MANIFEST).map((key) => [key, { hash: REAL_MANIFEST[key][0], version, archived: true }]));
+}
+
+test('4aee7d91 A2 O2: a lifecycle-full checkout whose config the server does not hold (superseded) sends no unarchive and no bundled write', async () => {
+  const p = makeProject('root-o2', { extra: LIFECYCLE_MIXED });
+  writeRuleFile(p.dir, 'house.md', 'House.\n');
+  await withStub({ config: { version: 3, fingerprint: 'd'.repeat(64), history: [p.fp] }, seedBundled: false, docs: archivedAtOldHash() }, async (stub) => {
+    const res = await runHook(p.dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(lineOf(res).includes('config sync skipped'), lineOf(res));
+    assert.equal(stub.unarchives().length, 0);
+    assert.deepEqual(stub.docWrites().map((w) => [w.op, w.slug]), [['upsert', 'house']]);
+    assert.ok(!lineOf(res).includes('failed'), lineOf(res));
+    assert.ok(!lineOf(res).includes('unarchived'), lineOf(res));
+  });
+});
+
+test('4aee7d91 A2 O2 probe: the same archived copies with the server holding this lifecycle-full config are restored', async () => {
+  const { dir, configState } = lifecycleFreeProject('root-o2b', LIFECYCLE_MIXED);
+  await withStub({ config: configState, seedBundled: false, docs: archivedAtOldHash() }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(stub.unarchives().length, BUNDLED_KEYS.length);
+  });
+});
+
+test('4aee7d91 A2 O3: an unarchive that fails is reported once, gets no upsert, the other keys are still restored, exit 0', async () => {
+  const { dir, configState } = inSyncProject('root-o3a');
+  await withStub({
+    config: configState,
+    seedBundled: false,
+    docs: archivedAtOldHash(),
+    override: (call) => (call.tool === 'docs_write' && call.body.ops[0].op === 'unarchive' && call.body.ops[0].slug === 'closure-notes'
+      ? batch([errEl('forbidden', { scope: 'capability', required: 'write-docs' })])
+      : undefined),
+  }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    const line = lineOf(res);
+    assert.equal(line.split('closure-notes (forbidden: needs write-docs)').length - 1, 1, line);
+    assert.deepEqual(stub.docWrites().filter((w) => w.slug === 'closure-notes').map((w) => w.op), ['unarchive']);
+    assert.equal(stub.unarchives().length, BUNDLED_KEYS.length);
+    assert.equal(stub.upserts().length, BUNDLED_KEYS.length - 1);
+    const restored = line.match(/unarchived: ([^;]+)/);
+    assert.ok(restored, line);
+    assert.equal(restored[1].split(', ').length, BUNDLED_KEYS.length - 1, line);
+    assert.ok(!restored[1].split(', ').includes('closure-notes'), line);
+  });
+});
+
+test('4aee7d91 A2 O3: unarchives cut off by the SessionStart deadline are deferred, never failed, and no upsert follows one', async () => {
+  const { dir, configState } = inSyncProject('root-o3b');
+  await withStub({
+    config: configState,
+    seedBundled: false,
+    docs: archivedAtOldHash(),
+    // The delayed reply still applies the unarchive to the stub's state, as the server would.
+    override: (call, state) => (call.tool === 'docs_write' && call.body.ops[0].op === 'unarchive' && !(state.docs.get(call.body.ops[0].slug).archived = false)
+      ? { ...batch([okEl({ id: '11111111-1111-4111-8111-111111111111', kind: 'rule', slug: call.body.ops[0].slug, version: 2, archived: false })]), delayMs: 1500 }
+      : undefined),
+  }, async (stub) => {
+    const started = Date.now();
+    const res = await runHook(dir, stub.url);
+    const wall = Date.now() - started;
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(res.killed, false);
+    assert.ok(wall < 9500, `wall ${wall}ms`);
+    const line = lineOf(res);
+    const deferred = line.match(/(\d+) deferred to next session/);
+    assert.ok(deferred && Number(deferred[1]) >= 1, line);
+    assert.ok(!line.includes('failed'), line);
+    const restored = (line.match(/unarchived: ([^;]+)/)?.[1] ?? '').split(', ').filter(Boolean);
+    for (const u of stub.upserts()) assert.ok(restored.includes(u.slug), `upsert for ${u.slug} follows an unarchive that was answered: ${line}`);
+  });
+});
+
+test('4aee7d91 A2 O3: an unarchive that succeeds followed by an upsert that fails - unarchived and failed both name the key, not pushed', async () => {
+  const { dir, configState } = inSyncProject('root-o3c');
+  await withStub({
+    config: configState,
+    seedBundled: false,
+    docs: { 'closure-notes': { hash: REAL_MANIFEST['closure-notes'][0], version: 3, archived: true } },
+    override: (call) => (call.tool === 'docs_write' && call.body.ops[0].op === 'upsert' && call.body.ops[0].slug === 'closure-notes'
+      ? batch([errEl('version_conflict', { kind: 'document', id: 'rule/closure-notes', expected: 3, actual: 4 })])
+      : undefined),
+  }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.deepEqual(stub.docWrites().filter((w) => w.slug === 'closure-notes').map((w) => [w.op, w.expectedVersion]), [['unarchive', 3], ['upsert', 3]]);
+    const line = lineOf(res);
+    assert.ok(line.includes('unarchived: closure-notes'), line);
+    assert.ok(line.includes('failed: closure-notes (version_conflict)'), line);
+    assert.ok(!/pushed \d+ \([^)]*closure-notes/.test(line), line);
   });
 });

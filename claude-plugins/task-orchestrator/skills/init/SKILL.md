@@ -280,13 +280,13 @@ node "<plugin root>/hooks/config-sync.mjs" < /dev/null
 
 Project mode: run from the workspace directory. `--user` mode: prefix `AGENT_CONFIG_DIR=<userHome()>` (drive-letter form, forward slashes) so it locates the user-level config. It prints one JSON line with `additionalContext`; relay it. If it reports deferred items, say they will be retried: re-run init or wait for the next session. Always follow with the verification listing below.
 
-**MCP path** (no API URL): list the root's rule documents. Each item carries `slug`, `contentHash` (the rule's `rulesVersion`) and `version`:
+**MCP path** (no API URL): when the config written above declares only `lifecycle: none` types, seed no bundled rule and skip the rest of this step. Otherwise list the root's rule documents, archived ones included. Each item carries `slug`, `contentHash` (the rule's `rulesVersion`) and `version`, and `archivedAt` when it is archived:
 
 ```to-call
-{"tool": "docs_read", "select": "list", "args": {"rootId": "<root-uuid>", "kind": "rule"}}
+{"tool": "docs_read", "select": "list", "args": {"rootId": "<root-uuid>", "kind": "rule", "includeArchived": true}}
 ```
 
-Then, per manifest key, apply the same policy as `hooks/config-sync.mjs`:
+Leave a key listed with `archivedAt` alone: an upsert to an archived document fails. On this path nothing restores it, and it stays archived. Only the SessionStart config-sync with an API URL restores an archived copy, and only one at a hash the manifest lists, once the server holds a config that declares a type with a lifecycle. Then, per remaining manifest key, apply the same policy as `hooks/config-sync.mjs`:
 
 - server `contentHash` equals the manifest's current hash: in sync.
 - key absent, or the server hash is one of the manifest's older hashes: upsert it.

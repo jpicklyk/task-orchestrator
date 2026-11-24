@@ -195,7 +195,13 @@ operating-rule TEXT, not just a skill invocation. This is a second, independent 
   server copy matching no known hash is never touched. A same-named file in the workspace's
   `.taskorchestrator/rules/` wins the key over the bundled copy. A config whose every declared type
   is `lifecycle: none` gets no bundled rules (they are build-process rules for seats such a root never
-  has); nothing already pushed is deleted. In user scope the pushed config is
+  has). Copies pushed into such a root earlier are archived on SessionStart once the server holds that
+  config: each live bundled copy whose hash is one the manifest lists (current or older) gets
+  `docs_write` `archive`, which drops it from knowledge search, keeps its body and history, still
+  serves it as rule text, and is undone with `unarchive`. A copy at any other hash, or a key the
+  workspace provides, is never archived. Nothing is deleted. When such a root later declares a type
+  with a lifecycle and the server holds that config, each archived bundled copy at a listed hash is
+  unarchived, then brought to the current body when it held an older one. In user scope the pushed config is
   reported as "user config".
 - **Shared deadline.** Config and rule requests share one budget measured from hook start (about 8 s on
   SessionStart, about 3.5 s on FileChanged). Work not finished in time is reported as
@@ -203,7 +209,10 @@ operating-rule TEXT, not just a skill invocation. This is a second, independent 
   failed.
 - **Notice wordings.** `kept unrecognized server copy: <key>` appears at every session start for a
   server rule that was customized on purpose; to make it stop, put that rule in the workspace's
-  `.taskorchestrator/rules/` so the workspace copy owns the key. `bundled rules skipped (unusable rules
+  `.taskorchestrator/rules/` so the workspace copy owns the key; in a lifecycle-free root, archiving
+  that copy by hand (`docs_write` `archive`) also silences it. `archived bundled build rules: <keys>`
+  names the bundled copies archived in this run, and `unarchived: <keys>` the ones restored for a root
+  that regained a lifecycle type. `bundled rules skipped (unusable rules
   listing)` means the server's rule listing could not be read. `root <id> not found on this server`
   means the root was never created there. `closure-note guidance still asks for file lists or test counts: run /manage-schemas edit to adopt the current standard.` is appended to the SessionStart line when a `session-tracking` or `implementation-notes` guidance in the config still asks for a file list, test results or pass/fail counts; the hook never edits the file.
 
