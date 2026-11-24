@@ -103,13 +103,14 @@ class P5bWriteUnitGuardsTest {
          * and with CurrentMcpServer.kt at its Q32 path (moved from interfaces/mcp to bootstrap, unchanged),
          * and with the six identity files re-keyed to their paths in the identity slice (moved unchanged, counts unchanged),
          * and with the five SQLite engine, schema and helper files re-keyed to their paths under platform/sqlite (moved unchanged, counts unchanged),
-         * and with ShutdownCoordinator.kt re-keyed to its path under platform/shutdown (moved unchanged, count unchanged).
+         * and with ShutdownCoordinator.kt re-keyed to its path under platform/shutdown (moved unchanged, count unchanged),
+         * and with ConfigSession.kt re-keyed to its path under platform/support (moved, count unchanged).
          */
         val PRE_P5B_BASELINE: Map<String, Int> =
             """
             CurrentMain.kt 1
             bootstrap/CurrentMcpServer.kt 9
-            application/config/ConfigSession.kt 1
+            platform/support/ConfigSession.kt 1
             application/service/ConfigService.kt 1
             application/service/RoleTransitionHandler.kt 1
             application/service/WorkItemPlacementService.kt 4

@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.SchemaMatch
 import io.github.jpicklyk.mcptask.current.application.config.TraitDescriptor
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStoreProvider
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.StatusGraphBuilder
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.Role
@@ -30,7 +29,6 @@ import kotlinx.serialization.serializer
 import java.util.UUID
 
 private val effectiveJson = Json
-private val graphBuilder = StatusGraphBuilder()
 
 /** A `config` `effective` element: the resolved config view of one root, or of the server set. */
 @Serializable
@@ -75,7 +73,7 @@ internal val configEffectiveOp =
                         traits = traits,
                         types = entries.map { (key, _) -> key },
                         statusGraph =
-                            graphBuilder.buildStatusGraph(
+                            env.statusGraphs.buildStatusGraph(
                                 LinkedHashMap(
                                     entries.associate { (key, match) ->
                                         key to match.schema

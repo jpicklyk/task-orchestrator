@@ -6,8 +6,10 @@ import io.github.jpicklyk.mcptask.current.application.decision.DecisionService
 import io.github.jpicklyk.mcptask.current.application.run.RunLimits
 import io.github.jpicklyk.mcptask.current.dependency.DependencyToolServices
 import io.github.jpicklyk.mcptask.current.event.EventToolServices
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.StatusGraphBuilder
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance.LifecycleToolServices
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.ConfigToolServices
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.StatusGraphSource
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemToolServices
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.WorkflowToolServices
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.report.ReportToolServices
@@ -115,7 +117,8 @@ class ToolServiceRegistry(
             stores = tec.repositoryProvider,
             unitOfWork = tec.unitOfWork,
             configResolver = tec.configResolver,
-            configService = tec.configService
+            configService = tec.configService,
+            statusGraphs = StatusGraphSource(StatusGraphBuilder()::buildStatusGraph)
         )
 
     private fun run() =

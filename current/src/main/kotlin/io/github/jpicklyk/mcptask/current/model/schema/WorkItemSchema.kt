@@ -36,15 +36,6 @@ data class WorkItemSchema(
      */
     fun hasReviewPhase(): Boolean = notes.any { it.role == Role.REVIEW }
 
-    /**
-     * Returns the list of required note entries for the given [role].
-     * Non-required entries are excluded.
-     *
-     * @param role The workflow phase to filter by
-     * @return Required [NoteSchemaEntry] items for that phase
-     */
-    fun requiredNotesForRole(role: Role): List<NoteSchemaEntry> = notes.filter { it.role == role && it.required }
-
     /** True when this (already trait-merged, if applicable) schema declares any seats at all. */
     fun isSeatAware(): Boolean = seats.isNotEmpty()
 

@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 import io.github.jpicklyk.mcptask.current.application.api.BatchElement
 import io.github.jpicklyk.mcptask.current.application.api.BatchRunner
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
 import io.github.jpicklyk.mcptask.current.application.port.SeatTokenMatch
 import io.github.jpicklyk.mcptask.current.application.run.SeatService
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigInvalidException
@@ -28,6 +27,7 @@ import io.github.jpicklyk.mcptask.current.platform.sqlite.PersistenceFaults
 import io.github.jpicklyk.mcptask.current.platform.support.ScopeGuard
 import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.platform.support.toDomainError
+import io.github.jpicklyk.mcptask.current.platform.support.withConfigSession
 import io.github.jpicklyk.mcptask.current.platform.tool.BoundOp
 import io.github.jpicklyk.mcptask.current.platform.tool.CallAccess
 import io.github.jpicklyk.mcptask.current.platform.tool.OpsToolSpec

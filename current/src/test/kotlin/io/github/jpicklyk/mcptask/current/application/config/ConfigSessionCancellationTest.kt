@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
+import io.github.jpicklyk.mcptask.current.platform.support.withConfigSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
@@ -11,7 +12,7 @@ import kotlin.test.assertFailsWith
 /**
  * Independently authored against the frozen `task-scope`/`test-plan` notes on item `f2c50e6d` —
  * scenario S8's cancellation addendum. Oracle: `task-scope`'s review addendum on
- * `application/config/ConfigSession.kt` ("in `memoized`, never memoise a
+ * `platform/support/ConfigSession.kt` ("in `memoized`, never memoise a
  * `kotlin.coroutines.cancellation.CancellationException`; rethrow it without storing. All other
  * failures stay memoised") and the declarations' verbatim restatement of that contract: a
  * `CancellationException` thrown by `fetch` is not stored, and the NEXT call for the same

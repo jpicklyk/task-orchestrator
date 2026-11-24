@@ -110,7 +110,7 @@ object ItemsReadOverview {
                         recordCallResultCounts(view.children.total, null)
                         Outcome.Ok(
                             buildJsonObject {
-                                put("item", ItemView.full(view.item, pin = env.schemaPinService.view(view.item)))
+                                put("item", ItemView.full(view.item, pin = env.pinViews.view(view.item)))
                                 put("childCounts", countsJson(view.childCounts))
                                 blockedByReasonJson(view.blockedByReason)?.let { put("blockedByReason", it) }
                                 putPage(view.children) { entryView(it) }

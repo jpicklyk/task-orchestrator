@@ -1,13 +1,13 @@
 # Two-way ratchet baseline: <path relative to current/src/main/kotlin/.../current/> <violating line count>
 # Fix a site and LOWER or DELETE its line; a new violation (or a stale line) fails the test.
 CurrentMain.kt 1
-application/config/ConfigSession.kt 1
 bootstrap/CurrentMcpServer.kt 9
 infrastructure/config/GlobalConfigFile.kt 3
 infrastructure/config/YamlConfigDocumentParser.kt 1
 infrastructure/config/YamlStatusLabelService.kt 1
 identity/BearerTokenStore.kt 1
 platform/shutdown/ShutdownCoordinator.kt 1
+platform/support/ConfigSession.kt 1
 platform/sqlite/StartupCompaction.kt 1
 platform/sqlite/StartupIntegrity.kt 1
 platform/sqlite/repository/ProofClaimsSerialization.kt 1

@@ -363,6 +363,7 @@ class SliceGraphReportTest {
                 "application/port/ItemQuery.kt" to "item",
                 "application/port/ItemStore.kt" to "item",
                 "application/port/ItemStoreProvider.kt" to "item",
+                "application/port/PinViews.kt" to "item",
                 "application/port/WorkItemRepository.kt" to "item",
                 "application/port/NoteStore.kt" to "note",
                 "application/port/NoteStoreProvider.kt" to "note",

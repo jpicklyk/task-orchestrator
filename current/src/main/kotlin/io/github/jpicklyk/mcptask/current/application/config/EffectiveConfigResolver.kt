@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.model.schema.DispatchProfile
 import io.github.jpicklyk.mcptask.current.model.schema.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.model.schema.SeatDefinition
 import io.github.jpicklyk.mcptask.current.model.schema.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.platform.support.ConfigSession
 import java.util.UUID
 import kotlin.coroutines.coroutineContext
 
@@ -330,7 +331,7 @@ class EffectiveConfigResolver private constructor(
     /**
      * One per-root read for [rootId], or null (no read) when [rootId] is null or no source is
      * wired. When a [ConfigSession] is ambient in the coroutine context (installed by
-     * [withConfigSession] at the call boundary), the read is memoised per `(perRoot, rootId)` for
+     * `withConfigSession` at the call boundary), the read is memoised per `(perRoot, rootId)` for
      * the lifetime of that session — see [ConfigSession] for the memo contract, including the
      * `runBlocking` caveat. With no ambient session, every call reads fresh (O2 requires this: T0
      * and existing direct-[EffectiveConfigResolver] callers depend on unmemoised reads).

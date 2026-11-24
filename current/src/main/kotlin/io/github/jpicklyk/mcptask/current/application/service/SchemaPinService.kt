@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
+import io.github.jpicklyk.mcptask.current.application.port.PinViews
 import io.github.jpicklyk.mcptask.current.model.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.model.event.PinReason
 import io.github.jpicklyk.mcptask.current.model.event.PinRef
@@ -10,21 +11,10 @@ import io.github.jpicklyk.mcptask.current.model.item.LifecycleMode
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.schema.PinLayer
+import io.github.jpicklyk.mcptask.current.model.schema.PinView
 import io.github.jpicklyk.mcptask.current.model.schema.SchemaPin
 import java.time.Instant
 import java.util.UUID
-
-/**
- * The read-side view of an item's pin: the pinned server and root config version NUMBERS, the pinned base schema
- * [key] and [layer], and whether the pin is [stale] (either pinned version differs from that scope's current head).
- */
-data class PinView(
-    val serverVersion: Int?,
-    val rootVersion: Int?,
-    val key: String?,
-    val layer: PinLayer?,
-    val stale: Boolean
-)
 
 /**
  * THE pin writer (plan section 3.8): the only application code that constructs a [SchemaPin]. A pin records the config
@@ -41,7 +31,7 @@ data class PinView(
 class SchemaPinService(
     private val configResolver: EffectiveConfigResolver,
     private val configStore: ConfigStore? = null
-) {
+) : PinViews {
     /** True when items can be pinned (the resolver reads stored versions by id). */
     val enabled: Boolean get() = configResolver.pinsEnabled
 
@@ -91,7 +81,7 @@ class SchemaPinService(
      * current head of that scope (a missing or reset head counts as none). A pinned version that IS the head takes its
      * number from the head already read (no version lookup).
      */
-    suspend fun view(item: WorkItem): PinView? {
+    override suspend fun view(item: WorkItem): PinView? {
         val pin = item.pin ?: return null
         val head = configResolver.layered(item.rootId)
         val serverHead = head.global.versionId()
