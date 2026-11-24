@@ -1,6 +1,9 @@
-package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
+package io.github.jpicklyk.mcptask.current.claim.internal.wire
 
 import io.github.jpicklyk.mcptask.current.claim.ClaimService
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.ADMIN_TOKEN
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configureTestApp
 import io.github.jpicklyk.mcptask.current.test.EnvelopeConformance
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase

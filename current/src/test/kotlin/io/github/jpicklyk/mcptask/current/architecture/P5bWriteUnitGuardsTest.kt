@@ -86,7 +86,7 @@ class P5bWriteUnitGuardsTest {
                 "claim/internal/sqlite/SqliteClaimStore.kt",
                 "infrastructure/sqlite/knowledge/search/SqliteSearchEngine.kt",
                 "platform/sqlite/repository/WorkItemRows.kt",
-                "infrastructure/sqlite/repository/SQLiteResourceLeaseRepository.kt",
+                "claim/internal/sqlite/SQLiteResourceLeaseRepository.kt",
                 "interfaces/api/v1/routes/ItemRoutes.kt"
             )
         val present = sources.map { it.path }.toSet()
@@ -124,7 +124,7 @@ class P5bWriteUnitGuardsTest {
             platform/sqlite/schema/management/FlywayDatabaseSchemaManager.kt 4
             platform/sqlite/repository/ProofClaimsSerialization.kt 1
             infrastructure/sqlite/repository/SQLiteNoteRepository.kt 1
-            infrastructure/sqlite/repository/SQLiteResourceLeaseRepository.kt 6
+            claim/internal/sqlite/SQLiteResourceLeaseRepository.kt 6
             infrastructure/sqlite/repository/SQLiteWorkItemRepository.kt 10
             platform/shutdown/ShutdownCoordinator.kt 1
             identity/BearerTokenStore.kt 2

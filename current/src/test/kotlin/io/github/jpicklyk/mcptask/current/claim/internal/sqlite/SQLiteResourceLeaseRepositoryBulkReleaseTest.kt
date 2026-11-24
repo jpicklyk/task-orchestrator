@@ -1,7 +1,7 @@
-package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
+package io.github.jpicklyk.mcptask.current.claim.internal.sqlite
 
-import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
+import io.github.jpicklyk.mcptask.current.claim.LeaseAcquireResult
+import io.github.jpicklyk.mcptask.current.claim.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.platform.sqlite.repository.SQL_IN_CHUNK_SIZE
 import io.github.jpicklyk.mcptask.current.test.inUnit

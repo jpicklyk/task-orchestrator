@@ -17,7 +17,7 @@ import kotlin.test.assertTrue
  * caller opts in. This guard confines where the marker may be named, opted into or suppressed, so the compiler guarantee
  * cannot be quietly widened:
  *  - the marker names (USE as an annotation) appear only in their allow-lists (service and knowledge dirs, the port dir, the
- *    SQLite impl dirs (and a slice's `internal/sqlite/`) for StoreWrite; ClaimService.kt, the port dir, `claim/ClaimStore.kt`
+ *    SQLite impl dirs (and a slice's `internal/sqlite/`) for StoreWrite; ClaimService.kt, the port dir, `claim/ClaimStore.kt`, `claim/LeaseStore.kt`
  *    and three SQLite impl files for ClaimWrite; both also
  *    in `platform/port/WriteConfinement.kt`, the file that declares them);
  *  - an OPT-IN of a marker (`@OptIn`, `@file:OptIn`, `@kotlin.OptIn`, any argument layout) is narrower: StoreWrite only in the
@@ -77,7 +77,7 @@ internal class WriteConfinementTest {
         const val CLAIM_SERVICE = "claim/ClaimService.kt"
 
         /** Port files that sit in a slice's top package instead of [PORT_DIR] (a port leaves `application/port/` with its slice). */
-        val SLICE_PORT_FILES = setOf("claim/ClaimStore.kt")
+        val SLICE_PORT_FILES = setOf("claim/ClaimStore.kt", "claim/LeaseStore.kt")
 
         /** Single files that own StoreWrite beside [STORE_OWNER_DIRS]: a service that left `application/service/` with its slice. */
         private val STORE_OWNER_FILES = setOf(CLAIM_SERVICE)
@@ -87,7 +87,7 @@ internal class WriteConfinementTest {
         private val CLAIM_IMPL_FILES =
             setOf(
                 "infrastructure/sqlite/repository/SQLiteWorkItemRepository.kt",
-                "infrastructure/sqlite/repository/SQLiteResourceLeaseRepository.kt",
+                "claim/internal/sqlite/SQLiteResourceLeaseRepository.kt",
                 "claim/internal/sqlite/SqliteClaimStore.kt"
             )
 
@@ -863,9 +863,9 @@ internal class WriteConfinementTest {
         listOf(
             CLAIM_SERVICE,
             "claim/ClaimStore.kt",
-            "application/port/LeaseStore.kt",
+            "claim/LeaseStore.kt",
             "infrastructure/sqlite/repository/SQLiteWorkItemRepository.kt",
-            "infrastructure/sqlite/repository/SQLiteResourceLeaseRepository.kt",
+            "claim/internal/sqlite/SQLiteResourceLeaseRepository.kt",
             "claim/internal/sqlite/SqliteClaimStore.kt",
             "claim\\ClaimService.kt"
         ).forEach { assertTrue(claimWriteAllowed(it), "ClaimWrite must be allowed in: $it") }
@@ -881,7 +881,9 @@ internal class WriteConfinementTest {
             "application/knowledge/document/DocumentService.kt",
             "infrastructure/sqlite/repository/SqliteItemStore.kt",
             "infrastructure/sqlite/knowledge/SqliteDocumentStore.kt",
-            "interfaces/api/v1/routes/ResourceLeaseRoutes.kt",
+            "claim/internal/wire/ResourceLeaseRoutes.kt",
+            "infrastructure/sqlite/repository/SQLiteResourceLeaseRepository.kt",
+            "claim/internal/app/SQLiteResourceLeaseRepository.kt",
             "CurrentMain.kt"
         ).forEach { assertFalse(claimWriteAllowed(it), "ClaimWrite must be denied in: $it") }
 

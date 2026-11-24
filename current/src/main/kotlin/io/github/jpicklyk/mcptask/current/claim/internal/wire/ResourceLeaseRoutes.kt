@@ -1,7 +1,7 @@
-package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
+package io.github.jpicklyk.mcptask.current.claim.internal.wire
 
-import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.claim.ClaimService
+import io.github.jpicklyk.mcptask.current.claim.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode

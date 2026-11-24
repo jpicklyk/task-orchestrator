@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.claim
 
-import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.platform.port.AncestorChains
 import io.github.jpicklyk.mcptask.current.platform.port.PlatformStoreProvider

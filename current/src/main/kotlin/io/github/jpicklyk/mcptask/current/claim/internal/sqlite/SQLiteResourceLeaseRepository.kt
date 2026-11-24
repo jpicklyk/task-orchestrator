@@ -1,9 +1,9 @@
-package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
+package io.github.jpicklyk.mcptask.current.claim.internal.sqlite
 
-import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.application.port.LeaseIntervalPage
-import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
-import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
+import io.github.jpicklyk.mcptask.current.claim.LeaseAcquireResult
+import io.github.jpicklyk.mcptask.current.claim.LeaseIntervalPage
+import io.github.jpicklyk.mcptask.current.claim.LeaseReleaseResult
+import io.github.jpicklyk.mcptask.current.claim.LeaseStore
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceLease
 import io.github.jpicklyk.mcptask.current.model.lease.ResourceLeaseInterval
 import io.github.jpicklyk.mcptask.current.platform.port.ClaimWrite

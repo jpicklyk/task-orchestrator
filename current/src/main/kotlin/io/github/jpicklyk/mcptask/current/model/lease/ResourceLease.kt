@@ -12,7 +12,7 @@ import java.util.UUID
  * Backed by `resource_leases` (see
  * [io.github.jpicklyk.mcptask.current.platform.sqlite.schema.ResourceLeasesTable] /
  * `V15__Resource_Leases.sql`). "Active" (not expired) is a lazy, read-time notion — see
- * [io.github.jpicklyk.mcptask.current.application.port.LeaseStore] KDoc — this type
+ * [io.github.jpicklyk.mcptask.current.claim.LeaseStore] KDoc — this type
  * itself carries no `isActive` flag; callers compare [expiresAt] against the bound unit instant, or rely on
  * repository methods that already filter to active rows.
  *

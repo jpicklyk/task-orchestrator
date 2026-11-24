@@ -1,8 +1,8 @@
-package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
+package io.github.jpicklyk.mcptask.current.claim.internal.sqlite
 
-import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
-import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
+import io.github.jpicklyk.mcptask.current.claim.LeaseAcquireResult
+import io.github.jpicklyk.mcptask.current.claim.LeaseReleaseResult
+import io.github.jpicklyk.mcptask.current.claim.LeaseStore
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.platform.port.PageRequest
 import io.github.jpicklyk.mcptask.current.platform.sqlite.schema.UtcTimestamp
@@ -24,7 +24,7 @@ import kotlin.test.assertTrue
 
 /**
  * Integration tests for the `resource_lease_history` write paths on
- * [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteResourceLeaseRepository] —
+ * [io.github.jpicklyk.mcptask.current.claim.internal.sqlite.SQLiteResourceLeaseRepository] —
  * interval-open-on-acquire, refresh-extends-in-place, steal-closes-prior-as-expired,
  * release/force-release close reasons, at-T boundary semantics, and history's survival of holder
  * work-item deletion (unlike the CASCADE-linked live `resource_leases` row). Companion to
