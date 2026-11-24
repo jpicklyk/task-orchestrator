@@ -2019,10 +2019,12 @@ test('4aee7d91 P1: planBundledArchive - absent, archived, workspace key, current
   assert.deepEqual(plan.untouched, ['unknown', 'nul', 'empty', 'upper', 'notarray']);
 });
 
-test('4aee7d91 P1: planBundledArchive - an archived key that the listing also had live is not archived again', () => {
+test('4aee7d91 P1: planBundledArchive - a key in archivedKeys is never archived again, whether or not serverVersions also lists it live', () => {
   const cur = sha256Hex(Buffer.from('cur\n'));
-  const plan = planBundledArchive({ manifest: { k: [cur] }, serverVersions: new Map(), archivedKeys: new Set(['k']), workspaceKeys: new Set() });
-  assert.deepEqual(plan, { toArchive: [], untouched: [] });
+  for (const serverVersions of [new Map(), new Map([['k', cur]])]) {
+    const plan = planBundledArchive({ manifest: { k: [cur] }, serverVersions, archivedKeys: new Set(['k']), workspaceKeys: new Set() });
+    assert.deepEqual(plan, { toArchive: [], untouched: [] }, `serverVersions ${JSON.stringify([...serverVersions])}`);
+  }
 });
 
 test('4aee7d91 P2: formatRuleSyncSummary - empty new lists change nothing; clause order is base, archived, unarchived, skipped, failed, kept, unusable, deferred', () => {
@@ -2354,5 +2356,105 @@ test('4aee7d91 X1 probe (AC1): a non-protocol-only archive set keeps manifest or
     await runHook(dir, stub.url);
     const order = stub.archives().map((a) => a.slug).filter((k) => !k.startsWith('protocol.'));
     assert.deepEqual(order, Object.keys(REAL_MANIFEST).filter((k) => NON_PROTOCOL_BUNDLED_KEYS.includes(k)));
+  });
+});
+
+// ---- 4aee7d91 fix cycle (amendment A2): restore precondition and restore failure paths --------------------------
+
+/** Every bundled key archived on the server at its oldest manifest hash (so a restore is unarchive + upsert). */
+function archivedAtOldHash(version = 2) {
+  return Object.fromEntries(Object.keys(REAL_MANIFEST).map((key) => [key, { hash: REAL_MANIFEST[key][0], version, archived: true }]));
+}
+
+test('4aee7d91 A2 O2: a lifecycle-full checkout whose config the server does not hold (superseded) sends no unarchive and no bundled write', async () => {
+  const p = makeProject('root-o2', { extra: LIFECYCLE_MIXED });
+  writeRuleFile(p.dir, 'house.md', 'House.\n');
+  await withStub({ config: { version: 3, fingerprint: 'd'.repeat(64), history: [p.fp] }, seedBundled: false, docs: archivedAtOldHash() }, async (stub) => {
+    const res = await runHook(p.dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(lineOf(res).includes('config sync skipped'), lineOf(res));
+    assert.equal(stub.unarchives().length, 0);
+    assert.deepEqual(stub.docWrites().map((w) => [w.op, w.slug]), [['upsert', 'house']]);
+    assert.ok(!lineOf(res).includes('failed'), lineOf(res));
+    assert.ok(!lineOf(res).includes('unarchived'), lineOf(res));
+  });
+});
+
+test('4aee7d91 A2 O2 probe: the same archived copies with the server holding this lifecycle-full config are restored', async () => {
+  const { dir, configState } = lifecycleFreeProject('root-o2b', LIFECYCLE_MIXED);
+  await withStub({ config: configState, seedBundled: false, docs: archivedAtOldHash() }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(stub.unarchives().length, BUNDLED_KEYS.length);
+  });
+});
+
+test('4aee7d91 A2 O3: an unarchive that fails is reported once, gets no upsert, the other keys are still restored, exit 0', async () => {
+  const { dir, configState } = inSyncProject('root-o3a');
+  await withStub({
+    config: configState,
+    seedBundled: false,
+    docs: archivedAtOldHash(),
+    override: (call) => (call.tool === 'docs_write' && call.body.ops[0].op === 'unarchive' && call.body.ops[0].slug === 'closure-notes'
+      ? batch([errEl('forbidden', { scope: 'capability', required: 'write-docs' })])
+      : undefined),
+  }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    const line = lineOf(res);
+    assert.equal(line.split('closure-notes (forbidden: needs write-docs)').length - 1, 1, line);
+    assert.deepEqual(stub.docWrites().filter((w) => w.slug === 'closure-notes').map((w) => w.op), ['unarchive']);
+    assert.equal(stub.unarchives().length, BUNDLED_KEYS.length);
+    assert.equal(stub.upserts().length, BUNDLED_KEYS.length - 1);
+    const restored = line.match(/unarchived: ([^;]+)/);
+    assert.ok(restored, line);
+    assert.equal(restored[1].split(', ').length, BUNDLED_KEYS.length - 1, line);
+    assert.ok(!restored[1].split(', ').includes('closure-notes'), line);
+  });
+});
+
+test('4aee7d91 A2 O3: unarchives cut off by the SessionStart deadline are deferred, never failed, and no upsert follows one', async () => {
+  const { dir, configState } = inSyncProject('root-o3b');
+  await withStub({
+    config: configState,
+    seedBundled: false,
+    docs: archivedAtOldHash(),
+    // The delayed reply still applies the unarchive to the stub's state, as the server would.
+    override: (call, state) => (call.tool === 'docs_write' && call.body.ops[0].op === 'unarchive' && !(state.docs.get(call.body.ops[0].slug).archived = false)
+      ? { ...batch([okEl({ id: '11111111-1111-4111-8111-111111111111', kind: 'rule', slug: call.body.ops[0].slug, version: 2, archived: false })]), delayMs: 1500 }
+      : undefined),
+  }, async (stub) => {
+    const started = Date.now();
+    const res = await runHook(dir, stub.url);
+    const wall = Date.now() - started;
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(res.killed, false);
+    assert.ok(wall < 9500, `wall ${wall}ms`);
+    const line = lineOf(res);
+    const deferred = line.match(/(\d+) deferred to next session/);
+    assert.ok(deferred && Number(deferred[1]) >= 1, line);
+    assert.ok(!line.includes('failed'), line);
+    const restored = (line.match(/unarchived: ([^;]+)/)?.[1] ?? '').split(', ').filter(Boolean);
+    for (const u of stub.upserts()) assert.ok(restored.includes(u.slug), `upsert for ${u.slug} follows an unarchive that was answered: ${line}`);
+  });
+});
+
+test('4aee7d91 A2 O3: an unarchive that succeeds followed by an upsert that fails - unarchived and failed both name the key, not pushed', async () => {
+  const { dir, configState } = inSyncProject('root-o3c');
+  await withStub({
+    config: configState,
+    seedBundled: false,
+    docs: { 'closure-notes': { hash: REAL_MANIFEST['closure-notes'][0], version: 3, archived: true } },
+    override: (call) => (call.tool === 'docs_write' && call.body.ops[0].op === 'upsert' && call.body.ops[0].slug === 'closure-notes'
+      ? batch([errEl('version_conflict', { kind: 'document', id: 'rule/closure-notes', expected: 3, actual: 4 })])
+      : undefined),
+  }, async (stub) => {
+    const res = await runHook(dir, stub.url);
+    assert.equal(res.status, 0, res.stderr);
+    assert.deepEqual(stub.docWrites().filter((w) => w.slug === 'closure-notes').map((w) => [w.op, w.expectedVersion]), [['unarchive', 3], ['upsert', 3]]);
+    const line = lineOf(res);
+    assert.ok(line.includes('unarchived: closure-notes'), line);
+    assert.ok(line.includes('failed: closure-notes (version_conflict)'), line);
+    assert.ok(!/pushed \d+ \([^)]*closure-notes/.test(line), line);
   });
 });

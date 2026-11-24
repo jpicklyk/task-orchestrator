@@ -9,7 +9,8 @@
 // are build-process rules for seats such a root never has. On SessionStart, once the server holds that
 // config, each bundled copy still live there at a hash the plugin shipped is archived (docs_write
 // archive, undone by unarchive); a customised copy is kept and named. When a root regains a lifecycle
-// type, an archived copy at a shipped hash is unarchived and brought current. Nothing is deleted.
+// type and the server holds that config, an archived copy at a shipped hash is unarchived and brought
+// current. Nothing is deleted.
 //
 // All calls share ONE deadline measured from hook start (SESSION_START_BUDGET_MS /
 // FILE_CHANGED_BUDGET_MS, kept below the hooks-config.json timeouts); each call's own timeout is
@@ -526,8 +527,11 @@ async function listRules({ rootId, deadline }) {
  * Syncs the `rules/*.md` next to the located config and the plugin's bundled rules into the per-root
  * rule store. `bundledMode` picks what happens to the bundled rules:
  * - `off` (FileChanged, or a lifecycle-free config the server does not hold yet): workspace rules only;
- * - `sync` (SessionStart, a config with lifecycle types): upsert by `planBundledSync`, and restore an
- *   archived copy at a shipped hash (unarchive, then upsert when that hash is not the current one);
+ * - `sync` (SessionStart, a config with lifecycle types): upsert by `planBundledSync`; when
+ *   `restoreArchived` (the server holds this config, the precondition archive mode has too) also restore
+ *   an archived copy at a shipped hash (unarchive, then upsert when that hash is not the current one).
+ *   Without it an archived bundled key is left alone, so two checkouts of one root on different
+ *   configs never archive and unarchive by turns;
  * - `archive` (SessionStart, a lifecycle-free config the server holds): archive each live bundled copy
  *   `planBundledArchive` proves is a plugin copy; no bundled upsert.
  * Returns `null` when there is nothing to report (no workspace rule files and no bundled rules to
@@ -540,7 +544,7 @@ async function listRules({ rootId, deadline }) {
  * counts as absent). A write not sent, or timed out under a deadline cap, counts as deferred; any
  * other failure is reported under `failed` as `(<code>)` and not retried in this run.
  */
-async function syncRules({ rulesDir, rootId, deadline, bundledMode = 'off', rootConfirmed = false }) {
+async function syncRules({ rulesDir, rootId, deadline, bundledMode = 'off', rootConfirmed = false, restoreArchived = false }) {
   const ruleFiles = listRuleFiles(rulesDir);
   const loaded = bundledMode === 'off' ? { bundled: [], manifest: {} } : loadBundledRules();
   let { bundled } = loaded;
@@ -566,10 +570,18 @@ async function syncRules({ rulesDir, rootId, deadline, bundledMode = 'off', root
   const { serverVersions, docVersions, archivedVersions } = listing;
   const bundledListingUnusable = listing.unusable;
   if (bundledListingUnusable || archiveMode) bundled = [];
+  // Not restoring: an archived bundled key is left out entirely (an upsert to it would fail).
+  if (!restoreArchived) bundled = bundled.filter((rule) => !archivedVersions.has(rule.key));
 
   const workspaceKeys = new Set(localRules.map((rule) => rule.key));
   const plan = planRuleSync(localRules, serverVersions);
-  const bundledPlan = planBundledSync({ bundled, manifest, serverVersions, workspaceKeys, archivedVersions });
+  const bundledPlan = planBundledSync({
+    bundled,
+    manifest,
+    serverVersions,
+    workspaceKeys,
+    archivedVersions: restoreArchived ? archivedVersions : new Map(),
+  });
   const archivePlan = archiveMode && !bundledListingUnusable
     ? planBundledArchive({ manifest, serverVersions, archivedKeys: new Set(archivedVersions.keys()), workspaceKeys })
     : { toArchive: [], untouched: [] };
@@ -772,7 +784,7 @@ async function main() {
     let bundledMode = 'sync';
     if (isFileChanged) bundledMode = 'off';
     else if (isLifecycleFreeConfig(found.text)) bundledMode = serverHoldsLocal ? 'archive' : 'off';
-    rulesSummary = await syncRules({ rulesDir, rootId, deadline, bundledMode, rootConfirmed });
+    rulesSummary = await syncRules({ rulesDir, rootId, deadline, bundledMode, rootConfirmed, restoreArchived: serverHoldsLocal });
   } catch (err) {
     rulesSummary = `sync failed - ${err?.message ?? err}`;
   }
