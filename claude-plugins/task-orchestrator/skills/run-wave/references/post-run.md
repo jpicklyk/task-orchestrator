@@ -509,7 +509,7 @@ dispatched, or a cycle after a handoff run's Step 7): the cycle gets its own run
 Follow these steps in order:
 
 1. Open a run over that one item, label `<runId>-a<n>`. `open` carries no `seatToken`; save the returned
-   `coordinatorToken` as one line to its own token file beside the run's (for example
+   `orchestratorToken` (`coordinatorToken` before 4.1) as one line to its own token file beside the run's (for example
    `tokens/coordinator-a<n>.token`, never over `tokens/coordinator.token`), and never echo it.
 
 ```to-call

@@ -772,6 +772,21 @@ test('result envelopes: structuredContent first, then the first text block, erro
   expect(toolEnvelope({ text: 'nope' })).toBe(undefined)
 })
 
+test('orchestrator detection and the stalled flag read the 4.1 orchestrator keys, the old coordinator keys, or both', async () => {
+  const open = { ops: [{ op: 'open', rootId: 'x', title: 'Wave title' }] }
+  const want = { runId: RUN_ID, label: 'Wave title', since: 'now', source: 'tool' }
+  const tokens = [{ orchestratorToken: 't' }, { coordinatorToken: 't' }, { orchestratorToken: 't', coordinatorToken: 't' }]
+  for (const keys of tokens) {
+    expect(orchestratorFromOpen(open, { ok: true, data: { results: [{ ok: true, runId: RUN_ID, title: 'Wave title', ...keys }] } }, 'now')).toEqual(want)
+  }
+  const { coordinatorStalled: _old, ...bare } = LISTED
+  for (const stalled of [true, false]) {
+    const forms = [{ orchestratorStalled: stalled }, { coordinatorStalled: stalled }, { orchestratorStalled: stalled, coordinatorStalled: stalled }]
+    for (const keys of forms) expect(runFromList({ ...bare, ...keys })?.coordinatorStalled).toBe(stalled)
+  }
+  expect(runFromList(bare)?.coordinatorStalled).toBe(false)
+})
+
 test('orchestrator detection: the open element with a token, a close of the run, a marker', async () => {
   const open = { ops: [{ op: 'update', runId: 'r0' }, { op: 'open', rootId: 'x', title: 'Wave title' }] }
   const answered = { ok: true, data: { results: [{ ok: true }, { ok: true, runId: RUN_ID, title: 'Wave title', coordinatorToken: 't' }] } }

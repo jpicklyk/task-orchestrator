@@ -308,7 +308,7 @@ async function seedFeature(api, st, f) {
   for (let r = 0; r < f.runs; r += 1) {
     const members = itemIds.filter((_, n) => n % f.runs === r);
     const open = await api.write('runs_write', [{ op: 'open', rootId: st.rootId, scopeId: featureId, items: members, label: `wave-${f.key}-${r + 1}` }]);
-    const coordinator = open.coordinatorToken;
+    const coordinator = open.orchestratorToken ?? open.coordinatorToken;
     for (const id of members) {
       const seat = await api.write('runs_write', [{ op: 'assign', runId: open.runId, itemId: id, seat: 'implementer' }], { seatToken: coordinator });
       await api.write('advance', [{ op: 'transition', itemId: id, trigger: 'start' }], { seatToken: seat.seatToken });

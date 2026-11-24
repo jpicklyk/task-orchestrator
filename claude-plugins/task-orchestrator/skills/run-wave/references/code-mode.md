@@ -548,7 +548,7 @@ async function r2() {
     if (!opened.ok) return await stop(opened);
     const el = opened.data.results[0];
     if (!el.ok) return { failed: true, step: 'open', code: el.error && el.error.code };
-    await writeToken(open.json.tokenFile, el.coordinatorToken);
+    await writeToken(open.json.tokenFile, el.orchestratorToken ?? el.coordinatorToken); // coordinatorToken: a server before 4.1
     const bound = await helper('bind-run', '--in ' + q(RUN_DIR + '/plan.json') + ' --server-run ' + q(el.runId));
     if (bound.code !== 0) return { failed: true, step: 'bind-run', err: bound.err };
     plan = bound.json;
