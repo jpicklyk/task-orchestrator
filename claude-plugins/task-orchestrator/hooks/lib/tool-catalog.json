@@ -2137,11 +2137,19 @@
             },
             "deps[].from": {
               "type": "string",
-              "required": true
+              "required": false
+            },
+            "deps[].fromId": {
+              "type": "string",
+              "required": false
             },
             "deps[].to": {
               "type": "string",
-              "required": true
+              "required": false
+            },
+            "deps[].toId": {
+              "type": "string",
+              "required": false
             },
             "deps[].type": {
               "type": "string: blocks | relates_to",

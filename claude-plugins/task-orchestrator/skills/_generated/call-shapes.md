@@ -742,8 +742,10 @@ Profiles: orchestration; capability `write-items`.
 | `children[].noteAnchors[].role` | string: queue \| work \| review | yes |
 | `children[].noteAnchors[].anchor` | string | yes |
 | `deps` | array of object | no |
-| `deps[].from` | string | yes |
-| `deps[].to` | string | yes |
+| `deps[].from` | string | no |
+| `deps[].fromId` | string | no |
+| `deps[].to` | string | no |
+| `deps[].toId` | string | no |
 | `deps[].type` | string: blocks \| relates_to | no |
 | `deps[].unblockAt` | string: queue \| work \| review \| terminal | no |
 | `notes` | array of object | no |

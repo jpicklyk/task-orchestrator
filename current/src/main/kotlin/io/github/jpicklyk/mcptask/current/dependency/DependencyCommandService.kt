@@ -36,6 +36,11 @@ import java.util.UUID
  * (a frontier walk over `findByItemIds`), inside the same write unit as the insert, then adds the
  * request's own earlier edges as it goes. A write called inside an ambient unit joins it.
  *
+ * A work tree checks its edges before writing anything through [validateTreeEdges]: the pure overload for edges
+ * between unstored items only, the store-reading overload when some endpoints are stored items. The store-reading
+ * overload runs the same lifecycle-free, stored-duplicate and cycle checks as a write, without the fence (that needs
+ * the write unit's clock and stays in [createInUnit]).
+ *
  * Every write records its own `events` rows through the unit's sink, in the same unit: `dependency.added` per stored
  * row and `dependency.removed` (cause `explicit`) per deleted row, under the from item's root ([eventRootOf]).
  *
@@ -75,43 +80,10 @@ class DependencyCommandService(
                 is Outcome.Ok -> checked.value
                 is Outcome.Err -> return checked
             }
-        lifecycleFreeEndpoint(normalized)?.let { return Outcome.Err(it) }
-        val depRepo = repositoryProvider.dependencyRepository()
+        val blockedEnds = normalized.filter { it.type == DependencyType.BLOCKS }.mapTo(LinkedHashSet()) { it.toItemId }
+        storeChecks(normalized, blockedEnds)?.let { return Outcome.Err(it) }
 
-        val stored = depRepo.findByItemIds(normalized.flatMapTo(LinkedHashSet()) { listOf(it.fromItemId, it.toItemId) })
-        val storedKeys = HashMap<Triple<UUID, UUID, DependencyType>, Dependency>()
-        for (row in stored.values.flatten()) {
-            val n = row.normalized()
-            storedKeys.putIfAbsent(Triple(n.fromItemId, n.toItemId, n.type), row)
-        }
-        for (dep in normalized) {
-            val existing = storedKeys[Triple(dep.fromItemId, dep.toItemId, dep.type)] ?: continue
-            return Outcome.Err(
-                duplicate(
-                    "A dependency of type ${dep.type} already exists between items ${dep.fromItemId} and ${dep.toItemId}",
-                    existing.id.toString()
-                )
-            )
-        }
-
-        val blockingCandidates = normalized.filter { it.type == DependencyType.BLOCKS }
-        if (blockingCandidates.isNotEmpty()) {
-            val existingEdges =
-                DependencyEdges
-                    .normalize(loadDownstream(blockingCandidates.map { it.toItemId }.toSet()))
-                    .blocking
-                    .toMutableList()
-            for (dep in blockingCandidates) {
-                val candidate = DependencyEdges.toBlockingEdge(dep) ?: continue
-                val path = CycleDetector.cycleIfAdded(existingEdges, candidate)
-                if (path != null) {
-                    return Outcome.Err(cycle("Creating these dependencies would result in a circular dependency chain", path))
-                }
-                existingEdges += candidate
-            }
-        }
-
-        val created = depRepo.createBatch(normalized)
+        val created = repositoryProvider.dependencyRepository().createBatch(normalized)
         events.record(created.map { dependencyAddedEvent(it, rootOfItem(it.fromItemId)) })
         return Outcome.Ok(created)
     }
@@ -130,6 +102,68 @@ class DependencyCommandService(
         val path = CycleDetector.findCycle(DependencyEdges.normalize(normalized).blocking)
         if (path != null) return Outcome.Err(cycle("Circular dependency detected", path))
         return Outcome.Ok(normalized)
+    }
+
+    /**
+     * The check for a work tree whose edges name stored items, [storedEndpoints] (existing items and an attached root);
+     * reads, never writes. Normalizes and rejects duplicates within the set, then applies the write policy's store
+     * checks: a lifecycle-free endpoint, a pair already stored, and a cycle over the stored blocking edges downstream of
+     * [storedEndpoints] plus the set's own. The fence is not checked here. Returns the normalized edges in request order.
+     */
+    suspend fun validateTreeEdges(
+        deps: List<Dependency>,
+        storedEndpoints: Set<UUID>
+    ): Outcome<List<Dependency>> {
+        val normalized =
+            when (val checked = checkRequest(deps)) {
+                is Outcome.Ok -> checked.value
+                is Outcome.Err -> return checked
+            }
+        storeChecks(normalized, storedEndpoints)?.let { return Outcome.Err(it) }
+        return Outcome.Ok(normalized)
+    }
+
+    /**
+     * The store checks of the write policy over [normalized] edges, in order: a lifecycle-free endpoint, a pair already
+     * stored, then a cycle over the stored blocking edges downstream of [downstreamStarts] with the request's edges added
+     * one by one. The first fault, or null.
+     */
+    private suspend fun storeChecks(
+        normalized: List<Dependency>,
+        downstreamStarts: Set<UUID>
+    ): DomainError? {
+        lifecycleFreeEndpoint(normalized)?.let { return it }
+        val depRepo = repositoryProvider.dependencyRepository()
+
+        val stored = depRepo.findByItemIds(normalized.flatMapTo(LinkedHashSet()) { listOf(it.fromItemId, it.toItemId) })
+        val storedKeys = HashMap<Triple<UUID, UUID, DependencyType>, Dependency>()
+        for (row in stored.values.flatten()) {
+            val n = row.normalized()
+            storedKeys.putIfAbsent(Triple(n.fromItemId, n.toItemId, n.type), row)
+        }
+        for (dep in normalized) {
+            val existing = storedKeys[Triple(dep.fromItemId, dep.toItemId, dep.type)] ?: continue
+            return duplicate(
+                "A dependency of type ${dep.type} already exists between items ${dep.fromItemId} and ${dep.toItemId}",
+                existing.id.toString()
+            )
+        }
+
+        val blockingCandidates = normalized.filter { it.type == DependencyType.BLOCKS }
+        if (blockingCandidates.isNotEmpty()) {
+            val existingEdges =
+                DependencyEdges
+                    .normalize(loadDownstream(downstreamStarts))
+                    .blocking
+                    .toMutableList()
+            for (dep in blockingCandidates) {
+                val candidate = DependencyEdges.toBlockingEdge(dep) ?: continue
+                val path = CycleDetector.cycleIfAdded(existingEdges, candidate)
+                if (path != null) return cycle("Creating these dependencies would result in a circular dependency chain", path)
+                existingEdges += candidate
+            }
+        }
+        return null
     }
 
     /**
