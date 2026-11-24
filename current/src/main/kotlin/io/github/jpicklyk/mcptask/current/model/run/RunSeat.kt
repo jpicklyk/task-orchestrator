@@ -74,7 +74,7 @@ data class RunSeat(
         require(links.size <= MAX_LINKS) { "at most $MAX_LINKS links" }
     }
 
-    /** True for the run-scoped coordinator pseudo-seat. */
+    /** True for the run-scoped `coordinator` pseudo-seat. */
     val isCoordinator: Boolean get() = seat == COORDINATOR
 
     val isActive: Boolean get() = status == RunSeatStatus.ACTIVE

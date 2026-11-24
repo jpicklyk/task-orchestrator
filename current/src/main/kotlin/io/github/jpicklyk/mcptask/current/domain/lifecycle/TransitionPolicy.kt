@@ -124,7 +124,7 @@ object StandardGates {
     /**
      * Seat enforcement (R23), user triggers only. Applies only when the caller is known ([SeatFacts.enforced]), the item
      * is a member of a not-closed run ([SeatFacts.openRunId]) and its pinned schema is seat-aware; a human caller is
-     * exempt. Then the coordinator token of THIS run may send any trigger the table allows, a member-seat token of THIS
+     * exempt. Then the run token of THIS run may send any trigger the table allows, a member-seat token of THIS
      * run bound to THIS item may `start` only into the phase its seat enters and send any other trigger only when its
      * seat's effective `transitions:` list it, and every other caller (no token, another run's token, a token for another
      * item, a seat the schema does not declare) is refused with `seat_forbidden`.
@@ -382,7 +382,7 @@ private fun seatMayRun(
         trigger.wire in definition.effectiveTransitions
     }
 
-/** The `seat_forbidden` rejection: `allowedSeats` lists the coordinator, then the schema seats that may send [trigger]. */
+/** The `seat_forbidden` rejection: `allowedSeats` lists the `coordinator` pseudo-seat, then the schema seats that may send [trigger]. */
 private fun seatForbidden(
     facts: SeatFacts,
     trigger: User,

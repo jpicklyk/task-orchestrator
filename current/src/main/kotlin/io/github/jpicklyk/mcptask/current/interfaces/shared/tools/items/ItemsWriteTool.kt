@@ -115,7 +115,7 @@ internal object ItemDocs {
 internal const val ITEMS_WRITE_DESCRIPTION = "Create, update and delete work items or whole trees, one ops[] element each."
 
 /** The knowledge profile's description: it serves no tree op. */
-internal const val ITEMS_WRITE_KNOWLEDGE_DESCRIPTION = "Create, update and delete work items, one ops[] element each."
+internal const val ITEMS_WRITE_KNOWLEDGE_DESCRIPTION = "Create, update and delete items, one ops[] element each."
 
 /**
  * The `items_write` tool: `create`, `update`, `delete`, `create_tree`, `complete_tree` and `repin` over one `ops[]`

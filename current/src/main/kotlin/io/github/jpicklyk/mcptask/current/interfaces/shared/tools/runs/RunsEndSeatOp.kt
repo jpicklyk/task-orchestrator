@@ -27,7 +27,7 @@ internal val runsEndSeatOp =
         name = "end_seat",
         doc =
             "End the calling seat's own assignment with an outcome (done, failed or abandoned), an optional summary " +
-                "(at most 500 characters) and up to 10 links. Needs the seat's own token; the coordinator token is " +
+                "(at most 500 characters) and up to 10 links. Needs the seat's own token; the run token is " +
                 "refused. Releases the claims the seat holds and reports them in released; its token stops working.",
         profiles = orchestration(),
         capability = ApiCapability.RUNS,

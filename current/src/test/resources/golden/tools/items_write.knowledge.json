@@ -128,7 +128,7 @@
     },
     "type": "object"
   },
-  "description": "Create, update and delete work items, one ops[] element each. Call with describe:true for parameters and errors.",
+  "description": "Create, update and delete items, one ops[] element each. Call with describe:true for parameters and errors.",
   "annotations": {
     "readOnlyHint": false,
     "destructiveHint": true,

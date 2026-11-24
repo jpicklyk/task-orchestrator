@@ -60,11 +60,11 @@
             },
             "stallAfterSeconds": {
               "type": "integer",
-              "description": "Seconds without a coordinator sign of life before the run reads as stalled. Default from config. [ops: open]"
+              "description": "Seconds without a sign of life from the run's orchestrator before the run reads as stalled. Default from config. [ops: open]"
             },
             "hints": {
               "type": "object",
-              "description": "Short structured coordinator hints, string to string. On update they replace the stored hints. [ops: open]",
+              "description": "Short structured hints for the run's orchestrator, string to string. On update they replace the stored hints. [ops: open]",
               "additionalProperties": {
                 "type": "string"
               }
@@ -120,7 +120,7 @@
     },
     "type": "object"
   },
-  "description": "Open, close, pause and resume runs; ack, answer and withdraw decisions. Each op needs the runs capability (ack, answer: decide) and a root in scope. close: coordinator, director or a human; pause and resume: director or human only. Result: the run (close adds snapshot) or the decision. Call with describe:true for parameters and errors.",
+  "description": "Open, close, pause and resume runs; ack, answer and withdraw decisions. Each op needs the runs capability (ack, answer: decide) and a root in scope. close: run token, director or a human; pause and resume: director or human only. Result: the run (close adds snapshot) or the decision. Call with describe:true for parameters and errors.",
   "annotations": {
     "readOnlyHint": false,
     "destructiveHint": true,

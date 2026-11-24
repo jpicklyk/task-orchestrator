@@ -22,7 +22,7 @@ internal val runsSeatsSelect =
         name = "seats",
         doc =
             "List the seat assignments of one run, oldest first: active ones, or every one with ended:true, " +
-                "optionally only those on one item. The coordinator pseudo-seat has no itemId. Tokens are never shown.",
+                "optionally only those on one item. The run token's seat, coordinator, has no itemId. Tokens are never shown.",
         profiles = orchestration(),
         services = RunToolServices::class,
         request = serializer<RunsSeatsRequest>(),

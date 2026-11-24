@@ -18,7 +18,7 @@ internal val runsWithdrawOp =
     OpSpec<RunToolServices, RunsWithdrawRequest, JsonObject, RunStoreProvider>(
         name = "withdraw",
         doc =
-            "Withdraw an open or acknowledged decision: its raiser (the same principal and seat) or the coordinator " +
+            "Withdraw an open or acknowledged decision: its raiser (the same principal and seat) or the run " +
                 "token of its run. An answered or withdrawn decision is decision_closed. The dedupeKey is then free for a " +
                 "new decision. Returns the decision.",
         profiles = orchestration() + director(),

@@ -59,7 +59,7 @@ data class RunBudget(
 /**
  * One run: a bounded, budgeted pass over a set of member items of one root (members live in `run_items`, not here).
  *
- * [hints] are free-form coordinator hints; [marks] are named instants (written by later items). [version] is the
+ * [hints] are free-form hints for the run's orchestrator; [marks] are named instants (written by later items). [version] is the
  * optimistic-concurrency counter, 1 at open.
  */
 data class Run(
