@@ -3,8 +3,8 @@ package io.github.jpicklyk.mcptask.current.model.config
 /**
  * Classifies a caller-supplied fingerprint against a root's stored config state — the
  * fast-forward push guard's core signal. Computed by
- * [io.github.jpicklyk.mcptask.current.application.port.ConfigStore.classifyFingerprint]
- * and consumed by [io.github.jpicklyk.mcptask.current.application.service.ConfigService.push]
+ * [io.github.jpicklyk.mcptask.current.config.ConfigStore.classifyFingerprint]
+ * and consumed by [io.github.jpicklyk.mcptask.current.config.ConfigService.push]
  * (rejects a push classified [SUPERSEDED] unless `force: true`) and surfaced read-side by
  * the `config` tool's `get` op with a `fingerprint`.
  */

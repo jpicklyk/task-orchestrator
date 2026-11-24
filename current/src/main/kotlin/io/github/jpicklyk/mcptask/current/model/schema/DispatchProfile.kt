@@ -22,7 +22,7 @@ import io.github.jpicklyk.mcptask.current.model.run.SeatDispatchOverride
  * `advance` `transition` results and `items_read` `select=context` / `select=schema` decides what to do with it.
  *
  * At least one field must be set for a profile to be recorded — see
- * [io.github.jpicklyk.mcptask.current.infrastructure.config.YamlSchemaParser.parseRoot], which
+ * `YamlSchemaParser.parseRoot`, which
  * drops (with a load warning) a profile that would otherwise be empty (e.g. every field blank,
  * non-string, or an invalid `effort`). No field is validated beyond that at construction time.
  *

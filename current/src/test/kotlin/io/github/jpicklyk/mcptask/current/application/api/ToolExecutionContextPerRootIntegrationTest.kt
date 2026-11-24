@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.api
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.config.internal.app.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.config.internal.sqlite.SqliteConfigStore
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.note.NoteSchemaEntry
@@ -28,7 +28,7 @@ import kotlin.test.assertNotNull
  * REAL [PerRootConfigService] (backed by a real `project_config` row via
  * [SqliteConfigStore]) over a real global server config document — as opposed to the
  * sibling [ToolExecutionContextResolveSchemaTest], which mocks [PerRootConfigService] itself and
- * therefore never exercises the DB round-trip or [io.github.jpicklyk.mcptask.current.infrastructure.config.YamlSchemaParser]
+ * therefore never exercises the DB round-trip or [io.github.jpicklyk.mcptask.current.config.internal.wire.YamlSchemaParser]
  * parsing path.
  *
  * Scenario: two project roots share one [ToolExecutionContext]. Root A has a per-root config

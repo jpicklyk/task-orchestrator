@@ -84,12 +84,19 @@ internal class WriteConfinementTest {
                 "dependency/DependencyStore.kt",
                 "knowledge/DocumentStore.kt",
                 "knowledge/LinkStore.kt",
-                "knowledge/PlanDocumentStore.kt"
+                "knowledge/PlanDocumentStore.kt",
+                "config/ConfigStore.kt"
             )
 
         /** Single files that own StoreWrite beside [STORE_OWNER_DIRS]: a service that left `application/service/` with its slice. */
         private val STORE_OWNER_FILES =
-            setOf(CLAIM_SERVICE, "dependency/DependencyCommandService.kt", "knowledge/DocumentService.kt", "knowledge/LinkService.kt")
+            setOf(
+                CLAIM_SERVICE,
+                "dependency/DependencyCommandService.kt",
+                "knowledge/DocumentService.kt",
+                "knowledge/LinkService.kt",
+                "config/ConfigService.kt"
+            )
 
         private val STORE_OWNER_DIRS = listOf("application/service/")
         private val IMPL_DIRS = listOf("infrastructure/sqlite/repository/")
@@ -856,7 +863,7 @@ internal class WriteConfinementTest {
         listOf(
             "application/tools/items/CreateItemHandler.kt",
             "interfaces/api/v1/routes/NoteWriteRoutes.kt",
-            "infrastructure/config/PerRootConfigService.kt",
+            "config/internal/app/PerRootConfigService.kt",
             "infrastructure/sqlite/Other.kt",
             "application/servicex/A.kt",
             "application/portal/A.kt",

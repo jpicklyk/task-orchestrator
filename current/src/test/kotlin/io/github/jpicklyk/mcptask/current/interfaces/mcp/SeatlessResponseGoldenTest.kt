@@ -198,7 +198,7 @@ class SeatlessResponseGoldenTest {
     private class Fixture(
         val toolContext: ToolExecutionContext,
         val repositoryProvider: RepositoryProvider,
-        val serverConfig: io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource,
+        val serverConfig: io.github.jpicklyk.mcptask.current.config.ServerConfigSource,
     )
 
     /**

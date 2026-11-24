@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.decision
 
-import io.github.jpicklyk.mcptask.current.application.config.DecisionClassConfig
+import io.github.jpicklyk.mcptask.current.config.DecisionClassConfig
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequest
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestAnswerers
 import io.github.jpicklyk.mcptask.current.model.run.DecisionRequestSeverity

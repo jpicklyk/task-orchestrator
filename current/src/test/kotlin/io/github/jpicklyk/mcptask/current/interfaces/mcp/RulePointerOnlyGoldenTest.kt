@@ -86,7 +86,7 @@ class RulePointerOnlyGoldenTest {
     private class Fixture(
         val toolContext: ToolExecutionContext,
         val repositoryProvider: RepositoryProvider,
-        val serverConfig: io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource,
+        val serverConfig: io.github.jpicklyk.mcptask.current.config.ServerConfigSource,
     )
 
     /** Reuses the A1 golden fixture verbatim, then stashes two rule/ documents at ROOT_ID (this item's addition). */

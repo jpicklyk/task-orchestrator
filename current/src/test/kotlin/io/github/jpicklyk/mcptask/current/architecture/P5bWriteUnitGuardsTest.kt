@@ -104,21 +104,22 @@ class P5bWriteUnitGuardsTest {
          * and with the six identity files re-keyed to their paths in the identity slice (moved unchanged, counts unchanged),
          * and with the five SQLite engine, schema and helper files re-keyed to their paths under platform/sqlite (moved unchanged, counts unchanged),
          * and with ShutdownCoordinator.kt re-keyed to its path under platform/shutdown (moved unchanged, count unchanged),
-         * and with ConfigSession.kt re-keyed to its path under platform/support (moved, count unchanged).
+         * and with ConfigSession.kt re-keyed to its path under platform/support (moved, count unchanged),
+         * and with the four config files re-keyed to their paths in the config slice (moved unchanged, counts unchanged).
          */
         val PRE_P5B_BASELINE: Map<String, Int> =
             """
             CurrentMain.kt 1
             bootstrap/CurrentMcpServer.kt 9
             platform/support/ConfigSession.kt 1
-            application/service/ConfigService.kt 1
+            config/ConfigService.kt 1
             application/service/RoleTransitionHandler.kt 1
             application/service/WorkItemPlacementService.kt 4
             application/service/rest/WorkItemPatchProjection.kt 1
-            infrastructure/config/GlobalConfigFile.kt 3
+            config/internal/wire/GlobalConfigFile.kt 3
             identity/internal/wire/jwt/JwksKeySetProvider.kt 5
-            infrastructure/config/YamlConfigDocumentParser.kt 1
-            infrastructure/config/YamlStatusLabelService.kt 1
+            config/internal/wire/YamlConfigDocumentParser.kt 1
+            config/internal/wire/YamlStatusLabelService.kt 1
             platform/sqlite/DatabaseManager.kt 5
             platform/sqlite/StartupCompaction.kt 1
             platform/sqlite/StartupIntegrity.kt 1

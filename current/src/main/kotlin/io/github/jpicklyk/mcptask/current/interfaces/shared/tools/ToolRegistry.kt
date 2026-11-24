@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
+import io.github.jpicklyk.mcptask.current.config.ConfigTools
 import io.github.jpicklyk.mcptask.current.dependency.DependencyTools
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advanceTool
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.notes.notesReadTool
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.notes.notesWriteTool
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.config.configTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.itemsWriteTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.report.reportTool
@@ -144,7 +144,7 @@ fun buildToolSpecs(): List<ToolSpec> =
         ItemsReadTool.spec,
         KnowledgeTools.read(),
         KnowledgeTools.write(),
-        configTool(),
+        ConfigTools.tool(),
         reportTool(),
         runsReadTool(),
         runsWriteTool(),

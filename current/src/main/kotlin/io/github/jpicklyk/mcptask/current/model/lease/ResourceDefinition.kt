@@ -14,12 +14,12 @@ package io.github.jpicklyk.mcptask.current.model.lease
  *
  * This is the server-global lock namespace: a resource `key` referenced by a trait's
  * [ResourceRequirement] resolves its default TTL and description against this registry — see
- * [io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver.resolveResourceRegistry]
+ * [io.github.jpicklyk.mcptask.current.config.EffectiveConfigResolver.resolveResourceRegistry]
  * for the layering: the server registry only, a per-root `resources:` section is never honored, since the
  * lock namespace itself is server-global.
  *
  * @property key Resource identifier. Must match `^[a-z0-9][a-z0-9\-_./]*$`, max 128 characters — see
- *   [io.github.jpicklyk.mcptask.current.infrastructure.config.YamlSchemaParser].
+ *   `YamlSchemaParser`.
  * @property description Human-readable description of the resource.
  * @property defaultTtlSeconds Default lease TTL in seconds used when a trait's [ResourceRequirement]
  *   doesn't override it with its own `ttlSeconds`. Valid range enforced at config load: 1..86400

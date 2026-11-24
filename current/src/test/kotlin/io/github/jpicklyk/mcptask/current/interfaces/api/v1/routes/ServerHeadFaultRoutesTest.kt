@@ -1,15 +1,15 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
-import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
-import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.service.ConfigService
+import io.github.jpicklyk.mcptask.current.config.ConfigService
+import io.github.jpicklyk.mcptask.current.config.ConfigStore
+import io.github.jpicklyk.mcptask.current.config.ConfigValidator
+import io.github.jpicklyk.mcptask.current.config.ServerConfigSource
+import io.github.jpicklyk.mcptask.current.config.internal.wire.NetworkntConfigStructuralValidator
+import io.github.jpicklyk.mcptask.current.config.internal.wire.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.identity.internal.wire.rest.ApiBearerAuth
-import io.github.jpicklyk.mcptask.current.infrastructure.config.NetworkntConfigStructuralValidator
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException

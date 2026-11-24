@@ -1,13 +1,12 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade
 
-import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
-import io.github.jpicklyk.mcptask.current.application.config.ParseMode
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepKind
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepPhase
 import io.github.jpicklyk.mcptask.current.application.upgrade.LegacyTypeInference
+import io.github.jpicklyk.mcptask.current.config.ConfigDocumentParser
+import io.github.jpicklyk.mcptask.current.config.ParseMode
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SchemaFacts
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.model.item.LifecycleMode
 import io.github.jpicklyk.mcptask.current.model.schema.PinLayer
 import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
@@ -198,6 +197,6 @@ class PinBackfillStep(
     internal companion object {
         const val NAME = "pin-backfill"
         private val logger = LoggerFactory.getLogger(PinBackfillStep::class.java)
-        private val parser: ConfigDocumentParser = YamlConfigDocumentParser
+        private val parser: ConfigDocumentParser = ConfigDocumentParser.DEFAULT
     }
 }

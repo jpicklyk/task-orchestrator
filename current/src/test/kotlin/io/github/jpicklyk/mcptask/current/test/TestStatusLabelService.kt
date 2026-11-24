@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.test
 
-import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
-import io.github.jpicklyk.mcptask.current.application.config.StatusLabelService
+import io.github.jpicklyk.mcptask.current.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.config.StatusLabelService
 
 /**
  * Test double for [StatusLabelService] that allows explicit label configuration.

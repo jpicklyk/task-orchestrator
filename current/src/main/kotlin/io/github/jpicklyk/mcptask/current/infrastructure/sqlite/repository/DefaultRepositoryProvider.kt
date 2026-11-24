@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
-import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.DecisionRequestStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.ReportQueries
@@ -10,6 +9,8 @@ import io.github.jpicklyk.mcptask.current.application.port.RunStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.claim.LeaseStore
 import io.github.jpicklyk.mcptask.current.claim.internal.sqlite.SQLiteResourceLeaseRepository
+import io.github.jpicklyk.mcptask.current.config.ConfigStore
+import io.github.jpicklyk.mcptask.current.config.internal.sqlite.SqliteConfigStore
 import io.github.jpicklyk.mcptask.current.dependency.DependencyStore
 import io.github.jpicklyk.mcptask.current.dependency.internal.sqlite.SQLiteDependencyRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.report.SqliteReportQueries

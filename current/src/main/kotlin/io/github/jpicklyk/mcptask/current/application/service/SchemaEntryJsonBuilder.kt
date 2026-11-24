@@ -164,7 +164,7 @@ fun buildSchemaResponseFields(schema: WorkItemSchema?): SchemaResponseFields = b
  * Builds the `dispatch` JSON object for a single resolved [DispatchProfile]: `{agent?, model?,
  * effort?}`, each field present only when non-null. Used by the `advance` `transition` per-transition
  * result and `items_read` `select=context` item mode, both of which resolve a single profile for one role via
- * [io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver.resolveDispatchProfile].
+ * [io.github.jpicklyk.mcptask.current.config.EffectiveConfigResolver.resolveDispatchProfile].
  */
 fun buildDispatchProfileJson(profile: DispatchProfile): JsonObject =
     buildJsonObject {

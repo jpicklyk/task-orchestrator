@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
+import io.github.jpicklyk.mcptask.current.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.dependency.DependencyCommandService
 import io.github.jpicklyk.mcptask.current.dependency.internal.domain.TopoOrder
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller

@@ -38,7 +38,7 @@ import { readHookInput } from './lib/stdin.mjs';
 import { emitContext, emitSystemMessage } from './lib/emit.mjs';
 import { locateConfig, isValidRootId } from './config-locator.mjs';
 
-// Mirrors RuleService.KEY_PATTERN (current/.../application/service/RuleService.kt) exactly — a rule
+// Mirrors RuleService.KEY_PATTERN (current/.../config/RuleService.kt) exactly - a rule
 // key must match this server-side grammar or the upsert would be rejected anyway; validated client-side
 // so an invalid filename is reported as "skipped" instead of surfacing a failed upsert.
 const RULE_KEY_PATTERN = /^[a-z0-9][a-z0-9._-]{0,99}$/;

@@ -1,13 +1,13 @@
 package io.github.jpicklyk.mcptask.current.application.upgrade.steps
 
-import io.github.jpicklyk.mcptask.current.application.config.ConfigViolation
-import io.github.jpicklyk.mcptask.current.application.port.ConfigFileSource
-import io.github.jpicklyk.mcptask.current.application.service.ConfigImportResult
-import io.github.jpicklyk.mcptask.current.application.service.ConfigService
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepException
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepKind
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepPhase
+import io.github.jpicklyk.mcptask.current.config.ConfigFileSource
+import io.github.jpicklyk.mcptask.current.config.ConfigImportResult
+import io.github.jpicklyk.mcptask.current.config.ConfigService
+import io.github.jpicklyk.mcptask.current.config.ConfigViolation
 import io.github.jpicklyk.mcptask.current.platform.port.WriteScope
 import org.slf4j.LoggerFactory
 

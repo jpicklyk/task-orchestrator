@@ -1,0 +1,194 @@
+package io.github.jpicklyk.mcptask.current.config.internal.wire
+
+import io.github.jpicklyk.mcptask.current.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.config.ConfigDocumentParser
+import org.yaml.snakeyaml.LoaderOptions
+import org.yaml.snakeyaml.Yaml
+import org.yaml.snakeyaml.constructor.SafeConstructor
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+/**
+ * Independently authored against the frozen `test-plan` note on item `df7d579a` (scenarios
+ * S5, S7, S8, S12, S14). Exercises [YamlSchemaParser.parseRoot] directly (mirroring
+ * [YamlSchemaParserRoleWarningTest]'s SafeConstructor-based parsing style) for the new
+ * [ConfigDocument] fields C1 introduces (`noteLimitsMode`, `statusLabels`,
+ * `presentSections`), plus [YamlConfigDocumentParser] (the new
+ * exception-to-`Outcome` wrapper) and the [ConfigDocument.PER_ROOT_HONORED_SECTIONS] constant.
+ */
+class ConfigDocumentParseTest {
+    private fun parse(
+        yaml: String,
+        warnOnMissingSchemas: Boolean = false,
+    ): YamlSchemaParser.ParsedConfig {
+        @Suppress("UNCHECKED_CAST")
+        val root = Yaml(SafeConstructor(LoaderOptions())).load<Map<String, Any>>(yaml) ?: emptyMap()
+        return YamlSchemaParser.parseRoot(root, warnOnMissingSchemas = warnOnMissingSchemas)
+    }
+
+    private val noSchemaSection = "work_item_schemas:\n  default:\n    notes: []\n"
+
+    // ──────────────────────────────────────────────
+    // S5 — noteLimitsMode
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `S5 note_limits absent yields null noteLimitsMode`() {
+        assertNull(parse(noSchemaSection).noteLimitsMode)
+    }
+
+    @Test
+    fun `S5 note_limits with mode reject yields reject`() {
+        assertEquals("reject", parse("note_limits:\n  mode: reject\n").noteLimitsMode)
+    }
+
+    @Test
+    fun `S5 note_limits present as an empty map yields warn with no warning`() {
+        val doc = parse("note_limits: {}\n")
+        assertEquals("warn", doc.noteLimitsMode)
+        assertTrue(doc.warnings.none { it.contains("note_limits") }, "warnings: ${doc.warnings}")
+    }
+
+    @Test
+    fun `S5 note_limits present as an explicit null yields warn with no warning`() {
+        val doc = parse("note_limits: ~\n")
+        assertEquals("warn", doc.noteLimitsMode)
+        assertTrue(doc.warnings.none { it.contains("note_limits") }, "warnings: ${doc.warnings}")
+    }
+
+    @Test
+    fun `S5 note_limits with an invalid mode yields warn plus exactly one warning`() {
+        val doc = parse("note_limits:\n  mode: bogus-mode\n")
+        assertEquals("warn", doc.noteLimitsMode)
+        assertEquals(1, doc.warnings.count { it.contains("note_limits") }, "warnings: ${doc.warnings}")
+    }
+
+    // ──────────────────────────────────────────────
+    // S5 — statusLabels
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `S5 status_labels absent yields null`() {
+        assertNull(parse(noSchemaSection).statusLabels)
+    }
+
+    @Test
+    fun `S5 status_labels with an explicit null trigger value is a present key mapped to null`() {
+        val doc = parse("status_labels:\n  start: null\n")
+        assertNotNull(doc.statusLabels)
+        assertTrue(doc.statusLabels.containsKey("start"))
+        assertNull(doc.statusLabels["start"])
+    }
+
+    @Test
+    fun `S5 status_labels as a scalar yields null plus a warning`() {
+        val doc = parse("status_labels: \"oops\"\n")
+        assertNull(doc.statusLabels)
+        assertTrue(doc.warnings.any { it.contains("status_labels") }, "warnings: ${doc.warnings}")
+    }
+
+    // ──────────────────────────────────────────────
+    // S7 — the removed schema_resolution key: parses, one warning, no effect
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `S7 schema_resolution of any value parses with exactly one removal warning and no other effect`() {
+        val baseline = parse(noSchemaSection)
+
+        for (value in listOf("legacy", "layered", "isolated", "LAYERED", "bogus", "5", "\n  nested: true")) {
+            val doc = parse("schema_resolution: $value\n$noSchemaSection")
+            assertEquals(baseline.warnings.size + 1, doc.warnings.size, "value '$value' warnings: ${doc.warnings}")
+            val added = doc.warnings - baseline.warnings.toSet()
+            assertEquals(1, added.size, "value '$value' warnings: ${doc.warnings}")
+            assertTrue(added.single().contains("schema_resolution") && added.single().contains("removed"), "warning: ${added.single()}")
+            assertEquals(
+                baseline.copy(presentSections = emptySet(), warnings = emptyList(), warningViolations = emptyList()),
+                doc.copy(presentSections = emptySet(), warnings = emptyList(), warningViolations = emptyList()),
+                "schema_resolution must have no effect on the parsed document"
+            )
+        }
+    }
+
+    @Test
+    fun `S7 schema_resolution absent adds no removal warning`() {
+        assertTrue(parse(noSchemaSection).warnings.none { it.contains("schema_resolution") })
+    }
+
+    // ──────────────────────────────────────────────
+    // S8 — presentSections
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `S8 presentSections lists top-level keys in document order`() {
+        val doc =
+            parse(
+                """
+                status_labels:
+                  start: "x"
+                work_item_schemas:
+                  default:
+                    notes: []
+                note_limits:
+                  mode: warn
+                """.trimIndent(),
+            )
+        assertEquals(listOf("status_labels", "work_item_schemas", "note_limits"), doc.presentSections.toList())
+    }
+
+    @Test
+    fun `S8 presentSections is empty for a blank document`() {
+        assertTrue(parse("").presentSections.isEmpty())
+    }
+
+    // ──────────────────────────────────────────────
+    // S12 — YamlConfigDocumentParser
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `S12 blank yaml parses to the EMPTY document with a null rawRoot`() {
+        val outcome = YamlConfigDocumentParser.parse("", warnOnMissingSchemas = true)
+        val parsed = assertIs<ConfigDocumentParser.Outcome.Parsed>(outcome)
+        assertEquals(ConfigDocument.EMPTY, parsed.document)
+        assertNull(parsed.rawRoot)
+    }
+
+    @Test
+    fun `S12 a list root fails to parse`() {
+        val outcome = YamlConfigDocumentParser.parse("- a\n- b\n", warnOnMissingSchemas = true)
+        assertTrue(outcome is ConfigDocumentParser.Outcome.Failed)
+    }
+
+    @Test
+    fun `S12 a disallowed yaml tag fails to parse`() {
+        val outcome = YamlConfigDocumentParser.parse("value: !!javax.script.ScriptEngineManager {}", warnOnMissingSchemas = true)
+        assertTrue(outcome is ConfigDocumentParser.Outcome.Failed)
+    }
+
+    @Test
+    fun `S12 a valid document parses with the raw root map populated`() {
+        val yaml = "work_item_schemas:\n  default:\n    notes: []\n"
+        val outcome = YamlConfigDocumentParser.parse(yaml, warnOnMissingSchemas = true)
+        val parsed = assertIs<ConfigDocumentParser.Outcome.Parsed>(outcome)
+        assertNotNull(parsed.rawRoot)
+        assertTrue(parsed.rawRoot.containsKey("work_item_schemas"))
+        assertEquals(setOf("default"), parsed.document.workItemSchemas.keys)
+    }
+
+    @Test
+    fun `S12 warnOnMissingSchemas true warns about the missing note_schemas key`() {
+        val outcome = YamlConfigDocumentParser.parse("project:\n  name: x\n", warnOnMissingSchemas = true)
+        val parsed = outcome as ConfigDocumentParser.Outcome.Parsed
+        assertTrue(parsed.document.warnings.any { it.contains("note_schemas") }, "warnings: ${parsed.document.warnings}")
+    }
+
+    @Test
+    fun `S12 warnOnMissingSchemas false does not warn about the missing note_schemas key`() {
+        val outcome = YamlConfigDocumentParser.parse("project:\n  name: x\n", warnOnMissingSchemas = false)
+        val parsed = outcome as ConfigDocumentParser.Outcome.Parsed
+        assertTrue(parsed.document.warnings.none { it.contains("note_schemas") }, "warnings: ${parsed.document.warnings}")
+    }
+}

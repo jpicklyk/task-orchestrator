@@ -17,7 +17,7 @@ class PackageCycleTest {
     @Test
     fun `application sub-packages have no undeclared package cycles`() {
         val sources = GuardSupport.productionSources()
-        listOf("api", "config", "port", "read", "service", "support", "telemetry").forEach { sub ->
+        listOf("api", "port", "read", "service", "support", "telemetry").forEach { sub ->
             assertTrue(
                 sources.any { PackageCycleRules.nodeOfPath(it.path) == sub },
                 "Expected package 'application/$sub' to have at least one file in scope, found 0.",

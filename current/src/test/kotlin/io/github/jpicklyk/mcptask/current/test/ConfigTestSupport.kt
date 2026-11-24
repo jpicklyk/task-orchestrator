@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.test
 
-import io.github.jpicklyk.mcptask.current.application.config.CanonicalConfigJson
-import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
-import io.github.jpicklyk.mcptask.current.application.port.ConfigAppend
-import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
+import io.github.jpicklyk.mcptask.current.config.ConfigAppend
+import io.github.jpicklyk.mcptask.current.config.ConfigDocumentParser
+import io.github.jpicklyk.mcptask.current.config.ConfigStore
+import io.github.jpicklyk.mcptask.current.config.internal.app.CanonicalConfigJson
+import io.github.jpicklyk.mcptask.current.config.internal.wire.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.model.config.ConfigAppendOutcome
 import io.github.jpicklyk.mcptask.current.model.config.ConfigScope
 import io.github.jpicklyk.mcptask.current.model.config.ConfigVersion
