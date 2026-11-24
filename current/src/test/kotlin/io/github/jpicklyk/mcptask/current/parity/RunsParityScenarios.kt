@@ -29,7 +29,7 @@ import kotlin.test.assertTrue
 
 /**
  * The `runs_read` / `runs_write` slice of [ProductionParity] (item 8df44a22, R20; scenarios S1-S19 of the frozen test-plan): one
- * HAPPY and one SCOPE_FORBIDDEN scenario per select and op (`get`, `list`, `open`, `update`, `close`, `pause`, `resume`, `mark`)
+ * HAPPY and one SCOPE_FORBIDDEN scenario per select and op (`get`, `list`, `open`, `update`, `close`, `pause`, `resume`, `reissue`, `mark`)
  * plus OTHER scenarios for the failures, boundaries and probes whose status and shape the envelope spec and the task-scope fix.
  * Every scenario sends the SAME arguments over MCP (on the profile whose set contains the member) and over
  * `POST /api/v1/ops/{tool}` against two identically seeded databases; the harness asserts byte-equal bodies (minus `meta.reqId`),
@@ -336,6 +336,8 @@ internal object RunsParityScenarios {
 
     fun resume(runId: Any) = """{"op":"resume","runId":"$runId"}"""
 
+    fun reissue(runId: Any) = """{"op":"reissue","runId":"$runId"}"""
+
     fun mark(
         runId: Any,
         key: String,
@@ -614,6 +616,30 @@ internal object RunsParityScenarios {
                 scopeRoot(),
                 kind = ParityKind.SCOPE_FORBIDDEN,
                 seed = seedPausedOtherRoot
+            ),
+            wrote(
+                "reissue happy by a human",
+                "reissue",
+                ParityKind.HAPPY,
+                human,
+                ops(reissue(ra)),
+                contains =
+                    listOf(
+                        "\"runId\":\"$ra\"",
+                        "\"status\":\"open\"",
+                        // item 7c71283a: a new run token, masked by the harness, under the canonical key and its alias
+                        "\"orchestratorToken\":\"<TOKEN>\",\"coordinatorToken\":\"<TOKEN>\""
+                    ),
+                seed = seedOpenA
+            ),
+            failed(
+                "reissue scope root, a human of root R1 cannot reissue the token of a run of R2",
+                "reissue",
+                humanRootScoped,
+                ops(reissue(rb)),
+                scopeRoot(),
+                kind = ParityKind.SCOPE_FORBIDDEN,
+                seed = seedOpenAB
             ),
             wrote(
                 "mark happy on a closed run",
@@ -2410,6 +2436,7 @@ internal object RunsParityScenarios {
             WRITE_TOOL to "close",
             WRITE_TOOL to "pause",
             WRITE_TOOL to "resume",
+            WRITE_TOOL to "reissue",
             WRITE_TOOL to "mark",
             READ_TOOL to "seats",
             READ_TOOL to "frontier",
@@ -2540,6 +2567,7 @@ class RunsParityTest {
         assertEquals(ToolProfile.ORCHESTRATION, ParityCoverage.mcpLegProfile(registry, "runs_write", "close"))
         assertEquals(ToolProfile.DIRECTOR, ParityCoverage.mcpLegProfile(registry, "runs_write", "pause"))
         assertEquals(ToolProfile.DIRECTOR, ParityCoverage.mcpLegProfile(registry, "runs_write", "resume"))
+        assertEquals(ToolProfile.DIRECTOR, ParityCoverage.mcpLegProfile(registry, "runs_write", "reissue"))
         // R24: raise and withdraw are orchestration members (withdraw is also a director member, orchestration is
         // picked first); ack, answer, decisions and decision are director members
         for (op in listOf("raise", "withdraw")) {
