@@ -51,7 +51,7 @@ names that path and the seat reads it. Write the run token the same way, as one 
 `tokenFile` that `run-ops --phase open` names (`tokens/coordinator.token`), so a restart, `--resume`
 or compaction can read it back; pass it as `seatToken` from that file, and delete `tokens/` at close. Never put a token in a prompt, a note, a log line, a commit, the plan or a helper
 input, and never echo one back to the user. A lost run token (no file, or the file's token is
-refused) cannot be recovered: close the run on the director connection (no `seatToken`) or with a
+refused) cannot be recovered: close the run on the director profile's connection (no `seatToken`) or with a
 human credential, and open another.
 
 A seat envelope is stripped before it is persisted: any `seatToken` or `coordinatorToken` key is removed at any depth in both methods, and Method B's `stage-result` also redacts every value read from the run's token files. Method A strips by key only (the Workflow sandbox cannot read token files), so a token echoed under another key is not caught there. The run token file sits in the same `tokens/` directory, so Method B redacts its value too.
@@ -168,7 +168,7 @@ is false, pass `--entry pre-entered` to `plan` in Step 3. Likewise, when F1 sele
 pass `--method B` to `plan` so `meta.method` is `"B"` — the Method B prompt addendum and the blind
 test-author default key on it.
 
-**Director tier 2.** (Needs a director entered through the `/task-orchestrator:director` skill in a normal session: the hardened `claude --agent director` entry has neither `Workflow` nor `start_session`, so it probes tier 3 or 4.) When a director session drives the run, it does not run these steps itself (its
+**Director tier 2.** (Needs director mode entered through the `/task-orchestrator:director` skill in a normal session: the hardened `claude --agent director` entry has neither `Workflow` nor `start_session`, so it probes tier 3 or 4.) When a director session drives the run, it does not run these steps itself (its
 guard denies the `node` helper, and the snapshot reads note bodies). It dispatches one named
 background orchestrator agent (`run_in_background: true`, `model` set) for Steps 0-5a with
 `--altitude-safe --method A`. The orchestrator records run phase `planned` (not `launched`), writes
@@ -253,7 +253,7 @@ When Step 0 F7 finds an open run, read `runs_read` `get` (status, `hints.phase`,
 whose run token is lost cannot be updated, assigned or closed with it. Check the token first:
 if `tokens/coordinator.token` is present, use it; if it is absent, or a call on an open run answers
 `unauthenticated`, close the run `abandoned` (`run-ops --phase close --reason abandoned`) on the
-director connection (no `seatToken`) or with a human credential, then re-plan from Step 2. An
+director profile's connection (no `seatToken`) or with a human credential, then re-plan from Step 2. An
 `unauthenticated` answer on a closed run means it is finished: send the `closed` report and finish
 post-run token-less.
 

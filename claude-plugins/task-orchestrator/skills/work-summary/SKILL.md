@@ -14,7 +14,7 @@ Supplement the data with brief observations only for a genuine anomaly or action
 
 ## Director mode
 
-Director mode is the session state entered by `/task-orchestrator:director` (or by running as the hardened `director` agent); its guard denies the file read of Step 0.5 and most of the reads below. Runs, decisions and blocked work belong to the director board: re-invoke `/task-orchestrator:director` for them. For a backlog view in director mode run only these reads: Lean step 1 (`overview`), steps 5 and 6 (`list`), In Flight from `items_read` `list` with `role` `work` and again with `review`, `items_read` `blocked`, and the Runs reads. Skip the health `context` read, `history`, `next`, the Blocked-item decisions `context` reads, a scoped `search` and the Step 0.5 file read (with no session rootId run unscoped), and omit every dashboard section whose read was skipped. For the complete dashboard, dispatch ONE background `Agent` (`run_in_background: true`, `model` set) that runs the steps below and reports the rendered dashboard text, never note bodies. A background agent dispatched by a director is not in director mode: it runs the steps below.
+Director mode is the session state entered by `/task-orchestrator:director` (or by running as the hardened `director` agent); its guard denies the file read of Step 0.5 and most of the reads below. Runs, decisions and blocked work show on the board, which the director skill renders in director mode for the user to direct: re-invoke `/task-orchestrator:director` for them. For a backlog view in director mode run only these reads: Lean step 1 (`overview`), steps 5 and 6 (`list`), In Flight from `items_read` `list` with `role` `work` and again with `review`, `items_read` `blocked`, and the Runs reads. Skip the health `context` read, `history`, `next`, the Blocked-item decisions `context` reads, a scoped `search` and the Step 0.5 file read (with no session rootId run unscoped), and omit every dashboard section whose read was skipped. For the complete dashboard, dispatch ONE background `Agent` (`run_in_background: true`, `model` set) that runs the steps below and reports the rendered dashboard text, never note bodies. A background agent dispatched by a director is not in director mode: it runs the steps below.
 
 ---
 
@@ -99,7 +99,7 @@ For each run (cap 5, newest first) read its frontier:
 
 `data.counts` is members by role, `ready` the members nothing holds back, `inFlight` the active seats (each with its own `stalled` flag), `waiting` the members held back, each `{id, reason, decisionId?, blockers?}` with a `reason` of `manual`, `dependency`, `awaiting_decision` or `resource`; `decisionId` is present whenever the member's block names a decision, and `blockers` (short ids) only for `dependency`. `stalled` is the orchestrator's flag. A paused run's list entry carries `pauseReason`. Render one row per run: label or title, short run id, status, counts, ready, in flight (N silent, from the seats' `stalled` flags), waiting. The word "stalled" is kept for the health `stalled` items (open items missing notes); a run's seats and orchestrator are "silent".
 
-When the director connection's tools are present (`report` and `runs_read` `decisions`; skip the rest of this section silently otherwise), add per run the open decisions from the rollup, and one decisions line for the root. Every call here is a director-profile call:
+When the director profile's tools are present (`report` and `runs_read` `decisions`; skip the rest of this section silently otherwise), add per run the open decisions from the rollup, and one decisions line for the root. Every call here is a director-profile call:
 
 ```to-call
 {"tool": "report", "select": "rollup", "args": {"runId": "<run UUID>"}, "profile": "director"}
@@ -216,7 +216,7 @@ Everything lean mode shows, plus the complete per-container inventory.
 
 **Never fetch every root's children in one call** (`includeChildren: true` across the whole tree): on a mature workspace the terminal subtrees exceed the tool-result ceiling. Terminal children are counted from `childCounts`, never enumerated; to see one container's completed items use Scoped mode on it.
 
-### Gate rejections (only with the director tools)
+### Gate rejections (only with the director profile's tools)
 
 Skip silently without them. One director-profile read, default window 7 days:
 
@@ -226,7 +226,7 @@ Skip silently without them. One director-profile read, default window 7 days:
 
 Render one line after Attention Required: `top gate rejections (7d): <noteKey> N, ...` from `data.items[]` (`key.noteKey`, `blocks`); omit it when `items` is empty.
 
-### Note volume (only with the director tools)
+### Note volume (only with the director profile's tools)
 
 Skip silently without them. One director-profile read, default window 7 days:
 

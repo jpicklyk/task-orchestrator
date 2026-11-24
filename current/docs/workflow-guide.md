@@ -1328,7 +1328,7 @@ One session used to be both the user's point of contact and the driver of every 
 
 - **Seat**: one agent on one phase of one item (planner, implementer, test author, reviewer), with one dispatch and a fresh context.
 - **Orchestrator**: drives the work. It plans, sizes, dispatches seats and makes every later transition. The user's own session is the orchestrator in orchestration mode (the default) and can hold a run itself; a run's orchestrator may also be placed in another session or a background agent. Its scope is ad hoc items or one run; a run's orchestrator presents that run's token, and one in a background agent is disposable.
-- **Director**: decides on the user's behalf. Director mode is an opt-in session mode that runs the board instead of the code. `/task-orchestrator:init` registers the director MCP entry by default, because decisions are answered through it; `--no-director` opts out.
+- **Director**: decides on the user's behalf. Director mode is an opt-in session mode in which the user's session acts on the board, at the user's instruction, instead of on the code. `/task-orchestrator:init` registers the director MCP entry by default, because decisions are answered through it; `--no-director` opts out.
 
 "Director" names two things: a server tool profile (`/mcp/director`, `MCP_TOOL_PROFILE=director`) and a session mode entered with `/task-orchestrator:director`. The seat named `orchestrator` is the one whose note keys the run's orchestrator token may write; it is a seat of the item's schema, not a session.
 
