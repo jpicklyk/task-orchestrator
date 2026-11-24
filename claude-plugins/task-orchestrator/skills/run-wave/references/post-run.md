@@ -151,7 +151,7 @@ proofs run, gaps found, approximate minutes. Reviewers read these results and do
 them, except to verify one they doubt, and then scoped to the owned tests (the `verify[]` entry
 carrying `ownedTestsPattern`), never as the whole suite.
 
-The decision-point **budget mutations** are not run here: they run after the wave's PRs merge,
+The decision-point **budget mutations** are not run here: they run after the PR that holds the wave's work merges (per-item mode: each item's PR; shared mode: the feature PR),
 batched across the wave, at the merged SHA, by the project's declared post-merge step (Step 7a below).
 Carry each item's `redProof.shape` forward to that step unchanged.
 
@@ -694,13 +694,13 @@ reads only open and paused runs, so a finished run is never mistaken for an open
 
 ## Step 7a — Declared post-merge steps
 
-Runs once the wave's PRs have merged (per-item mode: every item's PR; shared mode: the feature
+Runs once the PR that holds the wave's work has merged (per-item mode: each item's PR; shared mode: the feature
 PR, so for a shared wave this step follows the project's finalization) - never before a merge,
 and never as a gate on one. The steps are the project's: `plan.json` `meta.postRun` holds the entries its
 `run-profile.json` `postRun` declared, and this step runs those whose `when` is `post-merge`. Launch each
 in the background and go on to `SKILL.md` Step 9; the next wave's planners do not wait for it.
 
-1. **Select.** Write `git diff --name-only <meta.featureBaseSha>..<merged SHA>` to
+1. **Select.** Write `git diff --name-only <merged SHA>^1..<merged SHA>` (the PR's own change, for a merge or a squash commit; per-item mode with several PRs writes the union over each PR's merged SHA) to
    `<scratchpad>/run-wave/<runId>/changed-files.txt` (one path per line), then run
    `node "<helper>" post-run-steps --plan <plan.json> --when post-merge --files-from <that file>`. It prints
    `{when, review, steps, skipped}`: `steps` are the declared steps that apply, in declared order, and
