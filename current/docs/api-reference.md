@@ -162,8 +162,9 @@ the candidates the scope admits (the shared `items_read` "Ids" rule, Q32).
 
 **Actor and events.** The caller's principal (`api:<id>` for a credential, `local` for the local principal) is recorded as the
 principal of the `item.created`, `item.updated`, `item.reparented`, `item.deleted` and `item.pinned` events the call
-writes. `item.pinned` (`{from, to, reason}`, where `from` / `to` are `{server, root, key, layer}` with the two config
-version ids) is recorded in the events table only; it is not projected onto the SSE stream.
+writes. `item.pinned` (`{from, to, reason}`, where `from` / `to` are `{server, root, key, layer, builds}` with the two config
+version ids; `builds` is whether the pinned schema builds, null for a schema-free pin, and a row without it predates the
+field and does not say whether that pin built) is recorded in the events table only; it is not projected onto the SSE stream.
 
 ```json
 {
