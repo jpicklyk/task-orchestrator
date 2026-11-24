@@ -5,8 +5,10 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
 import io.github.jpicklyk.mcptask.current.application.port.NoteStoreProvider
+import io.github.jpicklyk.mcptask.current.claim.FenceGuard
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
+import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind

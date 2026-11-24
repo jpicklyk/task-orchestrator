@@ -6,6 +6,8 @@ import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigReso
 import io.github.jpicklyk.mcptask.current.application.knowledge.document.DocumentService
 import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
 import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
+import io.github.jpicklyk.mcptask.current.claim.ClaimService
+import io.github.jpicklyk.mcptask.current.claim.FenceGuard
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.FollowUp
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.ItemFacts
@@ -16,6 +18,7 @@ import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionPolicy
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionSnapshot
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.wireOrNone
+import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
 import io.github.jpicklyk.mcptask.current.model.error.DomainError

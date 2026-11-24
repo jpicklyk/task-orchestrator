@@ -17,7 +17,8 @@ import kotlin.test.assertTrue
  * caller opts in. This guard confines where the marker may be named, opted into or suppressed, so the compiler guarantee
  * cannot be quietly widened:
  *  - the marker names (USE as an annotation) appear only in their allow-lists (service and knowledge dirs, the port dir, the
- *    SQLite impl dirs for StoreWrite; ClaimService.kt, the port dir and three SQLite impl files for ClaimWrite; both also
+ *    SQLite impl dirs (and a slice's `internal/sqlite/`) for StoreWrite; ClaimService.kt, the port dir, `claim/ClaimStore.kt`
+ *    and three SQLite impl files for ClaimWrite; both also
  *    in `platform/port/WriteConfinement.kt`, the file that declares them);
  *  - an OPT-IN of a marker (`@OptIn`, `@file:OptIn`, `@kotlin.OptIn`, any argument layout) is narrower: StoreWrite only in the
  *    service and knowledge dirs, ClaimWrite only in ClaimService.kt, so a port or SQLite store file can never opt in to its
@@ -73,7 +74,13 @@ internal class WriteConfinementTest {
         /** The file declaring both marker annotations; it lives in the shared platform port folder, outside [PORT_DIR]. */
         const val MARKER_FILE = "platform/port/WriteConfinement.kt"
 
-        const val CLAIM_SERVICE = "application/service/ClaimService.kt"
+        const val CLAIM_SERVICE = "claim/ClaimService.kt"
+
+        /** Port files that sit in a slice's top package instead of [PORT_DIR] (a port leaves `application/port/` with its slice). */
+        val SLICE_PORT_FILES = setOf("claim/ClaimStore.kt")
+
+        /** Single files that own StoreWrite beside [STORE_OWNER_DIRS]: a service that left `application/service/` with its slice. */
+        private val STORE_OWNER_FILES = setOf(CLAIM_SERVICE)
 
         private val STORE_OWNER_DIRS = listOf("application/service/", "application/knowledge/")
         private val IMPL_DIRS = listOf("infrastructure/sqlite/repository/", "infrastructure/sqlite/knowledge/")
@@ -81,7 +88,7 @@ internal class WriteConfinementTest {
             setOf(
                 "infrastructure/sqlite/repository/SQLiteWorkItemRepository.kt",
                 "infrastructure/sqlite/repository/SQLiteResourceLeaseRepository.kt",
-                "infrastructure/sqlite/repository/SqliteClaimStore.kt"
+                "claim/internal/sqlite/SqliteClaimStore.kt"
             )
 
         val CONFINED =
@@ -109,20 +116,30 @@ internal class WriteConfinementTest {
 
         private fun norm(path: String): String = GuardSupport.normalizedPath(path)
 
-        fun isImplDir(path: String): Boolean = norm(path).let { p -> IMPL_DIRS.any { p.startsWith(it) } }
+        /** True when [p] is `<s>/internal/sqlite/..` of a slice (a first folder that is not a legacy layer or shared area). */
+        private fun isSliceSqlite(p: String): Boolean {
+            val parts = p.split('/')
+            return GuardSupport.sliceOf(p) != null && parts.size >= 4 && parts[1] == "internal" && parts[2] == "sqlite"
+        }
+
+        /** A port path: the port dir, or one of the [SLICE_PORT_FILES]. */
+        private fun isPort(p: String): Boolean = p.startsWith(PORT_DIR) || p in SLICE_PORT_FILES
+
+        fun isImplDir(path: String): Boolean = norm(path).let { p -> IMPL_DIRS.any { p.startsWith(it) } || isSliceSqlite(p) }
 
         /** Marker USE (a bare annotation on a declaration) and mentions: ports, impl dirs and owner dirs. Opt-ins are narrower. */
         fun storeWriteAllowed(path: String): Boolean {
             val p = norm(path)
             return STORE_OWNER_DIRS.any { p.startsWith(it) } ||
-                p.startsWith(PORT_DIR) ||
+                p in STORE_OWNER_FILES ||
+                isPort(p) ||
                 p == MARKER_FILE ||
-                IMPL_DIRS.any { p.startsWith(it) }
+                isImplDir(p)
         }
 
         fun claimWriteAllowed(path: String): Boolean {
             val p = norm(path)
-            return p == CLAIM_SERVICE || p.startsWith(PORT_DIR) || p == MARKER_FILE || p in CLAIM_IMPL_FILES
+            return p == CLAIM_SERVICE || isPort(p) || p == MARKER_FILE || p in CLAIM_IMPL_FILES
         }
 
         // ---------------------------------------------------------------------------------------------------------
@@ -452,7 +469,11 @@ internal class WriteConfinementTest {
         private val OPT_IN = Regex("""@(?:file:)?(?:[\w.]*\.)?OptIn\s*\(([^)]*)\)""")
 
         /** An OPT-IN of StoreWrite is allowed only in the service and knowledge dirs (marker USE: see [storeWriteAllowed]). */
-        fun storeWriteOptInAllowed(path: String): Boolean = norm(path).let { p -> STORE_OWNER_DIRS.any { p.startsWith(it) } }
+        fun storeWriteOptInAllowed(path: String): Boolean =
+            norm(path).let { p ->
+                STORE_OWNER_DIRS.any { p.startsWith(it) } ||
+                    p in STORE_OWNER_FILES
+            }
 
         /** An OPT-IN of ClaimWrite is allowed only in ClaimService.kt (marker USE: see [claimWriteAllowed]). */
         fun claimWriteOptInAllowed(path: String): Boolean = norm(path) == CLAIM_SERVICE
@@ -535,7 +556,7 @@ internal class WriteConfinementTest {
         private fun carriesAny(pre: String): Boolean = carries(pre, STORE_WRITE) || carries(pre, CLAIM_WRITE)
 
         fun portProblems(sources: List<GuardSupport.Source>): List<String> {
-            val portModels = sources.map { model(it) }.filter { it.path.startsWith(PORT_DIR) }
+            val portModels = sources.map { model(it) }.filter { isPort(norm(it.path)) }
             val problems = mutableListOf<String>()
             for (c in CONFINED) {
                 val other = if (c.marker == STORE_WRITE) CLAIM_WRITE else STORE_WRITE
@@ -683,7 +704,7 @@ internal class WriteConfinementTest {
 
     private val storePortPath = "application/port/ItemStore.kt"
     private val storeImplPath = "infrastructure/sqlite/repository/SqliteItemStore.kt"
-    private val claimImplPath = "infrastructure/sqlite/repository/SqliteClaimStore.kt"
+    private val claimImplPath = "claim/internal/sqlite/SqliteClaimStore.kt"
     private val portPackage = "io.github.jpicklyk.mcptask.current.platform.port"
 
     // =========================================================================================================
@@ -815,6 +836,9 @@ internal class WriteConfinementTest {
             "infrastructure/sqlite/repository/nested/Deep.kt",
             "infrastructure/sqlite/knowledge/SqliteDocumentStore.kt",
             "infrastructure/sqlite/knowledge/nested/Deep.kt",
+            "claim/ClaimStore.kt",
+            "claim/internal/sqlite/SqliteClaimStore.kt",
+            "claim/internal/sqlite/nested/Deep.kt",
             "application\\service\\X.kt"
         ).forEach { assertTrue(storeWriteAllowed(it), "StoreWrite must be allowed in: $it") }
         listOf(
@@ -826,25 +850,36 @@ internal class WriteConfinementTest {
             "application/portal/A.kt",
             "application/knowledgebase/A.kt",
             "infrastructure/sqlite/repositoryx/A.kt",
+            "claim/Other.kt",
+            "claim/internal/app/A.kt",
+            "claim/internal/wire/A.kt",
+            "claim/internal/sqlitex/A.kt",
+            "claim/sqlite/A.kt",
+            "platform/internal/sqlite/A.kt",
             "CurrentMain.kt",
             "application\\tools\\X.kt"
         ).forEach { assertFalse(storeWriteAllowed(it), "StoreWrite must be denied in: $it") }
 
         listOf(
             CLAIM_SERVICE,
-            "application/port/ClaimStore.kt",
+            "claim/ClaimStore.kt",
+            "application/port/LeaseStore.kt",
             "infrastructure/sqlite/repository/SQLiteWorkItemRepository.kt",
             "infrastructure/sqlite/repository/SQLiteResourceLeaseRepository.kt",
-            "infrastructure/sqlite/repository/SqliteClaimStore.kt",
-            "application\\service\\ClaimService.kt"
+            "claim/internal/sqlite/SqliteClaimStore.kt",
+            "claim\\ClaimService.kt"
         ).forEach { assertTrue(claimWriteAllowed(it), "ClaimWrite must be allowed in: $it") }
         listOf(
             "application/service/AdvanceService.kt",
-            "application/service/ClaimServiceHelper.kt",
-            "application/service/nested/ClaimService.kt",
+            "application/service/ClaimService.kt",
+            "claim/ClaimServiceHelper.kt",
+            "claim/nested/ClaimService.kt",
+            "claim/Other.kt",
+            "claim/internal/app/SqliteClaimStore.kt",
+            "claim/internal/sqlite/nested/SqliteClaimStore.kt",
+            "infrastructure/sqlite/repository/SqliteClaimStore.kt",
             "application/knowledge/document/DocumentService.kt",
             "infrastructure/sqlite/repository/SqliteItemStore.kt",
-            "infrastructure/sqlite/repository/nested/SqliteClaimStore.kt",
             "infrastructure/sqlite/knowledge/SqliteDocumentStore.kt",
             "interfaces/api/v1/routes/ResourceLeaseRoutes.kt",
             "CurrentMain.kt"

@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.read
 
-import io.github.jpicklyk.mcptask.current.application.port.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
+import io.github.jpicklyk.mcptask.current.claim.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockingEdge
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType

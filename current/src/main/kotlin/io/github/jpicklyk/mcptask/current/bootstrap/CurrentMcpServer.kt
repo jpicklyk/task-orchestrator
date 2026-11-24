@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepException
+import io.github.jpicklyk.mcptask.current.claim.internal.wire.ExpirySweeper
 import io.github.jpicklyk.mcptask.current.event.internal.wire.ApiEventBus
 import io.github.jpicklyk.mcptask.current.event.internal.wire.eventRoutes
 import io.github.jpicklyk.mcptask.current.identity.ApiAuthConfig
@@ -18,7 +19,6 @@ import io.github.jpicklyk.mcptask.current.identity.internal.app.McpAuthResolutio
 import io.github.jpicklyk.mcptask.current.identity.internal.wire.mcp.McpBearerAuth
 import io.github.jpicklyk.mcptask.current.identity.internal.wire.mcp.McpSessionPrincipals
 import io.github.jpicklyk.mcptask.current.identity.internal.wire.rest.ApiBearerAuth
-import io.github.jpicklyk.mcptask.current.infrastructure.ExpirySweeper
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.cors.configureCors
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.directorOpsRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.opsRoutes

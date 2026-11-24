@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.service.ClaimService
+import io.github.jpicklyk.mcptask.current.claim.ClaimService
 import io.github.jpicklyk.mcptask.current.test.EnvelopeConformance
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase

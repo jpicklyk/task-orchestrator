@@ -1,5 +1,6 @@
-package io.github.jpicklyk.mcptask.current.application.service
+package io.github.jpicklyk.mcptask.current.claim
 
+import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimState
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode

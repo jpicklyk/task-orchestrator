@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.api.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
+import io.github.jpicklyk.mcptask.current.claim.ok
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.platform.sqlite.SqliteUnitOfWork

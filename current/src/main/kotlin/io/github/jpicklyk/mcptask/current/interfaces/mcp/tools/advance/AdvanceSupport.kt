@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance
 
-import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.LifecycleStoreProvider
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceErrors
-import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
+import io.github.jpicklyk.mcptask.current.claim.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.NONE_ROLE_WIRE
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
+import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail

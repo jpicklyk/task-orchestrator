@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools
 
-import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
-import io.github.jpicklyk.mcptask.current.application.service.FenceGuard
+import io.github.jpicklyk.mcptask.current.claim.FenceGuard
+import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem

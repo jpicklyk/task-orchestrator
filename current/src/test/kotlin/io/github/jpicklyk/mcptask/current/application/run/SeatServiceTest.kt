@@ -1,15 +1,15 @@
 package io.github.jpicklyk.mcptask.current.application.run
 
 import io.github.jpicklyk.mcptask.current.application.port.AssigneeHolder
-import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.InFlightSeat
-import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
-import io.github.jpicklyk.mcptask.current.application.service.ClaimService
+import io.github.jpicklyk.mcptask.current.claim.ClaimResult
+import io.github.jpicklyk.mcptask.current.claim.ClaimService
 import io.github.jpicklyk.mcptask.current.event.internal.wire.ApiEventBus
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.BaselineDataset
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.str
+import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.ErrorDetail

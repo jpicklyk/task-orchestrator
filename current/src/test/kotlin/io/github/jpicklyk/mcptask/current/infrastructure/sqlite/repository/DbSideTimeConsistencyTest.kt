@@ -1,12 +1,12 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
-import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
-import io.github.jpicklyk.mcptask.current.application.port.EligibilityQuery
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.LeaseInput
 import io.github.jpicklyk.mcptask.current.application.service.OwnershipInput
 import io.github.jpicklyk.mcptask.current.application.service.TransitionSnapshotLoader
+import io.github.jpicklyk.mcptask.current.claim.ClaimResult
+import io.github.jpicklyk.mcptask.current.claim.EligibilityQuery
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.GateId
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionPolicy

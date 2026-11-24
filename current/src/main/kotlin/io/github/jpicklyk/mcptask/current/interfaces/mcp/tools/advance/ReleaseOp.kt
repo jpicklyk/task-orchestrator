@@ -2,7 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance
 
 import io.github.jpicklyk.mcptask.current.application.api.advance.ReleaseRequest
 import io.github.jpicklyk.mcptask.current.application.port.LifecycleStoreProvider
-import io.github.jpicklyk.mcptask.current.application.port.ReleaseResult
+import io.github.jpicklyk.mcptask.current.claim.ReleaseResult
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.call.ApiCapability

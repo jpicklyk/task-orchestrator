@@ -1,9 +1,7 @@
-package io.github.jpicklyk.mcptask.current.application.service
+package io.github.jpicklyk.mcptask.current.claim
 
-import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
-import io.github.jpicklyk.mcptask.current.application.port.ReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.str

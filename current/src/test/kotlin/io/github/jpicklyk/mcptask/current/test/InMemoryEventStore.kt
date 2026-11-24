@@ -9,7 +9,7 @@ import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.ClaimService
+import io.github.jpicklyk.mcptask.current.claim.ClaimService
 import io.github.jpicklyk.mcptask.current.platform.port.AccessScope
 import io.github.jpicklyk.mcptask.current.platform.port.EventPage
 import io.github.jpicklyk.mcptask.current.platform.port.EventRecord

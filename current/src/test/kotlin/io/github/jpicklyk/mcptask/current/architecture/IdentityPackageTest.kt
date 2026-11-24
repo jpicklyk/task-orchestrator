@@ -292,8 +292,12 @@ class IdentityPackageTest {
     private val currentRoot = "io\\.github\\.jpicklyk\\.mcptask\\.current"
     private val applicationApi = Regex("""(?<![A-Za-z0-9_])$currentRoot\.(?:application\.api|platform\.call|platform\.request)\b""")
 
-    /** The legacy `application/service` node: its own folder and the `platform/` folders that took its files. */
-    private val serviceNodePaths = listOf("application/service/", "platform/eventrecording/", "platform/idempotency/")
+    /**
+     * The legacy `application/service` node: its own folder, the `platform/` folders that took its files, and the services
+     * that left it with their slice (a file path: the guard follows each service to its slice path, it never shrinks).
+     */
+    private val serviceNodePaths =
+        listOf("application/service/", "platform/eventrecording/", "platform/idempotency/", "claim/ClaimService.kt", "claim/FenceGuard.kt")
 
     private fun isServiceNode(path: String): Boolean = serviceNodePaths.any { GuardSupport.normalizedPath(path).startsWith(it) }
 
@@ -333,7 +337,10 @@ class IdentityPackageTest {
                 synthetic("platform/eventrecording/G.kt", "import $call.CallContext"),
                 synthetic("platform/idempotency/H.kt", "val p = $call.Principal"),
                 synthetic("platform/port/I.kt", "import $call.Principal"),
-                synthetic("application/service/J.kt", "import $request.Doc")
+                synthetic("application/service/J.kt", "import $request.Doc"),
+                synthetic("claim/ClaimService.kt", "import $api.ActorAware"),
+                synthetic("claim/FenceGuard.kt", "val p = $call.Principal"),
+                synthetic("claim/ClaimStore.kt", "import $api.ActorAware")
             )
         assertEquals(
             setOf(
@@ -342,7 +349,9 @@ class IdentityPackageTest {
                 "application/service/C.kt",
                 "platform/eventrecording/G.kt",
                 "platform/idempotency/H.kt",
-                "application/service/J.kt"
+                "application/service/J.kt",
+                "claim/ClaimService.kt",
+                "claim/FenceGuard.kt"
             ),
             serviceImportingApi(seeded).toSet()
         )

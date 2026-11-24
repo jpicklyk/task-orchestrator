@@ -7,7 +7,7 @@ import io.github.jpicklyk.mcptask.current.application.port.RunDecisionPort
 import io.github.jpicklyk.mcptask.current.application.port.RunSeatPort
 import io.github.jpicklyk.mcptask.current.application.port.RunStore
 import io.github.jpicklyk.mcptask.current.application.port.RunStoreProvider
-import io.github.jpicklyk.mcptask.current.application.service.ClaimService
+import io.github.jpicklyk.mcptask.current.claim.ClaimService
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode

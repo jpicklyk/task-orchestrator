@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.runs
 
-import io.github.jpicklyk.mcptask.current.application.service.ClaimService
-import io.github.jpicklyk.mcptask.current.infrastructure.ExpirySweeper
+import io.github.jpicklyk.mcptask.current.claim.ClaimService
+import io.github.jpicklyk.mcptask.current.claim.internal.wire.ExpirySweeper
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.platform.port.EventRecord

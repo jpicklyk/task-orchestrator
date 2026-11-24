@@ -1,7 +1,8 @@
-package io.github.jpicklyk.mcptask.current.application.service
+package io.github.jpicklyk.mcptask.current.claim
 
-import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.str
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType

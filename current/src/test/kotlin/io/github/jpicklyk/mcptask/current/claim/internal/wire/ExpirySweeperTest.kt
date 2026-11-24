@@ -1,11 +1,11 @@
-package io.github.jpicklyk.mcptask.current.infrastructure
+package io.github.jpicklyk.mcptask.current.claim.internal.wire
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.service.CLAIM_T
-import io.github.jpicklyk.mcptask.current.application.service.ClaimRig
-import io.github.jpicklyk.mcptask.current.application.service.ClaimService
-import io.github.jpicklyk.mcptask.current.application.service.ExpirySweep
-import io.github.jpicklyk.mcptask.current.application.service.ok
+import io.github.jpicklyk.mcptask.current.claim.CLAIM_T
+import io.github.jpicklyk.mcptask.current.claim.ClaimRig
+import io.github.jpicklyk.mcptask.current.claim.ClaimService
+import io.github.jpicklyk.mcptask.current.claim.ExpirySweep
+import io.github.jpicklyk.mcptask.current.claim.ok
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.platform.port.WriteScope

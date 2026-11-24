@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.port.EligibilityQuery
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.claim.EligibilityQuery
 import io.github.jpicklyk.mcptask.current.model.item.NextItemOrder
 import io.github.jpicklyk.mcptask.current.model.item.Priority
 import io.github.jpicklyk.mcptask.current.model.item.Role

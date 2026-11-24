@@ -1,6 +1,7 @@
-package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
+package io.github.jpicklyk.mcptask.current.claim.internal.sqlite
 
-import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
+import io.github.jpicklyk.mcptask.current.claim.ClaimResult
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.P7Raw
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking

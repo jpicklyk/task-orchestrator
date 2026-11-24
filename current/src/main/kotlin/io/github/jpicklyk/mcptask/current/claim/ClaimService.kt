@@ -1,14 +1,11 @@
 @file:OptIn(ClaimWrite::class)
 
-package io.github.jpicklyk.mcptask.current.application.service
+package io.github.jpicklyk.mcptask.current.claim
 
-import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
-import io.github.jpicklyk.mcptask.current.application.port.DisplacedClaim
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseIntervalPage
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
-import io.github.jpicklyk.mcptask.current.application.port.ReleaseResult
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.claim.ClaimState
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.event.ClaimExpiryReason
@@ -69,7 +66,7 @@ data class ExpirySweep(
  *   lapsed claim via [detectExpiry], and the hourly [sweepExpired] backstops everything else.
  */
 class ClaimService(
-    private val repositoryProvider: RepositoryProvider,
+    private val repositoryProvider: ClaimStoreProvider,
     private val unitOfWork: UnitOfWork<*>
 ) {
     // -------------------------------------------------------------------------
@@ -94,11 +91,11 @@ class ClaimService(
     ): Outcome<ClaimResult> =
         unitOfWork.writeOutcome("ClaimService.claim") {
             val agentId = holder.principalId
-            val items = repositoryProvider.workItemRepository()
-            val prior = items.getById(itemId)
-            val heldBefore = items.findHeldBy(agentId, holder.assignmentId).associateBy { it.id }
+            val claims = repositoryProvider.claimStore()
+            val prior = repositoryProvider.claimItems().getById(itemId)
+            val heldBefore = claims.findHeldBy(agentId, holder.assignmentId).associateBy { it.id }
 
-            var result = items.claim(itemId, agentId, ttlSeconds, holder.assignmentId)
+            var result = claims.claim(itemId, agentId, ttlSeconds, holder.assignmentId)
             when (result) {
                 is ClaimResult.Success -> {
                     val out = mutableListOf<DomainEvent>()
@@ -149,8 +146,8 @@ class ClaimService(
         holder: ClaimHolder
     ): Outcome<ReleaseResult> =
         unitOfWork.writeOutcome("ClaimService.release") {
-            val prior = repositoryProvider.workItemRepository().getById(itemId)
-            val result = repositoryProvider.workItemRepository().release(itemId, holder.principalId, holder.assignmentId)
+            val prior = repositoryProvider.claimItems().getById(itemId)
+            val result = repositoryProvider.claimStore().release(itemId, holder.principalId, holder.assignmentId)
             if (result is ReleaseResult.Success) {
                 val lapsed = prior?.takeIf { isLapsed(it, now) }
                 if (lapsed != null) {
@@ -172,8 +169,8 @@ class ClaimService(
         reason: ClaimReleaseReason = ClaimReleaseReason.CLEARED
     ): Outcome<Boolean> =
         unitOfWork.writeOutcome("ClaimService.clearClaim") {
-            val prior = repositoryProvider.workItemRepository().getById(itemId)
-            val result = repositoryProvider.workItemRepository().clear(itemId)
+            val prior = repositoryProvider.claimItems().getById(itemId)
+            val result = repositoryProvider.claimStore().clear(itemId)
             if (result && prior?.claimedBy != null) {
                 if (isLapsed(prior, now)) {
                     events.record(newClaimExpiredEvents(listOf(prior), now))
@@ -325,7 +322,7 @@ class ClaimService(
      */
     suspend fun sweepExpired(): Outcome<ExpirySweep> =
         unitOfWork.writeOutcome("ClaimService.sweepExpired") {
-            val claimEvents = newClaimExpiredEvents(repositoryProvider.workItemRepository().findLapsedClaims(), now)
+            val claimEvents = newClaimExpiredEvents(repositoryProvider.claimStore().findLapsedClaims(), now)
             val leases = repositoryProvider.resourceLeaseRepository()
             val lapsedLeases = leases.findLapsed()
             if (lapsedLeases.isNotEmpty()) leases.deleteLapsed(lapsedLeases.mapTo(HashSet()) { it.id })
@@ -397,12 +394,12 @@ class ClaimService(
     private suspend fun leaseExpiredEvents(lapsed: List<ResourceLease>): List<DomainEvent> =
         lapsed.map { DomainEvent.LeaseExpired(it.holderItemId, rootOfId(it.holderItemId), it.resourceKey, it.expiresAt) }
 
-    private suspend fun rootOf(item: WorkItem): UUID = eventRootOf(item, repositoryProvider.workItemRepository())
+    private suspend fun rootOf(item: WorkItem): UUID = eventRootOf(item, repositoryProvider.claimItems())
 
     private suspend fun rootOfId(itemId: UUID): UUID {
-        val hierarchy = repositoryProvider.workItemRepository()
-        val item = repositoryProvider.workItemRepository().getById(itemId)
-        return if (item != null) eventRootOf(item, hierarchy) else eventRootOf(itemId, hierarchy)
+        val items = repositoryProvider.claimItems()
+        val item = items.getById(itemId)
+        return if (item != null) eventRootOf(item, items) else eventRootOf(itemId, items)
     }
 
     companion object {

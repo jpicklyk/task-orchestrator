@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.platform.support
 
-import io.github.jpicklyk.mcptask.current.application.port.HierarchyStore
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
+import io.github.jpicklyk.mcptask.current.platform.port.AncestorChains
 import java.util.UUID
 
 /**
@@ -10,11 +10,11 @@ import java.util.UUID
  */
 suspend fun eventRootOf(
     item: WorkItem,
-    hierarchy: HierarchyStore
+    hierarchy: AncestorChains
 ): UUID = item.rootId ?: eventRootOf(item.id, hierarchy)
 
 /** [eventRootOf] for an item known only by id: the first id of its ancestor chain, else the id itself. */
 suspend fun eventRootOf(
     itemId: UUID,
-    hierarchy: HierarchyStore
+    hierarchy: AncestorChains
 ): UUID = hierarchy.findAncestorChains(setOf(itemId))[itemId]?.firstOrNull()?.id ?: itemId

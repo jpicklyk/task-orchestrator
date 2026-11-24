@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
 import io.github.jpicklyk.mcptask.current.model.item.BlockedReason
+import io.github.jpicklyk.mcptask.current.model.item.ItemSlice
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem
 import io.github.jpicklyk.mcptask.current.model.schema.SchemaPin
@@ -11,11 +12,11 @@ import java.util.UUID
 /**
  * Item CRUD and queries: the part of the work-item store that reads and writes item rows by id,
  * parent, filter or scope. Claim state, hierarchy walks and full-text search live in
- * [ClaimStore], [HierarchyStore] and [SearchIndex].
+ * `ClaimStore`, [HierarchyStore] and [SearchIndex].
  *
  * Every row is returned: a stored row that fails domain validation is NOT dropped, it comes back
  * with [WorkItem.diagnostics] listing its violations (the mapper is total). Writes validate.
- * [update] never writes the claim columns; those belong to [ClaimStore].
+ * [update] never writes the claim columns; those belong to `ClaimStore`.
  */
 interface ItemStore {
     /**
@@ -328,15 +329,6 @@ interface ItemStore {
         scope: AccessScope = AccessScope.unrestricted(),
     ): ItemSlice
 }
-
-/**
- * One page of items plus [total]: the exact number of items the query selects across all pages,
- * counted in the same transaction as [items].
- */
-data class ItemSlice(
-    val items: List<WorkItem>,
-    val total: Int,
-)
 
 /**
  * Result of a bulk row-fetch.

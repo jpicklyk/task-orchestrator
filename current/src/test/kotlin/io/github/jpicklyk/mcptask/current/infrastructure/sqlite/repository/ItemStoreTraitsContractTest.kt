@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
-import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
-import io.github.jpicklyk.mcptask.current.application.port.EligibilityQuery
 import io.github.jpicklyk.mcptask.current.application.port.ItemFilter
 import io.github.jpicklyk.mcptask.current.application.port.ItemPage
+import io.github.jpicklyk.mcptask.current.claim.ClaimResult
+import io.github.jpicklyk.mcptask.current.claim.EligibilityQuery
 import io.github.jpicklyk.mcptask.current.model.item.Priority
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem

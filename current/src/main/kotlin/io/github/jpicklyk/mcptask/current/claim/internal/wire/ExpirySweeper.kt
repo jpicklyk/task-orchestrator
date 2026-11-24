@@ -1,7 +1,7 @@
-package io.github.jpicklyk.mcptask.current.infrastructure
+package io.github.jpicklyk.mcptask.current.claim.internal.wire
 
-import io.github.jpicklyk.mcptask.current.application.service.ClaimService
-import io.github.jpicklyk.mcptask.current.application.service.ExpirySweep
+import io.github.jpicklyk.mcptask.current.claim.ClaimService
+import io.github.jpicklyk.mcptask.current.claim.ExpirySweep
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.platform.support.rethrowIfCancellation
 import kotlinx.coroutines.CoroutineScope

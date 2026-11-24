@@ -10,6 +10,8 @@ import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.LifecycleStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.claim.ClaimService
+import io.github.jpicklyk.mcptask.current.claim.FenceGuard
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockerEvaluator
 import io.github.jpicklyk.mcptask.current.domain.graph.UnsatisfiedBlocker
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
@@ -24,6 +26,7 @@ import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.cascadeSeatAllowed
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.wireOrNone
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
+import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind

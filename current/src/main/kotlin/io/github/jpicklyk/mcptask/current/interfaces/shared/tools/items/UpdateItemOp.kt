@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.port.WorkflowStoreProvider
-import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
 import io.github.jpicklyk.mcptask.current.application.service.ItemPatchCommand
 import io.github.jpicklyk.mcptask.current.application.service.ParentChange
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
+import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.model.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.model.error.Outcome

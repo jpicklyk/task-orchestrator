@@ -6,8 +6,8 @@ import io.github.jpicklyk.mcptask.current.application.run.RunCloseHook
 import io.github.jpicklyk.mcptask.current.application.run.RunEndedSnapshot
 import io.github.jpicklyk.mcptask.current.application.run.RunOpenCommand
 import io.github.jpicklyk.mcptask.current.application.run.RunService
-import io.github.jpicklyk.mcptask.current.application.service.ClaimService
-import io.github.jpicklyk.mcptask.current.application.service.ok
+import io.github.jpicklyk.mcptask.current.claim.ClaimService
+import io.github.jpicklyk.mcptask.current.claim.ok
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
 import io.github.jpicklyk.mcptask.current.model.error.Outcome
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem

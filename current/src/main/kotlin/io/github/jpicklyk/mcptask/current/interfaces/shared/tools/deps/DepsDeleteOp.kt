@@ -2,7 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps
 
 import io.github.jpicklyk.mcptask.current.application.api.deps.DepsDeleteRequest
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStoreProvider
-import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
+import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.EntityKind
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode

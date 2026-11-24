@@ -1,7 +1,11 @@
-package io.github.jpicklyk.mcptask.current.application.service
+package io.github.jpicklyk.mcptask.current.model.claim
 
-import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
-import io.github.jpicklyk.mcptask.current.application.port.ReleaseResult
+import io.github.jpicklyk.mcptask.current.claim.CLAIM_T
+import io.github.jpicklyk.mcptask.current.claim.ClaimResult
+import io.github.jpicklyk.mcptask.current.claim.ClaimRig
+import io.github.jpicklyk.mcptask.current.claim.FenceGuard
+import io.github.jpicklyk.mcptask.current.claim.ReleaseResult
+import io.github.jpicklyk.mcptask.current.claim.ok
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.str
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
 import io.github.jpicklyk.mcptask.current.model.claim.ActorKind

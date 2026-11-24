@@ -7,13 +7,13 @@ import kotlin.test.assertTrue
 /**
  * Claim-predicate confinement guard (P7, AR-43): "is this claim still active?" has ONE definition. A comparison of
  * `claimExpiresAt` / `claim_expires_at` (an ordering operator, `isAfter` / `isBefore`, or an Exposed `less` /
- * `greater` call) may appear only in `ClaimState.kt` (the Kotlin predicate) and `SqliteClaimStore.kt` (the SQL
+ * `greater` call) may appear only in `ClaimState.kt` (the Kotlin predicate) and `ClaimPredicates.kt` (the SQL
  * builder). Anywhere else a freshness decision would drift from the single boundary rule (expiry equal to now is
  * expired). Counted per file against the two-way ratcheted baseline `claim-predicate-baseline.txt`, which is empty.
  */
 class ClaimPredicateConfinementTest {
     companion object {
-        val ALLOWED = setOf("model/claim/ClaimState.kt", "infrastructure/sqlite/repository/SqliteClaimStore.kt")
+        val ALLOWED = setOf("model/claim/ClaimState.kt", "platform/sqlite/repository/ClaimPredicates.kt")
         const val BASELINE = "claim-predicate-baseline.txt"
 
         private val FIELD = Regex("""claimExpiresAt|claim_expires_at""")

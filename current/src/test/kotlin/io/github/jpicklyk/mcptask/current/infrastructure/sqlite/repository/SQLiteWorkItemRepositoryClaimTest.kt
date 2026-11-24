@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
-import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
-import io.github.jpicklyk.mcptask.current.application.port.ReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.claim.ClaimResult
+import io.github.jpicklyk.mcptask.current.claim.ReleaseResult
 import io.github.jpicklyk.mcptask.current.model.error.ValidationException
 import io.github.jpicklyk.mcptask.current.model.item.Role
 import io.github.jpicklyk.mcptask.current.model.item.WorkItem

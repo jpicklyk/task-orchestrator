@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.domain.graph.BlockingEdge
 import io.github.jpicklyk.mcptask.current.domain.graph.TopoOrder
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SeatCaller
 import io.github.jpicklyk.mcptask.current.model.claim.ActorClaim
+import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.config.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.dependency.DependencyType
@@ -91,7 +92,7 @@ sealed interface TreeRootInput {
  * [docRootRef] is its project root as the caller wrote it (a UUID or hex prefix), matched against the tree's own root
  * and never looked up, so a foreign or unknown id is the same `invalid_request` and reveals nothing. The note actor is
  * [actorClaim] / [verification] for every note the tree writes. [caller] is who the tree's dependency and note writes
- * are fenced for ([FenceGuard]); new items are unclaimed, so only an attached root can be fenced.
+ * are fenced for (`FenceGuard`); new items are unclaimed, so only an attached root can be fenced.
  */
 data class WorkTreeRequest(
     val root: TreeRootInput,

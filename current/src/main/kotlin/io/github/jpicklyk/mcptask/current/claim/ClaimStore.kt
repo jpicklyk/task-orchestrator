@@ -1,5 +1,6 @@
-package io.github.jpicklyk.mcptask.current.application.port
+package io.github.jpicklyk.mcptask.current.claim
 
+import io.github.jpicklyk.mcptask.current.model.item.ItemSlice
 import io.github.jpicklyk.mcptask.current.model.item.NextItemOrder
 import io.github.jpicklyk.mcptask.current.model.item.Priority
 import io.github.jpicklyk.mcptask.current.model.item.Role
@@ -17,7 +18,7 @@ data class DisplacedClaim(
 )
 
 /**
- * Sealed result type for [WorkItemRepository.claim] operations.
+ * Sealed result type for `WorkItemRepository.claim` operations.
  *
  * - [Success] — the claim was atomically placed (or refreshed for same agent). [item] reflects DB state after the claim.
  * - [AlreadyClaimed] — another agent holds a live (non-expired) claim. [retryAfterMs] is a hint for backoff.
@@ -70,7 +71,7 @@ sealed class ClaimResult {
 }
 
 /**
- * Sealed result type for [WorkItemRepository.release] operations.
+ * Sealed result type for `WorkItemRepository.release` operations.
  *
  * - [Success] — the claim was cleared; [item] reflects DB state after release.
  * - [NotClaimedByYou] — the item is claimed by a different agent (or is unclaimed).

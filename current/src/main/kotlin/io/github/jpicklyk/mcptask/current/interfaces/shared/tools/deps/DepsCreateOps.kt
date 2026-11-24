@@ -8,7 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.api.deps.DepsLinearRequest
 import io.github.jpicklyk.mcptask.current.application.api.deps.UnblockAt
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStoreProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.ClaimHolder
+import io.github.jpicklyk.mcptask.current.model.claim.ClaimHolder
 import io.github.jpicklyk.mcptask.current.model.dependency.Dependency
 import io.github.jpicklyk.mcptask.current.model.error.DomainError
 import io.github.jpicklyk.mcptask.current.model.error.ErrorCode
