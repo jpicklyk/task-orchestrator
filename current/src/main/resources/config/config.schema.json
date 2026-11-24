@@ -48,7 +48,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "stall_after": { "description": "Seconds without coordinator activity before a run counts as stalled (default 600).", "type": "integer", "minimum": 1, "maximum": 2147483647 },
+        "stall_after": { "description": "Seconds without activity from the run's orchestrator before a run counts as stalled (default 600).", "type": "integer", "minimum": 1, "maximum": 2147483647 },
         "budgets": {
           "description": "Ceilings a run's own budget may not exceed.",
           "type": "object",

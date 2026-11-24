@@ -27,7 +27,7 @@ internal val runsOpenOp =
         name = "open",
         doc =
             "Open a run on a root over up to 500 of its items. The caller is recorded as the opener. An item already in " +
-                "an open run is duplicate. Returns the run and coordinatorToken, the run's coordinator credential (shown " +
+                "an open run is duplicate. Returns the run and coordinatorToken, the run token, held by the run's orchestrator (shown " +
                 "once; a keyed replay omits it and returns tokenRedacted: true): pass it as the top-level seatToken to " +
                 "update, assign and close.",
         profiles = orchestration() + director(),
@@ -99,7 +99,7 @@ private suspend fun WriteScope<RunStoreProvider>.openRun(
             is Outcome.Ok -> r.value
             is Outcome.Err -> return r
         }
-    // The coordinator pseudo-seat joins the op's unit: a run is never stored without its coordinator.
+    // The `coordinator` pseudo-seat joins the op's unit: a run is never stored without it.
     val coordinator =
         when (val r = env.seatService.openCoordinator(opened, RunPermissions.callerId(ctx))) {
             is Outcome.Ok -> r.value

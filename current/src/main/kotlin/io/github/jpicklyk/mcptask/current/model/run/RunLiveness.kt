@@ -29,7 +29,7 @@ object RunLiveness {
         stallAfterSeconds: Int
     ): Boolean = seat.isActive && isStalled(seatReference(seat), now, stallAfterSeconds)
 
-    /** True iff [run] is not closed and its coordinator ([Run.coordinatorSeenAt]) is stalled. */
+    /** True iff [run] is not closed and its orchestrator ([Run.coordinatorSeenAt]) is stalled. */
     fun isCoordinatorStalled(
         run: Run,
         now: Instant

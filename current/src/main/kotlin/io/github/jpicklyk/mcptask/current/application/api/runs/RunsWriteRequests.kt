@@ -38,7 +38,8 @@ data class RunBudgetRequest(
 private const val BUDGET_DOC =
     "Run budget: attemptsPerSeat, maxActiveSeats; absent means no cap. On open it may not exceed a " +
         "configured ceiling; on update a field can only be lowered or newly set."
-private const val HINTS_DOC = "Short structured coordinator hints, string to string. On update they replace the stored hints."
+private const val HINTS_DOC =
+    "Short structured hints for the run's orchestrator, string to string. On update they replace the stored hints."
 private const val ITEM_DOC = "Item id: UUID or 8-32 hex."
 private const val LINKS_DOC = "Up to 10 {kind, ref} pointers; kind is item, note, doc, commit or url."
 private const val ROOT_DOC = "The root item the run belongs to. Item id: UUID or 8-32 hex."
@@ -68,7 +69,7 @@ data class RunsOpenRequest(
     @Doc("A short label, at most 64 characters.") val label: String? = null,
     @Doc("A title, at most 200 characters.") val title: String? = null,
     @Doc(BUDGET_DOC) val budget: RunBudgetRequest? = null,
-    @Doc("Seconds without a coordinator sign of life before the run reads as stalled. Default from config.")
+    @Doc("Seconds without a sign of life from the run's orchestrator before the run reads as stalled. Default from config.")
     val stallAfterSeconds: Int? = null,
     @Doc(HINTS_DOC) val hints: Map<String, String>? = null
 )
@@ -104,7 +105,7 @@ data class RunsResumeRequest(
     @Doc(RUN_ID_DOC) val runId: IdRef
 )
 
-/** `runs_write assign`: the coordinator assigns a seat of a member item and receives the seat token. */
+/** `runs_write assign`: the run's orchestrator assigns a seat of a member item and receives the seat token. */
 @Serializable
 data class RunsAssignRequest(
     @Doc(RUN_ID_DOC) val runId: IdRef,

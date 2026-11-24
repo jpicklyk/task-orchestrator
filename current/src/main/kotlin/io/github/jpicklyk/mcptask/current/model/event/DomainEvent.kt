@@ -714,7 +714,7 @@ sealed class DomainEvent {
                 )
     }
 
-    /** A pending decision request was withdrawn by its raiser or the run's coordinator. */
+    /** A pending decision request was withdrawn by its raiser or the run's orchestrator. */
     data class DecisionWithdrawn(
         override val entityId: UUID,
         override val rootId: UUID,

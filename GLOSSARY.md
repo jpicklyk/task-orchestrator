@@ -47,7 +47,7 @@ In code: `OwningSeat`, `WorkItemSchema.owningSeatOf()`.
 The seat named `orchestrator`, a reserved name: the position for notes the orchestrator writes itself, rather than a seat's agent. Inside a run the orchestrator writes them with the run's token; outside a run it writes them directly. It owns the notes labelled for it in any phase it is declared, not only its own. No agent is ever dispatched to it, so it is never a stage of a run.
 
 Distinct from: the orchestrator, the session layer that writes this seat's notes. The seat is a position in a schema; the orchestrator is who acts.
-In code: `SeatDefinition.COORDINATOR_WRITABLE_SEAT` (to be renamed `ORCHESTRATOR_WRITABLE_SEAT`). The run planner skips it as a stage (`run-planner-lib.mjs`).
+In code: `SeatDefinition.ORCHESTRATOR_WRITABLE_SEAT`. The run planner skips it as a stage (`run-planner-lib.mjs`).
 Example: `session-tracking` declared with `seat: orchestrator` is written by whoever drives the item. On a run, that is the run's orchestrator; for a hand-dispatched item, it is the user's session.
 
 ## Session layers

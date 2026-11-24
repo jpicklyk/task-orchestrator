@@ -88,7 +88,7 @@ data class DecisionRequestAnswer(
 )
 
 /**
- * One decision request (`decision_requests`): a bounded question a run, a seat or a coordinator raised under root
+ * One decision request (`decision_requests`): a bounded question a run, a seat or an orchestrator raised under root
  * [rootId], optionally about run [runId] and member [itemId], waiting for an answer from [answerers].
  *
  * [scopeKey] is the item id text when [itemId] is set, else the run id text, else [SCOPE_ROOT]; at most one
