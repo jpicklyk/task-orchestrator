@@ -321,7 +321,14 @@ class ItemsWriteDerivedFromTest {
                     }
                 )
             )
-        assertRejected(f.k, create(r1, bad), "invalid_request")
+        assertRejected(f.k, create(r1, bad), "invalid_request", "/links/0/relation")
+        assertRejected(
+            f.k,
+            twTree(twRoot("T"), listOf(twChild("a", extra = listOf("links" to bad))), extra = listOf("parentId" to jstr(r1.toString()))),
+            "invalid_request",
+            "/children/0/links/0/relation",
+            ToolProfile.ORCHESTRATION
+        )
         val explicit =
             JsonArray(
                 listOf(

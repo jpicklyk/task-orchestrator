@@ -47,7 +47,11 @@ internal fun parseItemLinks(
     }
     val refs = ArrayList<ItemDerivedFromRef>(links.size)
     for ((i, link) in links.withIndex()) {
-        val ref = ItemDerivedFromRef.parse(link.to)
+        // derived_from is the only relation the wire decodes; a new one must say here how its target parses.
+        val ref =
+            when (link.relation) {
+                ItemLinkRelationWire.DERIVED_FROM -> ItemDerivedFromRef.parse(link.to)
+            }
         if (ref == null) {
             violations += FieldViolation("$pointer/$i/to", "must be item:<id>#<key> or [plan:|page:|rule:]<slug>[#<anchor>]", link.to)
         } else {
