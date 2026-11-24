@@ -166,7 +166,7 @@ Example: after a user answers a decision on a red test, the orchestrator's re-di
 
 ## Readiness and acceptance
 
-These concepts come from the user-journey work (`plans/user-journey-map.html`) and are not yet in code. Each entry fixes the word before the code that introduces it. Method words such as epic, story, charter or increment are not Task Orchestrator concepts: a project's schema may name its item types and notes that way, and the tool reads them only as types and notes.
+These concepts come from the user-journey work ([design/](design/README.md)) and are not yet in code. Each entry fixes the word before the code that introduces it. Method words such as epic, story, charter or increment are not Task Orchestrator concepts: a project's schema may name its item types and notes that way, and the tool reads them only as types and notes.
 
 ### Building item
 
