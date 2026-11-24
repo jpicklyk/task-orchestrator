@@ -556,7 +556,14 @@ class ItemsWriteDerivedFromTest {
                     .call(create(r1, links("plan:rep", "item:$c1#goal"), "Keep"))
                     .envelope.body
                     .okId()
-            assertEquals(listOf(RefKind.DOCUMENT, RefKind.NOTE), f.k.linksFrom(keep).map { it.to?.kind }.sortedBy { it?.name }, "control")
+            assertEquals(
+                listOf(RefKind.DOCUMENT, RefKind.NOTE),
+                f.k
+                    .linksFrom(keep)
+                    .map { it.to?.kind }
+                    .sortedBy { it?.name },
+                "control"
+            )
 
             f.k.rig.ctx.noteCommandService
                 .delete(c1, "goal", caller = null)
