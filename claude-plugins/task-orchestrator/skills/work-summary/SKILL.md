@@ -20,19 +20,19 @@ Director mode is the session state entered by `/task-orchestrator:director` (or 
 
 A root is lifecycle-free when every type its own config declares is `lifecycle: none`: in `config` `effective`, every `schemas[]` entry with `configSource: "per-root"` has `lifecycleMode: "none"`. When `config` is not served on the connection, read the `work_item_schemas` of `.taskorchestrator/config.yaml` as a file instead. Its items have no role, so role counts and `childCounts` leave them out and the dashboard below has nothing to show. Render a short inventory from three reads instead.
 
-Total items (`page.total`):
+Total items: `ancestorId` includes the root itself, so the total is `page.total` minus one (the root is not an item to report):
 
 ```to-call
 {"tool": "items_read", "select": "list", "args": {"ancestorId": "9f3a1c22", "limit": 1}}
 ```
 
-The ten most recently modified items:
+The ten most recently modified items (the root itself can be in the answer: skip it, so ask for eleven and keep ten):
 
 ```to-call
-{"tool": "items_read", "select": "list", "args": {"ancestorId": "9f3a1c22", "sort": "modifiedAt", "order": "desc", "limit": 10}}
+{"tool": "items_read", "select": "list", "args": {"ancestorId": "9f3a1c22", "sort": "modifiedAt", "order": "desc", "limit": 11}}
 ```
 
-The root's pages:
+The root's pages (the number of pages is the answer's `page.total`, not the length of `items`, which a default page of 50 cuts off):
 
 ```to-call
 {"tool": "docs_read", "select": "list", "args": {"rootId": "9f3a1c22", "kind": "page"}}
