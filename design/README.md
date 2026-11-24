@@ -2,7 +2,7 @@
 
 Design and architecture documents for Task Orchestrator: how users work with it, which entry points they use, and what the server, plugin and config must support for that. Terms follow [GLOSSARY.md](../GLOSSARY.md).
 
-These documents record design intent and the evidence behind it. They are not implementation plans: a plan for one change stays in the gitignored `plans/` folder and is discarded once its work lands. When code and a document here disagree, the code is current and the document needs an update or a note that it is superseded.
+These documents record design intent and the evidence behind it, and [decisions/](decisions/README.md) records why each settled choice was made. They are not implementation plans: a plan for one change stays in the gitignored `plans/` folder and is discarded once its work lands. When code and a document here disagree, the code is current and the document needs an update or a note that it is superseded.
 
 ## Documents
 
@@ -12,6 +12,7 @@ These documents record design intent and the evidence behind it. They are not im
 | [entry-skills.html](entry-skills.html) | The user-facing entry skills, the interfaces each needs, decided calls, diagrams and the shared gaps | [Entry Skills Design](https://claude.ai/artifact/FCjDsifoWdKQNcYWy1f8xS) |
 | [journey-config-fit.html](journey-config-fit.html) | What a project's config can express for each journey, the real gaps, setup's template library and the knowledge-base guard rails | [Journey Config Fit](https://claude.ai/artifact/1wPBpYW8hCtXKd1hdYwbRD) |
 | [glossary-alignment.md](glossary-alignment.md) | Places where code, skills, hooks or docs disagree with the glossary, as candidate items | - |
+| [decisions/](decisions/README.md) | Decision records: one dated, never-edited record per architectural decision, superseded rather than changed | - |
 
 Open an HTML file directly in a browser, or use the published view. The published views are private to their owner.
 
@@ -31,11 +32,13 @@ Open an HTML file directly in a browser, or use the published view. The publishe
 
 ## Settled for the architecting phase
 
-- Method words (epic, story, charter, increment) are schema vocabulary, never Task Orchestrator concepts.
-- The certainty dial is judgement, held in conversation. Its outcomes are recorded as rulings, assumptions and acceptance grants.
-- Acceptance becomes a gate in the server, opt-in per type, satisfied the same way by every surface. Plan approval before the work is a conditional grant.
-- Setup picks one pre-built, tested template from a reference library, domain first, and records which template and version it applied.
-- Two domains: software development (primary) and keeping a knowledge base (first class, on the knowledge endpoint).
-- The `next` contract stays as decided; further changes are held.
+Each settled choice has a decision record; the [index](decisions/README.md) lists them all. The ones this design phase rests on most:
 
-Still open: whether the acceptance gate is a note satisfied by an answered decision or a new lifecycle step.
+- [0006](decisions/0006-method-words-are-schema-vocabulary.md) Method words are schema vocabulary, not tool concepts.
+- [0007](decisions/0007-certainty-is-judgement.md) The certainty dial is judgement held in conversation.
+- [0008](decisions/0008-acceptance-is-a-server-gate.md) Acceptance becomes a server gate; plan approval is a conditional grant.
+- [0009](decisions/0009-setup-applies-tested-templates.md) Setup applies one pre-built, tested template.
+- [0010](decisions/0010-two-domains.md) Two domains: software development and keeping a knowledge base.
+- [0004](decisions/0004-next-means-startable.md) `next` returns an item a build seat can start now; further changes are held.
+
+Still open: whether the acceptance gate is a note satisfied by an answered decision or a new lifecycle step (see 0008).
