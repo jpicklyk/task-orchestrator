@@ -79,7 +79,7 @@ This section is the single statement of the red-proof policy; other docs point h
 is a mutation or revert run against the item's own tests to confirm they can fail. It is a
 targeted spend, not a per-scenario mandate, and it runs at two different times: the proofs that
 establish a fix (points 1 and 6) run per item before merge; the budget mutations that audit test
-quality (points 2 and 3) run after merge, at the wave boundary (point 10).
+quality (points 2 and 3) run after merge (point 10).
 
 1. **Bug fix: always, per item, before merge.** Revert the fix and confirm the regression test
    fails before the fix and passes after. One run, scoped to that test class. Write the test from
@@ -104,15 +104,15 @@ quality (points 2 and 3) run after merge, at the wave boundary (point 10).
    every scenario asserting new behaviour gets a red check.
 7. **A surviving mutation is triage, not an automatic failure.** Classify it as weak test,
    equivalent mutant, unreachable, or covered at another seam (name the test) before demanding a
-   new test. A real gap found at the wave boundary does not reopen the merged item: it becomes a
+   new test. A real gap found by a post-merge red-proof does not reopen the merged item: it becomes a
    carry-in note on the next item touching that seam, or one test-only follow-up item per wave.
    Each survivor is classified on `red-proof-results`.
 8. **Reviewers read the recorded results; they do not re-run them**, except to verify a specific
    result they doubt, and then scoped to the test classes in question, never as the whole suite.
 9. **Record per item:** proofs run, gaps found, equivalents, and approximate minutes — pre-merge
-   results on the item, wave-boundary results on the wave parent's `red-proof-results` note (an ad hoc note: no schema declares it and no gate reads it).
-10. **Budget mutations run at the wave boundary, scoped.** After the wave's PRs merge (a single
-    item is its own wave), the orchestrator batches every item's budget in ONE scratch worktree
+   results on the item, post-merge results on the wave parent's `red-proof-results` note (an ad hoc note: no schema declares it and no gate reads it).
+10. **Budget mutations run post-merge, scoped.** After the PR that holds the work merges (a single
+    item is its own wave parent), the orchestrator batches every item's budget in ONE scratch worktree
     at the merged SHA, one mutation present at a time, and runs each only against the test
     classes the item's `test-manifest` maps to that scenario (`--tests`); one whole-suite run,
     incremental, only for a survivor, to tell "covered at another seam" from a real gap. Never

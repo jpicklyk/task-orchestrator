@@ -47,7 +47,7 @@ defaults, limits, budgets and ordering, and wording copied from an existing doc 
 until its source is opened.
 
 - Open each `claim -> source file:line` pair the planner lists.
-- Check the Docs and CHANGELOG lines against `git diff --name-only <base>...HEAD`.
+- Check the Docs and CHANGELOG lines against `git diff --name-only origin/main...HEAD`.
 - Scan changed files for bytes below 0x20 other than TAB and LF, non-UTF-8 bytes and CR line
   endings.
 
