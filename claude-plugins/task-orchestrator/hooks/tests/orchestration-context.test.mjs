@@ -529,3 +529,32 @@ test('00f1dd53: alias without a session id prints no line (the marker needs a se
   ctxOf(out);
   assert.equal(out.systemMessage, undefined);
 });
+
+// a877f204 T5: a knowledge session (specification D1, D3) gets `{}` whatever the steering; an
+// orchestration registration with a role-bearing config keeps the core.
+const KNOWLEDGE_MCP = { mcpServers: { 'mcp-task-orchestrator-knowledge': { type: 'http', url: 'http://localhost:3001/mcp/knowledge' } } };
+const ORCHESTRATION_MCP = { mcpServers: { 'mcp-task-orchestrator': { type: 'http', url: 'http://localhost:3001/mcp' } } };
+const LIFECYCLE_FREE = `${BASE}work_item_schemas:\n  page:\n    lifecycle: none\n`;
+const ROLE_BEARING = `${BASE}work_item_schemas:\n  bug:\n    lifecycle: auto\n`;
+const withMcp = (config, mcp) => {
+  const fx = fixture(config);
+  writeFileSync(join(fx.dir, '.mcp.json'), JSON.stringify(mcp), 'utf-8');
+  return fx;
+};
+
+test('a877f204 T5: knowledge registration -> {} under workflow, schema and absent steering, on startup and compact', () => {
+  for (const config of [ext('workflow'), ext('schema'), BASE]) {
+    for (const source of ['startup', 'compact']) {
+      assert.deepEqual(exec(withMcp(config, KNOWLEDGE_MCP), { session_id: 'k', source }), {}, `${config} ${source}`);
+    }
+  }
+});
+
+test('a877f204 T5: lifecycle-free config with an orchestration registration -> {}', () => {
+  assert.deepEqual(exec(withMcp(LIFECYCLE_FREE, ORCHESTRATION_MCP), { session_id: 'k', source: 'startup' }), {});
+});
+
+test('a877f204 T5: orchestration registration and a role-bearing config -> the core is injected', () => {
+  const out = exec(withMcp(ROLE_BEARING, ORCHESTRATION_MCP), { session_id: 'k', source: 'startup' });
+  assert.ok(ctxOf(out).includes('## Core Calls'));
+});

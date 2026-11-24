@@ -6,7 +6,8 @@
 //
 // Fail-open by design: ANY error, missing env, non-2xx response, or unreachable API results in exit 0
 // - it must never block ExitPlanMode or the plan-approval flow. A session with no project config stays
-// silent; in a project session a no-op emits one 'plan not stashed' context line saying why.
+// silent, and so does a knowledge session (lib/session-profile.mjs), which sends no request; in a
+// project session a no-op emits one 'plan not stashed' context line saying why.
 //
 // Requires (all optional — absent = no-op):
 //   TASK_ORCHESTRATOR_API_URL    base URL of the REST API, e.g. http://localhost:3001 (no URL = "no REST
@@ -23,6 +24,7 @@ import { locateConfig } from './config-locator.mjs';
 import { readHookInput } from './lib/stdin.mjs';
 import { emitContext } from './lib/emit.mjs';
 import { callOp } from './lib/api-client.mjs';
+import { isKnowledgeSession } from './lib/session-profile.mjs';
 
 const MAX_SLUG_LENGTH = 64;
 
@@ -86,6 +88,7 @@ async function main() {
   if (!hookInput) return;
 
   const loc = locateConfig();
+  if (isKnowledgeSession({ configText: loc?.text })) return; // knowledge session: no plan document
   if (loc.scope !== 'project') return; // user scope or no config → silent
   const rootId = loc.rootId;
   if (!rootId) return; // not project-scoped → no root to stash under

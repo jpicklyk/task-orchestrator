@@ -12,6 +12,32 @@ Create work items from conversation context: anchor them in a category container
 
 Director mode is the session state entered by `/task-orchestrator:director` (or by running as the hardened `director` agent). Creating an item writes through `items_write` and `notes_write`, which a director does not run inline: dispatch ONE background `Agent` (`run_in_background: true`, `model` set) that runs the steps below, or `SendMessage` the run's orchestrator when the new item is meant for a member of an open or paused run. Hand the agent the title, kind, priority, parent hint and whether it is an observation. It reports one line only, `Created: <title> (<short-id>) under <path>`, never note bodies. A background agent dispatched by a director is not in director mode: it runs the steps below.
 
+## Lifecycle-free root
+
+A root is lifecycle-free when every type its own config declares is `lifecycle: none`: in `config` `effective`, every `schemas[]` entry with `configSource: "per-root"` has `lifecycleMode: "none"`. When `config` is not served on the connection, read the `work_item_schemas` of `.taskorchestrator/config.yaml` as a file instead. Such a root holds pages of knowledge with no phases, so Steps 1 to 7 do not apply: no kind table, no category containers, no priority and no queue-note drafting. Instead:
+
+1. Dedup with one search over items, notes and documents:
+
+```to-call
+{"tool": "items_read", "select": "search", "args": {"query": "retry backoff", "kinds": ["item", "note", "document"], "limit": 5}}
+```
+
+2. Create ONE item of a declared type. Its parent is the item the user names, else the root:
+
+```to-call
+{"tool": "items_write", "op": "create", "args": {"title": "Retry backoff notes", "type": "<declared-type>", "parentId": "9f3a1c22"}}
+```
+
+3. Write its notes, one `upsert` element per note, each at the role its note entry declares:
+
+```to-call
+{"tool": "notes_write", "op": "upsert", "args": {"itemId": "4b7d0e19", "key": "<note-key>", "role": "<declared-role>", "body": "Exponential backoff with jitter on 503 and 429."}}
+```
+
+4. Report one line: `Created: <title> (<short-id>)`.
+
+Every other root follows Steps 1 to 7.
+
 ## Step 1 - Infer intent
 
 Take from the conversation (or `$ARGUMENTS`): title, kind (bug, feature, tech debt, observation, action item, general), priority (default medium), and scope (one item, or a feature with 2 or more distinct subtasks). If the title or kind is unclear, ask with `AskUserQuestion` and concrete options, never an open question.

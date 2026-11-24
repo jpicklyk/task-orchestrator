@@ -50,7 +50,7 @@ A top-level `orchestration:` block is ignored by the hooks (they read only `exte
 | `schema` | No tiers and no model table. The item's resolved note schema alone sets the process; phase-owner dispatch rules still apply. |
 | `off` | The orchestration hooks exit silently, including `dispatch-model-guard` and `dispatch-hint`. |
 
-The key is read client-side by the hooks. The context hook re-reads it at the next session start, `/clear`, or `/compact`; `dispatch-model-guard` and `dispatch-hint` re-read it on every call, so `off` silences them immediately. See [config-format.md → Plugin settings](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#plugin-settings-extensionsclaude-code) for the full field reference and [config-reference.md](../config-reference.md#extensions) for who owns each key.
+The key is read client-side by the hooks. The context hook re-reads it at the next session start, `/clear`, or `/compact`; `dispatch-model-guard` and `dispatch-hint` re-read it on every call, so `off` silences them immediately. In a knowledge session (an orchestrator registration serving the knowledge profile, or a root config whose every declared type is `lifecycle: none`) the context, plan-mode and dispatch-guard hooks stay silent whatever the mode. See [config-format.md → Plugin settings](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#plugin-settings-extensionsclaude-code) for the full field reference and [config-reference.md](../config-reference.md#extensions) for who owns each key.
 
 ### Layering a personal output style
 

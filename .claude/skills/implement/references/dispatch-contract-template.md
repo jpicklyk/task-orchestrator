@@ -21,8 +21,8 @@ its **absolute path** from every hand-dispatch and review prompt.
   Contract-change sweep · Docs · Notes · Review scoping.
 
 The Review scoping slot's commit map and the per-item bug-fix revert results are filled as the wave
-runs, not at Step 2; the budget-mutation results land after the feature PR merges (the wave-boundary
-red-proof stage, `/implement` "After merge"). Every other slot is complete before the first dispatch.
+runs, not at Step 2; the budget-mutation results land after the feature PR merges (the post-merge
+red-proofs, `/implement` "After merge"). Every other slot is complete before the first dispatch.
 
 Each adopted proposal's `adoption-decision` note names where its change landed.
 
@@ -285,8 +285,8 @@ Seat token (reviewer): `<path, or "none (hand-dispatch outside a run)">`, handle
 Pre-merge red-proof results (orchestrator-run in a scratch worktree, item tests only: the bug-fix
 revert and any coupled-authorship checks; every revert applied with
 `.claude/skills/implement/references/patch-anchored.py`, spec written with the Write tool, `DRY=1` first):
-`<per item - "revert red / fix green", or "n/a: budget mutations deferred to the wave boundary", or "skip: <category>">`.
-Wave-boundary red-proof results (run per rule `test-author` section 5 and `/implement` "After
+`<per item - "revert red / fix green", or "n/a: budget mutations deferred to the post-merge red-proofs", or "skip: <category>">`.
+Post-merge red-proof results (run per rule `test-author` section 5 and `/implement` "After
 merge"), on the wave parent's `red-proof-results` note, per item: `<proofs run, gaps found,
 equivalents, approx minutes>`.
 

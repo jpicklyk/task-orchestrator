@@ -112,7 +112,7 @@ Write the review note; do not advance until Step 6.
    <verdict summary>
 
    ## Docs
-   <every changed doc path from `git diff --name-only <base>...HEAD`>
+   <every changed doc path from `git diff --name-only origin/main...HEAD`>
 
    ## Changelog
    <the [Unreleased] bullet text, or none (<why>)>

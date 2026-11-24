@@ -5,8 +5,9 @@
 // own additionalContext budget. Static template strings; the per-variant text must stay < 9000 chars.
 //
 // Gates, in order (each emits `{}`): suppressionReason (headless iteration, subagent, director session)
-// -> no located config -> steering `off` (read from extensions.claude-code.steering, or the deprecated
-// orchestration.mode alias, which adds one user-visible deprecation line per session, kept by a marker).
+// -> no located config -> knowledge session (lib/session-profile.mjs) -> steering `off` (read from
+// extensions.claude-code.steering, or the deprecated orchestration.mode alias, which adds one
+// user-visible deprecation line per session, kept by a marker).
 // Mode `workflow` (default, also for absent/invalid) or `schema` selects the variant.
 // When CLAUDE_CODE_EXPERIMENTAL_CODE_MODE is exactly '1' a short `## Code Mode` section is appended
 // after the variant: a routing hint to the run-wave Code Mode recipes, never a gate (the per-session
@@ -19,6 +20,7 @@ import { locateConfig } from './config-locator.mjs';
 import { parseOrchestrationConfig, STEERING_DEPRECATION_NOTICE } from './orchestration-lib.mjs';
 import { emit } from './lib/emit.mjs';
 import { sessionMarkerPath, createMarkerOnce } from './lib/markers.mjs';
+import { isKnowledgeSession } from './lib/session-profile.mjs';
 
 const SHARED_SCHEMA_WORKFLOW = `## Note Schema Workflow
 
@@ -165,6 +167,7 @@ function main() {
   if (suppressionReason(input, process.env)) return {};
   const loc = locateConfig({ cwd: process.cwd(), env: process.env });
   if (!loc || loc.scope === 'none' || typeof loc.text !== 'string' || !loc.text) return {};
+  if (isKnowledgeSession({ configText: loc.text })) return {};
   const parsed = parseOrchestrationConfig(loc.text);
   const notice = deprecationNotice(parsed, input);
   const ctx = buildOrchestrationContext(parsed.mode);

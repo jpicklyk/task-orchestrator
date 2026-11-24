@@ -213,3 +213,28 @@ for (const hook of HOOKS) {
     assert.deepEqual(exec(hook, fx, hook.stdin), exec(hook, fx, hook.stdin));
   });
 }
+// a877f204 T6: a knowledge session (specification D1, D4) silences both plan-mode hooks, with or without a
+// located config; an orchestration registration with a role-bearing config keeps the directive.
+const KNOWLEDGE_MCP = { mcpServers: { 'mcp-task-orchestrator-knowledge': { type: 'http', url: 'http://localhost:3001/mcp/knowledge' } } };
+const ORCHESTRATION_MCP = { mcpServers: { 'mcp-task-orchestrator': { type: 'http', url: 'http://localhost:3001/mcp' } } };
+const withMcp = (config, mcp) => {
+  const fx = fixture(config);
+  writeFileSync(join(fx.dir, '.mcp.json'), JSON.stringify(mcp), 'utf-8');
+  return fx;
+};
+
+for (const hook of HOOKS) {
+  test(`a877f204 T6 ${hook.name}: knowledge registration -> {} with a role-bearing config and with no config`, () => {
+    assert.deepEqual(exec(hook, withMcp(`${BASE}work_item_schemas:\n  bug:\n    lifecycle: auto\n`, KNOWLEDGE_MCP), hook.stdin), {});
+    assert.deepEqual(exec(hook, withMcp(null, KNOWLEDGE_MCP), hook.stdin), {});
+  });
+
+  test(`a877f204 T6 ${hook.name}: lifecycle-free config with an orchestration registration -> {}`, () => {
+    assert.deepEqual(exec(hook, withMcp(`${BASE}work_item_schemas:\n  page:\n    lifecycle: none\n`, ORCHESTRATION_MCP), hook.stdin), {});
+  });
+
+  test(`a877f204 T6 ${hook.name}: orchestration registration and a role-bearing config -> directive`, () => {
+    assertDirective(hook, exec(hook, withMcp(`${BASE}work_item_schemas:\n  bug:\n    lifecycle: auto\n`, ORCHESTRATION_MCP), hook.stdin));
+    assertDirective(hook, exec(hook, withMcp(null, ORCHESTRATION_MCP), hook.stdin), 'no config');
+  });
+}

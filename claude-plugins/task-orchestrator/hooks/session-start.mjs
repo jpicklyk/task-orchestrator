@@ -21,13 +21,22 @@ import { collectOrchestratorRegistrations, preferredHttpRegistration } from './l
 import { emit } from './lib/emit.mjs';
 import { sharedMarkerPath, createMarkerOnce } from './lib/markers.mjs';
 import { checkServer } from './lib/server-compat.mjs';
+import { isKnowledgeSession } from './lib/session-profile.mjs';
 
-const BASE_GUIDANCE = `## Task Orchestrator — Session Context
+const BASE_GUIDANCE_ORCHESTRATION = `## Task Orchestrator — Session Context
 
 - Move items between phases with \`advance\` op \`transition\`, never raw status edits. Ids accept a full UUID or a hex prefix of 8 or more characters.
 - Resume or inspect with \`items_read\` select \`context\` (no arguments lists active and stalled items; pass \`itemId\` for one item's gate status). Find the next work with \`items_read\` select \`next\`.
 - Hierarchy: items have parentId and depth; trees nest to any depth. \`items_write\` op \`create\` requires \`type\`.
 - These are orchestration-profile tools (the \`profiles\` entry in the tool catalog); a server running another profile may not expose them.`;
+
+// A knowledge session (knowledge-profile registration or a lifecycle-free root config) names only
+// calls the knowledge profile serves.
+const KNOWLEDGE_GUIDANCE = `## Task Orchestrator — Session Context
+
+- Ids accept a full UUID or a hex prefix of 8 or more characters. \`items_write\` op \`create\` requires \`type\`; items nest to any depth under \`parentId\`.
+- Write an item's notes with \`notes_write\` op \`upsert\`; relate two items with \`deps_write\` op \`create\` and \`type: "relates_to"\`; keep long text as a page with \`docs_write\` op \`upsert\`.
+- Find with \`items_read\` select \`search\` (items, notes and documents) and \`related\`; \`docs_read\` select \`links\` with \`direction: "incoming"\` lists what links to a page.`;
 
 const EMPTY_LOCATION = { scope: 'none', path: null, rootId: null, name: null };
 
@@ -47,7 +56,8 @@ function setupState(loc) {
   return loc.scope === 'user' ? 'user' : 'project';
 }
 
-function buildContext(loc, state) {
+function buildContext(loc, state, knowledge = false) {
+  const BASE_GUIDANCE = knowledge ? KNOWLEDGE_GUIDANCE : BASE_GUIDANCE_ORCHESTRATION;
   const label = loc.name ? `${loc.name} (\`${loc.rootId}\`)` : `\`${loc.rootId}\``;
 
   if (state === 'none') {
@@ -79,7 +89,7 @@ Personal root: ${label}
 Config: ${loc.path}
 
 - Anchor new root-level items under the personal root by setting \`parentId: "${loc.rootId}"\`.
-- Do NOT pass \`ancestorId\` on \`items_read\` selects (\`list\`, \`search\`, \`context\`, \`next\`, \`blocked\`) — the personal root is a global store, so reads stay unscoped and may return other projects' items.`;
+- Do NOT pass \`ancestorId\` on \`items_read\` selects (${knowledge ? '\`list\`, \`search\`' : '\`list\`, \`search\`, \`context\`, \`next\`, \`blocked\`'}) — the personal root is a global store, so reads stay unscoped and may return other projects' items.`;
   }
 
   return `${BASE_GUIDANCE}
@@ -89,7 +99,7 @@ Config: ${loc.path}
 Active project: ${label}
 Config: ${loc.path}
 
-- Pass \`ancestorId: "${loc.rootId}"\` on \`items_read\` selects \`list\`, \`search\`, \`context\`, \`next\` and \`blocked\` to scope results to this project.
+- Pass \`ancestorId: "${loc.rootId}"\` on \`items_read\` selects ${knowledge ? '\`list\` and \`search\`' : '\`list\`, \`search\`, \`context\`, \`next\` and \`blocked\`'} to scope results to this project.
 - Anchor new root-level items under this project by setting \`parentId: "${loc.rootId}"\`.`;
 }
 
@@ -298,26 +308,28 @@ const suppressed = suppressionReason(hookInput, process.env) !== null;
 const location = getLocation();
 const state = setupState(location);
 
-// Guidance: withheld when suppressed.
-let guidance = null;
-if (!suppressed) {
-  try {
-    guidance = buildContext(location, state);
-  } catch {
-    // Fail-open: any unexpected error falls back to static guidance so a broken
-    // hook never blocks session start.
-    guidance = BASE_GUIDANCE;
-  }
-}
-
-// Diagnostics: always computed, each fail-open.
+// Registrations: read before guidance, which depends on the session's tool profile. Fail-open.
 let registrations = [];
 try {
   registrations = collectOrchestratorRegistrations({ cwd: process.cwd(), env: process.env });
 } catch {
-  // Fail-open: registrations are purely diagnostic.
+  // Fail-open: an unreadable registration leaves today's guidance and diagnostics.
+}
+const knowledge = isKnowledgeSession({ configText: location.text, registrations });
+
+// Guidance: withheld when suppressed.
+let guidance = null;
+if (!suppressed) {
+  try {
+    guidance = buildContext(location, state, knowledge);
+  } catch {
+    // Fail-open: any unexpected error falls back to static guidance so a broken
+    // hook never blocks session start.
+    guidance = knowledge ? KNOWLEDGE_GUIDANCE : BASE_GUIDANCE_ORCHESTRATION;
+  }
 }
 
+// Diagnostics: always computed, each fail-open.
 const diagnostics = [];
 for (const build of [
   () => buildRegistrationCheckSection(registrations),
