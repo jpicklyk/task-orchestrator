@@ -16,6 +16,30 @@ Supplement the data with brief observations only for a genuine anomaly or action
 
 Director mode is the session state entered by `/task-orchestrator:director` (or by running as the hardened `director` agent); its guard denies the file read of Step 0.5 and most of the reads below. Runs, decisions and blocked work belong to the director board: re-invoke `/task-orchestrator:director` for them. For a backlog view in director mode run only these reads: Lean step 1 (`overview`), steps 5 and 6 (`list`), In Flight from `items_read` `list` with `role` `work` and again with `review`, `items_read` `blocked`, and the Runs reads. Skip the health `context` read, `history`, `next`, the Blocked-item decisions `context` reads, a scoped `search` and the Step 0.5 file read (with no session rootId run unscoped), and omit every dashboard section whose read was skipped. For the complete dashboard, dispatch ONE background `Agent` (`run_in_background: true`, `model` set) that runs the steps below and reports the rendered dashboard text, never note bodies. A background agent dispatched by a director is not in director mode: it runs the steps below.
 
+## Lifecycle-free root
+
+A root is lifecycle-free when every type its own config declares is `lifecycle: none`: in `config` `effective`, every `schemas[]` entry with `configSource: "per-root"` has `lifecycleMode: "none"`. When `config` is not served on the connection, read the `work_item_schemas` of `.taskorchestrator/config.yaml` as a file instead. Its items have no role, so role counts and `childCounts` leave them out and the dashboard below has nothing to show. Render a short inventory from three reads instead.
+
+Total items (`page.total`):
+
+```to-call
+{"tool": "items_read", "select": "list", "args": {"ancestorId": "9f3a1c22", "limit": 1}}
+```
+
+The ten most recently modified items:
+
+```to-call
+{"tool": "items_read", "select": "list", "args": {"ancestorId": "9f3a1c22", "sort": "modifiedAt", "order": "desc", "limit": 10}}
+```
+
+The root's pages:
+
+```to-call
+{"tool": "docs_read", "select": "list", "args": {"rootId": "9f3a1c22", "kind": "page"}}
+```
+
+Show the total items, the number of pages and the ten most recently modified items (title, short id, modified date). Use none of the dashboard headings below and none of their status words: this root has no phases, so no item is waiting, stuck or due.
+
 ---
 
 ## Step 0 - Mode Selection

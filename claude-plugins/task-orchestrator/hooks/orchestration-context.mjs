@@ -5,7 +5,8 @@
 // own additionalContext budget. Static template strings; the per-variant text must stay < 9000 chars.
 //
 // Gates, in order (each emits `{}`): suppressionReason (headless iteration, subagent, director session)
-// -> no located config -> orchestration mode off (read from extensions.claude-code.orchestration).
+// -> no located config -> knowledge session (lib/session-profile.mjs) -> orchestration mode off (read
+// from extensions.claude-code.orchestration).
 // Mode `workflow` (default, also for absent/invalid) or `schema` selects the variant.
 // When CLAUDE_CODE_EXPERIMENTAL_CODE_MODE is exactly '1' a short `## Code Mode` section is appended
 // after the variant: a routing hint to the run-wave Code Mode recipes, never a gate (the per-session
@@ -17,6 +18,7 @@ import { readHookInput } from './lib/stdin.mjs';
 import { locateConfig } from './config-locator.mjs';
 import { parseOrchestrationConfig } from './orchestration-lib.mjs';
 import { emit } from './lib/emit.mjs';
+import { isKnowledgeSession } from './lib/session-profile.mjs';
 
 const SHARED_SCHEMA_WORKFLOW = `## Note Schema Workflow
 
@@ -153,6 +155,7 @@ function main() {
   if (suppressionReason(readHookInput(), process.env)) return {};
   const loc = locateConfig({ cwd: process.cwd(), env: process.env });
   if (!loc || loc.scope === 'none' || typeof loc.text !== 'string' || !loc.text) return {};
+  if (isKnowledgeSession({ configText: loc.text })) return {};
   const ctx = buildOrchestrationContext(parseOrchestrationConfig(loc.text).mode);
   if (!ctx) return {};
   const full = process.env.CLAUDE_CODE_EXPERIMENTAL_CODE_MODE === '1' ? ctx + '\n\n' + CODE_MODE_SECTION : ctx;
